@@ -353,6 +353,20 @@ class AgentAPI(
                     ?: throw AgentConnectionUnusableException(id)
             }.toMutableList()
         }
+        if (input.agentIds != null) {
+            /*
+             * Another workspace's agent is not this one's to be granted, and
+             * neither is itself: an agent that may ask itself is a round spent
+             * asking the question again, and the only thing stopping it going
+             * on is the round limit. Both are refused here rather than left for
+             * the tool to work out.
+             */
+            agent.agents = input.agentIds.distinct().onEach { id ->
+                if (id == agent.id) throw AgentCannotAskItselfException(agent.name)
+                agents.findByIdOrNull(id)?.takeIf { it.workspaceId == agent.workspaceId }
+                    ?: throw AgentUnreachableException(id)
+            }.toMutableList()
+        }
         agent.lastModifiedAt = OffsetDateTime.now()
         agent.lastModifiedBy = currentUser()
 
@@ -623,6 +637,8 @@ data class UpdateAgentInput(
     val tools: List<String>? = null,
     /** Which of the workspace's connections it may name; null leaves the grant alone. */
     val connectionIds: List<Long>? = null,
+    /** Which other agents it may put a question to; null leaves the grant alone. */
+    val agentIds: List<Long>? = null,
     /** Which icon a node drawn from this starts with; null draws the kind's own. */
     val icon: String? = null,
     /**
@@ -670,6 +686,8 @@ data class AgentView(
     val tools: List<String>,
     /** Which of the workspace's connections it may name when a tool takes one. */
     val connectionIds: List<Long>,
+    /** Which other agents it may put a question to; see `ask_agent`. */
+    val agentIds: List<Long>,
     /** Which icon a node drawn from this starts with; null draws the kind's own. */
     val icon: String?,
     /** Its own share of the model's window; null follows the workspace default. */
@@ -697,6 +715,7 @@ data class AgentView(
         skillCatalogs = agent.skillCatalogs.toList(),
         tools = agent.tools.toList(),
         connectionIds = agent.connections.toList(),
+        agentIds = agent.agents.toList(),
         icon = agent.icon,
         memoryShare = agent.memoryShare,
         maxRounds = agent.maxRounds,
@@ -790,6 +809,27 @@ class AgentModelUnusableException(message: String) : RuntimeException(message)
 /** A connection grant naming something that is not this workspace's connection. */
 class AgentConnectionUnusableException(id: Long) : RuntimeException(
     "Connection $id is not one of this workspace's connections, so this agent cannot be granted it.",
+)
+
+/**
+ * An agent granted an agent that is not this workspace's, or is not there.
+ *
+ * Refused rather than dropped, which is the rule the connection grant beside it
+ * keeps: a grant silently thrown away is a form that says it saved and a tool
+ * that then cannot see what somebody ticked.
+ */
+class AgentUnreachableException(id: Long) : RuntimeException(
+    "Agent $id is not one of this workspace's agents, so this agent cannot be granted it.",
+)
+
+/**
+ * An agent granted itself.
+ *
+ * A round spent asking the question again, with nothing but the round limit
+ * standing between that and a turn spent entirely on itself.
+ */
+class AgentCannotAskItselfException(name: String) : RuntimeException(
+    "$name cannot be given itself to ask.",
 )
 
 /**

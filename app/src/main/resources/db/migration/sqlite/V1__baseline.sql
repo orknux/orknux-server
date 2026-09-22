@@ -69,6 +69,15 @@ CREATE TABLE agent_connection
     constraint agent_connection_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES agent(id) ON DELETE CASCADE
 );
 
+CREATE TABLE agent_agent
+(
+    agent_id                     integer not null,
+    position                     integer not null,
+    granted_id                   integer not null,
+    primary key (agent_id, position),
+    constraint agent_agent_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES agent(id) ON DELETE CASCADE
+);
+
 CREATE TABLE agent_mcp_server
 (
     agent_id                     integer not null,

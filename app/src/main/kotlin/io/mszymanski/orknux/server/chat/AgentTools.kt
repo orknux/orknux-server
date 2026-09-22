@@ -46,6 +46,8 @@ class AgentTools(
     private val shells: ShellTools,
     /** What lets an agent find a connection id it was granted; see [ConnectionTools]. */
     private val connectionTools: ConnectionTools,
+    /** What lets an agent put a question to another; see [AgentRunTools]. */
+    private val agentTools: AgentRunTools,
     private val savedArtifacts: SavedArtifacts,
     private val mapper: ObjectMapper,
 ) {
@@ -130,6 +132,15 @@ class AgentTools(
          * see [ConnectionTools].
          */
         if (connectionTools.offered(agent)) add(connectionTools.specFor(agent))
+
+        /*
+         * And the other agents it may ask, where it was granted any.
+         *
+         * Core rather than searchable: it is one tool, what it can reach is
+         * named in its own description, and an agent that had to find the way to
+         * delegate is a round worse off than one that was told.
+         */
+        if (agentTools.offered(agent)) add(agentTools.specFor(agent))
 
         /*
          * Somewhere to put what it made, and the one conversion getting it
@@ -295,6 +306,13 @@ class AgentTools(
              * grant itself and says so in the words the model needs.
              */
             shells.run(agent, call.name, call.arguments)
+        } else if (agentTools.handles(call.name)) {
+            /*
+             * Asking another agent, checked here as well as left off the menu -
+             * the rule orknux and the shells keep - and by the thing that knows
+             * which agents this one was granted.
+             */
+            agentTools.run(agent, call.arguments)
         } else if (connectionTools.handles(call.name)) {
             /*
              * The connection finder, checked here as well as left off the menu:

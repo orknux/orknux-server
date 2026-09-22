@@ -250,6 +250,32 @@ class Agent(
     var connections: MutableList<Long> = mutableListOf(),
 
     /**
+     * Which other agents this one may put a question to, by id.
+     *
+     * Issue #350. An agent that needs work doing in a system it holds no tools
+     * for had two ways out, and both are bad: be granted those tools as well -
+     * forty descriptions in its context and a chain of lookups in its rounds -
+     * or hand the job back to whoever asked. A specialist asked one question
+     * does the looking up in a conversation of its own, and what comes back is
+     * the answer rather than the working.
+     *
+     * By id, like the connections above and for the same reason: an agent is
+     * pointed at by id everywhere else, and a grant by name would come apart the
+     * first time somebody renamed one.
+     *
+     * One level. An agent reached this way is asked with its own briefing and
+     * its own tools but is granted no agents of its own, however many its row
+     * names - see [io.mszymanski.orknux.server.chat.AgentRunTools]. A depth
+     * counter would be a number to tune; no depth at all is a rule that cannot
+     * be got round, and two specialists in a ring is the failure it prevents.
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "agent_agent", joinColumns = [JoinColumn(name = "agent_id")])
+    @OrderColumn(name = "position")
+    @Column(name = "granted_id", nullable = false)
+    var agents: MutableList<Long> = mutableListOf(),
+
+    /**
      * Which icon a node drawn from this starts with.
      *
      * A seed, not a rule: the node owns its icon once it has one, the same way

@@ -41,6 +41,15 @@ class AgentExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ImportNotEditableException,
             is AgentModelUnusableException,
             is AgentMemoryShareUnusableException,
+            /*
+             * The two ways an agent grant can name something it may not: an
+             * agent in another workspace, and itself. Both are a form somebody
+             * filled in wrongly rather than anything internal, and a correlation
+             * id about a grant the screen offered would answer nothing.
+             */
+            is AgentUnreachableException,
+            is AgentCannotAskItselfException,
+            is AgentConnectionUnusableException,
             -> ErrorType.BAD_REQUEST
 
             is AgentNotFoundException,

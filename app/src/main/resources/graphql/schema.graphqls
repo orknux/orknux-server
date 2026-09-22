@@ -2621,6 +2621,16 @@ type Agent {
     unprompted.
     """
     connectionIds: [ID!]!
+    """
+    Which other agents this one may put a question to.
+
+    A specialist asked one question answers in a conversation of its own, so what
+    comes back is the answer rather than the twelve rounds of looking things up
+    that produced it. An agent reached this way is granted no agents of its own,
+    however many its row names: one level, as a rule rather than as a depth
+    somebody has to choose.
+    """
+    agentIds: [ID!]!
     "Which icon a node drawn from this starts with; null draws the kind's own."
     icon: String
     """
@@ -3543,6 +3553,8 @@ input UpdateAgentInput {
     tools: [String!]
     "Which of the workspace's connections it may name; null leaves the grant alone."
     connectionIds: [ID!]
+    "Which other agents it may put a question to; null leaves the grant alone."
+    agentIds: [ID!]
     "Which icon a node drawn from this starts with; null draws the kind's own."
     icon: String
     """
