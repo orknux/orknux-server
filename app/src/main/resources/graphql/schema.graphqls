@@ -3456,6 +3456,15 @@ type MemoryCatalog {
     memoryCount: Int!
     createdAt: String!
     createdBy: String!
+    """
+    The one catalog this workspace always has.
+
+    A catalog is what an agent is granted and what a memory is filed into, so a
+    workspace with none has nowhere for either. This one cannot be deleted, so
+    that floor cannot be taken away; it can be renamed, which is what makes the
+    name it starts with a starting point rather than one somebody is stuck with.
+    """
+    isDefault: Boolean!
 }
 
 "One thing the workspace wants remembered."

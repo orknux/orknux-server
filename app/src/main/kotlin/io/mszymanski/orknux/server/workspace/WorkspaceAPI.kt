@@ -6,6 +6,8 @@ import io.mszymanski.orknux.connector.connection.WorkspaceLifecycleService
 import io.mszymanski.orknux.connector.model.ModelService
 import io.mszymanski.orknux.server.issue.IssueType
 import io.mszymanski.orknux.server.issue.IssueTypeAPI
+import io.mszymanski.orknux.server.memory.FIRST_MEMORY_CATALOG
+import io.mszymanski.orknux.server.memory.MemoryCatalog
 import io.mszymanski.orknux.server.issue.IssueTypeRepository
 import io.mszymanski.orknux.server.task.TaskProperties
 import io.mszymanski.orknux.workflow.script.ScriptProperties
@@ -39,6 +41,8 @@ class WorkspaceAPI(
     private val models: ModelService,
     private val budgets: SessionMemoryBudgets,
     private val issueTypes: IssueTypeRepository,
+    /** Where a new workspace's one memory catalog is made; see `createWorkspace`. */
+    private val memoryCatalogs: io.mszymanski.orknux.server.memory.MemoryCatalogRepository,
     /** Only to say what a task gets where the workspace has not said. */
     private val taskProperties: TaskProperties,
     /** Only to say how long a script may run where the workspace has not said. */
@@ -113,6 +117,26 @@ class WorkspaceAPI(
         IssueTypeAPI.TO_BEGIN_WITH.forEach {
             issueTypes.save(IssueType(workspaceId = requireNotNull(workspace.id), name = it))
         }
+        /*
+         * And somewhere to remember things, for the same reason and in the same
+         * way. A catalog is what an agent is granted and what a memory is filed
+         * into, so a workspace with none has nowhere for either - `memory_save`
+         * refuses because there is nothing to write to, and the two memory tools
+         * are not offered at all. Making one was therefore setup nobody is told
+         * about, before an agent could remember anything.
+         *
+         * Named rather than left blank, and renameable: the name it starts with
+         * is a starting point, and the flag rather than the name is what makes
+         * it the one that stays.
+         */
+        memoryCatalogs.save(
+            MemoryCatalog(
+                workspaceId = requireNotNull(workspace.id),
+                name = FIRST_MEMORY_CATALOG,
+                createdBy = "system",
+                isDefault = true,
+            ),
+        )
         return workspace
     }
 

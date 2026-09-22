@@ -53,6 +53,7 @@ class MemoryTool(
                 memoryCount = memories.countByCatalogId(requireNotNull(it.id)).toInt(),
                 createdAt = it.createdAt.toString(),
                 createdBy = it.createdBy,
+                isDefault = it.isDefault,
             ) }
     }
 
@@ -103,6 +104,19 @@ class MemoryTool(
      *
      * Refusals are thrown in words the model can act on; the caller turns them
      * into an error result rather than a failed conversation.
+     *
+     * The audit line is [WorkspaceAuditRecorder.recordAutomated] and names the
+     * agent, which is not a detail. `record` reads the signed-in user and
+     * *fails* where there is none - and an agent answering a Slack message, a
+     * workflow node or a task has none. So every save from those three came back
+     * "No authenticated user to attribute this change to", and because the
+     * audit throws inside this transaction the memory was rolled back with it:
+     * the agent was told it could not remember, or told the person it had, and
+     * nothing was ever written. It only worked from a chat, which is the one
+     * place a person is signed in.
+     *
+     * The actor is the agent's name, which is what [Memory.createdBy] already
+     * records - so the row and the log agree on who wrote it.
      */
     @Transactional
     fun save(agent: Agent, catalog: String?, title: String?, content: String?): MemorySaved {
@@ -133,10 +147,11 @@ class MemoryTool(
             existing.content = kept
             existing.lastModifiedAt = now
             existing.lastModifiedBy = agent.name
-            auditRecorder.record(
+            auditRecorder.recordAutomated(
                 into.workspaceId,
                 WorkspaceAuditCategory.MEMORY,
                 "Memory $said updated in ${into.name} by the agent ${agent.name}",
+                actor = agent.name,
             )
             return MemorySaved(catalog = into.name, title = said, updated = true)
         }
@@ -152,10 +167,11 @@ class MemoryTool(
                 lastModifiedBy = agent.name,
             ),
         )
-        auditRecorder.record(
+        auditRecorder.recordAutomated(
             into.workspaceId,
             WorkspaceAuditCategory.MEMORY,
             "Memory $said added to ${into.name} by the agent ${agent.name}",
+            actor = agent.name,
         )
         return MemorySaved(catalog = into.name, title = said, updated = false)
     }

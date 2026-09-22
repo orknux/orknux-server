@@ -16,6 +16,7 @@ class MemoryExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is MemoryCatalogNameTakenException,
             is MemoryCatalogNameInvalidException,
             is MemoryCatalogInUseException,
+            is MemoryCatalogNotRemovableException,
             is MemoryTitleInvalidException,
             is MemoryContentInvalidException,
             -> ErrorType.BAD_REQUEST

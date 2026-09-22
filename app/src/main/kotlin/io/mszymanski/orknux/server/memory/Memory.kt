@@ -40,6 +40,24 @@ class MemoryCatalog(
 
     @Column(name = "created_by", nullable = false, length = 120)
     val createdBy: String = "",
+
+    /**
+     * The one catalog this workspace always has.
+     *
+     * A catalog is what an agent is granted and what a memory is filed into, so
+     * a workspace with none has nowhere for either - `memory_save` refuses
+     * because there is nothing to write to, and the two memory tools are not
+     * offered at all. The first thing anybody has to do before an agent can
+     * remember anything was therefore a piece of setup nobody is told about.
+     *
+     * This one cannot be deleted, so that floor cannot be taken away again. It
+     * can be renamed, which is what makes "General" a starting point rather than
+     * a name somebody is stuck with - and it is why this is a flag rather than a
+     * name: a catalog renamed to "What the desk knows" is still the one that
+     * stays.
+     */
+    @Column(name = "is_default", nullable = false)
+    var isDefault: Boolean = false,
 )
 
 /**
@@ -157,6 +175,30 @@ class MemoryCatalogInUseException(val name: String, val agents: List<String>) : 
 ), Refusal {
 
     override val arguments get() = mapOf("name" to name, "agents" to agents)
+}
+
+/**
+ * The one catalog a workspace always has, asked to be deleted.
+ *
+ * Said rather than quietly ignored, and it names the way out: the catalog can be
+ * renamed, so somebody who does not want a catalog called General is one edit
+ * away rather than stuck.
+ */
+/**
+ * What a workspace's one catalog is called to begin with.
+ *
+ * Here rather than at the two places that make one - the migration seeds what
+ * already existed and `createWorkspace` seeds everything since - because the two
+ * have to agree, and a word written out twice is a word that drifts.
+ */
+const val FIRST_MEMORY_CATALOG = "General"
+
+class MemoryCatalogNotRemovableException(val name: String) : RuntimeException(
+    "$name is this workspace's own catalog and is always here, so it cannot be deleted. " +
+        "It can be renamed.",
+), Refusal {
+
+    override val arguments get() = mapOf("name" to name)
 }
 
 class MemoryNotFoundException(val id: Long) : RuntimeException("No memory with id $id"), Refusal {

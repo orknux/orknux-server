@@ -166,6 +166,14 @@ class MemoryAPI(
     fun deleteMemoryCatalog(@Argument id: Long): Boolean {
         val catalog = catalogs.findByIdOrNull(id)?.takeIf { access.canSee(it.workspaceId) } ?: return false
 
+        /*
+         * The one the workspace always has. Refused rather than hidden on the
+         * screen alone, for the reason every other bound here is checked at the
+         * mutation: a form is not a boundary, and this one is reachable from the
+         * API. Renaming it is the way out of a name nobody likes.
+         */
+        if (catalog.isDefault) throw MemoryCatalogNotRemovableException(catalog.name)
+
         val granted = dependants.of(DependencyKind.MEMORY_CATALOG, id)
         if (granted.isNotEmpty()) throw MemoryCatalogInUseException(catalog.name, granted.phrases())
 
@@ -289,6 +297,7 @@ class MemoryAPI(
         memoryCount = memories.countByCatalogId(requireNotNull(catalog.id)).toInt(),
         createdAt = catalog.createdAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         createdBy = catalog.createdBy,
+        isDefault = catalog.isDefault,
     )
 
     private fun describe(memory: Memory) = MemoryView(
@@ -337,6 +346,8 @@ data class MemoryCatalogView(
     val memoryCount: Int,
     val createdAt: String,
     val createdBy: String,
+    /** The one this workspace always has: renameable, and not removable. */
+    val isDefault: Boolean,
 )
 
 data class MemoryView(

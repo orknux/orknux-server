@@ -536,6 +536,7 @@ CREATE TABLE memory_catalog
     name                         varchar(120) not null,
     created_at                   timestamp not null,
     created_by                   varchar(120) not null,
+    is_default                   boolean not null default false,
     constraint uk_memory_catalog_name UNIQUE (workspace_id, name)
 );
 
