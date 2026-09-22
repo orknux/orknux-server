@@ -4,6 +4,7 @@ import io.mszymanski.orknux.connector.model.ChatCompletion
 import io.mszymanski.orknux.connector.model.ChatTurn
 import io.mszymanski.orknux.connector.model.Hangup
 import io.mszymanski.orknux.connector.model.ModelChatClient
+import io.mszymanski.orknux.connector.model.ToolSpec
 import io.mszymanski.orknux.server.agent.Agent
 import io.mszymanski.orknux.server.agent.AgentRepository
 import io.mszymanski.orknux.server.attachment.InstallationSettings
@@ -171,6 +172,8 @@ fun interface Interjections {
 class AgentConversation(
     private val models: ModelChatClient,
     private val tools: AgentTools,
+    /** What lets an agent find a tool rather than carry it; see [ToolSearchTools]. */
+    private val searching: ToolSearchTools,
     private val agents: AgentRepository,
     private val sessions: LlmSessionRecorder,
     /** Where the installation's ceiling on tool rounds is kept and changed. */
@@ -242,7 +245,65 @@ class AgentConversation(
         hangup: Hangup? = null,
         interjections: Interjections? = null,
     ): ChatCompletion {
-        val offered = tools.specsFor(agent) + shed?.specs().orEmpty()
+        val holding = tools.offeringFor(agent)
+        val lent = shed?.specs().orEmpty()
+
+        /*
+         * Whether everything fits in one request.
+         *
+         * Asked of the provider rather than assumed: OpenAI and Azure refuse
+         * the whole request over 128 tools, Anthropic bounds it differently,
+         * and nothing counted them until the provider did - so an agent granted
+         * more than the ceiling could not answer at all, and what reached the
+         * person who asked was the provider's own sentence.
+         *
+         * Under the ceiling this is every round there has ever been: the two
+         * halves are put back together, the array is built once, and nothing
+         * about the turn changes. Which is most installations, and the reason
+         * the search is not simply always on - finding costs a round, and
+         * spending one to discover a tool that would have fitted is a round
+         * spent on nothing.
+         */
+        val limit = models.toolLimit(modelId)
+        val hunting = holding.core.size + holding.searchable.size + lent.size > limit
+
+        /*
+         * What this agent has already found, and where it is kept.
+         *
+         * A tool searched for in one turn stays declared for the rest of the
+         * session rather than being searched for again: an agent asked a
+         * follow-up would otherwise spend a round rediscovering the tool it
+         * used a minute ago, and the second search is not guaranteed to return
+         * what the first did.
+         */
+        val found = if (hunting) sessions.toolsFound(into).toMutableSet() else mutableSetOf()
+
+        /*
+         * And the tool that does the finding, lent beside whatever the caller
+         * lent. `room` is read when a search runs rather than now, because by
+         * then this round may already have found some.
+         */
+        val finder = if (!hunting) {
+            null
+        } else {
+            searching.shed(holding.searchable, found) {
+                // What is left of the array once the core, what was lent and
+                // find_tools itself have taken their places.
+                limit - holding.core.size - lent.size - 1 - found.size
+            }
+        }
+        val hunt = if (finder == null) shed else sheds(shed, finder)
+
+        /** What one round declares: everything, or the core and what has been found. */
+        fun offering(): List<ToolSpec> = if (finder == null) {
+            holding.core + holding.searchable + lent
+        } else {
+            holding.core + lent + finder.specs() + holding.searchable.filter { it.name in found }
+        }
+
+        var offered = offering()
+        /** How many finds were last written down; see the loop. */
+        var recorded = found.size
         if (offered.isEmpty()) {
             /*
              * An agent granted nothing answers in one call, and it streams for
@@ -318,6 +379,23 @@ class AgentConversation(
 
         val rounds = roundsFor(agent)
         repeat(rounds) {
+            /*
+             * Rebuilt every round, because a search changes what the next one
+             * declares. That is the whole of how discovery works: a model can
+             * only call what was in the request it is answering, so a tool
+             * found in this round has to appear in the next request or it was
+             * never found at all. Under the ceiling this is the same list every
+             * time and the work is a list concatenation.
+             */
+            offered = offering()
+            // What this round found, written down before the next turn asks.
+            // Only where it moved: most rounds find nothing, and a session row
+            // saved every round for no change is a write per round.
+            if (finder != null && found.size != recorded) {
+                sessions.toolsFound(into, found)
+                recorded = found.size
+            }
+
             /*
              * Streamed when somebody is watching, asked for whole when nobody
              * is.
@@ -435,7 +513,7 @@ class AgentConversation(
                         val line = into?.let { sessions.toolCalled(it, call.name, asked) }
                         watch?.called(here, call.name, asked)
                         val got = try {
-                            if (shed != null && shed.handles(call.name)) shed.run(call) else tools.run(agent, call, into)
+                            if (hunt != null && hunt.handles(call.name)) hunt.run(call) else tools.run(agent, call, into)
                         } catch (halted: AgentRoundHalted) {
                             // The lent tool ended the round. What it did is
                             // still written down, or the transcript would stop

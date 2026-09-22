@@ -439,6 +439,7 @@ CREATE TABLE llm_session
     key_prefix                   varchar(120),
     created_at                   timestamp not null default CURRENT_TIMESTAMP,
     last_event_at                timestamp,
+    found_tools                  text,
     constraint llm_session_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspace(id) ON DELETE CASCADE
 );
 

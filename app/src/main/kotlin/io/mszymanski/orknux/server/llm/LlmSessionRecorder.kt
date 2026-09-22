@@ -216,6 +216,36 @@ class LlmSessionRecorder(
         write(session, LlmSessionEventKind.SYSTEM, SYSTEM, said)
 
     /**
+     * The tools an agent has found in this conversation so far.
+     *
+     * Empty for a session with none, and for no session at all - an agent
+     * answering outside one searches afresh every turn, which is the price of
+     * having nowhere to keep the answer rather than a decision.
+     */
+    fun toolsFound(session: Long?): Set<String> {
+        val held = session?.let { sessions.findByIdOrNull(it) }?.foundTools ?: return emptySet()
+        return held.split(SEPARATOR).map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+    }
+
+    /** One name per entry; a tool name never contains one. */
+    private val SEPARATOR = ","
+
+    /**
+     * Writes down what it has found, so the next turn declares it without
+     * searching again.
+     *
+     * The whole set rather than what was added, because that is what is stored
+     * and what the next turn reads. Nothing happens where there is no session
+     * to write into.
+     */
+    @org.springframework.transaction.annotation.Transactional
+    fun toolsFound(session: Long?, names: Set<String>) {
+        val row = session?.let { sessions.findByIdOrNull(it) } ?: return
+        row.foundTools = names.joinToString(SEPARATOR).takeIf { it.isNotEmpty() }
+        sessions.save(row)
+    }
+
+    /**
      * Opens a line for what the model is thinking, with the first of it on.
      *
      * The three methods below are one line of transcript in three moments, and

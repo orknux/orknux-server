@@ -182,6 +182,25 @@ class LlmSession(
      */
     @Column(name = "last_event_at")
     var lastEventAt: OffsetDateTime? = null,
+
+    /**
+     * The tools an agent found in this conversation, by name, comma separated.
+     *
+     * An agent granted more tools than the provider will accept carries the ones
+     * it uses constantly and `find_tools`, and what it searches for is declared
+     * from the next round on. Kept here so it is still declared next turn: an
+     * agent asked a follow-up would otherwise spend a round rediscovering the
+     * tool it used a minute ago, and a second search is not guaranteed to return
+     * what the first did - so what the agent believes it can do would change
+     * under it between turns.
+     *
+     * One column of names rather than a table of them, because it is read and
+     * written whole and nothing ever asks it a question. Null on every session
+     * that never searched, which is every session on an installation whose
+     * agents fit in one request.
+     */
+    @Column(name = "found_tools", columnDefinition = "text")
+    var foundTools: String? = null,
 )
 
 /** Matches the column; a tool with a long name must not fail the insert. */

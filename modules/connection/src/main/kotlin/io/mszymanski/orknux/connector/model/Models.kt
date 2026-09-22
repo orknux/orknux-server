@@ -87,6 +87,30 @@ enum class ProviderType {
     ANTHROPIC,
     AZURE_OPENAI,
     OLLAMA,
+    ;
+
+    /**
+     * The most tools this provider will accept on one request.
+     *
+     * Asked of the provider rather than written at the call site, because the
+     * number is the provider's and they do not agree. OpenAI and Azure refuse
+     * the whole request over 128 - "Invalid 'tools': array too long" - and an
+     * agent granted more than that could not answer at all, with the provider's
+     * own sentence reaching whoever asked it. Anthropic bounds a request by its
+     * size rather than by a count, so the number here is a ceiling this product
+     * keeps rather than one it is given: a model handed three hundred tools
+     * chooses badly long before any provider objects.
+     *
+     * What happens above it is [io.mszymanski.orknux.connector.model.ToolSpec]s
+     * being found rather than carried - see the app's tool search - so this is
+     * the number that decides when that starts, not a number anything fails on.
+     */
+    val toolLimit: Int
+        get() = when (this) {
+            OPENAI, AZURE_OPENAI -> 128
+            OLLAMA -> 128
+            ANTHROPIC -> 256
+        }
 }
 
 /** How a provider is authenticated. */

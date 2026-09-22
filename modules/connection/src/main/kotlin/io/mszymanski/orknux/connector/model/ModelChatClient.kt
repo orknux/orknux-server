@@ -692,6 +692,24 @@ class ModelChatClient(
     private data class Spoken(val provider: ModelProvider, val model: LlmModel)
 
     /**
+     * The most tools this model's provider will accept on one request.
+     *
+     * Asked here rather than decided by the caller, because the provider is
+     * what knows: OpenAI and Azure refuse the whole request over 128 of them,
+     * and the caller would be reading a number out of a hardcoded map it had no
+     * way to keep true. See [ProviderType.toolLimit].
+     *
+     * A model or provider that has gone answers with the lowest of the numbers
+     * any of them use. The call is about to fail for a better reason, and
+     * guessing high here would turn that into the provider's sentence about an
+     * array being too long.
+     */
+    fun toolLimit(modelId: Long): Int {
+        val provider = models.findByIdOrNull(modelId)?.let { providers.findByIdOrNull(it.providerId) }
+        return provider?.type?.toolLimit ?: ProviderType.entries.minOf { it.toolLimit }
+    }
+
+    /**
      * A call through the SDK, answered in this application's own words.
      *
      * The address is still vetted here. [OpenAiChat] is handed a provider rather

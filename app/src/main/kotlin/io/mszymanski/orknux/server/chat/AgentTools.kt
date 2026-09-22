@@ -68,7 +68,37 @@ class AgentTools(
         actor = agent.name,
     )
 
-    fun specsFor(agent: Agent): List<ToolSpec> = buildList {
+    /**
+     * Everything the agent holds, which is what a round declares while it fits.
+     *
+     * Kept as it was: every caller that does not care about the count reads
+     * this, and below the provider's ceiling nothing about a round changes.
+     */
+    fun specsFor(agent: Agent): List<ToolSpec> = offeringFor(agent).let { it.core + it.searchable }
+
+    /**
+     * The same tools, split by whether they travel on every call.
+     *
+     * An agent granted more tools than the provider will accept could not
+     * answer at all: OpenAI and Azure refuse the whole request over 128 of
+     * them, and what reached the person who asked was the provider's own
+     * sentence about an array being too long. Raising the cap is not available;
+     * not sending all of them is.
+     *
+     * [core] is what an agent uses constantly and what there are few of: the
+     * skills and memories it was granted, orknux itself, a shell, somewhere to
+     * put what it made. [searchable] is everything that scales - the workspace's
+     * own tools, what the granted MCP servers offer, the plugins' - which is
+     * where three hundred tools come from and which an agent looks through
+     * rather than carries.
+     *
+     * The split is stated rather than taken from the order they were built in,
+     * so a tool added to the wrong half is a decision somebody made rather than
+     * a line that landed in the wrong place.
+     */
+    fun offeringFor(agent: Agent): Offering = Offering(core = coreFor(agent), searchable = searchableFor(agent))
+
+    private fun coreFor(agent: Agent): List<ToolSpec> = buildList {
         if (agent.skillCatalogs.isNotEmpty()) addAll(skills.descriptors().map(::spec))
         if (agent.memoryCatalogs.isNotEmpty()) {
             add(spec(memories.descriptor()))
@@ -102,13 +132,25 @@ class AgentTools(
          */
         if (agent.artifactAccess && savedArtifacts.offered()) addAll(ARTIFACT_TOOLS)
 
-        // The workspace's own code, under its own names. A tool named like a
-        // built-in is skipped rather than shadowing it: two tools answering to
-        // one name is a call nobody can predict the destination of.
-        // What the granted MCP servers say they offer, asked of them now.
-        addAll(mcpTools.specsFor(agent))
+    }
 
-        val builtIn = map { it.name }.toSet()
+    /**
+     * The half an agent searches rather than carries.
+     *
+     * Named against what [coreFor] already claimed, because the shadow rule is
+     * the same either way round: two tools answering to one name is a call
+     * nobody can predict the destination of, and a tool named like a built-in
+     * is skipped rather than allowed to shadow it.
+     */
+    private fun searchableFor(agent: Agent): List<ToolSpec> = buildList {
+        val builtIn = coreFor(agent).map { it.name }.toMutableSet()
+
+        // The workspace's own code, under its own names. A tool named like a
+        // built-in is skipped rather than shadowing it.
+        // What the granted MCP servers say they offer, asked of them now.
+        addAll(mcpTools.specsFor(agent).filterNot { it.name in builtIn })
+        builtIn += map { it.name }
+
         workspaceTools.granted(agent)
             .filterNot { tool ->
                 (tool.name in builtIn).also { clash ->
@@ -145,7 +187,9 @@ class AgentTools(
          * The declaration is the schema - a plugin wrote a tool's description
          * for exactly this reader, which is what tools() exists for.
          */
-        val taken = map { it.name }.toSet()
+        // The core's names as well as this half's: a plugin tool named like a
+        // built-in must not shadow it just because the two are now built apart.
+        val taken = map { it.name }.toSet() + builtIn
         pluginTools.granted(agent, except = taken).forEach { tool ->
             add(
                 ToolSpec(
@@ -591,3 +635,19 @@ class AgentTools(
         }.getOrDefault(false)
     }
 }
+
+/**
+ * What an agent holds, split by whether it travels on every call.
+ *
+ * Issue #368. Everything an agent was granted used to be declared on every
+ * request, and an agent granted more than the provider accepts could not answer
+ * at all - OpenAI and Azure refuse the whole request over 128 tools, and the
+ * person who asked got the provider's sentence about an array being too long.
+ *
+ * [core] is the handful an agent uses constantly and which there are few of.
+ * [searchable] is what scales - a workspace's tools, the granted MCP servers',
+ * the plugins' - and what a large grant list is actually made of. Below the
+ * provider's ceiling the two are put back together and nothing about a round
+ * changes; above it, the searchable half is found rather than carried.
+ */
+data class Offering(val core: List<ToolSpec>, val searchable: List<ToolSpec>)
