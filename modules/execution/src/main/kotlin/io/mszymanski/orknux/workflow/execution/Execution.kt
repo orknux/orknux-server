@@ -356,6 +356,34 @@ class ExecutionStep(
      */
     @Column(name = "wait_until")
     var waitUntil: OffsetDateTime? = null,
+
+    /**
+     * How many times in a row an agent on this step has stopped to wait.
+     *
+     * An agent may end its turn with a wake-up rather than an answer - it is
+     * watching a build, or waiting on somebody - and the step parks and is asked
+     * again when the time is up. Counted here rather than by whatever is driving
+     * the run, for the reason [attempts] is: the wake-up may be carried by a
+     * different worker in a different process, which knows nothing of what this
+     * one did. The installation's ceiling on consecutive sleeps is counted
+     * against this, so a model that keeps deciding to wait a little longer is
+     * stopped rather than left going round for a week.
+     *
+     * Not an attempt: a sleep is the same attempt, deliberately paused.
+     */
+    @Column(name = "agent_sleeps", nullable = false)
+    var agentSleeps: Int = 0,
+
+    /**
+     * What the agent left itself before it slept.
+     *
+     * A woken node is handed the same input it had the first time and nothing
+     * else, so without this it wakes with no idea why it slept - the session it
+     * may or may not keep is the only other memory in the picture, and most
+     * nodes keep none. The note is put to it when it is asked again.
+     */
+    @Column(name = "agent_sleep_note", columnDefinition = "text")
+    var agentSleepNote: String? = null,
 )
 
 /** One line of what a run reported. */

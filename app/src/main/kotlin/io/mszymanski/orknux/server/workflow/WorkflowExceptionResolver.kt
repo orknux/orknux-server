@@ -248,6 +248,9 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
              * screen offered to change.
              */
             is io.mszymanski.orknux.server.attachment.ChatRoundsOutOfRangeException,
+            /* The two bounds on an agent's waiting, refused the same way. */
+            is io.mszymanski.orknux.server.attachment.SleepSecondsOutOfRangeException,
+            is io.mszymanski.orknux.server.attachment.SleepTimesOutOfRangeException,
             is TaskSweepNotConfigurableException,
             is RevisionNotRestorableException,
             is RevisionComponentGoneException,

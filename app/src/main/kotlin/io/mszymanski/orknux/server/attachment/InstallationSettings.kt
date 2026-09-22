@@ -61,6 +61,8 @@ object SettingNames {
     const val PLUGIN_MAX_SOURCE_KB = "plugin.max.source.kb"
     const val PLUGIN_TIMEOUT_SECONDS = "plugin.timeout.seconds"
     const val CHAT_MAX_ROUNDS = "chat.max.rounds"
+    const val AGENT_SLEEP_SECONDS = "agent.sleep.seconds"
+    const val AGENT_SLEEP_TIMES = "agent.sleep.times"
 }
 
 /**
@@ -302,6 +304,62 @@ class InstallationSettings(
         settings.save(held)
     }
 
+    /**
+     * The longest an agent may put itself to sleep for, in seconds.
+     *
+     * An agent that ends its turn with a wake-up parks the step it is on, and
+     * the run comes back to that node when the time is up. This is the ceiling
+     * on one of those waits: a model asking for longer is given this instead
+     * and told so, because the number is a statement about how long this
+     * installation is willing to hold a run open, not about what the model
+     * would prefer.
+     */
+    fun agentSleepSeconds(): Int {
+        val held = settings.findByIdOrNull(SettingNames.AGENT_SLEEP_SECONDS) ?: return agentSleepSecondsConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_SLEEP_SECONDS..MAX_SLEEP_SECONDS }
+            ?: agentSleepSecondsConfigured()
+    }
+
+    /** What a fresh installation allows - ORKNUX_CHAT_SLEEP_SECONDS. */
+    fun agentSleepSecondsConfigured(): Int = chat.sleepSeconds.coerceIn(MIN_SLEEP_SECONDS, MAX_SLEEP_SECONDS)
+
+    @Transactional
+    fun setAgentSleepSeconds(seconds: Int, by: String) {
+        if (seconds !in MIN_SLEEP_SECONDS..MAX_SLEEP_SECONDS) throw SleepSecondsOutOfRangeException(seconds)
+        write(SettingNames.AGENT_SLEEP_SECONDS, seconds.toString(), by)
+    }
+
+    /**
+     * How many times in a row an agent may sleep on one step; zero is never.
+     *
+     * A wait is a decision the model makes again every time it wakes, so the
+     * one that matters is not the first but the twentieth. Zero takes the
+     * wake-up off the tool altogether, which is the installation saying its
+     * agents answer or finish and do neither by halves.
+     */
+    fun agentSleepTimes(): Int {
+        val held = settings.findByIdOrNull(SettingNames.AGENT_SLEEP_TIMES) ?: return agentSleepTimesConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_SLEEP_TIMES..MAX_SLEEP_TIMES } ?: agentSleepTimesConfigured()
+    }
+
+    /** What a fresh installation allows - ORKNUX_CHAT_SLEEP_TIMES. */
+    fun agentSleepTimesConfigured(): Int = chat.sleepTimes.coerceIn(MIN_SLEEP_TIMES, MAX_SLEEP_TIMES)
+
+    @Transactional
+    fun setAgentSleepTimes(times: Int, by: String) {
+        if (times !in MIN_SLEEP_TIMES..MAX_SLEEP_TIMES) throw SleepTimesOutOfRangeException(times)
+        write(SettingNames.AGENT_SLEEP_TIMES, times.toString(), by)
+    }
+
+    /** Stores one number under its name, made or found, stamped with who. */
+    private fun write(name: String, value: String, by: String) {
+        val held = settings.findByIdOrNull(name) ?: InstallationSetting(name = name)
+        held.value = value
+        held.lastModifiedAt = OffsetDateTime.now()
+        held.lastModifiedBy = by
+        settings.save(held)
+    }
+
     fun pluginMaxSourceBytes(): Long = pluginMaxSourceKb() * 1024L
 
     @Transactional
@@ -459,6 +517,38 @@ class ChatRoundsOutOfRangeException(val rounds: Int) : RuntimeException(
 ), Refusal {
 
     override val arguments get() = mapOf("rounds" to rounds)
+}
+
+/**
+ * A second and a day, for one of an agent's waits.
+ *
+ * The floor is a second because a wake-up shorter than that is not a wait, it
+ * is the same round with a round trip in the middle. The ceiling is a day
+ * because a run held open longer than that is not waiting on anything it can
+ * still do something about - the thing to do then is finish and let a trigger
+ * start it again.
+ */
+const val MIN_SLEEP_SECONDS = 1
+const val MAX_SLEEP_SECONDS = 24 * 60 * 60
+
+/** None and a hundred, for how many of those waits one step may take in a row. */
+const val MIN_SLEEP_TIMES = 0
+const val MAX_SLEEP_TIMES = 100
+
+class SleepSecondsOutOfRangeException(val seconds: Int) : RuntimeException(
+    "$seconds is not a length of time an agent can be allowed to wait for. " +
+        "Choose between $MIN_SLEEP_SECONDS and $MAX_SLEEP_SECONDS.",
+), Refusal {
+
+    override val arguments get() = mapOf("seconds" to seconds)
+}
+
+class SleepTimesOutOfRangeException(val times: Int) : RuntimeException(
+    "$times is not a number of times an agent can be allowed to wait in a row. " +
+        "Choose between $MIN_SLEEP_TIMES and $MAX_SLEEP_TIMES.",
+), Refusal {
+
+    override val arguments get() = mapOf("times" to times)
 }
 
 const val MIN_PLUGIN_SOURCE_KB = 64

@@ -69,6 +69,8 @@ class AgentNodeRunner(
     private val budgets: SessionMemoryBudgets,
     private val shapes: ObjectShapes,
     private val mapper: ObjectMapper,
+    /** What bounds an agent's waiting; see [FinishAnswerTools.Sleeping]. */
+    private val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
 ) : NodeRunner {
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
@@ -148,7 +150,31 @@ class AgentNodeRunner(
                 "no prose around it and no code fence:\n$held"
         }
 
-        val question = prompt ?: input ?: "There is no input for this step. Say what you would do."
+        val asked = prompt ?: input ?: "There is no input for this step. Say what you would do."
+
+        /*
+         * And what it left itself, where this is a step waking up.
+         *
+         * A woken node is handed the same input it had the first time and
+         * nothing else - the run does not keep a turn's working - so without
+         * this the agent wakes, reads the question it has already worked on, and
+         * starts again from the top. A session would carry more, but most nodes
+         * keep none and the ones that do are not the only ones that may wait.
+         *
+         * Left where it is rather than cleared as it is read. A wait that is
+         * taken again writes over it, so what is there is always the last thing
+         * the agent said to itself - and a step that failed after waking is
+         * handed it again on the attempt after that, which is the behaviour the
+         * note exists for. Nothing reads it once the step has finished.
+         */
+        val question = step.agentSleepNote?.let { note ->
+            """
+            |$asked
+            |
+            |You stopped here earlier to wait, and left yourself this note:
+            |$note
+            """.trimMargin()
+        } ?: asked
 
         /*
          * The session this node writes into, if it names one.
@@ -311,12 +337,50 @@ class AgentNodeRunner(
             finishing.shed(
                 granted = agent.finishAccess,
                 shaped = step.outputObjectId != null,
+                /*
+                 * And what is left of its waiting, which is a fact about this
+                 * step rather than about the agent: the count is on the row
+                 * because the wake-up may be carried by another worker
+                 * entirely. Both numbers are the installation's, read now
+                 * rather than when the run started - an operator who shortens
+                 * the ceiling means it for the wait being asked for next, not
+                 * for runs that start tomorrow.
+                 */
+                sleeping = FinishAnswerTools.Sleeping(
+                    longest = java.time.Duration.ofSeconds(settings.agentSleepSeconds().toLong()),
+                    left = (settings.agentSleepTimes() - step.agentSleeps).coerceAtLeast(0),
+                    spent = step.agentSleeps,
+                ),
             ),
         )
 
         val answer = try {
             conversation.answer(modelId, agent, turns, session, shed = shed, watch = watching)
         } catch (finished: AnswerFinished) {
+            val wake = finished.wake
+            if (wake != null) {
+                /*
+                 * Not finished: waiting.
+                 *
+                 * The step parks and the run comes back to this node when the
+                 * time is up, which is the same mechanism a waiting action uses
+                 * - and the point of it is that nothing is held while it runs
+                 * down. The deadline goes on the row because the wait outlives
+                 * the worker that started it, and the count with it, because the
+                 * installation's ceiling is counted against runs rather than
+                 * against processes.
+                 */
+                step.agentSleeps += 1
+                step.agentSleepNote = finished.answer.takeIf { it.isNotEmpty() }
+                step.waitUntil = java.time.OffsetDateTime.now().plus(wake)
+
+                val note = "${agent.name} is waiting ${wake.toSeconds()}s" +
+                    (if (finished.clipped) ", shortened to what this installation allows" else "") +
+                    "; asked again then (${step.agentSleeps} of ${settings.agentSleepTimes()})"
+                runLog.write(step.executionId, step.nodeKey, LogLevel.INFO, note)
+                return StepResult.waiting(wake, note)
+            }
+
             /*
              * The agent said that was the work.
              *

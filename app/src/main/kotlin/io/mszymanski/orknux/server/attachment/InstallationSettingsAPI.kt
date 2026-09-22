@@ -51,6 +51,10 @@ class InstallationSettingsAPI(
         pluginTimeoutSecondsConfigured = settings.pluginTimeoutSecondsConfigured(),
         chatMaxRounds = settings.chatMaxRounds(),
         chatMaxRoundsConfigured = settings.chatMaxRoundsConfigured(),
+        agentSleepSeconds = settings.agentSleepSeconds(),
+        agentSleepSecondsConfigured = settings.agentSleepSecondsConfigured(),
+        agentSleepTimes = settings.agentSleepTimes(),
+        agentSleepTimesConfigured = settings.agentSleepTimesConfigured(),
     )
 
     @MutationMapping
@@ -225,6 +229,47 @@ class InstallationSettingsAPI(
         return installationSettings()
     }
 
+    /**
+     * The longest an agent may put itself to sleep for.
+     *
+     * An agent ending its turn with a wake-up parks the step and the run comes
+     * back to it later, so this number is a statement about how long this
+     * installation will hold a run open - which is an operator's decision and
+     * nobody else's. A model asking for longer is given this instead and told.
+     */
+    @MutationMapping
+    fun setAgentSleepSeconds(@Argument seconds: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setAgentSleepSeconds(seconds, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "Agents allowed to wait $seconds seconds at a time",
+        )
+        return installationSettings()
+    }
+
+    /**
+     * How many times in a row an agent may do that on one step.
+     *
+     * The bound that actually stops a run going round for a week: waiting is a
+     * decision the model takes again every time it wakes. Zero takes the
+     * wake-up off the tool altogether.
+     */
+    @MutationMapping
+    fun setAgentSleepTimes(@Argument times: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setAgentSleepTimes(times, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "Agents allowed to wait $times times in a row",
+        )
+        return installationSettings()
+    }
+
     @MutationMapping
     fun setPluginMaxSourceKb(@Argument kb: Int): InstallationSettingsView {
         access.requireAdmin()
@@ -315,6 +360,20 @@ data class InstallationSettingsView(
     val chatMaxRounds: Int,
     /** What a fresh installation allows - ORKNUX_CHAT_MAX_ROUNDS. */
     val chatMaxRoundsConfigured: Int,
+    /**
+     * The longest one of an agent's own waits may be, in seconds.
+     *
+     * An agent may end its turn with a wake-up instead of an answer: the step
+     * parks and the run comes back to that node when the time is up. A model
+     * asking for longer than this is given this instead.
+     */
+    val agentSleepSeconds: Int,
+    /** What a fresh installation allows - ORKNUX_CHAT_SLEEP_SECONDS. */
+    val agentSleepSecondsConfigured: Int,
+    /** How many times in a row one step's agent may wait; zero is never. */
+    val agentSleepTimes: Int,
+    /** What a fresh installation allows - ORKNUX_CHAT_SLEEP_TIMES. */
+    val agentSleepTimesConfigured: Int,
     /** What a fresh installation allows: the built-in default. */
     val pluginMaxSourceKbConfigured: Int,
     /**

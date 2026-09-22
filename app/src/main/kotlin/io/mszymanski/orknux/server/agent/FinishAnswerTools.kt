@@ -7,6 +7,7 @@ import io.mszymanski.orknux.server.chat.AgentRoundHalted
 import io.mszymanski.orknux.server.chat.ToolShed
 import org.springframework.stereotype.Service
 import tools.jackson.databind.ObjectMapper
+import java.time.Duration
 
 /**
  * A way for an agent in a run to say "that was the work" and stop.
@@ -57,6 +58,26 @@ import tools.jackson.databind.ObjectMapper
  * produce an object cannot be finished without one, and a tool that could only
  * ever be refused is a turn spent teaching the model what the node already
  * knew - the rule `AgentTools` states for every tool.
+ *
+ * ### Ending a turn without ending the work
+ *
+ * The same tool is how an agent waits. Some work is not finished and not
+ * failing either: a build is running, a colleague has been asked, a batch job
+ * lands at six. Until now the only two ways to spend that time were to hold the
+ * round open - a model billed for every minute of it, and a step that dies with
+ * the worker - or to answer as though the work were done and lose it.
+ *
+ * So the ending takes a wake-up. The agent says how long it wants, the step
+ * parks, and the run comes back to that node when the time is up. That is the
+ * mechanism a waiting action already uses, and the reason it is worth reusing
+ * is that nothing is held while it runs down: a Temporal timer costs nothing
+ * and survives every process involved being restarted.
+ *
+ * Bounded at both ends by the installation, because the model decides again
+ * every time it wakes and one that keeps deciding to wait a little longer never
+ * finishes. [Sleeping] carries what is left of both bounds, and where nothing
+ * is left the parameter is not offered at all - a model is not taught about a
+ * thing it will only be refused.
  */
 @Service
 class FinishAnswerTools(private val mapper: ObjectMapper) {
@@ -73,32 +94,113 @@ class FinishAnswerTools(private val mapper: ObjectMapper) {
      *   a tool that could only ever be refused is a turn spent teaching the
      *   model what the node already knew.
      */
-    fun shed(granted: Boolean = true, shaped: Boolean = false): ToolShed? =
-        if (granted && !shaped) Shed() else null
+    fun shed(granted: Boolean = true, shaped: Boolean = false, sleeping: Sleeping? = null): ToolShed? =
+        if (granted && !shaped) Shed(sleeping) else null
 
-    private inner class Shed : ToolShed {
+    private inner class Shed(private val sleeping: Sleeping?) : ToolShed {
 
-        override fun specs(): List<ToolSpec> = listOf(FINISHING)
+        /** Whether waiting is on the table at all, which is what decides the spec. */
+        private val mayWait = sleeping != null && sleeping.left > 0
+
+        override fun specs(): List<ToolSpec> = listOf(if (mayWait) waking(sleeping!!) else FINISHING)
 
         override fun handles(name: String): Boolean = name == FINISH
 
         /**
-         * Never returns.
+         * Returns only where the model asked for something it cannot have.
          *
-         * The only thing this tool does is end the round, and [AgentRoundHalted]
-         * is how a shed says so. What it carries is what the step answers with.
+         * Ending the round is what this tool does, and [AgentRoundHalted] is how
+         * a shed says so - what it carries is what the step answers with, and
+         * how long before the run comes back to it. A wake-up this installation
+         * will not allow is answered in words instead: the round goes on, and
+         * the model can finish properly rather than having its turn ended by a
+         * refusal it never saw.
          */
-        override fun run(call: ToolCall): String =
-            throw AnswerFinished(argument(call, "answer").orEmpty().trim())
+        override fun run(call: ToolCall): String {
+            val answer = text(call, "answer").orEmpty().trim()
+            val asked = number(call, WAKE) ?: throw AnswerFinished(answer)
 
-        private fun argument(call: ToolCall, name: String): String? = runCatching {
+            if (!mayWait) {
+                return "This run has no waiting left in it" +
+                    (sleeping?.let { " (${it.spent} of ${it.spent} already spent)" } ?: "") +
+                    ". Finish now, or carry on and answer."
+            }
+            if (asked <= 0) {
+                return "$WAKE must be a number of milliseconds greater than zero. " +
+                    "Leave it out to finish here instead of waiting."
+            }
+
+            val longest = sleeping!!.longest
+            val wake = if (asked > longest.toMillis()) longest else Duration.ofMillis(asked)
+            throw AnswerFinished(answer, wake, clipped = asked > longest.toMillis())
+        }
+
+        private fun text(call: ToolCall, name: String): String? = runCatching {
             mapper.readTree(call.arguments).path(name).takeIf { it.isTextual }?.stringValue()
         }.getOrNull()
+
+        /**
+         * A number the model wrote, however it wrote it.
+         *
+         * A parameter has no declared type - every one of them reaches a
+         * provider as a string - so "60000" and 60000 both arrive, and which of
+         * the two a given model sends is not something to build on.
+         */
+        private fun number(call: ToolCall, name: String): Long? = runCatching {
+            val node = mapper.readTree(call.arguments).path(name)
+            when {
+                node.isNumber -> node.asLong()
+                node.isTextual -> node.stringValue().trim().toLongOrNull()
+                else -> null
+            }
+        }.getOrNull()
     }
+
+    /**
+     * The same tool with the wake-up on it, and the bounds written into the
+     * words rather than only enforced behind them.
+     *
+     * Told what is left because a model that knows it has two waits and an hour
+     * apiece spends them on the two things worth waiting for. One that is only
+     * refused after the fact spends a round finding out, every time.
+     */
+    private fun waking(sleeping: Sleeping): ToolSpec = FINISHING.copy(
+        description = FINISHING.description +
+            " You can also use it to wait: pass `$WAKE` and this step stops here and is " +
+            "started again when that time is up, with the note you left yourself. Wait when the " +
+            "thing you need has not happened yet - a build is running, somebody has been asked, a " +
+            "job lands later - rather than holding this turn open or answering as though it had. " +
+            "This run has ${sleeping.left} of those left, and one may be up to " +
+            "${sleeping.longest.toMillis()} ms.",
+        parameters = FINISHING.parameters + ToolParameterSpec(
+            name = WAKE,
+            description = "How long to wait before this step is started again, in milliseconds. " +
+                "Leave it out to finish rather than wait. Anything longer than " +
+                "${sleeping.longest.toMillis()} ms is shortened to that.",
+            required = false,
+        ),
+    )
+
+    /**
+     * What is left of an agent's waiting on the step it is running.
+     *
+     * Handed in rather than read here for the reason the drawing shed's key is:
+     * only the thing running the step knows which step it is, and both numbers
+     * are facts about this run rather than about the agent.
+     *
+     * @param longest the most one wait may be, the installation's number.
+     * @param left how many waits this step has in it, spent ones taken off.
+     * @param spent how many it has already taken, for saying so when there are
+     *   none left.
+     */
+    data class Sleeping(val longest: Duration, val left: Int, val spent: Int = 0)
 
     companion object {
 
         const val FINISH = "finish_answer"
+
+        /** What the wake-up is called in the tool call, in the model's own units. */
+        const val WAKE = "wake_after_ms"
 
         val FINISHING = ToolSpec(
             name = FINISH,
@@ -120,12 +222,25 @@ class FinishAnswerTools(private val mapper: ObjectMapper) {
 }
 
 /**
- * The agent said the work was done and it had nothing to add.
+ * The agent ended its turn - for good, or until [wake] is up.
  *
- * @param answer what the step answers with, which is usually empty. The message
- *   is what the transcript shows in the tool's place, so it reads as an ending
- *   rather than as an error.
+ * @param answer what the step answers with, which is usually empty. On a wait it
+ *   is the note the agent left itself, put to it again when it is started again.
+ * @param wake how long before the step is started again; null is the ending this
+ *   began as. Already held to the installation's ceiling by the time it is here.
+ * @param clipped whether the wait asked for was longer than the installation
+ *   allows and was shortened. Said in the run's log, because a wait that is not
+ *   the one the agent asked for is exactly the sort of thing somebody reads that
+ *   log to find out.
  */
-class AnswerFinished(val answer: String) : AgentRoundHalted(
-    if (answer.isEmpty()) "Finished. The work was delivered, so there is nothing to add." else answer,
+class AnswerFinished(
+    val answer: String,
+    val wake: Duration? = null,
+    val clipped: Boolean = false,
+) : AgentRoundHalted(
+    when {
+        wake != null -> "Waiting ${wake.toMillis()} ms." + if (answer.isEmpty()) "" else " $answer"
+        answer.isEmpty() -> "Finished. The work was delivered, so there is nothing to add."
+        else -> answer
+    },
 )
