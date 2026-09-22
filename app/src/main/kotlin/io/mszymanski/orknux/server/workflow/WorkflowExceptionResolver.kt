@@ -251,6 +251,8 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             /* The two bounds on an agent's waiting, refused the same way. */
             is io.mszymanski.orknux.server.attachment.SleepSecondsOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.SleepTimesOutOfRangeException,
+            /* A usage window whose date was not one; see the model API. */
+            is io.mszymanski.orknux.server.model.UsageRangeInvalidException,
             is TaskSweepNotConfigurableException,
             is RevisionNotRestorableException,
             is RevisionComponentGoneException,

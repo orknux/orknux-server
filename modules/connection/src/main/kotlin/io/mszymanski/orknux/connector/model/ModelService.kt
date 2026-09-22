@@ -377,15 +377,72 @@ class ModelService(
      * called reports zero and says the window is empty, rather than showing a
      * shape with no numbers behind it.
      */
-    fun usage(modelId: Long, days: Int = USAGE_DAYS): ModelUsageView {
+    /**
+     * What a model was used for, over a window and against the one before it.
+     *
+     * @param days the window as a count back from today, which is what the page
+     *   opens on and what every caller asked for until there were dates.
+     * @param from the first day, where the window is a range somebody chose.
+     *   With [to] this replaces [days] entirely: every question anybody brings
+     *   to this page is about a window that is not the last thirty days - what
+     *   yesterday's run cost, what was spent last month, whether the spike on
+     *   the 14th was this model - and none of them could be asked.
+     * @param to the last day. Defaults to today where only [from] was given,
+     *   because "since the 1st" is a range and asking somebody to type today's
+     *   date to say "until now" is asking them to type what the server knows.
+     */
+    fun usage(
+        modelId: Long,
+        days: Int = USAGE_DAYS,
+        from: LocalDate? = null,
+        to: LocalDate? = null,
+    ): ModelUsageView {
         val model = models.findByIdOrNull(modelId) ?: throw ModelNotFoundException(modelId)
 
         val today = LocalDate.now(clock)
-        val from = today.minusDays((days - 1).toLong())
-        val previousFrom = from.minusDays(days.toLong())
 
-        val current = usage.findByModelIdAndDayBetweenOrderByDayAsc(modelId, from, today)
-        val previous = usage.findByModelIdAndDayBetweenOrderByDayAsc(modelId, previousFrom, from.minusDays(1))
+        /*
+         * The window, from whichever of the two was asked for.
+         *
+         * A range the wrong way round is read rather than refused: somebody who
+         * picked the two dates in the other order meant the days between them,
+         * and a chart that answers is better than an error about which box was
+         * which. A range running past today is cut off at today - there is no
+         * usage in the future, and drawing empty days after the last one would
+         * squash the part somebody is looking at.
+         */
+        val since: LocalDate
+        val until: LocalDate
+        when {
+            from != null && to != null -> {
+                // Either way round: somebody who picked the two dates in the
+                // other order meant the days between them, and an error about
+                // which box was which answers nothing they asked.
+                until = minOf(maxOf(from, to), today)
+                since = minOf(minOf(from, to), until)
+            }
+            // One end and nothing else is a half-open range, read the way it is
+            // said: "since the 1st" runs to now, and "up to the 14th" is the
+            // window ending there - asking somebody to type today's date to mean
+            // "until now" is asking them to type what the server already knows.
+            from != null -> {
+                until = today
+                since = minOf(from, until)
+            }
+            to != null -> {
+                until = minOf(to, today)
+                since = until.minusDays((days - 1).toLong())
+            }
+            else -> {
+                until = today
+                since = until.minusDays((days - 1).toLong())
+            }
+        }
+        val span = ChronoUnit.DAYS.between(since, until).toInt() + 1
+        val previousFrom = since.minusDays(span.toLong())
+
+        val current = usage.findByModelIdAndDayBetweenOrderByDayAsc(modelId, since, until)
+        val previous = usage.findByModelIdAndDayBetweenOrderByDayAsc(modelId, previousFrom, since.minusDays(1))
 
         val totals = Totals(current)
         val before = Totals(previous)
@@ -396,9 +453,12 @@ class ModelService(
 
         return ModelUsageView(
             modelId = modelId,
-            days = days,
-            from = from,
-            to = today,
+            // What the window actually came to, which is the number the headings
+            // say. A range of three days that was asked for as a range is three
+            // days here, not the thirty nobody asked for.
+            days = span,
+            from = since,
+            to = until,
             requests = totals.requests,
             inputTokens = totals.inputTokens,
             outputTokens = totals.outputTokens,
@@ -412,7 +472,7 @@ class ModelService(
             // Only the days with a row used to be sent, so a model used once was
             // a series of one point — and a line through one point draws nothing,
             // which is why a real request looked like no chart at all.
-            series = daily(from, today, current),
+            series = daily(since, until, current),
             periodStart = periodStart,
             periodTokens = inPeriod.tokens,
         )

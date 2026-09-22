@@ -314,8 +314,16 @@ type Query {
     "Every model the workspace may reach, provider first and then name."
     models(workspaceId: ID!): [Model!]!
     model(id: ID!): Model
-    "What a model has been used for, over the last `days` and against the days before them."
-    modelUsage(id: ID!, days: Int = 30): ModelUsage!
+    """
+    What a model has been used for, over a window and against the one before it.
+
+    `days` counts back from today and is what the page opens on. `from` and `to`
+    are a range, and win where either is given: `from` alone runs to now, `to`
+    alone is the window of `days` ending there, and the two together are the days
+    between them - in whichever order they were picked. A range running past
+    today is cut off at today. Both are `YYYY-MM-DD`.
+    """
+    modelUsage(id: ID!, days: Int = 30, from: String, to: String): ModelUsage!
     """
     What the provider itself says it can run, against what has already been added.
     Asks the provider, so it fails the way a connection check fails.

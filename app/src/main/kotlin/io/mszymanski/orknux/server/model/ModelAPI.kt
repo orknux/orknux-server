@@ -20,6 +20,7 @@ import org.springframework.graphql.data.method.annotation.Argument
 import org.springframework.graphql.data.method.annotation.MutationMapping
 import org.springframework.graphql.data.method.annotation.QueryMapping
 import org.springframework.stereotype.Controller
+import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 /**
@@ -70,12 +71,41 @@ class ModelAPI(
         return models.discoverModels(providerId)
     }
 
+    /**
+     * What a model was used for, over the last `days` or over a range.
+     *
+     * The range wins where one was given, and `days` stays what the page opens
+     * on. Every question anybody brings to this page is about a window that is
+     * not the last thirty days - what yesterday's run cost, what was spent last
+     * month, whether the spike on the 14th was this model - and until there were
+     * dates none of them could be asked.
+     */
     @QueryMapping
-    fun modelUsage(@Argument id: Long, @Argument days: Int): ModelUsageResponse {
+    fun modelUsage(
+        @Argument id: Long,
+        @Argument days: Int,
+        @Argument from: String?,
+        @Argument to: String?,
+    ): ModelUsageResponse {
         // The same reason as `discoveredModels`: usage is not nullable, so a model
         // the caller cannot see is missing rather than forbidden.
         models.model(id)?.takeIf { access.canSee(it.workspaceId) } ?: throw ModelNotFoundException(id)
-        return ModelUsageResponse(models.usage(id, days))
+        return ModelUsageResponse(models.usage(id, days, day(from, "from"), day(to, "to")))
+    }
+
+    /**
+     * One end of the range, as the rest of this schema says a date.
+     *
+     * A string because there is no date scalar here and the view answers in
+     * strings, so taking one is the shape the client already reads back. A
+     * blank one is nothing asked for, which is what an emptied box sends;
+     * anything that is not a date is refused by name, because a window silently
+     * falling back to the last thirty days would be a chart quietly answering a
+     * different question.
+     */
+    private fun day(said: String?, which: String): LocalDate? {
+        val trimmed = said?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        return runCatching { LocalDate.parse(trimmed) }.getOrElse { throw UsageRangeInvalidException(which, trimmed) }
     }
 
     @MutationMapping
@@ -277,3 +307,17 @@ class ModelNotFoundException(val id: Long) : RuntimeException("No model with id 
     override val arguments get() = mapOf("id" to id)
 }
 
+
+/**
+ * One end of a usage range that is not a date.
+ *
+ * Refused rather than ignored: a window that quietly fell back to the last
+ * thirty days would be a chart answering a different question from the one on
+ * screen, which is worse than a sentence saying the date was not read.
+ */
+class UsageRangeInvalidException(val which: String, val said: String) : RuntimeException(
+    "\"$said\" is not a date. Give `$which` as YYYY-MM-DD, or leave it out.",
+), Refusal {
+
+    override val arguments get() = mapOf("which" to which, "said" to said)
+}

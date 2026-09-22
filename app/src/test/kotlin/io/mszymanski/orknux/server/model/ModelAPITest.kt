@@ -393,6 +393,127 @@ class ModelAPITest(
             .containsExactly(100, 100)
     }
 
+    /* --------------------------------------- the window somebody asked for */
+
+    /**
+     * Issue #370. Thirty days was fixed and nothing on the page could ask for
+     * anything else - and every question people actually bring here is about a
+     * different window: what yesterday's run cost, what was spent last month,
+     * whether the spike on the 14th was this model.
+     */
+    @Test
+    fun `a range answers for the days between the two dates and nothing else`() {
+        val providerId = provider("Anthropic", "https://api.anthropic.com/v1")
+        val modelId = model(providerId, "Claude", "claude-3-5-sonnet")
+
+        val today = LocalDate.now()
+        usage.save(day(modelId, today.minusDays(10), requests = 7, input = 700, output = 70, latency = 700))
+        usage.save(day(modelId, today.minusDays(3), requests = 5, input = 500, output = 50, latency = 500))
+        usage.save(day(modelId, today, requests = 2, input = 200, output = 20, latency = 200))
+
+        val from = today.minusDays(4)
+        val to = today.minusDays(2)
+
+        graphQlTester.document(
+            """{ modelUsage(id: $modelId, from: "$from", to: "$to") {
+                   days from to requests totalTokens series { day requests }
+                 } }""",
+        ).execute()
+            // Three days, which is what was asked for rather than the thirty
+            // nobody asked for - and the headings read off this number.
+            .path("modelUsage.days").entity(Int::class.java).isEqualTo(3)
+            .path("modelUsage.from").entity(String::class.java).isEqualTo(from.toString())
+            .path("modelUsage.to").entity(String::class.java).isEqualTo(to.toString())
+            // Only the day inside it: the other two are outside the window and
+            // are the whole reason somebody narrowed it.
+            .path("modelUsage.requests").entity(Int::class.java).isEqualTo(5)
+            .path("modelUsage.totalTokens").entity(Double::class.java).isEqualTo(550.0)
+            .path("modelUsage.series").entityList(Any::class.java).hasSize(3)
+    }
+
+    /**
+     * "Since the 1st" is a range. Asking somebody to type today's date to mean
+     * "until now" is asking them to type what the server already knows.
+     */
+    @Test
+    fun `one end alone is read the way it is said`() {
+        val providerId = provider("Anthropic", "https://api.anthropic.com/v1")
+        val modelId = model(providerId, "Claude", "claude-3-5-sonnet")
+
+        val today = LocalDate.now()
+        usage.save(day(modelId, today.minusDays(6), requests = 9, input = 900, output = 90, latency = 900))
+        usage.save(day(modelId, today, requests = 1, input = 100, output = 10, latency = 100))
+
+        graphQlTester.document(
+            """{ modelUsage(id: $modelId, from: "${today.minusDays(2)}") { days to requests } }""",
+        ).execute()
+            .path("modelUsage.days").entity(Int::class.java).isEqualTo(3)
+            .path("modelUsage.to").entity(String::class.java).isEqualTo(today.toString())
+            .path("modelUsage.requests").entity(Int::class.java).isEqualTo(1)
+    }
+
+    /**
+     * Read rather than refused: somebody who picked the two dates in the other
+     * order meant the days between them, and an error about which box was which
+     * answers nothing they asked.
+     */
+    @Test
+    fun `a range picked the other way round is still the days between them`() {
+        val providerId = provider("Anthropic", "https://api.anthropic.com/v1")
+        val modelId = model(providerId, "Claude", "claude-3-5-sonnet")
+
+        val today = LocalDate.now()
+        graphQlTester.document(
+            """{ modelUsage(id: $modelId, from: "$today", to: "${today.minusDays(4)}") { days from to } }""",
+        ).execute()
+            .path("modelUsage.days").entity(Int::class.java).isEqualTo(5)
+            .path("modelUsage.from").entity(String::class.java).isEqualTo(today.minusDays(4).toString())
+            .path("modelUsage.to").entity(String::class.java).isEqualTo(today.toString())
+    }
+
+    /** There is no usage in the future, and empty days after the last one would
+     * squash the part somebody is looking at. */
+    @Test
+    fun `a window running past today is cut off at today`() {
+        val providerId = provider("Anthropic", "https://api.anthropic.com/v1")
+        val modelId = model(providerId, "Claude", "claude-3-5-sonnet")
+
+        val today = LocalDate.now()
+        graphQlTester.document(
+            """{ modelUsage(id: $modelId, from: "${today.minusDays(2)}", to: "${today.plusDays(40)}") {
+                   days to
+                 } }""",
+        ).execute()
+            .path("modelUsage.days").entity(Int::class.java).isEqualTo(3)
+            .path("modelUsage.to").entity(String::class.java).isEqualTo(today.toString())
+    }
+
+    /**
+     * Refused rather than ignored: a window quietly falling back to the last
+     * thirty days would be a chart answering a different question from the one
+     * on screen.
+     */
+    @Test
+    fun `a date that is not one is refused by name`() {
+        val providerId = provider("Anthropic", "https://api.anthropic.com/v1")
+        val modelId = model(providerId, "Claude", "claude-3-5-sonnet")
+
+        graphQlTester.document("""{ modelUsage(id: $modelId, from: "last tuesday") { days } }""")
+            .execute().errors().satisfy { errors ->
+                assertThat(errors.single().message).contains("is not a date").contains("`from`")
+            }
+    }
+
+    /** An emptied box sends nothing, which is the thirty days it opened on. */
+    @Test
+    fun `an empty date is nothing asked for rather than a bad one`() {
+        val providerId = provider("Anthropic", "https://api.anthropic.com/v1")
+        val modelId = model(providerId, "Claude", "claude-3-5-sonnet")
+
+        graphQlTester.document("""{ modelUsage(id: $modelId, from: "", to: "  ") { days } }""")
+            .execute().path("modelUsage.days").entity(Int::class.java).isEqualTo(30)
+    }
+
     @Test
     fun `the active toggle is recorded, and says which way it went`() {
         val providerId = provider("OpenAI", "https://api.openai.com/v1")
