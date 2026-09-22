@@ -21,8 +21,32 @@ class ConnectionService(
     private val provisioning: ConnectionProvisioning,
 ) {
 
-    fun connections(page: Int?, size: Int?): ConnectionPage =
-        ConnectionPage(connections.findAll(pageRequest(page, size, Sort.by("name"))))
+    /**
+     * The columns the admin list can be put in the order of. Issue #358.
+     *
+     * The name breaks the tie on the other two, so two connections of one type
+     * keep their places between reads of the same page.
+     */
+    private val orders = mapOf(
+        "NAME" to listOf("name"),
+        "TYPE" to listOf("type", "name"),
+        "URL" to listOf("url", "name"),
+    )
+
+    fun connections(page: Int?, size: Int?, order: String? = null, ascending: Boolean? = null): ConnectionPage {
+        val asked = order?.trim()?.uppercase()?.takeIf { it in orders }
+        val fields = orders[asked] ?: orders.getValue("NAME")
+        val up = ascending ?: true
+        return ConnectionPage(
+            connections.findAll(
+                pageRequest(
+                    page,
+                    size,
+                    Sort.by(if (up) Sort.Direction.ASC else Sort.Direction.DESC, *fields.toTypedArray()),
+                ),
+            ),
+        )
+    }
 
     fun connection(id: Long): ConnectionView? =
         connections.findByIdOrNull(id)?.let(::ConnectionView)

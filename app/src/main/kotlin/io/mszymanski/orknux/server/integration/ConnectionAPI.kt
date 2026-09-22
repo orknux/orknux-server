@@ -25,9 +25,14 @@ class ConnectionAPI(
 ) {
 
     @QueryMapping
-    fun connections(@Argument page: Int?, @Argument size: Int?): ConnectionPage {
+    fun connections(
+        @Argument page: Int?,
+        @Argument size: Int?,
+        @Argument order: String?,
+        @Argument ascending: Boolean?,
+    ): ConnectionPage {
         access.requireAdmin()
-        return connections.connections(page, size)
+        return connections.connections(page, size, order, ascending)
     }
 
     @QueryMapping

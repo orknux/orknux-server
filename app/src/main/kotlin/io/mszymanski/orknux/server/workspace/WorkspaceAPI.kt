@@ -52,12 +52,30 @@ class WorkspaceAPI(
      * runs in memory because membership lives on the authentication rather than in
      * the database, and an workspace count stays small.
      */
+    /** The two columns the admin list draws, and what they order by. Issue #358. */
+    private val WORKSPACE_ORDERS = mapOf(
+        "NAME" to listOf("name"),
+        "DESCRIPTION" to listOf("description", "name"),
+    )
+
     @QueryMapping
-    fun workspaces(@Argument page: Int?, @Argument size: Int?): WorkspacePage {
-        val pageable = pageRequest(page, size, Sort.by("name"))
+    fun workspaces(
+        @Argument page: Int?,
+        @Argument size: Int?,
+        @Argument order: String?,
+        @Argument ascending: Boolean?,
+    ): WorkspacePage {
+        val sort = sortBy(order, ascending, WORKSPACE_ORDERS, "NAME")
+        val pageable = pageRequest(page, size, sort)
         if (access.isAdmin()) return WorkspacePage(repository.findAll(pageable))
 
-        val visible = repository.findAll(Sort.by("name")).filter(access::canSee)
+        /*
+         * The same order for somebody who sees only some of them. The page is cut
+         * here rather than by the database, so the sort has to be applied to the
+         * whole list before the cutting - handing it to the page request alone
+         * would order the slice and not the list.
+         */
+        val visible = repository.findAll(sort).filter(access::canSee)
         return WorkspacePage(PageImpl(visible.page(pageable), pageable, visible.size.toLong()))
     }
 
