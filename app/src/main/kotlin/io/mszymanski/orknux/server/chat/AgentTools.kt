@@ -44,6 +44,8 @@ class AgentTools(
     private val mcpTools: McpToolCaller,
     private val orknux: OrknuxTools,
     private val shells: ShellTools,
+    /** What lets an agent find a connection id it was granted; see [ConnectionTools]. */
+    private val connectionTools: ConnectionTools,
     private val savedArtifacts: SavedArtifacts,
     private val mapper: ObjectMapper,
 ) {
@@ -116,6 +118,18 @@ class AgentTools(
         // the design: an agent asks for a shell, not for a particular host, and
         // which one it gets is decided when the session opens.
         if (agent.shellAccess) addAll(shells.specs())
+
+        /*
+         * And the ids of the connections it was granted, where there are
+         * enough of them to be worth asking for.
+         *
+         * Core rather than searchable: it is one tool, it is how an agent gets
+         * an id at all, and an agent that had to find the finder would be a
+         * round worse off than one that was simply told. A handful of grants is
+         * still recited in the briefing, which is cheaper than a round trip -
+         * see [ConnectionTools].
+         */
+        if (connectionTools.offered(agent)) add(connectionTools.specFor(agent))
 
         /*
          * Somewhere to put what it made, and the one conversion getting it
@@ -281,6 +295,13 @@ class AgentTools(
              * grant itself and says so in the words the model needs.
              */
             shells.run(agent, call.name, call.arguments)
+        } else if (connectionTools.handles(call.name)) {
+            /*
+             * The connection finder, checked here as well as left off the menu:
+             * the rule orknux and the shells keep, and it is the thing that
+             * knows what this agent was granted.
+             */
+            connectionTools.run(agent, call.arguments)
         } else if (call.name in ARTIFACT_TOOL_NAMES && !agent.artifactAccess) {
             /*
              * Refused here as well as left off the menu.

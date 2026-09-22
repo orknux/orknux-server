@@ -31,6 +31,8 @@ class AgentBriefing(
      */
     private val skills: SkillTool,
     private val connections: WorkspaceConnectionService,
+    /** Which of the two ways the granted connections are told; see [ConnectionTools]. */
+    private val connectionTools: ConnectionTools,
 ) {
 
     /**
@@ -71,9 +73,32 @@ class AgentBriefing(
          * a deleted connection is not this turn's problem, and the settings
          * page is where a stale grant is reported.
          */
-        val reachable = agent.connections
-            .mapNotNull { connections.workspaceConnection(it) }
-            .filter { it.workspaceId == agent.workspaceId }
+        /*
+         * Recited while they are few, and pointed at once they are many.
+         *
+         * A handful of lines in a system turn is nothing and a round trip is
+         * not free, so a short list stays exactly where it was. A long one is
+         * paid for on every round of every turn for something most turns never
+         * read, and past that point the agent is better off asking. See
+         * [ConnectionTools].
+         */
+        if (connectionTools.offered(agent)) {
+            parts += buildString {
+                append("You have been granted ").append(agent.connections.size)
+                append(" connections. Where a tool takes a connection id, find the one you were told ")
+                append("to use with `").append(ConnectionTools.FIND).append("` - and only pass an id ")
+                appendLine("when you have been explicitly told to use that connection; otherwise leave ")
+                appendLine("the tool to its configured default.")
+            }
+        }
+
+        val reachable = if (connectionTools.recited(agent)) {
+            agent.connections
+                .mapNotNull { connections.workspaceConnection(it) }
+                .filter { it.workspaceId == agent.workspaceId }
+        } else {
+            emptyList()
+        }
         if (reachable.isNotEmpty()) {
             parts += buildString {
                 append("These connections have been granted to you. Where a tool takes a connection id, ")
