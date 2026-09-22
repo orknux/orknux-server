@@ -182,6 +182,12 @@ orknux:
     # administrator can turn the chat off from the screen, but not back on
     # where the operator has said no.
     enabled: ${ORKNUX_CHAT_ENABLED:true}
+    # How many rounds of tool calls an agent gets before it has to answer. One
+    # call to the model is a round: it answers, or it asks for tools and what it
+    # asks for is run and handed back. This is where a fresh installation
+    # starts; Admin -> Settings is the switch and what it holds wins, and an
+    # agent may carry its own number on its page.
+    max-rounds: ${ORKNUX_CHAT_MAX_ROUNDS:8}
   attachments:
     # Whether a chat may carry files at all. False here is final: an
     # administrator can turn attachments off from the screen, but not back on

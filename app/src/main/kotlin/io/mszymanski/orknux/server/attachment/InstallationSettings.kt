@@ -60,6 +60,7 @@ object SettingNames {
     const val TASK_SWEEP_MINUTES = "task.sweep.minutes"
     const val PLUGIN_MAX_SOURCE_KB = "plugin.max.source.kb"
     const val PLUGIN_TIMEOUT_SECONDS = "plugin.timeout.seconds"
+    const val CHAT_MAX_ROUNDS = "chat.max.rounds"
 }
 
 /**
@@ -273,6 +274,34 @@ class InstallationSettings(
         settings.save(held)
     }
 
+    /**
+     * How many rounds of tool calls an agent gets before it must answer.
+     *
+     * A round is one call to the model: it either answers or asks for tools, and
+     * what it asks for is run and handed back. The ceiling exists so a model
+     * talking to itself is stopped rather than billed for - what it is not for
+     * is stopping honest work, which is what eight did to an agent with a
+     * catalogue of tools in front of it.
+     */
+    fun chatMaxRounds(): Int {
+        val held = settings.findByIdOrNull(SettingNames.CHAT_MAX_ROUNDS) ?: return chatMaxRoundsConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_CHAT_ROUNDS..MAX_CHAT_ROUNDS } ?: chatMaxRoundsConfigured()
+    }
+
+    /** What a fresh installation allows - ORKNUX_CHAT_MAX_ROUNDS. */
+    fun chatMaxRoundsConfigured(): Int = chat.maxRounds.coerceIn(MIN_CHAT_ROUNDS, MAX_CHAT_ROUNDS)
+
+    @Transactional
+    fun setChatMaxRounds(rounds: Int, by: String) {
+        if (rounds !in MIN_CHAT_ROUNDS..MAX_CHAT_ROUNDS) throw ChatRoundsOutOfRangeException(rounds)
+        val held = settings.findByIdOrNull(SettingNames.CHAT_MAX_ROUNDS)
+            ?: InstallationSetting(name = SettingNames.CHAT_MAX_ROUNDS)
+        held.value = rounds.toString()
+        held.lastModifiedAt = OffsetDateTime.now()
+        held.lastModifiedBy = by
+        settings.save(held)
+    }
+
     fun pluginMaxSourceBytes(): Long = pluginMaxSourceKb() * 1024L
 
     @Transactional
@@ -412,6 +441,26 @@ const val MAX_SWEEP_MINUTES = 1440
  * typed zero too many from letting a bundle fill the table - a plugin's source
  * is read whole on every call, so this number is also a statement about memory.
  */
+/**
+ * Two rounds and a hundred, around whatever the file says.
+ *
+ * The floor is two because one round is an agent that cannot use the tools it
+ * was given - it would call them and never get to speak about what came back.
+ * The ceiling is a hundred because every round is a paid call to a model, and an
+ * agent that has not finished after a hundred of them is not close: it is
+ * looping, which is the thing this bound exists to stop.
+ */
+const val MIN_CHAT_ROUNDS = 2
+const val MAX_CHAT_ROUNDS = 100
+
+class ChatRoundsOutOfRangeException(val rounds: Int) : RuntimeException(
+    "$rounds is not a number of tool rounds an agent can be given. " +
+        "Choose between $MIN_CHAT_ROUNDS and $MAX_CHAT_ROUNDS.",
+), Refusal {
+
+    override val arguments get() = mapOf("rounds" to rounds)
+}
+
 const val MIN_PLUGIN_SOURCE_KB = 64
 const val MAX_PLUGIN_SOURCE_KB = 20 * 1024
 const val DEFAULT_PLUGIN_SOURCE_KB = 5 * 1024

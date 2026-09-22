@@ -98,7 +98,26 @@ fun mailAddress(host: String, port: Int): String = "smtp://$host:$port"
  * find.
  */
 @Component
-class ProxyRouter(private val source: ProxyRuleSource) {
+class ProxyRouter(
+    private val source: ProxyRuleSource,
+    /**
+     * What this installation trusts on the way out, attached to every client
+     * built here.
+     *
+     * It used to hang off nothing. The note on [builder] said the trusted list
+     * was honoured "for the same reason" the proxy rules were - since both come
+     * from this builder - and it was not true: only `McpClient` ever read the
+     * list, by fetching the context and setting it itself. So an installation
+     * that added its authority in Admin found its MCP servers reachable and
+     * everything else - a plugin's HTTP call, a model, an action - still failing
+     * to build a chain, with nothing on any screen to say why.
+     *
+     * Defaulted so the constructions that pass rules alone keep working; the
+     * application always has the real one, because `TrustedCertificates` is a
+     * bean and this takes it.
+     */
+    private val trusted: OutboundTrust = OutboundTrust { null },
+) {
 
     /**
      * The rules with their patterns already compiled. Rebuilt on [reload], which
@@ -120,7 +139,15 @@ class ProxyRouter(private val source: ProxyRuleSource) {
      * indistinguishable from a proxy that is refusing to talk. Attaching it where
      * every request already passes costs one place to be right.
      */
-    fun builder(): HttpClient.Builder = RoutedBuilder(HttpClient.newBuilder().proxy(selector), this)
+    fun builder(): HttpClient.Builder {
+        val base = HttpClient.newBuilder().proxy(selector)
+        // Only where something was added. Null is "use the JVM's own", and a
+        // context built from the default roots alone is not the same thing: it
+        // would take an installation that trusts nothing extra off the path it
+        // has always been on, for no reason it asked for.
+        trusted.context()?.let(base::sslContext)
+        return RoutedBuilder(base, this)
+    }
 
     /**
      * The rules as a [ProxySelector], for a client this cannot build.

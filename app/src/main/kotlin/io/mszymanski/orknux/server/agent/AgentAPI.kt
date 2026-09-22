@@ -11,6 +11,9 @@ import io.mszymanski.orknux.server.llm.CHARS_PER_TOKEN
 import io.mszymanski.orknux.server.llm.ResolvedMemoryBudget
 import io.mszymanski.orknux.server.llm.SessionMemoryBudgets
 import io.mszymanski.orknux.server.security.WorkspaceAccess
+import io.mszymanski.orknux.server.attachment.ChatRoundsOutOfRangeException
+import io.mszymanski.orknux.server.attachment.MAX_CHAT_ROUNDS
+import io.mszymanski.orknux.server.attachment.MIN_CHAT_ROUNDS
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
@@ -309,6 +312,19 @@ class AgentAPI(
                 ?.let { throw AgentMemoryShareUnusableException(it) }
         }
 
+        /*
+         * The same rule for the rounds: sent on every save, so null is "follow
+         * the installation" and a number is this agent's own. Refused outside
+         * the bounds the installation setting uses, because an agent talking to
+         * itself for ever is the thing the ceiling exists to stop and a number
+         * below two is an agent that cannot use the tools it was given.
+         */
+        val roundsWere = agent.maxRounds
+        input.maxRounds?.let {
+            if (it !in MIN_CHAT_ROUNDS..MAX_CHAT_ROUNDS) throw ChatRoundsOutOfRangeException(it)
+        }
+        agent.maxRounds = input.maxRounds
+
         if (input.mcpServers != null) {
             // Keep the given order, dropping blanks and repeats.
             agent.mcpServers = input.mcpServers.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
@@ -364,6 +380,14 @@ class AgentAPI(
          * agent makes from then on, and a bill that grew is a question somebody
          * asks the audit log rather than the agent.
          */
+        if (agent.maxRounds != roundsWere) {
+            auditRecorder.record(
+                agent.workspaceId,
+                WorkspaceAuditCategory.AGENT,
+                agent.maxRounds?.let { "Agent ${agent.name} given $it rounds of tool calls" }
+                    ?: "Agent ${agent.name} rounds reset to the installation's",
+            )
+        }
         if (agent.memoryShare != previousShare) {
             auditRecorder.record(
                 agent.workspaceId,
@@ -610,6 +634,14 @@ data class UpdateAgentInput(
      * put it back.
      */
     val memoryShare: Int? = null,
+
+    /**
+     * How many rounds of tool calls this agent gets before it must answer.
+     *
+     * Sent whenever the form saves, like the share above, so null is "whatever
+     * the installation says" rather than "leave it alone".
+     */
+    val maxRounds: Int? = null,
 )
 
 data class AgentView(
@@ -642,6 +674,8 @@ data class AgentView(
     val icon: String?,
     /** Its own share of the model's window; null follows the workspace default. */
     val memoryShare: Int?,
+    /** Its own ceiling on tool rounds; null follows the installation's. */
+    val maxRounds: Int?,
 ) {
     constructor(agent: Agent, modelName: String? = null) : this(
         id = requireNotNull(agent.id),
@@ -665,6 +699,7 @@ data class AgentView(
         connectionIds = agent.connections.toList(),
         icon = agent.icon,
         memoryShare = agent.memoryShare,
+        maxRounds = agent.maxRounds,
     )
 }
 

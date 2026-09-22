@@ -15,6 +15,39 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## 0.9.8.2
+
+### 🐛 Fixed
+
+- 🔒 **A trusted certificate is trusted by everything that goes out, not only by
+  MCP.** The list under Admin → Networking was read by exactly one client:
+  `McpClient` fetched the context and set it itself, while every other outbound
+  call - a plugin's HTTP request, a model, an action, a webhook - was built from
+  `ProxyRouter.builder()` and got the JVM's roots alone. So an administrator who
+  pasted their internal authority in found their MCP servers reachable and their
+  Confluence plugin still failing to build a chain, with nothing on any screen to
+  explain the difference. The builder attaches the context now, so everything
+  built from it inherits both the proxy rules and the trust - and a plugin's
+  client is rebuilt when the list changes, so an authority added while the server
+  is running is picked up without a restart. Installations that have added no
+  certificate are unaffected: no context is attached where there is nothing to
+  attach, which is the path they were already on.
+
+## 0.9.8.1
+
+### 🔧 Changed
+
+- ⏱️ **How many rounds of tool calls an agent gets is a setting.** It was eight,
+  written into the code, and an agent holding twenty tools spent three of them
+  listing and loading before the work began: what came back was "kept looking
+  things up without reaching an answer", with everything it had gathered thrown
+  away and nothing anybody could change about it. Admin → Settings now carries
+  the number every agent follows, and an agent whose work is longer carries its
+  own on its page - empty there means "follow the installation". Between 2 and
+  100 at both doors; `ORKNUX_CHAT_MAX_ROUNDS` sets what a fresh installation
+  starts on, and the quick chat panel follows the installation's number too.
+  Nothing changes for an installation that leaves it alone: eight is still eight.
+
 ## 0.9.8
 
 ### ✨ Added

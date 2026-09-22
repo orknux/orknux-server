@@ -331,6 +331,7 @@ or in a `.env` file next to `compose.yaml`.
 | `ORKNUX_MARKETPLACE_URL` | `https://orknux.ai/graphql` | Where the plugin catalog is asked. The server fetches it, not the browser, so it goes out through the proxy rules. Point it at your own mirror, or set it empty on an installation with no way out: the Plugins page then offers the upload alone. |
 | `ORKNUX_PLUGIN_TIMEOUT_MILLIS` | `30000` | How long a plugin call may take. The floor this installation starts at; Admin -> Settings is the switch, between 1 and 300 seconds, and what it holds wins. |
 | `ORKNUX_EXECUTION_RETENTION_DAYS` | `90` | How long a finished run is kept before it is swept, with its steps. Admin -> Settings is the switch. |
+| `ORKNUX_CHAT_MAX_ROUNDS` | `8` | How many rounds of tool calls an agent gets before it must answer; one call to the model is a round. What this installation starts at; Admin -> Settings is the switch, between 2 and 100, and an agent may carry its own on its page. |
 | `ORKNUX_LIBRARY_REGISTRY_URL` | `https://registry.npmjs.org` | Where an administrator installing a library by name fetches from - once, into the database, through the proxy rules. Point it at your own mirror, or set it empty on an installation with no way out: the Libraries page then offers the upload alone. |
 
 **Resetting a forgotten password needs three of those.** A reset is a link mailed

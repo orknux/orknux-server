@@ -7,6 +7,7 @@ import io.mszymanski.orknux.connector.model.ChatTurn
 import io.mszymanski.orknux.connector.model.ModelChatClient
 import io.mszymanski.orknux.server.llm.LlmSessionRecorder
 import io.mszymanski.orknux.server.security.WorkspaceAccess
+import io.mszymanski.orknux.server.attachment.InstallationSettings
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
@@ -52,6 +53,8 @@ class QuickChat(
     private val models: ModelChatClient,
     private val orknux: OrknuxTools,
     private val sessions: LlmSessionRecorder,
+    /** The installation's ceiling on tool rounds, which the panel follows too. */
+    private val settings: InstallationSettings,
 ) {
 
     /**
@@ -123,7 +126,13 @@ class QuickChat(
 
         var spent = 0L
         var calls = 0
-        repeat(MAX_ROUNDS) { round ->
+        /*
+         * The installation's number. The panel has no agent to carry one of its
+         * own, so it follows the setting - which is the point of the setting:
+         * somebody whose models look things up one at a time raises it once.
+         */
+        val rounds = settings.chatMaxRounds()
+        repeat(rounds) { round ->
             /*
              * The last round is asked without tools, so it has to answer.
              *
@@ -133,7 +142,7 @@ class QuickChat(
              * everything it needed. Taking the tools away on the last round
              * turns "I ran out of looking" into "here is what I found".
              */
-            val last = round == MAX_ROUNDS - 1
+            val last = round == rounds - 1
             when (val answer = models.complete(modelId, conversation, if (last) emptyList() else offered)) {
                 is ChatCompletion.Failed -> {
                     // Written down as well, because a panel that answered
@@ -386,16 +395,6 @@ class QuickChat(
     }
 
     private companion object {
-        /**
-         * How many times the model may be asked before it has to answer.
-         *
-         * Each tool call it makes costs one. Reading a function is two on its
-         * own - find it, then read it - and a model that looks things up one at
-         * a time rather than in parallel spends them quickly. The last of these
-         * is the one asked without tools.
-         */
-        const val MAX_ROUNDS = 8
-
         /**
          * What the panel's sessions are filed under, so they sort together and
          * are obviously not somebody's workflow conversation.

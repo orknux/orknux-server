@@ -91,6 +91,19 @@ class Agent(
     var memoryShare: Int? = null,
 
     /**
+     * How many rounds of tool calls this agent gets before it has to answer.
+     *
+     * Null is the installation's own number, which is where every agent starts
+     * and where most of them stay. On the agent rather than only on the
+     * installation for the reason the memory share is: an agent with two tools
+     * and one holding a catalogue of twenty want different answers, and the
+     * number that suits both is the number that suits neither. A list, a load
+     * and a lookup is three rounds before the work begins.
+     */
+    @Column(name = "max_rounds")
+    var maxRounds: Int? = null,
+
+    /**
      * Whether this agent may ask orknux about orknux.
      *
      * The built-in server, which is not one of [mcpServers] and never appears

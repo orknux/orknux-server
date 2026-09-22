@@ -241,6 +241,13 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
              */
             is io.mszymanski.orknux.server.attachment.PluginSourceLimitOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.PluginTimeoutOutOfRangeException,
+            /*
+             * The rounds bound, set from two doors: Admin for the installation
+             * and an agent's page for its own. Both refuse the same way, and
+             * neither should come back as a correlation id about a number the
+             * screen offered to change.
+             */
+            is io.mszymanski.orknux.server.attachment.ChatRoundsOutOfRangeException,
             is TaskSweepNotConfigurableException,
             is RevisionNotRestorableException,
             is RevisionComponentGoneException,

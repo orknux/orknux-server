@@ -49,6 +49,8 @@ class InstallationSettingsAPI(
         pluginMaxSourceKbConfigured = settings.pluginMaxSourceKbConfigured(),
         pluginTimeoutSeconds = settings.pluginTimeoutSeconds(),
         pluginTimeoutSecondsConfigured = settings.pluginTimeoutSecondsConfigured(),
+        chatMaxRounds = settings.chatMaxRounds(),
+        chatMaxRoundsConfigured = settings.chatMaxRoundsConfigured(),
     )
 
     @MutationMapping
@@ -201,6 +203,28 @@ class InstallationSettingsAPI(
         return installationSettings()
     }
 
+    /**
+     * How many rounds of tool calls an agent gets before it has to answer.
+     *
+     * The installation's number, which every agent follows unless it carries one
+     * of its own. Here rather than only on the agent because the common case is
+     * an installation whose agents all hold more tools than eight rounds allow -
+     * and because somebody debugging "kept looking things up without reaching an
+     * answer" should be able to raise it once rather than agent by agent.
+     */
+    @MutationMapping
+    fun setChatMaxRounds(@Argument rounds: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setChatMaxRounds(rounds, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "Agents given $rounds rounds of tool calls",
+        )
+        return installationSettings()
+    }
+
     @MutationMapping
     fun setPluginMaxSourceKb(@Argument kb: Int): InstallationSettingsView {
         access.requireAdmin()
@@ -281,6 +305,16 @@ data class InstallationSettingsView(
     val pluginTimeoutSeconds: Int,
     /** What a fresh installation waits, before anybody changed it. */
     val pluginTimeoutSecondsConfigured: Int,
+    /**
+     * How many rounds of tool calls an agent gets before it must answer.
+     *
+     * One call to the model is a round: it answers, or it asks for tools and
+     * what it asks for is run and handed back. An agent may carry its own
+     * number; this is what the rest of them follow.
+     */
+    val chatMaxRounds: Int,
+    /** What a fresh installation allows - ORKNUX_CHAT_MAX_ROUNDS. */
+    val chatMaxRoundsConfigured: Int,
     /** What a fresh installation allows: the built-in default. */
     val pluginMaxSourceKbConfigured: Int,
     /**

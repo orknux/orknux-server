@@ -6,6 +6,7 @@ import io.mszymanski.orknux.connector.model.Hangup
 import io.mszymanski.orknux.connector.model.ModelChatClient
 import io.mszymanski.orknux.server.agent.Agent
 import io.mszymanski.orknux.server.agent.AgentRepository
+import io.mszymanski.orknux.server.attachment.InstallationSettings
 import io.mszymanski.orknux.server.llm.LlmSessionRecorder
 import io.mszymanski.orknux.server.workspace.AuditRedaction
 import org.slf4j.LoggerFactory
@@ -172,7 +173,20 @@ class AgentConversation(
     private val tools: AgentTools,
     private val agents: AgentRepository,
     private val sessions: LlmSessionRecorder,
+    /** Where the installation's ceiling on tool rounds is kept and changed. */
+    private val settings: InstallationSettings,
 ) {
+
+    /**
+     * How many rounds this agent gets: its own number, or the installation's.
+     *
+     * Eight was written into the code here, and it was right for an agent with
+     * two tools and wrong for one holding twenty - a list, a load and a lookup
+     * is three rounds before the work starts, and what the agent had gathered by
+     * then was thrown away with the refusal. The number is a setting now, and an
+     * agent whose work is longer than the rest carries its own.
+     */
+    private fun roundsFor(agent: Agent): Int = agent.maxRounds ?: settings.chatMaxRounds()
 
     /**
      * The same thing, for a caller holding only an id — the streaming endpoint,
@@ -302,7 +316,8 @@ class AgentConversation(
             if (announce) watch?.thinking(reasoning)
         }
 
-        repeat(MAX_ROUNDS) {
+        val rounds = roundsFor(agent)
+        repeat(rounds) {
             /*
              * Streamed when somebody is watching, asked for whole when nobody
              * is.
@@ -536,13 +551,15 @@ class AgentConversation(
         // Out of rounds. Said plainly rather than returning whatever the last
         // round happened to contain: an agent stuck in a loop of lookups has not
         // answered, and pretending otherwise hides the loop.
-        log.warn("Agent {} was still calling tools after {} rounds", agent.name, MAX_ROUNDS)
+        log.warn("Agent {} was still calling tools after {} rounds", agent.name, rounds)
         return ChatCompletion.Failed(
-            "${agent.name} kept looking things up without reaching an answer, and was stopped after $MAX_ROUNDS rounds",
+            "${agent.name} kept looking things up without reaching an answer, and was stopped after $rounds rounds",
             // Settled, and deliberately so. What put the agent in the loop is
             // its instructions and the tools it was granted, and those are the
-            // same on the next attempt; a retry policy here buys another eight
-            // rounds of the same billing on the way to the same sentence.
+            // same on the next attempt; a retry policy here buys another round
+            // of the same billing on the way to the same sentence. What does
+            // help is more rounds, and that is a setting now - on the agent, or
+            // on the installation behind it.
             permanent = true,
         ).also { record(into, agent, it) }
     }
@@ -613,13 +630,6 @@ class AgentConversation(
     }
 
     private companion object {
-        /**
-         * Enough for a real chain — list, load, look something up, answer — and
-         * short enough that a model talking to itself is stopped rather than
-         * billed for.
-         */
-        const val MAX_ROUNDS = 8
-
         val log = LoggerFactory.getLogger(AgentConversation::class.java)
     }
 }

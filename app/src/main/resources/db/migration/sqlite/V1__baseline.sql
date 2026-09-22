@@ -42,6 +42,9 @@ CREATE TABLE agent
     last_modified_at             timestamp not null default CURRENT_TIMESTAMP,
     last_modified_by             varchar(120) not null default '',
     memory_share                 integer,
+    -- How many rounds of tool calls this agent gets before it must answer; null
+    -- is the installation's own number. See `V271__agent_max_rounds.sql`.
+    max_rounds                   integer,
     constraint uk_agent_workspace_name UNIQUE (workspace_id, name),
     constraint ck_agent_type CHECK (((type) = 'LLM')),
     constraint ck_agent_memory_share CHECK (memory_share IS NULL OR (memory_share >= 1 AND memory_share <= 50)),

@@ -1030,6 +1030,13 @@ type Mutation {
     "How long a plugin may take to load; 1 to 300 seconds."
     setPluginTimeoutSeconds(seconds: Int!): InstallationSettings!
     """
+    How many rounds of tool calls an agent gets before it must answer; 2 to 100.
+
+    The installation's number, which every agent follows unless it carries one of
+    its own - see `maxRounds` on an agent. Administrators only.
+    """
+    setChatMaxRounds(rounds: Int!): InstallationSettings!
+    """
     Says which chat uploaded files belong to. Sent when the message is, since a
     first message is what makes the chat.
     """
@@ -2605,6 +2612,15 @@ type Agent {
     memoryShare: Int
     "What that share works out to against the model this agent uses now."
     memoryBudget: SessionMemoryBudget!
+    """
+    How many rounds of tool calls this agent gets before it must answer.
+
+    A round is one call to the model: it answers, or it asks for tools and what
+    it asks for is run and handed back. Null follows the installation's own
+    number, which is where every agent starts; a number here is for the one
+    agent whose work is longer than the rest.
+    """
+    maxRounds: Int
 }
 
 """
@@ -3510,6 +3526,8 @@ input UpdateAgentInput {
     the same words.
     """
     memoryShare: Int
+    "Its own ceiling on tool rounds; null follows the installation's."
+    maxRounds: Int
 }
 
 enum WorkspaceOperationType {
@@ -5252,6 +5270,16 @@ type InstallationSettings {
     pluginTimeoutSecondsConfigured: Int!
     "What a fresh installation allows: the built-in default."
     pluginMaxSourceKbConfigured: Int!
+    """
+    How many rounds of tool calls an agent gets before it must answer.
+
+    One call to the model is a round: it answers, or it asks for tools and what
+    it asks for is run and handed back. An agent may carry its own number; this
+    is what the rest of them follow.
+    """
+    chatMaxRounds: Int!
+    "What a fresh installation allows - ORKNUX_CHAT_MAX_ROUNDS."
+    chatMaxRoundsConfigured: Int!
     """
     False where the installation runs Temporal, and the field is not offered.
 

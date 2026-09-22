@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.plugin
 
+import io.mszymanski.orknux.connector.proxy.OutboundTrust
 import io.mszymanski.orknux.connector.proxy.ProxyRouter
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
@@ -8,6 +9,7 @@ import tools.jackson.databind.ObjectMapper
 import java.io.IOException
 import java.net.URI
 import java.net.http.HttpClient
+import java.util.concurrent.atomic.AtomicReference
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.charset.StandardCharsets
@@ -49,20 +51,46 @@ import java.time.Duration
 @Component
 class NetworkPluginHost(
     private val mapper: ObjectMapper,
-    proxies: ProxyRouter,
+    private val proxies: ProxyRouter,
+    /** What this installation trusts, watched so a new authority is picked up. */
+    private val trusted: OutboundTrust,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
 
-    private val client: HttpClient = proxies.builder()
-        .connectTimeout(CONNECT_TIMEOUT)
-        /*
-         * Followed, but only between addresses this would have accepted in the
-         * first place: `NORMAL` refuses a redirect from HTTPS to HTTP, which is
-         * the one that turns a checked call into an unchecked one.
-         */
-        .followRedirects(HttpClient.Redirect.NORMAL)
-        .build()
+    private val held = AtomicReference<Pair<Int, HttpClient>?>(null)
+
+    /**
+     * The client, made once and made again when the trusted list changes.
+     *
+     * Built here rather than in the constructor for the reason `McpClient`
+     * builds its own lazily: the list is read from the database, and an
+     * administrator who adds their authority and then asks a plugin to reach
+     * something expects that call to use it. A client built at startup and kept
+     * for the life of the process would make them restart the server to find
+     * that out - which is exactly the shape of the bug this release is fixing,
+     * one layer further in.
+     *
+     * The generation is the identity of the context the trust hands back: it
+     * returns the same instance until something is added or removed, and a new
+     * one after.
+     */
+    private fun client(): HttpClient {
+        val generation = System.identityHashCode(trusted.context())
+        held.get()?.takeIf { it.first == generation }?.let { return it.second }
+
+        val made = proxies.builder()
+            .connectTimeout(CONNECT_TIMEOUT)
+            /*
+             * Followed, but only between addresses this would have accepted in the
+             * first place: `NORMAL` refuses a redirect from HTTPS to HTTP, which is
+             * the one that turns a checked call into an unchecked one.
+             */
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build()
+        held.set(generation to made)
+        return made
+    }
 
     /**
      * `[url, method, headers, body, options]`, as the contract's helper sends it.
@@ -125,7 +153,7 @@ class NetworkPluginHost(
 
         return try {
             if (wantBytes) {
-                val answered = client.send(request.build(), HttpResponse.BodyHandlers.ofByteArray())
+                val answered = client().send(request.build(), HttpResponse.BodyHandlers.ofByteArray())
                 val held = answered.body() ?: ByteArray(0)
                 if (held.size > MAX_BYTES) {
                     return refusal("the answer was larger than ${MAX_BYTES / (1024 * 1024)} MB")
@@ -140,7 +168,7 @@ class NetworkPluginHost(
                 answer.put("contentType", answered.headers().firstValue("content-type").orElse(null))
                 mapper.writeValueAsString(answer)
             } else {
-                val answered = client.send(request.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+                val answered = client().send(request.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
                 val held = answered.body().orEmpty()
                 if (held.length > MAX_BODY) {
                     return refusal("the answer was larger than ${MAX_BODY / 1024} KB")
