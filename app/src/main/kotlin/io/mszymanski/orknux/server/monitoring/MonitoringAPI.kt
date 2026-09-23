@@ -145,10 +145,71 @@ class MonitoringAPI(
 
     private fun check(name: String, description: String, call: () -> Any?): DependencyView = try {
         call()
+        noted(name, reachable = true, said = "Answering")
         DependencyView(name, description, true, "Answering")
     } catch (failure: Exception) {
-        DependencyView(name, description, false, failure.message ?: "It could not be reached")
+        val said = failure.message ?: "It could not be reached"
+        noted(name, reachable = false, said = said)
+        DependencyView(name, description, false, said)
     }
+
+    /**
+     * Says in the log what the card says on the screen, when it changes.
+     *
+     * The screen was the only place this went, and a screen is a thing somebody
+     * has to already be looking at. A directory that has been refusing
+     * connections since Tuesday said so to whoever opened the monitoring page
+     * and to nobody else - not to the log anybody greps, not to whatever watches
+     * the log, and not to the person reading it a week later to work out when it
+     * started.
+     *
+     * Only on a change, because this runs every time the page polls: a line per
+     * poll would be a log that fills itself while nothing is happening, and the
+     * two moments worth keeping are when it broke and when it came back.
+     */
+    private fun noted(name: String, reachable: Boolean, said: String) {
+        when (worthSaying(lastSeen.put(name, reachable), reachable)) {
+            Said.NOTHING -> Unit
+            Said.BROKEN -> log.warn("{} could not be reached: {}", name, said)
+            Said.MENDED -> log.info("{} is answering again.", name)
+        }
+    }
+
+    /**
+     * What each dependency last reported, so only changes are logged.
+     *
+     * Held here rather than anywhere durable on purpose: it exists to stop a
+     * repeated line, and a restart is a moment when saying it again is right.
+     */
+    private val lastSeen = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+
+    companion object {
+
+        private val log = org.slf4j.LoggerFactory.getLogger(MonitoringAPI::class.java)
+
+        /**
+         * Whether this reading is worth a line, given the one before it.
+         *
+         * A dependency that is down stays down, and this runs every time the
+         * page polls - so what is logged is the change rather than the state.
+         *
+         * The first reading of all is the awkward one. Down is said: an
+         * installation that starts with an unreachable directory should say so
+         * without waiting for it to first work. Up is not: every restart would
+         * otherwise announce that everything is answering again, which is a line
+         * that reads like a recovery and is nothing of the sort.
+         *
+         * @param before what it last reported, or null on the first reading.
+         */
+        internal fun worthSaying(before: Boolean?, now: Boolean): Said = when {
+            before == now -> Said.NOTHING
+            now -> if (before == null) Said.NOTHING else Said.MENDED
+            else -> Said.BROKEN
+        }
+    }
+
+    /** What a reading is worth saying; see [worthSaying]. */
+    internal enum class Said { NOTHING, BROKEN, MENDED }
 }
 
 /** Something the service needs to be up, and whether it was. */
