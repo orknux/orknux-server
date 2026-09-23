@@ -16,9 +16,15 @@ import org.springframework.stereotype.Service
  * Skills are listed here, not spelled out. Each one is a page of markdown, and
  * an agent granted five catalogs would spend most of its context on instructions
  * for work it is not doing — so the briefing gives the names and what each is
- * for, and the agent loads the one that applies with [SkillTool]. Memory is not
- * here at all for the same reason it never was: it is looked up when it turns
- * out to be needed, which is what [MemoryTool] is for.
+ * for, and the agent loads the one that applies with [SkillTool].
+ *
+ * Memory is named here but not spelled out, which is the same trade and was not
+ * always the arrangement. It used to say nothing at all, on the reasoning that
+ * memory "is looked up when it turns out to be needed" - and nothing ever told
+ * the agent it would turn out to be needed. The result was a feature that
+ * worked and was used once: agents searched when somebody said "check your
+ * memory" and never otherwise. What is here now is how much is written down and
+ * where, which is a line, plus when to go and look.
  */
 @Service
 class AgentBriefing(
@@ -30,6 +36,8 @@ class AgentBriefing(
      * knowing about plugins.
      */
     private val skills: SkillTool,
+    /** What this agent has been written down for it; see the note in `of`. */
+    private val memories: io.mszymanski.orknux.server.memory.MemoryTool,
     private val connections: WorkspaceConnectionService,
     /** Which of the two ways the granted connections are told; see [ConnectionTools]. */
     private val connectionTools: ConnectionTools,
@@ -56,6 +64,41 @@ class AgentBriefing(
                     skill.description?.takeIf { it.isNotBlank() }?.let { append(": ").append(it) }
                 }
                 appendLine()
+            }
+        }
+
+        /*
+         * That there is anything written down at all.
+         *
+         * This said nothing, on the reasoning that memory "is looked up when it
+         * turns out to be needed" - but nothing ever told the agent it would
+         * turn out to be needed. It had a tool description among twenty others
+         * and no reason to believe the catalogue held anything, so it searched
+         * when somebody said "check your memory" and never otherwise: the
+         * feature worked and was used once.
+         *
+         * Named and counted rather than listed. What makes an agent look is
+         * knowing there is something to find, and that is a line - where the
+         * memories themselves are the thing this deliberately does not inline,
+         * for the reason the skills above are not spelled out either.
+         *
+         * The instruction is the other half. "You may search" is a capability
+         * and changes nothing; what changes behaviour is being told when, and
+         * the when is before answering from what it already believes.
+         */
+        val remembered = memories.catalogsFor(agent).filter { it.memoryCount > 0 }
+        if (remembered.isNotEmpty()) {
+            val held = remembered.sumOf { it.memoryCount }
+            parts += buildString {
+                append("This workspace has written ").append(held)
+                append(if (held == 1) " thing down" else " things down")
+                append(" that you can read, in ")
+                append(remembered.joinToString(", ") { "${it.name} (${it.memoryCount})" })
+                appendLine(".")
+                append("Search it with memory_search before answering anything about how this workspace ")
+                append("works, what it has decided, or who its customers are - what is written down there ")
+                append("is what somebody wanted you to know, and it beats what you would otherwise assume. ")
+                appendLine("Write down with memory_save anything you are told that the next conversation would need.")
             }
         }
 

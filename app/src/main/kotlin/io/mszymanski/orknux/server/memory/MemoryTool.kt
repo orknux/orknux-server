@@ -58,25 +58,78 @@ class MemoryTool(
     }
 
     /**
-     * Searches the catalogs this agent holds, newest change first.
+     * Searches the catalogs this agent holds, best match first.
      *
-     * A blank query returns what is there rather than nothing: an agent asking
-     * "what do you know about this catalog" is a reasonable first move. The
-     * limit is capped, because what comes back is going into a prompt.
+     * ### Why it is words rather than the string
+     *
+     * It was one `contains` over the whole query, which is a search that only
+     * answers a question somebody already knows the answer to. A memory reading
+     * "order-processing-service is abbreviated as OPS" was not found by "what
+     * does OPS stand for", by "OPS abbreviation", or by anything except a
+     * fragment of its own text - so an agent that had written something down
+     * could not find it again, said it knew nothing, and the row sat there. The
+     * strictness was invisible: an empty list looks the same whether nothing
+     * matched or nothing is there.
+     *
+     * So every word of the query is looked for on its own, a memory is scored by
+     * how many of them it carries and where, and what comes back is in that
+     * order.
+     *
+     * Any word rather than all of them, which is the opposite of the connection
+     * search and deliberately: a query there names one thing and is narrowing,
+     * while a question put to memory is a handful of words about a subject and
+     * most of them will not appear anywhere. Ranking is what keeps that useful -
+     * the memory carrying three of the words comes above the one carrying one.
+     *
+     * ### What it is not
+     *
+     * Not an index. What is searched is the granted catalogs read into memory,
+     * which is what this already did: a workspace's memory is tens or hundreds
+     * of short rows, and a tsvector would be a Postgres answer in a product that
+     * also runs on SQLite. If a catalog grows past what is comfortable to read
+     * whole, that is the point to put an index behind this, and the shape of the
+     * answer would not change.
+     *
+     * A blank query returns what is there, newest first, rather than nothing: an
+     * agent asking "what do you know" is a reasonable first move. The limit is
+     * capped, because what comes back is going into a prompt.
      */
     fun search(agent: Agent, query: String?, catalog: String?, limit: Int = DEFAULT_LIMIT): List<MemoryResult> {
         val allowed = catalogsFor(agent)
             .filter { catalog == null || it.name.equals(catalog, ignoreCase = true) }
         if (allowed.isEmpty()) return emptyList()
 
-        val wanted = query?.trim()?.ifEmpty { null }?.lowercase()
         val byName = allowed.associateBy { it.id }
-        return memories.findByCatalogIdInOrderByLastModifiedAtDesc(byName.keys)
-            .filter { memory ->
-                wanted == null ||
-                    memory.title.lowercase().contains(wanted) ||
-                    memory.content.lowercase().contains(wanted)
-            }
+        val held = memories.findByCatalogIdInOrderByLastModifiedAtDesc(byName.keys)
+        val wanted = wordsOf(query)
+
+        /*
+         * Asked nothing, as against asked something that came to nothing.
+         *
+         * A blank query is "show me what is there" and answers with the lot. A
+         * query whose every word was dropped - "what is the" - is a question
+         * that matched nothing, and handing back the whole catalogue there would
+         * be answering something nobody asked. The two look identical after the
+         * words are taken out, which is why this is asked of the query itself.
+         */
+        val found = when {
+            query.isNullOrBlank() ->
+                // What is there, newest change first, which is the order this
+                // list has always come back in.
+                held
+
+            wanted.isEmpty() -> emptyList()
+
+            else ->
+                held.map { it to score(it, wanted) }
+                    .filter { (_, score) -> score > 0 }
+                    // Best first, and the newest of an equal pair first: `held`
+                    // is already in that order and this sort is stable.
+                    .sortedByDescending { (_, score) -> score }
+                    .map { (memory, _) -> memory }
+        }
+
+        return found
             .take(limit.coerceIn(1, MAX_LIMIT))
             .map { memory ->
                 MemoryResult(
@@ -87,6 +140,63 @@ class MemoryTool(
                 )
             }
     }
+
+    /**
+     * The words worth looking for, out of what was asked.
+     *
+     * One-letter words are dropped because they match everything, and so are the
+     * few that carry no subject of their own: a question is mostly "what", "the"
+     * and "is", and a memory scoring a point for each of those would be ranked
+     * by how wordy it is rather than by what it is about.
+     */
+    private fun wordsOf(query: String?): List<String> =
+        query?.lowercase()?.split(NOT_A_WORD).orEmpty()
+            .filter { it.length > 1 && it !in EMPTY_WORDS }
+            .distinct()
+
+    /**
+     * How well one memory answers those words.
+     *
+     * A word in the title is worth more than the same word in the body: a title
+     * is what somebody filed it under, so a memory called "OPS abbreviation" is
+     * more about OPS than one that mentions it in passing.
+     */
+    private fun score(memory: Memory, words: List<String>): Int {
+        val title = memory.title.lowercase()
+        val content = memory.content.lowercase()
+        return words.sumOf { word ->
+            when {
+                carries(title, word) -> TITLE_WORTH
+                carries(content, word) -> CONTENT_WORTH
+                else -> 0
+            }
+        }
+    }
+
+    /**
+     * Whether a text carries a word, by the word rather than by the letters.
+     *
+     * `contains` alone makes "ops" match "operations" and "cops", which is how a
+     * three-letter query comes back with everything in the catalogue. So the
+     * match is against the text's own words.
+     *
+     * One of the two may be a prefix of the other, which is as much stemming as
+     * is worth having without a language to do it in - "abbreviations" finds
+     * "abbreviation" and the other way round. Both directions, because which of
+     * the two happens to be the plural is not something either side controls:
+     * the question is typed by a person and the memory was written by whoever
+     * wrote it.
+     *
+     * The shorter of the two has to be [STEM] long before a prefix counts. A
+     * question asking about "ops" must not match a memory about "operations",
+     * and without a floor the prefix rule brings back exactly what taking
+     * `contains` out was for.
+     */
+    private fun carries(text: String, word: String): Boolean =
+        text.split(NOT_A_WORD).any { held ->
+            held == word ||
+                (minOf(held.length, word.length) >= STEM && (held.startsWith(word) || word.startsWith(held)))
+        }
 
     /**
      * Writes one memory into a catalog this agent holds.
@@ -179,6 +289,35 @@ class MemoryTool(
     private companion object {
         const val DEFAULT_LIMIT = 10
         const val MAX_LIMIT = 50
+
+        /** A word in the title is worth three in the body; see `score`. */
+        const val TITLE_WORTH = 3
+        const val CONTENT_WORTH = 1
+
+        /**
+         * How much of a word has to be shared before a prefix counts as one.
+         *
+         * Four, which keeps "abbreviation" and "abbreviations" together and
+         * keeps "ops" away from "operations" - the match the whole change was
+         * about getting rid of.
+         */
+        const val STEM = 4
+
+        /** Letters and digits are a word; everything else separates two. */
+        val NOT_A_WORD = Regex("[^\\p{L}\\p{N}]+")
+
+        /**
+         * Words that say nothing about a subject.
+         *
+         * Not a stop-word list in the linguistic sense - it is the handful that
+         * turn up in every question anybody puts to an agent. Left in, they rank
+         * a memory by how long it is rather than by what it is about.
+         */
+        val EMPTY_WORDS = setOf(
+            "the", "a", "an", "and", "or", "of", "in", "on", "at", "to", "for", "from", "by", "with",
+            "is", "are", "was", "were", "be", "do", "does", "did", "what", "which", "who", "how",
+            "when", "where", "why", "it", "this", "that", "there", "about", "we", "you",
+        )
 
         /** What the column takes; over it is refused in words rather than by the database. */
         const val MAX_TITLE = 200
