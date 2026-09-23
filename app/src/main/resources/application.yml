@@ -452,10 +452,25 @@ orknux:
     # entered again.
     secret-key: ${ORKNUX_SECRET_KEY:}
   ldap:
+    # A sign-in refused here says why in the log, since it cannot say why to the
+    # person at the door - "Invalid username or password" is one sentence on
+    # purpose, and it is the same sentence whether no entry matched, the password
+    # was wrong, or the directory could not be reached at all.
+    #
+    # A directory that could not answer - host unreachable, mistyped bind DN, a
+    # base that does not exist, TLS refused - is logged at WARN without anything
+    # being turned up, because nobody can sign in until it is fixed. A refusal
+    # the directory itself gave is at DEBUG: set ORKNUX_LOG_LEVEL=DEBUG to see
+    # it. For what the directory was asked, which is the next question,
+    # LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY_LDAP=TRACE prints the search
+    # base, the filter and the DN it bound as.
     user-search-base: ${ORKNUX_LDAP_USER_SEARCH_BASE:ou=people}
     user-search-filter: ${ORKNUX_LDAP_USER_SEARCH_FILTER:(uid={0})}
     # Workspace groups have to live under this base for membership to be picked up;
-    # point it at the OU that holds them (an empty value disables group search).
+    # point it at the OU that holds them. Searched one level deep, so groups in
+    # OUs below this one are not found - name the OU that holds them rather than
+    # an ancestor of it. Left empty, the search runs from the base above instead
+    # of being disabled.
     group-search-base: ${ORKNUX_LDAP_GROUP_SEARCH_BASE:ou=groups}
     group-search-filter: ${ORKNUX_LDAP_GROUP_SEARCH_FILTER:(member={0})}
   connection:

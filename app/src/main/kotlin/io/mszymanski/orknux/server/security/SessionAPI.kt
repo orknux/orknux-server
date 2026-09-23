@@ -4,7 +4,9 @@ import com.fasterxml.jackson.annotation.JsonCreator
 import com.fasterxml.jackson.annotation.JsonProperty
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
+import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
+import org.springframework.security.authentication.InternalAuthenticationServiceException
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
 import org.springframework.security.core.Authentication
 import org.springframework.security.core.AuthenticationException
@@ -134,7 +136,44 @@ class SessionAPI(
             authenticationManager.authenticate(
                 UsernamePasswordAuthenticationToken(credentials.username, credentials.password),
             )
-        } catch (_: AuthenticationException) {
+        } catch (cause: AuthenticationException) {
+            /*
+             * Said in the log, not to the caller.
+             *
+             * The sentence below stays one sentence on purpose: telling somebody
+             * at the door that the username exists and only the password was
+             * wrong is telling an attacker which half to keep. But it is the
+             * only thing this endpoint used to say, to anybody, and a directory
+             * that cannot be reached at all arrives here as the same
+             * AuthenticationException a wrong password does - so an installation
+             * whose bind DN was mistyped reported "Invalid username or password"
+             * to every person in the company and nothing at all to the person
+             * who could fix it. See [refusalFor] for what the difference is.
+             */
+            when (refusalFor(cause)) {
+                Refusal.DIRECTORY -> log.warn(
+                    "Sign-in for \"{}\" could not be checked against the directory, so it was refused: {}. " +
+                        "This is not a wrong password - the directory could not answer. Check " +
+                        "ORKNUX_LDAP_URLS, ORKNUX_LDAP_BASE, ORKNUX_LDAP_BIND_DN and " +
+                        "ORKNUX_LDAP_BIND_PASSWORD.",
+                    credentials.username,
+                    describe(cause),
+                )
+                /*
+                 * Debug rather than warn: on a public installation a wrong
+                 * password is a daily event, and a line per attempt at warn
+                 * would be a log anybody could fill from the sign-in form.
+                 * Loud enough to find with ORKNUX_LOG_LEVEL=DEBUG, which is
+                 * what somebody debugging a sign-in sets.
+                 */
+                Refusal.CREDENTIALS -> log.debug(
+                    "Sign-in for \"{}\" was refused by the directory: {}. Either no entry matched " +
+                        "ORKNUX_LDAP_USER_SEARCH_FILTER under ORKNUX_LDAP_USER_SEARCH_BASE, or the " +
+                        "password was wrong - the directory is not asked to tell those apart.",
+                    credentials.username,
+                    describe(cause),
+                )
+            }
             throttle.failed(credentials.username, from)
             throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid username or password")
         }
@@ -153,6 +192,60 @@ class SessionAPI(
 
     @GetMapping
     fun current(authentication: Authentication): SessionUser = sessionUser(authentication)
+
+    companion object {
+
+        private val log = LoggerFactory.getLogger(SessionAPI::class.java)
+
+        /**
+         * Which kind of refusal this was, which the caller is never told.
+         *
+         * Spring's LDAP provider hands back one exception type for two very
+         * different things. A user search that matched nothing becomes
+         * `BadCredentialsException`, deliberately, so the door does not say
+         * whether the name exists - and a wrong password becomes the same. But
+         * every `NamingException` underneath becomes
+         * [InternalAuthenticationServiceException]: the server unreachable, a
+         * mistyped bind DN, a base that does not exist, TLS refused. Those are
+         * not somebody typing their password wrong, they are an installation
+         * that cannot sign anybody in, and they are worth saying out loud.
+         */
+        internal fun refusalFor(cause: AuthenticationException): Refusal =
+            if (cause is InternalAuthenticationServiceException) Refusal.DIRECTORY else Refusal.CREDENTIALS
+
+        /**
+         * The exception and the deepest thing that caused it.
+         *
+         * Both, because the useful sentence is usually at the bottom -
+         * `InternalAuthenticationServiceException` carries the message of the
+         * `NamingException` it wrapped, which in turn carries the one from JNDI
+         * that names the host or the DN.
+         */
+        internal fun describe(cause: Throwable): String {
+            var deepest: Throwable = cause
+            var left = CAUSES
+            // Bounded: a cycle in a cause chain would otherwise be a hang at the
+            // one moment somebody is trying to read a log.
+            while (left > 0) {
+                deepest = deepest.cause ?: break
+                left -= 1
+            }
+            val said = "${cause::class.simpleName}: ${cause.message}"
+            return if (deepest === cause) said else "$said (caused by ${deepest::class.simpleName}: ${deepest.message})"
+        }
+
+        /** How far down a cause chain is followed; see [describe]. */
+        private const val CAUSES = 10
+    }
+
+    /** What a refused sign-in actually was; see [refusalFor]. */
+    internal enum class Refusal {
+        /** No entry matched, or the password was wrong. The directory answered. */
+        CREDENTIALS,
+
+        /** The directory could not answer at all, so nobody can sign in. */
+        DIRECTORY,
+    }
 
     /**
      * Who this is, and whether they administer.
