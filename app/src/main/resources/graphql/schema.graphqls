@@ -7052,6 +7052,15 @@ type Role {
     name: String!
     description: String
     scopes: [RoleScope!]!
+    """
+    Which of the directory's names grant this role, beyond its own name.
+
+    A role is matched to a group by name already - `Backend` is granted to
+    whoever holds ROLE_BACKEND - so most roles carry none. These are for the
+    groups a role cannot be named after: `dev.TL`, `BoarCMS Group`. An LDAP
+    group's common name or full DN, or an OIDC claim value.
+    """
+    matches: [String!]!
     "True for the administrator role, which cannot be edited or removed."
     builtin: Boolean!
     "ISO-8601 offset date-time."
@@ -7064,6 +7073,8 @@ input RoleInput {
     description: String
     "Empty or absent means an ordinary role: USER."
     scopes: [RoleScope!]
+    "Directory names that grant this role, beyond its own. Absent leaves none."
+    matches: [String!]
 }
 
 "Where a user is true: at the identity provider, or here."

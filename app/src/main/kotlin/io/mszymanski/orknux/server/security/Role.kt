@@ -63,6 +63,28 @@ class Role(
     var scopes: MutableSet<RoleScope> = mutableSetOf(RoleScope.USER),
 
     /**
+     * Which of the provider's names grant this role, beyond its own.
+     *
+     * A role is matched to a group by name already: `Backend` is granted to
+     * whoever holds `ROLE_BACKEND`, which is what the directory sends. That
+     * carries most installations and falls down on the first group called
+     * `dev.TL` or `BoarCMS Group` - and then the only way to grant it was
+     * `orknux.security.role-mapping` in the configuration file, which an
+     * administrator cannot see, cannot reach, and cannot change without somebody
+     * redeploying the installation on their behalf.
+     *
+     * So it is here, where the role is, and editable by whoever administers.
+     * Each one is a name the provider may use: an LDAP group's common name or
+     * its full DN, or the value of an OIDC claim. The configured mapping is
+     * still read as well, because an installation that has one in its file
+     * should not lose it by upgrading.
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "security_role_match", joinColumns = [JoinColumn(name = "role_id")])
+    @Column(name = "value", nullable = false, length = 500)
+    var matches: MutableSet<String> = mutableSetOf(),
+
+    /**
      * True for the one role that is not somebody's to change.
      *
      * An installation with no administrator role is one nobody can administer, and

@@ -48,12 +48,30 @@ class RoleResolver(
             .values
             .mapNotNull { name -> roles.findByName(name.trim()) }
 
-        val byName = roles.findAll().filter { role -> authoritiesOf(role.name).any { it in held } }
+        /*
+         * Its own name, and any directory name an administrator wrote on it.
+         *
+         * The second is the same decision the configured mapping makes, moved to
+         * where somebody can make it: a group called `dev.TL` or `BoarCMS Group`
+         * can be named on the role rather than in a file nobody administering
+         * this installation can reach.
+         */
+        val byName = roles.findAll().filter { role ->
+            authoritiesOf(role.name).any { it in held } ||
+                role.matches.any { matches(it, held) }
+        }
 
         return (mapped + byName).toSet()
     }
 
-    /** Whether the caller holds what this mapping key names, however either is spelled. */
+    /**
+     * Whether the caller holds what this name names, however either is spelled.
+     *
+     * Used for both kinds of mapping - the one in the configuration file and the
+     * one written on the role - because they are the same decision and somebody
+     * moving from one to the other should not find the spelling rules changed
+     * underneath them.
+     */
     private fun matches(key: String, held: Set<String>): Boolean {
         val wanted = key.trim().lowercase()
         if (wanted in held) return true

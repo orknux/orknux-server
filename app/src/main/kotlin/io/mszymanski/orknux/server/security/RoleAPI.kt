@@ -54,6 +54,7 @@ class RoleAPI(
                 name = name,
                 description = input.description?.trim()?.ifEmpty { null },
                 scopes = scopesOf(input.scopes),
+                matches = matchesOf(input.matches),
                 lastModifiedAt = OffsetDateTime.now(),
                 lastModifiedBy = currentUser(),
             ),
@@ -75,6 +76,7 @@ class RoleAPI(
         role.name = name
         role.description = input.description?.trim()?.ifEmpty { null }
         role.scopes = scopesOf(input.scopes)
+        role.matches = matchesOf(input.matches)
         role.lastModifiedAt = OffsetDateTime.now()
         role.lastModifiedBy = currentUser()
         return describe(role)
@@ -107,6 +109,25 @@ class RoleAPI(
      * to make. Empty means USER — the ordinary one — rather than a refusal, because
      * "what may they do" is a question with an obvious default and no good error.
      */
+    /**
+     * The directory names written on a role, tidied.
+     *
+     * Trimmed and de-duplicated without regard to case, because these are
+     * compared without regard to case: two rows differing only in capitals would
+     * be one rule shown twice, and whoever removed the wrong one would find it
+     * still working.
+     *
+     * The blanks go. A row somebody left empty grants nothing and reads like a
+     * rule.
+     */
+    private fun matchesOf(matches: List<String>?): MutableSet<String> {
+        val seen = mutableSetOf<String>()
+        return matches.orEmpty()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && seen.add(it.lowercase()) }
+            .toMutableSet()
+    }
+
     private fun scopesOf(scopes: List<RoleScope>?): MutableSet<RoleScope> =
         scopes?.toMutableSet()?.takeIf { it.isNotEmpty() } ?: mutableSetOf(RoleScope.USER)
 
@@ -114,6 +135,7 @@ class RoleAPI(
         name?.trim()?.ifEmpty { null } ?: throw RoleNameInvalidException()
 
     private fun describe(role: Role) = RoleView(
+        matches = role.matches.sortedBy { it.lowercase() },
         id = requireNotNull(role.id),
         name = role.name,
         description = role.description,
@@ -134,6 +156,12 @@ data class RoleInput(
     val description: String? = null,
     /** Empty or absent means an ordinary role: USER. */
     val scopes: List<RoleScope>? = null,
+    /**
+     * Directory names that grant this role, beyond its own name.
+     *
+     * Absent leaves none, which is right for every role named after its group.
+     */
+    val matches: List<String>? = null,
 )
 
 data class RoleView(
@@ -141,6 +169,15 @@ data class RoleView(
     val name: String,
     val description: String?,
     val scopes: List<RoleScope>,
+    /**
+     * Which of the provider's names grant this role, beyond its own.
+     *
+     * For a group this installation cannot name a role after - `dev.TL`,
+     * `BoarCMS Group` - which before this could only be mapped in the
+     * configuration file, where an administrator could neither see it nor
+     * change it.
+     */
+    val matches: List<String>,
     /** True for the administrator role, which the screen shows without its controls. */
     val builtin: Boolean,
     val lastModifiedAt: String,

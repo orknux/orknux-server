@@ -776,6 +776,14 @@ CREATE TABLE security_role
     last_modified_by             varchar(120) not null default 'system'
 );
 
+CREATE TABLE security_role_match
+(
+    role_id                      integer not null,
+    value                        varchar(500) not null,
+    PRIMARY KEY (role_id, value),
+    constraint security_role_match_role_id_fkey FOREIGN KEY (role_id) REFERENCES security_role(id) ON DELETE CASCADE
+);
+
 CREATE TABLE security_role_scope
 (
     role_id                      integer not null,
