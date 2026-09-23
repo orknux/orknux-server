@@ -452,6 +452,12 @@ orknux:
     # entered again.
     secret-key: ${ORKNUX_SECRET_KEY:}
   ldap:
+    # An ldaps:// directory is reached with the certificate authorities on the
+    # Admin > Certificates screen as well as the ones the JVM came with, so a
+    # domain controller presenting a certificate from the company's own authority
+    # needs that authority pasted there and nothing done to the container. Plain
+    # ldap:// is untouched.
+    #
     # A sign-in refused here says why in the log, since it cannot say why to the
     # person at the door - "Invalid username or password" is one sentence on
     # purpose, and it is the same sentence whether no entry matched, the password

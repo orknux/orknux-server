@@ -17,6 +17,54 @@ import org.springframework.security.ldap.userdetails.LdapAuthoritiesPopulator
 @EnableConfigurationProperties(LdapProperties::class)
 class LdapAuthenticationConfig {
 
+    /**
+     * The directory connection, built here rather than by Spring Boot.
+     *
+     * Everything below the first line is what Boot's own auto-configuration
+     * does, and it is copied rather than customised because there is no hook to
+     * customise: the one thing that has to be added - which socket factory LDAPS
+     * connections are made with - can only be set before the source is
+     * initialised, and Boot hands it back already built. Boot stands aside
+     * because it makes this bean only where there is not one already.
+     *
+     * The addition is [TrustedLdapSocketFactory], and only for an all-LDAPS
+     * directory: it makes the connection trust what the trusted certificates
+     * screen says this installation trusts, which until now reached everything
+     * outbound *except* the directory - so an administrator could paste their
+     * company's certificate authority into the product and still not sign in
+     * against their own domain controllers.
+     */
+    @Bean
+    fun ldapContextSource(
+        connection: org.springframework.boot.ldap.autoconfigure.LdapConnectionDetails,
+        boot: org.springframework.boot.ldap.autoconfigure.LdapProperties,
+        strategy: org.springframework.beans.factory.ObjectProvider<
+            org.springframework.ldap.core.support.DirContextAuthenticationStrategy,
+            >,
+    ): org.springframework.ldap.core.support.LdapContextSource =
+        org.springframework.ldap.core.support.LdapContextSource().apply {
+            strategy.ifUnique(::setAuthenticationStrategy)
+            connection.username?.let(::setUserDn)
+            connection.password?.let(::setPassword)
+            boot.anonymousReadOnly?.let(::setAnonymousReadOnly)
+            boot.referral?.let { setReferral(it.name.lowercase()) }
+            connection.base?.let(::setBase)
+            connection.urls?.let(::setUrls)
+
+            val urls = connection.urls?.toList().orEmpty()
+            setBaseEnvironmentProperties(
+                if (TrustedLdapSocketFactory.wantedFor(urls)) {
+                    boot.baseEnvironment +
+                        (TrustedLdapSocketFactory.JNDI_SOCKET_FACTORY to TrustedLdapSocketFactory::class.java.name)
+                } else {
+                    // Never on a plain connection: the property says how to make
+                    // the socket, not how to do TLS, so a `ldap://` connection
+                    // would open a handshake on a port that answers none.
+                    boot.baseEnvironment
+                },
+            )
+        }
+
     @Bean
     fun ldapAuthoritiesPopulator(
         contextSource: BaseLdapPathContextSource,
