@@ -11,6 +11,8 @@ import io.mszymanski.orknux.connector.connection.OutgoingHttp
 import io.mszymanski.orknux.connector.connection.OutgoingMail
 import io.mszymanski.orknux.connector.connection.OutgoingMessages
 import io.mszymanski.orknux.server.workflow.NodeExpressions
+import io.mszymanski.orknux.server.workflow.StepSpeech
+import io.mszymanski.orknux.server.workflow.StepSpoken
 import io.mszymanski.orknux.server.condition.ConditionNotDecidableException
 import io.mszymanski.orknux.server.condition.WorkflowConditionRepository
 import io.mszymanski.orknux.workflow.execution.ExecutionStep
@@ -71,6 +73,8 @@ class ActionNodeRunner(
      * can answer without matching on the clock.
      */
     private val executions: WorkflowExecutionRepository,
+    /** What lets a node say something out loud; see [StepSpeech]. */
+    private val speech: StepSpeech,
 ) : NodeRunner {
 
     override fun supports(kind: NodeKind): Boolean = kind == NodeKind.ACTION
@@ -96,6 +100,66 @@ class ActionNodeRunner(
             ActionSubtype.SEND_EMAIL -> sendMail(action, step, input, trigger)
 
             ActionSubtype.HTTP_REQUEST -> request(action, step, input, trigger)
+            ActionSubtype.SPEAK -> speak(action, step, input, trigger)
+        }
+    }
+
+    /**
+     * Says what the node says, and leaves the audio with the run.
+     *
+     * Issue #264. What it hands on is where the file is rather than the file:
+     * the next node sends it through a connection the way it would send anything
+     * else, and the bytes are on the run for anybody who wants to listen.
+     *
+     * A refusal is a skipped step rather than a failed one, which is the rule
+     * the waiting actions keep: a workspace with no speech model chosen is a
+     * thing somebody has not set up, not a run that went wrong.
+     */
+    private fun speak(action: WorkflowAction, step: ExecutionStep, input: String?, trigger: String?): StepResult {
+        val given = expressions.parse(input)
+        val started = expressions.parse(trigger)
+        val byName = expressions.mappingsOf(step)
+
+        /*
+         * The node's words where it has its own, and the action's otherwise -
+         * the same precedence every other action here keeps. "Read this out" is
+         * the action; which summary is the node's.
+         */
+        val said = byName[ActionParameters.SPEECH]
+            ?.let { expressions.textOf(it, given, started) }
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: action.speechText.orEmpty()
+
+        return when (
+            val spoken = speech.speak(
+                executionId = step.executionId,
+                nodeKey = step.nodeKey,
+                workspaceId = action.workspaceId,
+                text = said,
+                modelId = action.speechModelId,
+                voice = action.speechVoice,
+            )
+        ) {
+            is StepSpoken.Refused -> StepResult(StepStatus.SKIPPED, "${step.name} said nothing: ${spoken.reason}")
+            is StepSpoken.Spoke -> StepResult(
+                StepStatus.COMPLETED,
+                // Beside what reached this step, the way every other action here
+                // hands its answer on.
+                expressions.alongsideJson(
+                    step.outputName ?: DEFAULT_OUTPUT,
+                    mapper.writeValueAsString(
+                        mapOf(
+                            "url" to "/api/executions/speech/${spoken.speech.id}",
+                            "filename" to spoken.speech.filename,
+                            // How long it runs for, which is the one thing about
+                            // a sound file a later condition might branch on.
+                            "seconds" to (spoken.millis / 1000.0),
+                        ),
+                    ),
+                    input,
+                ),
+            )
         }
     }
 

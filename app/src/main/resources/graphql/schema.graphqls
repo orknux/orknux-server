@@ -4756,6 +4756,27 @@ type ExecutionDetail {
     workflowAssigned: Boolean!
     "The pictures this run's image nodes drew, each keyed to the step that drew it."
     pictures: [ExecutionPicture!]!
+    """
+    What this run said out loud, each keyed to the step that said it.
+
+    Empty for a run that spoke nothing, which is most of them. A run produces
+    audio where it reaches a node that speaks; sending it anywhere is a separate
+    node, because keeping the file and sending it are two decisions.
+    """
+    speeches: [ExecutionSpeech!]!
+}
+
+"One thing a run said out loud, as the run graph plays it."
+type ExecutionSpeech {
+    id: ID!
+    "Which step said it, so the graph plays it under that node."
+    nodeKey: String!
+    "Where the bytes are served: an <audio src> and the download."
+    url: String!
+    "The words it read, because audio cannot be read at a glance."
+    said: String!
+    filename: String!
+    contentType: String!
 }
 
 "One picture an image node drew, as the run graph shows it."
@@ -6311,6 +6332,12 @@ type Action {
     emailSubject: String
     "Where answers go, when that is not the connection's from-address."
     emailReplyTo: String
+    "What a SPEAK action reads out; a node may say something else instead."
+    speechText: String
+    "Which voice, where the provider offers more than one; null is its own."
+    speechVoice: String
+    "Which model speaks it; null follows the workspace's own choice."
+    speechModelId: ID
     url: String
     method: String
     """
@@ -6409,6 +6436,12 @@ input CreateActionInput {
     emailSubject: String
     "Where answers go, when that is not the connection's from-address."
     emailReplyTo: String
+    "What a SPEAK action reads out; a node may say something else instead."
+    speechText: String
+    "Which voice, where the provider offers more than one; null is its own."
+    speechVoice: String
+    "Which model speaks it; null follows the workspace's own choice."
+    speechModelId: ID
     url: String
     method: String
     "The headers as one JSON string. What an import carries; `headerRows` is what a form sends."
@@ -6443,6 +6476,12 @@ input UpdateActionInput {
     emailSubject: String
     "Where answers go, when that is not the connection's from-address."
     emailReplyTo: String
+    "What a SPEAK action reads out; a node may say something else instead."
+    speechText: String
+    "Which voice, where the provider offers more than one; null is its own."
+    speechVoice: String
+    "Which model speaks it; null follows the workspace's own choice."
+    speechModelId: ID
     url: String
     method: String
     "The headers as one JSON string. What an import carries; `headerRows` is what a form sends."

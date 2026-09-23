@@ -83,6 +83,16 @@ class ActionParameters(private val functions: WorkflowFunctionRepository) {
 
         ActionSubtype.CONDITION -> listOf(ActionParamView("held", ValueType.BOOLEAN))
         ActionSubtype.TIME -> emptyList()
+        /*
+         * What a spoken step hands on: where the audio is, so the next node can
+         * send it, and how long it runs for, which is the one thing about a
+         * sound file a condition might reasonably branch on.
+         */
+        ActionSubtype.SPEAK -> listOf(
+            ActionParamView("url", ValueType.STRING),
+            ActionParamView("filename", ValueType.STRING),
+            ActionParamView("seconds", ValueType.NUMBER),
+        )
     }
 
     /**
@@ -163,6 +173,13 @@ class ActionParameters(private val functions: WorkflowFunctionRepository) {
         // A delay is told how long by its own settings, so the node supplies
         // nothing; a saved condition needs what the run already carries.
         ActionSubtype.TIME, ActionSubtype.CONDITION -> emptyList()
+        /*
+         * What it says, seeded from the action. The one thing anybody varies
+         * per node is the words - "read this out" is the action, and which
+         * summary is the node's - which is the same argument the message
+         * actions above make about their content.
+         */
+        ActionSubtype.SPEAK -> listOf(seed(SPEECH, ValueType.STRING, action.speechText))
     }
 
     /**
@@ -246,6 +263,9 @@ class ActionParameters(private val functions: WorkflowFunctionRepository) {
 
         /** What it says. */
         const val CONTENT = "content"
+
+        /** What a [ActionSubtype.SPEAK] node says, overriding the action's own. */
+        const val SPEECH = "speech"
 
         /** The message a reply threads onto; blank posts to the channel instead. */
         const val THREAD_TS = "threadTs"

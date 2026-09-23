@@ -933,6 +933,24 @@ CREATE TABLE execution_picture
 
 CREATE INDEX execution_picture_execution_idx ON execution_picture (execution_id, drawn_at, id);
 
+CREATE TABLE execution_speech
+(
+    id                           integer not null primary key autoincrement,
+    execution_id                 integer not null,
+    node_key                     varchar(64) not null,
+    workspace_id                 integer not null,
+    said                         text not null,
+    filename                     varchar(255) not null,
+    content_type                 varchar(120) not null,
+    size_bytes                   integer not null,
+    location                     varchar(1000) not null,
+    spoken_at                    timestamp not null default CURRENT_TIMESTAMP,
+    constraint execution_speech_execution_id_fkey FOREIGN KEY (execution_id) REFERENCES workflow_execution(id) ON DELETE CASCADE,
+    constraint execution_speech_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspace(id) ON DELETE CASCADE
+);
+
+CREATE INDEX execution_speech_execution_idx ON execution_speech (execution_id, spoken_at, id);
+
 CREATE TABLE task_request
 (
     id                           integer not null primary key autoincrement,
@@ -1011,8 +1029,11 @@ CREATE TABLE workflow_action
     email_cc                     varchar(1000),
     email_subject                varchar(500),
     email_reply_to               varchar(320),
+    speech_text                  text,
+    speech_voice                 varchar(80),
+    speech_model_id              integer,
     constraint ck_workflow_action_shape CHECK ((workflow_id IS NOT NULL) OR (((((type) = 'EXECUTE') AND ((subtype) = 'OUTGOING_CONNECTION') AND (connection_id IS NOT NULL)) OR (((type) = 'EXECUTE') AND ((subtype) = 'SEND_EMAIL') AND (connection_id IS NOT NULL)) OR (((type) = 'EXECUTE') AND ((subtype) = 'HTTP_REQUEST') AND (url IS NOT NULL)) OR (((type) = 'EXECUTE') AND ((subtype) = 'FUNCTION') AND (function_id IS NOT NULL)) OR (((type) = 'WAIT') AND ((subtype) = 'INLINE_CONDITION') AND (condition_expression IS NOT NULL)) OR (((type) = 'WAIT') AND ((subtype) = 'CONDITION') AND (condition_id IS NOT NULL)) OR (((type) = 'WAIT') AND ((subtype) = 'TIME') AND (duration_seconds IS NOT NULL))))),
-    constraint ck_workflow_action_subtype CHECK (((subtype) IN ('OUTGOING_CONNECTION', 'SEND_EMAIL', 'HTTP_REQUEST', 'FUNCTION', 'INLINE_CONDITION', 'CONDITION', 'TIME'))),
+    constraint ck_workflow_action_subtype CHECK (((subtype) IN ('OUTGOING_CONNECTION', 'SEND_EMAIL', 'HTTP_REQUEST', 'FUNCTION', 'INLINE_CONDITION', 'CONDITION', 'TIME', 'SPEAK'))),
     constraint ck_workflow_action_type CHECK (((type) IN ('EXECUTE', 'WAIT'))),
     constraint workflow_action_condition_id_fkey FOREIGN KEY (condition_id) REFERENCES workflow_condition(id),
     constraint workflow_action_function_id_fkey FOREIGN KEY (function_id) REFERENCES workflow_function(id),

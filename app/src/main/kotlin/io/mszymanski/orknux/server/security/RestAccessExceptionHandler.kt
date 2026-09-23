@@ -5,6 +5,7 @@ import io.mszymanski.orknux.server.attachment.AttachmentTooLargeException
 import io.mszymanski.orknux.server.attachment.AttachmentsDisabledException
 import io.mszymanski.orknux.server.task.TaskPictureNotFoundException
 import io.mszymanski.orknux.server.workflow.ExecutionPictureNotFoundException
+import io.mszymanski.orknux.server.workflow.ExecutionSpeechNotFoundException
 import io.mszymanski.orknux.server.workflow.SavedArtifactNotFoundException
 import io.mszymanski.orknux.server.workspace.WorkspaceNotFoundException
 import org.springframework.http.HttpStatus
@@ -54,6 +55,7 @@ class RestAccessExceptionHandler {
         AttachmentNotFoundException::class,
         TaskPictureNotFoundException::class,
         ExecutionPictureNotFoundException::class,
+        ExecutionSpeechNotFoundException::class,
         SavedArtifactNotFoundException::class,
     )
     fun notFound(failure: RuntimeException): ResponseEntity<Map<String, String>> =

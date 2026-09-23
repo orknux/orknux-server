@@ -310,6 +310,10 @@ class GraphValidator(
         ActionSubtype.INLINE_CONDITION -> "nothing to wait for".takeIf { action.conditionExpression.isNullOrBlank() }
         ActionSubtype.CONDITION -> "no condition chosen".takeIf { action.conditionId == null }
         ActionSubtype.TIME -> "no time to wait".takeIf { action.durationSeconds == null }
+        // Not the model: a workspace that has chosen one is what most
+        // installations have, and an action that names none follows it. What
+        // cannot be left out is the words.
+        ActionSubtype.SPEAK -> "nothing to say".takeIf { action.speechText.isNullOrBlank() }
     }
 
     fun problems(

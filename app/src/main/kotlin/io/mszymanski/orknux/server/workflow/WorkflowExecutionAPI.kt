@@ -37,11 +37,17 @@ class WorkflowExecutionAPI(
     private val temporal: TemporalLinks,
     private val auditRecorder: WorkspaceAuditRecorder,
     private val pictures: ExecutionPictureRepository,
+    /** What a run said out loud, filed against the steps that said it. */
+    private val speeches: ExecutionSpeechRepository,
 ) {
 
     /** The pictures one run's image nodes drew, oldest first, as the graph shows them. */
     private fun picturesOf(executionId: Long): List<ExecutionPictureView> =
         pictures.findByExecutionIdOrderByDrawnAtAscIdAsc(executionId).map(::ExecutionPictureView)
+
+    /** What one run said out loud, oldest first, as the graph shows them. */
+    private fun speechesOf(executionId: Long): List<ExecutionSpeechView> =
+        speeches.findByExecutionIdOrderBySpokenAtAscIdAsc(executionId).map(::ExecutionSpeechView)
 
     @QueryMapping
     fun workspaceExecutions(
@@ -108,6 +114,7 @@ class WorkflowExecutionAPI(
             temporal.forExecution(run.id),
             assignments.existsByWorkspaceIdAndWorkflowId(run.workspaceId, run.workflowId),
             picturesOf(run.id),
+            speechesOf(run.id),
         )
     }
 
@@ -243,6 +250,7 @@ class WorkflowExecutionAPI(
             temporal.forExecution(started.id),
             assignments.existsByWorkspaceIdAndWorkflowId(started.workspaceId, started.workflowId),
             picturesOf(started.id),
+            speechesOf(started.id),
         )
 
     /**
@@ -405,6 +413,12 @@ data class RunDetailView(
      * Issue #333.
      */
     val pictures: List<ExecutionPictureView> = emptyList(),
+    /**
+     * What the run said out loud, keyed to their steps by
+     * [ExecutionSpeechView.nodeKey] so the graph plays each under the node that
+     * said it. Empty for a run that spoke nothing. Issue #264.
+     */
+    val speeches: List<ExecutionSpeechView> = emptyList(),
 ) {
     constructor(
         run: ExecutionDetailView,
@@ -412,6 +426,7 @@ data class RunDetailView(
         temporalUrl: String?,
         workflowAssigned: Boolean,
         pictures: List<ExecutionPictureView>,
+        speeches: List<ExecutionSpeechView>,
     ) : this(
         id = run.id,
         workspaceId = run.workspaceId,
@@ -432,6 +447,29 @@ data class RunDetailView(
         temporalUrl = temporalUrl,
         workflowAssigned = workflowAssigned,
         pictures = pictures,
+        speeches = speeches,
+    )
+}
+
+/** One thing a run said out loud, as the run graph plays it. */
+data class ExecutionSpeechView(
+    val id: Long,
+    /** Which step said it, so the graph plays it under that node. */
+    val nodeKey: String,
+    /** Where the bytes are served: an `<audio src>` and the download. */
+    val url: String,
+    /** The words it read, because audio cannot be read at a glance. */
+    val said: String,
+    val filename: String,
+    val contentType: String,
+) {
+    constructor(speech: ExecutionSpeech) : this(
+        id = requireNotNull(speech.id),
+        nodeKey = speech.nodeKey,
+        url = "/api/executions/speech/${requireNotNull(speech.id)}",
+        said = speech.said,
+        filename = speech.filename,
+        contentType = speech.contentType,
     )
 }
 

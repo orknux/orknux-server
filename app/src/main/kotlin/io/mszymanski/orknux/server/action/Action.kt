@@ -61,6 +61,22 @@ enum class ActionSubtype {
 
     /** Waits for a fixed time. */
     TIME,
+
+    /**
+     * Says something out loud, and leaves the audio with the run.
+     *
+     * Issue #264. The product spoke in a chat and nowhere else, so a run that
+     * wanted to hand somebody audio - a summary to listen to on the way in, a
+     * message for a channel where nobody reads - had no way to make any. Every
+     * other kind of output a run produces is a file it leaves behind, and this
+     * was the missing one.
+     *
+     * It produces the file and stops there. Sending it is what the connection
+     * actions already do, and a subtype that spoke *and* posted would be two
+     * decisions in one node - with no way to keep the audio without also
+     * sending it.
+     */
+    SPEAK,
 }
 
 /** What is being sent through a connection. */
@@ -174,6 +190,31 @@ class WorkflowAction(
     /** Where answers should go, when that is not the connection's from-address. */
     @Column(name = "email_reply_to", length = 320)
     var emailReplyTo: String? = null,
+
+    /**
+     * What a [ActionSubtype.SPEAK] action says.
+     *
+     * The action's rather than the node's, because the action is the reusable
+     * half: "read the summary out" is the action, and which summary is the
+     * node's mapping. Expressions are resolved against the step's input the way
+     * every other action's text is.
+     */
+    @Column(name = "speech_text", columnDefinition = "text")
+    var speechText: String? = null,
+
+    /** Which voice, where the provider offers more than one; null is its own. */
+    @Column(name = "speech_voice", length = 80)
+    var speechVoice: String? = null,
+
+    /**
+     * Which model speaks it; null follows the workspace's own choice.
+     *
+     * The same model a chat reads an answer aloud with, so an installation that
+     * has set one up has nothing further to do. Named here for the run that
+     * wants a different voice or a cheaper model than the one people hear.
+     */
+    @Column(name = "speech_model_id")
+    var speechModelId: Long? = null,
 
     @Column(length = 1000)
     var url: String? = null,

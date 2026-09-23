@@ -153,6 +153,9 @@ class ActionAPI(
                 emailCc = input.emailCc?.trim()?.ifEmpty { null },
                 emailSubject = input.emailSubject?.trim()?.ifEmpty { null },
                 emailReplyTo = input.emailReplyTo?.trim()?.ifEmpty { null },
+                speechText = input.speechText?.trim()?.ifEmpty { null },
+                speechVoice = input.speechVoice?.trim()?.ifEmpty { null },
+                speechModelId = input.speechModelId,
                 url = input.url?.trim()?.ifEmpty { null },
                 method = input.method?.trim()?.uppercase()?.ifEmpty { null },
                 headers = writtenHeaders(input.workspaceId, input.headerRows, input.headers),
@@ -202,6 +205,9 @@ class ActionAPI(
         input.emailCc?.let { action.emailCc = it.trim().ifEmpty { null } }
         input.emailSubject?.let { action.emailSubject = it.trim().ifEmpty { null } }
         input.emailReplyTo?.let { action.emailReplyTo = it.trim().ifEmpty { null } }
+        input.speechText?.let { action.speechText = it.trim().ifEmpty { null } }
+        input.speechVoice?.let { action.speechVoice = it.trim().ifEmpty { null } }
+        input.speechModelId?.let { action.speechModelId = it }
         input.url?.let { action.url = it.trim().ifEmpty { null } }
         input.method?.let { action.method = it.trim().uppercase().ifEmpty { null } }
         /*
@@ -284,6 +290,9 @@ class ActionAPI(
             emailCc = action.emailCc,
             emailSubject = action.emailSubject,
             emailReplyTo = action.emailReplyTo,
+            speechText = action.speechText,
+            speechVoice = action.speechVoice,
+            speechModelId = action.speechModelId,
             url = action.url,
             method = action.method,
             headers = action.headers,
@@ -333,6 +342,9 @@ class ActionAPI(
                 ActionSubtype.SEND_EMAIL,
                 ActionSubtype.HTTP_REQUEST,
                 ActionSubtype.FUNCTION,
+                // Speaking performs something and carries on, which is what
+                // EXECUTE means. It waits for nothing.
+                ActionSubtype.SPEAK,
             )
 
             ActionType.WAIT -> setOf(
@@ -410,6 +422,18 @@ class ActionAPI(
                 }
                 action.timeoutSeconds = action.timeoutSeconds ?: DEFAULT_TIMEOUT_SECONDS
                 action.retryIntervalSeconds = action.retryIntervalSeconds ?: DEFAULT_RETRY_SECONDS
+            }
+
+            /*
+             * The words, and nothing else. A model is not asked for here: the
+             * workspace has usually chosen one - it is the same model a chat
+             * reads an answer aloud with - and an action that named none follows
+             * it. A run that reaches one with no model anywhere is told so by
+             * the step rather than refused at the form, which is the rule the
+             * picture nodes already keep.
+             */
+            ActionSubtype.SPEAK -> {
+                if (action.speechText.isNullOrBlank()) throw ActionSettingMissingException("something to say")
             }
 
             ActionSubtype.TIME -> {
@@ -517,6 +541,12 @@ data class CreateActionInput(
     val emailCc: String? = null,
     val emailSubject: String? = null,
     val emailReplyTo: String? = null,
+    /** What a SPEAK action reads out; a node may say something else instead. */
+    val speechText: String? = null,
+    /** Which voice, where the provider offers more than one; null is its own. */
+    val speechVoice: String? = null,
+    /** Which model speaks it; null follows the workspace's own choice. */
+    val speechModelId: Long? = null,
     val url: String? = null,
     val method: String? = null,
     /** The headers as one JSON string; what an import carries and what rows are read back out of. */
@@ -547,6 +577,12 @@ data class UpdateActionInput(
     val emailCc: String? = null,
     val emailSubject: String? = null,
     val emailReplyTo: String? = null,
+    /** What a SPEAK action reads out; a node may say something else instead. */
+    val speechText: String? = null,
+    /** Which voice, where the provider offers more than one; null is its own. */
+    val speechVoice: String? = null,
+    /** Which model speaks it; null follows the workspace's own choice. */
+    val speechModelId: Long? = null,
     val url: String? = null,
     val method: String? = null,
     /** The headers as one JSON string; what an import carries and what rows are read back out of. */
@@ -597,6 +633,12 @@ data class ActionView(
     val emailCc: String?,
     val emailSubject: String?,
     val emailReplyTo: String?,
+    /** What a SPEAK action reads out; a node may say something else instead. */
+    val speechText: String?,
+    /** Which voice, where the provider offers more than one; null is its own. */
+    val speechVoice: String?,
+    /** Which model speaks it; null follows the workspace's own choice. */
+    val speechModelId: Long?,
     val url: String?,
     val method: String?,
     val headers: String?,
