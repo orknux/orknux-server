@@ -337,7 +337,7 @@ class AgentTools(
              * the rule orknux and the shells keep - and by the thing that knows
              * which agents this one was granted.
              */
-            agentTools.run(agent, call.arguments)
+            agentTools.run(agent, call.arguments, sessionId)
         } else if (connectionTools.handles(call.name)) {
             /*
              * The connection finder, checked here as well as left off the menu:

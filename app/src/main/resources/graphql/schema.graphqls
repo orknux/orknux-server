@@ -705,6 +705,11 @@ type Query {
         workspaceDefault: Boolean = false
     ): SessionMemoryBudget!
     """
+    A session's family, from the top: the main session first, then every one
+    started from it in the order they were started. Asked of any member.
+    """
+    llmSessionFamily(id: ID!): [LlmSessionMember!]!
+    """
     One workspace's LLM sessions, most recently spoken in first.
 
     There is no mutation beside this. A session appears the first time an agent
@@ -2828,6 +2833,10 @@ type LlmSession {
     createdAt: String!
     "When anything was last said here, or null on one nothing has been recorded in yet."
     lastEventAt: String
+    "What the agent that started this session called the task; null where nobody did."
+    title: String
+    "The session this one was started from - the one whose agent asked - or null."
+    parentId: ID
     """
     What the agents in this conversation wrote down for themselves.
 
@@ -2846,6 +2855,21 @@ type LlmSessionNote {
     writtenBy: String!
     "ISO-8601 offset date-time."
     writtenAt: String!
+}
+
+"""
+One session of a family, as the session page lists them: the main session and
+every session an agent in it started by asking another agent.
+"""
+type LlmSessionMember {
+    id: ID!
+    key: String!
+    "\"Main session\" at the top; what the asking agent called the task for the rest."
+    title: String!
+    main: Boolean!
+    "Whether an agent is at work in it right now: something unfinished, or a line within the last minute."
+    active: Boolean!
+    lastEventAt: String
 }
 
 type LlmSessionPage {

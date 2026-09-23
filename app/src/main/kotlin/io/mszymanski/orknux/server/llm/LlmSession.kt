@@ -201,6 +201,28 @@ class LlmSession(
      */
     @Column(name = "found_tools", columnDefinition = "text")
     var foundTools: String? = null,
+
+    /**
+     * The session whose agent started this one, or null for a session nobody
+     * started from another. Issue #379.
+     *
+     * An agent that asks another agent hands it a conversation of its own, and
+     * this is the thread back: the session page lists a session's family - the
+     * main one and every one started from it - and switches between them. Set
+     * null rather than cascaded when the parent goes, because a subagent's
+     * transcript is still a record of what was done.
+     */
+    @Column(name = "parent_session_id")
+    val parentSessionId: Long? = null,
+
+    /**
+     * What the agent that started this session called the task. Issue #379.
+     *
+     * The key is for machines; this is what a person reads in the list. Null
+     * on a session nobody started from another.
+     */
+    @Column(length = 200)
+    val title: String? = null,
 )
 
 /** Matches the column; a tool with a long name must not fail the insert. */
@@ -320,6 +342,9 @@ interface LlmSessionRepository : JpaRepository<LlmSession, Long> {
 
     /** The one this key names here, which is what "the same session" means. */
     fun findByWorkspaceIdAndSessionKey(workspaceId: Long, sessionKey: String): LlmSession?
+
+    /** The sessions started from this one, oldest first. Issue #379. */
+    fun findByParentSessionIdOrderByCreatedAtAscIdAsc(parentSessionId: Long): List<LlmSession>
 
     /**
      * The list, filtered the way the page asks.

@@ -96,6 +96,34 @@ class LlmSessionRecorder(
      * @throws LlmSessionKeyMissingException when [key] is blank.
      * @throws LlmSessionKeyTooLongException when the composed key will not fit.
      */
+    /**
+     * A session started from another, for an agent asked by the one in it.
+     * Issue #379.
+     *
+     * Its own session every time rather than one shared across asks, because
+     * two questions to the same agent are two conversations: the second
+     * should not start with the first still in its memory. Keyed under the
+     * parent's key so the list reads as a family, and titled with what the
+     * asking agent called the task, which is what a person reads.
+     */
+    fun openUnder(parent: Long, title: String): Long {
+        val above = sessions.findByIdOrNull(parent)
+            ?: throw IllegalArgumentException("Session $parent is not there to start one under")
+        val called = title.trim().take(TITLE_LENGTH).ifEmpty { "Asked" }
+        val key = LlmSessionKey.of(above.sessionKey, "ask-${System.nanoTime()}")
+        return requireNotNull(
+            sessions.save(
+                LlmSession(
+                    workspaceId = above.workspaceId,
+                    sessionKey = key,
+                    keyPrefix = above.sessionKey,
+                    parentSessionId = parent,
+                    title = called,
+                ),
+            ).id,
+        )
+    }
+
     fun open(workspaceId: Long, prefix: String?, key: String): Long {
         val composed = LlmSessionKey.of(prefix, key)
         sessions.findByWorkspaceIdAndSessionKey(workspaceId, composed)?.id?.let { return it }
@@ -675,6 +703,9 @@ class LlmSessionRecorder(
     }
 
     private companion object {
+        /** As long as a title may be; the column's width. Issue #379. */
+        const val TITLE_LENGTH = 200
+
         /** What a note is signed with; nothing said it. */
         const val SYSTEM = "system"
 

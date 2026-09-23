@@ -233,7 +233,55 @@ class LlmSessionAPI(
         eventCount = eventCount,
         createdAt = session.createdAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         lastEventAt = session.lastEventAt?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+        title = session.title,
+        parentId = session.parentSessionId,
     )
+
+    /**
+     * A session's family: the main one and every session started from it, in
+     * the order they were started. Issue #379.
+     *
+     * Asked of any member and answered from the top, so a page showing a
+     * subagent's transcript lists the same family the main one does. One level:
+     * an agent asked by an agent that was asked is listed under the main
+     * session too, because that is the one a person opened.
+     */
+    @QueryMapping
+    @Transactional(readOnly = true)
+    fun llmSessionFamily(@Argument id: Long): List<LlmSessionMemberView> {
+        val asked = sessions.findByIdOrNull(id)?.takeIf { access.canSee(it.workspaceId) }
+            ?: throw LlmSessionNotFoundException(id)
+        val root = generateSequence(asked) { held -> held.parentSessionId?.let { sessions.findByIdOrNull(it) } }
+            .take(FAMILY_DEPTH)
+            .last()
+        return listOf(member(root, main = true)) + descendants(requireNotNull(root.id), depth = 0).map { member(it, main = false) }
+    }
+
+    private fun descendants(parent: Long, depth: Int): List<LlmSession> {
+        if (depth >= FAMILY_DEPTH) return emptyList()
+        return sessions.findByParentSessionIdOrderByCreatedAtAscIdAsc(parent).flatMap { child ->
+            listOf(child) + descendants(requireNotNull(child.id), depth + 1)
+        }
+    }
+
+    /**
+     * Whether an agent is at work in it right now: something started and not
+     * finished - a tool called with no result yet, a thought still being
+     * thought - or a line written within the last minute. The dot on the list.
+     */
+    private fun member(session: LlmSession, main: Boolean): LlmSessionMemberView {
+        val id = requireNotNull(session.id)
+        val unfinished = events.unfinished(id, Long.MAX_VALUE, org.springframework.data.domain.PageRequest.of(0, 1)).isNotEmpty()
+        val recent = session.lastEventAt?.isAfter(java.time.OffsetDateTime.now().minusSeconds(ACTIVE_WINDOW_SECONDS)) == true
+        return LlmSessionMemberView(
+            id = id,
+            key = session.sessionKey,
+            title = if (main) "Main session" else (session.title ?: session.sessionKey),
+            main = main,
+            active = unfinished || recent,
+            lastEventAt = session.lastEventAt?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+        )
+    }
 
     /**
      * What one conversation's agents wrote down. Issue #371.
@@ -270,8 +318,26 @@ class LlmSessionAPI(
         const val PAGE = 20
 
         const val BIGGEST_PAGE = 100
+
+        /** How far up and down a family is followed; an agent asking an agent asking an agent is plenty. */
+        const val FAMILY_DEPTH = 5
+
+        /** A line written this recently means somebody is still there. */
+        const val ACTIVE_WINDOW_SECONDS = 60L
     }
 }
+
+/** One session of a family, as the panel on the session page lists it. Issue #379. */
+data class LlmSessionMemberView(
+    val id: Long,
+    val key: String,
+    /** "Main session" for the one at the top; what the asking agent called the task for the rest. */
+    val title: String,
+    val main: Boolean,
+    /** Green or orange: whether an agent is at work in it right now. */
+    val active: Boolean,
+    val lastEventAt: String?,
+)
 
 data class LlmSessionView(
     val id: Long,
@@ -285,6 +351,10 @@ data class LlmSessionView(
     val createdAt: String,
     /** Null on a session that has been opened and not yet written to. */
     val lastEventAt: String?,
+    /** What the agent that started this session called the task; null where nobody did. Issue #379. */
+    val title: String?,
+    /** The session this one was started from, or null. */
+    val parentId: Long?,
 )
 
 /**

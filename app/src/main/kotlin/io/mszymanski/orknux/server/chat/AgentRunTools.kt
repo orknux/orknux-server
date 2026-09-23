@@ -66,6 +66,8 @@ class AgentRunTools(
      * while the beans are being wired, by which time everything exists.
      */
     private val conversations: ObjectProvider<AgentConversation>,
+    /** Where the asked agent's own conversation is written; see [run]. Issue #379. */
+    private val sessions: io.mszymanski.orknux.server.llm.LlmSessionRecorder,
     private val mapper: ObjectMapper,
 ) {
 
@@ -94,6 +96,13 @@ class AgentRunTools(
                         "question that refers to \"the issue\" or \"that file\" cannot be answered.",
                     required = true,
                 ),
+                ToolParameterSpec(
+                    name = TITLE,
+                    description = "A few words naming the task, shown as the title of the conversation " +
+                        "the agent has about it - \"Summarise the incident thread\". Left out, the " +
+                        "first line of the question is used.",
+                    required = false,
+                ),
             ),
         )
     }
@@ -108,9 +117,16 @@ class AgentRunTools(
      * finish - and a failure that ended the whole turn would lose the work it
      * had already done.
      */
-    fun run(agent: Agent, arguments: String): String {
+    /**
+     * @param parent the session the asking agent is in, or null where it is in
+     *   none. The asked agent gets a session of its own under it - see
+     *   [io.mszymanski.orknux.server.llm.LlmSessionRecorder.openUnder] - so what
+     *   it did can be read, beside what asked for it. Issue #379.
+     */
+    fun run(agent: Agent, arguments: String, parent: Long? = null): String {
         val asked = text(arguments, AGENT)?.trim().orEmpty()
         val question = text(arguments, QUESTION)?.trim().orEmpty()
+        val title = text(arguments, TITLE)?.trim()?.ifEmpty { null } ?: titleOf(question)
 
         if (asked.isEmpty() || question.isEmpty()) {
             return refusal("Say which agent to ask and what to ask it: $AGENT and $QUESTION are both needed.")
@@ -147,7 +163,17 @@ class AgentRunTools(
          */
         val sub = without(wanted)
 
-        return when (val said = conversations.getObject().answer(modelId, sub, turns)) {
+        /*
+         * Its own conversation, written down. The question goes in under the
+         * asking agent's name, because that is who said it, and what the asked
+         * agent does with it - the tools it calls, what it answers - is
+         * recorded by the round the same way any agent's is. Issue #379.
+         */
+        val into = parent?.let { above ->
+            sessions.openUnder(above, title).also { sessions.userSaid(it, agent.name, question) }
+        }
+
+        return when (val said = conversations.getObject().answer(modelId, sub, turns, into = into)) {
             is ChatCompletion.Answered -> mapper.writeValueAsString(
                 mapOf("agent" to wanted.name, "answer" to said.content),
             )
@@ -204,6 +230,10 @@ class AgentRunTools(
 
     private fun refusal(said: String): String = mapper.writeValueAsString(mapOf("error" to said))
 
+    /** The first line of the question, cut to a title's length, where no title was given. */
+    private fun titleOf(question: String): String =
+        question.lineSequence().firstOrNull { it.isNotBlank() }?.trim()?.take(TITLE_LENGTH) ?: "Asked"
+
     private fun text(arguments: String, name: String): String? = runCatching {
         mapper.readTree(arguments).path(name).takeIf { it.isTextual }?.stringValue()
     }.getOrNull()
@@ -213,5 +243,9 @@ class AgentRunTools(
         const val ASK = "ask_agent"
         const val AGENT = "agent"
         const val QUESTION = "question"
+        const val TITLE = "title"
+
+        /** What a title falls back to being cut at, matching the column. */
+        const val TITLE_LENGTH = 200
     }
 }

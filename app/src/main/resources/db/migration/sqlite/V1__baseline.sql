@@ -461,8 +461,13 @@ CREATE TABLE llm_session
     created_at                   timestamp not null default CURRENT_TIMESTAMP,
     last_event_at                timestamp,
     found_tools                  text,
-    constraint llm_session_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspace(id) ON DELETE CASCADE
+    parent_session_id            integer,
+    title                        varchar(200),
+    constraint llm_session_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspace(id) ON DELETE CASCADE,
+    constraint llm_session_parent_session_id_fkey FOREIGN KEY (parent_session_id) REFERENCES llm_session(id) ON DELETE SET NULL
 );
+
+CREATE INDEX llm_session_parent_idx ON llm_session (parent_session_id, created_at, id);
 
 CREATE TABLE llm_session_note
 (
