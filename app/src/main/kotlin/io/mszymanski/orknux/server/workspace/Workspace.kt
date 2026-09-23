@@ -331,6 +331,28 @@ class Workspace(
     var voiceUnattendedMicrophoneMs: Int? = null,
 
     /**
+     * How long somebody has to keep talking over the answer before it stops.
+     *
+     * Voice mode holds the microphone open while the answer is read aloud, so
+     * anything said over it was already heard and queued as the next turn - but
+     * the answer went on to the end regardless, which is the one thing a person
+     * cannot do in a conversation: say "no, not that" and be listened to. They
+     * had to reach for the panel and press, in the one mode whose point is not
+     * touching anything.
+     *
+     * A hold rather than a level, because what has to be kept out is not a quiet
+     * voice but a short noise - a cough, a door, this application's own voice
+     * getting past the echo cancellation. Somebody interrupting keeps talking;
+     * none of those do.
+     *
+     * Null means the workspace has decided nothing. Zero turns it off, which is
+     * what an installation wants where the room is loud enough or the echo
+     * cancellation poor enough that the answer keeps stopping on nothing.
+     */
+    @Column(name = "voice_barge_in_ms")
+    var voiceBargeInMs: Int? = null,
+
+    /**
      * Where an answer is cut before it is handed to the speech model.
      *
      * A value rather than a null, unlike the three above. Those store a

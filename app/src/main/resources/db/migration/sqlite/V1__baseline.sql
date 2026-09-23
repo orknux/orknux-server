@@ -1379,6 +1379,7 @@ CREATE TABLE workspace
     default_memory_share         integer,
     voice_pause_ends_turn_ms     integer,
     voice_speech_over_room_percent integer,
+    voice_barge_in_ms            integer,
     voice_unattended_microphone_ms integer,
     voice_speech_chunking        varchar(16) not null default 'SENTENCE',
     task_max_turns               integer,

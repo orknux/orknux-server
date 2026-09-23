@@ -1504,7 +1504,12 @@ type Mutation {
         workspaceId: ID!,
         pauseEndsTurnMs: Int,
         speechOverRoomPercent: Int,
-        unattendedMicrophoneMs: Int
+        unattendedMicrophoneMs: Int,
+        """
+        How long somebody keeps talking over the answer before it stops; 250 to
+        3000 ms, or 0 to leave the answer alone.
+        """
+        bargeInMs: Int
     ): Workspace!
     """
     Where an answer is cut for the speech model here.
@@ -1924,6 +1929,18 @@ type Workspace {
     Null means the workspace has decided nothing.
     """
     voiceUnattendedMicrophoneMs: Int
+    """
+    How long somebody has to keep talking over the answer before it stops.
+
+    The microphone is held open while an answer is read aloud, so what is said
+    over it is already heard - this is whether the answer also stops. A hold
+    rather than a level, because what has to be kept out is a short noise: a
+    cough, a door, or this application's own voice getting past the echo
+    cancellation. Somebody interrupting keeps talking; none of those do.
+
+    Null means the workspace has decided nothing. Zero turns it off.
+    """
+    voiceBargeInMs: Int
     """
     Where an answer is cut before it is handed to the speech model.
 

@@ -720,22 +720,24 @@ class WorkspaceAPI(
         @Argument pauseEndsTurnMs: Int?,
         @Argument speechOverRoomPercent: Int?,
         @Argument unattendedMicrophoneMs: Int?,
+        @Argument bargeInMs: Int?,
     ): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
         access.requireVisible(workspace)
 
-        VoiceTurnTaking.refusalFor(pauseEndsTurnMs, speechOverRoomPercent, unattendedMicrophoneMs)
+        VoiceTurnTaking.refusalFor(pauseEndsTurnMs, speechOverRoomPercent, unattendedMicrophoneMs, bargeInMs)
             ?.let { throw WorkspaceVoiceTurnTakingUnusableException(it) }
 
         workspace.voicePauseEndsTurnMs = pauseEndsTurnMs
         workspace.voiceSpeechOverRoomPercent = speechOverRoomPercent
         workspace.voiceUnattendedMicrophoneMs = unattendedMicrophoneMs
+        workspace.voiceBargeInMs = bargeInMs
 
         auditRecorder.record(
             workspaceId,
             // What happens inside a chat: the microphone is a chat's, not a model's.
             WorkspaceAuditCategory.CHAT,
-            VoiceTurnTaking.audit(pauseEndsTurnMs, speechOverRoomPercent, unattendedMicrophoneMs),
+            VoiceTurnTaking.audit(pauseEndsTurnMs, speechOverRoomPercent, unattendedMicrophoneMs, bargeInMs),
         )
         return workspace
     }
@@ -989,13 +991,32 @@ object VoiceTurnTaking {
     val unattendedMicrophoneMs = 300_000..3_600_000
 
     /**
+     * Talking over the answer for between a quarter of a second and three.
+     *
+     * The floor is where a noise stops being one: a cough, a door and this
+     * application's own voice getting past the echo cancellation are all short,
+     * and somebody interrupting keeps talking. Below a quarter of a second the
+     * answer stops on any of them, which is worse than not stopping at all -
+     * the failure is loud, constant and in the middle of every reply.
+     *
+     * Three seconds is the ceiling because by then the sentence somebody
+     * interrupted with is finished and they are talking to something that is
+     * still talking back. Past that it is not an interruption, it is two people
+     * speaking at once.
+     *
+     * Zero is outside the range and means it: off, for a room or a microphone
+     * where the answer keeps stopping on nothing. See [refusalFor].
+     */
+    val bargeInMs = 250..3_000
+
+    /**
      * The first of the three that is out of bounds, said as a sentence.
      *
      * Each names what is allowed rather than reporting that something was
      * refused, because "out of range" tells whoever typed it nothing about what
      * to type instead.
      */
-    fun refusalFor(pauseMs: Int?, speechPercent: Int?, unattendedMs: Int?): String? = when {
+    fun refusalFor(pauseMs: Int?, speechPercent: Int?, unattendedMs: Int?, bargeMs: Int? = null): String? = when {
         pauseMs != null && pauseMs !in pauseEndsTurnMs ->
             "A pause that ends a turn has to be between 1.5 and 10 seconds " +
                 "(${pauseEndsTurnMs.first} to ${pauseEndsTurnMs.last} ms). " +
@@ -1011,17 +1032,33 @@ object VoiceTurnTaking {
                 "(${unattendedMicrophoneMs.first} to ${unattendedMicrophoneMs.last} ms). " +
                 "It is a fuse for a microphone nobody is at, not a limit on how long anybody may talk."
 
+        /*
+         * Zero is allowed and is not in the range: it is the one value that
+         * means "do not do this at all", which a room with bad echo needs and
+         * which no number inside the range can say.
+         */
+        bargeMs != null && bargeMs != 0 && bargeMs !in bargeInMs ->
+            "Talking over the answer has to hold for between ${bargeInMs.first} and ${bargeInMs.last} ms " +
+                "before it stops, or be 0 to leave the answer alone. Below that a cough stops it; " +
+                "above it the interruption is over before anything happens."
+
         else -> null
     }
 
-    /** One line for the log, whichever of the three were set and whichever were cleared. */
-    fun audit(pauseMs: Int?, speechPercent: Int?, unattendedMs: Int?): String =
-        if (pauseMs == null && speechPercent == null && unattendedMs == null) {
+    /** One line for the log, whichever were set and whichever were cleared. */
+    fun audit(pauseMs: Int?, speechPercent: Int?, unattendedMs: Int?, bargeMs: Int? = null): String =
+        if (pauseMs == null && speechPercent == null && unattendedMs == null && bargeMs == null) {
             "Voice turn-taking back to the default"
         } else {
             "Voice turn-taking set to a pause of ${pauseMs?.let { "$it ms" } ?: "the default"}, " +
-                "a voice at ${speechPercent?.let { "$it%" } ?: "the default"} of the room and " +
-                "an unattended microphone of ${unattendedMs?.let { "$it ms" } ?: "the default"}"
+                "a voice at ${speechPercent?.let { "$it%" } ?: "the default"} of the room, " +
+                "an unattended microphone of ${unattendedMs?.let { "$it ms" } ?: "the default"} and " +
+                "talking over the answer " +
+                when (bargeMs) {
+                    null -> "for the default"
+                    0 -> "turned off"
+                    else -> "after $bargeMs ms"
+                }
         }
 }
 

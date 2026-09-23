@@ -262,8 +262,8 @@ class WorkspaceVoiceTurnTakingTest(
         val chat = audit.findAll().filter { it.category == WorkspaceAuditCategory.CHAT }.map { it.message }
         assertThat(chat)
             .contains(
-                "Voice turn-taking set to a pause of 4000 ms, a voice at 180% of the room " +
-                    "and an unattended microphone of 900000 ms",
+                "Voice turn-taking set to a pause of 4000 ms, a voice at 180% of the room, " +
+                    "an unattended microphone of 900000 ms and talking over the answer for the default",
             )
             .contains("Voice turn-taking back to the default")
     }
@@ -274,9 +274,74 @@ class WorkspaceVoiceTurnTakingTest(
         set(pause = 4_000, speech = null, unattended = null)
 
         assertThat(audit.findAll().map { it.message }).contains(
-            "Voice turn-taking set to a pause of 4000 ms, a voice at the default of the room " +
-                "and an unattended microphone of the default",
+            "Voice turn-taking set to a pause of 4000 ms, a voice at the default of the room, " +
+                "an unattended microphone of the default and talking over the answer for the default",
         )
+    }
+
+    /* ------------------------------------ talking over the answer (#342) --- */
+
+    /**
+     * The microphone is held open while an answer is read aloud, so what is
+     * said over one was always heard - what was missing is the answer stopping,
+     * which is the one thing a person cannot do in a conversation: say "no, not
+     * that" and be listened to.
+     */
+    @Test
+    fun `talking over the answer is a length this workspace can set`() {
+        graphQlTester.document(
+            """mutation { setWorkspaceVoiceTurnTaking(workspaceId: $workspaceId, bargeInMs: 800) {
+                 voiceBargeInMs
+               } }""",
+        ).execute()
+            .path("setWorkspaceVoiceTurnTaking.voiceBargeInMs").entity(Int::class.java).isEqualTo(800)
+
+        assertThat(workspaces.findAll().single().voiceBargeInMs).isEqualTo(800)
+    }
+
+    /**
+     * Zero is outside the range and means it: off, for a room or a microphone
+     * where the answer keeps stopping on nothing. No number inside the range
+     * can say that.
+     */
+    @Test
+    fun `zero is allowed, and is the workspace saying to leave the answer alone`() {
+        graphQlTester.document(
+            """mutation { setWorkspaceVoiceTurnTaking(workspaceId: $workspaceId, bargeInMs: 0) {
+                 voiceBargeInMs
+               } }""",
+        ).execute()
+            .path("setWorkspaceVoiceTurnTaking.voiceBargeInMs").entity(Int::class.java).isEqualTo(0)
+    }
+
+    @Test
+    fun `a hold short enough for a cough to clear is refused, and says why`() {
+        var message = ""
+        graphQlTester.document(
+            """mutation { setWorkspaceVoiceTurnTaking(workspaceId: $workspaceId, bargeInMs: 100) { id } }""",
+        ).execute().errors().satisfy { errors ->
+            assertThat(errors).hasSize(1)
+            message = errors.single().message.orEmpty()
+        }
+
+        assertThat(message).contains("250").contains("3000")
+        // And that there is a way to turn it off, which is what somebody
+        // reaching for 100 ms may actually have wanted.
+        assertThat(message).contains("0 to leave the answer alone")
+        assertThat(workspaces.findAll().single().voiceBargeInMs).isNull()
+    }
+
+    @Test
+    fun `a hold longer than the interruption is refused too`() {
+        graphQlTester.document(
+            """mutation { setWorkspaceVoiceTurnTaking(workspaceId: $workspaceId, bargeInMs: 5000) { id } }""",
+        ).execute().errors().satisfy { errors ->
+            assertThat(errors).singleElement().satisfies({
+                assertThat(it.message).contains("the interruption is over")
+            })
+        }
+
+        assertThat(workspaces.findAll().single().voiceBargeInMs).isNull()
     }
 
     private fun set(pause: Int? = null, speech: Int? = null, unattended: Int? = null) {
