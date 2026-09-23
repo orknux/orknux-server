@@ -1396,6 +1396,30 @@ class PluginUploadAPI(
               | { mention: string; id: string; label: string; error?: undefined }
               | { error: string; mention?: undefined };
 
+            /**
+             * What the workflow editor's target box would offer for what was
+             * typed, or why it could not be asked.
+             */
+            type SlackSuggestions =
+              | {
+                  /** FOUND, NOT_FOUND or UNCHECKED, as the editor says it. */
+                  outcome: string;
+                  /** One line ready to show, empty when there is nothing worth saying. */
+                  message: string;
+                  matches: {
+                    /** Slack's own id: `U0123456789`, `C0123456789`. */
+                    id: string;
+                    /** What the field is filled with when this is taken: `@alice`, `#general`. */
+                    name: string;
+                    kind: 'CHANNEL' | 'USER';
+                    realName: string | null;
+                  }[];
+                  /** Whether `matches` is everything that matches. */
+                  complete: boolean;
+                  error?: undefined;
+                }
+              | { error: string; matches?: undefined };
+
             /** What a search of Slack's messages came to, or why it could not be run. */
             type SlackSearchResult =
               | {
@@ -1545,6 +1569,26 @@ class PluginUploadAPI(
                   query: string,
                   limit?: number,
                 ): SlackSearchResult;
+
+                /**
+                 * Members and channels for what somebody typed, ranked the way
+                 * the workflow editor's target box ranks them.
+                 *
+                 * Needs the `SLACK_SUGGEST` capability. This is what a type a
+                 * plugin defines - a `SlackUser` - completes values with, so a
+                 * variable's picker and the editor's agree.
+                 *
+                 * @param typed a partial handle, real name, email or channel;
+                 *   empty lists what there is.
+                 * @param kind `USER` or `CHANNEL` to ask for one; omit for both.
+                 * @param limit how many to bring back; at most fifty.
+                 */
+                suggest(
+                  connection: SlackConnection,
+                  typed: string,
+                  kind?: 'USER' | 'CHANNEL',
+                  limit?: number,
+                ): SlackSuggestions;
               };
 
               http: {

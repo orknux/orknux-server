@@ -99,6 +99,7 @@ internal object HostHelpers {
         userAbsent: String,
         mentionAbsent: String,
         searchAbsent: String,
+        suggestAbsent: String,
     ): String = """
         slack: {
           thread(connection, channel, threadTs, limit) {
@@ -156,6 +157,14 @@ internal object HostHelpers {
             }
             const id = connection === null || typeof connection !== 'object' ? connection : connection.id;
             return JSON.parse(host.slack_search(JSON.stringify([id, query, limit ?? null])));
+          },
+          suggest(connection, typed, kind, limit) {
+            const host = globalThis.__orknuxHost;
+            if (host === undefined || host.slack_suggest === undefined) {
+              return { error: '$suggestAbsent' };
+            }
+            const id = connection === null || typeof connection !== 'object' ? connection : connection.id;
+            return JSON.parse(host.slack_suggest(JSON.stringify([id, typed, kind ?? null, limit ?? null])));
           },
         },
     """.trimIndent()

@@ -9,7 +9,10 @@ import io.mszymanski.orknux.connector.connection.SlackMentions
 import io.mszymanski.orknux.connector.connection.SlackMessages
 import io.mszymanski.orknux.connector.connection.SlackReactions
 import io.mszymanski.orknux.connector.connection.SlackSearch
+import io.mszymanski.orknux.connector.connection.SlackDirectory
 import io.mszymanski.orknux.connector.connection.SlackSearched
+import io.mszymanski.orknux.connector.connection.SlackTargetKind
+import io.mszymanski.orknux.connector.connection.WorkspaceConnectionService
 import io.mszymanski.orknux.connector.connection.SlackThreads
 import io.mszymanski.orknux.connector.connection.SlackUser
 import io.mszymanski.orknux.connector.connection.SlackUsers
@@ -48,6 +51,9 @@ class SlackPluginHost(
     private val users: SlackUsers,
     private val mentions: SlackMentions,
     private val searches: SlackSearch,
+    /** The editor's own ranking of members and channels for a partial name. Issue #377. */
+    private val directory: SlackDirectory,
+    private val connections: WorkspaceConnectionService,
     private val mapper: ObjectMapper,
     /**
      * The other thing the server does on a caller's behalf; see
@@ -80,6 +86,7 @@ class SlackPluginHost(
         PluginCapability.SLACK_READ_USER -> readUser(argument, on)
         PluginCapability.SLACK_MENTION -> mention(argument, on)
         PluginCapability.SLACK_SEARCH -> search(argument, on)
+        PluginCapability.SLACK_SUGGEST -> suggest(argument, on)
         /*
          * No workspace scoping, and the reason is not that it was forgotten: a
          * request names an address rather than one of the workspace's own
@@ -521,6 +528,54 @@ class SlackPluginHost(
      * trigger publishes its connection as `"7"`, since everything on a payload is
      * text, and a plugin declares it as a number. See [readThread].
      */
+    /**
+     * `[connectionId, typed, kind?, limit?]`, and answers what the workflow
+     * editor's target box would: `{ outcome, message, complete, matches: [{ id,
+     * name, kind, realName }] }`. Issue #377.
+     *
+     * Through the directory the editor uses, so a plugin's `SlackUser` type
+     * offers exactly what the Slack target box offers - one ranking, one idea
+     * of what a partial handle matches. The connection has to be the asking
+     * workspace's own, checked here because the directory does not take a
+     * workspace: a variable cannot be pointed at another workspace's Slack.
+     */
+    private fun suggest(argument: String, on: Long?): String {
+        val given = runCatching { mapper.readTree(argument) }.getOrNull()
+            ?: return refusal("the arguments were not JSON")
+        if (!given.isArray || given.size() < 2) {
+            return refusal("that call takes a connection and what was typed")
+        }
+        val connectionId = connectionOf(given.get(0))
+            ?: return refusal("the first argument has to be a Slack connection")
+        val typed = given.get(1)?.takeIf { it.isTextual }?.asString() ?: ""
+        val kind = given.get(2)?.takeIf { it.isTextual }?.asString()?.let { asked ->
+            SlackTargetKind.entries.firstOrNull { it.name.equals(asked, ignoreCase = true) }
+                ?: return refusal("the kind has to be CHANNEL or USER")
+        }
+        val limit = given.get(3)?.takeIf { it.isNumber }?.asInt()?.coerceIn(1, MOST_SUGGESTED) ?: MOST_SUGGESTED
+
+        val connection = connections.workspaceConnection(connectionId)
+        if (connection == null || (on != null && connection.workspaceId != on)) {
+            return refusal("the connection it would ask through has been deleted")
+        }
+
+        val offered = directory.suggest(connectionId, kind, typed)
+        val answer = mapper.createObjectNode()
+        answer.put("outcome", offered.outcome.name)
+        answer.put("message", offered.message)
+        answer.put("complete", offered.complete && offered.matches.size <= limit)
+        val matches = answer.putArray("matches")
+        offered.matches.take(limit).forEach { one ->
+            matches.addObject()
+                .put("id", one.id)
+                .put("name", one.name)
+                .put("kind", one.kind.name)
+                .put("realName", one.realName)
+        }
+        return mapper.writeValueAsString(answer)
+            .also { log.debug("A script asked for Slack suggestions on connection {}", connectionId) }
+    }
+
     private fun connectionOf(node: tools.jackson.databind.JsonNode?): Long? = node?.let { held ->
         when {
             held.isNumber -> held.asLong()
@@ -533,6 +588,9 @@ class SlackPluginHost(
         mapper.writeValueAsString(mapper.createObjectNode().put("error", why))
 
     private companion object {
+        /** A picker is a picker, not a directory. */
+        const val MOST_SUGGESTED = 50
+
         /** What the connector uses when nothing says otherwise; repeated so the door has its own answer. */
         const val DEFAULT_LIMIT = 50
     }

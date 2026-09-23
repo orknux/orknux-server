@@ -135,6 +135,24 @@ class ScriptHostTest {
         })
     }
 
+    /** The door a plugin's SlackUser type completes values through. Issue #377. */
+    @Test
+    fun `a function can ask for Slack suggestions through the server`() {
+        val picker = """
+            export default function pick(typed) {
+              return orknux.slack.suggest({ id: 7, type: 'SLACK' }, typed, 'USER', 10);
+            }
+        """.trimIndent()
+
+        runner.call(picker, "pick", listOf("\"mich\""), on = 12)
+
+        assertThat(asked).singleElement().satisfies({ (capability, argument, on) ->
+            assertThat(capability).isEqualTo(PluginCapability.SLACK_SUGGEST)
+            assertThat(on).isEqualTo(12L)
+            assertThat(argument).isEqualTo("""[7,"mich","USER",10]""")
+        })
+    }
+
     @Test
     fun `a function can resolve a mention through the server`() {
         val resolver = """

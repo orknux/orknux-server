@@ -124,6 +124,18 @@ enum class PluginCapability(
     SLACK_SEARCH("Search Slack messages, through a connection it was given", forScripts = true),
 
     /**
+     * Offer Slack members and channels for what somebody typed - the same
+     * ranking the workflow editor's target box draws. Issue #377.
+     *
+     * A plugin defining a `SlackUser` type completes values with this rather
+     * than listing the directory itself: one ranking, one set of rules about
+     * what a partial handle matches, and no bot token in the plugin's hands.
+     * `forScripts` for the reason reading a user is - it reaches only what
+     * the connection already reaches.
+     */
+    SLACK_SUGGEST("Offer Slack members and channels for what was typed, through a connection it was given", forScripts = true),
+
+    /**
      * Make an HTTP request, to an address of the plugin's choosing.
      *
      * **The widest thing on this list, and the summary says so** — because the

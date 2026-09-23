@@ -552,6 +552,7 @@ class ScriptRunner(
                     "this installation cannot look up Slack users from a function",
                     "this installation cannot resolve Slack mentions from a function",
                     "this installation cannot search Slack from a function",
+                    "this installation cannot offer Slack targets from a function",
                 ).prependIndent("  "),
             )
             .replace("%HTTP%", HostHelpers.http("this installation cannot make requests from a function").prependIndent("  "))
