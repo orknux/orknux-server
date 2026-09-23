@@ -48,7 +48,7 @@ class RoleResolver(
             .values
             .mapNotNull { name -> roles.findByName(name.trim()) }
 
-        val byName = roles.findAll().filter { role -> authorityOf(role.name).lowercase() in held }
+        val byName = roles.findAll().filter { role -> authoritiesOf(role.name).any { it in held } }
 
         return (mapped + byName).toSet()
     }
@@ -59,7 +59,7 @@ class RoleResolver(
         if (wanted in held) return true
         // A mapping written as the full group DN matches the authority the LDAP
         // populator derives from it, so both spellings work and neither is wrong.
-        return authorityOf(commonName(key)).lowercase() in held
+        return authoritiesOf(commonName(key)).any { it in held }
     }
 
     /**
@@ -75,9 +75,33 @@ class RoleResolver(
         return rolesFor(authorities).any { it.administers }
     }
 
-    /** "ROLE_BACKEND" from "backend", the way the LDAP authorities populator writes it. */
-    private fun authorityOf(name: String): String =
-        ROLE_PREFIX + name.trim().replace(NON_ROLE_CHARACTERS, "_").uppercase()
+    /**
+     * What a group of this name would arrive as, lowercased, in both spellings.
+     *
+     * There are two because the directory and this application disagree about
+     * punctuation, and for years the disagreement was invisible - every group
+     * anybody named was one word.
+     *
+     * Spring's populator writes `ROLE_` and the common name uppercased and
+     * otherwise untouched, so `dev.TL` arrives as `ROLE_DEV.TL` and
+     * `BoarCMS Group` as `ROLE_BOARCMS GROUP`. This end has always replaced
+     * anything that is not a letter or a digit with an underscore, which is
+     * where `ROLE_DEV_TL` comes from. A role named after such a group therefore
+     * matched nothing at all, and no screen could say why: the group was found,
+     * the authority was held, and the name looked right to anybody reading it.
+     *
+     * Both are accepted rather than the old one being replaced. Installations
+     * have roles named for the sanitised form - that is what the migration into
+     * roles produced from the groups workspaces used to name - and taking it
+     * away would sign people out of their own workspaces.
+     */
+    private fun authoritiesOf(name: String): Set<String> {
+        val trimmed = name.trim()
+        return setOf(
+            ROLE_PREFIX + trimmed.replace(NON_ROLE_CHARACTERS, "_"),
+            ROLE_PREFIX + trimmed,
+        ).map { it.lowercase() }.toSet()
+    }
 
     /** "cn=backend,ou=groups,dc=orknux,dc=io" -> "backend"; a bare name is left alone. */
     private fun commonName(value: String): String {
