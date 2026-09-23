@@ -5358,6 +5358,8 @@ the address a plugin talks to, the token it talks with.
 type PluginParameterDeclaration {
     name: String!
     description: String
+    "Which kind of connection this names, when `type` is `connection`; null otherwise."
+    connectionType: String
     "One of the types a workspace variable can hold: STRING, NUMBER or BOOLEAN."
     type: String!
     "Whether the plugin can work without it. A required one left unanswered is marked."
