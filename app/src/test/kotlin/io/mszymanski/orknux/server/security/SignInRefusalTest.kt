@@ -39,6 +39,24 @@ class SignInRefusalTest {
         assertThat(SessionAPI.refusalFor(cause)).isEqualTo(SessionAPI.Refusal.DIRECTORY)
     }
 
+    /**
+     * The one that used to be a 500.
+     *
+     * The groups are read after the password has been checked, outside the part
+     * of Spring that turns directory failures into authentication ones - so a
+     * group search base that does not exist came back as a bare naming error,
+     * nothing caught it, and somebody whose password was right got a 500 with no
+     * explanation anywhere.
+     */
+    @Test
+    fun `a group search that could not run is the directory, not the password`() {
+        val cause = org.springframework.ldap.NameNotFoundException(
+            javax.naming.NameNotFoundException("OU=Grupy,OU=Nowhere"),
+        )
+
+        assertThat(SessionAPI.refusalFor(cause)).isEqualTo(SessionAPI.Refusal.DIRECTORY)
+    }
+
     @Test
     fun `a refusal the directory gave is credentials, whichever half was wrong`() {
         assertThat(SessionAPI.refusalFor(BadCredentialsException("Bad credentials")))

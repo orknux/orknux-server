@@ -136,7 +136,22 @@ class SessionAPI(
             authenticationManager.authenticate(
                 UsernamePasswordAuthenticationToken(credentials.username, credentials.password),
             )
-        } catch (cause: AuthenticationException) {
+        } catch (cause: RuntimeException) {
+            /*
+             * Every way the directory can refuse, in one place.
+             *
+             * An AuthenticationException is the expected shape, and for a wrong
+             * password it is the only one. A fault in the *group* search is not:
+             * the groups are read after the password has been checked, outside
+             * the part of Spring that turns directory failures into
+             * authentication ones, so a group search base that does not exist
+             * came back as a naming error nothing caught - and somebody whose
+             * password was right got a 500 with no explanation anywhere.
+             *
+             * Anything else is rethrown, because a fault that is not the
+             * directory's should not be dressed up as a wrong password.
+             */
+            if (cause !is AuthenticationException && cause !is org.springframework.ldap.NamingException) throw cause
             /*
              * Said in the log, not to the caller.
              *
@@ -155,7 +170,9 @@ class SessionAPI(
                     "Sign-in for \"{}\" could not be checked against the directory, so it was refused: {}. " +
                         "This is not a wrong password - the directory could not answer. Check " +
                         "ORKNUX_LDAP_URLS, ORKNUX_LDAP_BASE, ORKNUX_LDAP_BIND_DN and " +
-                        "ORKNUX_LDAP_BIND_PASSWORD.",
+                        "ORKNUX_LDAP_BIND_PASSWORD - and, where the name above is one that exists, " +
+                        "ORKNUX_LDAP_GROUP_SEARCH_BASE, which is read after the password has been " +
+                        "checked and is relative to the base rather than a whole DN.",
                     credentials.username,
                     describe(cause),
                 )
@@ -210,8 +227,12 @@ class SessionAPI(
          * not somebody typing their password wrong, they are an installation
          * that cannot sign anybody in, and they are worth saying out loud.
          */
-        internal fun refusalFor(cause: AuthenticationException): Refusal =
-            if (cause is InternalAuthenticationServiceException) Refusal.DIRECTORY else Refusal.CREDENTIALS
+        internal fun refusalFor(cause: Throwable): Refusal =
+            if (cause is InternalAuthenticationServiceException || cause is org.springframework.ldap.NamingException) {
+                Refusal.DIRECTORY
+            } else {
+                Refusal.CREDENTIALS
+            }
 
         /**
          * The exception and the deepest thing that caused it.
