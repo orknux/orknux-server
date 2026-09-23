@@ -68,11 +68,27 @@ class AgentRunTools(
     private val conversations: ObjectProvider<AgentConversation>,
     /** Where the asked agent's own conversation is written; see [run]. Issue #379. */
     private val sessions: io.mszymanski.orknux.server.llm.LlmSessionRecorder,
+    /** The conversations already started from one, for the count in [run]. Issue #380. */
+    private val held: io.mszymanski.orknux.server.llm.LlmSessionRepository,
+    private val workspaces: io.mszymanski.orknux.server.workspace.WorkspaceRepository,
+    private val installation: io.mszymanski.orknux.server.attachment.InstallationSettings,
     private val mapper: ObjectMapper,
 ) {
 
-    /** Whether this agent has anybody to ask. A grant list of none offers nothing. */
-    fun offered(agent: Agent): Boolean = granted(agent).isNotEmpty()
+    /**
+     * Whether this agent has anybody to ask. A grant list of none offers
+     * nothing, and so does a workspace - or an installation - that allows no
+     * asks at all: a tool that refuses every call is a tool the model should
+     * not be shown. Issue #380.
+     */
+    fun offered(agent: Agent): Boolean = granted(agent).isNotEmpty() && limitFor(agent) > 0
+
+    /**
+     * How many other agents this one may ask in a conversation: the
+     * workspace's own number where it has one, Admin -> Settings otherwise.
+     */
+    fun limitFor(agent: Agent): Int =
+        workspaces.findByIdOrNull(agent.workspaceId)?.agentMaxSubagents ?: installation.agentMaxSubagents()
 
     fun specFor(agent: Agent): ToolSpec {
         val named = granted(agent)
@@ -130,6 +146,23 @@ class AgentRunTools(
 
         if (asked.isEmpty() || question.isEmpty()) {
             return refusal("Say which agent to ask and what to ask it: $AGENT and $QUESTION are both needed.")
+        }
+
+        /*
+         * The bound on fan-out, counted against the conversation the asker is
+         * in: every ask so far is a session under it, so the sessions are the
+         * count. Told as a number and a reason, so the model finishes with
+         * what it has rather than trying the same ask in other words. A round
+         * in no session has nothing to count against and is not bounded here;
+         * the rounds bound still holds it. Issue #380.
+         */
+        val allowed = limitFor(agent)
+        val spent = parent?.let { held.findByParentSessionIdOrderByCreatedAtAscIdAsc(it).size } ?: 0
+        if (parent != null && spent >= allowed) {
+            return refusal(
+                "You have asked $spent other agents in this conversation, which is all this workspace " +
+                    "allows. Answer with what you have.",
+            )
         }
 
         val named = granted(agent)

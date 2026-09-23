@@ -257,6 +257,8 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             /* The two bounds on an agent's waiting, refused the same way. */
             is io.mszymanski.orknux.server.attachment.SleepSecondsOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.SleepTimesOutOfRangeException,
+            /* How many other agents one may ask, set from Admin or a workspace. Issue #380. */
+            is io.mszymanski.orknux.server.attachment.SubagentsOutOfRangeException,
             /* A usage window whose date was not one; see the model API. */
             is io.mszymanski.orknux.server.model.UsageRangeInvalidException,
             /* A conversation asked to be removed where the operator said no. */

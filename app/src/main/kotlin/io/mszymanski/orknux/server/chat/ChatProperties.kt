@@ -47,4 +47,15 @@ data class ChatProperties(
      * turns waiting off for the installation entirely.
      */
     val sleepTimes: Int = 10,
+
+    /**
+     * How many other agents one agent may ask in the course of a conversation.
+     *
+     * Each ask is a conversation of its own with its own model calls, started
+     * on the asking model's say-so, so this is the number that bounds what one
+     * question can fan out into. Ten is more specialists than any brief needs;
+     * zero takes the tool off the table for the installation. A workspace may
+     * carry its own number. Issue #380.
+     */
+    val maxSubagents: Int = 10,
 )

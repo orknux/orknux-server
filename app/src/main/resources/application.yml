@@ -188,6 +188,10 @@ orknux:
     # starts; Admin -> Settings is the switch and what it holds wins, and an
     # agent may carry its own number on its page.
     max-rounds: ${ORKNUX_CHAT_MAX_ROUNDS:8}
+    # How many other agents one agent may ask in one conversation. Each ask is
+    # a conversation of its own, so this bounds what one question fans out
+    # into. Admin -> Settings overrides it, and a workspace may carry its own.
+    max-subagents: ${ORKNUX_CHAT_MAX_SUBAGENTS:10}
   attachments:
     # Whether a chat may carry files at all. False here is final: an
     # administrator can turn attachments off from the screen, but not back on

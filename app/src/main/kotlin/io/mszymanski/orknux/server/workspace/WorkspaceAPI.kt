@@ -1,6 +1,8 @@
 package io.mszymanski.orknux.server.workspace
 
 import org.slf4j.LoggerFactory
+import io.mszymanski.orknux.server.attachment.MAX_SUBAGENTS
+import io.mszymanski.orknux.server.attachment.MIN_SUBAGENTS
 import io.mszymanski.orknux.server.workflow.ExecutionSweeper
 import io.mszymanski.orknux.connector.connection.WorkspaceLifecycleService
 import io.mszymanski.orknux.connector.model.ModelService
@@ -47,6 +49,8 @@ class WorkspaceAPI(
     private val taskProperties: TaskProperties,
     /** Only to say how long a script may run where the workspace has not said. */
     private val scriptProperties: ScriptProperties,
+    /** Only to say how many agents one may ask where the workspace has not said. Issue #380. */
+    private val installation: io.mszymanski.orknux.server.attachment.InstallationSettings,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -298,6 +302,10 @@ class WorkspaceAPI(
      */
     @SchemaMapping(typeName = "Workspace")
     fun taskMaxTurnsDefault(workspace: Workspace): Int = taskProperties.maxTurns
+
+    /** What an agent here may ask when the workspace has said nothing: Admin -> Settings. Issue #380. */
+    @SchemaMapping(typeName = "Workspace")
+    fun agentMaxSubagentsDefault(workspace: Workspace): Int = installation.agentMaxSubagents()
 
     /**
      * The installation's script timeout, in seconds, for the same box: the
@@ -625,6 +633,35 @@ class WorkspaceAPI(
             workspaceId,
             WorkspaceAuditCategory.WORKSPACE,
             turns?.let { "A task may take $it turns" } ?: "The turns a task may take are the installation's again",
+        )
+        return workspace
+    }
+
+    /**
+     * How many other agents one agent in this workspace may ask in one
+     * conversation.
+     *
+     * Null clears it and puts the workspace back on Admin -> Settings; zero is
+     * a real answer and takes the tool off the table here. Read at the moment
+     * an agent asks, so it applies to the next ask and not to conversations
+     * already had. Issue #380.
+     */
+    @MutationMapping
+    @Transactional
+    fun setWorkspaceAgentMaxSubagents(@Argument workspaceId: Long, @Argument count: Int?): Workspace {
+        val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
+        access.requireVisible(workspace)
+
+        if (count != null && count !in MIN_SUBAGENTS..MAX_SUBAGENTS) {
+            throw io.mszymanski.orknux.server.attachment.SubagentsOutOfRangeException(count)
+        }
+
+        workspace.agentMaxSubagents = count
+        auditRecorder.record(
+            workspaceId,
+            WorkspaceAuditCategory.WORKSPACE,
+            count?.let { "An agent may ask $it other agents in a conversation" }
+                ?: "How many agents one may ask is the installation's again",
         )
         return workspace
     }

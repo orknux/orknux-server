@@ -55,6 +55,8 @@ class InstallationSettingsAPI(
         agentSleepSecondsConfigured = settings.agentSleepSecondsConfigured(),
         agentSleepTimes = settings.agentSleepTimes(),
         agentSleepTimesConfigured = settings.agentSleepTimesConfigured(),
+        agentMaxSubagents = settings.agentMaxSubagents(),
+        agentMaxSubagentsConfigured = settings.agentMaxSubagentsConfigured(),
         sessionsRemovable = settings.sessionsRemovable(),
     )
 
@@ -272,6 +274,26 @@ class InstallationSettingsAPI(
     }
 
     /**
+     * How many other agents one agent may ask in one conversation.
+     *
+     * The bound on fan-out: each ask is a conversation of its own, with its own
+     * model calls, started on the asking model's say-so. Zero takes the tool
+     * off the table; a workspace's own number wins over this one. Issue #380.
+     */
+    @MutationMapping
+    fun setAgentMaxSubagents(@Argument count: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setAgentMaxSubagents(count, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "Agents allowed to ask $count other agents in a conversation",
+        )
+        return installationSettings()
+    }
+
+    /**
      * Whether a conversation may be thrown away.
      *
      * A session is the record of what an agent was asked and what it answered,
@@ -397,6 +419,10 @@ data class InstallationSettingsView(
     val agentSleepTimes: Int,
     /** What a fresh installation allows - ORKNUX_CHAT_SLEEP_TIMES. */
     val agentSleepTimesConfigured: Int,
+    /** How many other agents one agent may ask in one conversation; zero is none. Issue #380. */
+    val agentMaxSubagents: Int,
+    /** What a fresh installation allows - ORKNUX_CHAT_MAX_SUBAGENTS. */
+    val agentMaxSubagentsConfigured: Int,
     /**
      * Whether a conversation may be thrown away.
      *

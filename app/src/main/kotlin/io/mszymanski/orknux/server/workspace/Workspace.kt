@@ -233,6 +233,19 @@ class Workspace(
     var taskMaxTurns: Int? = null,
 
     /**
+     * How many other agents one agent here may ask in one conversation.
+     *
+     * Each ask is a conversation of its own, started on the asking model's
+     * say-so, so this bounds what one question can fan out into. A workspace
+     * and not only the installation for the same reason as [taskMaxTurns]:
+     * what a question is worth is a judgement about the work this workspace
+     * does. Null means it has decided nothing and Admin -> Settings applies.
+     * Zero takes the tool off the table here. Issue #380.
+     */
+    @Column(name = "agent_max_subagents")
+    var agentMaxSubagents: Int? = null,
+
+    /**
      * How long one run of this workspace's functions may hold its thread, in
      * seconds, where the function has no timeout of its own.
      *

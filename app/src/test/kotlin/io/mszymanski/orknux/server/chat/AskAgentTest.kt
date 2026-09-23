@@ -94,10 +94,12 @@ class AskAgentTest(
         val spec = tools.specsFor(asker).single { it.name == AgentRunTools.ASK }
         assertThat(spec.description).contains("Librarian")
         assertThat(spec.parameters.map { it.name })
-            .containsExactly(AgentRunTools.AGENT, AgentRunTools.QUESTION)
+            .containsExactly(AgentRunTools.AGENT, AgentRunTools.QUESTION, AgentRunTools.TITLE)
         // Both needed: a question with nobody to ask, or somebody to ask with no
-        // question, is a round spent being told so.
-        assertThat(spec.parameters).allSatisfy { assertThat(it.required).isTrue() }
+        // question, is a round spent being told so. The title is not - the
+        // first line of the question stands in (issue #379).
+        assertThat(spec.parameters.filter { it.required }.map { it.name })
+            .containsExactly(AgentRunTools.AGENT, AgentRunTools.QUESTION)
     }
 
     /* ------------------------------------------------ what it will not do */

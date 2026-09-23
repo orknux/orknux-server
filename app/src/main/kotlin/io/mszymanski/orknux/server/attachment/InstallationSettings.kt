@@ -63,6 +63,7 @@ object SettingNames {
     const val CHAT_MAX_ROUNDS = "chat.max.rounds"
     const val AGENT_SLEEP_SECONDS = "agent.sleep.seconds"
     const val AGENT_SLEEP_TIMES = "agent.sleep.times"
+    const val AGENT_MAX_SUBAGENTS = "agent.max.subagents"
     const val SESSIONS_REMOVABLE = "sessions.removable"
 }
 
@@ -352,6 +353,30 @@ class InstallationSettings(
         write(SettingNames.AGENT_SLEEP_TIMES, times.toString(), by)
     }
 
+    /**
+     * How many other agents one agent may ask in one conversation; zero is none.
+     *
+     * Each ask starts a conversation of its own, with its own model calls and
+     * its own tools, on the asking model's say-so - so this is the number that
+     * bounds what one question can fan out into. Counted per conversation, and
+     * an agent that has spent them is told so and answers with what it has.
+     * Zero takes the tool off the table. A workspace may carry its own number,
+     * which wins here. Issue #380.
+     */
+    fun agentMaxSubagents(): Int {
+        val held = settings.findByIdOrNull(SettingNames.AGENT_MAX_SUBAGENTS) ?: return agentMaxSubagentsConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_SUBAGENTS..MAX_SUBAGENTS } ?: agentMaxSubagentsConfigured()
+    }
+
+    /** What a fresh installation allows - ORKNUX_CHAT_MAX_SUBAGENTS. */
+    fun agentMaxSubagentsConfigured(): Int = chat.maxSubagents.coerceIn(MIN_SUBAGENTS, MAX_SUBAGENTS)
+
+    @Transactional
+    fun setAgentMaxSubagents(count: Int, by: String) {
+        if (count !in MIN_SUBAGENTS..MAX_SUBAGENTS) throw SubagentsOutOfRangeException(count)
+        write(SettingNames.AGENT_MAX_SUBAGENTS, count.toString(), by)
+    }
+
     /** Stores one number under its name, made or found, stamped with who. */
     private fun write(name: String, value: String, by: String) {
         val held = settings.findByIdOrNull(name) ?: InstallationSetting(name = name)
@@ -574,6 +599,22 @@ class SleepTimesOutOfRangeException(val times: Int) : RuntimeException(
 ), Refusal {
 
     override val arguments get() = mapOf("times" to times)
+}
+
+/**
+ * None and a hundred, for how many other agents one agent may ask in a
+ * conversation. A hundred is a bill rather than a brief; the ceiling exists to
+ * catch a digit too many.
+ */
+const val MIN_SUBAGENTS = 0
+const val MAX_SUBAGENTS = 100
+
+class SubagentsOutOfRangeException(val count: Int) : RuntimeException(
+    "$count is not a number of agents an agent can be allowed to ask. " +
+        "Choose between $MIN_SUBAGENTS and $MAX_SUBAGENTS.",
+), Refusal {
+
+    override val arguments get() = mapOf("count" to count)
 }
 
 const val MIN_PLUGIN_SOURCE_KB = 64

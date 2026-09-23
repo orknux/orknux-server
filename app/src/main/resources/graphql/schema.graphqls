@@ -1090,6 +1090,13 @@ type Mutation {
     """
     setAgentSleepTimes(times: Int!): InstallationSettings!
     """
+    How many other agents one agent may ask in one conversation; 0 to 100.
+
+    Zero takes the tool off the table; a workspace's own number wins over this
+    one. Administrators only. Issue #380.
+    """
+    setAgentMaxSubagents(count: Int!): InstallationSettings!
+    """
     Whether a conversation may be thrown away. Administrators only.
 
     False closes the door: `removeLlmSession` refuses in words rather than
@@ -1489,6 +1496,12 @@ type Mutation {
     setWorkspaceDefaultMemoryShare(workspaceId: ID!, share: Int): Workspace!
     setWorkspaceTaskMaxTurns(workspaceId: ID!, turns: Int): Workspace!
     """
+    How many other agents one agent in this workspace may ask in one
+    conversation; 0 to 100. Null puts the workspace back on the installation's
+    number; zero takes the tool off the table here. Issue #380.
+    """
+    setWorkspaceAgentMaxSubagents(workspaceId: ID!, count: Int): Workspace!
+    """
     How long this workspace's tools and functions may run, where they have no
     timeout of their own. Null clears it, which puts the workspace back on the
     installation's own bound; between 1 and 600 seconds otherwise.
@@ -1875,6 +1888,17 @@ type Workspace {
     number. Sent so a field can show it rather than describe where it lives.
     """
     taskMaxTurnsDefault: Int!
+    """
+    How many other agents one agent here may ask in one conversation.
+
+    Each ask is a conversation of its own, started on the asking model's
+    say-so, so this bounds what one question can fan out into. Null means the
+    workspace has decided nothing and the installation's number applies; zero
+    takes the tool off the table here. Issue #380.
+    """
+    agentMaxSubagents: Int
+    "What an agent here gets when `agentMaxSubagents` is null: the installation's number."
+    agentMaxSubagentsDefault: Int!
     """
     How long one run of this workspace's functions may hold its thread, in
     seconds, where the function has no timeout of its own.
@@ -5565,6 +5589,16 @@ type InstallationSettings {
     agentSleepTimes: Int!
     "What a fresh installation allows - ORKNUX_CHAT_SLEEP_TIMES."
     agentSleepTimesConfigured: Int!
+    """
+    How many other agents one agent may ask in one conversation; zero is none.
+
+    Each ask is a conversation of its own with its own model calls, so this
+    bounds what one question can fan out into. A workspace may carry its own
+    number, which wins. Issue #380.
+    """
+    agentMaxSubagents: Int!
+    "What a fresh installation allows - ORKNUX_CHAT_MAX_SUBAGENTS."
+    agentMaxSubagentsConfigured: Int!
     """
     Whether a conversation may be thrown away.
 
