@@ -37,6 +37,28 @@ enum class AuthMethod {
     OIDC,
 
     /**
+     * GitHub, which is not OIDC and cannot be configured as though it were.
+     *
+     * Issue #239. It has no discovery document, mints no ID token, and hands
+     * back an opaque token rather than a JWT - so none of the three things the
+     * OIDC path is built on is there. What it does have is an authorize
+     * endpoint, a token endpoint and `https://api.github.com/user`, which is an
+     * OAuth2 login and nothing more.
+     *
+     * **The browser half only.** A session cookie is issued exactly as the other
+     * methods issue one, so nothing past the front door knows the difference.
+     * There is no bearer half: a GitHub token is opaque, so validating one means
+     * asking GitHub on every request, and an installation that wants
+     * programmatic callers has API tokens for that - which work under every
+     * method and are this installation's own.
+     *
+     * Who may sign in is not "anybody with a GitHub account", which is what this
+     * would be with nothing else said - so it refuses to start without either an
+     * organisation or a list of logins. See [GithubProperties].
+     */
+    GITHUB,
+
+    /**
      * Nobody signs in. There is no door, because there is no wall.
      *
      * For an installation somebody is trying out, and for one already behind a
@@ -103,6 +125,8 @@ data class SecurityProperties(
 
     /** What this installation calls its OIDC provider, where that is in use. */
     val oidc: OidcProperties = OidcProperties(),
+    /** How GitHub sign-in is configured, where that is the method. See [AuthMethod.GITHUB]. */
+    val github: GithubProperties = GithubProperties(),
 )
 
 data class OidcProperties(
@@ -161,4 +185,77 @@ data class OidcProperties(
 
     /** What to ask the provider for. `openid` is required; the rest is what is read. */
     val scopes: List<String> = listOf("openid", "profile", "email", "groups"),
+)
+
+/**
+ * How GitHub sign-in is configured. Issue #239.
+ *
+ * GitHub is not an OpenID Connect provider and this is not the OIDC settings
+ * under another name: there is no issuer to discover, no claims to name, and no
+ * token to validate per request. What it takes is an OAuth app's two halves and
+ * an answer to the question OIDC answers with a claim - who is allowed in.
+ *
+ * **That question has no safe default.** An OAuth app will happily authenticate
+ * every GitHub account there is, so an installation that named neither an
+ * organisation nor a list of logins would have a front door open to the entire
+ * internet. It is refused at startup rather than defaulted, because there is no
+ * value here that is both useful and safe.
+ */
+data class GithubProperties(
+    val clientId: String = "",
+
+    /**
+     * The OAuth app's secret.
+     *
+     * Required, unlike OIDC's: GitHub issues no public clients for this flow, so
+     * an empty one is a misconfiguration rather than a different shape.
+     */
+    val clientSecret: String = "",
+
+    /**
+     * The organisation whose members may sign in.
+     *
+     * Checked against what GitHub says at the moment of signing in rather than
+     * against anything stored here, so somebody removed from the organisation
+     * stops being able to sign in without this installation being told.
+     *
+     * Only members whose membership GitHub will admit to. A private membership
+     * is not visible to an OAuth token without `read:org`, which is why that
+     * scope is asked for - an installation that declines it will find its
+     * private members unable to sign in, and that is better than the opposite
+     * mistake.
+     */
+    val organisation: String = "",
+
+    /**
+     * Logins that may sign in whatever [organisation] says, and the whole of the
+     * list where no organisation is named.
+     *
+     * For an installation of a handful of people, and for the first
+     * administrator of one that has an organisation but has not set up teams.
+     */
+    val allowedLogins: List<String> = emptyList(),
+
+    /**
+     * Logins that administer this installation.
+     *
+     * By login rather than by team, which is the shape GitHub would suggest -
+     * teams need another call and another scope, and an installation reaching
+     * for GitHub sign-in is usually small enough that a list of two names is the
+     * honest answer. A team-based mapping is the thing to add when somebody has
+     * an organisation big enough to need one.
+     */
+    val administrators: List<String> = emptyList(),
+
+    /** What the sign-in button says. */
+    val displayName: String = "GitHub",
+
+    /**
+     * What to ask GitHub for.
+     *
+     * `read:user` for the login and name, and `read:org` so that a private
+     * organisation membership can be seen - without it, exactly the people an
+     * installation most wants to admit are the ones it cannot verify.
+     */
+    val scopes: List<String> = listOf("read:user", "read:org"),
 )

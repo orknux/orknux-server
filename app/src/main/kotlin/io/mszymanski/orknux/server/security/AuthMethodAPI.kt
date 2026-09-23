@@ -39,12 +39,19 @@ class AuthMethodAPI(private val properties: SecurityProperties) {
         displayName = when (properties.authMethod) {
             AuthMethod.INTERNAL -> INTERNAL_DISPLAY_NAME
             AuthMethod.NONE -> NONE_DISPLAY_NAME
+            // Its own name, because "single sign-on" is not what anybody calls
+            // the button that says GitHub on it. Issue #239.
+            AuthMethod.GITHUB -> properties.github.displayName
             else -> properties.oidc.displayName
         },
         // Where the browser flow starts. Spring registers this path for the
         // registration id; naming it here keeps the interface from having to know
         // Spring's URL conventions.
-        authorizeUrl = if (properties.authMethod == AuthMethod.OIDC) OIDC_AUTHORIZE_PATH else null,
+        authorizeUrl = when (properties.authMethod) {
+            AuthMethod.OIDC -> OIDC_AUTHORIZE_PATH
+            AuthMethod.GITHUB -> GITHUB_AUTHORIZE_PATH
+            else -> null
+        },
         /*
          * The one thing this endpoint exists to shout rather than to answer.
          *

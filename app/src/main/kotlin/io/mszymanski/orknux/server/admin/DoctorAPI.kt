@@ -327,6 +327,43 @@ class DoctorAPI(
                 fail("Authentication", "OIDC is selected but the ${missing.joinToString(" and ")} is not set.")
             }
         }
+
+        /*
+         * Who may sign in is the finding here, not whether the client is set up.
+         *
+         * An OAuth app authenticates every GitHub account there is, so "it is
+         * configured" and "it is safe" are different questions under this method
+         * in a way they are not under the others - and the one worth putting on
+         * this screen is the second. The application refuses to start with
+         * neither an organisation nor a list, so what this reports is which of
+         * the two is holding the door.
+         */
+        AuthMethod.GITHUB -> {
+            val missing = buildList {
+                if (security.github.clientId.isBlank()) add("client id")
+                if (security.github.clientSecret.isBlank()) add("client secret")
+            }
+            val organisation = security.github.organisation.trim()
+            val allowed = security.github.allowedLogins.filter { it.isNotBlank() }
+            when {
+                missing.isNotEmpty() -> fail(
+                    "Authentication",
+                    "GitHub is selected but the ${missing.joinToString(" and ")} is not set.",
+                )
+
+                organisation.isNotBlank() -> ok(
+                    "Authentication",
+                    "GitHub, and only members of $organisation" +
+                        if (allowed.isEmpty()) "." else " and ${allowed.size} named login(s).",
+                )
+
+                else -> ok(
+                    "Authentication",
+                    "GitHub, and only these ${allowed.size} login(s): ${allowed.joinToString(", ")}. " +
+                        "No organisation is named, so this list is the whole of who may sign in.",
+                )
+            }
+        }
     }
 
     /**

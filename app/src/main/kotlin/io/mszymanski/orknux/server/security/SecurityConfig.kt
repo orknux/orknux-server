@@ -13,6 +13,9 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.oauth2.client.endpoint.RestClientAuthorizationCodeTokenResponseClient
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserService
 import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService
+import org.springframework.security.oauth2.client.userinfo.OAuth2UserRequest
+import org.springframework.security.oauth2.client.userinfo.OAuth2UserService
+import org.springframework.security.oauth2.core.user.OAuth2User
 import io.mszymanski.orknux.server.attachment.InstallationSettings
 import io.mszymanski.orknux.server.user.TokenAuthenticationFilter
 import org.springframework.security.crypto.factory.PasswordEncoderFactories
@@ -55,6 +58,15 @@ class SecurityConfig {
          * reach and no bean to inject.
          */
         transport: OidcTransport?,
+        /**
+         * Who may sign in with GitHub, and what they may do. Issue #239.
+         *
+         * Absent under every other method, for the reason `transport` is. It is
+         * this method's security boundary rather than a detail of it: an OAuth
+         * app authenticates every GitHub account there is, and this is what
+         * decides which of them belong here.
+         */
+        githubUsers: OAuth2UserService<OAuth2UserRequest, OAuth2User>?,
     ): SecurityFilterChain {
         http {
             cors { }
@@ -193,6 +205,35 @@ class SecurityConfig {
                 // The decoder this uses is the bean in OidcSecurityConfig, which
                 // already fetches its keys through the rules.
                 oauth2ResourceServer { jwt { } }
+            }
+        }
+
+        /*
+         * The same browser flow for GitHub, and only the browser flow. Issue #239.
+         *
+         * No `oauth2ResourceServer` beside it, unlike OIDC: a GitHub token is
+         * opaque rather than a JWT, so there is nothing to decode and validating
+         * one would mean asking GitHub on every request. An installation that
+         * wants programmatic callers has API tokens, which work under every
+         * method and are this installation's own to revoke.
+         *
+         * The user service is where who-may-sign-in is decided, which is why it
+         * is a bean rather than configured inline: it is the security boundary
+         * of this method, and it belongs beside the reasoning for it.
+         */
+        if (properties.authMethod == AuthMethod.GITHUB) {
+            http {
+                oauth2Login {
+                    transport?.let { routed ->
+                        tokenEndpoint {
+                            accessTokenResponseClient = RestClientAuthorizationCodeTokenResponseClient()
+                                .apply { setRestClient(routed.restClient()) }
+                        }
+                    }
+                    githubUsers?.let { service ->
+                        userInfoEndpoint { userService = service }
+                    }
+                }
             }
         }
 
