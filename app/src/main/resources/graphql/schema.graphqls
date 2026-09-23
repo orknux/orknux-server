@@ -6648,6 +6648,12 @@ enum ConditionType {
     FUNCTION
     ANY_OF
     ALL_OF
+    """
+    A value from the run, checked against a list. The node picks which value,
+    with the same reference picker its parameters use, under the name `value`;
+    the condition holds the check and the values.
+    """
+    VALUE
 }
 
 "Which part of what arrived is being asked about."

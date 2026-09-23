@@ -115,6 +115,7 @@ class ConditionEvaluator(
                 members(condition).all { decide(it, input, raw, depth + 1, emptyMap(), trigger, origin) }
 
             ConditionType.FUNCTION -> ask(condition, raw, passed, trigger, origin)
+            ConditionType.VALUE -> testValue(condition, raw, passed, trigger)
             else -> test(condition, input)
         }
         return answer != condition.negate
@@ -343,6 +344,49 @@ class ConditionEvaluator(
     private fun members(condition: WorkflowCondition): List<WorkflowCondition> = condition.members.map { id ->
         conditions.findByIdOrNull(id)
             ?: throw ConditionNotDecidableException("${condition.name} names a condition that has been deleted")
+    }
+
+    /**
+     * A value from the run, checked against the list. Issue #378.
+     *
+     * The subject comes from the node first - the binding it filled in, with
+     * the same rules a function's parameters have, `trigger.` included - and
+     * from the condition's own argument where the node passed nothing, so a
+     * condition made on the settings page still works. What it resolves to is
+     * read as text, the way a property is: a string is its characters, and
+     * anything else is its JSON.
+     */
+    private fun testValue(
+        condition: WorkflowCondition,
+        raw: String?,
+        passed: Map<String, NodeBinding>,
+        trigger: String?,
+    ): Boolean {
+        val check = condition.check
+            ?: throw ConditionNotDecidableException("${condition.name} has no check to make")
+        val binding = passed[VALUE_SUBJECT]
+            ?: condition.arguments.firstOrNull { it.name == VALUE_SUBJECT }?.let {
+                NodeBinding(expression = it.expression, reference = it.mode == MappingMode.REFERENCE)
+            }
+            ?: throw ConditionNotDecidableException(
+                "${condition.name} has not been told which value to check; pick one on the node",
+            )
+        val json = jsonFor(binding, raw, trigger)
+        val found = runCatching { mapper.readTree(json) }.getOrNull()
+        if (found == null || found.isNull) {
+            throw ConditionNotDecidableException(
+                "${condition.name} looks at ${binding.expression}, which this run is not carrying",
+            )
+        }
+        val value = if (found.isTextual) found.stringValue() else found.toString()
+        return when (check) {
+            ConditionCheck.IN_LIST -> condition.values.any { it.equalsIgnoringCase(value) }
+            ConditionCheck.EQUALS -> condition.values.firstOrNull()?.equalsIgnoringCase(value) == true
+            ConditionCheck.CONTAINS -> condition.values.any { value.contains(it, ignoreCase = true) }
+            ConditionCheck.MATCHES -> matches(condition, value)
+            ConditionCheck.BETWEEN, ConditionCheck.WORKSPACEMATE ->
+                throw ConditionNotDecidableException("${condition.name} cannot ${check.name.lowercase()} a value")
+        }
     }
 
     private fun test(condition: WorkflowCondition, input: JsonNode?): Boolean {

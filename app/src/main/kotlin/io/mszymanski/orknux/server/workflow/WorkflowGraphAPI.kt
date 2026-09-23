@@ -14,6 +14,8 @@ import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import io.mszymanski.orknux.server.action.ActionParamView
 import io.mszymanski.orknux.server.action.WorkflowActionRepository
+import io.mszymanski.orknux.server.condition.ConditionType
+import io.mszymanski.orknux.server.condition.VALUE_SUBJECT
 import io.mszymanski.orknux.server.condition.WorkflowConditionRepository
 import io.mszymanski.orknux.server.graphql.Refusal
 import io.mszymanski.orknux.server.trigger.WorkflowTriggerRepository
@@ -574,6 +576,16 @@ class WorkflowGraphAPI(
          */
         if (node.kind == NodeKind.CONDITION) {
             val asks = node.conditionId?.let { conditions.findByIdOrNull(it) } ?: return mutableListOf()
+            /*
+             * A VALUE condition takes one thing, the value, and the node is
+             * where it is picked - the same row a function's parameter gets,
+             * kept by the same rule: filled in is kept, empty is nothing.
+             * Issue #378.
+             */
+            if (asks.type == ConditionType.VALUE) {
+                val picked = sent[VALUE_SUBJECT]?.let { mappingOf(it, refusing) }
+                return if (picked != null && picked.expression.isNotEmpty()) mutableListOf(picked) else mutableListOf()
+            }
             val function = asks.functionId?.let { functions.findByIdOrNull(it) } ?: return mutableListOf()
 
             val filled = function.params

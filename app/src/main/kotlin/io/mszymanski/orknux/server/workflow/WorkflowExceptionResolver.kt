@@ -72,6 +72,7 @@ import io.mszymanski.orknux.server.condition.ConditionNameInvalidException
 import io.mszymanski.orknux.server.condition.ConditionNameTakenException
 import io.mszymanski.orknux.server.condition.ConditionNotFoundException
 import io.mszymanski.orknux.server.condition.ConditionPropertyMismatchException
+import io.mszymanski.orknux.server.condition.ConditionValueCheckException
 import io.mszymanski.orknux.server.condition.ConditionValuesRequiredException
 import io.mszymanski.orknux.server.trigger.TriggerConnectionRequiredException
 import io.mszymanski.orknux.server.trigger.TriggerReplyWatchRequiredException
@@ -229,6 +230,7 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ConditionPropertyMismatchException,
             is ConditionCheckMismatchException,
             is ConditionValuesRequiredException,
+            is ConditionValueCheckException,
             is ConditionMembersRequiredException,
             is ConditionCycleException,
             is ConditionInUseException,

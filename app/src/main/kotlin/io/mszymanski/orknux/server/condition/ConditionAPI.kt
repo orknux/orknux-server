@@ -257,7 +257,12 @@ class ConditionAPI(
                 "Matches when ${functionName ?: "the function"} answers true".prefixIfNegated(negated)
 
             else -> {
-                val property = condition.property?.let(::label) ?: "what arrives"
+                val property = if (condition.type == ConditionType.VALUE) {
+                    condition.arguments.firstOrNull { it.name == VALUE_SUBJECT }?.expression
+                        ?.takeIf { it.isNotBlank() }?.let { "the value $it" } ?: "the value the node picks"
+                } else {
+                    condition.property?.let(::label) ?: "what arrives"
+                }
                 val phrase = when (condition.check) {
                     ConditionCheck.IN_LIST -> "is one of ${condition.values.size} listed values"
                     ConditionCheck.EQUALS -> "is ${condition.values.firstOrNull() ?: "the listed value"}"
@@ -310,6 +315,19 @@ class ConditionAPI(
                 }
             }
 
+            /*
+             * The subject is the node's to pick, so nothing here asks for it:
+             * a condition made on the settings page has no graph to pick from,
+             * and the evaluator says so at run time if nothing ever fills it.
+             * What it must have is a check a value can take, and something to
+             * check against.
+             */
+            ConditionType.VALUE -> {
+                val check = condition.check ?: throw ConditionValueCheckException(ConditionCheck.BETWEEN)
+                if (check !in VALUE_CHECKS) throw ConditionValueCheckException(check)
+                if (condition.values.isEmpty()) throw ConditionValuesRequiredException(check)
+                condition.property = null
+            }
             ConditionType.FUNCTION -> {
                 val functionId = condition.functionId ?: throw ConditionFunctionRequiredException()
                 // Nothing at that id is the same as nothing chosen: a function
@@ -394,8 +412,16 @@ fun propertiesOf(type: ConditionType): List<ConditionProperty> = when (type) {
     )
 
     ConditionType.TIME -> listOf(ConditionProperty.CURRENT_TIME)
-    ConditionType.FUNCTION, ConditionType.ANY_OF, ConditionType.ALL_OF -> emptyList()
+    ConditionType.FUNCTION, ConditionType.ANY_OF, ConditionType.ALL_OF, ConditionType.VALUE -> emptyList()
 }
+
+/** What a [ConditionType.VALUE] condition may ask of a value: everything but the time and the directory. */
+val VALUE_CHECKS = listOf(
+    ConditionCheck.IN_LIST,
+    ConditionCheck.EQUALS,
+    ConditionCheck.CONTAINS,
+    ConditionCheck.MATCHES,
+)
 
 /** Which checks make sense for a property. */
 fun checksOf(property: ConditionProperty): List<ConditionCheck> = when (property) {

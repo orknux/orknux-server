@@ -44,7 +44,23 @@ enum class ConditionType {
 
     /** True when all of them are. */
     ALL_OF,
+
+    /**
+     * A value from the run, checked against a list. Issue #378.
+     *
+     * The general form of the typed conditions above. A Slack condition knows
+     * where a message's author is; this one is told: the node it sits on
+     * picks the field, with the same reference picker every node's parameters
+     * use, and the condition holds the check and the values. Which is why the
+     * subject is an argument named [VALUE_SUBJECT] rather than a property - it
+     * is filled in where the graph is, and a condition may be reused on two
+     * nodes looking at two different fields.
+     */
+    VALUE,
 }
+
+/** The one argument a [ConditionType.VALUE] condition takes: what to check. */
+const val VALUE_SUBJECT = "value"
 
 /**
  * Which part of what arrived is being asked about.
@@ -291,6 +307,17 @@ class ConditionNameInvalidException : RuntimeException("A condition name is requ
 
 class ConditionPropertyMismatchException(type: ConditionType, property: ConditionProperty) :
     RuntimeException("A ${type.name.lowercase()} condition cannot ask about ${property.name.lowercase()}")
+
+/** A check a value cannot take: the time-of-day one, and the directory one. Issue #378. */
+class ConditionValueCheckException(val check: ConditionCheck) :
+    RuntimeException(
+        "a value cannot be tested with ${check.name.lowercase().replace('_', ' ')}; " +
+            "it can be in a list, equal to, containing or matching something",
+    ),
+    Refusal {
+
+    override val arguments get() = mapOf("check" to check.name)
+}
 
 class ConditionCheckMismatchException(property: ConditionProperty, check: ConditionCheck) :
     RuntimeException(
