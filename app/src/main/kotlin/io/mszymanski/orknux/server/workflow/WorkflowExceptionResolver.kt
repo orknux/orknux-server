@@ -253,6 +253,8 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is io.mszymanski.orknux.server.attachment.SleepTimesOutOfRangeException,
             /* A usage window whose date was not one; see the model API. */
             is io.mszymanski.orknux.server.model.UsageRangeInvalidException,
+            /* A conversation asked to be removed where the operator said no. */
+            is io.mszymanski.orknux.server.llm.SessionsNotRemovableException,
             is TaskSweepNotConfigurableException,
             is RevisionNotRestorableException,
             is RevisionComponentGoneException,

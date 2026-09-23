@@ -63,6 +63,7 @@ object SettingNames {
     const val CHAT_MAX_ROUNDS = "chat.max.rounds"
     const val AGENT_SLEEP_SECONDS = "agent.sleep.seconds"
     const val AGENT_SLEEP_TIMES = "agent.sleep.times"
+    const val SESSIONS_REMOVABLE = "sessions.removable"
 }
 
 /**
@@ -358,6 +359,30 @@ class InstallationSettings(
         held.lastModifiedAt = OffsetDateTime.now()
         held.lastModifiedBy = by
         settings.save(held)
+    }
+
+    /**
+     * Whether a conversation may be thrown away.
+     *
+     * A session is the record of what an agent was asked and what it answered,
+     * and on some installations that is the only account of a decision anybody
+     * has. Removing one is a person tidying up after a mistyped key or a run
+     * they were trying out - which is what it is for - but on an installation
+     * that has to be able to say what happened, it is a hole somebody can put in
+     * the record with one press and no way back.
+     *
+     * So an operator can close the door. On by default, because that is how
+     * every installation has worked until now and a switch that silently took an
+     * ability away on upgrade would be worse than the hole.
+     */
+    fun sessionsRemovable(): Boolean {
+        val held = settings.findByIdOrNull(SettingNames.SESSIONS_REMOVABLE) ?: return true
+        return held.value.toBooleanStrictOrNull() ?: true
+    }
+
+    @Transactional
+    fun setSessionsRemovable(removable: Boolean, by: String) {
+        write(SettingNames.SESSIONS_REMOVABLE, removable.toString(), by)
     }
 
     fun pluginMaxSourceBytes(): Long = pluginMaxSourceKb() * 1024L

@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.llm
 
+import io.mszymanski.orknux.server.graphql.Refusal
 import io.mszymanski.orknux.server.security.WorkspaceAccess
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
@@ -59,6 +60,8 @@ class LlmSessionAPI(
     private val sessions: LlmSessionRepository,
     private val events: LlmSessionEventRepository,
     private val access: WorkspaceAccess,
+    /** Whether this installation lets a conversation be thrown away. */
+    private val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
 ) {
 
     @QueryMapping
@@ -134,6 +137,17 @@ class LlmSessionAPI(
     @MutationMapping
     @Transactional
     fun removeLlmSession(@Argument id: Long): Boolean {
+        /*
+         * Refused where the installation has closed the door, and refused in
+         * words rather than answered false: false already means "there was no
+         * such session", and somebody who may not do this needs to be told that
+         * rather than left thinking the conversation had already gone.
+         *
+         * Asked before the session is looked up, so an installation that does
+         * not allow this cannot be used to find out which ids exist.
+         */
+        if (!settings.sessionsRemovable()) throw SessionsNotRemovableException()
+
         val session = sessions.findByIdOrNull(id) ?: return false
         if (!access.canSee(session.workspaceId)) return false
         access.requireVisible(session.workspaceId)
@@ -282,3 +296,24 @@ data class LlmSessionEventView(
 )
 
 data class LlmSessionEventPageView(val totalElements: Int, val content: List<LlmSessionEventView>)
+
+/**
+ * A conversation asked to be thrown away on an installation that does not allow
+ * it.
+ *
+ * A session is the record of what an agent was asked and what it answered, and
+ * on some installations that is the only account of a decision anybody has. An
+ * operator can close the door; this is what says so.
+ *
+ * In words rather than a false, which the mutation already uses to mean "there
+ * was no such session": somebody who may not do this needs to be told that
+ * rather than left believing the conversation had already gone.
+ */
+class SessionsNotRemovableException : RuntimeException(
+    "This installation does not allow conversations to be removed. " +
+        "An administrator can change that under Admin, Settings.",
+), Refusal {
+
+    /** Nothing to carry: the refusal is about the installation, not the id. */
+    override val arguments get() = emptyMap<String, Any?>()
+}

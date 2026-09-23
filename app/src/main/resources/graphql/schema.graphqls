@@ -1078,6 +1078,13 @@ type Mutation {
     """
     setAgentSleepTimes(times: Int!): InstallationSettings!
     """
+    Whether a conversation may be thrown away. Administrators only.
+
+    False closes the door: `removeLlmSession` refuses in words rather than
+    answering false, because false already means there was no such session.
+    """
+    setSessionsRemovable(removable: Boolean!): InstallationSettings!
+    """
     Says which chat uploaded files belong to. Sent when the message is, since a
     first message is what makes the chat.
     """
@@ -5409,6 +5416,14 @@ type InstallationSettings {
     agentSleepTimes: Int!
     "What a fresh installation allows - ORKNUX_CHAT_SLEEP_TIMES."
     agentSleepTimesConfigured: Int!
+    """
+    Whether a conversation may be thrown away.
+
+    A session is the record of what an agent was asked and what it answered, and
+    on some installations that is the only account of a decision anybody has.
+    True until an operator turns it off, which is how this has always worked.
+    """
+    sessionsRemovable: Boolean!
     """
     False where the installation runs Temporal, and the field is not offered.
 

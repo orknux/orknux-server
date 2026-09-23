@@ -55,6 +55,7 @@ class InstallationSettingsAPI(
         agentSleepSecondsConfigured = settings.agentSleepSecondsConfigured(),
         agentSleepTimes = settings.agentSleepTimes(),
         agentSleepTimesConfigured = settings.agentSleepTimesConfigured(),
+        sessionsRemovable = settings.sessionsRemovable(),
     )
 
     @MutationMapping
@@ -270,6 +271,28 @@ class InstallationSettingsAPI(
         return installationSettings()
     }
 
+    /**
+     * Whether a conversation may be thrown away.
+     *
+     * A session is the record of what an agent was asked and what it answered,
+     * and on some installations that is the only account of a decision anybody
+     * has. Removing one is a person tidying up - which is what it is for - but
+     * on an installation that has to be able to say what happened it is a hole
+     * somebody can put in the record with one press and no way back.
+     */
+    @MutationMapping
+    fun setSessionsRemovable(@Argument removable: Boolean): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setSessionsRemovable(removable, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            if (removable) "Conversations may be removed" else "Conversations may no longer be removed",
+        )
+        return installationSettings()
+    }
+
     @MutationMapping
     fun setPluginMaxSourceKb(@Argument kb: Int): InstallationSettingsView {
         access.requireAdmin()
@@ -374,6 +397,14 @@ data class InstallationSettingsView(
     val agentSleepTimes: Int,
     /** What a fresh installation allows - ORKNUX_CHAT_SLEEP_TIMES. */
     val agentSleepTimesConfigured: Int,
+    /**
+     * Whether a conversation may be thrown away.
+     *
+     * True on every installation until somebody turns it off, which is how this
+     * has always worked - a switch that silently took an ability away on upgrade
+     * would be worse than the hole it closes.
+     */
+    val sessionsRemovable: Boolean,
     /** What a fresh installation allows: the built-in default. */
     val pluginMaxSourceKbConfigured: Int,
     /**
