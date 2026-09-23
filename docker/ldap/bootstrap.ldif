@@ -38,3 +38,16 @@ dn: cn=backend,ou=groups,dc=orknux,dc=io
 objectClass: groupOfNames
 cn: backend
 member: uid=bob,ou=people,dc=orknux,dc=io
+
+# A group filed one level further down, which is how a directory that sorts its
+# groups by department looks. Nothing reaches it unless the group search is told
+# to look below its base — see orknux.ldap.group-search-subtree, and the test
+# that holds both answers.
+dn: ou=departments,ou=groups,dc=orknux,dc=io
+objectClass: organizationalUnit
+ou: departments
+
+dn: cn=platform,ou=departments,ou=groups,dc=orknux,dc=io
+objectClass: groupOfNames
+cn: platform
+member: uid=alice,ou=people,dc=orknux,dc=io

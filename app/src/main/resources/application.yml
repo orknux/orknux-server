@@ -473,6 +473,20 @@ orknux:
     # of being disabled.
     group-search-base: ${ORKNUX_LDAP_GROUP_SEARCH_BASE:ou=groups}
     group-search-filter: ${ORKNUX_LDAP_GROUP_SEARCH_FILTER:(member={0})}
+    # Whether groups below that base count, or only those directly in it.
+    #
+    # The user search has always looked at the whole subtree and this one has
+    # always looked one level down, which is Spring's default and was never a
+    # decision made here. It is a trap in a directory that files its groups by
+    # department: the search runs, matches nothing, and an installation where
+    # everybody signs in successfully shows every one of them an empty product.
+    # Nothing fails, so nothing says why.
+    #
+    # Off all the same. Turning it on can only grant more roles than yesterday -
+    # two groups of one name in different OUs are one role here - and a switch
+    # deciding who gets in defaults to the narrow answer. Set it where the groups
+    # are not all in one place.
+    group-search-subtree: ${ORKNUX_LDAP_GROUP_SEARCH_SUBTREE:false}
   connection:
     # A connection check calls the configured URL; these bound what that may do.
     probe-timeout-seconds: ${ORKNUX_CONNECTION_PROBE_TIMEOUT_SECONDS:5}

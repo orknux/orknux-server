@@ -24,6 +24,12 @@ class LdapAuthenticationConfig {
     ): LdapAuthoritiesPopulator =
         DefaultLdapAuthoritiesPopulator(contextSource, properties.groupSearchBase).apply {
             setGroupSearchFilter(properties.groupSearchFilter)
+            /*
+             * One level by default, which is Spring's own and what this has
+             * always done - see [LdapProperties.groupSearchSubtree] for why it
+             * is a trap worth a setting, and why the setting is off.
+             */
+            setSearchSubtree(properties.groupSearchSubtree)
         }
 
     /**
