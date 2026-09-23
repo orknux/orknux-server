@@ -65,6 +65,8 @@ class TaskLoop(
     private val budgets: SessionMemoryBudgets,
     private val worker: TaskWorker,
     private val tools: TaskTools,
+    /** What lets an agent write something down for itself; see [NoteTools]. #371. */
+    private val notes: io.mszymanski.orknux.server.chat.NoteTools,
     private val news: TaskNewsDesk,
     private val properties: TaskProperties,
 ) {
@@ -155,7 +157,22 @@ class TaskLoop(
         deliver(taskId, session)
 
         val turns = buildList {
-            add(ChatTurn("system", briefing(agent.let(briefings::of), task)))
+            /*
+             * The briefing, and what this agent wrote down for itself. Issue
+             * #371: the conversation below is trimmed to a share of the window,
+             * so what turn three found is gone by turn thirty - and a task is
+             * the longest thing an agent does here. A note is what survives
+             * that, so it rides with the briefing rather than in the tail.
+             */
+            add(
+                ChatTurn(
+                    "system",
+                    listOfNotNull(
+                        briefing(agent.let(briefings::of), task),
+                        notes.recalled(session).takeIf { it.isNotBlank() },
+                    ).joinToString(separator = "\n\n"),
+                ),
+            )
             addAll(sessions.remembered(session, budget))
             addAll(sessions.recalled(session, budget))
         }
@@ -182,8 +199,18 @@ class TaskLoop(
                 agent,
                 turns,
                 session,
-                // Drawing and linking are two decisions; see the shed.
-                tools.shed(task, mayLink = agent.pictureLinkAccess),
+                io.mszymanski.orknux.server.chat.sheds(
+                    // Drawing and linking are two decisions; see the shed.
+                    tools.shed(task, mayLink = agent.pictureLinkAccess),
+                    /*
+                     * And somewhere to write a note to itself. Issue #371: a
+                     * task is the longest thing an agent does here - many turns
+                     * over hours - so it is where the transcript being trimmed
+                     * costs the most, and where what was found on turn three is
+                     * most likely to be gone by turn thirty.
+                     */
+                    notes.shed(session, agent.name),
+                ),
                 watching,
                 interjections = { pickUp(taskId, session) },
             )

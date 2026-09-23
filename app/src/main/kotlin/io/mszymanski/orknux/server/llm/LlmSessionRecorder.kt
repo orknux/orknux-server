@@ -54,7 +54,37 @@ class LlmSessionRecorder(
      * that watching is a thing that exists.
      */
     private val tail: SessionTail,
+    /** What an agent wrote down for itself; see [noteTaken]. Issue #371. */
+    private val notes: LlmSessionNoteRepository,
 ) {
+
+    /**
+     * Writes one down, and answers with how many the session now holds.
+     *
+     * Bounded, because a note is handed back whole on every turn: an agent that
+     * writes one per round would quietly turn its own context window into a
+     * diary. The bound is a refusal rather than a silent drop - an agent told it
+     * is full can decide what matters, where one whose notes vanished would go
+     * on believing they were kept.
+     */
+    @org.springframework.transaction.annotation.Transactional
+    fun noteTaken(session: Long, writtenBy: String, note: String): Int {
+        notes.save(LlmSessionNote(sessionId = session, note = note, writtenBy = writtenBy))
+        return notes.countBySessionId(session).toInt()
+    }
+
+    /** How many this session holds, for the bound the tool states. */
+    fun noteCount(session: Long?): Int =
+        session?.let { notes.countBySessionId(it).toInt() } ?: 0
+
+    /**
+     * What has been written down here, oldest first.
+     *
+     * Whole rather than trimmed, which is the whole point: the transcript is cut
+     * to a share of the window and a note is what must survive that.
+     */
+    fun notesOf(session: Long?): List<LlmSessionNote> =
+        session?.let { notes.findBySessionIdOrderByWrittenAtAscIdAsc(it) }.orEmpty()
 
     /**
      * The session this key names here, made if it is not there yet.

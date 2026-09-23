@@ -66,6 +66,8 @@ class AgentNodeRunner(
     private val drawings: io.mszymanski.orknux.server.workflow.StepPictureTools,
     /** What lets it stop when the work is already delivered; see [FinishAnswerTools]. */
     private val finishing: FinishAnswerTools,
+    /** What lets an agent write something down for itself; see [NoteTools]. Issue #371. */
+    private val notes: io.mszymanski.orknux.server.chat.NoteTools,
     private val budgets: SessionMemoryBudgets,
     private val shapes: ObjectShapes,
     private val mapper: ObjectMapper,
@@ -234,8 +236,20 @@ class AgentNodeRunner(
          */
         val pictures = picturesFor(payload, agent.workspaceId)
 
+        /*
+         * And what it wrote down for itself, put back whole. Issue #371.
+         *
+         * In the system turn beside the briefing rather than among the
+         * remembered turns, because those are what the budget trims and a note
+         * is the thing that must survive that. Empty where nothing was written,
+         * which is most turns.
+         */
+        val written = notes.recalled(session)
+
         val turns = buildList {
-            instructed?.let { add(ChatTurn("system", it)) }
+            listOfNotNull(instructed, written.takeIf { it.isNotBlank() })
+                .takeIf { it.isNotEmpty() }
+                ?.let { add(ChatTurn("system", it.joinToString(separator = "\n\n"))) }
             addAll(remembered)
             addAll(recalled)
             add(ChatTurn("user", question, images = pictures))
@@ -334,6 +348,14 @@ class AgentNodeRunner(
          */
         val shed = io.mszymanski.orknux.server.chat.sheds(
             drawing,
+            /*
+             * Somewhere to write a note to itself, where this node keeps a
+             * session to write it into. Issue #371: a wake-up already carries
+             * one, and this is the same thing without the parking - what the
+             * first six steps of a long job found, which the transcript trims
+             * away exactly when it starts to matter.
+             */
+            notes.shed(session, agent.name),
             finishing.shed(
                 granted = agent.finishAccess,
                 shaped = step.outputObjectId != null,

@@ -637,3 +637,51 @@ class LlmSessionNotFoundException(val id: Long) : RuntimeException("No LLM sessi
     override val arguments get() = mapOf("id" to id)
 }
 
+
+/**
+ * Something an agent wrote down for itself, part-way through. Issue #371.
+ *
+ * An agent that wakes from a wait is handed the note it left, which covers the
+ * moment it parks. What it had no way to do is write something down while it is
+ * still working: what the first six steps of a long job found, the thing it must
+ * not forget at the end, the reason it ruled an approach out.
+ *
+ * The transcript is not that. It is trimmed to fit a share of the context window,
+ * so what an agent said twenty turns ago is exactly what is gone by the time it
+ * matters. A note is the thing that must not fall out, so it is kept apart and
+ * handed back whole.
+ */
+@Entity
+@Table(name = "llm_session_note")
+class LlmSessionNote(
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    val id: Long? = null,
+
+    @Column(name = "session_id", nullable = false)
+    val sessionId: Long,
+
+    @Column(nullable = false, columnDefinition = "text")
+    val note: String,
+
+    /**
+     * Which agent wrote it.
+     *
+     * A session can be shared - every node computing the same key is in it - so
+     * "somebody decided this" is worth less than knowing which of them did.
+     */
+    @Column(name = "written_by", nullable = false, length = 200)
+    val writtenBy: String,
+
+    @Column(name = "written_at", nullable = false)
+    val writtenAt: OffsetDateTime = OffsetDateTime.now(),
+)
+
+interface LlmSessionNoteRepository : JpaRepository<LlmSessionNote, Long> {
+
+    /** One session's notes, oldest first, which is the order they were thought in. */
+    fun findBySessionIdOrderByWrittenAtAscIdAsc(sessionId: Long): List<LlmSessionNote>
+
+    /** How many it holds, which is what bounds an agent writing them. */
+    fun countBySessionId(sessionId: Long): Long
+}

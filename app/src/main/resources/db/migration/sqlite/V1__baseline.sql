@@ -464,6 +464,18 @@ CREATE TABLE llm_session
     constraint llm_session_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspace(id) ON DELETE CASCADE
 );
 
+CREATE TABLE llm_session_note
+(
+    id                           integer not null primary key autoincrement,
+    session_id                   integer not null,
+    note                         text not null,
+    written_by                   varchar(200) not null,
+    written_at                   timestamp not null default CURRENT_TIMESTAMP,
+    constraint llm_session_note_session_id_fkey FOREIGN KEY (session_id) REFERENCES llm_session(id) ON DELETE CASCADE
+);
+
+CREATE INDEX llm_session_note_session_idx ON llm_session_note (session_id, written_at, id);
+
 CREATE TABLE llm_session_store
 (
     session_id                   integer not null,

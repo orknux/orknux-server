@@ -8,6 +8,7 @@ import org.springframework.data.repository.findByIdOrNull
 import org.springframework.graphql.data.method.annotation.Argument
 import org.springframework.graphql.data.method.annotation.MutationMapping
 import org.springframework.graphql.data.method.annotation.QueryMapping
+import org.springframework.graphql.data.method.annotation.SchemaMapping
 import org.springframework.stereotype.Controller
 import org.springframework.transaction.annotation.Transactional
 import java.time.format.DateTimeFormatter
@@ -62,6 +63,8 @@ class LlmSessionAPI(
     private val access: WorkspaceAccess,
     /** Whether this installation lets a conversation be thrown away. */
     private val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
+    /** What the agents in a conversation wrote down for themselves. Issue #371. */
+    private val notes: LlmSessionNoteRepository,
 ) {
 
     @QueryMapping
@@ -232,6 +235,26 @@ class LlmSessionAPI(
         lastEventAt = session.lastEventAt?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
     )
 
+    /**
+     * What one conversation's agents wrote down. Issue #371.
+     *
+     * Resolved on the field rather than built with the rest of the session,
+     * because the same view draws a page of the list: twenty rows scanned by
+     * name and date would each fetch notes nothing on that screen shows. Here it
+     * runs only where the field is asked for, which is one opened session, and a
+     * session holds at most a score of them.
+     */
+    @SchemaMapping(typeName = "LlmSession")
+    fun notes(session: LlmSessionView): List<LlmSessionNoteView> =
+        notes.findBySessionIdOrderByWrittenAtAscIdAsc(session.id).map {
+            LlmSessionNoteView(
+                id = requireNotNull(it.id),
+                note = it.note,
+                writtenBy = it.writtenBy,
+                writtenAt = it.writtenAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+            )
+        }
+
     private fun describe(event: LlmSessionEvent) = LlmSessionEventView(
         id = requireNotNull(event.id),
         kind = event.kind,
@@ -262,6 +285,23 @@ data class LlmSessionView(
     val createdAt: String,
     /** Null on a session that has been opened and not yet written to. */
     val lastEventAt: String?,
+)
+
+/**
+ * One thing an agent wrote down for itself; see [LlmSessionNote].
+ *
+ * Reached by asking an opened session for `notes`, which [LlmSessionAPI.notes]
+ * answers. Shown because it is the one part of a conversation an agent chose to
+ * keep rather than merely said: a transcript is what happened, and these are the
+ * few lines it decided it must not lose. Somebody reading a session to work out
+ * what an agent was doing wants them first.
+ */
+data class LlmSessionNoteView(
+    val id: Long,
+    val note: String,
+    /** Which agent wrote it, since a conversation can be shared. */
+    val writtenBy: String,
+    val writtenAt: String,
 )
 
 data class LlmSessionPageView(val totalElements: Int, val content: List<LlmSessionView>)

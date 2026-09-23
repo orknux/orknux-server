@@ -2821,6 +2821,24 @@ type LlmSession {
     createdAt: String!
     "When anything was last said here, or null on one nothing has been recorded in yet."
     lastEventAt: String
+    """
+    What the agents in this conversation wrote down for themselves.
+
+    The one part of a conversation an agent chose to keep rather than merely
+    said: a transcript is what happened, and these are the few lines it decided
+    it must not lose. Empty on a conversation where nothing was written.
+    """
+    notes: [LlmSessionNote!]!
+}
+
+"One thing an agent wrote down for itself, part-way through."
+type LlmSessionNote {
+    id: ID!
+    note: String!
+    "Which agent wrote it, since a conversation can be shared."
+    writtenBy: String!
+    "ISO-8601 offset date-time."
+    writtenAt: String!
 }
 
 type LlmSessionPage {
