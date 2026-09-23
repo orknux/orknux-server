@@ -22,6 +22,8 @@ import org.springframework.stereotype.Service
 class WorkspaceAccess(
     private val resolver: RoleResolver,
     private val workspaces: WorkspaceRepository,
+    /** Who this is here, for the roles an administrator gave them. See [heldRoles]. */
+    private val users: io.mszymanski.orknux.server.user.AppUserRepository,
 ) {
 
     fun roles(): Set<String> {
@@ -38,10 +40,35 @@ class WorkspaceAccess(
             authentication !is AnonymousAuthenticationToken
     }
 
-    fun isAdmin(): Boolean = resolver.administers(roles())
+    fun isAdmin(): Boolean = resolver.administers(roles()) || assigned().any { it.administers }
 
-    /** The roles this caller holds here, whatever the provider called them. */
-    fun heldRoles(): Set<Role> = resolver.rolesFor(roles())
+    /**
+     * The roles this caller holds here, whatever the provider called them.
+     *
+     * Two sources, and the second is not a duplicate of the first. What the
+     * provider says is the directory's answer, and it is the whole answer for
+     * everybody it covers. What an administrator assigned on the Users screen is
+     * this installation's own answer, for the person the directory has no group
+     * for - the first administrator of a new installation, a contractor nobody
+     * will make a group for, somebody who needs one workspace for a fortnight.
+     *
+     * That control existed and did nothing. It saved, the screen drew the role
+     * against the name, and every decision was still made from the provider's
+     * groups alone - so an administrator could give somebody a role, see it
+     * listed, and watch them sign in to nothing.
+     */
+    fun heldRoles(): Set<Role> = resolver.rolesFor(roles()) + assigned()
+
+    /**
+     * The roles this installation gave this person itself.
+     *
+     * Empty where nobody has been written down yet, which is the moment between
+     * arriving at the door and the first sign-in being recorded.
+     */
+    private fun assigned(): Set<Role> {
+        val username = SecurityContextHolder.getContext().authentication?.name ?: return emptySet()
+        return users.findByUsername(username)?.roles?.toSet().orEmpty()
+    }
 
     /**
      * Whether the caller may see this workspace.

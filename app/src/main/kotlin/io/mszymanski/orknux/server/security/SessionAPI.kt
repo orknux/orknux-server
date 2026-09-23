@@ -289,7 +289,13 @@ class SessionAPI(
         val held = users.findByUsername(user.username)
         val recorded = held?.email?.takeIf(String::isNotBlank)
         return user.copy(
-            admin = resolver.administers(user.roles.toSet()),
+            /*
+             * The provider's groups, and anything an administrator assigned
+             * here. The second is what lets somebody the directory has no group
+             * for administer at all, and a flag that ignored it would draw a
+             * product without its Admin section for a person who has it.
+             */
+            admin = resolver.administers(user.roles.toSet()) || held?.roles.orEmpty().any { it.administers },
             email = recorded ?: user.email,
             /*
              * Sent with the session because the preferences page is where it is
