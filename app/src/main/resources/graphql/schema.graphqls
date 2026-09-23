@@ -2673,6 +2673,16 @@ type Agent {
     somebody has to choose.
     """
     agentIds: [ID!]!
+    """
+    How many tools this agent carries at once; null is the provider's ceiling.
+
+    Tool search starts where this is reached. The provider's own limit is the
+    number at which a request fails; this is the number at which somebody decided
+    the agent was choosing badly, which is always smaller and is a judgement.
+    """
+    maxTools: Int
+    "Which granted tools always travel rather than being found; read only where `maxTools` is set."
+    requiredTools: [String!]!
     "Which icon a node drawn from this starts with; null draws the kind's own."
     icon: String
     """
@@ -3624,6 +3634,10 @@ input UpdateAgentInput {
     connectionIds: [ID!]
     "Which other agents it may put a question to; null leaves the grant alone."
     agentIds: [ID!]
+    "How many tools it carries at once, 5 to 100; null leaves it alone."
+    maxTools: Int
+    "Which granted tools always travel; null leaves them alone."
+    requiredTools: [String!]
     "Which icon a node drawn from this starts with; null draws the kind's own."
     icon: String
     """

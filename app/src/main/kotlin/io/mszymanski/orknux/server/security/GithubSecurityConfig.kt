@@ -17,7 +17,6 @@ import org.springframework.security.oauth2.core.OAuth2AuthenticationException
 import org.springframework.security.oauth2.core.OAuth2Error
 import org.springframework.security.oauth2.core.user.DefaultOAuth2User
 import org.springframework.security.oauth2.core.user.OAuth2User
-import org.springframework.web.client.RestClient
 
 /**
  * Signing in with GitHub. Issue #239.
@@ -120,17 +119,17 @@ class GithubSecurityConfig {
     @Bean
     fun githubUserService(
         properties: SecurityProperties,
-        transport: OidcTransport?,
+        transport: OidcTransport,
     ): OAuth2UserService<OAuth2UserRequest, OAuth2User> {
         /*
-         * Through the proxy rules where there are any, for the reason the OIDC
-         * flow is: an installation behind a proxy failed at the exchange, after
-         * the person had already signed in at the provider - which is the least
-         * explicable place for it to fail.
+         * Through the proxy rules, for the reason the OIDC flow is: an
+         * installation behind a proxy failed at the exchange, after the person
+         * had already signed in at the provider - which is the least explicable
+         * place for it to fail. Required rather than nullable here: the
+         * transport is built under this method as well as under OIDC, so an
+         * absent one is a wiring mistake rather than a shape to tolerate.
          */
-        val plain = DefaultOAuth2UserService().apply {
-            transport?.let { setRestOperations(it.restOperations()) }
-        }
+        val plain = DefaultOAuth2UserService().apply { setRestOperations(transport.restOperations()) }
 
         return OAuth2UserService { request ->
             val account = plain.loadUser(request)
@@ -159,7 +158,7 @@ class GithubSecurityConfig {
         github: GithubProperties,
         login: String,
         request: OAuth2UserRequest,
-        transport: OidcTransport?,
+        transport: OidcTransport,
     ): Boolean {
         if (github.allowedLogins.any { it.equals(login, ignoreCase = true) }) return true
         if (github.organisation.isBlank()) return false
@@ -182,10 +181,17 @@ class GithubSecurityConfig {
         organisation: String,
         login: String,
         request: OAuth2UserRequest,
-        transport: OidcTransport?,
+        transport: OidcTransport,
     ): Boolean = runCatching {
-        val client = transport?.restClient() ?: RestClient.create()
-        val membership = client.get()
+        /*
+         * Through the proxy rules, always. `OutboundClientSeamTest` is what
+         * caught this: a `RestClient.create()` fallback sat here, and on a
+         * proxied network it would have gone direct - so the membership check
+         * would fail and nobody could sign in, which is the failure the OIDC
+         * transport was written to stop. The transport is present under this
+         * method precisely so there is nothing to fall back to.
+         */
+        val membership = transport.restClient().get()
             .uri("https://api.github.com/user/memberships/orgs/{org}", organisation)
             .header("Authorization", "Bearer ${request.accessToken.tokenValue}")
             .header("Accept", "application/vnd.github+json")

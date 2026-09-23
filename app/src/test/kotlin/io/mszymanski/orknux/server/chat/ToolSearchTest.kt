@@ -66,7 +66,7 @@ class ToolSearchTest(
     @Test
     fun `a query in words finds the tools it is about`() {
         val found = mutableSetOf<String>()
-        val shed = searching.shed(granted, found) { 10 }
+        val shed = searching.shed(granted, found, room = { 10 })
 
         val said = shed.run(call("send a message in slack"))
 
@@ -88,7 +88,7 @@ class ToolSearchTest(
     @Test
     fun `the name counts for more than the description`() {
         val found = mutableSetOf<String>()
-        val shed = searching.shed(granted, found) { 2 }
+        val shed = searching.shed(granted, found, room = { 2 })
 
         shed.run(call("slack"))
 
@@ -99,7 +99,7 @@ class ToolSearchTest(
     @Test
     fun `nothing matching says so rather than answering with everything`() {
         val found = mutableSetOf<String>()
-        val shed = searching.shed(granted, found) { 10 }
+        val shed = searching.shed(granted, found, room = { 10 })
 
         val said = shed.run(call("kubernetes"))
 
@@ -117,7 +117,7 @@ class ToolSearchTest(
     @Test
     fun `a search cannot fill the array past what is left of it`() {
         val found = mutableSetOf<String>()
-        val shed = searching.shed(granted, found) { 1 }
+        val shed = searching.shed(granted, found, room = { 1 })
 
         val said = shed.run(call("jira slack confluence"))
 
@@ -127,7 +127,7 @@ class ToolSearchTest(
 
     @Test
     fun `the tool says how many are there and asks to be searched before giving up`() {
-        val spec = searching.shed(granted, mutableSetOf()) { 10 }.specs().single()
+        val spec = searching.shed(granted, mutableSetOf(), room = { 10 }).specs().single()
 
         assertThat(spec.name).isEqualTo(ToolSearchTools.FIND)
         assertThat(spec.description).contains("You hold 6 of them")

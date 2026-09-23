@@ -104,6 +104,24 @@ class Agent(
     var maxRounds: Int? = null,
 
     /**
+     * How many tools this agent carries at once; null is the provider's ceiling.
+     *
+     * Issue #372. Tool search starts where the provider's own limit is reached -
+     * 128 for OpenAI and Azure - and that is the number at which a request
+     * *fails* rather than the number at which an agent starts choosing badly. A
+     * model handed eighty tools is already picking from a list it cannot hold in
+     * mind, and the context they occupy is paid for on every round of every
+     * turn.
+     *
+     * So an agent can be given a smaller one, and below it the search that was
+     * only a way to survive a hard limit becomes a way to keep an agent's
+     * attention on a handful of things. [requiredTools] is what always travels;
+     * the rest is found and dropped as the room is wanted.
+     */
+    @Column(name = "max_tools")
+    var maxTools: Int? = null,
+
+    /**
      * Whether this agent may ask orknux about orknux.
      *
      * The built-in server, which is not one of [mcpServers] and never appears
@@ -228,6 +246,28 @@ class Agent(
     @OrderColumn(name = "position")
     @Column(name = "name", nullable = false)
     var tools: MutableList<String> = mutableListOf(),
+
+    /**
+     * Which of the granted tools always travel, where [maxTools] is set.
+     *
+     * Issue #372. A tool an agent uses constantly should not have to be found:
+     * an agent spending a round rediscovering the one thing it does every time
+     * pays the cost of the search without the benefit. Everything granted and
+     * not named here is loaded when it is looked for and dropped again when the
+     * room is wanted for something else.
+     *
+     * Read only where the agent carries a ceiling of its own. Without one every
+     * granted tool travels, which is how every agent worked before this existed
+     * and what an agent with a handful of tools should go on doing.
+     *
+     * By name, like the grant it qualifies: a workspace tool is granted by name,
+     * so marking one has to be too or the two come apart at the first rename.
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "agent_required_tool", joinColumns = [JoinColumn(name = "agent_id")])
+    @OrderColumn(name = "position")
+    @Column(name = "name", nullable = false)
+    var requiredTools: MutableList<String> = mutableListOf(),
 
     /**
      * Which of the workspace's connections this agent may name when a tool

@@ -345,6 +345,24 @@ class AgentAPI(
         if (input.tools != null) {
             agent.tools = input.tools.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
         }
+        if (input.maxTools != null) {
+            if (input.maxTools !in MIN_AGENT_TOOLS..MAX_AGENT_TOOLS) throw AgentToolLimitUnusableException(input.maxTools)
+            agent.maxTools = input.maxTools
+        }
+        if (input.requiredTools != null) {
+            /*
+             * Only what is granted. A tool marked required and not granted is a
+             * row the screen cannot draw and a name nothing resolves, so it is
+             * dropped rather than stored - and the grant is what decides, which
+             * is why this is applied after `tools` above.
+             */
+            val granted = agent.tools.toSet()
+            agent.requiredTools = input.requiredTools
+                .map { it.trim() }
+                .filter { it.isNotEmpty() && it in granted }
+                .distinct()
+                .toMutableList()
+        }
         if (input.connectionIds != null) {
             // Another workspace's connection is not this agent's to be granted,
             // so the id is checked here rather than trusted into the briefing.
@@ -639,6 +657,10 @@ data class UpdateAgentInput(
     val connectionIds: List<Long>? = null,
     /** Which other agents it may put a question to; null leaves the grant alone. */
     val agentIds: List<Long>? = null,
+    /** How many tools it carries at once; null leaves it alone. See #372. */
+    val maxTools: Int? = null,
+    /** Which granted tools always travel rather than being found; null leaves them alone. */
+    val requiredTools: List<String>? = null,
     /** Which icon a node drawn from this starts with; null draws the kind's own. */
     val icon: String? = null,
     /**
@@ -688,6 +710,10 @@ data class AgentView(
     val connectionIds: List<Long>,
     /** Which other agents it may put a question to; see `ask_agent`. */
     val agentIds: List<Long>,
+    /** How many tools it carries at once; null is the provider's own ceiling. */
+    val maxTools: Int?,
+    /** Which granted tools always travel rather than being found. */
+    val requiredTools: List<String>,
     /** Which icon a node drawn from this starts with; null draws the kind's own. */
     val icon: String?,
     /** Its own share of the model's window; null follows the workspace default. */
@@ -716,6 +742,8 @@ data class AgentView(
         tools = agent.tools.toList(),
         connectionIds = agent.connections.toList(),
         agentIds = agent.agents.toList(),
+        maxTools = agent.maxTools,
+        requiredTools = agent.requiredTools.toList(),
         icon = agent.icon,
         memoryShare = agent.memoryShare,
         maxRounds = agent.maxRounds,
@@ -807,6 +835,25 @@ class AgentNameInvalidException : RuntimeException("An agent name is required")
 class AgentModelUnusableException(message: String) : RuntimeException(message)
 
 /** A connection grant naming something that is not this workspace's connection. */
+/**
+ * Five and a hundred tools.
+ *
+ * The floor is five because an agent that may carry fewer cannot hold
+ * `find_tools` and the handful it uses constantly at the same time - it would
+ * spend every round searching for what it just gave up. The ceiling is a
+ * hundred because past it the number is the provider's problem rather than a
+ * judgement anybody is making: 128 is where a request fails, and a ceiling
+ * above that is a number that cannot be honoured.
+ */
+const val MIN_AGENT_TOOLS = 5
+const val MAX_AGENT_TOOLS = 100
+
+class AgentToolLimitUnusableException(tools: Int) : RuntimeException(
+    "$tools is not a number of tools an agent can carry. " +
+        "Choose between $MIN_AGENT_TOOLS and $MAX_AGENT_TOOLS, or leave it empty to carry as many as " +
+        "the model's provider allows.",
+)
+
 class AgentConnectionUnusableException(id: Long) : RuntimeException(
     "Connection $id is not one of this workspace's connections, so this agent cannot be granted it.",
 )

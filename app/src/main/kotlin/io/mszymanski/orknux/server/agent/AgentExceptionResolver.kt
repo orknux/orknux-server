@@ -47,6 +47,7 @@ class AgentExceptionResolver : DataFetcherExceptionResolverAdapter() {
              * filled in wrongly rather than anything internal, and a correlation
              * id about a grant the screen offered would answer nothing.
              */
+            is AgentToolLimitUnusableException,
             is AgentUnreachableException,
             is AgentCannotAskItselfException,
             is AgentConnectionUnusableException,

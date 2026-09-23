@@ -62,16 +62,39 @@ class ToolSearchTools(private val mapper: ObjectMapper) {
      * @param searchable everything the agent was granted and is not carrying.
      * @param found the names discovered so far, added to in place.
      * @param room how many more tools the next request has space for. A search
-     *   that would overflow the provider's array answers with the best of what
-     *   it matched and says so, rather than being refused by the provider.
+     *   that would overflow the array answers with the best of what it matched
+     *   and says so, rather than being refused by the provider.
+     * @param forget what to give up where there is not enough room; see the
+     *   field. Defaulting to giving up nothing keeps the #368 behaviour for a
+     *   caller that has no budget to manage - it refuses instead.
+     *
+     * Both are named rather than trailing on purpose. `room` was the trailing
+     * lambda and `forget` landing after it rebound every existing call silently,
+     * which the compiler caught here and would not have in a language with
+     * looser types.
      */
-    fun shed(searchable: List<ToolSpec>, found: MutableSet<String>, room: () -> Int): ToolShed =
-        Shed(searchable, found, room)
+    fun shed(
+        searchable: List<ToolSpec>,
+        found: MutableSet<String>,
+        room: () -> Int,
+        forget: (Int) -> List<String> = { emptyList() },
+    ): ToolShed = Shed(searchable, found, room, forget)
 
     private inner class Shed(
         private val searchable: List<ToolSpec>,
         private val found: MutableSet<String>,
         private val room: () -> Int,
+        /**
+         * Gives up that many of the tools already found, oldest first, and
+         * answers with what was given up.
+         *
+         * Issue #372. An agent that has filled its budget and needs something
+         * else should lose what it looked up longest ago rather than be told it
+         * is full: "you cannot have any more" is a dead end for a model, where
+         * forgetting is what a person does without noticing. What it is using
+         * now was found most recently and is the last thing to go.
+         */
+        private val forget: (Int) -> List<String>,
     ) : ToolShed {
 
         override fun specs(): List<ToolSpec> = listOf(
@@ -110,23 +133,59 @@ class ToolSearchTools(private val mapper: ObjectMapper) {
             /*
              * Only as many as the next request has space for. The point of all
              * this is that the array fits, and a search that filled it past the
-             * provider's ceiling would fail the very call it was meant to make
-             * possible - with the provider's sentence, which is where this
-             * started.
+             * ceiling would fail the very call it was meant to make possible -
+             * with the provider's sentence, which is where this started.
              */
-            val space = room().coerceAtLeast(0)
-            val taken = matches.take(space)
+            val free = room().coerceAtLeast(0)
+
+            /*
+             * Free room is filled in bulk; room that has to be made is made one
+             * tool at a time. Issue #372.
+             *
+             * The two halves are deliberately different. Filling space nobody is
+             * using costs nothing, and a job usually needs two or three tools
+             * from the same system - so a search that finds room takes what it
+             * found. Making space costs something the agent already has, and a
+             * broad query would otherwise trade eight tools it was holding for
+             * eight it merely asked about. So when the budget is full, one
+             * search buys one tool.
+             *
+             * Which is also the honest reading of what an agent is doing when it
+             * searches a full toolset: it has hit a wall on one thing, not
+             * decided to re-equip.
+             */
+            val space = if (free > 0) minOf(free, matches.size, LOADED_AT_ONCE) else 0
+            val dropped = if (space == 0) forget(1) else emptyList()
+            val taking = if (space > 0) space else dropped.size
+
+            val taken = matches.take(taking)
             found += taken.map { it.name }
 
             return buildString {
+                if (taken.isEmpty()) {
+                    append(
+                        "There is no room for another tool and none could be given up. " +
+                            "Finish with the ones you have.",
+                    )
+                    return@buildString
+                }
                 append("Found ${taken.size} of ${matches.size}. ")
                 append("You can call these from your next message onwards:\n")
                 taken.forEach { append("\n${it.name} - ${it.description.take(DESCRIPTION)}") }
+                /*
+                 * Said rather than done quietly. A tool the agent called two
+                 * turns ago and is about to call again has just gone, and an
+                 * agent told so searches for it again instead of concluding it
+                 * has lost the ability.
+                 */
+                if (dropped.isNotEmpty()) {
+                    append("\n\nTo make room, these are no longer in your hands: ${dropped.joinToString(", ")}. ")
+                    append("Search for one again if you need it back.")
+                }
                 if (taken.size < matches.size) {
                     append(
-                        "\n\n${matches.size - taken.size} more matched and were left out: " +
-                            "there is room for ${space} more tools. Search again with narrower words " +
-                            "if none of these is the one.",
+                        "\n\n${matches.size - taken.size} more matched and were left out. " +
+                            "Search again with narrower words if none of these is the one.",
                     )
                 }
             }
@@ -192,6 +251,17 @@ class ToolSearchTools(private val mapper: ObjectMapper) {
          * the reply what it saved on the request.
          */
         private const val DESCRIPTION = 200
+
+        /**
+         * How many one search puts in the agent's hands at once.
+         *
+         * A bulk load rather than one at a time - a job usually needs two or
+         * three tools from the same system, and making the agent search once
+         * per tool spends a round on each. Bounded, because a query matching
+         * forty would otherwise evict everything the agent was holding to make
+         * room for a list it did not mean to ask for.
+         */
+        private const val LOADED_AT_ONCE = 8
 
         private val NOT_A_WORD = Regex("[^a-z0-9]+")
     }

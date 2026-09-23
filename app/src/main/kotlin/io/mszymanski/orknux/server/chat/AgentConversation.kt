@@ -264,7 +264,17 @@ class AgentConversation(
          * spending one to discover a tool that would have fitted is a round
          * spent on nothing.
          */
-        val limit = models.toolLimit(modelId)
+        /*
+         * The agent's own ceiling where it carries one, and the provider's
+         * otherwise. Issue #372.
+         *
+         * The provider's is the number at which a request *fails*; an agent's is
+         * the number at which somebody decided it was choosing badly, which is
+         * always the smaller of the two and is a judgement rather than a limit.
+         * The lower of them wins, because an agent given a ceiling above what
+         * the provider takes has been given a number that cannot be honoured.
+         */
+        val limit = minOf(models.toolLimit(modelId), agent.maxTools ?: Int.MAX_VALUE)
         val hunting = holding.core.size + holding.searchable.size + lent.size > limit
 
         /*
@@ -286,11 +296,33 @@ class AgentConversation(
         val finder = if (!hunting) {
             null
         } else {
-            searching.shed(holding.searchable, found) {
-                // What is left of the array once the core, what was lent and
-                // find_tools itself have taken their places.
-                limit - holding.core.size - lent.size - 1 - found.size
-            }
+            searching.shed(
+                holding.searchable,
+                found,
+                /*
+                 * What is left of the array once the core, what was lent and
+                 * find_tools itself have taken their places. Negative where the
+                 * core alone fills it, which the search reads as no room at all.
+                 */
+                room = { limit - holding.core.size - lent.size - 1 - found.size },
+                /*
+                 * And what to give up to make room. Issue #372: an agent that
+                 * has filled its budget and needs something else should lose the
+                 * tool it looked up longest ago rather than be told it is full -
+                 * "you cannot have any more" is a dead end for a model, where
+                 * forgetting is what a person does without noticing.
+                 *
+                 * The oldest first, which is what insertion order gives: `found`
+                 * is a LinkedHashSet, so the first name in it is the one looked
+                 * up furthest back. What the agent is using now was found most
+                 * recently and is the last thing to go.
+                 */
+                forget = { wanted ->
+                    val going = found.take(wanted)
+                    found.removeAll(going.toSet())
+                    going
+                },
+            )
         }
         val hunt = if (finder == null) shed else sheds(shed, finder)
 

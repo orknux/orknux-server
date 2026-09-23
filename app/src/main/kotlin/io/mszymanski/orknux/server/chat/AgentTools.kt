@@ -100,7 +100,32 @@ class AgentTools(
      * so a tool added to the wrong half is a decision somebody made rather than
      * a line that landed in the wrong place.
      */
-    fun offeringFor(agent: Agent): Offering = Offering(core = coreFor(agent), searchable = searchableFor(agent))
+    fun offeringFor(agent: Agent): Offering {
+        val core = coreFor(agent)
+        val searchable = searchableFor(agent)
+
+        /*
+         * The ones somebody said always travel, moved across. Issue #372.
+         *
+         * A tool an agent uses constantly should not have to be found: an agent
+         * spending a round rediscovering the one thing it does every time pays
+         * the cost of the search without the benefit. Marking one puts it beside
+         * the built-ins, which is exactly what "required" means here.
+         *
+         * Only where the agent carries a ceiling of its own. Without one nothing
+         * is ever dropped, so marking a tool would be marking it against a thing
+         * that never happens - and the screen does not offer the column either.
+         */
+        if (agent.maxTools == null || agent.requiredTools.isEmpty()) {
+            return Offering(core = core, searchable = searchable)
+        }
+
+        val always = agent.requiredTools.toSet()
+        return Offering(
+            core = core + searchable.filter { it.name in always },
+            searchable = searchable.filterNot { it.name in always },
+        )
+    }
 
     private fun coreFor(agent: Agent): List<ToolSpec> = buildList {
         if (agent.skillCatalogs.isNotEmpty()) addAll(skills.descriptors().map(::spec))

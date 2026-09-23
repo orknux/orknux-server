@@ -45,6 +45,9 @@ CREATE TABLE agent
     -- How many rounds of tool calls this agent gets before it must answer; null
     -- is the installation's own number. See `V271__agent_max_rounds.sql`.
     max_rounds                   integer,
+    -- How many tools this agent carries; null is the provider's own ceiling.
+    -- See `V279__agent_tool_budget.sql`.
+    max_tools                    integer,
     constraint uk_agent_workspace_name UNIQUE (workspace_id, name),
     constraint ck_agent_type CHECK (((type) = 'LLM')),
     constraint ck_agent_memory_share CHECK (memory_share IS NULL OR (memory_share >= 1 AND memory_share <= 50)),
@@ -67,6 +70,15 @@ CREATE TABLE agent_connection
     connection_id                integer not null,
     primary key (agent_id, position),
     constraint agent_connection_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES agent(id) ON DELETE CASCADE
+);
+
+CREATE TABLE agent_required_tool
+(
+    agent_id                     integer not null,
+    position                     integer not null,
+    name                         varchar(255) not null,
+    primary key (agent_id, position),
+    constraint agent_required_tool_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES agent(id) ON DELETE CASCADE
 );
 
 CREATE TABLE agent_agent
