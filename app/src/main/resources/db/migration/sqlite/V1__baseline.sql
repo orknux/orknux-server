@@ -669,7 +669,8 @@ CREATE TABLE plugin
     version                      varchar(32),
     declared_skills              text not null default '[]',
     declared_objects             text not null default '[]',
-    icon_dark                    text
+    icon_dark                    text,
+    declared_types               text not null default '[]'
 );
 
 CREATE TABLE plugin_library
@@ -1648,9 +1649,13 @@ CREATE TABLE workspace_variable
     kind                         varchar(16) not null default 'SECRET',
     description                  varchar(500),
     created_by                   varchar(120) not null default '',
+    element_type                 varchar(16),
+    custom_type                  varchar(120),
+    type_arguments               text,
     constraint uk_workspace_variable_name UNIQUE (catalog_id, name),
     constraint ck_workspace_variable_kind CHECK (((kind) IN ('VALUE', 'SECRET'))),
-    constraint ck_workspace_variable_type CHECK (((type) IN ('STRING', 'NUMBER', 'BOOLEAN'))),
+    constraint ck_workspace_variable_type CHECK (((type) IN ('STRING', 'NUMBER', 'BOOLEAN', 'LIST'))),
+    constraint ck_workspace_variable_element_type CHECK (element_type IS NULL OR element_type IN ('STRING', 'NUMBER', 'BOOLEAN')),
     constraint workspace_variable_vault_id_fkey FOREIGN KEY (catalog_id) REFERENCES variable_catalog(id) ON DELETE RESTRICT,
     constraint workspace_variable_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspace(id) ON DELETE CASCADE
 );

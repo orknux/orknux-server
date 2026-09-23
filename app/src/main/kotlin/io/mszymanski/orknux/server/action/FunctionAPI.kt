@@ -14,6 +14,7 @@ import io.mszymanski.orknux.server.revision.ComponentRevisionRecorder
 import io.mszymanski.orknux.server.security.WorkspaceAccess
 import io.mszymanski.orknux.server.variable.VariableNotFoundException
 import io.mszymanski.orknux.server.variable.VariableType
+import io.mszymanski.orknux.server.variable.WorkspaceVariable
 import io.mszymanski.orknux.server.variable.WorkspaceVariableRepository
 import io.mszymanski.orknux.server.workspace.MAX_SCRIPT_TIMEOUT_SECONDS
 import io.mszymanski.orknux.server.workspace.MIN_SCRIPT_TIMEOUT_SECONDS
@@ -828,7 +829,7 @@ class FunctionAPI(
     private fun starter(
         name: String,
         params: List<FunctionParamInput>,
-        externals: List<Pair<String, VariableType>>,
+        externals: List<Pair<String, String>>,
     ): FunctionCode {
         /*
          * Both kinds of parameter, in the order they arrive: the declared ones, then
@@ -837,7 +838,7 @@ class FunctionAPI(
          */
         val names = params.map { it.name } + externals.map { it.first }
         val annotated = params.map { "${it.name}: ${typeScriptType(it.type, objectNameOf(it.objectId))}" } +
-            externals.map { "${it.first}: ${typeScriptType(it.second)}" }
+            externals.map { "${it.first}: ${it.second}" }
 
         /*
          * Only the declared ones come back out. An external is a workspace value —
@@ -887,9 +888,22 @@ class FunctionAPI(
     private fun externalTypes(
         externals: List<FunctionExternal>,
         names: List<String>,
-    ): List<Pair<String, VariableType>> = externals.mapIndexed { at, held ->
+    ): List<Pair<String, String>> = externals.mapIndexed { at, held ->
         val name = names.getOrElse(at) { "external" }
-        name to (variables.findByIdOrNull(held.variableId)?.type ?: VariableType.STRING)
+        name to typeScriptType(variables.findByIdOrNull(held.variableId))
+    }
+
+    /**
+     * A variable's shape as an annotation, its element type included. Issue #377.
+     *
+     * A list is `string[]` or whatever it holds; a plugin's type is its base,
+     * because that is what the function is handed - the name on it is for the
+     * screen and the check, not for the code.
+     */
+    private fun typeScriptType(variable: WorkspaceVariable?): String {
+        if (variable == null) return "string"
+        if (variable.type != VariableType.LIST) return typeScriptType(variable.type)
+        return typeScriptType(variable.elementType ?: VariableType.STRING) + "[]"
     }
 
     /**
@@ -1020,6 +1034,9 @@ class FunctionAPI(
         VariableType.STRING -> "string"
         VariableType.NUMBER -> "number"
         VariableType.BOOLEAN -> "boolean"
+        // Only reached for an element type that is itself a list, which the
+        // save refuses; `unknown[]` is what TypeScript would say of it.
+        VariableType.LIST -> "unknown[]"
     }
 
     private companion object {

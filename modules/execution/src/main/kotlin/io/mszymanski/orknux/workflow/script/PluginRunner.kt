@@ -628,6 +628,57 @@ class PluginRunner(
             emptyList()
         }
 
+        /*
+         * The value types it defines. Issue #377.
+         *
+         * A plugin's type is a base type - string, number, boolean - with a
+         * name, and optionally a way to complete and a way to check a value.
+         * Whether it can do either is read here so the screen knows what to
+         * offer before anything is typed; the doing is a call through
+         * [call] on the `types:suggest` or `types:validate` surface.
+         */
+        val kinds = if (plugin.hasMember("types")) {
+            val declaredTypes = plugin.invokeMember("types")
+            if (!declaredTypes.hasArrayElements()) {
+                return PluginInspection.Unreadable("types() did not answer with an array")
+            }
+            if (declaredTypes.arraySize > MAX_TYPES) {
+                return PluginInspection.Unreadable("types() declared more than $MAX_TYPES types")
+            }
+            (0 until declaredTypes.arraySize).map { at ->
+                val one = declaredTypes.getArrayElement(at)
+                val name = text(one, "name") ?: return PluginInspection.Unreadable("a type has no name")
+                val asked = one.getMember("parameters")?.takeIf { it.hasArrayElements() }
+                if (asked != null && asked.arraySize > MAX_TYPE_PARAMETERS) {
+                    return PluginInspection.Unreadable("$name declares more than $MAX_TYPE_PARAMETERS parameters")
+                }
+                val parameters = (0 until (asked?.arraySize ?: 0)).map { index ->
+                    val held = asked!!.getArrayElement(index)
+                    DeclaredParameter(
+                        name = text(held, "name")
+                            ?: return PluginInspection.Unreadable("$name has a parameter with no name"),
+                        description = text(held, "description"),
+                        type = text(held, "type")
+                            ?: return PluginInspection.Unreadable("$name has a parameter with no type"),
+                        required = flag(held, "required", default = true),
+                        secret = flag(held, "secret", default = false),
+                        connectionType = text(held, "connectionType"),
+                        options = strings(held, "options"),
+                    )
+                }
+                DeclaredType(
+                    name = name.trim(),
+                    description = text(one, "description"),
+                    base = text(one, "base") ?: return PluginInspection.Unreadable("$name has no base type"),
+                    parameters = parameters,
+                    suggests = one.getMember("suggest")?.canExecute() == true,
+                    validates = one.getMember("validate")?.canExecute() == true,
+                )
+            }
+        } else {
+            emptyList()
+        }
+
         return PluginInspection.Read(
             id = id.asString().trim(),
             apiVersion = version.asInt(),
@@ -639,6 +690,7 @@ class PluginRunner(
             libraries = shipped,
             skills = taught,
             objects = shapes,
+            types = kinds,
         )
     }
 
@@ -1110,6 +1162,19 @@ class PluginRunner(
         const val MAX_PROPERTIES = 100
 
         /**
+         * Value types a plugin may define. Issue #377.
+         *
+         * Lower still than objects: each one is an entry in the type picker of
+         * every variable in every workspace, and a plugin that needs twenty
+         * kinds of string is describing an API rather than a vocabulary.
+         * `MAX_TYPES` in @orknux/plugin mirrors it.
+         */
+        const val MAX_TYPES = 20
+
+        /** What one type may ask to be told; a connection and a couple of settings. */
+        const val MAX_TYPE_PARAMETERS = 10
+
+        /**
          * The same shape without the `.js`, for the files beside a plugin that
          * are not code — its manifest, its icon. Relative and contained, for
          * the reason [LIBRARY_PATH] is: a path that could climb out is a path
@@ -1136,7 +1201,17 @@ class PluginRunner(
               globalThis.$ERROR = null;
               try {
                 var plugin = globalThis.$PLUGIN;
-                var declared = globalThis.$SURFACE === 'tools' ? plugin.tools() : plugin.functions();
+                /*
+                 * Which list is searched and which member is called. A function
+                 * and a tool run; a type is asked to suggest or to validate,
+                 * which are two doors on the one declaration.
+                 */
+                var surface = globalThis.$SURFACE;
+                var declared, method;
+                if (surface === 'tools') { declared = plugin.tools(); method = 'run'; }
+                else if (surface === 'types:suggest') { declared = plugin.types(); method = 'suggest'; }
+                else if (surface === 'types:validate') { declared = plugin.types(); method = 'validate'; }
+                else { declared = plugin.functions(); method = 'run'; }
                 var wanted = null;
                 for (var at = 0; at < declared.length; at++) {
                   if (declared[at].name === globalThis.$WANTED) { wanted = declared[at]; break; }
@@ -1145,9 +1220,13 @@ class PluginRunner(
                   globalThis.$ERROR = 'the plugin no longer declares ' + globalThis.$WANTED;
                   return;
                 }
+                if (typeof wanted[method] !== 'function') {
+                  globalThis.$ERROR = globalThis.$WANTED + ' does not ' + method;
+                  return;
+                }
                 var args = JSON.parse(globalThis.$ARGUMENTS);
                 var limit = Number(globalThis.$RESULT_LIMIT);
-                Promise.resolve(wanted.run.apply(plugin, args)).then(
+                Promise.resolve(wanted[method].apply(plugin, args)).then(
                   function (value) {
                     var json = value === undefined ? null : JSON.stringify(value);
                     // Measured before it crosses. What a function answers with is
@@ -1278,6 +1357,10 @@ class PluginRunner(
                * the loader rewrites the references when it stores them.
                */
               objects() {
+                return [];
+              }
+
+              types() {
                 return [];
               }
             };
@@ -1660,6 +1743,62 @@ class PluginRunner(
               }
             };
 
+            /*
+             * A value type the plugin defines. Issue #377.
+             *
+             * A name over a base type, what it needs to be told, and up to two
+             * functions the server calls on the plugin's behalf: suggest for
+             * the picker and validate for the save. The parameters go through
+             * OrknuxParameter, so a type is held to the same rules a plugin's
+             * own settings are - except that none may be a secret, because
+             * what a variable is told rides beside it in the clear.
+             */
+            globalThis.OrknuxType = class OrknuxType {
+              constructor(declared) {
+                if (declared === null || typeof declared !== 'object') {
+                  throw new Error('an OrknuxType needs a declaration');
+                }
+
+                this.name = declared.name;
+                this.description = declared.description === undefined ? null : declared.description;
+                this.base = declared.base;
+                var asked = declared.parameters === undefined ? [] : declared.parameters;
+
+                if (typeof this.name !== 'string' || this.name.length === 0) {
+                  throw new Error('an OrknuxType needs a name');
+                }
+                var bases = ['string', 'number', 'boolean'];
+                if (typeof this.base !== 'string' || bases.indexOf(this.base) === -1) {
+                  throw new Error(
+                    this.name + ' is a "' + this.base + '", which is not one of ' + bases.join(', ') +
+                      ' - a type is one of those with a name on it',
+                  );
+                }
+                if (!Array.isArray(asked)) {
+                  throw new Error(this.name + ' needs parameters, as an array');
+                }
+                this.parameters = asked.map(function (one) {
+                  var parameter = one instanceof globalThis.OrknuxParameter ? one : new globalThis.OrknuxParameter(one);
+                  if (parameter.secret) {
+                    throw new Error(
+                      this.name + "'s " + parameter.name + ' is a secret, and a type cannot be told one: ' +
+                        'what a variable of this type is told is kept beside it, in the clear',
+                    );
+                  }
+                  return parameter;
+                }, this);
+
+                if (declared.suggest !== undefined && typeof declared.suggest !== 'function') {
+                  throw new Error(this.name + ' has a suggest that is not a function');
+                }
+                if (declared.validate !== undefined && typeof declared.validate !== 'function') {
+                  throw new Error(this.name + ' has a validate that is not a function');
+                }
+                if (declared.suggest !== undefined) this.suggest = declared.suggest;
+                if (declared.validate !== undefined) this.validate = declared.validate;
+              }
+            };
+
             globalThis.$CONSTRUCT = function (exported) {
               if (typeof exported !== 'function') {
                 throw new Error('the default export must be a class that extends OrknuxPlugin');
@@ -1743,6 +1882,8 @@ sealed interface PluginInspection {
          * and never the set.
          */
         val objects: List<DeclaredObject> = emptyList(),
+        /** The value types it defines; see [DeclaredType]. Issue #377. */
+        val types: List<DeclaredType> = emptyList(),
     ) : PluginInspection
 
     /** It is not a plugin, or it did not hold up its end of the contract. */
@@ -1830,6 +1971,30 @@ data class DeclaredObject(
     val name: String,
     val description: String?,
     val properties: List<DeclaredProperty>,
+)
+
+/**
+ * A value type a plugin defines. Issue #377.
+ *
+ * A Slack user id is a string, but it is a string only some values of are real,
+ * and the plugin is the one thing that can say which. So a plugin may name a
+ * type - `SlackUser` - over a base type, say what it needs to be told to check
+ * one (a Slack connection), and offer two functions the server calls on its
+ * behalf: `suggest(typed, arguments)` for the picker and `validate(value,
+ * arguments)` for the save.
+ *
+ * Neither function is required. A type with neither is a name on a string,
+ * which is still worth something - it says what the variable is for.
+ */
+data class DeclaredType(
+    val name: String,
+    val description: String?,
+    /** `string`, `number` or `boolean`: what a value of it is underneath. */
+    val base: String,
+    /** What a variable of this type has to be told, beyond its value - a connection, usually. */
+    val parameters: List<DeclaredParameter>,
+    val suggests: Boolean,
+    val validates: Boolean,
 )
 
 data class DeclaredSkill(

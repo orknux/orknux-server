@@ -64,15 +64,38 @@ class VariableArguments(
     private fun json(variable: WorkspaceVariable): String {
         val held = variable.value ?: return "null"
         return when (variable.type) {
-            VariableType.STRING -> mapper.writeValueAsString(held)
-            // Written as typed, checked here: a number nobody could parse is a
-            // configuration mistake, and `null` is the honest version of it.
-            VariableType.NUMBER -> held.trim().toBigDecimalOrNull()?.toString() ?: "null"
-            VariableType.BOOLEAN -> when (held.trim().lowercase()) {
-                "true" -> "true"
-                "false" -> "false"
-                else -> "null"
-            }
+            VariableType.LIST -> list(held, variable.elementType ?: VariableType.STRING)
+            else -> scalar(variable.type, held)
+        }
+    }
+
+    private fun scalar(type: VariableType, held: String): String = when (type) {
+        VariableType.STRING -> mapper.writeValueAsString(held)
+        // Written as typed, checked here: a number nobody could parse is a
+        // configuration mistake, and `null` is the honest version of it.
+        VariableType.NUMBER -> held.trim().toBigDecimalOrNull()?.toString() ?: "null"
+        VariableType.BOOLEAN -> when (held.trim().lowercase()) {
+            "true" -> "true"
+            "false" -> "false"
+            else -> "null"
+        }
+        // A list inside a list has no shape here; the save refuses it.
+        VariableType.LIST -> "null"
+    }
+
+    /**
+     * A list, element by element, each held to the element type. Issue #377.
+     *
+     * The stored text is a JSON array; the elements are written as the screen
+     * typed them - strings even for a list of numbers - so each goes through
+     * the same conversion a scalar does. A list that is not a JSON array is
+     * `null`, the way a number that is not a number is.
+     */
+    private fun list(held: String, elementType: VariableType): String {
+        val parsed = runCatching { mapper.readTree(held) }.getOrNull() ?: return "null"
+        if (!parsed.isArray) return "null"
+        return parsed.values().joinToString(separator = ",", prefix = "[", postfix = "]") { one ->
+            scalar(elementType, if (one.isTextual) one.asString() else one.toString())
         }
     }
 

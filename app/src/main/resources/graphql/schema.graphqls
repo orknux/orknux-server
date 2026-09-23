@@ -665,6 +665,13 @@ type Query {
         ascending: Boolean
     ): VariablePage!
     variable(id: ID!): Variable
+    "The types a variable may be beyond the three built in: every enabled plugin's."
+    variableTypes(workspaceId: ID!): [VariableTypeOffer!]!
+    """
+    What the plugin defining `type` offers for what was typed so far.
+    `arguments` is what the variable is told, as a JSON object.
+    """
+    variableSuggestions(workspaceId: ID!, type: String!, arguments: String, typed: String!): [VariableSuggestion!]!
     workflowObject(id: ID!): WorkflowObject
     agent(id: ID!): Agent
     """
@@ -3513,6 +3520,20 @@ type PluginObject {
     properties: [PluginObjectProperty!]!
 }
 
+"""
+A value type a plugin defines: a name over string, number or boolean, what it
+needs to be told, and whether it completes and checks values. A workspace
+variable points at one as `<plugin>:<name>`.
+"""
+type PluginType {
+    name: String!
+    description: String
+    base: String!
+    parameters: [PluginParameterDeclaration!]!
+    suggests: Boolean!
+    validates: Boolean!
+}
+
 "One field of a shape a plugin exports."
 type PluginObjectProperty {
     name: String!
@@ -4853,6 +4874,8 @@ enum VariableType {
     STRING
     NUMBER
     BOOLEAN
+    "Several of one of the three, handed to a function as an array; `elementType` says which."
+    LIST
 }
 
 """
@@ -4888,6 +4911,16 @@ type Variable {
     description: String
     type: VariableType!
     kind: VariableKind!
+    "What a LIST holds. Null on anything else."
+    elementType: VariableType
+    """
+    A type a plugin defines over the base type - `slack:SlackUser` - or null
+    for a plain one. On a list it says what each element is. What it buys is
+    the picker and the check at the moment a value is typed.
+    """
+    customType: String
+    "What that type was told, as a JSON object: the connection to look in, for a Slack user."
+    typeArguments: String
     "What it holds, on a value. Null on a secret, whatever is stored."
     value: String
     "Whether anything is stored, which is all a secret says about itself."
@@ -4916,6 +4949,12 @@ input CreateVariableInput {
     type: VariableType!
     "Whether it may be read with the list, or only on request."
     kind: VariableKind! = SECRET
+    "What a LIST holds; ignored on anything else."
+    elementType: VariableType
+    "A plugin's type over the base type, by its full name: `slack:SlackUser`."
+    customType: String
+    "What that type is told, as a JSON object."
+    typeArguments: String
     value: String
 }
 
@@ -4927,8 +4966,41 @@ input UpdateVariableInput {
     type: VariableType
     "Whether it may be read with the list, or only on request."
     kind: VariableKind
+    elementType: VariableType
+    "Empty takes the plugin type off; absent leaves it alone."
+    customType: String
+    typeArguments: String
     "Null leaves the stored value alone."
     value: String
+}
+
+"""
+A type a variable may be beyond the three built in: one a plugin defines.
+`key` is what a variable stores as its `customType`.
+"""
+type VariableTypeOffer {
+    key: String!
+    plugin: String!
+    pluginName: String!
+    name: String!
+    description: String
+    "What a value of it is underneath, and so which built-in type the variable has to be."
+    base: VariableType!
+    "What a variable of this type has to be told - a connection, usually."
+    parameters: [PluginParameterDeclaration!]!
+    "Whether the plugin completes values of it as they are typed."
+    suggests: Boolean!
+    "Whether the plugin checks a value of it when it is saved."
+    validates: Boolean!
+}
+
+"One thing a plugin offers for what was typed into a variable of its type."
+type VariableSuggestion {
+    "What the variable is set to when this is taken."
+    value: String!
+    label: String!
+    "A second line, where the plugin had one."
+    detail: String
 }
 
 "How a webhook decides whether its caller may start anything."
@@ -5025,6 +5097,8 @@ type Plugin {
     own, unprefixed, because this is what the plugin said.
     """
     objects: [PluginObject!]!
+    "The value types this plugin defines, as it declared them."
+    types: [PluginType!]!
     """
     The instruction sets this plugin brings.
 

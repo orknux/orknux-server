@@ -6,6 +6,7 @@ import io.mszymanski.orknux.server.agent.SkillFormat
 import io.mszymanski.orknux.server.obj.PropertyKind
 import io.mszymanski.orknux.workflow.script.DeclaredFunction
 import io.mszymanski.orknux.workflow.script.DeclaredObject
+import io.mszymanski.orknux.workflow.script.DeclaredType
 import io.mszymanski.orknux.workflow.script.DeclaredParam
 import io.mszymanski.orknux.workflow.script.DeclaredParameter
 import io.mszymanski.orknux.workflow.script.DeclaredSkill
@@ -486,6 +487,72 @@ class PluginDeclarations(private val mapper: ObjectMapper) {
     private fun propertyKind(name: String): PropertyKind? =
         PropertyKind.entries.firstOrNull { it.name.equals(name.trim(), ignoreCase = true) }
 
+    /* ------------------------------------------------------------ types --- */
+
+    /**
+     * Checks the value types a plugin defines, and returns them as JSON to keep.
+     * Issue #377.
+     *
+     * A type is a name over a base type, what it needs to be told, and whether
+     * it offered `suggest` and `validate`. The parameters are held to the same
+     * rules a plugin's own settings are, through [validatedParameters], with
+     * one more: none may be a secret, because what a variable of the type is
+     * told is stored beside the variable in the clear.
+     *
+     * @throws PluginDeclarationInvalidException if anything about it is wrong.
+     */
+    fun validatedTypes(declared: List<DeclaredType>): String {
+        val names = mutableSetOf<String>()
+        val array = mapper.createArrayNode()
+        declared.forEach { type ->
+            val name = type.name.trim()
+            if (!IDENTIFIER.matches(name)) {
+                throw PluginDeclarationInvalidException("\"${type.name}\" is not a usable type name")
+            }
+            if (!names.add(name)) {
+                throw PluginDeclarationInvalidException("it declares the type $name more than once")
+            }
+            val base = type.base.trim().lowercase()
+            if (base !in BASES) {
+                throw PluginDeclarationInvalidException(
+                    "$name is a \"${type.base}\", and a type is one of ${BASES.joinToString(", ")} with a name on it",
+                )
+            }
+            type.parameters.firstOrNull { it.secret }?.let {
+                throw PluginDeclarationInvalidException(
+                    "$name asks to be told ${it.name} as a secret, and a type cannot be told one: " +
+                        "what a variable of the type is told is kept beside it, in the clear.",
+                )
+            }
+
+            val node = array.addObject()
+            node.put("name", name)
+            type.description?.trim()?.takeIf { it.isNotEmpty() }?.let { node.put("description", it) }
+            node.put("base", base)
+            // The same checks, and the same JSON, a plugin's settings get.
+            node.set("parameters", mapper.readTree(validatedParameters(type.parameters)))
+            node.put("suggests", type.suggests)
+            node.put("validates", type.validates)
+        }
+        return mapper.writeValueAsString(array)
+    }
+
+    /** What was kept about the types, as the variable screen and the caller want it. */
+    fun readTypes(json: String): List<PluginTypeView> = runCatching {
+        val array = mapper.readTree(json)
+        (0 until array.size()).map { at ->
+            val node = array.get(at)
+            PluginTypeView(
+                name = node.get("name").asString(),
+                description = node.get("description")?.asString(),
+                base = node.get("base").asString(),
+                parameters = readParameters(mapper.writeValueAsString(node.get("parameters"))),
+                suggests = node.get("suggests")?.asBoolean() ?: false,
+                validates = node.get("validates")?.asBoolean() ?: false,
+            )
+        }
+    }.getOrElse { emptyList() }
+
     /**
      * Checks what a plugin says it has to be told, and returns it as JSON to keep.
      *
@@ -803,6 +870,9 @@ class PluginDeclarations(private val mapper: ObjectMapper) {
          */
         const val CONNECTION = "connection"
 
+        /** What a plugin's type may be underneath; the three a variable can hold. Issue #377. */
+        val BASES = listOf("string", "number", "boolean")
+
         /** What the `agent_skill` name column holds. */
         const val MOST_SKILL_NAME_CHARS = 120
 
@@ -816,6 +886,22 @@ class PluginDeclarations(private val mapper: ObjectMapper) {
         const val MOST_OPTIONS = 50
     }
 }
+
+/**
+ * A value type a plugin defines, as the screen and the caller see it. Issue #377.
+ *
+ * The plugin's own name, unprefixed; what a workspace picks it by is
+ * `<plugin>:<name>`, which [PluginTypes] spells.
+ */
+data class PluginTypeView(
+    val name: String,
+    val description: String?,
+    /** `string`, `number` or `boolean`. */
+    val base: String,
+    val parameters: List<PluginParameterView>,
+    val suggests: Boolean,
+    val validates: Boolean,
+)
 
 class PluginDeclarationInvalidException(what: String) :
     RuntimeException("The plugin's functions could not be accepted: $what")

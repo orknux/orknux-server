@@ -719,6 +719,7 @@ class PluginUploadAPI(
          * 'Issue'` is measured against a set that has already held together.
          */
         val declaredObjects = declarations.validatedObjects(inspected.objects)
+        val declaredTypes = declarations.validatedTypes(inspected.types)
         val exported = inspected.objects.map { it.name.trim() }.toSet()
         val declared = declarations.validated(inspected.functions, exported)
         val declaredTools = declarations.validatedTools(inspected.tools, exported)
@@ -826,6 +827,7 @@ class PluginUploadAPI(
             this.declaredTools = declaredTools
             this.declaredSkills = declaredSkills
             this.declaredObjects = declaredObjects
+            this.declaredTypes = declaredTypes
             this.declaredParameters = parameters
             this.declaredPermissions = permissions.write(wanted)
             this.acceptedPermissions = permissions.write(wanted)
@@ -864,6 +866,7 @@ class PluginUploadAPI(
             declaredTools = declaredTools,
             declaredSkills = declaredSkills,
             declaredObjects = declaredObjects,
+            declaredTypes = declaredTypes,
             declaredParameters = parameters,
             declaredPermissions = permissions.write(wanted),
             /*
@@ -926,6 +929,7 @@ class PluginUploadAPI(
                     files.map { it.path },
                     declarations.readSkills(saved.declaredSkills),
                     declarations.readObjects(saved.declaredObjects),
+                    declarations.readTypes(saved.declaredTypes),
                 ),
                 "replaced" to (existing != null),
                 "provides" to provided,
@@ -1952,6 +1956,7 @@ class PluginAPI(
                 sources.librariesOf(it).map { library -> library.path },
                 declarations.readSkills(it.declaredSkills),
                 declarations.readObjects(it.declaredObjects),
+                declarations.readTypes(it.declaredTypes),
             )
         }
     }

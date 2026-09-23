@@ -28,6 +28,17 @@ enum class VariableType {
     STRING,
     NUMBER,
     BOOLEAN,
+
+    /**
+     * Several of one of the three, handed to a function as an array. Issue #377.
+     *
+     * What [WorkspaceVariable.elementType] says the elements are. Stored as a
+     * JSON array in the same text column; the type decides how it is written
+     * when a function is handed it, which is the only moment the difference
+     * matters - and a list that was never a JSON array is `null` there, the
+     * same honest answer a number nobody could parse gets.
+     */
+    LIST,
 }
 
 /**
@@ -119,6 +130,37 @@ class WorkspaceVariable(
     @Column(nullable = false, length = 16)
     var kind: VariableKind = VariableKind.SECRET,
 
+    /** What a [VariableType.LIST] holds: one of the three scalars. Null on anything else. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "element_type", length = 16)
+    var elementType: VariableType? = null,
+
+    /**
+     * A type a plugin defines, over the base type this variable has. Issue #377.
+     *
+     * `slack:SlackUser` - the plugin's key and the type's name, which is how
+     * [io.mszymanski.orknux.server.plugin.PluginTypes] finds it. Null for a
+     * plain string, number, boolean or list of those. On a list it says what
+     * each element is.
+     *
+     * A name, not a guarantee: the plugin that defined it may be switched off
+     * or gone by the time the variable is read, and the variable still holds
+     * what it held. What the name buys is the picker and the check at the
+     * moment somebody types a value, which is the moment a wrong one is cheap.
+     */
+    @Column(name = "custom_type", length = 120)
+    var customType: String? = null,
+
+    /**
+     * What the type was told, as a JSON object of parameter name to value.
+     *
+     * A Slack user type needs a Slack connection to check a user against; this
+     * is where the variable says which. Kept in the clear, which is why a type
+     * may not ask for a secret.
+     */
+    @Column(name = "type_arguments", columnDefinition = "text")
+    var typeArguments: String? = null,
+
     /**
      * Encrypted in the database; see `SecretCipher`.
      *
@@ -190,6 +232,28 @@ class VariableNameTakenException(val name: String, val catalog: String) :
     RuntimeException("$catalog already holds a variable named \"$name\""), Refusal {
 
     override val arguments get() = mapOf("name" to name, "catalog" to catalog)
+}
+
+/**
+ * A value that is not what its type says. Issue #377.
+ *
+ * Refused at the save rather than found by the function at three in the
+ * morning: a number that does not parse, a boolean that is neither, a list that
+ * is not a JSON array of its element type, or a value the plugin that defines
+ * the type said no to - with the plugin's own reason, which is the one worth
+ * reading.
+ */
+class VariableValueInvalidException(val name: String, val why: String) :
+    RuntimeException("\"$name\" cannot hold that: $why"), Refusal {
+
+    override val arguments get() = mapOf("name" to name, "why" to why)
+}
+
+/** A type named on a variable that no enabled plugin defines. */
+class VariableTypeUnknownException(val type: String) :
+    RuntimeException("No plugin that is switched on defines a type called \"$type\"."), Refusal {
+
+    override val arguments get() = mapOf("type" to type)
 }
 
 class VariableNameInvalidException(val name: String) : RuntimeException(

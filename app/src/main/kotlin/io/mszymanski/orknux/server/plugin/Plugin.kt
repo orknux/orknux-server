@@ -122,6 +122,18 @@ class Plugin(
     var declaredObjects: String = "[]",
 
     /**
+     * The value types the plugin defines, as JSON. Issue #377.
+     *
+     * A name over a base type - `SlackUser` over string - with what it needs to
+     * be told and whether it can complete and check a value. Replaced wholesale
+     * on every load, the way the objects are; the calls that complete and check
+     * go to the plugin's source through [PluginTypes], never to what is kept
+     * here, which is only the declaration.
+     */
+    @Column(name = "declared_types", nullable = false, columnDefinition = "text")
+    var declaredTypes: String = "[]",
+
+    /**
      * What the plugin answered when asked what it has to be told, as JSON.
      *
      * The plugin's half of the bargain: it says what it needs and a workspace says
@@ -308,6 +320,8 @@ data class PluginView(
     val skills: List<PluginSkillView> = emptyList(),
     /** The shapes it exports, available in every workspace under its key. */
     val objects: List<PluginObjectView> = emptyList(),
+    /** The value types it defines; see [PluginTypeView]. Issue #377. */
+    val types: List<PluginTypeView> = emptyList(),
     /** Where it came from, when that was the marketplace. */
     val marketplaceKey: String? = null,
     val marketplaceVersion: String? = null,
@@ -514,6 +528,7 @@ fun Plugin.view(
     skills: List<PluginSkillView> = emptyList(),
     /** The shapes it exports; read beside the declarations. */
     objects: List<PluginObjectView> = emptyList(),
+    types: List<PluginTypeView> = emptyList(),
 ): PluginView = PluginView(
     id = requireNotNull(id).toString(),
     key = key,
@@ -535,6 +550,7 @@ fun Plugin.view(
     libraries = libraries,
     skills = skills,
     objects = objects,
+    types = types,
     marketplaceKey = marketplaceKey,
     marketplaceVersion = marketplaceVersion,
     icon = icon,

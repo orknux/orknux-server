@@ -98,6 +98,8 @@ import io.mszymanski.orknux.server.variable.VariableHeldAsCredentialException
 import io.mszymanski.orknux.server.variable.VariableInUseException
 import io.mszymanski.orknux.server.variable.VariableSecrecyHeldException
 import io.mszymanski.orknux.server.variable.VariableNameInvalidException
+import io.mszymanski.orknux.server.variable.VariableTypeUnknownException
+import io.mszymanski.orknux.server.variable.VariableValueInvalidException
 import io.mszymanski.orknux.server.variable.VariableNameTakenException
 import io.mszymanski.orknux.server.variable.VariableNotFoundException
 import io.mszymanski.orknux.server.trigger.TriggerWebhookPathInvalidException
@@ -164,6 +166,8 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is AttachmentTooLargeException,
             is VariableNameTakenException,
             is VariableNameInvalidException,
+            is VariableValueInvalidException,
+            is VariableTypeUnknownException,
             is VariableInUseException,
             is VariableHeldAsCredentialException,
             is VariableSecrecyHeldException,
