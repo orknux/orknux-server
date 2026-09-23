@@ -33,7 +33,43 @@ class ChatAPI(
     private val settings: InstallationSettings,
     private val ownership: ChatOwnership,
     private val chatTools: ChatTools,
+    /** What can be typed instead of said; see [ChatCommands]. */
+    private val commands: ChatCommands,
 ) {
+
+    /**
+     * The commands this workspace offers, for the menu the slash opens.
+     *
+     * Asked of the server rather than written in the interface, because the chat
+     * is not the only place people type: Slack's own slash commands arrive here
+     * with nothing of the browser about them, and a list written in the browser
+     * could be reached from one of the two places it belongs. What the chat adds
+     * on top - starting a new chat, opening the find box - is its own, because a
+     * Slack message cannot ask for either.
+     */
+    @QueryMapping
+    fun chatCommands(@Argument workspaceId: Long): List<ChatCommandView> {
+        requireWorkspaceAccess(workspaceId)
+        return commands.commands()
+    }
+
+    /**
+     * Runs one, as the person who typed it.
+     *
+     * The answer is what the tool said, which is JSON: the chat shows it as the
+     * reply to what was typed, and a Slack handler would post the same thing.
+     * Nothing is formatted here, because the two surfaces will not want it
+     * formatted the same way.
+     */
+    @MutationMapping
+    fun runChatCommand(
+        @Argument workspaceId: Long,
+        @Argument name: String,
+        @Argument argument: String?,
+    ): String {
+        requireWorkspaceAccess(workspaceId)
+        return commands.run(workspaceId, currentUser(), name, argument)
+    }
 
     @QueryMapping
     fun chatSessions(@Argument workspaceId: Long): List<ChatSessionView> {

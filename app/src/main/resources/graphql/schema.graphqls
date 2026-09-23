@@ -493,6 +493,15 @@ type Query {
     tool(id: ID!): Tool
     "The chats the caller holds in this workspace: pinned first, then most recent."
     chatSessions(workspaceId: ID!): [ChatSession!]!
+    """
+    What can be typed instead of said, for the menu the slash opens.
+
+    Answered by the server rather than written in the interface, because the chat
+    is not the only place people type: Slack's own slash commands arrive here with
+    nothing of the browser about them. The chat adds its own on top - a new chat,
+    the find box - since a Slack message cannot ask for either.
+    """
+    chatCommands(workspaceId: ID!): [ChatCommand!]!
     "Which of the caller's chats said this; for searching inside them rather than by name."
     chatsMentioning(workspaceId: ID!, text: String!): [ID!]!
     chatSession(id: ID!): ChatSession
@@ -1528,6 +1537,15 @@ type Mutation {
     validateSkillContent(workspaceId: ID!, content: String!): SourceValidation!
     deleteSkill(id: ID!): Boolean!
     startChat(input: StartChatInput!): ChatSession!
+    """
+    Runs one of `chatCommands`, as the person who typed it.
+
+    It really does it: `/workflow` starts the workflow, and if that workflow
+    messages somebody it messages them. The answer is what the underlying tool
+    said, as JSON - the surface that asked decides how to show it, because the
+    chat and a Slack channel will not want it shown the same way.
+    """
+    runChatCommand(workspaceId: ID!, name: String!, argument: String): String!
     renameChat(id: ID!, title: String!): ChatSession!
     setChatPinned(id: ID!, pinned: Boolean!): ChatSession!
     """
@@ -3148,6 +3166,24 @@ type SkillPage {
     size: Int!
     totalElements: Int!
     totalPages: Int!
+}
+
+"""
+One thing that can be typed instead of said.
+
+Carried out by the same code the agents reach: running a workflow from a command
+and running one from an agent are the same act with the same consequences, so
+they are the same implementation with the same rules about what may be done.
+"""
+type ChatCommand {
+    "What is typed after the slash."
+    name: String!
+    "One line, as the menu lists it."
+    summary: String!
+    "What to type after it, in words; null where it takes nothing."
+    argument: String
+    "What is worth knowing before pressing it, where anything is."
+    warning: String
 }
 
 """
