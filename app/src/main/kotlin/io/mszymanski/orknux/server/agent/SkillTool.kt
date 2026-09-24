@@ -38,17 +38,43 @@ class SkillTool(
      * is for, and returning the text here would make the load tool pointless.
      */
     fun list(agent: Agent): List<SkillSummary> = granted(agent)
-        .map { SkillSummary(it.name, it.description, it.catalog) }
+        .map { SkillSummary(it.name, it.key, it.description, it.catalog) }
 
     /**
-     * One skill in full, by name.
+     * One skill in full, by name or by id.
      *
      * A name that is not in the granted list reads as absent rather than
      * refused: an agent guessing at a skill it was never given should learn that
      * there is no such skill, not that there is one it may not have.
      */
-    fun load(agent: Agent, name: String): GrantedSkill? =
-        granted(agent).firstOrNull { it.name.equals(name, ignoreCase = true) }
+    fun load(agent: Agent, name: String): GrantedSkill? = granted(agent)
+        .firstOrNull { it.name.equals(name, ignoreCase = true) || it.key.equals(name, ignoreCase = true) }
+
+    /**
+     * The skills these ids name, for a graph that loads them by force.
+     *
+     * Looked up across the workspace and the loaded plugins rather than the
+     * agent's grants: an id written on the graph is the workflow's author
+     * choosing, which is a stronger word than a grant list somebody may not
+     * have kept up. A workspace skill switched off is out of reach here as
+     * everywhere; an id nothing answers to is handed back, so the run can say
+     * so. Issue #381.
+     */
+    fun byKeys(workspaceId: Long, keys: Collection<String>): ResolvedSkills {
+        val own = skills.findByWorkspaceIdAndEnabledTrue(workspaceId)
+            .map { GrantedSkill(it.name, it.key, it.description, catalogNameOf(it.catalogId), it.content) }
+        val pool = own + fromPlugins.catalogs().flatMap { it.skills }
+        val found = mutableListOf<GrantedSkill>()
+        val missing = mutableListOf<String>()
+        keys.map { it.trim() }.filter { it.isNotEmpty() }.distinctBy { it.lowercase() }.forEach { key ->
+            val match = pool.firstOrNull { it.key.equals(key, ignoreCase = true) }
+            if (match == null) missing += key else if (match !in found) found += match
+        }
+        return ResolvedSkills(found, missing)
+    }
+
+    private fun catalogNameOf(catalogId: Long): String =
+        catalogs.findById(catalogId).map { it.name }.orElse("")
 
     /**
      * The skills in the catalogs this agent holds, from both sources.
@@ -71,7 +97,7 @@ class SkillTool(
             .flatMap { catalog ->
                 skills.findByCatalogId(requireNotNull(catalog.id))
                     .filter { it.enabled }
-                    .map { GrantedSkill(it.name, it.description, catalog.name, it.content) }
+                    .map { GrantedSkill(it.name, it.key, it.description, catalog.name, it.content) }
             }
             .sortedBy { it.name }
 
@@ -103,14 +129,17 @@ class SkillTool(
         val LOAD = ToolDescriptor(
             name = "skill_load",
             description =
-                "Read one skill in full, by its exact name from skill_list. " +
+                "Read one skill in full, by its exact name or id from skill_list. " +
                     "Load a skill before following it rather than guessing at what it says.",
             parameters = listOf(
-                ToolParameter(name = "name", description = "The skill's name, as skill_list gave it", required = true),
+                ToolParameter(name = "name", description = "The skill's name or id, as skill_list gave it", required = true),
             ),
         )
     }
 }
 
 /** One line about a skill: enough to decide whether to load it. */
-data class SkillSummary(val name: String, val description: String?, val catalog: String)
+data class SkillSummary(val name: String, val id: String, val description: String?, val catalog: String)
+
+/** What a list of skill ids resolved to, and which ids named nothing. Issue #381. */
+data class ResolvedSkills(val found: List<GrantedSkill>, val missing: List<String>)

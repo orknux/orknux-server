@@ -117,7 +117,7 @@ class WorkflowGraphAPI(
                 WorkflowNodeView(node, ports.inputs, ports.outputs)
             },
             edges = drawn.map(::WorkflowEdgeView),
-            problems = validator.problems(proposed, drawn),
+            problems = validator.problems(proposed, drawn, workspaceId = workspaceId),
         )
     }
 
@@ -166,12 +166,20 @@ class WorkflowGraphAPI(
                 fallbackEnabled = node.fallbackEnabled && handlesFailure(node.kind),
                 positionX = node.x,
                 positionY = node.y,
+                // Carried into the check for the same reason again: a skill id
+                // written on an agent node that names no skill is a shape a
+                // save refuses, and it is only checkable with the id in hand.
+                // Only that one; the rest are read and refused by mappingsFor.
+                mappings = node.mappings.orEmpty()
+                    .filter { it.name == SKILL_IDS && it.mode == MappingMode.VALUE }
+                    .map { NodeMapping(name = it.name, expression = it.expression, mode = it.mode) }
+                    .toMutableList(),
             )
         }
         val proposedEdges = input.edges.map {
             WorkflowEdge(workflowId = workflowId, sourceKey = it.source, targetKey = it.target, branch = it.branch)
         }
-        val refusals = validator.problems(proposed, proposedEdges, hardOnly = true)
+        val refusals = validator.problems(proposed, proposedEdges, hardOnly = true, workspaceId = workspaceId)
         if (refusals.isNotEmpty()) throw GraphInvalidException(refusals)
 
         nodes.deleteByWorkflowId(workflowId)
@@ -365,7 +373,7 @@ class WorkflowGraphAPI(
                 WorkflowNodeView(node, ports.inputs, ports.outputs)
             },
             edges = drawn.map(::WorkflowEdgeView),
-            problems = validator.problems(held, drawn),
+            problems = validator.problems(held, drawn, workspaceId = workspaceId),
         )
     }
 

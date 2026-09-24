@@ -638,6 +638,29 @@ class WorkspaceAPI(
     }
 
     /**
+     * What marks a command in a message that starts a run here.
+     *
+     * A workspace's own rather than the installation's, because it is a
+     * convention of the people typing in that workspace's Slack. Refused
+     * rather than trimmed to fit, and refused for a letter or a digit,
+     * because a marker like that turns ordinary words into commands. Issue
+     * #381.
+     */
+    @MutationMapping
+    @Transactional
+    fun setWorkspaceCommandMarker(@Argument workspaceId: Long, @Argument marker: String): Workspace {
+        val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
+        access.requireVisible(workspace)
+
+        val wanted = marker.trim()
+        if (!io.mszymanski.orknux.server.trigger.Commands.usableMarker(wanted)) throw CommandMarkerInvalidException(wanted)
+
+        workspace.commandMarker = wanted
+        auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKSPACE, "Commands in a message are marked with $wanted")
+        return workspace
+    }
+
+    /**
      * How many other agents one agent in this workspace may ask in one
      * conversation.
      *
@@ -953,6 +976,13 @@ class WorkspaceMemoryShareUnusableException(message: String) : RuntimeException(
  */
 const val MIN_TASK_TURNS = 1
 const val MAX_TASK_TURNS = 200
+
+class CommandMarkerInvalidException(val marker: String) : RuntimeException(
+    "\"$marker\" cannot mark a command: one to three characters, none of them a letter, a digit or a space",
+), io.mszymanski.orknux.server.graphql.Refusal {
+
+    override val arguments get() = mapOf("marker" to marker)
+}
 
 class TaskTurnsOutOfRangeException(val turns: Int) : RuntimeException(
     "$turns is not a number of turns a task can be given. " +

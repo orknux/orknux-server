@@ -395,11 +395,44 @@ class IncomingTriggerListenerTest(
             }
     }
 
-    private fun mention() = IncomingEvent(
+    /**
+     * The commands in the message travel with it, as a list: every word that
+     * starts with the workspace's marker. Issue #381.
+     */
+    @Test
+    fun `the commands in the message are handed on as a list`() {
+        instance(workflowId, createTrigger("Slack Mention Handler", "MENTION"))
+
+        publisher.publishEvent(mention("<@U123> !review !security PR 12, please"))
+
+        assertThat(executions.findAll().single().input)
+            .contains("\"commands\":[\"review\",\"security\"]")
+    }
+
+    @Test
+    fun `and the marker is the workspace's own`() {
+        graphQlTester.document("""mutation { setWorkspaceCommandMarker(workspaceId: $workspaceId, marker: "::") { commandMarker } }""")
+            .execute().path("setWorkspaceCommandMarker.commandMarker").entity(String::class.java).isEqualTo("::")
+        instance(workflowId, createTrigger("Slack Mention Handler", "MENTION"))
+
+        publisher.publishEvent(mention("<@U123> !review ::deploy now"))
+
+        assertThat(executions.findAll().single().input).contains("\"commands\":[\"deploy\"]")
+    }
+
+    @Test
+    fun `a marker that is a letter, or too long, is refused`() {
+        graphQlTester.document("""mutation { setWorkspaceCommandMarker(workspaceId: $workspaceId, marker: "x") { commandMarker } }""")
+            .execute().errors().expect { it.message!!.contains("cannot mark a command") }.verify()
+        graphQlTester.document("""mutation { setWorkspaceCommandMarker(workspaceId: $workspaceId, marker: "!!!!") { commandMarker } }""")
+            .execute().errors().expect { it.message!!.contains("cannot mark a command") }.verify()
+    }
+
+    private fun mention(text: String = "<@U123> deploy please") = IncomingEvent(
         connectionId = connectionId,
         workspaceId = workspaceId,
         action = IncomingAction.MENTION,
-        text = "<@U123> deploy please",
+        text = text,
         context = mapOf(
             "channel" to "C42",
             "user" to "U7",

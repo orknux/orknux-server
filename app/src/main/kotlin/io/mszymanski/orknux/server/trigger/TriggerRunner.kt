@@ -72,9 +72,17 @@ class TriggerRunner(
         }
     }
 
-    fun fire(trigger: WorkflowTrigger, context: Map<String, String?>): Int = fire(trigger) { input ->
-        // What arrived describes this firing, so it wins.
-        context.forEach { (name, value) -> if (value != null) input.put(name, value) }
+    fun fire(trigger: WorkflowTrigger, context: Map<String, Any?>): Int = fire(trigger) { input ->
+        // What arrived describes this firing, so it wins. A list - the
+        // commands in a message - is handed on as one, so a reference reads a
+        // list and not the text of one. Issue #381.
+        context.forEach { (name, value) ->
+            when (value) {
+                null -> Unit
+                is Collection<*> -> input.putArray(name).also { array -> value.forEach { array.add(it.toString()) } }
+                else -> input.put(name, value.toString())
+            }
+        }
     }
 
     /** What both ways of firing have in common, once the input is decided. */

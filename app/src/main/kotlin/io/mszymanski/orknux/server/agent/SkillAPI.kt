@@ -185,12 +185,14 @@ class SkillAPI(
         val catalogId = input.catalogId
             ?.also { requireCatalogInWorkspace(input.workspaceId, it) }
             ?: defaultCatalog(input.workspaceId)
+        val key = keyFor(input.workspaceId, input.key, name, except = null)
 
         val skill = skills.save(
             AgentSkill(
                 workspaceId = input.workspaceId,
                 catalogId = catalogId,
                 name = name,
+                key = key,
                 description = description,
                 content = content,
                 lastModifiedAt = OffsetDateTime.now(),
@@ -221,6 +223,7 @@ class SkillAPI(
             skill.name = name
         }
         input.description?.let { skill.description = it.trim().ifEmpty { null } }
+        input.key?.let { skill.key = keyFor(skill.workspaceId, it, skill.name, except = skill.id) }
         input.catalogId?.let {
             requireCatalogInWorkspace(skill.workspaceId, it)
             skill.catalogId = it
@@ -279,11 +282,31 @@ class SkillAPI(
         return true
     }
 
+    /**
+     * The id a skill gets: the one typed, checked and refused if held; or the
+     * name's derivation, moved along to the first free variant. A typed id
+     * that clashes is refused rather than moved, because somebody typed it.
+     * Issue #381.
+     */
+    private fun keyFor(workspaceId: Long, typed: String?, name: String, except: Long?): String {
+        val taken = { key: String ->
+            skills.findByWorkspaceIdAndKeyIgnoreCase(workspaceId, key)?.let { it.id != except } ?: false
+        }
+        val wanted = typed?.trim()?.takeIf { it.isNotEmpty() }
+        if (wanted != null) {
+            if (!SkillKeys.usable(wanted)) throw SkillKeyInvalidException(wanted)
+            if (taken(wanted)) throw SkillKeyTakenException(wanted)
+            return wanted
+        }
+        return SkillKeys.free(SkillKeys.derive(name), taken)
+    }
+
     private fun describe(skill: AgentSkill) = SkillView(
         id = requireNotNull(skill.id),
         workspaceId = skill.workspaceId,
         catalogId = skill.catalogId,
         name = skill.name,
+        key = skill.key,
         description = skill.description,
         content = skill.content,
         enabled = skill.enabled,
@@ -334,6 +357,8 @@ class SkillAPI(
 data class CreateSkillInput(
     val workspaceId: Long,
     val name: String,
+    /** Its id; left out, the name's letters, underscores and hyphens. Issue #381. */
+    val key: String? = null,
     val description: String? = null,
     /** Left out for a new skill, which starts from the shape with its parts named. */
     val content: String? = null,
@@ -343,6 +368,8 @@ data class CreateSkillInput(
 
 data class UpdateSkillInput(
     val name: String? = null,
+    /** A new id; null leaves it. Issue #381. */
+    val key: String? = null,
     val description: String? = null,
     val content: String? = null,
     /** Moves it to another folder; null leaves it where it is. */
@@ -354,6 +381,7 @@ data class SkillView(
     val workspaceId: Long,
     val catalogId: Long,
     val name: String,
+    val key: String,
     val description: String?,
     val content: String,
     val enabled: Boolean,

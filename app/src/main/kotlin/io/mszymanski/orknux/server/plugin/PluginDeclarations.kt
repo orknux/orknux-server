@@ -3,6 +3,7 @@ package io.mszymanski.orknux.server.plugin
 import io.mszymanski.orknux.connector.connection.ConnectionType
 import io.mszymanski.orknux.server.action.ValueType
 import io.mszymanski.orknux.server.agent.SkillFormat
+import io.mszymanski.orknux.server.agent.SkillKeys
 import io.mszymanski.orknux.server.obj.PropertyKind
 import io.mszymanski.orknux.workflow.script.DeclaredFunction
 import io.mszymanski.orknux.workflow.script.DeclaredObject
@@ -341,6 +342,7 @@ class PluginDeclarations(private val mapper: ObjectMapper) {
             val node = array.get(at)
             PluginSkillView(
                 name = node.get("name").asString(),
+                key = SkillKeys.derive(node.get("name").asString()),
                 description = node.get("description")?.asString(),
                 content = node.get("content").asString(),
             )

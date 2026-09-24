@@ -113,6 +113,7 @@ CREATE TABLE agent_skill
     id                           integer not null primary key autoincrement,
     workspace_id                 integer not null,
     name                         varchar(120) not null,
+    skill_key                    varchar(120) not null,
     description                  varchar(500),
     content                      text not null,
     enabled                      boolean not null default true,
@@ -120,6 +121,7 @@ CREATE TABLE agent_skill
     last_modified_by             varchar(120) not null,
     catalog_id                   integer not null,
     constraint uk_agent_skill_name UNIQUE (workspace_id, name),
+    constraint uk_agent_skill_key UNIQUE (workspace_id, skill_key COLLATE NOCASE),
     constraint agent_skill_catalog_id_fkey FOREIGN KEY (catalog_id) REFERENCES skill_catalog(id),
     constraint agent_skill_team_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspace(id) ON DELETE CASCADE
 );
@@ -1422,6 +1424,7 @@ CREATE TABLE workspace
     voice_speech_chunking        varchar(16) not null default 'SENTENCE',
     task_max_turns               integer,
     agent_max_subagents          integer,
+    command_marker               varchar(3) not null default '!',
     script_timeout_seconds       integer,
     tool_timeout_seconds         integer,
     constraint uk_workspace_name UNIQUE (name),

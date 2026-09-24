@@ -410,6 +410,8 @@ data class PluginObjectPropertyView(
 
 data class PluginSkillView(
     val name: String,
+    /** Derived from the name, the way a workspace skill's is. Issue #381. */
+    val key: String,
     val description: String?,
     val content: String,
 )

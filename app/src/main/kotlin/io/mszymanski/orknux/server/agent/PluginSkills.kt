@@ -57,6 +57,7 @@ class PluginSkills(
                     skills = held.map {
                         GrantedSkill(
                             name = it.name,
+                            key = it.key,
                             description = it.description,
                             catalog = catalog,
                             content = it.content,
@@ -105,6 +106,8 @@ data class PluginSkillCatalog(
  */
 data class GrantedSkill(
     val name: String,
+    /** What a graph or a command names it by; see [SkillKeys]. Issue #381. */
+    val key: String,
     val description: String?,
     /** The folder it came from: a workspace catalog's name, or a plugin's key. */
     val catalog: String,

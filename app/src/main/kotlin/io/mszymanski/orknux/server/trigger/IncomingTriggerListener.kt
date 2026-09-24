@@ -32,6 +32,8 @@ class IncomingTriggerListener(
     private val firings: TriggerFiringRepository,
     /** To find the other rows that are the same Slack app. See [deliveredTo]. */
     private val connections: WorkspaceConnectionRepository,
+    /** For the command marker the trigger's workspace uses. Issue #381. */
+    private val workspaces: io.mszymanski.orknux.server.workspace.WorkspaceRepository,
 ) {
 
     @EventListener
@@ -55,13 +57,22 @@ class IncomingTriggerListener(
             return
         }
 
-        val context = buildMap<String, String?> {
+        val context = buildMap<String, Any?> {
             put("action", action.name)
             put("text", event.text)
             putAll(event.context)
         }
 
         for (trigger in waiting) {
+            /*
+             * And the commands in the message, parsed with the marker this
+             * trigger's workspace uses - so a node after the trigger can read
+             * `trigger.commands` as a list, and an agent node can load the
+             * skills those words name. Per trigger, because two workspaces on
+             * one Slack app may mark commands differently. Issue #381.
+             */
+            val marker = workspaces.findById(trigger.workspaceId).map { it.commandMarker }.orElse(Commands.DEFAULT_MARKER)
+            val handed = context + ("commands" to Commands.parse(event.text, marker))
             /*
              * A trigger has to still belong to the workspace its *own* connection
              * does. Not to the workspace the event was delivered to - those are
@@ -94,7 +105,7 @@ class IncomingTriggerListener(
              * `fire` records what it did, so a failure here is one this could
              * not even write down: it is logged and the next trigger is asked.
              */
-            runCatching { runs.fire(trigger, context) }
+            runCatching { runs.fire(trigger, handed) }
                 .onFailure { log.error("Trigger {} could not be fired", trigger.name, it) }
         }
     }

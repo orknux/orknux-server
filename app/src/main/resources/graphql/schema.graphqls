@@ -1502,6 +1502,11 @@ type Mutation {
     """
     setWorkspaceAgentMaxSubagents(workspaceId: ID!, count: Int): Workspace!
     """
+    What marks a command in a message that starts a run here; one to three
+    characters, none a letter, a digit or a space. Issue #381.
+    """
+    setWorkspaceCommandMarker(workspaceId: ID!, marker: String!): Workspace!
+    """
     How long this workspace's tools and functions may run, where they have no
     timeout of their own. Null clears it, which puts the workspace back on the
     installation's own bound; between 1 and 600 seconds otherwise.
@@ -1899,6 +1904,12 @@ type Workspace {
     agentMaxSubagents: Int
     "What an agent here gets when `agentMaxSubagents` is null: the installation's number."
     agentMaxSubagentsDefault: Int!
+    """
+    What marks a command in a message that starts a run here - `!review`.
+    Orknux's own syntax, because Slack polices `/`. One to three characters,
+    none a letter or a digit. Issue #381.
+    """
+    commandMarker: String!
     """
     How long one run of this workspace's functions may hold its thread, in
     seconds, where the function has no timeout of its own.
@@ -3259,6 +3270,12 @@ type Skill {
     workspaceId: ID!
     catalogId: ID!
     name: String!
+    """
+    What a workflow graph or a command names it by: letters, underscores and
+    hyphens, unique in the workspace. Derived from the name unless typed.
+    Issue #381.
+    """
+    key: String!
     description: String
     "Markdown, opening with a frontmatter block naming and describing it."
     content: String!
@@ -3596,6 +3613,8 @@ type PluginObjectProperty {
 "One instruction set a plugin brings: markdown an agent reads, never code it runs."
 type PluginSkill {
     name: String!
+    "Derived from the name the way a workspace skill's is: letters, underscores and hyphens."
+    key: String!
     description: String
     "The markdown in full, frontmatter and all."
     content: String!
@@ -3667,6 +3686,8 @@ input UpdateMemoryInput {
 input CreateSkillInput {
     workspaceId: ID!
     name: String!
+    "Its id; left out, the name's letters, underscores and hyphens, moved along if held."
+    key: String
     description: String
     "Left out for a new skill, which starts from the shape with its parts named."
     content: String
@@ -3676,6 +3697,8 @@ input CreateSkillInput {
 
 input UpdateSkillInput {
     name: String
+    "A new id; null leaves it. Refused if another skill here holds it."
+    key: String
     description: String
     content: String
     "Moves it to another folder; null leaves it where it is."

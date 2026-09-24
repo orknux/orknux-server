@@ -37,6 +37,14 @@ class AgentSkill(
     @Column(nullable = false, length = 120)
     var name: String,
 
+    /**
+     * What a graph or a command names it by: letters, underscores and hyphens,
+     * unique in the workspace. Derived from the name unless somebody typed
+     * one; see [SkillKeys]. Issue #381.
+     */
+    @Column(name = "skill_key", nullable = false, length = 120)
+    var key: String = "",
+
     @Column(length = 500)
     var description: String? = null,
 
@@ -66,6 +74,52 @@ interface AgentSkillRepository : JpaRepository<AgentSkill, Long> {
     fun deleteByCatalogId(catalogId: Long)
 
     fun findByWorkspaceIdAndName(workspaceId: Long, name: String): AgentSkill?
+
+    /** The one this id names here, whatever case it was typed in. Issue #381. */
+    fun findByWorkspaceIdAndKeyIgnoreCase(workspaceId: Long, key: String): AgentSkill?
+
+    /** Every skill the workspace can still use, for a graph naming them by id. */
+    fun findByWorkspaceIdAndEnabledTrue(workspaceId: Long): List<AgentSkill>
+}
+
+/**
+ * A skill's id: what a workflow graph, a Slack command or a plugin names it by.
+ *
+ * Letters, underscores and hyphens, and nothing else - so that a command
+ * marker followed by a word is always a whole id, and a word out of a
+ * message never half-matches one. Unique in a workspace, the way a name is;
+ * a plugin's skill gets one derived from its name the same way. Issue #381.
+ */
+object SkillKeys {
+
+    val RULE = Regex("[A-Za-z_-]+")
+
+    private val UNWANTED = Regex("[^A-Za-z_-]")
+
+    /** Whether this is a usable id: only the characters the rule allows, and at least one. */
+    fun usable(key: String): Boolean = key.length in 1..KEY_LENGTH && RULE.matches(key)
+
+    /**
+     * The id a name becomes: everything the rule refuses removed, and a name
+     * with nothing left - "2024", say - given a stand-in.
+     */
+    fun derive(name: String): String = UNWANTED.replace(name.trim(), "").take(KEY_LENGTH).ifEmpty { "skill" }
+
+    /**
+     * The first of this id and its lettered variants that nothing holds:
+     * `review`, `review-b`, `review-c`. Letters rather than digits because
+     * the rule allows no digits.
+     */
+    fun free(wanted: String, taken: (String) -> Boolean): String {
+        if (!taken(wanted)) return wanted
+        for (letter in 'b'..'z') {
+            val candidate = "${wanted.take(KEY_LENGTH - 2)}-$letter"
+            if (!taken(candidate)) return candidate
+        }
+        throw SkillKeyTakenException(wanted)
+    }
+
+    const val KEY_LENGTH = 120
 }
 
 /**
@@ -188,6 +242,19 @@ class SkillNameTakenException(val name: String) :
 }
 
 class SkillNameInvalidException : RuntimeException("A skill name is required")
+
+class SkillKeyInvalidException(val key: String) : RuntimeException(
+    "\"$key\" cannot be a skill id: letters, underscores and hyphens only, up to ${SkillKeys.KEY_LENGTH} of them",
+), Refusal {
+
+    override val arguments get() = mapOf("key" to key)
+}
+
+class SkillKeyTakenException(val key: String) :
+    RuntimeException("A skill with the id \"$key\" already exists in this workspace"), Refusal {
+
+    override val arguments get() = mapOf("key" to key)
+}
 
 class SkillContentInvalidException(val reason: String) : RuntimeException(reason), Refusal {
 

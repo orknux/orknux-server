@@ -44,6 +44,20 @@ have failed.
 - 📝 **An agent can leave itself a note part-way through.** `note_to_self`
   writes a line down during a long task, and the session page draws the notes
   above the transcript.
+- 🎯 **An agent node names the skills to load, and a Slack message can name
+  them.** Every skill has an **id** now - letters, underscores and hyphens,
+  unique in the workspace, derived from the name for the skills you already
+  have and edited on the skill's page. An agent node on the graph gets a
+  `skillIds` row beside its prompt: written out, or read from another node,
+  and the skills those ids name are loaded for the model before it starts,
+  whether or not it would have asked. The Slack trigger hands on
+  `commands` - every word in the message that starts with the workspace's
+  **command marker**, `!` to begin with and a box on Workspace → Settings -
+  so `@orknux !review !security PR 12` lands the agent with both skills in
+  front of it. Orknux's own syntax, because Slack intercepts `/` and refuses
+  a slash command it does not know. An id written on the graph that names no
+  skill is refused at the save; one that arrived with a message is noted in
+  the run and costs nothing else. `skill_load` takes an id as well as a name.
 - 🧾 **A variable can be a list, or a type a plugin defines.** Lists of
   strings, numbers or booleans, edited as one. A plugin declares a type with
   its own completion and validation, run in the sandbox: Slack 1.19 defines

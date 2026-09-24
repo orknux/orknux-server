@@ -73,6 +73,8 @@ class AgentNodeRunner(
     private val mapper: ObjectMapper,
     /** What bounds an agent's waiting; see [FinishAnswerTools.Sleeping]. */
     private val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
+    /** The skills a node names by id, loaded before the model starts. Issue #381. */
+    private val skills: SkillTool,
 ) : NodeRunner {
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
@@ -123,10 +125,41 @@ class AgentNodeRunner(
             ?.let { expressions.textOf(it, payload, started) }
             ?.takeIf { it.isNotBlank() }
 
-        val system = mappings[SYSTEM_PROMPT]
+        val briefed = mappings[SYSTEM_PROMPT]
             ?.let { expressions.textOf(it, payload, started) }
             ?.takeIf { it.isNotBlank() }
             ?: briefing.of(agent)
+
+        /*
+         * The skills this node names, loaded whether or not the model would
+         * have asked. Named on the graph - written out, or read from what
+         * started the run, which is how a Slack message saying `!review` lands
+         * the agent with the review skill already in front of it. An id that
+         * names nothing is said in the run log and costs nothing else: a word
+         * out of a message is not a reason to stop. Issue #381.
+         */
+        val forced = mappings[SKILL_IDS]?.let { skillIdsOf(it, payload, started) }.orEmpty()
+        val loaded = if (forced.isEmpty()) null else skills.byKeys(agent.workspaceId, forced)
+        if (loaded != null && loaded.missing.isNotEmpty()) {
+            runLog.write(
+                step.executionId,
+                step.nodeKey,
+                LogLevel.INFO,
+                "No skill in this workspace has the id ${loaded.missing.joinToString(", ")}; " +
+                    "the rest were loaded",
+            )
+        }
+        val system = if (loaded == null || loaded.found.isEmpty()) {
+            briefed
+        } else {
+            (briefed?.plus("\n\n") ?: "") + buildString {
+                appendLine("These skills are loaded for this task. Follow them:")
+                loaded.found.forEach { skill ->
+                    append("\n### ").append(skill.name).append(" (").append(skill.key).appendLine(")")
+                    appendLine(skill.content.trim())
+                }
+            }.trimEnd()
+        }
 
         /*
          * The shape the answer is held to, said in the system prompt.
@@ -624,7 +657,33 @@ class AgentNodeRunner(
         }
     }
 
+    /**
+     * The ids a `skillIds` mapping names: a list where the value is one - a
+     * reference to the trigger's `commands`, say - and otherwise the words of
+     * the text it holds, split on commas and spaces.
+     */
+    private fun skillIdsOf(binding: NodeBinding, payload: JsonNode?, started: JsonNode?): List<String> {
+        val raw = expressions.jsonOf(binding, payload, started)
+        val node = runCatching { mapper.readTree(raw) }.getOrNull()
+        val words = when {
+            node != null && node.isArray -> node.values().map { it.asString() }
+            node != null && node.isTextual -> node.stringValue().split(SEPARATORS)
+            else -> raw.split(SEPARATORS)
+        }
+        return words.map { it.trim() }.filter { it.isNotEmpty() }
+    }
+
     private companion object {
+        /** What a written list of skill ids is split on. */
+        val SEPARATORS = Regex("[,\\s]+")
+
+        /**
+         * Which skills are loaded for this node before the model starts, by
+         * id. Written out, or read from another node - the trigger's
+         * `commands`, say. Issue #381.
+         */
+        const val SKILL_IDS = "skillIds"
+
         /**
          * How many pictures one message is worth showing.
          *

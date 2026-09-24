@@ -44,6 +44,9 @@ class GraphValidator(
     private val objects: WorkflowObjectRepository,
     private val parameters: ActionParameters,
     private val mapper: ObjectMapper,
+    /** For the skill ids an agent node writes out; see [problems]. Issue #381. */
+    private val skills: io.mszymanski.orknux.server.agent.AgentSkillRepository,
+    private val pluginSkills: io.mszymanski.orknux.server.agent.PluginSkills,
 ) {
 
     /** What a node needs, what it hands on, and whether its input survives it. */
@@ -71,6 +74,11 @@ class GraphValidator(
      *   crosses nodes: an object node an agent saves its answer into is a
      *   declaration, not a step, and only the agent's node says so.
      */
+    /** Whether a workspace skill or a loaded plugin's answers to this id. */
+    private fun skillExists(workspaceId: Long, key: String): Boolean =
+        skills.findByWorkspaceIdAndKeyIgnoreCase(workspaceId, key) != null ||
+            pluginSkills.catalogs().any { catalog -> catalog.skills.any { it.key.equals(key, ignoreCase = true) } }
+
     fun portsOf(node: WorkflowNode, among: List<WorkflowNode> = emptyList()): Ports = when (node.kind) {
         NodeKind.TRIGGER -> {
             val trigger = node.triggerId?.let { triggers.findByIdOrNull(it) }
@@ -320,10 +328,37 @@ class GraphValidator(
         nodes: List<WorkflowNode>,
         edges: List<WorkflowEdge>,
         hardOnly: Boolean = false,
+        /** Whose skills a written skill id is checked against; null checks only the shape. Issue #381. */
+        workspaceId: Long? = null,
     ): List<GraphProblem> {
         val byKey = nodes.associateBy { it.nodeKey }
         val known = edges.filter { it.sourceKey in byKey && it.targetKey in byKey }
         val problems = mutableListOf<GraphProblem>()
+
+        /*
+         * A skill id written on an agent node has to be one, and has to name a
+         * skill. Only where it is written: an id read from another node is
+         * whatever the run carries, and is checked by the run. Issue #381.
+         */
+        nodes.filter { it.kind == NodeKind.AGENT }.forEach { node ->
+            node.mappings
+                .filter { it.name == SKILL_IDS && it.mode == MappingMode.VALUE }
+                .flatMap { it.expression.split(SKILL_ID_SEPARATORS) }
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .forEach { key ->
+                    val problem = when {
+                        !io.mszymanski.orknux.server.agent.SkillKeys.usable(key) ->
+                            "\"$key\" is not a skill id: letters, underscores and hyphens only"
+                        workspaceId != null && !skillExists(workspaceId, key) ->
+                            "No skill in this workspace has the id \"$key\""
+                        else -> null
+                    }
+                    if (problem != null) {
+                        problems += GraphProblem(severity = GraphProblemSeverity.ERROR, nodeKey = node.nodeKey, message = problem)
+                    }
+                }
+        }
 
         /*
          * Two nodes cannot answer to the same name.
@@ -634,7 +669,15 @@ class GraphValidator(
                 listOf("action", "text", "channel", "user", "ts", "threadTs", "connection")
             // A webhook's fields are whatever its contract says, below.
             TriggerType.WEBHOOK -> emptyList()
-        }.map { ActionParamView(it, ValueType.STRING) }
+        }.map { ActionParamView(it, ValueType.STRING) } + when (trigger.type) {
+            /*
+             * The commands in the message, as a list: every word starting with
+             * the workspace's command marker. What an agent node's `skillIds`
+             * is pointed at. Issue #381.
+             */
+            TriggerType.INCOMING_CONNECTION -> listOf(ActionParamView("commands", ValueType.ARRAY))
+            else -> emptyList()
+        }
 
         /*
          * What a webhook hands on is the shape it refuses anything else for.
@@ -720,6 +763,12 @@ class GraphValidator(
         const val SESSION_KEY = "sessionKey"
     }
 }
+
+/** The agent node mapping that names skills to load; the same word AgentNodeRunner reads. Issue #381. */
+const val SKILL_IDS = "skillIds"
+
+/** What a written list of skill ids is split on. */
+val SKILL_ID_SEPARATORS = Regex("[,\\s]+")
 
 enum class GraphProblemSeverity {
     /** The graph could not run in this shape; the save is refused. */

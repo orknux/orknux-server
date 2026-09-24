@@ -259,6 +259,8 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is io.mszymanski.orknux.server.attachment.SleepTimesOutOfRangeException,
             /* How many other agents one may ask, set from Admin or a workspace. Issue #380. */
             is io.mszymanski.orknux.server.attachment.SubagentsOutOfRangeException,
+            /* What marks a command in a message; a letter is refused. Issue #381. */
+            is io.mszymanski.orknux.server.workspace.CommandMarkerInvalidException,
             /* A usage window whose date was not one; see the model API. */
             is io.mszymanski.orknux.server.model.UsageRangeInvalidException,
             /* A conversation asked to be removed where the operator said no. */

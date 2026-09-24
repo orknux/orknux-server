@@ -246,6 +246,16 @@ class Workspace(
     var agentMaxSubagents: Int? = null,
 
     /**
+     * What marks a command in a message that starts a run here: `!review`.
+     *
+     * Orknux's own, because Slack polices `/`: a slash command has to be
+     * registered in the Slack app and one that is not is refused before it is
+     * sent. One to three characters, none a letter or a digit. Issue #381.
+     */
+    @Column(name = "command_marker", nullable = false, length = 3)
+    var commandMarker: String = "!",
+
+    /**
      * How long one run of this workspace's functions may hold its thread, in
      * seconds, where the function has no timeout of its own.
      *

@@ -31,6 +31,8 @@ class AgentExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ToolObjectRequiredException,
             is SkillNameTakenException,
             is SkillNameInvalidException,
+            is SkillKeyTakenException,
+            is SkillKeyInvalidException,
             is SkillContentInvalidException,
             is SkillCatalogNameTakenException,
             is SkillCatalogNameInvalidException,
