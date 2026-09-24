@@ -15,6 +15,137 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## 0.9.9
+
+### ✨ Added
+
+- 🤝 **An agent can ask another agent.** Its page lists which agents it may
+  ask, and `ask_agent` puts a question to one of them in full and answers with
+  what it said. The asked agent gets none of its own delegates, so the depth is
+  one: a specialist answers, it does not run a project. Every ask is a
+  conversation of its own, written under the session that asked and titled
+  with the task, and the session page has a Sessions button at the top right
+  that lists the main session and each subagent session with a green dot while
+  an agent is at work in it - click one to read it. How many an agent may ask
+  in one conversation is a setting: Admin → Settings carries the installation's
+  number, ten to start (`ORKNUX_CHAT_MAX_SUBAGENTS`), and a workspace may set
+  its own; zero takes the tool off the table.
+- ⏰ **An agent can end its turn by waiting.** `finish_answer` takes a wake-up
+  in seconds; the step parks and the run comes back to it when the time is up.
+  Two bounds under Admin → Settings: the longest one wait may be, and how many
+  in a row on one step - because the dangerous wait is not the first but the
+  twentieth. Zero takes the wake-up off the tool.
+- 🔎 **An agent finds the tools it needs rather than carrying all of them.**
+  `find_tools` searches what the agent was granted and loads what it needs for
+  the session, and a budget on the agent's page says how many it may hold at
+  once. A hundred granted tools no longer cost every round a hundred
+  descriptions. The same door for connections: an agent granted forty asks
+  for the one it means by name or kind.
+- 📝 **An agent can leave itself a note part-way through.** `note_to_self`
+  writes a line down during a long task, and the session page draws the notes
+  above the transcript.
+- 🧾 **A variable can be a list, or a type a plugin defines.** Lists of
+  strings, numbers or booleans, edited as one. A plugin declares a type with
+  its own completion and validation, run in the sandbox: Slack 1.19 defines
+  `SlackUser`, so a variable of that type is picked from the workspace's
+  people with the same picker the workflow editor has, and a user id that does
+  not exist is refused. Which Slack connection to ask is one of the type's own
+  parameters.
+- 🔀 **A condition can check a value against a list.** A Value condition takes
+  no property: the node it sits on picks the value with the ordinary reference
+  row, from anything the run carries, and the condition says whether it is in
+  the list, equals, contains or matches.
+- 🏷️ **A role names the directory groups that grant it, on the screen.** Admin →
+  Roles takes the group names as they are, spaces and dots included. The only
+  door used to be a mapping in the configuration file, keyed on a name the
+  server had already rewritten, which an administrator could neither see nor
+  change.
+- 🐙 **Signing in with GitHub.** A third door beside the internal accounts and
+  the directory.
+- 🎙️ **Talking over an answer stops it.** Speaking while the model is speaking
+  interrupts it; a workspace sets how long a voice has to carry before it
+  counts, beside the other turn-taking bounds.
+- 🔊 **A workflow can say something out loud.** A speech node turns a mapping
+  into audio with the workspace's text-to-speech model, filed against the run
+  the way a picture is.
+- ⌨️ **Chat commands.** A line starting with `/` is a command the installation
+  defines, listed as you type - what can be typed in a chat instead of said.
+- 🔃 **Every table is ordered by whichever column somebody presses.** Twenty-odd
+  lists, the workspace's and the administrator's, with the server doing the
+  ordering where the list is paged. A sorted heading says the column's name
+  and which way it is going.
+- 🧭 **"Go to" reaches a part of a page.** The quick-actions box offers a page's
+  sections, not only the page.
+- 👁️ **A plugin's secret parameter can show what is being typed.** An eye on the
+  box, only while something is typed - never over a stored secret, which the
+  server never hands back.
+- 📅 **A model's usage takes a date range.** Yesterday, last month, any window;
+  thirty days was fixed.
+- 🧩 **Custom objects in the editor say what their fields hold.** A field a node
+  names for itself has a type - string, number, boolean, list, object - and a
+  shape's fields are edited in the panel beside its node, like a trigger's.
+- 🕰️ **A trigger's own page holds its history.** Every firing, with what it
+  carried and what it started.
+- 🏷️ **The labels offered first are the ones lately used.**
+- 🗄️ **An installation can stop conversations being thrown away.** A switch
+  under Admin → Settings: on some installations the session is the only record
+  of a decision.
+- 🌲 **Groups filed below their base can be found.**
+  `ORKNUX_LDAP_GROUP_SEARCH_SUBTREE=true` searches the whole subtree under the
+  group base; the default stays one level, which is what it always was.
+
+### 🔧 Changed
+
+- 🔒 **The directory connection trusts what Admin → Networking trusts.** The
+  certificate authorities pasted in there covered every outbound call except
+  LDAPS, so a directory signed by an internal authority could not be reached
+  at all and the sign-in said "invalid username or password". It is covered
+  now. An installation whose directory already worked is unaffected.
+- 👤 **A role given to somebody on the Users screen actually grants it.** For a
+  directory user the box was saved, drawn under the name, and ignored: access
+  was read from the provider's groups alone. It counts now, on top of whatever
+  their groups give - which is how the first administrator of a fresh
+  installation gets in, and how somebody gets one workspace for a fortnight
+  without a group being made for them. A role ticked before this release and
+  left there will be held after it; worth a look at Admin → Users first.
+- 🔤 **A role name is matched as written and as rewritten.** A role named
+  `platform.backend` now matches that directory group, as well as the
+  `PLATFORM_BACKEND` the server used to turn it into.
+- 🧮 **Asking other agents is bounded.** Ten per conversation where nothing was
+  bounded; an agent that has spent them is told to answer with what it has.
+  Raise it under Admin → Settings or per workspace.
+
+### 🐛 Fixed
+
+- 🚫 **A duplicate variable name says so where you are looking.** The server
+  refused it and the page drew the refusal - as one red line at the top of the
+  panel, above the catalog's name and off the screen from the add row at the
+  foot of any real list, so adding a duplicate looked like a press that did
+  nothing. The refused row now says so directly under itself, with what was
+  typed still in it.
+- 📋 **A refused sign-in says why in the log.** One WARN line naming the
+  variables to check - the bind, the search bases, the group filter - where
+  there was nothing at all. A directory or a database that stops answering is
+  said once when it breaks and once when it mends, not on every probe.
+- 🧯 **A group search that cannot run answers the sign-in instead of a 500.**
+  An absolute DN in the group base, or a filter without `{0}`, used to escape
+  as a stack trace; it is a refusal with the reason in the log now.
+
+## 0.9.8.3
+
+### 🐛 Fixed
+
+- 🧠 **An agent that said it would remember something now does.** `memory_save`
+  wrote its audit line as the signed-in user and failed where there is none -
+  an agent answering a Slack message, running as a workflow node or working a
+  task - and the memory was rolled back with it. It worked from a chat, which
+  is why it looked intermittent. And a workspace could have nowhere to write at
+  all: every workspace now has a memory catalog of its own, seeded for those
+  that exist and made with those made since, which can be renamed but not
+  deleted. The search that reads them back looks for every word of the
+  question on its own and ranks by how many it carries, so "what does OPS stand
+  for" finds the line that says.
+
 ## 0.9.8.2
 
 ### 🐛 Fixed
