@@ -727,7 +727,14 @@ type Query {
         "Most recently spoken in when absent."
         order: LlmSessionOrder,
         "Descending when absent."
-        ascending: Boolean
+        ascending: Boolean,
+        """
+        Whether the sessions an agent started by asking another are listed
+        beside the conversations they belong to. Off when absent: the list is
+        the main sessions, and the rest are reached from a conversation's own
+        page. Issue #389.
+        """
+        includeSubagents: Boolean = false
     ): LlmSessionPage!
     "One session, by the id the list handed over. Null when it is not one you can see."
     llmSession(id: ID!): LlmSession

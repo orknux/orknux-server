@@ -359,6 +359,7 @@ interface LlmSessionRepository : JpaRepository<LlmSession, Long> {
         """
         select s from LlmSession s
         where s.workspaceId = :workspaceId
+          and (:includeSubagents = true or s.parentSessionId is null)
           and (
             :search = ''
             or lower(s.sessionKey) like lower(concat('%', :search, '%'))
@@ -368,6 +369,7 @@ interface LlmSessionRepository : JpaRepository<LlmSession, Long> {
         countQuery = """
         select count(s) from LlmSession s
         where s.workspaceId = :workspaceId
+          and (:includeSubagents = true or s.parentSessionId is null)
           and (
             :search = ''
             or lower(s.sessionKey) like lower(concat('%', :search, '%'))
@@ -375,7 +377,14 @@ interface LlmSessionRepository : JpaRepository<LlmSession, Long> {
           )
         """,
     )
-    fun search(workspaceId: Long, search: String, pageable: Pageable): Page<LlmSession>
+    /**
+     * @param includeSubagents whether the sessions an agent started by asking
+     *   another are listed beside the conversations they belong to. Off, the
+     *   list is the main sessions - the ones with no parent - which is what
+     *   somebody scanning a workspace's conversations means by "sessions";
+     *   the rest are reached from the conversation's own page. Issue #389.
+     */
+    fun search(workspaceId: Long, search: String, includeSubagents: Boolean, pageable: Pageable): Page<LlmSession>
 }
 
 /** How many events one session holds, for a page of sessions. */

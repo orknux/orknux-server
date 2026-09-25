@@ -76,6 +76,7 @@ class LlmSessionAPI(
         @Argument size: Int?,
         @Argument order: LlmSessionOrder?,
         @Argument ascending: Boolean?,
+        @Argument includeSubagents: Boolean?,
     ): LlmSessionPageView {
         access.requireVisible(workspaceId)
 
@@ -103,7 +104,7 @@ class LlmSessionAPI(
         )
 
         val asked = PageRequest.of((page ?: 0).coerceAtLeast(0), (size ?: PAGE).coerceIn(1, BIGGEST_PAGE), sorted)
-        val found = sessions.search(workspaceId, search?.trim().orEmpty(), asked)
+        val found = sessions.search(workspaceId, search?.trim().orEmpty(), includeSubagents == true, asked)
         val counts = countsFor(found.content.mapNotNull { it.id })
         return LlmSessionPageView(
             totalElements = found.totalElements.toInt(),
