@@ -384,6 +384,17 @@ class ExecutionStep(
      */
     @Column(name = "agent_sleep_note", columnDefinition = "text")
     var agentSleepNote: String? = null,
+
+    /**
+     * The LLM session an agent step talked into, when it kept one.
+     *
+     * Written by the runner the first time it opens the session, so the run's
+     * page can link a step to the conversation it produced. Null for every step
+     * that keeps no session - which is every non-agent step, and every agent
+     * node with none wired to it. Issue #387.
+     */
+    @Column(name = "session_id")
+    var sessionId: Long? = null,
 )
 
 /** One line of what a run reported. */

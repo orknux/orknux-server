@@ -4873,6 +4873,8 @@ type ExecutionStep {
     conditionId: ID
     "The agent an agent step ran, for the same link back to its definition."
     agentId: ID
+    "The LLM session an agent step talked into, so the run links to it; null for a step that kept none."
+    sessionId: ID
     """
     Which way out this step sent the run; null where it answered nothing.
     FAILURE on a failed step means the run went on down its failure edge rather

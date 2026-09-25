@@ -254,6 +254,8 @@ data class ExecutionStepView(
     val conditionId: Long?,
     /** The agent an agent step ran, for the same link back. */
     val agentId: Long?,
+    /** The LLM session this step talked into, so the run links to it; null for a step that kept none. Issue #387. */
+    val sessionId: Long?,
     /** Which way out of a condition this step sent the run; null for the rest. */
     val branch: EdgeBranch?,
     /**
@@ -284,6 +286,7 @@ data class ExecutionStepView(
         actionId = step.actionId,
         conditionId = step.conditionId,
         agentId = step.agentId,
+        sessionId = step.sessionId,
         branch = step.branch,
         attempts = step.attempts,
         carriedOver = step.carriedOver,

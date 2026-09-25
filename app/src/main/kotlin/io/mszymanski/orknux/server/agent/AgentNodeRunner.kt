@@ -221,6 +221,10 @@ class AgentNodeRunner(
          * one's exchange.
          */
         val session = sessionFor(step, agent, mappings, payload, started)
+        // On the step, so the run's page can link this step to the conversation
+        // it produced. The engine saves the step whether this round completes or
+        // parks, so a still-talking agent is reachable too. Issue #387.
+        step.sessionId = session
 
         /*
          * How much of it this agent is allowed to bring back.

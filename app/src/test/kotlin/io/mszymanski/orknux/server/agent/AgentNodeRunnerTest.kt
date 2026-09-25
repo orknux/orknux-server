@@ -470,6 +470,34 @@ class AgentNodeRunnerTest(
         assertThat(userLines()).describedAs("the wake does not record it again").isEqualTo(1)
     }
 
+    /**
+     * A node with a session writes that session's id onto its step, so the
+     * run's page can link the step to the conversation it produced. Issue #387.
+     */
+    @Test
+    fun `a node with a session records it on the step`() {
+        val agentId = agent("Reviewer", model(serveAnswer()), prompt = "You summarise incidents.")
+        withSession(agentId)
+
+        start()
+
+        val step = steps.findAll().single { it.nodeKey == "think" }
+        val session = sessions.findAll().single()
+        assertThat(step.sessionId).isEqualTo(session.id)
+    }
+
+    /** A node with no session wired to it keeps none, and its step says so. */
+    @Test
+    fun `a node with no session leaves the step's session empty`() {
+        val agentId = agent("Reviewer", model(serveAnswer()), prompt = "You summarise incidents.")
+        graph(agentId)
+
+        start()
+
+        val step = steps.findAll().single { it.agentId == agentId }
+        assertThat(step.sessionId).isNull()
+    }
+
     private fun withSession(agentId: Long) {
         graphQlTester.document(
             """

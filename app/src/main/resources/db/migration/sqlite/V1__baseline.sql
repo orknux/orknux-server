@@ -379,6 +379,7 @@ CREATE TABLE execution_step
     attempts                     integer not null default 0,
     agent_sleeps                 integer not null default 0,
     agent_sleep_note             text,
+    session_id                   integer,
     constraint uk_execution_step UNIQUE (execution_id, node_key),
     constraint ck_execution_step_branch CHECK (((branch IS NULL) OR ((branch) IN ('YES', 'NO', 'FAILURE')))),
     constraint ck_execution_step_kind CHECK (((kind) IN ('TRIGGER', 'AGENT', 'ACTION', 'CONDITION', 'OBJECT', 'IMAGE'))),
