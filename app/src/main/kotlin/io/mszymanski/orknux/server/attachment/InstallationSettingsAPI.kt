@@ -57,6 +57,8 @@ class InstallationSettingsAPI(
         agentSleepTimesConfigured = settings.agentSleepTimesConfigured(),
         agentMaxSubagents = settings.agentMaxSubagents(),
         agentMaxSubagentsConfigured = settings.agentMaxSubagentsConfigured(),
+        scratchpadBudgetBytes = settings.scratchpadBudgetBytes(),
+        scratchpadBudgetBytesConfigured = settings.scratchpadBudgetBytesConfigured(),
         commandMarker = settings.commandMarker(),
         commandMarkerConfigured = settings.commandMarkerConfigured(),
         sessionsRemovable = settings.sessionsRemovable(),
@@ -295,6 +297,19 @@ class InstallationSettingsAPI(
         return installationSettings()
     }
 
+    @MutationMapping
+    fun setScratchpadBudgetBytes(@Argument bytes: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setScratchpadBudgetBytes(bytes, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "A session's scratchpads may hold $bytes bytes",
+        )
+        return installationSettings()
+    }
+
     /**
      * What marks a command in a message that starts a run, installation-wide.
      * A workspace's own wins over this. Issue #402.
@@ -438,6 +453,10 @@ data class InstallationSettingsView(
     val agentMaxSubagents: Int,
     /** What a fresh installation allows - ORKNUX_CHAT_MAX_SUBAGENTS. */
     val agentMaxSubagentsConfigured: Int,
+    /** How many bytes one session's scratchpads may hold in all. Issue #411. */
+    val scratchpadBudgetBytes: Int,
+    /** What a fresh installation allows before anybody sets it. */
+    val scratchpadBudgetBytesConfigured: Int,
     /** What marks a command in a message here; a workspace may carry its own. Issue #402. */
     val commandMarker: String,
     /** What a fresh installation starts on - ORKNUX_COMMAND_MARKER. */
