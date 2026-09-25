@@ -271,7 +271,17 @@ class ImportBindingInvalidException(kind: ExternalKind, name: String, targetId: 
  * points at beside what it holds, and only what it holds can be left out.
  */
 class ImportExclusionUnknownException(kind: ComponentKind, name: String) : RuntimeException(
-    "This file carries no ${kind.label} called $name, so there is none to leave out. Only what the file " +
-        "carries can be left out; what it points at and does not carry has to exist here instead. " +
-        "Nothing was imported.",
+    "This file carries no ${kind.label} called $name, so there is none to leave out. What can be left out is " +
+        "what the file carries, and a tool an agent in it points at; anything else it points at has to " +
+        "exist here instead. Nothing was imported.",
+)
+
+/**
+ * The import was told to rename something the file does not carry.
+ *
+ * Refused for the reason an unknown exclusion is: a client showing one file and
+ * asking about another. Issue #383.
+ */
+class ImportRenameUnknownException(kind: ComponentKind, name: String) : RuntimeException(
+    "This file carries no ${kind.label} called $name, so there is none to rename. Nothing was imported.",
 )

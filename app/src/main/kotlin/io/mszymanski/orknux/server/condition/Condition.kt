@@ -274,6 +274,13 @@ interface WorkflowConditionRepository : JpaRepository<WorkflowCondition, Long> {
     fun findByWorkspaceIdAndName(workspaceId: Long, name: String): WorkflowCondition?
 
     /**
+     * Every one of that name here: a definition a workflow owns may share a
+     * name with another's, so the single-row lookup above throws where two
+     * workflows each made an "Action". Issue #383.
+     */
+    fun findAllByWorkspaceIdAndName(workspaceId: Long, name: String): List<WorkflowCondition>
+
+    /**
      * The one with this name that a new *shared* definition would collide
      * with.
      *

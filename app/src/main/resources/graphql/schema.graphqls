@@ -611,7 +611,8 @@ type Query {
         workspaceId: ID!,
         envelope: String!,
         bindings: [ComponentBindingInput!] = [],
-        exclude: [ComponentExclusionInput!] = []
+        exclude: [ComponentExclusionInput!] = [],
+        rename: [ComponentRenameInput!] = []
     ): ComponentImportPlan!
     """
     The templates this installation publishes, by name.
@@ -641,7 +642,8 @@ type Query {
         workspaceId: ID!,
         templateId: ID!,
         bindings: [ComponentBindingInput!] = [],
-        exclude: [ComponentExclusionInput!] = []
+        exclude: [ComponentExclusionInput!] = [],
+        rename: [ComponentRenameInput!] = []
     ): ComponentImportPlan!
     "The workspace's catalogs, by name, each with what it holds."
     variableCatalogs(workspaceId: ID!): [VariableCatalog!]!
@@ -890,7 +892,8 @@ type Mutation {
         workspaceId: ID!,
         envelope: String!,
         bindings: [ComponentBindingInput!] = [],
-        exclude: [ComponentExclusionInput!] = []
+        exclude: [ComponentExclusionInput!] = [],
+        rename: [ComponentRenameInput!] = []
     ): ComponentImportPlan!
     """
     Publishes an exported file as a template. Administrators only.
@@ -943,7 +946,8 @@ type Mutation {
         workspaceId: ID!,
         templateId: ID!,
         bindings: [ComponentBindingInput!] = [],
-        exclude: [ComponentExclusionInput!] = []
+        exclude: [ComponentExclusionInput!] = [],
+        rename: [ComponentRenameInput!] = []
     ): ComponentImportPlan!
     """
     Takes a plugin out of the installation. Administrators only.
@@ -7046,6 +7050,20 @@ input ComponentExclusionInput {
     name: String!
 }
 
+"""
+The name one carried component is to have here, chosen rather than left to the
+clash rule. Named as the file names it. A name that is taken or unusable comes
+back in the plan as a problem on that row rather than being moved along,
+because somebody typed it. Issue #383.
+"""
+input ComponentRenameInput {
+    kind: ComponentKind!
+    "The name in the file, as the plan gave it."
+    name: String!
+    "What it is to be called here."
+    targetName: String!
+}
+
 "How much of what a component reaches travels with it."
 enum ExportDepth {
     "The one component. For a workspace that already has what it points at."
@@ -7107,6 +7125,12 @@ type ComponentImportEntry {
     `RENAME` or `EXCLUDE`; never for a variable or an external.
     """
     carried: Boolean!
+    """
+    Whether this reference may be left out: a tool an agent points at, which the
+    agent can arrive without. The one kind of reference a screen may offer to
+    remove, beside everything the file carries. Issue #383.
+    """
+    droppable: Boolean!
     "The name in the file; for a model, the provider's name and the model's."
     name: String!
     "The name it will have here; different from `name` when it was renamed or bound."

@@ -103,6 +103,9 @@ class ComponentImporter(
     private val externals: ComponentExternals,
     private val auditRecorder: WorkspaceAuditRecorder,
     private val mapper: ObjectMapper,
+    /** For the tools and skill catalogs a plugin brings, which every workspace has. Issue #383. */
+    private val plugins: io.mszymanski.orknux.server.plugin.PluginRepository,
+    private val declarations: io.mszymanski.orknux.server.plugin.PluginDeclarations,
 ) {
 
     /** What the confirmation dialog shows. Reads nothing into the workspace. */
@@ -111,7 +114,8 @@ class ComponentImporter(
         envelope: String,
         bindings: List<ComponentBinding> = emptyList(),
         exclude: List<ComponentExclusion> = emptyList(),
-    ): ImportPlan = plan(workspaceId, parse(envelope), bindings, exclude)
+        rename: List<ComponentRename> = emptyList(),
+    ): ImportPlan = plan(workspaceId, parse(envelope), bindings, exclude, rename)
 
     /**
      * What an envelope says about itself, without a workspace in the question.
@@ -151,9 +155,10 @@ class ComponentImporter(
         envelope: String,
         bindings: List<ComponentBinding> = emptyList(),
         exclude: List<ComponentExclusion> = emptyList(),
+        rename: List<ComponentRename> = emptyList(),
     ): ImportPlan {
         val parsed = parse(envelope)
-        val plan = plan(workspaceId, parsed, bindings, exclude)
+        val plan = plan(workspaceId, parsed, bindings, exclude, rename)
         if (!plan.importable) throw ImportNotPossibleException(plan.problems)
 
         /*
@@ -163,10 +168,15 @@ class ComponentImporter(
          * the plan's. Reading it back from the entries is what makes it certain
          * that what was previewed is what is written.
          */
-        val leftOut = plan.entries.filter { it.disposition == ImportDisposition.EXCLUDE }
+        val leftOut = plan.entries.filter { it.disposition == ImportDisposition.EXCLUDE && it.carried }
             .mapNotNull { entry -> entry.kind?.let { it to entry.name } }
             .toSet()
         val held = parsed.components.filter { (it.kind to it.name) !in leftOut }
+        // And the tools an agent is to arrive without: references left out, which
+        // are the rows that are EXCLUDE and not carried. Issue #383.
+        val dropped = plan.entries.filter { it.disposition == ImportDisposition.EXCLUDE && !it.carried }
+            .map { it.name }
+            .toSet()
 
         // What the file could not carry, settled before anything is written:
         // by name where the target has one, and by what the caller bound where
@@ -227,7 +237,7 @@ class ComponentImporter(
         objects.forEach { component -> wireObject(workspaceId, component, resolved) }
         written.filter { it.kind != ComponentKind.OBJECT }.forEach { component ->
             val here = named.getValue(component.kind to component.name)
-            resolved[component.kind to component.name] = create(workspaceId, component, here, resolved, bound)
+            resolved[component.kind to component.name] = create(workspaceId, component, here, resolved, bound, dropped)
         }
 
         plan.entries.filter { it.kind != null && it.disposition in WRITTEN }.forEach { entry ->
@@ -248,12 +258,37 @@ class ComponentImporter(
         parsed: Parsed,
         bindings: List<ComponentBinding>,
         exclude: List<ComponentExclusion>,
+        rename: List<ComponentRename>,
     ): ImportPlan {
-        val leftOut = leftOut(workspaceId, parsed, exclude)
+        val inFile = parsed.components.map { it.kind to it.name }.toSet()
+        /*
+         * What may be left out that the file does not carry: a tool an agent
+         * points at. An agent without one of its tools is still an agent - the
+         * grant is a list, and a shorter list is a real thing to want when the
+         * tool is not here and not worth making. Nothing else a file points at
+         * can go: a function an action calls, an object a field is typed
+         * against, are what the thing *is*. Issue #383.
+         */
+        val agentTools = parsed.components.filter { it.kind == ComponentKind.AGENT }
+            .flatMap { it.node.names("toolRefs") }
+            .toSet()
+        val dropped = exclude.filter { (it.kind to it.name) !in inFile }.map { one ->
+            if (one.kind != ComponentKind.TOOL || one.name !in agentTools) {
+                throw ImportExclusionUnknownException(one.kind, one.name)
+            }
+            one.name
+        }.toSet()
+        val leftOut = leftOut(workspaceId, parsed, exclude.filter { (it.kind to it.name) in inFile })
         val held = parsed.components.filter { (it.kind to it.name) !in leftOut }
         val carried = held.map { it.kind to it.name }.toSet()
         val entries = mutableListOf<ImportEntry>()
         val problems = mutableListOf<String>()
+
+        // The names asked for on the way in; one naming nothing the file carries
+        // is a client showing one file and asking about another. Issue #383.
+        val renames = rename.associate { (it.kind to it.name) to it.targetName.trim() }
+        rename.forEach { if ((it.kind to it.name) !in inFile) throw ImportRenameUnknownException(it.kind, it.name) }
+        val pluginTools = pluginToolNames()
 
         if (held.isEmpty()) {
             problems += "Everything this file carries has been left out, so there is nothing left to import."
@@ -278,6 +313,34 @@ class ComponentImporter(
                 return@forEach
             }
             val claimed = taken.getOrPut(component.kind) { mutableSetOf() }
+            val asked = renames[component.kind to component.name]?.takeIf { it.isNotEmpty() && it != component.name }
+            if (asked != null) {
+                /*
+                 * A name somebody chose, checked the way an automatic one is
+                 * and refused in the plan rather than moved along: they typed
+                 * it, so the answer to a clash is theirs to give. Issue #383.
+                 */
+                val why = when {
+                    !usable(component.kind, asked) -> "\"$asked\" is not a name ${component.kind.indefinite} can have here."
+                    !nameFree(workspaceId, component.kind, asked, claimed) ->
+                        "This workspace already has ${component.kind.indefinite} called $asked, so ${component.name} " +
+                            "cannot arrive as $asked. Pick another name."
+                    else -> null
+                }
+                if (why != null) problems += why else claimed.add(asked)
+                entries += ImportEntry(
+                    kind = component.kind,
+                    carried = true,
+                    name = component.name,
+                    targetName = asked,
+                    disposition = ImportDisposition.RENAME,
+                    detail = why ?: (
+                        "Arrives as $asked, as asked. Everything else in this file that pointed at " +
+                            "${component.name} points at $asked." + caution(component)
+                        ),
+                )
+                return@forEach
+            }
             val name = freeName(workspaceId, component.kind, component.name, claimed)
             claimed.add(name)
             entries += if (name == component.name) {
@@ -308,15 +371,50 @@ class ComponentImporter(
         // target workspace's to satisfy, by name.
         val seen = mutableSetOf<Pair<ComponentKind, String>>()
         held.forEach { component ->
+            /*
+             * The tools a plugin brings, first: they are in the grant list like
+             * any other and every workspace of this installation has them, so
+             * they are neither carried nor missing. Said on their own row so the
+             * list accounts for every name the agent holds. Issue #383.
+             */
+            if (component.kind == ComponentKind.AGENT) {
+                component.node.names("toolRefs").filter { it in pluginTools }.forEach { name ->
+                    if (!seen.add(ComponentKind.TOOL to name)) return@forEach
+                    entries += if (name in dropped) {
+                        ImportEntry(
+                            kind = ComponentKind.TOOL, name = name, targetName = name, droppable = true,
+                            disposition = ImportDisposition.EXCLUDE,
+                            detail = "Left out: ${component.name} arrives without it.",
+                        )
+                    } else {
+                        ImportEntry(
+                            kind = ComponentKind.TOOL, name = name, targetName = name, droppable = true,
+                            disposition = ImportDisposition.REUSE,
+                            detail = "Brought by the ${pluginNameOf(name)} plugin, which every workspace of this " +
+                                "installation has; the imported ${component.name} keeps it.",
+                        )
+                    }
+                }
+            }
             referencesOf(component).forEach { (kind, name) ->
                 if (kind to name in carried) return@forEach
                 if (!seen.add(kind to name)) return@forEach
+                val droppable = component.kind == ComponentKind.AGENT && kind == ComponentKind.TOOL
+                if (droppable && name in dropped) {
+                    entries += ImportEntry(
+                        kind = kind, name = name, targetName = name, droppable = true,
+                        disposition = ImportDisposition.EXCLUDE,
+                        detail = "Left out: ${component.name} arrives without it.",
+                    )
+                    return@forEach
+                }
                 val existing = findByName(workspaceId, kind, name)
                 if (existing == null) {
                     entries += ImportEntry(
                         kind = kind,
                         name = name,
                         targetName = name,
+                        droppable = droppable,
                         disposition = ImportDisposition.MISSING,
                         // The file may carry it and be leaving it out, which is a
                         // different mistake with a different fix: put it back.
@@ -324,6 +422,10 @@ class ComponentImporter(
                             "${component.name} points at ${kind.indefinite} called $name, which is being left " +
                                 "out and which this workspace does not have. Keep it, or leave " +
                                 "${component.name} out as well."
+                        } else if (droppable) {
+                            "${component.name} points at a tool called $name, which this file does not carry " +
+                                "and this workspace does not have. Create it here first, export again with " +
+                                "everything included, or leave it out and ${component.name} arrives without it."
                         } else {
                             "${component.name} points at ${kind.indefinite} called $name, which this file " +
                                 "does not carry and this workspace does not have. Export again with everything " +
@@ -336,6 +438,7 @@ class ComponentImporter(
                         kind = kind,
                         name = name,
                         targetName = name,
+                        droppable = droppable,
                         disposition = ImportDisposition.REUSE,
                         detail = "Already here; the imported ${component.name} will point at it.",
                     )
@@ -539,7 +642,9 @@ class ComponentImporter(
             // are not among them: a catalog holds nothing but a name, so one
             // this workspace lacks is made rather than asked about, which is the
             // answer a skill's own folder already gets.
-            ComponentKind.AGENT -> node.names("toolRefs").map { ComponentKind.TOOL to it }
+            // A tool a plugin brings is in the same list and is not a reference
+            // to anything of this workspace's: every workspace has it. Issue #383.
+            ComponentKind.AGENT -> node.names("toolRefs").filter { it !in pluginToolNames() }.map { ComponentKind.TOOL to it }
 
             ComponentKind.WORKFLOW -> node.path("nodes").values().flatMap { drawn ->
                 listOfNotNull(
@@ -748,6 +853,8 @@ class ComponentImporter(
         name: String,
         resolved: Map<Pair<ComponentKind, String>, Long>,
         bound: Map<Pair<ExternalKind, String>, Long>,
+        /** The tools an agent is to arrive without. Issue #383. */
+        dropped: Set<String> = emptySet(),
     ): Long {
         val node = component.node
         val now = OffsetDateTime.now()
@@ -945,10 +1052,14 @@ class ComponentImporter(
                     // and the grant follows it, exactly as every other reference
                     // in the file does.
                     tools = node.names("toolRefs")
-                        .map { toolNameFor(workspaceId, it, resolved) }
+                        .filter { it !in dropped }
+                        .map { if (it in pluginToolNames()) it else toolNameFor(workspaceId, it, resolved) }
                         .toMutableList(),
+                    // A plugin's catalog is a grant string, not a folder of
+                    // this workspace's; making a folder by that name would
+                    // shadow the plugin's own. Issue #383.
                     skillCatalogs = node.names("skillCatalogs")
-                        .onEach { catalogFor(workspaceId, it, who) }
+                        .onEach { if (!pluginCatalog(it)) catalogFor(workspaceId, it, who) }
                         .toMutableList(),
                     memoryCatalogs = node.names("memoryCatalogs")
                         .onEach { memoryCatalogFor(workspaceId, it, who) }
@@ -1162,15 +1273,10 @@ class ComponentImporter(
         claimed: Set<String>,
     ): String {
         requireUsable(kind, wanted)
-        fun free(name: String) = name !in claimed && findByName(workspaceId, kind, name) == null &&
-            // A workspace function may not shadow one a plugin declared: a call
-            // by name would have no way to say which of the two it meant.
-            (kind != ComponentKind.FUNCTION || functions.findByScopeAndName(FunctionScope.PLUGIN, name) == null)
-
-        if (free(wanted)) return wanted
+        if (nameFree(workspaceId, kind, wanted, claimed)) return wanted
         for (attempt in 2..MAX_RENAME) {
             val candidate = suffixed(kind, wanted, attempt)
-            if (free(candidate)) return candidate
+            if (nameFree(workspaceId, kind, candidate, claimed)) return candidate
         }
         throw EnvelopeInvalidException(
             "This workspace already has $MAX_RENAME ${kind.label}s called $wanted or something like it. " +
@@ -1187,6 +1293,37 @@ class ComponentImporter(
      * but a break. Conditions and skills are prose and read better with the
      * bracket.
      */
+    /** Whether nothing here, in the file so far, or in a plugin answers to this name. */
+    private fun nameFree(workspaceId: Long, kind: ComponentKind, name: String, claimed: Set<String>): Boolean =
+        name !in claimed && findByName(workspaceId, kind, name) == null &&
+            // A workspace function may not shadow one a plugin declared: a call
+            // by name would have no way to say which of the two it meant.
+            (kind != ComponentKind.FUNCTION || functions.findByScopeAndName(FunctionScope.PLUGIN, name) == null) &&
+            (kind != ComponentKind.TOOL || name !in pluginToolNames())
+
+    /**
+     * The tools loaded plugins bring, by the name an agent's grant list holds
+     * them under - `<key>_<function>`. Every workspace of the installation has
+     * them, so a grant naming one is neither carried nor missing. Issue #383.
+     */
+    private fun pluginToolNames(): Set<String> = plugins.findAll().filter { it.enabled }.flatMap { plugin ->
+        declarations.readTools(plugin.declaredTools).map { "${plugin.key}_${it.name}" }
+    }.toSet()
+
+    private fun pluginNameOf(toolName: String): String = plugins.findAll()
+        .firstOrNull { it.enabled && toolName.startsWith("${it.key}_") }?.name ?: "a"
+
+    /** Whether this skill catalog grant names a plugin's catalog rather than a folder here. */
+    private fun pluginCatalog(name: String): Boolean =
+        name.endsWith("_plugin") && plugins.findByKey(name.removeSuffix("_plugin")) != null
+
+    private fun usable(kind: ComponentKind, name: String): Boolean = when {
+        name.isBlank() -> false
+        name.length > limitFor(kind) -> false
+        identifierNamed(kind) -> IDENTIFIER.matches(name)
+        else -> true
+    }
+
     private fun suffixed(kind: ComponentKind, base: String, attempt: Int): String {
         val suffix = if (identifierNamed(kind)) "_$attempt" else " ($attempt)"
         val limit = limitFor(kind) - suffix.length
@@ -1194,13 +1331,7 @@ class ComponentImporter(
     }
 
     private fun requireUsable(kind: ComponentKind, name: String) {
-        val ok = when {
-            name.isBlank() -> false
-            name.length > limitFor(kind) -> false
-            identifierNamed(kind) -> IDENTIFIER.matches(name)
-            else -> true
-        }
-        if (!ok) throw EnvelopeInvalidException("\"$name\" is not a name a ${kind.label} can have here")
+        if (!usable(kind, name)) throw EnvelopeInvalidException("\"$name\" is not a name a ${kind.label} can have here")
     }
 
     private fun identifierNamed(kind: ComponentKind): Boolean =
@@ -1226,14 +1357,25 @@ class ComponentImporter(
     private fun findByName(workspaceId: Long, kind: ComponentKind, name: String): Long? = when (kind) {
         ComponentKind.OBJECT -> objects.findByWorkspaceIdAndName(workspaceId, name)?.id
         ComponentKind.FUNCTION -> functions.findByWorkspaceIdAndName(workspaceId, name)?.id
-        ComponentKind.CONDITION -> conditions.findByWorkspaceIdAndName(workspaceId, name)?.id
+        // A definition a workflow owns may share a name with another's, so
+        // these three take the shared one where there is one and the first
+        // otherwise, rather than throwing over two workflows' "Action".
+        ComponentKind.CONDITION -> conditions.findAllByWorkspaceIdAndName(workspaceId, name).shared()?.id
         ComponentKind.TOOL -> tools.findByWorkspaceIdAndName(workspaceId, name)?.id
         ComponentKind.SKILL -> skills.findByWorkspaceIdAndName(workspaceId, name)?.id
-        ComponentKind.ACTION -> actions.findByWorkspaceIdAndName(workspaceId, name)?.id
-        ComponentKind.TRIGGER -> triggers.findByWorkspaceIdAndName(workspaceId, name)?.id
+        ComponentKind.ACTION -> actions.findAllByWorkspaceIdAndName(workspaceId, name).shared()?.id
+        ComponentKind.TRIGGER -> triggers.findAllByWorkspaceIdAndName(workspaceId, name).shared()?.id
         ComponentKind.AGENT -> agents.findByWorkspaceIdAndName(workspaceId, name)?.id
         ComponentKind.WORKFLOW -> assignments.findByWorkspaceIdAndWorkflowName(workspaceId, name)?.workflow?.id
     }
+
+    private fun List<WorkflowAction>.shared() = firstOrNull { it.workflowId == null } ?: firstOrNull()
+
+    @JvmName("sharedTrigger")
+    private fun List<WorkflowTrigger>.shared() = firstOrNull { it.workflowId == null } ?: firstOrNull()
+
+    @JvmName("sharedCondition")
+    private fun List<WorkflowCondition>.shared() = firstOrNull { it.workflowId == null } ?: firstOrNull()
 
     private fun categoryOf(kind: ComponentKind): WorkspaceAuditCategory = when (kind) {
         ComponentKind.OBJECT -> WorkspaceAuditCategory.OBJECT
@@ -1416,6 +1558,13 @@ data class ImportEntry(
      * ever is.
      */
     val carried: Boolean = false,
+    /**
+     * Whether this reference can be left out of the import: a tool an agent
+     * points at, which the agent can arrive without. The one kind of reference
+     * a screen may offer to remove, beside everything the file carries.
+     * Issue #383.
+     */
+    val droppable: Boolean = false,
     /** The name in the file; for a model, the provider's name and the model's. */
     val name: String,
     /** The name it will have here, which differs when it was renamed or bound. */
@@ -1457,6 +1606,18 @@ data class ComponentBinding(
 data class ComponentExclusion(
     val kind: ComponentKind,
     val name: String,
+)
+
+/**
+ * The name one carried component is to have here, chosen by the person
+ * importing rather than by the clash rule. Named as the file names it, like
+ * an exclusion; refused in the plan rather than moved along where the name is
+ * taken or unusable, because somebody typed it. Issue #383.
+ */
+data class ComponentRename(
+    val kind: ComponentKind,
+    val name: String,
+    val targetName: String,
 )
 
 /**

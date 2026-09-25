@@ -75,9 +75,10 @@ class ComponentTransferAPI(
         @Argument envelope: String,
         @Argument bindings: List<ComponentBinding>?,
         @Argument exclude: List<ComponentExclusion>?,
+        @Argument rename: List<ComponentRename>?,
     ): ImportPlan {
         access.requireVisible(workspaceId)
-        return importer.plan(workspaceId, envelope, bindings.orEmpty(), exclude.orEmpty())
+        return importer.plan(workspaceId, envelope, bindings.orEmpty(), exclude.orEmpty(), rename.orEmpty())
     }
 
     /**
@@ -93,9 +94,10 @@ class ComponentTransferAPI(
         @Argument envelope: String,
         @Argument bindings: List<ComponentBinding>?,
         @Argument exclude: List<ComponentExclusion>?,
+        @Argument rename: List<ComponentRename>?,
     ): ImportPlan {
         access.requireVisible(workspaceId)
-        return importer.apply(workspaceId, envelope, bindings.orEmpty(), exclude.orEmpty())
+        return importer.apply(workspaceId, envelope, bindings.orEmpty(), exclude.orEmpty(), rename.orEmpty())
     }
 }
 
@@ -113,6 +115,7 @@ class ComponentTransferExceptionResolver : DataFetcherExceptionResolverAdapter()
             is ImportNotPossibleException,
             is ImportBindingInvalidException,
             is ImportExclusionUnknownException,
+            is ImportRenameUnknownException,
             -> ErrorType.BAD_REQUEST
 
             is ComponentNotExportableException -> ErrorType.NOT_FOUND

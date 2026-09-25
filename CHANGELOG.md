@@ -111,6 +111,14 @@ have failed.
   `ORKNUX_LDAP_GROUP_SEARCH_SUBTREE=true` searches the whole subtree under the
   group base; the default stays one level, which is what it always was.
 
+- 📦 **An import can leave out a tool an agent points at, and name what it
+  carries.** The import dialog offers Leave out on a "Not here" tool row - the
+  agent arrives without that grant - beside everything the file carries, and
+  Rename on every carried row: the name typed is the name the thing lands
+  under, and everything in the file that pointed at it follows. A name that is
+  taken is refused on the row rather than moved along, because somebody typed
+  it. Templates take the same choices.
+
 ### 🔧 Changed
 
 - 🔒 **The directory connection trusts what Admin → Networking trusts.** The
@@ -144,6 +152,17 @@ have failed.
   variables to check - the bind, the search bases, the group filter - where
   there was nothing at all. A directory or a database that stops answering is
   said once when it breaks and once when it mends, not on every probe.
+- 🔌 **Copying an agent between workspaces is no longer refused over a plugin's
+  tools.** A tool a plugin brings is in the agent's grant list like any other,
+  and the importer read it as a workspace tool the target lacked - so an agent
+  granted `github_pullRequest` could not be imported anywhere, and the plan
+  said to create a tool that exists in every workspace. A plugin's tool is
+  neither carried nor missing now: the row says which plugin brings it and
+  the grant arrives intact. A plugin's skill catalog is treated the same way,
+  instead of a folder of that name being made beside the plugin's own.
+- 🔑 **The sign-in page offers a password reset only where the installation
+  keeps the passwords.** Under a directory sign-in the Reset link led to a
+  page that could do nothing about a directory's password.
 - 🧯 **A group search that cannot run answers the sign-in instead of a 500.**
   An absolute DN in the group base, or a filter without `{0}`, used to escape
   as a stack trace; it is a refusal with the reason in the log now.

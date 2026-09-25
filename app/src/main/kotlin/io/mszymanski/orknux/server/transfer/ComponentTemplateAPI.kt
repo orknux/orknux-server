@@ -83,9 +83,10 @@ class ComponentTemplateAPI(
         @Argument templateId: Long,
         @Argument bindings: List<ComponentBinding>?,
         @Argument exclude: List<ComponentExclusion>?,
+        @Argument rename: List<ComponentRename>?,
     ): ImportPlan {
         access.requireVisible(workspaceId)
-        return importer.plan(workspaceId, templates.envelopeOf(templateId), bindings.orEmpty(), exclude.orEmpty())
+        return importer.plan(workspaceId, templates.envelopeOf(templateId), bindings.orEmpty(), exclude.orEmpty(), rename.orEmpty())
     }
 
     /** Publishes a file somebody uploaded. Administrators only. */
@@ -178,9 +179,10 @@ class ComponentTemplateAPI(
         @Argument templateId: Long,
         @Argument bindings: List<ComponentBinding>?,
         @Argument exclude: List<ComponentExclusion>?,
+        @Argument rename: List<ComponentRename>?,
     ): ImportPlan {
         access.requireVisible(workspaceId)
-        return importer.apply(workspaceId, templates.envelopeOf(templateId), bindings.orEmpty(), exclude.orEmpty())
+        return importer.apply(workspaceId, templates.envelopeOf(templateId), bindings.orEmpty(), exclude.orEmpty(), rename.orEmpty())
     }
 
     private fun requireEnvelope(envelope: String?): String =
