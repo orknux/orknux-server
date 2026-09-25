@@ -88,6 +88,13 @@ class LlmSessionStore(private val entries: LlmSessionStoreRepository) : SessionS
     override fun get(sessionId: Long, key: String): String? =
         entries.findByIdOrNull(LlmSessionStoreKey(sessionId, key))?.value
 
+    @Transactional
+    override fun remove(sessionId: Long, key: String) {
+        // Idempotent: a key that holds nothing is left as it was, so a caller
+        // clearing something it may or may not have set need not check first.
+        entries.findByIdOrNull(LlmSessionStoreKey(sessionId, key))?.let { entries.delete(it) }
+    }
+
     /**
      * Everything one session keeps, copied into another, where the other does
      * not already hold that key.

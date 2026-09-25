@@ -31,4 +31,10 @@ interface SessionScratch {
 
     /** What [key] holds for this session, as JSON, or null where nothing does. */
     fun get(sessionId: Long, key: String): String?
+
+    /**
+     * Removes what [key] holds for this session, if anything. Idempotent: a key
+     * that holds nothing is left as it was. Issue #418.
+     */
+    fun remove(sessionId: Long, key: String)
 }

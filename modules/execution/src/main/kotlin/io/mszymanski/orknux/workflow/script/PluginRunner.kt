@@ -959,6 +959,15 @@ class PluginRunner(
                     store.get(sessionId, key)
                 },
             )
+            bindings.putMember(
+                STORE_UNSET,
+                ProxyExecutable { given ->
+                    val key = given.getOrNull(0)?.takeIf { it.isString }?.asString()
+                        ?: return@ProxyExecutable null
+                    store.remove(sessionId, key)
+                    null
+                },
+            )
         }
         /*
          * The scratchpad door, bound like the store and for the same reason: a
@@ -1107,6 +1116,7 @@ class PluginRunner(
 
         const val STORE_PUT = "__orknuxStorePut"
         const val STORE_GET = "__orknuxStoreGet"
+        const val STORE_UNSET = "__orknuxStoreUnset"
         const val SCRATCHPAD = "__orknuxScratchpad"
 
         /**

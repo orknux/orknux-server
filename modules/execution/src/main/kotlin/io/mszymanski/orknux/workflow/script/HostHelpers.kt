@@ -567,6 +567,20 @@ internal object HostHelpers {
               const held = door(String(key));
               return held === null ? null : JSON.parse(held);
             },
+
+            /**
+             * Removes what the key holds, if anything. Idempotent - a key that
+             * holds nothing is left as it was. Answers { ok: true }, or an error
+             * where there is no store here. Issue #418.
+             */
+            unset(key) {
+              const door = globalThis.__orknuxStoreUnset;
+              if (door === undefined) {
+                return { error: 'there is no session store here: only a call made inside an AI session carries one' };
+              }
+              door(String(key));
+              return { ok: true };
+            },
           },
         },
     """.trimIndent()

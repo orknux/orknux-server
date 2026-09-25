@@ -24,6 +24,10 @@ class SessionStoreTest {
         }
 
         override fun get(sessionId: Long, key: String): String? = held[sessionId to key]
+
+        override fun remove(sessionId: Long, key: String) {
+            held.remove(sessionId to key)
+        }
     }
 
     private val scratch = Remembering()
@@ -60,6 +64,49 @@ class SessionStoreTest {
     }
 
     @Test
+    fun `a key can be unset, and is gone for the next call`() {
+        val write = runner.call(
+            "export default function put() {\n  return orknux.session.store.put('cursor', { page: 3 });\n}",
+            "put",
+            emptyList(),
+            on = 12,
+            sessionId = 41,
+        )
+        assertThat((write as ScriptResult.Returned).json).contains("\"ok\":true")
+        assertThat(scratch.held[41L to "cursor"]).isEqualTo("""{"page":3}""")
+
+        val unset = runner.call(
+            "export default function drop() {\n  return orknux.session.store.unset('cursor');\n}",
+            "drop",
+            emptyList(),
+            on = 12,
+            sessionId = 41,
+        )
+        assertThat((unset as ScriptResult.Returned).json).contains("\"ok\":true")
+        assertThat(scratch.held).doesNotContainKey(41L to "cursor")
+
+        val read = runner.call(
+            "export default function recall() {\n  return orknux.session.store.get('cursor');\n}",
+            "recall",
+            emptyList(),
+            on = 12,
+            sessionId = 41,
+        )
+        assertThat((read as ScriptResult.Returned).json).isEqualTo("null")
+    }
+
+    @Test
+    fun `unsetting inside no session is told there is no store, in a sentence`() {
+        val answer = runner.call(
+            "export default function tryIt() {\n  return orknux.session.store.unset('k');\n}",
+            "tryIt",
+            emptyList(),
+            on = 12,
+        )
+        assertThat((answer as ScriptResult.Returned).json).contains("there is no session store here")
+    }
+
+    @Test
     fun `a call made inside no session is told there is no store, in a sentence`() {
         val answer = runner.call(
             """
@@ -85,6 +132,7 @@ class SessionStoreTest {
         val refusing = object : SessionScratch {
             override fun put(sessionId: Long, key: String, json: String) = "this session's store already holds 200 keys"
             override fun get(sessionId: Long, key: String): String? = null
+            override fun remove(sessionId: Long, key: String) = Unit
         }
         val bounded = ScriptRunner(
             ScriptProperties(timeoutMillis = 10_000, statementLimit = 2_000_000),

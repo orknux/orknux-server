@@ -645,6 +645,15 @@ class ScriptRunner(
                     scratch.get(sessionId, key)
                 },
             )
+            bindings.putMember(
+                STORE_UNSET,
+                ProxyExecutable { given ->
+                    val key = given.getOrNull(0)?.takeIf { it.isString }?.asString()
+                        ?: return@ProxyExecutable null
+                    scratch.remove(sessionId, key)
+                    null
+                },
+            )
         }
         /*
          * The scratchpad door, bound the same way and for the same reason: a
@@ -688,6 +697,7 @@ class ScriptRunner(
         /** The execution store's two doors; bound only inside a workflow execution. */
         const val STORE_PUT = "__orknuxStorePut"
         const val STORE_GET = "__orknuxStoreGet"
+        const val STORE_UNSET = "__orknuxStoreUnset"
         const val SCRATCHPAD = "__orknuxScratchpad"
 
         /**
