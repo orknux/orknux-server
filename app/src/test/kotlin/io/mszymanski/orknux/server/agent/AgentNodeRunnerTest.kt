@@ -64,6 +64,7 @@ class AgentNodeRunnerTest(
     /** For reading what a node's turn wrote down while the model was thinking. */
     @Autowired val sessions: io.mszymanski.orknux.server.llm.LlmSessionRepository,
     @Autowired val sessionEvents: io.mszymanski.orknux.server.llm.LlmSessionEventRepository,
+    @Autowired val runner: AgentNodeRunner,
 ) {
 
     /**
@@ -439,6 +440,36 @@ class AgentNodeRunnerTest(
     }
 
     /** The same one agent node, with a session node wired into it. */
+    /**
+     * A woken node does not write the question into the session again. Issue #396.
+     *
+     * A step that waits re-runs run() from the top when it wakes, and the user
+     * message was recorded on every one of those passes - so a Slack thread
+     * where the agent thought for a while, waited, and came back read as the
+     * person having said the same thing two or three times. The question is
+     * written on the first pass only; agentSleeps is the signal that a pass is
+     * a resume.
+     */
+    @Test
+    fun `a woken step does not record the question a second time`() {
+        val agentId = agent("Reviewer", model(serveAnswer()), prompt = "You summarise incidents.")
+        withSession(agentId)
+
+        start()
+
+        val step = steps.findAll().single { it.nodeKey == "think" }
+        val session = sessions.findAll().single()
+        val userLines = { sessionEvents.findAll().count { it.sessionId == session.id && it.kind == io.mszymanski.orknux.server.llm.LlmSessionEventKind.USER } }
+        assertThat(userLines()).describedAs("the first pass records the question once").isEqualTo(1)
+
+        // The step wakes and re-runs: agentSleeps is what a resume carries.
+        step.agentSleeps = 1
+        steps.save(step)
+        runner.run(step, step.input, null)
+
+        assertThat(userLines()).describedAs("the wake does not record it again").isEqualTo(1)
+    }
+
     private fun withSession(agentId: Long) {
         graphQlTester.document(
             """

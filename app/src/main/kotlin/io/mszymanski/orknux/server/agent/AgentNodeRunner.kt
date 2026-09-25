@@ -294,7 +294,15 @@ class AgentNodeRunner(
          * session with an answer and no question is worse than one with a
          * question and no answer.
          */
-        session?.let { sessions.userSaid(it, step.name, question) }
+        /*
+         * Only the first time through, not when the step wakes. A woken node
+         * re-runs run() from the top (see the note above), so recording here
+         * unguarded wrote the user's message into the session again on every
+         * wake - the thread read as the person repeating themselves. agentSleeps
+         * is 0 until the first wait and nonzero after, so it is the signal that
+         * this pass is a resume. Issue #396.
+         */
+        if (step.agentSleeps == 0) session?.let { sessions.userSaid(it, step.name, question) }
 
         /*
          * Said before the model is asked, not after.
