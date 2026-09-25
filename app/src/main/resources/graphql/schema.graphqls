@@ -2911,6 +2911,35 @@ type LlmSession {
     it must not lose. Empty on a conversation where nothing was written.
     """
     notes: [LlmSessionNote!]!
+    """
+    The agent's setup as it stood when the session opened - its model, system
+    prompt, and grants - so the log reads with the context its words were said
+    in. Null on a session no agent has written into. Issue #391.
+    """
+    agentDetails: SessionAgentDetails
+}
+
+"""
+The agent's setup, snapshotted at the start of a session. Issue #391.
+
+Names rather than ids, because a person reads it, and frozen when the session
+opened, so a later edit to the agent does not rewrite what answered.
+"""
+type SessionAgentDetails {
+    "The agent's name."
+    agent: String!
+    "The model it answered with, or null where none was set."
+    model: String
+    "The system prompt it worked under, or null where it had none."
+    systemPrompt: String
+    "The tools it was granted, by name."
+    tools: [String!]!
+    "The skill catalogs it was granted, by name."
+    skills: [String!]!
+    "The memory catalogs it was granted, by name."
+    memory: [String!]!
+    "The connections it was granted, by name."
+    connections: [String!]!
 }
 
 "One thing an agent wrote down for itself, part-way through."

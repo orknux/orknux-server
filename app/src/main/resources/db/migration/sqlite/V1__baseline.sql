@@ -466,6 +466,7 @@ CREATE TABLE llm_session
     found_tools                  text,
     parent_session_id            integer,
     title                        varchar(200),
+    agent_details                text,
     constraint llm_session_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspace(id) ON DELETE CASCADE,
     constraint llm_session_parent_session_id_fkey FOREIGN KEY (parent_session_id) REFERENCES llm_session(id) ON DELETE SET NULL
 );

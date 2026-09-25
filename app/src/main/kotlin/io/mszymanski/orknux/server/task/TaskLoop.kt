@@ -69,6 +69,8 @@ class TaskLoop(
     private val notes: io.mszymanski.orknux.server.chat.NoteTools,
     /** What lets an agent keep working files across the task; see [ScratchpadTools]. #411. */
     private val scratchpads: io.mszymanski.orknux.server.chat.ScratchpadTools,
+    /** The agent's setup, snapshotted at the start of the session; see [AgentDetails]. #391. */
+    private val agentDetails: io.mszymanski.orknux.server.agent.AgentDetails,
     private val news: TaskNewsDesk,
     private val properties: TaskProperties,
 ) {
@@ -155,6 +157,10 @@ class TaskLoop(
         val working = worker.of(task)
         val agent = working.agent
         val budget = budgets.budget(agent.memoryShare, task.workspaceId, working.modelId)
+
+        // The agent's setup, kept once at the start of the session, so its log
+        // opens with the context its words were said in. Idempotent. Issue #391.
+        sessions.describeAgent(session, agentDetails.snapshot(agent))
 
         deliver(taskId, session)
 

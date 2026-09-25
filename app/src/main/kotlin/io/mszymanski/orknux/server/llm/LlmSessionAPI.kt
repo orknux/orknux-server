@@ -65,6 +65,8 @@ class LlmSessionAPI(
     private val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
     /** What the agents in a conversation wrote down for themselves. Issue #371. */
     private val notes: LlmSessionNoteRepository,
+    /** For reading the agent-details snapshot back into a shape. Issue #391. */
+    private val mapper: tools.jackson.databind.ObjectMapper,
 ) {
 
     @QueryMapping
@@ -257,6 +259,7 @@ class LlmSessionAPI(
         parentId = session.parentSessionId,
         active = active,
         subagentCount = subagentCount,
+        agentDetails = session.agentDetails,
     )
 
     /**
@@ -328,6 +331,27 @@ class LlmSessionAPI(
             )
         }
 
+    /**
+     * The agent's setup at the start, read back from the JSON it was kept as.
+     * Null where none was recorded, or the record cannot be read. Issue #391.
+     */
+    @SchemaMapping(typeName = "LlmSession")
+    fun agentDetails(session: LlmSessionView): SessionAgentDetailsView? {
+        val held = session.agentDetails ?: return null
+        return runCatching {
+            val node = mapper.readTree(held)
+            SessionAgentDetailsView(
+                agent = node.path("agent").stringValue().orEmpty(),
+                model = node.path("model").takeIf { it.isTextual }?.stringValue(),
+                systemPrompt = node.path("systemPrompt").takeIf { it.isTextual }?.stringValue(),
+                tools = node.path("tools").mapNotNull { it.stringValue() },
+                skills = node.path("skills").mapNotNull { it.stringValue() },
+                memory = node.path("memory").mapNotNull { it.stringValue() },
+                connections = node.path("connections").mapNotNull { it.stringValue() },
+            )
+        }.getOrNull()
+    }
+
     private fun describe(event: LlmSessionEvent) = LlmSessionEventView(
         id = requireNotNull(event.id),
         kind = event.kind,
@@ -386,6 +410,8 @@ data class LlmSessionView(
     val active: Boolean,
     /** How many sessions were started under this one - what the list shows to say which conversations fanned out. Issue #403. */
     val subagentCount: Int,
+    /** The agent's setup at the start, as JSON; resolved into a shape by the field. Null on a session no agent wrote into. Issue #391. */
+    val agentDetails: String?,
 )
 
 /**
@@ -403,6 +429,17 @@ data class LlmSessionNoteView(
     /** Which agent wrote it, since a conversation can be shared. */
     val writtenBy: String,
     val writtenAt: String,
+)
+
+/** The agent's setup at the start of a session, read back for the log. Issue #391. */
+data class SessionAgentDetailsView(
+    val agent: String,
+    val model: String?,
+    val systemPrompt: String?,
+    val tools: List<String>,
+    val skills: List<String>,
+    val memory: List<String>,
+    val connections: List<String>,
 )
 
 data class LlmSessionPageView(val totalElements: Int, val content: List<LlmSessionView>)

@@ -235,6 +235,21 @@ class LlmSession(
      */
     @Column(length = 200)
     val title: String? = null,
+
+    /**
+     * The agent's setup as it stood when the session was first written into, as
+     * JSON. Issue #391.
+     *
+     * A transcript starts with the first message, so a reader cannot tell what
+     * the agent was configured with when it answered. This is that, snapshotted
+     * once - the model, the system prompt, the tools and skills and connections
+     * and memory it was granted - so the log opens with the context the words
+     * were said in. Set once and left: a session shared by several agents shows
+     * the one that opened it, which is the one whose setup the earliest lines
+     * are read against.
+     */
+    @Column(name = "agent_details", columnDefinition = "text")
+    var agentDetails: String? = null,
 )
 
 /** Matches the column; a tool with a long name must not fail the insert. */

@@ -439,6 +439,31 @@ class AgentNodeRunnerTest(
         assertThat(kinds).doesNotContain(io.mszymanski.orknux.server.llm.LlmSessionEventKind.THINKING)
     }
 
+    /**
+     * A node with a session records the agent's setup at the start, so the log
+     * reads with the context its words were said in. Issue #391.
+     */
+    @Test
+    fun `a node with a session records the agent's setup once`() {
+        val agentId = agent("Reviewer", model(serveAnswer()), prompt = "You summarise incidents.")
+        withSession(agentId)
+
+        start()
+
+        val session = sessions.findAll().single()
+        val details = requireNotNull(session.agentDetails)
+        // The account is the agent's name, its model, and its system prompt.
+        assertThat(details).contains("Reviewer")
+        assertThat(details).contains("You summarise incidents.")
+
+        // Set once: a second pass (a wake) does not rewrite it.
+        val step = steps.findAll().single { it.nodeKey == "think" }
+        step.agentSleeps = 1
+        steps.save(step)
+        runner.run(step, step.input, null)
+        assertThat(requireNotNull(sessions.findAll().single().agentDetails)).isEqualTo(details)
+    }
+
     /** The same one agent node, with a session node wired into it. */
     /**
      * A woken node does not write the question into the session again. Issue #396.

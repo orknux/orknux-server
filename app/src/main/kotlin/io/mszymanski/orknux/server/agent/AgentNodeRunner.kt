@@ -70,6 +70,8 @@ class AgentNodeRunner(
     private val notes: io.mszymanski.orknux.server.chat.NoteTools,
     /** What lets an agent keep working files across the job; see [ScratchpadTools]. Issue #411. */
     private val scratchpads: io.mszymanski.orknux.server.chat.ScratchpadTools,
+    /** The agent's setup, snapshotted at the start of a session; see [AgentDetails]. Issue #391. */
+    private val agentDetails: AgentDetails,
     private val budgets: SessionMemoryBudgets,
     private val shapes: ObjectShapes,
     private val mapper: ObjectMapper,
@@ -236,6 +238,10 @@ class AgentNodeRunner(
         // it produced. The engine saves the step whether this round completes or
         // parks, so a still-talking agent is reachable too. Issue #387.
         step.sessionId = session
+        // The agent's setup, kept once at the start of the session, so its log
+        // opens with the context its words were said in. Only on the first pass:
+        // a wake re-runs this and the record is already there. Issue #391.
+        if (step.agentSleeps == 0) sessions.describeAgent(session, agentDetails.snapshot(agent))
 
         /*
          * How much of it this agent is allowed to bring back.

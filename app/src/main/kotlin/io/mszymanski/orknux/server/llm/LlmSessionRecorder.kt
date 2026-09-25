@@ -83,6 +83,23 @@ class LlmSessionRecorder(
         session?.let { notes.countBySessionId(it).toInt() } ?: 0
 
     /**
+     * Records the agent's setup at the start of a session, once. Issue #391.
+     *
+     * Set once and left: the first agent to write into a session is the one
+     * whose configuration the earliest lines are read against, and a session
+     * shared by several agents keeps that one. A no-op where there is already
+     * an account, or no session at all.
+     */
+    @org.springframework.transaction.annotation.Transactional
+    fun describeAgent(session: Long?, details: String) {
+        val id = session ?: return
+        sessions.findByIdOrNull(id)?.takeIf { it.agentDetails == null }?.let {
+            it.agentDetails = details
+            sessions.save(it)
+        }
+    }
+
+    /**
      * What has been written down here, oldest first.
      *
      * Whole rather than trimmed, which is the whole point: the transcript is cut
