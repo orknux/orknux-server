@@ -8,11 +8,16 @@ import org.springframework.stereotype.Service
 import java.time.Duration
 
 /**
- * Runs a workflow on the calling thread, with no way to resume: a restart part
- * way through leaves the run recorded as running for ever. A node's own retry
- * policy is honoured here as it is anywhere — it belongs to the step rather
- * than to the engine — but there is nothing underneath it, so a worker that
- * dies takes the whole run with it.
+ * Runs a workflow on the calling thread: a restart mid-step loses that step,
+ * because the work itself was in flight on a thread that is now gone. A node's
+ * own retry policy is honoured here as it is anywhere — it belongs to the step
+ * rather than to the engine — but there is nothing underneath a step that is
+ * actually running, so a worker that dies mid-step takes that step with it.
+ *
+ * A step that is only *waiting* is a different case, and it does survive: the
+ * wait is recorded as a wake time on the step, and [resume] walks such a run on
+ * from where it parked. [ParkedRunSweeper] is what calls it after a restart.
+ * Issue #406.
  *
  * It is what runs when `orknux.temporal.enabled` is false — a development
  * machine, or a deployment that would rather not run a Temporal service — and
@@ -44,9 +49,25 @@ class InlineExecutionEngine(
         startedFrom: Long?,
         firedTriggerId: Long?,
     ): WorkflowExecution {
-        val plan = planner.plan(
-            workspaceId, workflowId, trigger, input, version, resumeFrom, startedFrom, firedTriggerId,
+        return drive(
+            planner.plan(
+                workspaceId, workflowId, trigger, input, version, resumeFrom, startedFrom, firedTriggerId,
+            ),
         )
+    }
+
+    /**
+     * Carries a parked run on from where its worker died. Issue #406.
+     *
+     * The wake sweeper's way back in: a run left WAITING by a restart has its
+     * plan rebuilt from what is recorded and is walked from the parked step, on
+     * a fresh thread, exactly as it would have been walked had the first one not
+     * died. Nothing to carry on - the run finished, or is no longer running - is
+     * a run already seen to, and answers null.
+     */
+    fun resume(executionId: Long): WorkflowExecution? = planner.replan(executionId)?.let(::drive)
+
+    private fun drive(plan: ExecutionPlan): WorkflowExecution {
         val executionId = requireNotNull(plan.execution.id)
 
         /*

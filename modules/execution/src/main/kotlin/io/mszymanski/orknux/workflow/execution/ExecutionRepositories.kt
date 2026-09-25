@@ -81,6 +81,32 @@ interface ExecutionStepRepository : JpaRepository<ExecutionStep, Long> {
     fun findByExecutionIdAndNodeKey(executionId: Long, nodeKey: String): ExecutionStep?
 
     /**
+     * Runs left parked past their wake, for the sweeper that carries them on.
+     * Issue #406.
+     *
+     * A step waits on the inline engine by sleeping the thread that carries the
+     * run. A restart kills that thread, so the wake never fires and the run sits
+     * WAITING for ever. This finds those: a run still RUNNING whose open step
+     * was due to wake before [cutoff]. The cutoff is set back far enough that a
+     * wait a live thread is about to answer on its own is not swept out from
+     * under it - only one no thread is watching any more.
+     */
+    @Query(
+        """
+        select distinct s.executionId from ExecutionStep s
+        where s.status = io.mszymanski.orknux.workflow.execution.StepStatus.WAITING
+          and s.waitUntil is not null
+          and s.waitUntil < :cutoff
+          and exists (
+            select 1 from WorkflowExecution e
+            where e.id = s.executionId
+              and e.status = io.mszymanski.orknux.workflow.execution.ExecutionStatus.RUNNING
+          )
+        """,
+    )
+    fun parkedPast(cutoff: OffsetDateTime): List<Long>
+
+    /**
      * Goes with the runs it belongs to; nothing here cascades on its own.
      *
      * One statement rather than Spring Data's derived delete, which loads every

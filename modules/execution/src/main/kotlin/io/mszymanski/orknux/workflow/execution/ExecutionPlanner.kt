@@ -248,6 +248,60 @@ class ExecutionPlanner(
      * where that run had no trigger of its own either — all of which mean the
      * same thing, that there is nothing here to prefer one trigger over another.
      */
+    /**
+     * Rebuilds the plan for a run already under way, to carry it on from where
+     * it parked. The wake sweeper's way back into a run whose worker died.
+     * Issue #406.
+     *
+     * Nothing is written: the run and its steps are already recorded. What this
+     * puts back together is only what an engine needs in hand to walk the rest -
+     * the edges, the exits the finished steps took, and the steps still to do. A
+     * step that has settled is carried over, the way a re-run carries over what
+     * ran before its chosen node; the parked step and everything still pending
+     * are what is left. Because a wait blocks the run where it stands, the steps
+     * left are always the parked one and the tail the run never reached.
+     *
+     * The version is read the way an ordinary run reads it - a manual run means
+     * the draft, anything else the published copy - since the run does not store
+     * which it used. What each node does is frozen on its step regardless; only
+     * the edges and the order come from the graph, and those a redraw rarely
+     * moves.
+     *
+     * Null when there is nothing to carry on: the run is gone, is no longer
+     * running, or has no open step.
+     */
+    fun replan(executionId: Long): ExecutionPlan? {
+        val execution = executions.findByIdOrNull(executionId) ?: return null
+        if (execution.status != ExecutionStatus.RUNNING) return null
+
+        val recorded = steps.findByExecutionIdOrderByOrderAsc(executionId)
+        if (recorded.none { it.status == StepStatus.WAITING }) return null
+
+        val version =
+            if (execution.trigger == ExecutionTrigger.MANUAL) GraphVersion.DRAFT else GraphVersion.PUBLISHED
+        val graph = graphs.graph(execution.workspaceId, execution.workflowId, version)
+        val order = graph.runOrder()
+        val byKey = recorded.associateBy { it.nodeKey }
+        val inOrder = order.mapNotNull { byKey[it.key] }
+
+        /*
+         * The exits the finished steps took, so the gate opens the same ways it
+         * did the first time round. A skipped step opened no way and contributes
+         * none; a failed step the run carried on from left its FAILURE edge, and
+         * that edge is what its branch records.
+         */
+        val carried = inOrder
+            .filter { it.status == StepStatus.COMPLETED || it.status == StepStatus.FAILED }
+            .map { CarriedExit(it.nodeKey, it.branch) }
+
+        // The parked step and everything the run had not reached. A blocked wait
+        // stops the run where it stands, so this is the parked step and the tail.
+        val toRun = inOrder.filter { it.status == StepStatus.WAITING || it.status == StepStatus.PENDING }
+
+        val blocked = notBegunAt(graph, execution.firedTriggerId)
+        return ExecutionPlan(execution, toRun, graph.edges, carried, blocked)
+    }
+
     private fun repeated(executionId: Long?): Long? =
         executionId?.let { executions.findByIdOrNull(it) }?.firedTriggerId
 
