@@ -164,7 +164,7 @@ class LostConnectionTest {
             router,
             clients,
         )
-        return OpenAiChat(clients, probe)
+        return OpenAiChat(clients, probe, ObjectMapper())
     }
 
     private fun provider() = ModelProvider(

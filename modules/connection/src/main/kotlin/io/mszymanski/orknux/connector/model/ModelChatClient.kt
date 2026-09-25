@@ -601,6 +601,29 @@ class ModelChatClient(
         // if it sent any — is thinking aloud rather than a reply.
         val asked = if (ready.anthropic) anthropicCalls(body) else openAiCalls(body)
         if (asked.isNotEmpty()) {
+            /*
+             * A tool call the model did not finish is worse than none: its
+             * arguments are truncated JSON, and running it or handing it on
+             * turns a clear cause - the answer was cut off at the output limit -
+             * into a JSON parse error nobody can act on. Caught here, where the
+             * finish reason is still in hand, and said in words. Issue #392.
+             */
+            asked.firstOrNull { argumentsBroken(it.arguments) }?.let { unfinished ->
+                return if (wasCutOff(body, ready.anthropic)) {
+                    ChatCompletion.Failed(
+                        "The model's answer was cut off at its output limit before it finished the " +
+                            "${unfinished.name} tool call, so the call is incomplete. Raise the model's maximum " +
+                            "output, or have it do less in one turn.",
+                        permanent = false,
+                    )
+                } else {
+                    ChatCompletion.Failed(
+                        "The model asked to call ${unfinished.name} but the arguments it sent were not valid JSON.",
+                        permanent = false,
+                    )
+                }
+            }
+
             val raw = (if (ready.anthropic) anthropicContent(body) else openAiContent(body)).orEmpty()
             val split = split(raw, named)
             if (split.thought.isNotEmpty()) thought(split.thought)
@@ -1196,6 +1219,31 @@ class ModelChatClient(
     /** Arguments arrive as a JSON string; this shape wants them as an object. */
     private fun argumentsOf(arguments: String): ObjectNode =
         runCatching { mapper.readTree(arguments) as? ObjectNode }.getOrNull() ?: mapper.createObjectNode()
+
+    /**
+     * Whether a tool call's arguments are there but not valid JSON, which is
+     * what a call truncated at the output limit looks like. Issue #392.
+     *
+     * Blank is not broken: a tool that takes nothing is called with no
+     * arguments, and reading that as a broken call would refuse every such
+     * call. Only a non-blank string that will not parse is the fault.
+     */
+    private fun argumentsBroken(arguments: String): Boolean =
+        arguments.isNotBlank() && runCatching { mapper.readTree(arguments) }.getOrNull() == null
+
+    /**
+     * Whether the provider said it stopped because it hit the output limit -
+     * OpenAI's `finish_reason: length`, Anthropic's `stop_reason: max_tokens`.
+     * Issue #392.
+     */
+    private fun wasCutOff(body: String, anthropic: Boolean): Boolean = runCatching {
+        val tree = mapper.readTree(body)
+        if (anthropic) {
+            tree.path("stop_reason").stringValue() == "max_tokens"
+        } else {
+            tree.path("choices").firstOrNull()?.path("finish_reason")?.stringValue() == "length"
+        }
+    }.getOrDefault(false)
 
     /** What the model asked for, in the OpenAI shape. */
     private fun openAiCalls(body: String): List<ToolCall> = runCatching {

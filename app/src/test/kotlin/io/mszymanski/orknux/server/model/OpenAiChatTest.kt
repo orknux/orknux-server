@@ -117,6 +117,31 @@ class OpenAiChatTest {
         assertThat(bodies.single()).contains(""""name":"weather"""").contains(""""required":["city"]""")
     }
 
+    /**
+     * A tool call cut off at the output limit arrives with truncated JSON for
+     * its arguments. That must come back as a cause somebody can act on - raise
+     * the limit - rather than a JSON parse error downstream. Issue #392.
+     */
+    @Test
+    fun `a tool call with truncated arguments is a clear failure, not a parse error`() {
+        answer = """
+            {"id":"c","object":"chat.completion","created":1,"model":"m","choices":[{"index":0,"message":
+            {"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":
+            {"name":"weather","arguments":"{\"city\":\"War"}}]},"finish_reason":"length"}],
+            "usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}
+        """.trimIndent()
+
+        val outcome = chat().complete(
+            provider(),
+            model(),
+            listOf(ChatTurn("user", "Weather?")),
+            listOf(ToolSpec("weather", "Look it up", listOf(ToolParameterSpec("city", "Which city", true)))),
+        )
+
+        val failed = outcome as OpenAiChat.Outcome.Failed
+        assertThat(failed.reason).contains("weather").contains("cut off at the output limit")
+    }
+
     @Test
     fun `an answer to a call names the call it answers`() {
         val turns = listOf(
@@ -216,7 +241,7 @@ class OpenAiChatTest {
             router,
             ModelClients(router)
         )
-        return OpenAiChat(ModelClients(router), probe)
+        return OpenAiChat(ModelClients(router), probe, ObjectMapper())
     }
 
     private fun provider() = ModelProvider(
