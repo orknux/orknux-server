@@ -51,10 +51,29 @@ class AgentBriefing(
      * The system turn for this agent, or null when it has nothing to say — an
      * agent with no prompt and no skills is a model with a name on it, and an
      * empty system turn is worth fewer tokens than it costs.
+     *
+     * The agent's own prose first, then [grants] - what it was given and the
+     * rules for using it.
      */
-    fun of(agent: Agent): String? {
+    fun of(agent: Agent): String? =
+        listOfNotNull(agent.systemPrompt?.takeIf { it.isNotBlank() }, grants(agent))
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString("\n\n")
+
+    /**
+     * What the agent was given, and the standing rules for using it: its skills
+     * and their commands, its memory, its connections. Null where it was given
+     * nothing worth a sentence.
+     *
+     * Apart from [of] because a workflow node may replace the agent's own prose
+     * with its own, and when it does this must not go with it: the skills an
+     * agent can load and the commands people reach it by are facts about the
+     * agent, not part of a persona. A node that overrides the prompt still
+     * appends this, so a Slack bot with a bespoke voice still knows its own
+     * commands and still says so. Issue #381.
+     */
+    fun grants(agent: Agent): String? {
         val parts = mutableListOf<String>()
-        agent.systemPrompt?.takeIf { it.isNotBlank() }?.let(parts::add)
 
         val instructions = skills.list(agent)
 

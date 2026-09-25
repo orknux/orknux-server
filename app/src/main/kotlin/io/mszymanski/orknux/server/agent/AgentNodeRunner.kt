@@ -125,10 +125,19 @@ class AgentNodeRunner(
             ?.let { expressions.textOf(it, payload, started) }
             ?.takeIf { it.isNotBlank() }
 
-        val briefed = mappings[SYSTEM_PROMPT]
+        // A node may replace the agent's own prose with its own. When it does,
+        // the skills and commands the agent was granted are still appended: a
+        // command is a fact about the agent, not part of a persona, and a Slack
+        // bot with a bespoke voice that dropped its commands would deny having
+        // any when asked. Issue #381.
+        val override = mappings[SYSTEM_PROMPT]
             ?.let { expressions.textOf(it, payload, started) }
             ?.takeIf { it.isNotBlank() }
-            ?: briefing.of(agent)
+        val briefed = if (override != null) {
+            listOfNotNull(override, briefing.grants(agent)).joinToString("\n\n")
+        } else {
+            briefing.of(agent)
+        }
 
         /*
          * The skills this node names, loaded whether or not the model would

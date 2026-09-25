@@ -186,6 +186,44 @@ class ChatAgentTest(
         assertThat(briefing.of(requireNotNull(agents.findByIdOrNull(agentId)))).isNull()
     }
 
+    /**
+     * The skills and their commands live apart from the agent's own prose, so a
+     * workflow node that replaces the prose does not take them with it.
+     *
+     * A Slack bot node writes its own voice over the agent's, and until this
+     * that dropped the whole briefing: the agent then denied having any
+     * commands when asked, because nothing had told it of any. The grant half
+     * is what the node appends beside its voice. Issue #381.
+     */
+    @Test
+    fun `an agent's commands are in its grants, apart from its own prose`() {
+        val granted = catalog("Playbooks")
+        skill("escalation", granted, "Page the on-call.")
+
+        val agentId = agent("Responder", model("Gemma"), prompt = "You answer support in Slack.")
+        graphQlTester.document(
+            """mutation { updateAgent(id: $agentId, input: {
+                 name: "Responder", systemPrompt: "You answer support in Slack.", skillCatalogs: ["Playbooks"]
+               }) { skillCatalogs } }""",
+        ).execute()
+        val held = requireNotNull(agents.findByIdOrNull(agentId))
+
+        val grants = requireNotNull(briefing.grants(held))
+        // The command advertisement is here: the skill, and the standing
+        // instruction never to deny having commands.
+        assertThat(grants).contains("escalation")
+        assertThat(grants).contains("has a command")
+        assertThat(grants).contains("rather than saying there is none")
+        // The persona is not - that is the half a node override replaces.
+        assertThat(grants).doesNotContain("You answer support in Slack.")
+
+        // The whole briefing carries both, so a node that keeps the agent's
+        // prose loses nothing.
+        val whole = requireNotNull(briefing.of(held))
+        assertThat(whole).contains("You answer support in Slack.")
+        assertThat(whole).contains("has a command")
+    }
+
     private fun startChat(): Long = graphQlTester.document(
         """mutation { startChat(input: { workspaceId: $workspaceId, title: "Review" }) { id } }""",
     ).execute().path("startChat.id").entity(Long::class.java).get()
