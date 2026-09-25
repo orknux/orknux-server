@@ -192,6 +192,9 @@ orknux:
     # a conversation of its own, so this bounds what one question fans out
     # into. Admin -> Settings overrides it, and a workspace may carry its own.
     max-subagents: ${ORKNUX_CHAT_MAX_SUBAGENTS:10}
+    # What marks a command in a message that starts a run, `!` by default.
+    # Admin -> Settings overrides it, and a workspace may carry its own.
+    command-marker: ${ORKNUX_COMMAND_MARKER:!}
   attachments:
     # Whether a chat may carry files at all. False here is final: an
     # administrator can turn attachments off from the screen, but not back on

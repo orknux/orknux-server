@@ -64,7 +64,8 @@ have failed.
   `commands` - every word in the message that starts with the workspace's
   **command marker**, `!` to begin with and a box on Workspace → Settings -
   so `@orknux !review !security PR 12` lands the agent with both skills in
-  front of it. Orknux's own syntax, because Slack intercepts `/` and refuses
+  front of it. The marker has an installation default in Admin -> Settings
+  (`ORKNUX_COMMAND_MARKER`) that a workspace overrides. Orknux's own syntax, because Slack intercepts `/` and refuses
   a slash command it does not know. An id written on the graph that names no
   skill is refused at the save; one that arrived with a message is noted in
   the run and costs nothing else. `skill_load` takes an id as well as a name,

@@ -1424,7 +1424,7 @@ CREATE TABLE workspace
     voice_speech_chunking        varchar(16) not null default 'SENTENCE',
     task_max_turns               integer,
     agent_max_subagents          integer,
-    command_marker               varchar(3) not null default '!',
+    command_marker               varchar(3),
     script_timeout_seconds       integer,
     tool_timeout_seconds         integer,
     constraint uk_workspace_name UNIQUE (name),

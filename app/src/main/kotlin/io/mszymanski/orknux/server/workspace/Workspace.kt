@@ -252,8 +252,8 @@ class Workspace(
      * registered in the Slack app and one that is not is refused before it is
      * sent. One to three characters, none a letter or a digit. Issue #381.
      */
-    @Column(name = "command_marker", nullable = false, length = 3)
-    var commandMarker: String = "!",
+    @Column(name = "command_marker", length = 3)
+    var commandMarker: String? = null,
 
     /**
      * How long one run of this workspace's functions may hold its thread, in

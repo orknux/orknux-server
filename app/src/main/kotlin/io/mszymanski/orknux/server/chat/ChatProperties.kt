@@ -58,4 +58,13 @@ data class ChatProperties(
      * carry its own number. Issue #380.
      */
     val maxSubagents: Int = 10,
+
+    /**
+     * What marks a command in a message that starts a run - `!review`.
+     *
+     * Orknux's own syntax, because Slack polices `/`. This is what a fresh
+     * installation starts on; Admin -> Settings is the switch and a workspace
+     * may carry its own. Issue #402.
+     */
+    val commandMarker: String = "!",
 )

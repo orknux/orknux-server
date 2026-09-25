@@ -64,6 +64,7 @@ object SettingNames {
     const val AGENT_SLEEP_SECONDS = "agent.sleep.seconds"
     const val AGENT_SLEEP_TIMES = "agent.sleep.times"
     const val AGENT_MAX_SUBAGENTS = "agent.max.subagents"
+    const val COMMAND_MARKER = "command.marker"
     const val SESSIONS_REMOVABLE = "sessions.removable"
 }
 
@@ -375,6 +376,30 @@ class InstallationSettings(
     fun setAgentMaxSubagents(count: Int, by: String) {
         if (count !in MIN_SUBAGENTS..MAX_SUBAGENTS) throw SubagentsOutOfRangeException(count)
         write(SettingNames.AGENT_MAX_SUBAGENTS, count.toString(), by)
+    }
+
+    /**
+     * What marks a command in a message that starts a run, for the whole
+     * installation - `!review`. A workspace may carry its own, which wins.
+     * Issue #402.
+     */
+    fun commandMarker(): String {
+        val held = settings.findByIdOrNull(SettingNames.COMMAND_MARKER) ?: return commandMarkerConfigured()
+        return held.value.takeIf { io.mszymanski.orknux.server.trigger.Commands.usableMarker(it) } ?: commandMarkerConfigured()
+    }
+
+    /** What a fresh installation starts on - ORKNUX_COMMAND_MARKER. */
+    fun commandMarkerConfigured(): String =
+        chat.commandMarker.takeIf { io.mszymanski.orknux.server.trigger.Commands.usableMarker(it) }
+            ?: io.mszymanski.orknux.server.trigger.Commands.DEFAULT_MARKER
+
+    @Transactional
+    fun setCommandMarker(marker: String, by: String) {
+        val wanted = marker.trim()
+        if (!io.mszymanski.orknux.server.trigger.Commands.usableMarker(wanted)) {
+            throw io.mszymanski.orknux.server.workspace.CommandMarkerInvalidException(wanted)
+        }
+        write(SettingNames.COMMAND_MARKER, wanted, by)
     }
 
     /** Stores one number under its name, made or found, stamped with who. */

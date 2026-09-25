@@ -57,6 +57,8 @@ class InstallationSettingsAPI(
         agentSleepTimesConfigured = settings.agentSleepTimesConfigured(),
         agentMaxSubagents = settings.agentMaxSubagents(),
         agentMaxSubagentsConfigured = settings.agentMaxSubagentsConfigured(),
+        commandMarker = settings.commandMarker(),
+        commandMarkerConfigured = settings.commandMarkerConfigured(),
         sessionsRemovable = settings.sessionsRemovable(),
     )
 
@@ -294,6 +296,19 @@ class InstallationSettingsAPI(
     }
 
     /**
+     * What marks a command in a message that starts a run, installation-wide.
+     * A workspace's own wins over this. Issue #402.
+     */
+    @MutationMapping
+    fun setCommandMarker(@Argument marker: String): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setCommandMarker(marker, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "Commands in a message are marked with ${marker.trim()}")
+        return installationSettings()
+    }
+
+    /**
      * Whether a conversation may be thrown away.
      *
      * A session is the record of what an agent was asked and what it answered,
@@ -423,6 +438,10 @@ data class InstallationSettingsView(
     val agentMaxSubagents: Int,
     /** What a fresh installation allows - ORKNUX_CHAT_MAX_SUBAGENTS. */
     val agentMaxSubagentsConfigured: Int,
+    /** What marks a command in a message here; a workspace may carry its own. Issue #402. */
+    val commandMarker: String,
+    /** What a fresh installation starts on - ORKNUX_COMMAND_MARKER. */
+    val commandMarkerConfigured: String,
     /**
      * Whether a conversation may be thrown away.
      *

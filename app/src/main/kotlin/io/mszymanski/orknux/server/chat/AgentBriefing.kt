@@ -43,6 +43,8 @@ class AgentBriefing(
     private val connectionTools: ConnectionTools,
     /** For the command marker the agent advertises its skills under. Issue #381. */
     private val workspaces: io.mszymanski.orknux.server.workspace.WorkspaceRepository,
+    /** The installation's default marker, where the workspace has none. Issue #402. */
+    private val installation: io.mszymanski.orknux.server.attachment.InstallationSettings,
 ) {
 
     /**
@@ -65,8 +67,8 @@ class AgentBriefing(
              * the graph did not map it is the agent loading the skill itself.
              * Issue #381.
              */
-            val marker = workspaces.findById(agent.workspaceId).map { it.commandMarker }
-                .orElse(io.mszymanski.orknux.server.trigger.Commands.DEFAULT_MARKER)
+            val marker = workspaces.findById(agent.workspaceId).map { it.commandMarker }.orElse(null)
+                ?: installation.commandMarker()
             parts += buildString {
                 append("You have been given these skills, each describing how this workspace goes about ")
                 append("something. Load the one that applies with skill_load before following it; ")

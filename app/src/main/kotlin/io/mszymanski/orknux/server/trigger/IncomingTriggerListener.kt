@@ -34,6 +34,8 @@ class IncomingTriggerListener(
     private val connections: WorkspaceConnectionRepository,
     /** For the command marker the trigger's workspace uses. Issue #381. */
     private val workspaces: io.mszymanski.orknux.server.workspace.WorkspaceRepository,
+    /** The installation's default marker, where the workspace has none. Issue #402. */
+    private val installation: io.mszymanski.orknux.server.attachment.InstallationSettings,
 ) {
 
     @EventListener
@@ -71,7 +73,8 @@ class IncomingTriggerListener(
              * skills those words name. Per trigger, because two workspaces on
              * one Slack app may mark commands differently. Issue #381.
              */
-            val marker = workspaces.findById(trigger.workspaceId).map { it.commandMarker }.orElse(Commands.DEFAULT_MARKER)
+            val marker = workspaces.findById(trigger.workspaceId).map { it.commandMarker }.orElse(null)
+                ?: installation.commandMarker()
             val handed = context + ("commands" to Commands.parse(event.text, marker))
             /*
              * A trigger has to still belong to the workspace its *own* connection

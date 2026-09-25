@@ -648,17 +648,25 @@ class WorkspaceAPI(
      */
     @MutationMapping
     @Transactional
-    fun setWorkspaceCommandMarker(@Argument workspaceId: Long, @Argument marker: String): Workspace {
+    fun setWorkspaceCommandMarker(@Argument workspaceId: Long, @Argument marker: String?): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
         access.requireVisible(workspace)
 
-        val wanted = marker.trim()
+        val wanted = marker?.trim()?.ifEmpty { null }
+        if (wanted == null) {
+            workspace.commandMarker = null
+            auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKSPACE, "Commands are marked as the installation says again")
+            return workspace
+        }
         if (!io.mszymanski.orknux.server.trigger.Commands.usableMarker(wanted)) throw CommandMarkerInvalidException(wanted)
-
         workspace.commandMarker = wanted
         auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKSPACE, "Commands in a message are marked with $wanted")
         return workspace
     }
+
+    /** What marks a command here when the workspace has said nothing: the installation's. Issue #402. */
+    @SchemaMapping(typeName = "Workspace")
+    fun commandMarkerDefault(workspace: Workspace): String = installation.commandMarker()
 
     /**
      * How many other agents one agent in this workspace may ask in one
