@@ -50,6 +50,10 @@ have failed.
   and the model's output cap cut them off. The answer is kept in the asker's
   session store now and comes back with a `contentKey` beside the text, to be
   passed to whichever tool takes one, the way a drawn picture is handed on.
+  What the subagent's own tools kept - a picture it drew, a file it saved -
+  is copied up into the asker's store when its turn ends, so a key the answer
+  names works in the conversation that asked; and `save_artifact` answers a
+  `contentKey` beside the url, so a saved file can be uploaded by key too.
 - 🎯 **An agent node names the skills to load, and a Slack message can name
   them.** Every skill has an **id** now - letters, underscores and hyphens,
   unique in the workspace, derived from the name for the skills you already

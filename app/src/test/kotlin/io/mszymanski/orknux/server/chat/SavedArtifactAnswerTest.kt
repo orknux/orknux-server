@@ -50,4 +50,15 @@ class SavedArtifactAnswerTest {
 
         assertThat(answer["url"]).isEqualTo("https://orknux.example.com/api/artifacts/2")
     }
+
+    /** A key beside the url, where the session could keep the content; nothing promised where it could not. */
+    @Test
+    fun `with a key the answer says so and how to use it, and without one says nothing about keys`() {
+        val keyed = AgentTools.savedAnswer("page.html", 120, 3, "http://x", contentKey = "artifact.3")
+        assertThat(keyed["contentKey"]).isEqualTo("artifact.3")
+        assertThat(keyed["note"].toString()).contains("pass that key").contains("never type the content back")
+
+        val bare = AgentTools.savedAnswer("page.html", 120, 3, "http://x")
+        assertThat(bare).doesNotContainKeys("contentKey", "note")
+    }
 }

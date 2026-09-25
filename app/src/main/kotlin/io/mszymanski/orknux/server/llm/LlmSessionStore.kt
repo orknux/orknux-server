@@ -37,6 +37,8 @@ data class LlmSessionStoreKey(val sessionId: Long = 0, val name: String = "") : 
 
 interface LlmSessionStoreRepository : JpaRepository<LlmSessionStoreEntry, LlmSessionStoreKey> {
 
+    fun findBySessionId(sessionId: Long): List<LlmSessionStoreEntry>
+
     fun countBySessionId(sessionId: Long): Long
 }
 
@@ -85,6 +87,33 @@ class LlmSessionStore(private val entries: LlmSessionStoreRepository) : SessionS
     @Transactional(readOnly = true)
     override fun get(sessionId: Long, key: String): String? =
         entries.findByIdOrNull(LlmSessionStoreKey(sessionId, key))?.value
+
+    /**
+     * Everything one session keeps, copied into another, where the other does
+     * not already hold that key.
+     *
+     * A subagent has a session of its own, so a key a tool answered in its
+     * turn - a picture it drew, a file it read - named something the asker
+     * could not reach: the asker's tools read the asker's store. Copied up
+     * when the subagent's turn ends, so every key its answer names works in
+     * the conversation that asked. The asker's own keys win, and the ceiling
+     * on keys is the ceiling: what does not fit is left where it was. Answers
+     * how many were copied. Issue #393.
+     */
+    @Transactional
+    fun copy(from: Long, into: Long): Int {
+        if (from == into) return 0
+        var room = (MOST_KEYS - entries.countBySessionId(into)).coerceAtLeast(0)
+        var copied = 0
+        entries.findBySessionId(from).forEach { held ->
+            if (room == 0L) return@forEach
+            if (entries.findByIdOrNull(LlmSessionStoreKey(into, held.name)) != null) return@forEach
+            entries.save(LlmSessionStoreEntry(into, held.name, held.value))
+            room -= 1
+            copied += 1
+        }
+        return copied
+    }
 
     private companion object {
         const val MOST_KEYS = 200

@@ -72,8 +72,8 @@ class AgentRunTools(
     private val held: io.mszymanski.orknux.server.llm.LlmSessionRepository,
     private val workspaces: io.mszymanski.orknux.server.workspace.WorkspaceRepository,
     private val installation: io.mszymanski.orknux.server.attachment.InstallationSettings,
-    /** Where a long answer is kept for the asker to hand on by key. Issue #393. */
-    private val scratch: io.mszymanski.orknux.workflow.script.SessionScratch,
+    /** Where an answer, and whatever the asked agent's tools kept, is put for the asker. Issue #393. */
+    private val scratch: io.mszymanski.orknux.server.llm.LlmSessionStore,
     private val mapper: ObjectMapper,
 ) {
 
@@ -101,8 +101,9 @@ class AgentRunTools(
                 "for and one of them does - it will look things up in its own conversation, so ask " +
                 "for what you want to know rather than for the steps. It cannot see this " +
                 "conversation, so say everything it needs in the question. The answer comes back " +
-                "as text and, where it is long, under a contentKey as well: to upload or send what " +
-                "it wrote, pass that key to the tool that takes one rather than typing the text back, " +
+                "as text and under a contentKey as well, and any key the answer names - a file it " +
+                "saved, a picture it drew - works in this conversation too: to upload or send what " +
+                "it made, pass the key to the tool that takes one rather than typing the text back, " +
                 "which is what cuts a long file off. You may ask: " +
                 named.joinToString(", ") { "${it.name} (${it.description ?: "no description"})" },
             parameters = listOf(
@@ -249,6 +250,13 @@ class AgentRunTools(
      */
     private fun keyFor(parent: Long?, child: Long?, answer: String): String? {
         if (parent == null || answer.isEmpty()) return null
+        /*
+         * First what the asked agent's own tools kept - a picture it drew, a
+         * file it saved - because the keys its answer names are in *its*
+         * store, and the asker's tools read the asker's. Copied up before the
+         * answer is keyed, so the answer's key is the last one in.
+         */
+        if (child != null) scratch.copy(from = child, into = parent)
         val key = "answer." + (child ?: System.nanoTime())
         // A JSON-encoded *string*: the sandbox parses what it reads, and an
         // upload door requires what comes out to be the text itself.

@@ -49,6 +49,8 @@ class AgentTools(
     /** What lets an agent put a question to another; see [AgentRunTools]. */
     private val agentTools: AgentRunTools,
     private val savedArtifacts: SavedArtifacts,
+    /** Where a saved artifact's content is kept as well, so it can be handed on by key. Issue #393. */
+    private val scratch: io.mszymanski.orknux.server.llm.LlmSessionStore,
     private val mapper: ObjectMapper,
 ) {
 
@@ -377,6 +379,20 @@ class AgentTools(
                             saving.artifact.sizeBytes,
                             requireNotNull(saving.artifact.id),
                             base(),
+                            /*
+                             * And the same content under a key in this session's
+                             * store, so a tool that uploads or sends a file can
+                             * take it by key - here, or in the conversation that
+                             * asked this agent, which gets the key copied up.
+                             * A file saved and then retyped into an upload was
+                             * how a page got cut off at the output cap. Issue
+                             * #393.
+                             */
+                            contentKey = sessionId?.let { session ->
+                                val key = "artifact." + requireNotNull(saving.artifact.id)
+                                val refused = scratch.put(session, key, mapper.writeValueAsString(argument(call, "content").orEmpty()))
+                                if (refused == null) key else null
+                            },
                         ),
                     )
                 }
@@ -591,14 +607,23 @@ class AgentTools(
          * has no host behind it once it has been copied into a mail or a
          * message.
          */
-        fun savedAnswer(name: String, bytes: Long, id: Long, base: String): Map<String, Any> {
+        fun savedAnswer(name: String, bytes: Long, id: Long, base: String, contentKey: String? = null): Map<String, Any> {
             val url = base.trimEnd('/') + "/api/artifacts/" + id
-            return mapOf(
-                "saved" to name,
-                "bytes" to bytes,
-                "url" to url,
-                "markdown" to "[$name]($url)",
-            )
+            return buildMap {
+                put("saved", name)
+                put("bytes", bytes)
+                put("url", url)
+                put("markdown", "[$name]($url)")
+                if (contentKey != null) {
+                    put("contentKey", contentKey)
+                    put(
+                        "note",
+                        "The content is also kept under contentKey. To send or upload this file - here, or " +
+                            "from the agent that asked you - pass that key to the tool that takes one, and " +
+                            "name the key in your answer; never type the content back.",
+                    )
+                }
+            }
         }
 
         /** One picture a tool made, on its way to a turn of its own. */
@@ -632,7 +657,8 @@ class AgentTools(
                     "Send text as it stands: an SVG, a " +
                     "CSV, JSON, markdown or any source you could read is text, and encoding it to base64 " +
                     "only makes it longer and easier to get wrong. base64 is for bytes that are not text, " +
-                    "like a PDF or a PNG. Answers with the url it was saved at.",
+                    "like a PDF or a PNG. Answers with the url it was saved at, and a contentKey the " +
+                    "content is kept under in this session, for a tool that uploads or sends a file.",
                 parameters = listOf(
                     ToolParameterSpec(
                         name = "name",

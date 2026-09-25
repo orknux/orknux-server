@@ -59,7 +59,7 @@ class SubagentSessionTest(
     @Autowired val providers: ModelProviderRepository,
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val audit: WorkspaceAuditRepository,
-    @Autowired val scratch: io.mszymanski.orknux.workflow.script.SessionScratch,
+    @Autowired val scratch: io.mszymanski.orknux.server.llm.LlmSessionStore,
     @Autowired val mapper: tools.jackson.databind.ObjectMapper,
 ) {
 
@@ -209,6 +209,27 @@ class SubagentSessionTest(
         assertThat(key).startsWith("answer.")
         assertThat(scratch.get(main, key)).isEqualTo("\"Forty-two.\"")
         assertThat(answered.path("answer").stringValue()).isEqualTo("Forty-two.")
+    }
+
+    /**
+     * What the asked agent's own tools kept comes up with the answer: a key
+     * its answer names has to work in the conversation that asked. The
+     * asker's own keys win, and the ceiling is the ceiling.
+     */
+    @Test
+    fun `what a subagent's tools kept is copied into the asker's session, the asker's own keys kept`() {
+        val main = recorder.open(workspaceId, "chat", "planning")
+        val child = recorder.openUnder(main, "Draw it")
+        scratch.put(child, "picture.7", "\"iVBOR\"")
+        scratch.put(child, "shared", "\"the child's\"")
+        scratch.put(main, "shared", "\"the asker's\"")
+
+        val copied = scratch.copy(from = child, into = main)
+
+        assertThat(copied).isEqualTo(1)
+        assertThat(scratch.get(main, "picture.7")).isEqualTo("\"iVBOR\"")
+        assertThat(scratch.get(main, "shared")).isEqualTo("\"the asker's\"")
+        assertThat(scratch.get(child, "picture.7")).describedAs("left where it was").isEqualTo("\"iVBOR\"")
     }
 
     @Test
