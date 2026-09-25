@@ -190,6 +190,47 @@ class LlmSessionTest(
         assertThat(list(search = "nothing here")).isEmpty()
     }
 
+    /**
+     * The list's two glances: whether an agent is at work in a session, and how
+     * many it fanned out into. Issues #403, #404.
+     */
+    @Test
+    fun `the list says which sessions are active and how many subagents each has`() {
+        // Active: a line written just now is within the window.
+        val busy = recorder.open(workspaceId, "issue", "42")
+        recorder.userSaid(busy, "Ask reviewer", "Why is the reply late?")
+        // And it fanned out: two sessions started under it.
+        recorder.openUnder(busy, "Summarise the incident")
+        recorder.openUnder(busy, "Find the service owners")
+
+        // Inactive: nothing unfinished, and its last line pushed back past the
+        // window - the only way to make "not active" without waiting a minute.
+        val quiet = recorder.open(workspaceId, "thread", "C9")
+        recorder.userSaid(quiet, "Ask reviewer", "Any update?")
+        val held = sessions.findById(quiet).orElseThrow()
+        held.lastEventAt = java.time.OffsetDateTime.now().minusMinutes(5)
+        sessions.save(held)
+
+        val byKey = list().associateBy { it["key"] }
+        assertThat(byKey["issue:42"]?.get("active")).isEqualTo(true)
+        assertThat(byKey["issue:42"]?.get("subagentCount")).isEqualTo(2)
+        assertThat(byKey["thread:C9"]?.get("active")).isEqualTo(false)
+        assertThat(byKey["thread:C9"]?.get("subagentCount")).isEqualTo(0)
+    }
+
+    /** An unfinished line makes a session active even when it has gone quiet. Issue #404. */
+    @Test
+    fun `a session with a call still out is active though its clock is old`() {
+        val session = recorder.open(workspaceId, "issue", "77")
+        // A tool called with no result yet is the unfinished half of the rule.
+        recorder.toolCalled(session, "skill_load", """{"name":"codeReview"}""")
+        val held = sessions.findById(session).orElseThrow()
+        held.lastEventAt = java.time.OffsetDateTime.now().minusMinutes(5)
+        sessions.save(held)
+
+        assertThat(list().single { it["key"] == "issue:77" }["active"]).isEqualTo(true)
+    }
+
     /** The detail page: searched, filtered by kind, and turned round. */
     @Test
     fun `a transcript is searched, filtered and reversed`() {
@@ -441,7 +482,7 @@ class LlmSessionTest(
         return graphQlTester.document(
             """{ llmSessions(workspaceId: $workspaceId$asked) {
                    totalElements
-                   content { id key keyPrefix eventCount createdAt lastEventAt }
+                   content { id key keyPrefix eventCount createdAt lastEventAt active subagentCount }
                  } }""",
         ).execute()
             .path("llmSessions.content")

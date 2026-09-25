@@ -105,12 +105,29 @@ class LlmSessionAPI(
 
         val asked = PageRequest.of((page ?: 0).coerceAtLeast(0), (size ?: PAGE).coerceIn(1, BIGGEST_PAGE), sorted)
         val found = sessions.search(workspaceId, search?.trim().orEmpty(), includeSubagents == true, asked)
-        val counts = countsFor(found.content.mapNotNull { it.id })
+        val ids = found.content.mapNotNull { it.id }
+        val counts = countsFor(ids)
+        // The status dot and the subagent count, each in one query for the whole
+        // page rather than one per row. Issues #403, #404.
+        val unfinished = if (ids.isEmpty()) emptySet() else events.unfinishedAmong(ids).toSet()
+        val subagents = if (ids.isEmpty()) emptyMap() else
+            sessions.subagentCountsFor(ids).associate { it.sessionId to it.total.toInt() }
         return LlmSessionPageView(
             totalElements = found.totalElements.toInt(),
-            content = found.content.map { describe(it, counts[it.id] ?: 0) },
+            content = found.content.map {
+                describe(it, counts[it.id] ?: 0, active(it, unfinished.contains(it.id)), subagents[it.id] ?: 0)
+            },
         )
     }
+
+    /**
+     * Whether an agent is at work in it right now, the rule the family panel
+     * uses: a line still going, or one written within the last minute. Issue
+     * #404.
+     */
+    private fun active(session: LlmSession, unfinished: Boolean): Boolean =
+        unfinished ||
+            session.lastEventAt?.isAfter(java.time.OffsetDateTime.now().minusSeconds(ACTIVE_WINDOW_SECONDS)) == true
 
     /** One session, by its row id - which is what the list handed the page. */
     @QueryMapping
@@ -118,7 +135,9 @@ class LlmSessionAPI(
     fun llmSession(@Argument id: Long): LlmSessionView? {
         val session = sessions.findByIdOrNull(id) ?: return null
         if (!access.canSee(session.workspaceId)) return null
-        return describe(session, events.countBySessionId(id).toInt())
+        val unfinished = events.unfinished(id, Long.MAX_VALUE, PageRequest.of(0, 1)).isNotEmpty()
+        val subagents = sessions.subagentCountsFor(listOf(id)).firstOrNull()?.total?.toInt() ?: 0
+        return describe(session, events.countBySessionId(id).toInt(), active(session, unfinished), subagents)
     }
 
     /**
@@ -226,7 +245,7 @@ class LlmSessionAPI(
         return events.countsFor(ids).associate { it.sessionId to it.total.toInt() }
     }
 
-    private fun describe(session: LlmSession, eventCount: Int) = LlmSessionView(
+    private fun describe(session: LlmSession, eventCount: Int, active: Boolean, subagentCount: Int) = LlmSessionView(
         id = requireNotNull(session.id),
         workspaceId = session.workspaceId,
         key = session.sessionKey,
@@ -236,6 +255,8 @@ class LlmSessionAPI(
         lastEventAt = session.lastEventAt?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         title = session.title,
         parentId = session.parentSessionId,
+        active = active,
+        subagentCount = subagentCount,
     )
 
     /**
@@ -361,6 +382,10 @@ data class LlmSessionView(
     val title: String?,
     /** The session this one was started from, or null. */
     val parentId: Long?,
+    /** Whether an agent is at work in it right now: something unfinished, or a line within the last minute. The list's status dot. Issue #404. */
+    val active: Boolean,
+    /** How many sessions were started under this one - what the list shows to say which conversations fanned out. Issue #403. */
+    val subagentCount: Int,
 )
 
 /**

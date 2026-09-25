@@ -2890,6 +2890,10 @@ type LlmSession {
     title: String
     "The session this one was started from - the one whose agent asked - or null."
     parentId: ID
+    "Whether an agent is at work in it right now: something unfinished, or a line within the last minute. The list's status dot."
+    active: Boolean!
+    "How many sessions were started under this one, so the list says which conversations fanned out. Zero for a plain conversation."
+    subagentCount: Int!
     """
     What the agents in this conversation wrote down for themselves.
 

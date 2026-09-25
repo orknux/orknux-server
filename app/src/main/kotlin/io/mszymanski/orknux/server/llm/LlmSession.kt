@@ -397,6 +397,22 @@ interface LlmSessionRepository : JpaRepository<LlmSession, Long> {
      *   the rest are reached from the conversation's own page. Issue #389.
      */
     fun search(workspaceId: Long, search: String, includeSubagents: Boolean, pageable: Pageable): Page<LlmSession>
+
+    /**
+     * How many sessions were started under each of these - the subagent count
+     * the list shows. One query for a whole page rather than one per row, the
+     * same bargain [LlmSessionEventRepository.countsFor] makes. The direct
+     * children: a session an agent asked, which is what "fanned out" reads as.
+     * Issue #403.
+     */
+    @Query(
+        """
+        select s.parentSessionId as sessionId, count(s) as total from LlmSession s
+        where s.parentSessionId in :ids
+        group by s.parentSessionId
+        """,
+    )
+    fun subagentCountsFor(ids: Collection<Long>): List<LlmSessionEventCount>
 }
 
 /** How many events one session holds, for a page of sessions. */
@@ -591,6 +607,24 @@ interface LlmSessionEventRepository : JpaRepository<LlmSessionEvent, Long> {
         """,
     )
     fun countsFor(ids: Collection<Long>): List<LlmSessionEventCount>
+
+    /**
+     * Which of these sessions has a line still going - a tool called with no
+     * result, a thought not yet settled. Half of the list's active dot, the
+     * other half being a line written recently; both are the rule the family
+     * panel uses. One query for a page, not one per row. Issue #404.
+     */
+    @Query(
+        """
+        select distinct e.sessionId from LlmSessionEvent e
+        where e.sessionId in :ids
+          and (
+            (e.kind = io.mszymanski.orknux.server.llm.LlmSessionEventKind.TOOL and e.result is null)
+            or (e.kind = io.mszymanski.orknux.server.llm.LlmSessionEventKind.THINKING and e.millis is null)
+          )
+        """,
+    )
+    fun unfinishedAmong(ids: Collection<Long>): List<Long>
 
     /**
      * One session's transcript, searched.
