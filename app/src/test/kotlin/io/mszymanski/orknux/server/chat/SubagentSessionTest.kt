@@ -59,6 +59,8 @@ class SubagentSessionTest(
     @Autowired val providers: ModelProviderRepository,
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val audit: WorkspaceAuditRepository,
+    @Autowired val scratch: io.mszymanski.orknux.workflow.script.SessionScratch,
+    @Autowired val mapper: tools.jackson.databind.ObjectMapper,
 ) {
 
     private var workspaceId: Long = 0
@@ -185,6 +187,37 @@ class SubagentSessionTest(
         asking.run(asker, """{"agent":"Librarian","question":"Anything?"}""")
 
         assertThat(sessions.findAll()).isEmpty()
+    }
+
+    /* ------------------------------------------------- handed on by key --- */
+
+    /**
+     * The answer is kept in the asker's session under a key the answer names,
+     * so an upload can take it from the server rather than from the asker
+     * typing it back - which is what cut a ten-thousand-character page off at
+     * the model's output cap. Issue #393.
+     */
+    @Test
+    fun `the answer is kept in the asker's session under the key the answer names`() {
+        val (asker, _) = pair()
+        val main = recorder.open(workspaceId, "chat", "planning")
+
+        val said = asking.run(asker, """{"agent":"Librarian","question":"What is the answer?"}""", parent = main)
+
+        val answered = mapper.readTree(said)
+        val key = answered.path("contentKey").stringValue()
+        assertThat(key).startsWith("answer.")
+        assertThat(scratch.get(main, key)).isEqualTo("\"Forty-two.\"")
+        assertThat(answered.path("answer").stringValue()).isEqualTo("Forty-two.")
+    }
+
+    @Test
+    fun `an asker in no session gets the answer and no key, because there is nowhere to keep it`() {
+        val (asker, _) = pair()
+
+        val said = asking.run(asker, """{"agent":"Librarian","question":"Anything?"}""")
+
+        assertThat(mapper.readTree(said).has("contentKey")).isFalse()
     }
 
     /* ------------------------------------------------------- the family --- */

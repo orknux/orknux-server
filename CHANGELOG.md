@@ -44,6 +44,12 @@ have failed.
 - 📝 **An agent can leave itself a note part-way through.** `note_to_self`
   writes a line down during a long task, and the session page draws the notes
   above the transcript.
+- 🔑 **An agent's answer to `ask_agent` is kept under a key.** A subagent
+  that wrote a page answered with the page, and the asker's only handle was
+  the text - so it typed ten thousand characters back into `slack_upload`
+  and the model's output cap cut them off. The answer is kept in the asker's
+  session store now and comes back with a `contentKey` beside the text, to be
+  passed to whichever tool takes one, the way a drawn picture is handed on.
 - 🎯 **An agent node names the skills to load, and a Slack message can name
   them.** Every skill has an **id** now - letters, underscores and hyphens,
   unique in the workspace, derived from the name for the skills you already

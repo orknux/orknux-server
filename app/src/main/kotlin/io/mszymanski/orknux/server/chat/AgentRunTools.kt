@@ -72,6 +72,8 @@ class AgentRunTools(
     private val held: io.mszymanski.orknux.server.llm.LlmSessionRepository,
     private val workspaces: io.mszymanski.orknux.server.workspace.WorkspaceRepository,
     private val installation: io.mszymanski.orknux.server.attachment.InstallationSettings,
+    /** Where a long answer is kept for the asker to hand on by key. Issue #393. */
+    private val scratch: io.mszymanski.orknux.workflow.script.SessionScratch,
     private val mapper: ObjectMapper,
 ) {
 
@@ -98,7 +100,10 @@ class AgentRunTools(
                 "answers with what it said. Use it where the work needs something you have no tool " +
                 "for and one of them does - it will look things up in its own conversation, so ask " +
                 "for what you want to know rather than for the steps. It cannot see this " +
-                "conversation, so say everything it needs in the question. You may ask: " +
+                "conversation, so say everything it needs in the question. The answer comes back " +
+                "as text and, where it is long, under a contentKey as well: to upload or send what " +
+                "it wrote, pass that key to the tool that takes one rather than typing the text back, " +
+                "which is what cuts a long file off. You may ask: " +
                 named.joinToString(", ") { "${it.name} (${it.description ?: "no description"})" },
             parameters = listOf(
                 ToolParameterSpec(
@@ -207,8 +212,21 @@ class AgentRunTools(
         }
 
         return when (val said = conversations.getObject().answer(modelId, sub, turns, into = into)) {
+            /*
+             * The answer, and a key it is kept under in the asker's session. A
+             * subagent that wrote a page answers with the page, and the only
+             * handle the asker had was the text - so it typed ten thousand
+             * characters back into an upload and the model's output cap cut
+             * them off. Kept the way a drawn picture is, so the key can go to
+             * whichever tool takes one and the text never leaves the server
+             * twice. Issue #393.
+             */
             is ChatCompletion.Answered -> mapper.writeValueAsString(
-                mapOf("agent" to wanted.name, "answer" to said.content),
+                buildMap {
+                    put("agent", wanted.name)
+                    put("answer", said.content)
+                    keyFor(parent, child = into, said.content)?.let { put("contentKey", it) }
+                },
             )
 
             is ChatCompletion.Failed -> refusal("${wanted.name} could not answer: ${said.reason}")
@@ -222,6 +240,20 @@ class AgentRunTools(
                 "${wanted.name} asked for a tool that could not be run.",
             )
         }
+    }
+
+    /**
+     * The key the answer is kept under in the asker's session, or null where
+     * there is no session to keep it in or the store would not take it - said
+     * by leaving the key out, so the tool never promises a key it cannot keep.
+     */
+    private fun keyFor(parent: Long?, child: Long?, answer: String): String? {
+        if (parent == null || answer.isEmpty()) return null
+        val key = "answer." + (child ?: System.nanoTime())
+        // A JSON-encoded *string*: the sandbox parses what it reads, and an
+        // upload door requires what comes out to be the text itself.
+        val refused = scratch.put(parent, key, mapper.writeValueAsString(answer))
+        return if (refused == null) key else null
     }
 
     /** The agents this one may ask: its grant list, in its own workspace, as rows. */
