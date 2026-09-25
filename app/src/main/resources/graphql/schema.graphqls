@@ -2913,6 +2913,8 @@ type LlmSessionMember {
     "\"Main session\" at the top; what the asking agent called the task for the rest."
     title: String!
     main: Boolean!
+    "How deep under the main session it sits: 0 for the main, 1 for what it asked, and so on. For nesting the panel. Issue #379."
+    depth: Int!
     "Whether an agent is at work in it right now: something unfinished, or a line within the last minute."
     active: Boolean!
     lastEventAt: String

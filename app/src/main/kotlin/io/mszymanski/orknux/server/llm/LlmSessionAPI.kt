@@ -255,13 +255,15 @@ class LlmSessionAPI(
         val root = generateSequence(asked) { held -> held.parentSessionId?.let { sessions.findByIdOrNull(it) } }
             .take(FAMILY_DEPTH)
             .last()
-        return listOf(member(root, main = true)) + descendants(requireNotNull(root.id), depth = 0).map { member(it, main = false) }
+        return listOf(member(root, main = true, depth = 0)) +
+            descendants(requireNotNull(root.id), depth = 1).map { (child, depth) -> member(child, main = false, depth = depth) }
     }
 
-    private fun descendants(parent: Long, depth: Int): List<LlmSession> {
-        if (depth >= FAMILY_DEPTH) return emptyList()
+    /** Each session under this one, with how deep it sits - so the panel can nest them. Issue #379. */
+    private fun descendants(parent: Long, depth: Int): List<Pair<LlmSession, Int>> {
+        if (depth > FAMILY_DEPTH) return emptyList()
         return sessions.findByParentSessionIdOrderByCreatedAtAscIdAsc(parent).flatMap { child ->
-            listOf(child) + descendants(requireNotNull(child.id), depth + 1)
+            listOf(child to depth) + descendants(requireNotNull(child.id), depth + 1)
         }
     }
 
@@ -270,7 +272,7 @@ class LlmSessionAPI(
      * finished - a tool called with no result yet, a thought still being
      * thought - or a line written within the last minute. The dot on the list.
      */
-    private fun member(session: LlmSession, main: Boolean): LlmSessionMemberView {
+    private fun member(session: LlmSession, main: Boolean, depth: Int): LlmSessionMemberView {
         val id = requireNotNull(session.id)
         val unfinished = events.unfinished(id, Long.MAX_VALUE, org.springframework.data.domain.PageRequest.of(0, 1)).isNotEmpty()
         val recent = session.lastEventAt?.isAfter(java.time.OffsetDateTime.now().minusSeconds(ACTIVE_WINDOW_SECONDS)) == true
@@ -279,6 +281,7 @@ class LlmSessionAPI(
             key = session.sessionKey,
             title = if (main) "Main session" else (session.title ?: session.sessionKey),
             main = main,
+            depth = depth,
             active = unfinished || recent,
             lastEventAt = session.lastEventAt?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         )
@@ -335,6 +338,8 @@ data class LlmSessionMemberView(
     /** "Main session" for the one at the top; what the asking agent called the task for the rest. */
     val title: String,
     val main: Boolean,
+    /** How deep under the main session it sits: 0 for the main, 1 for what it asked, and so on. Issue #379. */
+    val depth: Int,
     /** Green or orange: whether an agent is at work in it right now. */
     val active: Boolean,
     val lastEventAt: String?,
