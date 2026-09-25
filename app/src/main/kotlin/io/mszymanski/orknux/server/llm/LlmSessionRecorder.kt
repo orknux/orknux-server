@@ -70,6 +70,11 @@ class LlmSessionRecorder(
     @org.springframework.transaction.annotation.Transactional
     fun noteTaken(session: Long, writtenBy: String, note: String): Int {
         notes.save(LlmSessionNote(sessionId = session, note = note, writtenBy = writtenBy))
+        // Also a line in the log, where it was written, so a reader following
+        // the transcript sees the note in time order rather than in a header.
+        // The note table above is the copy handed back to the agent whole; this
+        // is the copy a person reads. Issue #409.
+        write(session, LlmSessionEventKind.NOTE, writtenBy, note)
         return notes.countBySessionId(session).toInt()
     }
 

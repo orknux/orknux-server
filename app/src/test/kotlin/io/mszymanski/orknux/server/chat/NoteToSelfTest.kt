@@ -1,6 +1,8 @@
 package io.mszymanski.orknux.server.chat
 
 import io.mszymanski.orknux.connector.model.ToolCall
+import io.mszymanski.orknux.server.llm.LlmSessionEventKind
+import io.mszymanski.orknux.server.llm.LlmSessionEventRepository
 import io.mszymanski.orknux.server.llm.LlmSessionRecorder
 import io.mszymanski.orknux.server.workspace.Workspace
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
@@ -9,6 +11,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.data.domain.PageRequest
 
 /**
  * An agent writing something down for itself, part-way through. Issue #371.
@@ -31,6 +34,7 @@ class NoteToSelfTest(
     @Autowired val notes: NoteTools,
     @Autowired val sessions: LlmSessionRecorder,
     @Autowired val workspaces: WorkspaceRepository,
+    @Autowired val events: LlmSessionEventRepository,
 ) {
 
     private var session: Long = 0
@@ -99,6 +103,25 @@ class NoteToSelfTest(
         write("Steps 1-6 are done.")
 
         assertThat(sessions.notesOf(session).single().writtenBy).isEqualTo("Support responder")
+    }
+
+    /**
+     * A note is also a line in the log, where it was written, so a reader
+     * following the transcript sees it in time order rather than lifted into a
+     * header. It signs the note with whoever wrote it, and carries its text.
+     * Issue #409.
+     */
+    @Test
+    fun `a note is drawn in the log where it was written`() {
+        write("The failing one is the third.")
+
+        val logged = events
+            .after(session, 0L, PageRequest.of(0, 50))
+            .filter { it.kind == LlmSessionEventKind.NOTE }
+
+        assertThat(logged).hasSize(1)
+        assertThat(logged.single().content).isEqualTo("The failing one is the third.")
+        assertThat(logged.single().actor).isEqualTo("Support responder")
     }
 
     /* ------------------------------------------------- the bounds ---------- */

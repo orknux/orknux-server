@@ -2972,6 +2972,13 @@ enum LlmSessionEventKind {
     happens; `millis` is null until the model stops thinking.
     """
     THINKING
+    """
+    A note an agent wrote down for itself, drawn in the log where it wrote it.
+    Distinct from SYSTEM: this is the agent keeping something, not the machinery
+    speaking. The same note is also held apart so the agent is handed it whole
+    on every turn.
+    """
+    NOTE
 }
 
 "What a transcript is ordered by."

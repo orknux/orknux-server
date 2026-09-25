@@ -75,6 +75,18 @@ enum class LlmSessionEventKind {
      * is the same lie V207 refused to write into the chat's own thread.
      */
     THINKING,
+
+    /**
+     * A note an agent wrote down for itself, in the log where it wrote it.
+     *
+     * Distinct from [SYSTEM], which is the machinery talking about the
+     * conversation; this is the agent choosing to keep something. The note is
+     * held apart in [LlmSessionNote] as well, because it is handed back whole on
+     * every turn and the transcript is not - but a reader following the log
+     * wants it in time order with the rest, not lifted into a header. Issue
+     * #409.
+     */
+    NOTE,
 }
 
 /**
