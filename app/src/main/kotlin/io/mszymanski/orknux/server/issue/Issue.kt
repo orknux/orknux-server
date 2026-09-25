@@ -41,6 +41,13 @@ import java.time.OffsetDateTime
 enum class IssueStatus {
     OPEN,
     IN_PROGRESS,
+
+    /**
+     * Done and awaiting review, before a release closes it. Between in-progress
+     * and closed. A seeded default until statuses are workspace-configurable
+     * (#428).
+     */
+    REVIEW,
     CLOSED,
 }
 
@@ -62,6 +69,7 @@ enum class IssueStatus {
  */
 fun IssueStatus.auditedAs(was: IssueStatus): String = when (this) {
     IssueStatus.CLOSED -> "closed"
+    IssueStatus.REVIEW -> "put up for review"
     IssueStatus.IN_PROGRESS -> "picked up"
     IssueStatus.OPEN -> if (was == IssueStatus.CLOSED) "reopened" else "put back to open"
 }

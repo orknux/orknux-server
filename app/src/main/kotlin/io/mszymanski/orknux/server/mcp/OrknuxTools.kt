@@ -382,10 +382,10 @@ class OrknuxTools(
                         ToolParameterSpec("issue", "Its number in this workspace.", required = true),
                         ToolParameterSpec(
                             "status",
-                            "OPEN, IN_PROGRESS or CLOSED. IN_PROGRESS says somebody has picked it up and " +
-                                "open means nobody has yet, so say it when you start rather than when you " +
-                                "finish - it is how anybody else looking at the same list knows not to " +
-                                "start it too.",
+                            "OPEN, IN_PROGRESS, REVIEW or CLOSED. IN_PROGRESS says somebody has picked it " +
+                                "up and open means nobody has yet, so say it when you start rather than " +
+                                "when you finish - it is how anybody else looking at the same list knows " +
+                                "not to start it too. REVIEW is done but not yet shipped.",
                             required = true,
                         ),
                     ),

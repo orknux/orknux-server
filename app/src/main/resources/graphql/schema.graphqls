@@ -7456,6 +7456,8 @@ enum IssueStatus {
     OPEN
     "Somebody has picked it up. Open means nobody has yet."
     IN_PROGRESS
+    "Done and awaiting review, before a release closes it. Between in-progress and closed."
+    REVIEW
     CLOSED
 }
 
