@@ -76,10 +76,13 @@ class AgentBriefing(
                     skill.description?.takeIf { it.isNotBlank() }?.let { append(": ").append(it) }
                 }
                 appendLine()
-                append("\nAnybody can ask for a skill by writing its command - the marker and the id, ")
-                append("as in ").append(marker).append(instructions.first().id)
-                append(" - anywhere in their message. When a message carries one, load that skill and follow it. ")
-                appendLine("When somebody asks what you can do, tell them these commands.")
+                append("\nEach of these skills has a command: the marker and its id, like ")
+                append(marker).append(instructions.first().id).append(". ")
+                append("Anybody can write one anywhere in a message to have you load and follow that skill, ")
+                append("and when a message carries one you load that skill first. This is the one special ")
+                append("syntax people have with you - so when they ask what you can do, or how to use ")
+                append("commands, tell them these commands and this ").append(marker)
+                appendLine("id syntax rather than saying there is none.")
             }
         }
 

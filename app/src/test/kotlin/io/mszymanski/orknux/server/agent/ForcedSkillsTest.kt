@@ -185,8 +185,9 @@ class ForcedSkillsTest(
 
         assertThat(received.single())
             .contains("Code review (!review)")
-            .contains("ask for a skill by writing its command")
-            .contains("tell them these commands")
+            .contains("write one anywhere in a message")
+            .contains("how to use")
+            .contains("rather than saying there is none")
     }
 
     @Test
