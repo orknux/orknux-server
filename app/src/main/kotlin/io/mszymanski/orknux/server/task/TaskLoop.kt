@@ -67,6 +67,8 @@ class TaskLoop(
     private val tools: TaskTools,
     /** What lets an agent write something down for itself; see [NoteTools]. #371. */
     private val notes: io.mszymanski.orknux.server.chat.NoteTools,
+    /** What lets an agent keep working files across the task; see [ScratchpadTools]. #411. */
+    private val scratchpads: io.mszymanski.orknux.server.chat.ScratchpadTools,
     private val news: TaskNewsDesk,
     private val properties: TaskProperties,
 ) {
@@ -210,6 +212,13 @@ class TaskLoop(
                      * most likely to be gone by turn thirty.
                      */
                     notes.shed(session, agent.name),
+                    /*
+                     * And working files across the task - a document it is
+                     * building, code it is writing - which the note is too
+                     * short to hold. A task is the longest job here, so it is
+                     * where a scratchpad earns its keep. Issue #411.
+                     */
+                    scratchpads.shed(session),
                 ),
                 watching,
                 interjections = { pickUp(taskId, session) },

@@ -66,6 +66,7 @@ object SettingNames {
     const val AGENT_MAX_SUBAGENTS = "agent.max.subagents"
     const val COMMAND_MARKER = "command.marker"
     const val SESSIONS_REMOVABLE = "sessions.removable"
+    const val SCRATCHPAD_BUDGET_BYTES = "scratchpad.budget.bytes"
 }
 
 /**
@@ -379,6 +380,28 @@ class InstallationSettings(
     }
 
     /**
+     * How many bytes one session's scratchpads may occupy in all. Issue #411.
+     *
+     * A ceiling in bytes because a scratchpad is a document a model writes at
+     * will - an agent told to draft something long could otherwise grow one
+     * without bound. The count is the whole of a session's pads, so a session
+     * cannot get round it by spreading text across many.
+     */
+    fun scratchpadBudgetBytes(): Int {
+        val held = settings.findByIdOrNull(SettingNames.SCRATCHPAD_BUDGET_BYTES) ?: return DEFAULT_SCRATCHPAD_BYTES
+        return held.value.toIntOrNull()?.takeIf { it in MIN_SCRATCHPAD_BYTES..MAX_SCRATCHPAD_BYTES } ?: DEFAULT_SCRATCHPAD_BYTES
+    }
+
+    /** What a fresh installation allows before anybody sets it. */
+    fun scratchpadBudgetBytesConfigured(): Int = DEFAULT_SCRATCHPAD_BYTES
+
+    @Transactional
+    fun setScratchpadBudgetBytes(bytes: Int, by: String) {
+        if (bytes !in MIN_SCRATCHPAD_BYTES..MAX_SCRATCHPAD_BYTES) throw ScratchpadBudgetOutOfRangeException(bytes)
+        write(SettingNames.SCRATCHPAD_BUDGET_BYTES, bytes.toString(), by)
+    }
+
+    /**
      * What marks a command in a message that starts a run, for the whole
      * installation - `!review`. A workspace may carry its own, which wins.
      * Issue #402.
@@ -640,6 +663,25 @@ class SubagentsOutOfRangeException(val count: Int) : RuntimeException(
 ), Refusal {
 
     override val arguments get() = mapOf("count" to count)
+}
+
+/**
+ * A kilobyte and sixty-four megabytes, for how much one session's scratchpads
+ * may hold in all. The floor is a kilobyte because a budget of nothing is a
+ * feature switched off; the ceiling catches a value that would let one session
+ * fill a disk. A megabyte is the default - room for a long document, not for a
+ * library. Issue #411.
+ */
+const val MIN_SCRATCHPAD_BYTES = 1024
+const val MAX_SCRATCHPAD_BYTES = 64 * 1024 * 1024
+const val DEFAULT_SCRATCHPAD_BYTES = 1024 * 1024
+
+class ScratchpadBudgetOutOfRangeException(val bytes: Int) : RuntimeException(
+    "$bytes is not a size a session's scratchpads can be held to. " +
+        "Choose between $MIN_SCRATCHPAD_BYTES and $MAX_SCRATCHPAD_BYTES bytes.",
+), Refusal {
+
+    override val arguments get() = mapOf("bytes" to bytes)
 }
 
 const val MIN_PLUGIN_SOURCE_KB = 64

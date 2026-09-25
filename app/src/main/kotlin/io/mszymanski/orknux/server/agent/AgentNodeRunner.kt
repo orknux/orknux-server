@@ -68,6 +68,8 @@ class AgentNodeRunner(
     private val finishing: FinishAnswerTools,
     /** What lets an agent write something down for itself; see [NoteTools]. Issue #371. */
     private val notes: io.mszymanski.orknux.server.chat.NoteTools,
+    /** What lets an agent keep working files across the job; see [ScratchpadTools]. Issue #411. */
+    private val scratchpads: io.mszymanski.orknux.server.chat.ScratchpadTools,
     private val budgets: SessionMemoryBudgets,
     private val shapes: ObjectShapes,
     private val mapper: ObjectMapper,
@@ -410,6 +412,13 @@ class AgentNodeRunner(
              * away exactly when it starts to matter.
              */
             notes.shed(session, agent.name),
+            /*
+             * And somewhere to keep a working file across the job - a document
+             * it is drafting, code it is writing - which the note is too short
+             * to be and the transcript too trimmed. Only where there is a
+             * session to keep it in. Issue #411.
+             */
+            scratchpads.shed(session),
             finishing.shed(
                 granted = agent.finishAccess,
                 shaped = step.outputObjectId != null,

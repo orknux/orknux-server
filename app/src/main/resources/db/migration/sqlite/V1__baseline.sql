@@ -484,6 +484,22 @@ CREATE TABLE llm_session_note
 
 CREATE INDEX llm_session_note_session_idx ON llm_session_note (session_id, written_at, id);
 
+CREATE TABLE session_scratchpad
+(
+    id                           integer not null primary key autoincrement,
+    session_id                   integer not null,
+    name                         varchar(200) not null,
+    description                  varchar(500),
+    content                      text not null default '',
+    shared                       boolean not null default false,
+    created_at                   timestamp not null default CURRENT_TIMESTAMP,
+    updated_at                   timestamp not null default CURRENT_TIMESTAMP,
+    constraint uk_session_scratchpad UNIQUE (session_id, name),
+    constraint session_scratchpad_session_id_fkey FOREIGN KEY (session_id) REFERENCES llm_session(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_session_scratchpad_session ON session_scratchpad (session_id);
+
 CREATE TABLE llm_session_store
 (
     session_id                   integer not null,

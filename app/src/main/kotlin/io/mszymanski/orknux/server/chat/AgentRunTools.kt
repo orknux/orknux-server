@@ -68,6 +68,8 @@ class AgentRunTools(
     private val conversations: ObjectProvider<AgentConversation>,
     /** Where the asked agent's own conversation is written; see [run]. Issue #379. */
     private val sessions: io.mszymanski.orknux.server.llm.LlmSessionRecorder,
+    /** The working files lent to the asked agent, so a shared pad reaches it. Issue #411. */
+    private val scratchpads: ScratchpadTools,
     /** The conversations already started from one, for the count in [run]. Issue #380. */
     private val held: io.mszymanski.orknux.server.llm.LlmSessionRepository,
     private val workspaces: io.mszymanski.orknux.server.workspace.WorkspaceRepository,
@@ -212,7 +214,12 @@ class AgentRunTools(
             sessions.openUnder(above, title).also { sessions.userSaid(it, agent.name, question) }
         }
 
-        return when (val said = conversations.getObject().answer(modelId, sub, turns, into = into)) {
+        // The asked agent gets scratchpad tools scoped to its own session, so a
+        // pad the asker shared is one it can read and add to - the same document,
+        // worked on by both. A subagent in no session gets none. Issue #411.
+        return when (
+            val said = conversations.getObject().answer(modelId, sub, turns, into = into, shed = scratchpads.shed(into))
+        ) {
             /*
              * The answer, and a key it is kept under in the asker's session. A
              * subagent that wrote a page answers with the page, and the only
