@@ -570,6 +570,88 @@ internal object HostHelpers {
           },
         },
     """.trimIndent()
+
+    /**
+     * `orknux.scratchpad`, the AI session's working files.
+     *
+     * A scratchpad is a document kept for the life of the session - the same
+     * files the session's own agent reaches through its tools, so a plugin or a
+     * function running inside a session works on the very same ones. One door
+     * carries every operation as JSON in and JSON out, for the reason the store
+     * keeps its doors few; the named methods here are what a script actually
+     * calls. Every one answers an object - `{ ok: ... }` or `{ error: '...' }` -
+     * the way the other helpers do, so a refusal is data rather than a throw.
+     *
+     * Bound only where the call belongs to a session; elsewhere every method
+     * says there are no scratchpads here instead of writing into nowhere.
+     */
+    fun scratchpads(): String = """
+        scratchpad: {
+          /** The one door, request and answer both JSON. */
+          __call(request) {
+            const door = globalThis.__orknuxScratchpad;
+            if (door === undefined) {
+              return { error: 'there are no scratchpads here: only a call made inside an AI session carries them' };
+            }
+            const answer = door(JSON.stringify(request));
+            try {
+              return JSON.parse(answer);
+            } catch (error) {
+              return { error: 'the scratchpad helper said nothing' };
+            }
+          },
+
+          /** The session's scratchpads: name, what each is for, its size, whether it is shared. */
+          list() {
+            return this.__call({ op: 'list' });
+          },
+
+          /** A scratchpad's content, or a fragment when from and length are given. */
+          read(name, from, length) {
+            return this.__call({ op: 'read', name: String(name), from: from, length: length });
+          },
+
+          /** Creates a scratchpad or replaces the whole of one; description is optional. */
+          write(name, content, description) {
+            return this.__call({
+              op: 'write',
+              name: String(name),
+              content: content === undefined || content === null ? '' : String(content),
+              description: description === undefined ? null : description,
+            });
+          },
+
+          /** Adds text to the end of a scratchpad. */
+          append(name, text) {
+            return this.__call({ op: 'append', name: String(name), text: String(text) });
+          },
+
+          /** Replaces one occurrence of a piece of text inside a scratchpad. */
+          replace(name, oldText, newText) {
+            return this.__call({ op: 'replace', name: String(name), old: String(oldText), new: String(newText) });
+          },
+
+          /** Sets what a scratchpad is for. */
+          describe(name, description) {
+            return this.__call({ op: 'describe', name: String(name), description: description === undefined ? null : description });
+          },
+
+          /** Lets the sessions started under this one read and add to a scratchpad, or stops them. */
+          share(name, shared) {
+            return this.__call({ op: 'share', name: String(name), shared: shared === undefined ? true : !!shared });
+          },
+
+          /** Where a piece of text appears across the session's scratchpads. */
+          search(query) {
+            return this.__call({ op: 'search', query: String(query) });
+          },
+
+          /** Removes a scratchpad. */
+          remove(name) {
+            return this.__call({ op: 'delete', name: String(name) });
+          },
+        },
+    """.trimIndent()
 }
 
 /**

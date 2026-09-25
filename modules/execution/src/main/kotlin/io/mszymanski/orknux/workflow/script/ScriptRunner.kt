@@ -72,6 +72,12 @@ class ScriptRunner(
      * store here.
      */
     private val scratch: SessionScratch? = null,
+    /**
+     * The AI session's working files, for `orknux.scratchpad`. Null in tests
+     * and installations that wire none; the helper then says there are no
+     * scratchpads here. Issue #411.
+     */
+    private val scratchpads: SessionScratchpads? = null,
 ) {
 
     private val engine: Engine = Engine.newBuilder("js")
@@ -558,6 +564,7 @@ class ScriptRunner(
             .replace("%HTTP%", HostHelpers.http("this installation cannot make requests from a function").prependIndent("  "))
             .replace("%LOG%", HostHelpers.log(kept).prependIndent("  "))
             .replace("%STORE%", HostHelpers.sessionStore().prependIndent("  "))
+            .replace("%SCRATCHPAD%", HostHelpers.scratchpads().prependIndent("  "))
     }
 
     private fun serve(
@@ -639,6 +646,21 @@ class ScriptRunner(
                 },
             )
         }
+        /*
+         * The scratchpad door, bound the same way and for the same reason: a
+         * working file belongs to a session, so a call outside one is told
+         * there is nowhere to keep it. One door, request and answer JSON. #411.
+         */
+        if (scratchpads != null && sessionId != null) {
+            bindings.putMember(
+                SCRATCHPAD,
+                ProxyExecutable { given ->
+                    val request = given.getOrNull(0)?.takeIf { it.isString }?.asString()
+                        ?: return@ProxyExecutable """{"error":"a scratchpad request has to be a string"}"""
+                    scratchpads.act(sessionId, request)
+                },
+            )
+        }
         polyglot.eval("js", services)
     }
 
@@ -666,6 +688,7 @@ class ScriptRunner(
         /** The execution store's two doors; bound only inside a workflow execution. */
         const val STORE_PUT = "__orknuxStorePut"
         const val STORE_GET = "__orknuxStoreGet"
+        const val SCRATCHPAD = "__orknuxScratchpad"
 
         /**
          * A bound on what one call may keep.
@@ -703,6 +726,7 @@ class ScriptRunner(
 %HTTP%
 %LOG%
 %STORE%
+%SCRATCHPAD%
             };
         """.trimIndent()
 

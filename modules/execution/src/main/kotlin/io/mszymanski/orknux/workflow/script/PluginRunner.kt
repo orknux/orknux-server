@@ -57,6 +57,12 @@ class PluginRunner(
      * store here.
      */
     private val scratch: SessionScratch? = null,
+    /**
+     * The AI session's working files, for `orknux.scratchpad`. Null in tests
+     * and installations that wire none; the helper then says there are no
+     * scratchpads here. Issue #411.
+     */
+    private val scratchpads: SessionScratchpads? = null,
 ) {
 
     /**
@@ -85,6 +91,7 @@ class PluginRunner(
             .replace("%HTTP%", HostHelpers.http("this plugin was not granted NETWORK_REQUEST").prependIndent("  "))
             .replace("%LOG%", HostHelpers.log(HostHelpers.threshold(properties.logLevel)).prependIndent("  "))
             .replace("%STORE%", HostHelpers.sessionStore().prependIndent("  "))
+            .replace("%SCRATCHPAD%", HostHelpers.scratchpads().prependIndent("  "))
             .replace("%CRYPTO%", HostHelpers.crypto().prependIndent("  "))
             .replace("%ENCODING%", HostHelpers.encoding().prependIndent("  "))
             .replace(
@@ -953,6 +960,22 @@ class PluginRunner(
                 },
             )
         }
+        /*
+         * The scratchpad door, bound like the store and for the same reason: a
+         * working file belongs to a session, so a call outside one is told
+         * there is nowhere to keep it. One door, request and answer JSON. #411.
+         */
+        val files = scratchpads
+        if (files != null && sessionId != null) {
+            bindings.putMember(
+                SCRATCHPAD,
+                ProxyExecutable { given ->
+                    val request = given.getOrNull(0)?.takeIf { it.isString }?.asString()
+                        ?: return@ProxyExecutable """{"error":"a scratchpad request has to be a string"}"""
+                    files.act(sessionId, request)
+                },
+            )
+        }
 
         val server = host
         if (capabilities.isEmpty() || server == null) return
@@ -1084,6 +1107,7 @@ class PluginRunner(
 
         const val STORE_PUT = "__orknuxStorePut"
         const val STORE_GET = "__orknuxStoreGet"
+        const val SCRATCHPAD = "__orknuxScratchpad"
 
         /**
          * The plugins' own logger, separate from this class's and from the
@@ -1454,6 +1478,7 @@ class PluginRunner(
 %HTTP%
 %LOG%
 %STORE%
+%SCRATCHPAD%
 %CRYPTO%
 %ENCODING%
 %RENDER%
