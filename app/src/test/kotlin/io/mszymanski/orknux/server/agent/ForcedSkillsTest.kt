@@ -168,6 +168,40 @@ class ForcedSkillsTest(
         assertThat(received.single()).doesNotContain(REVIEW_SAYS).doesNotContain("These skills are loaded")
     }
 
+    /* ------------------------------------------------------ advertised ---- */
+
+    /**
+     * A person in Slack cannot see the skill list, so the agent is the one who
+     * says `!review` exists - and loads the skill itself where the graph did
+     * not map the message's commands onto it.
+     */
+    @Test
+    fun `an agent granted skills is told their commands, and to say so when asked`() {
+        skill("Code review", "review", REVIEW_SAYS)
+        val agentId = agent(model(serve()), grantedCatalog = true)
+        graph(agentId, mapping = null)
+
+        start()
+
+        assertThat(received.single())
+            .contains("Code review (!review)")
+            .contains("ask for a skill by writing its command")
+            .contains("tell them these commands")
+    }
+
+    @Test
+    fun `and under the workspace's own marker`() {
+        skill("Code review", "review", REVIEW_SAYS)
+        graphQlTester.document("""mutation { setWorkspaceCommandMarker(workspaceId: $workspaceId, marker: "::") { commandMarker } }""")
+            .execute().errors().verify()
+        val agentId = agent(model(serve()), grantedCatalog = true)
+        graph(agentId, mapping = null)
+
+        start()
+
+        assertThat(received.single()).contains("Code review (::review)").doesNotContain("(!review)")
+    }
+
     /* ------------------------------------------------------- at the save --- */
 
     @Test
@@ -206,12 +240,18 @@ class ForcedSkillsTest(
         ).variable("content", content.replace("\\n", "\n")).execute().path("createSkill.id").entity(Long::class.java).get()
     }
 
-    private fun agent(modelId: Long): Long {
+    /** @param grantedCatalog whether the agent holds the workspace's catalogs, where its skills are. */
+    private fun agent(modelId: Long, grantedCatalog: Boolean = false): Long {
         val id = graphQlTester.document(
             """mutation { createAgent(input: { workspaceId: $workspaceId, name: "Reviewer", type: LLM }) { id } }""",
         ).execute().path("createAgent.id").entity(Long::class.java).get()
+        val granted = if (!grantedCatalog) {
+            ""
+        } else {
+            ", skillCatalogs: [" + catalogs.findByWorkspaceIdOrderByNameAsc(workspaceId).joinToString(", ") { "\"${it.name}\"" } + "]"
+        }
         graphQlTester.document(
-            """mutation { updateAgent(id: $id, input: { name: "Reviewer", modelId: $modelId, systemPrompt: "You review." }) { id } }""",
+            """mutation { updateAgent(id: $id, input: { name: "Reviewer", modelId: $modelId, systemPrompt: "You review."$granted }) { id } }""",
         ).execute()
         return id
     }

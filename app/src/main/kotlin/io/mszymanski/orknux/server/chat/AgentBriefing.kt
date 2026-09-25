@@ -41,6 +41,8 @@ class AgentBriefing(
     private val connections: WorkspaceConnectionService,
     /** Which of the two ways the granted connections are told; see [ConnectionTools]. */
     private val connectionTools: ConnectionTools,
+    /** For the command marker the agent advertises its skills under. Issue #381. */
+    private val workspaces: io.mszymanski.orknux.server.workspace.WorkspaceRepository,
 ) {
 
     /**
@@ -55,15 +57,29 @@ class AgentBriefing(
         val instructions = skills.list(agent)
 
         if (instructions.isNotEmpty()) {
+            /*
+             * Each skill with the command that asks for it, and the agent told
+             * to say so. A person in Slack cannot see the skill list; the only
+             * way they learn that `!review` exists is the agent telling them,
+             * and the only way `!review` in a message means anything where
+             * the graph did not map it is the agent loading the skill itself.
+             * Issue #381.
+             */
+            val marker = workspaces.findById(agent.workspaceId).map { it.commandMarker }
+                .orElse(io.mszymanski.orknux.server.trigger.Commands.DEFAULT_MARKER)
             parts += buildString {
                 append("You have been given these skills, each describing how this workspace goes about ")
                 append("something. Load the one that applies with skill_load before following it; ")
                 appendLine("what is listed here is only enough to choose from.")
                 instructions.forEach { skill ->
-                    append("\n- ").append(skill.name)
+                    append("\n- ").append(skill.name).append(" (").append(marker).append(skill.id).append(")")
                     skill.description?.takeIf { it.isNotBlank() }?.let { append(": ").append(it) }
                 }
                 appendLine()
+                append("\nAnybody can ask for a skill by writing its command - the marker and the id, ")
+                append("as in ").append(marker).append(instructions.first().id)
+                append(" - anywhere in their message. When a message carries one, load that skill and follow it. ")
+                appendLine("When somebody asks what you can do, tell them these commands.")
             }
         }
 

@@ -57,7 +57,10 @@ have failed.
   front of it. Orknux's own syntax, because Slack intercepts `/` and refuses
   a slash command it does not know. An id written on the graph that names no
   skill is refused at the save; one that arrived with a message is noted in
-  the run and costs nothing else. `skill_load` takes an id as well as a name.
+  the run and costs nothing else. `skill_load` takes an id as well as a name,
+  and an agent's briefing lists each skill with its command and tells the
+  agent to say so when asked what it can do - and to load the skill itself
+  when a message carries the command.
 - 🧾 **A variable can be a list, or a type a plugin defines.** Lists of
   strings, numbers or booleans, edited as one. A plugin declares a type with
   its own completion and validation, run in the sandbox: Slack 1.19 defines
