@@ -14,6 +14,9 @@ enum class ExecutionStatus {
     RUNNING,
     COMPLETED,
     FAILED,
+
+    /** Ended because somebody asked it to stop, rather than because it finished or failed. Issue #395. */
+    STOPPED,
 }
 
 enum class ExecutionTrigger {
@@ -152,6 +155,17 @@ class WorkflowExecution(
 
     @Column(name = "stopped_reason", length = 500)
     var stoppedReason: String? = null,
+
+    /**
+     * Whether somebody has asked this run to stop. Issue #395.
+     *
+     * The signal, not the state: the engine reads it before each step and ends
+     * the run where it stands rather than starting the next. The state that
+     * results is [ExecutionStatus.STOPPED], which is terminal - a stopped run
+     * does not resume.
+     */
+    @Column(name = "stop_requested", nullable = false)
+    var stopRequested: Boolean = false,
 )
 
 /**

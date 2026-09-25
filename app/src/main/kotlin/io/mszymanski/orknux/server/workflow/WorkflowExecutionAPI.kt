@@ -194,6 +194,23 @@ class WorkflowExecutionAPI(
     }
 
     /**
+     * Asks a running execution to stop. Issue #395.
+     *
+     * The engine ends it before its next step, or during a wait; a stopped run
+     * is terminal and does not resume. Answers with the run as it stands - still
+     * running until the engine notices - so a page that polls sees it become
+     * stopped. A run that has already ended is left as it is.
+     */
+    @MutationMapping
+    fun stopExecution(@Argument id: Long): RunDetailView {
+        val running = runs.execution(id)?.takeIf { access.canSee(it.workspaceId) }
+            ?: throw ExecutionNotFoundException(id)
+        val stopped = runs.requestStop(id) ?: throw ExecutionNotFoundException(id)
+        auditRecorder.record(running.workspaceId, WorkspaceAuditCategory.WORKFLOW, "Run #$id was asked to stop")
+        return startedView(stopped)
+    }
+
+    /**
      * Runs the workflow again from one of its steps, carrying what the earlier
      * run had produced by the time it got there.
      *

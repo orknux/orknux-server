@@ -1185,7 +1185,8 @@ CREATE TABLE workflow_execution
     carried                      text,
     started_from                 integer,
     fired_trigger_id             integer,
-    constraint ck_execution_status CHECK (((status) IN ('RUNNING', 'COMPLETED', 'FAILED'))),
+    stop_requested               boolean not null default false,
+    constraint ck_execution_status CHECK (((status) IN ('RUNNING', 'COMPLETED', 'FAILED', 'STOPPED'))),
     constraint ck_execution_trigger CHECK (((trigger_type) IN ('WEBHOOK', 'MANUAL', 'SCHEDULE', 'API'))),
     constraint fk_workflow_execution_started_from FOREIGN KEY (started_from) REFERENCES workflow_execution(id) ON DELETE SET NULL
 );

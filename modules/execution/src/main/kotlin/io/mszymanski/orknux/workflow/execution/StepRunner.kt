@@ -501,6 +501,30 @@ class StepRunner(
         return executions.save(execution)
     }
 
+    /** Whether this run has been asked to stop; the engine reads it before each step. Issue #395. */
+    fun wasStopAsked(executionId: Long): Boolean = executionOf(executionId).stopRequested
+
+    /**
+     * Ends a run because it was asked to, where it stands. Issue #395.
+     *
+     * A terminal state of its own, [ExecutionStatus.STOPPED], rather than a
+     * completion or a failure: a stopped run did neither, and it does not
+     * resume. The steps it had not reached stay PENDING, which on a run that
+     * has ended reads as "never reached", the same as a run stopped by a
+     * condition.
+     */
+    fun stopRun(executionId: Long): WorkflowExecution {
+        val execution = executionOf(executionId)
+        // Only a run still going is stopped; a request that lands after it has
+        // already ended changes nothing, the way a twice-delivered ending does.
+        if (execution.status != ExecutionStatus.RUNNING) return execution
+        execution.status = ExecutionStatus.STOPPED
+        execution.finishedAt = OffsetDateTime.now()
+        execution.stoppedReason = STOP_REASON
+        log.write(executionId, null, LogLevel.INFO, "${execution.workflowName} was stopped")
+        return executions.save(execution)
+    }
+
     private fun stepOf(executionId: Long, nodeKey: String) =
         steps.findByExecutionIdAndNodeKey(executionId, nodeKey)
             ?: error("Execution $executionId has no step $nodeKey")
@@ -513,5 +537,8 @@ class StepRunner(
     private companion object {
         /** Matches the column. */
         const val ERROR_LENGTH = 1000
+
+        /** What a stopped run says for why it ended. Issue #395. */
+        const val STOP_REASON = "stopped by request"
     }
 }

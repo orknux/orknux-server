@@ -97,6 +97,24 @@ class ExecutionService(
     }
 
     /**
+     * Asks a running execution to stop. Issue #395.
+     *
+     * The flag, not the ending: the engine reads it before its next step and
+     * ends the run itself, so this returns the run as it stands - RUNNING still,
+     * until the engine notices - and a caller that polls sees it become STOPPED.
+     * A run that has already ended is left as it is; there is nothing to stop.
+     */
+    @org.springframework.transaction.annotation.Transactional
+    fun requestStop(id: Long): ExecutionDetailView? {
+        val execution = executions.findByIdOrNull(id) ?: return null
+        if (execution.status == ExecutionStatus.RUNNING && !execution.stopRequested) {
+            execution.stopRequested = true
+            executions.save(execution)
+        }
+        return detailOf(execution)
+    }
+
+    /**
      * Starts the workflow and answers with the run as it stands.
      *
      * What that means depends on the engine: the inline one has finished by the

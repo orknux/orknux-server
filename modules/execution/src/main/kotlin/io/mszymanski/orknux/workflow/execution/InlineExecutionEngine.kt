@@ -64,6 +64,13 @@ class InlineExecutionEngine(
         plan.carried.forEach { gate.follow(it.nodeKey, it.branch) }
 
         for ((index, step) in plan.steps.withIndex()) {
+            // Asked to stop between steps: end the run where it stands rather
+            // than start the next. A stopped run is terminal. Issue #395.
+            if (steps.wasStopAsked(executionId)) {
+                log.info("Execution {} was asked to stop; ending before {}", executionId, step.nodeKey)
+                return steps.stopRun(executionId)
+            }
+
             if (!gate.mayRun(step.nodeKey)) {
                 steps.skipStep(executionId, step.nodeKey, gate.refusal(step.nodeKey))
                 continue
@@ -71,6 +78,10 @@ class InlineExecutionEngine(
 
             val outcome = try {
                 runToDecision(executionId, step.nodeKey)
+            } catch (stopped: RunStopped) {
+                // Asked to stop while this step was waiting. Issue #395.
+                log.info("Execution {} was stopped while waiting at {}", executionId, step.nodeKey)
+                return steps.stopRun(executionId)
             } catch (failure: StepFailedException) {
                 /*
                  * A failure the graph has an answer for is a direction, not an
@@ -138,12 +149,38 @@ class InlineExecutionEngine(
                 )
             }
             log.debug("Execution {} is waiting {}s at {}", executionId, pause.toSeconds(), nodeKey)
-            Thread.sleep(pause.toMillis())
+            // Slept in chunks so a stop asked during a long wait is noticed
+            // within a chunk rather than only when the wait is over. Issue #395.
+            sleepUnlessStopped(executionId, pause)
         }
     }
 
+    /**
+     * Sleeps for [pause], in chunks, and throws [RunStopped] the moment the run
+     * is asked to stop. Issue #395.
+     *
+     * The chunk is what makes a stop take effect during a wait rather than only
+     * after it: a node parked for ten minutes would otherwise be un-stoppable
+     * until it woke on its own.
+     */
+    private fun sleepUnlessStopped(executionId: Long, pause: Duration) {
+        var left = pause
+        while (left > Duration.ZERO) {
+            if (steps.wasStopAsked(executionId)) throw RunStopped()
+            val chunk = if (left < STOP_POLL) left else STOP_POLL
+            Thread.sleep(chunk.toMillis())
+            left -= chunk
+        }
+    }
+
+    /** Thrown to end a run that was asked to stop while it was waiting. Issue #395. */
+    private class RunStopped : RuntimeException()
+
     private companion object {
         val log = LoggerFactory.getLogger(InlineExecutionEngine::class.java)
+
+        /** How often a wait looks up to see whether it has been asked to stop. Issue #395. */
+        val STOP_POLL: Duration = Duration.ofSeconds(2)
     }
 }
 
