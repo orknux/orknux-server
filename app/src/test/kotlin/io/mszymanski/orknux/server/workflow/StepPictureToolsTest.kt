@@ -67,6 +67,10 @@ class StepPictureToolsTest {
         }
 
         override fun get(sessionId: Long, key: String): String? = held[sessionId to key]
+
+        override fun remove(sessionId: Long, key: String) {
+            held.remove(sessionId to key)
+        }
     }
 
     private val tools = StepPictureTools(mapper, steps, scratch)
