@@ -71,12 +71,14 @@ class AgentFromModelTest(
 
         val agentId = graphQlTester.document(
             """mutation { createAgentForModel(modelId: $modelId) {
-                 id workspaceId name type enabled modelId modelName
+                 id workspaceId name type enabled modelId modelName icon
                } }""",
         ).execute().errors().verify()
             .path("createAgentForModel.name").entity(String::class.java).isEqualTo("Gemma 3")
             .path("createAgentForModel.modelId").entity(Long::class.java).isEqualTo(modelId)
             .path("createAgentForModel.modelName").entity(String::class.java).isEqualTo("Gemma 3")
+            // The bot icon, the same default a hand-made agent takes. Issue #415.
+            .path("createAgentForModel.icon").entity(String::class.java).isEqualTo("bot")
             // Switched on, because an agent made to be talked to and arriving
             // switched off is a second press for nothing.
             .path("createAgentForModel.enabled").entity(Boolean::class.java).isEqualTo(true)

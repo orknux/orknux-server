@@ -41,7 +41,7 @@ class AgentAPITest(
                 name: "Research Agent",
                 type: LLM,
                 description: "Conducts web search and synthesizes market data findings"
-              }) { name type description enabled mcpServers }
+              }) { name type description enabled mcpServers icon }
             }
             """,
         ).execute()
@@ -49,8 +49,17 @@ class AgentAPITest(
             .path("createAgent.type").entity(String::class.java).isEqualTo("LLM")
             .path("createAgent.enabled").entity(Boolean::class.java).isEqualTo(true)
             .path("createAgent.mcpServers").entityList(String::class.java).hasSize(0)
+            // A fresh agent draws as a bot unless one names another icon. Issue #415.
+            .path("createAgent.icon").entity(String::class.java).isEqualTo("bot")
 
         assertThat(agents.findAll().single().workspaceId).isEqualTo(workspaceId)
+    }
+
+    @Test
+    fun `an agent created with its own icon keeps it, not the bot default`() {
+        graphQlTester.document(
+            """mutation { createAgent(input: { workspaceId: $workspaceId, name: "Owl", type: LLM, icon: "owl" }) { icon } }""",
+        ).execute().path("createAgent.icon").entity(String::class.java).isEqualTo("owl")
     }
 
     @Test

@@ -156,7 +156,9 @@ class AgentAPI(
                 type = input.type,
                 description = input.description?.trim()?.ifEmpty { null },
                 systemPrompt = input.systemPrompt?.trim()?.ifEmpty { null },
-                icon = input.icon?.trim()?.ifEmpty { null },
+                // The bot icon, unless the caller named one. A fresh agent draws
+                // as a bot rather than as the node kind's plain default. Issue #415.
+                icon = input.icon?.trim()?.ifEmpty { null } ?: DEFAULT_AGENT_ICON,
                 lastModifiedBy = currentUser(),
             ),
         )
@@ -215,6 +217,8 @@ class AgentAPI(
                 name = available(model.workspaceId, model.name),
                 type = AgentType.LLM,
                 modelId = model.id,
+                // The bot icon, the same default a hand-made agent takes. Issue #415.
+                icon = DEFAULT_AGENT_ICON,
                 lastModifiedBy = currentUser(),
             ),
         )
@@ -615,6 +619,9 @@ class AgentAPI(
 
         /** How many agents may be named after one model before it is somebody's script. */
         const val MOST_OF_ONE_NAME = 100
+
+        /** What a fresh agent's icon is, unless one is named: the bot in the interface's own set. Issue #415. */
+        const val DEFAULT_AGENT_ICON = "bot"
     }
 }
 
