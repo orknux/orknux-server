@@ -78,6 +78,15 @@ class AgentNodeRunner(
     private val dates: io.mszymanski.orknux.server.chat.DateTools,
     /** The agent's setup, written into the log where it changes; see [AgentDetails]. Issues #391, #441. */
     private val agentDetails: AgentDetails,
+    /**
+     * Where the step is written down the moment it has a session, rather than
+     * when it ends. Issue #464: the engine saves a step when it completes or
+     * parks, so a run part-way through a two-minute answer had recorded no
+     * session yet - and the session's page, which reads the runs back off
+     * exactly that column, showed every run that had finished and not the one
+     * talking to it as somebody watched.
+     */
+    private val steps: io.mszymanski.orknux.workflow.execution.ExecutionStepRepository,
     private val budgets: SessionMemoryBudgets,
     private val shapes: ObjectShapes,
     private val mapper: ObjectMapper,
@@ -244,6 +253,9 @@ class AgentNodeRunner(
         // it produced. The engine saves the step whether this round completes or
         // parks, so a still-talking agent is reachable too. Issue #387.
         step.sessionId = session
+        // Written now rather than at the end of the step: while this agent is
+        // talking, the session's page should name the run that is talking.
+        step.id?.let { steps.save(step) }
 
         /*
          * A picture is something an agent decides on while it is working, so
