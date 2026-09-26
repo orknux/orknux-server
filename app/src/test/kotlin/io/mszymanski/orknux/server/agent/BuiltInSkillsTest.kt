@@ -26,7 +26,7 @@ class BuiltInSkillsTest(
         val catalog = builtIn.catalogs().single()
         assertThat(catalog.name).isEqualTo(BuiltInSkills.CATALOG)
         assertThat(catalog.plugin).isEqualTo("Orknux")
-        assertThat(catalog.skills.map { it.name }).contains("Caveman", "TL;DR", "Angryman", "Grill me")
+        assertThat(catalog.skills.map { it.name }).contains("Caveman", "TL;DR", "Angryman", "Grill me", "Plan", "Memory", "Commands")
         // Every one of them is a skill by the rules a workspace's own is held
         // to - the frontmatter, a body - because nothing downstream knows these
         // came from a file rather than a row.
@@ -45,6 +45,11 @@ class BuiltInSkillsTest(
         // And its quieter alternative, which keeps the grammar.
         val tldr = catalog.skills.single { it.name == "TL;DR" }
         assertThat(tldr.key).isEqualTo("tl-dr")
+        // And the one a message reaches by name: ::plan, where :: is the
+        // workspace's command marker and `plan` is this id.
+        assertThat(catalog.skills.single { it.name == "Plan" }.key).isEqualTo("plan")
+        assertThat(catalog.skills.single { it.name == "Memory" }.key).isEqualTo("memory")
+        assertThat(catalog.skills.single { it.name == "Commands" }.key).isEqualTo("commands")
         assertThat(SkillFormat.check(tldr.content).valid).isTrue()
     }
 
