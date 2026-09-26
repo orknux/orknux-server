@@ -35,7 +35,10 @@ import org.springframework.boot.test.context.SpringBootTest
  * any of this can work.
  */
 @SpringBootTest
+@org.springframework.boot.graphql.test.autoconfigure.tester.AutoConfigureGraphQlTester
+@org.springframework.security.test.context.support.WithMockUser(username = "alice", roles = ["ADMINS"])
 class ToolSearchTest(
+    @Autowired val graphQlTester: org.springframework.graphql.test.tester.ExecutionGraphQlServiceTester,
     @Autowired val searching: ToolSearchTools,
     @Autowired val sessions: LlmSessionRecorder,
     @Autowired val workspaces: WorkspaceRepository,
@@ -183,6 +186,12 @@ class ToolSearchTest(
             org.junit.jupiter.api.assertThrows<io.mszymanski.orknux.server.attachment.ToolsNamedOutOfRangeException> {
                 settings.setToolsNamedInSearch(501, "alice")
             }
+            // And over the door the screen uses: a sentence, not a correlation
+            // id - the resolver has to know this refusal by name.
+            graphQlTester.document("""mutation { setToolsNamedInSearch(count: 501) { toolsNamedInSearch } }""")
+                .execute().errors().expect { it.message!!.contains("between 0 and 500") }.verify()
+            graphQlTester.document("""mutation { setToolsNamedInSearch(count: 7) { toolsNamedInSearch } }""")
+                .execute().path("setToolsNamedInSearch.toolsNamedInSearch").entity(Int::class.java).isEqualTo(7)
         } finally {
             settings.setToolsNamedInSearch(settings.toolsNamedInSearchConfigured(), "alice")
         }
