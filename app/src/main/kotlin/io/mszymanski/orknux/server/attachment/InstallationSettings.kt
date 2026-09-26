@@ -68,7 +68,19 @@ object SettingNames {
     const val COMMAND_MARKER = "command.marker"
     const val SESSIONS_REMOVABLE = "sessions.removable"
     const val SCRATCHPAD_BUDGET_BYTES = "scratchpad.budget.bytes"
+
+    /** What the files in one session's scratchpads may come to. Issue #491. */
+    const val SCRATCHPAD_FILE_BUDGET_BYTES = "scratchpad.file.budget.bytes"
+
+    /** How long a scratchpad nobody touches is kept. Issue #492. */
+    const val SCRATCHPAD_KEEP_DAYS = "scratchpad.keep.days"
     const val TOOLS_NAMED_IN_SEARCH = "tools.named.in.search"
+
+    /** How many tools fit in the briefing before their lines start being cut. Issue #481. */
+    const val TOOL_SUMMARIES_FULL_UP_TO = "tool.summaries.full.up.to"
+
+    /** And how much of each line the next block of that many costs. Issue #481. */
+    const val TOOL_SUMMARY_TRIM_PERCENT = "tool.summary.trim.percent"
     const val SESSIONS_ACTIVE_WINDOW_SECONDS = "sessions.active.window.seconds"
 }
 
@@ -407,6 +419,38 @@ class InstallationSettings(
     }
 
     /**
+     * What the files in one session's scratchpads may come to, in bytes.
+     * Issue #491.
+     *
+     * Apart from the budget above, which is about text an agent writes and is
+     * counted in characters it could have spent on the answer. A file is not
+     * that: it is a picture somebody asked for, it is base64 in a text column,
+     * and it stays as long as the session does whether or not anything reads it
+     * again. An agent that drew twenty charts would otherwise leave twenty
+     * megabytes behind.
+     *
+     * Past this, the oldest files are removed until the session is under it -
+     * the newest being the one actually in use - and the tool's answer says
+     * which went, because an agent that finds out later is an agent that packed
+     * an archive around a file that is gone.
+     */
+    fun scratchpadFileBudgetBytes(): Long {
+        val held = settings.findByIdOrNull(SettingNames.SCRATCHPAD_FILE_BUDGET_BYTES)
+            ?: return DEFAULT_SCRATCHPAD_FILE_BYTES
+        return held.value.toLongOrNull()?.takeIf { it in MIN_FILE_BYTES..MAX_FILE_BYTES }
+            ?: DEFAULT_SCRATCHPAD_FILE_BYTES
+    }
+
+    /** What a fresh installation allows before anybody sets it: ten megabytes. */
+    fun scratchpadFileBudgetBytesConfigured(): Long = DEFAULT_SCRATCHPAD_FILE_BYTES
+
+    @Transactional
+    fun setScratchpadFileBudgetBytes(bytes: Long, by: String) {
+        if (bytes !in MIN_FILE_BYTES..MAX_FILE_BYTES) throw ScratchpadFileBudgetOutOfRangeException(bytes)
+        write(SettingNames.SCRATCHPAD_FILE_BUDGET_BYTES, bytes.toString(), by)
+    }
+
+    /**
      * Up to how many findable tools `find_tools` names outright, in its own
      * description and in a miss, so the model asks for one by name instead of
      * guessing words for a search. Above the number the tool says only how
@@ -429,6 +473,82 @@ class InstallationSettings(
     fun setToolsNamedInSearch(count: Int, by: String) {
         if (count !in MIN_TOOLS_NAMED..MAX_TOOLS_NAMED) throw ToolsNamedOutOfRangeException(count)
         write(SettingNames.TOOLS_NAMED_IN_SEARCH, count.toString(), by)
+    }
+
+    /**
+     * How many tools an agent can hold before their lines in the briefing are
+     * cut, and by how much each further block of that many costs. Issue #481.
+     *
+     * Every tool an agent holds is named in its system prompt with a phrase
+     * saying what it is for, so the model knows what it has rather than
+     * guessing words for a search. That list is cheap at twenty tools and is
+     * not at three hundred, so it is trimmed: full lines up to the first
+     * number, and for each further block of that many, this percentage comes
+     * off what is kept. The front of a phrase survives, which is why the editor
+     * says the first words matter most.
+     *
+     * Both are settings and neither is a constant, because what an installation
+     * can afford in its system prompt is a fact about its models and its
+     * plugins, not about this product.
+     */
+    /**
+     * How long a scratchpad nobody has touched is kept, in days. Issue #492.
+     *
+     * Zero is never, which is the answer for an installation keeping its pads
+     * as part of the record - so this is a keep-for rather than a delete-after,
+     * and the sweeper reads it on every pass, so a change this morning is obeyed
+     * before the next restart rather than after it.
+     *
+     * From the last change and not from when the pad was made: a document still
+     * being worked on survives, and one nobody has touched since last month is
+     * the workings of a session that is over.
+     */
+    fun scratchpadKeepDays(): Int {
+        val held = settings.findByIdOrNull(SettingNames.SCRATCHPAD_KEEP_DAYS) ?: return scratchpadKeepDaysConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_KEEP_DAYS..MAX_KEEP_DAYS } ?: scratchpadKeepDaysConfigured()
+    }
+
+    /** What a fresh installation keeps them for: thirty days. */
+    fun scratchpadKeepDaysConfigured(): Int = DEFAULT_SCRATCHPAD_KEEP_DAYS
+
+    @Transactional
+    fun setScratchpadKeepDays(days: Int, by: String) {
+        if (days !in MIN_KEEP_DAYS..MAX_KEEP_DAYS) throw ScratchpadKeepOutOfRangeException(days)
+        write(SettingNames.SCRATCHPAD_KEEP_DAYS, days.toString(), by)
+    }
+
+    fun toolSummariesFullUpTo(): Int {
+        val held = settings.findByIdOrNull(SettingNames.TOOL_SUMMARIES_FULL_UP_TO)
+            ?: return toolSummariesFullUpToConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_SUMMARIES_FULL..MAX_SUMMARIES_FULL }
+            ?: toolSummariesFullUpToConfigured()
+    }
+
+    /** What a fresh installation carries - ORKNUX_CHAT_TOOL_SUMMARIES_FULL_UP_TO. */
+    fun toolSummariesFullUpToConfigured(): Int =
+        chat.toolSummariesFullUpTo.coerceIn(MIN_SUMMARIES_FULL, MAX_SUMMARIES_FULL)
+
+    @Transactional
+    fun setToolSummariesFullUpTo(count: Int, by: String) {
+        if (count !in MIN_SUMMARIES_FULL..MAX_SUMMARIES_FULL) throw SummariesFullOutOfRangeException(count)
+        write(SettingNames.TOOL_SUMMARIES_FULL_UP_TO, count.toString(), by)
+    }
+
+    fun toolSummaryTrimPercent(): Int {
+        val held = settings.findByIdOrNull(SettingNames.TOOL_SUMMARY_TRIM_PERCENT)
+            ?: return toolSummaryTrimPercentConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_SUMMARY_TRIM..MAX_SUMMARY_TRIM }
+            ?: toolSummaryTrimPercentConfigured()
+    }
+
+    /** What a fresh installation carries - ORKNUX_CHAT_TOOL_SUMMARY_TRIM_PERCENT. */
+    fun toolSummaryTrimPercentConfigured(): Int =
+        chat.toolSummaryTrimPercent.coerceIn(MIN_SUMMARY_TRIM, MAX_SUMMARY_TRIM)
+
+    @Transactional
+    fun setToolSummaryTrimPercent(percent: Int, by: String) {
+        if (percent !in MIN_SUMMARY_TRIM..MAX_SUMMARY_TRIM) throw SummaryTrimOutOfRangeException(percent)
+        write(SettingNames.TOOL_SUMMARY_TRIM_PERCENT, percent.toString(), by)
     }
 
     /**
@@ -732,6 +852,46 @@ class SubagentsOutOfRangeException(val count: Int) : RuntimeException(
  * fill a disk. A megabyte is the default - room for a long document, not for a
  * library. Issue #411.
  */
+/**
+ * A megabyte and half a gigabyte, for what one session's files may come to, and
+ * ten megabytes to start. Issue #491.
+ *
+ * The floor is a megabyte because a budget under one picture is a budget that
+ * removes what it just wrote; the ceiling is where a session's pads stop being
+ * working files and start being somebody's disk.
+ */
+/**
+ * Never, and five years, for how long a scratchpad nobody touches is kept, with
+ * thirty days to start. Issue #492.
+ *
+ * Zero is never on purpose rather than by accident: an installation that keeps
+ * its pads as part of the record needs a way to say so, and a switch beside a
+ * number would be two controls for one decision.
+ */
+const val DEFAULT_SCRATCHPAD_KEEP_DAYS = 30
+const val MIN_KEEP_DAYS = 0
+const val MAX_KEEP_DAYS = 1825
+
+class ScratchpadKeepOutOfRangeException(val days: Int) : RuntimeException(
+    "$days is not a number of days a scratchpad can be kept for. " +
+        "Choose between $MIN_KEEP_DAYS and $MAX_KEEP_DAYS, where 0 keeps them for ever.",
+), Refusal {
+
+    override val arguments get() = mapOf("days" to days)
+}
+
+const val DEFAULT_SCRATCHPAD_FILE_BYTES = 10L * 1024 * 1024
+const val MIN_FILE_BYTES = 1L * 1024 * 1024
+const val MAX_FILE_BYTES = 512L * 1024 * 1024
+
+class ScratchpadFileBudgetOutOfRangeException(val bytes: Long) : RuntimeException(
+    "$bytes is not a size a session's files can be held to. " +
+        "Choose between ${MIN_FILE_BYTES / (1024 * 1024)} and ${MAX_FILE_BYTES / (1024 * 1024)} megabytes.",
+), Refusal {
+
+    override val arguments get() = mapOf("bytes" to bytes)
+}
+
 const val MIN_SCRATCHPAD_BYTES = 1024
 const val MAX_SCRATCHPAD_BYTES = 64 * 1024 * 1024
 const val DEFAULT_SCRATCHPAD_BYTES = 1024 * 1024
@@ -758,6 +918,37 @@ class ToolsNamedOutOfRangeException(val count: Int) : RuntimeException(
 ), Refusal {
 
     override val arguments get() = mapOf("count" to count)
+}
+
+/**
+ * Ten and a thousand, for how many tools fit before their lines are cut, and
+ * none and half, for how much each further block costs. Issue #481.
+ *
+ * The floor on the block is ten because a briefing that trims at five tools is
+ * one that never lists anything in full; the ceiling is a thousand because past
+ * that the list is the cost it exists to avoid. Zero percent is the trimming
+ * switched off, which an installation with a large model may well want, and
+ * fifty is as much as can come off before the phrase stops being a phrase.
+ */
+const val MIN_SUMMARIES_FULL = 10
+const val MAX_SUMMARIES_FULL = 1000
+const val MIN_SUMMARY_TRIM = 0
+const val MAX_SUMMARY_TRIM = 50
+
+class SummariesFullOutOfRangeException(val count: Int) : RuntimeException(
+    "$count is not a number of tools whose lines can be kept in full. " +
+        "Choose between $MIN_SUMMARIES_FULL and $MAX_SUMMARIES_FULL.",
+), Refusal {
+
+    override val arguments get() = mapOf("count" to count)
+}
+
+class SummaryTrimOutOfRangeException(val percent: Int) : RuntimeException(
+    "$percent is not a percentage a tool's line can be trimmed by. " +
+        "Choose between $MIN_SUMMARY_TRIM and $MAX_SUMMARY_TRIM.",
+), Refusal {
+
+    override val arguments get() = mapOf("percent" to percent)
 }
 
 /**

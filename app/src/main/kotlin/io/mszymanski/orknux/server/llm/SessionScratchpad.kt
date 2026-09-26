@@ -67,6 +67,24 @@ class SessionScratchpad(
     @Column(name = "shared", nullable = false)
     var shared: Boolean = false,
 
+    /**
+     * What this pad holds, where it is not text: `image/png`, `application/pdf`.
+     * Issue #490.
+     *
+     * Null is a text file, which is every pad there was before this. Where it is
+     * set, [content] is base64 and three things follow: the read tool answers
+     * with the type, the size and a key rather than the bytes, because handing a
+     * model a megabyte of base64 spends the turn and teaches it nothing; the
+     * editing tools refuse it, since there is no replacing a paragraph of a PNG;
+     * and the session page draws it as a picture.
+     *
+     * The type rather than a boolean, because everything downstream wants it -
+     * the archive names the file, the page picks the tag, an upload sets a
+     * header - and a boolean would have each of them guessing from the name.
+     */
+    @Column(name = "content_type", length = 120)
+    var contentType: String? = null,
+
     @Column(name = "created_at", nullable = false)
     val createdAt: OffsetDateTime = OffsetDateTime.now(),
 
@@ -91,6 +109,9 @@ interface SessionScratchpadRepository : JpaRepository<SessionScratchpad, Long> {
     fun findBySessionIdInAndSharedTrueOrderByNameAsc(sessionIds: Collection<Long>): List<SessionScratchpad>
 
     fun countBySessionId(sessionId: Long): Long
+
+    /** Everything nobody has touched since then, for the sweeper. Issue #492. */
+    fun findByUpdatedAtBefore(cutoff: java.time.OffsetDateTime): List<SessionScratchpad>
 
     /** The bytes this session's own pads already occupy, for the budget. */
     @Query(
@@ -145,7 +166,14 @@ class SessionScratchpadService(
      * content would put the owner over the byte budget.
      */
     @Transactional
-    fun create(sessionId: Long, name: String, description: String?, content: String): ScratchpadResult {
+    fun create(
+        sessionId: Long,
+        name: String,
+        description: String?,
+        content: String,
+        /** What it holds where it is not text; the content is then base64. Issue #490. */
+        contentType: String? = null,
+    ): ScratchpadResult {
         val clean = name.trim()
         nameProblem(clean)?.let { return ScratchpadResult.No(it) }
         if (pads.findBySessionIdAndName(sessionId, clean) != null) {
@@ -159,7 +187,13 @@ class SessionScratchpadService(
         }
         descriptionProblem(description)?.let { return ScratchpadResult.No(it) }
         val saved = pads.save(
-            SessionScratchpad(sessionId = sessionId, name = clean, description = description?.trim(), content = content),
+            SessionScratchpad(
+                sessionId = sessionId,
+                name = clean,
+                description = description?.trim(),
+                content = content,
+                contentType = contentType?.trim()?.ifEmpty { null },
+            ),
         )
         return ScratchpadResult.Ok(saved, ownedHere = true)
     }
@@ -169,10 +203,66 @@ class SessionScratchpadService(
     fun write(sessionId: Long, name: String, content: String): ScratchpadResult =
         edit(sessionId, name) { content }
 
-    /** Adds to the end of a pad. */
+    /**
+     * Adds to the end of a pad.
+     *
+     * Refused on a pad holding bytes: appending to base64 makes it neither the
+     * old picture nor a new one, and the failure would be silent. Issue #490.
+     */
     @Transactional
-    fun append(sessionId: Long, name: String, text: String): ScratchpadResult =
-        edit(sessionId, name) { it + text }
+    fun append(sessionId: Long, name: String, text: String): ScratchpadResult {
+        binaryProblem(sessionId, name, "added to")?.let { return it }
+        return edit(sessionId, name) { it + text }
+    }
+
+    /**
+     * The files this session holds, oldest first, once they pass the budget.
+     * Issue #491.
+     *
+     * Removed rather than refused. A picture is not a document an agent could
+     * have written more briefly: it is what somebody asked for, and refusing to
+     * keep it would leave the agent with nothing to send. What is safe to drop
+     * is the oldest, which has already been sent, packed or forgotten, while the
+     * one just written is the one in use.
+     *
+     * Text pads are never touched. They are small, they are the work itself,
+     * and the character budget already holds them.
+     *
+     * Answers with the names it removed, so the tool that just wrote one can say
+     * so - an agent that finds out later is one that packed an archive around a
+     * file that is gone.
+     */
+    @Transactional
+    fun sweepFiles(sessionId: Long): List<String> {
+        val budget = settings.scratchpadFileBudgetBytes()
+        val files = pads.findBySessionIdOrderByNameAsc(sessionId)
+            .filter { it.contentType != null }
+            .sortedBy { it.updatedAt }
+        var held = files.sumOf { it.content.length.toLong() }
+        if (held <= budget) return emptyList()
+
+        val swept = mutableListOf<String>()
+        for (pad in files) {
+            if (held <= budget) break
+            // Never the last one standing: a budget that removes the file just
+            // written is a budget that makes the feature useless.
+            if (pad === files.last()) break
+            held -= pad.content.length.toLong()
+            pads.delete(pad)
+            swept += pad.name
+        }
+        return swept
+    }
+
+    /** Null where this pad is text, or a refusal naming what it holds. Issue #490. */
+    private fun binaryProblem(sessionId: Long, name: String, doing: String): ScratchpadResult.No? {
+        val held = find(sessionId, name) ?: return null
+        val type = held.contentType ?: return null
+        return ScratchpadResult.No(
+            "\"${held.name}\" holds a $type, so it cannot be $doing. " +
+                "Write the whole file again to replace it.",
+        )
+    }
 
     /**
      * Replaces one occurrence of a piece of text in a pad, the cheap way to
@@ -181,6 +271,8 @@ class SessionScratchpadService(
     @Transactional
     fun replace(sessionId: Long, name: String, old: String, new: String): ScratchpadResult {
         if (old.isEmpty()) return ScratchpadResult.No("Say what text to replace.")
+        // No such thing as replacing a paragraph of a PNG. Issue #490.
+        binaryProblem(sessionId, name, "edited")?.let { return it }
         val found = resolve(sessionId, name) ?: return missing(name)
         val pad = found.first
         val at = pad.content.indexOf(old)

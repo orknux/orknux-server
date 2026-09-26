@@ -134,6 +134,7 @@ class ToolAPI(
                 workspaceId = input.workspaceId,
                 name = name,
                 description = input.description?.trim()?.ifEmpty { null }?.also(::requireDescriptionFits),
+                summary = input.summary?.trim()?.ifEmpty { null }?.also(::requireSummaryFits),
                 source = code.javascript,
                 typescript = code.typescript,
                 params = params,
@@ -167,6 +168,7 @@ class ToolAPI(
             tool.name = name
         }
         input.description?.let { tool.description = it.trim().ifEmpty { null }?.also(::requireDescriptionFits) }
+        input.summary?.let { tool.summary = it.trim().ifEmpty { null }?.also(::requireSummaryFits) }
         /*
          * Both halves or neither. A write that moved one would leave the editor
          * showing code the sandbox is not running, which is the one failure this
@@ -313,6 +315,7 @@ class ToolAPI(
         workspaceId = tool.workspaceId,
         name = tool.name,
         description = tool.description,
+        summary = tool.summary,
         source = tool.source,
         typescript = tool.typescript,
         params = params,
@@ -531,6 +534,11 @@ class ToolAPI(
         access.requireVisible(workspaceId)
     }
 
+    /** The line in the briefing, held to the column. Issue #481. */
+    private fun requireSummaryFits(summary: String) {
+        if (summary.length > SUMMARY_LIMIT) throw ToolSummaryTooLongException(summary.length, SUMMARY_LIMIT)
+    }
+
     private fun requireDescriptionFits(description: String) {
         if (description.length > DESCRIPTION_LIMIT) {
             throw ToolDescriptionTooLongException(description.length, DESCRIPTION_LIMIT)
@@ -543,6 +551,13 @@ class ToolAPI(
 
         /** As much description as the column holds. Checked here so going over is a refusal, not an internal error. */
         const val DESCRIPTION_LIMIT = 4000
+
+        /**
+         * And as much summary. Fifty characters is a phrase, which is the
+         * point: every tool the agent holds is listed in its briefing, and a
+         * list of sentences is a list nobody can afford. Issue #481.
+         */
+        const val SUMMARY_LIMIT = MOST_TOOL_SUMMARY_CHARS
 
         /**
          * What a tool takes when nobody said: one object, called `input`.
@@ -567,6 +582,8 @@ data class CreateToolInput(
     val workspaceId: Long,
     val name: String,
     val description: String? = null,
+    /** The line it gets in an agent's briefing, 50 characters at most. Issue #481. */
+    val summary: String? = null,
     /** Both left out for a new tool, which starts from a stub that parses. */
     val source: String? = null,
     val typescript: String? = null,
@@ -583,6 +600,8 @@ data class CreateToolInput(
 data class UpdateToolInput(
     val name: String? = null,
     val description: String? = null,
+    /** Null leaves it alone; an empty string clears it. Issue #481. */
+    val summary: String? = null,
     val source: String? = null,
     val typescript: String? = null,
     /** Null leaves them alone; an empty list takes them all off. */
@@ -612,6 +631,8 @@ data class ToolView(
     val workspaceId: Long,
     val name: String,
     val description: String?,
+    /** The line it gets in an agent's briefing, or null where nobody wrote one. Issue #481. */
+    val summary: String?,
     val source: String,
     val typescript: String,
     val params: List<ToolParamView>,

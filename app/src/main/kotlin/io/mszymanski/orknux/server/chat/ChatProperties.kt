@@ -76,4 +76,12 @@ data class ChatProperties(
      * starts. Issue #442.
      */
     val toolsNamedInSearch: Int = 40,
+
+    /**
+     * How many tools an agent may hold before the lines in its briefing are
+     * cut, and how much comes off them for each further block of that many.
+     * Issue #481.
+     */
+    val toolSummariesFullUpTo: Int = 100,
+    val toolSummaryTrimPercent: Int = 25,
 )

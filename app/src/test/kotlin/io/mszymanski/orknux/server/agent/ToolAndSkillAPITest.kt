@@ -481,7 +481,18 @@ class ToolAndSkillAPITest(
             }
             """,
         ).execute()
-            .path("updateAgent.tools").entityList(String::class.java).containsExactly(*tools.toTypedArray())
+            /*
+             * The workspace's tools, and every built-in beside them. Issue
+             * #482: a built-in is offered to every agent and can only be hidden
+             * where a workspace has said it will take that risk, so a save that
+             * names no built-in no longer takes them away - which is what this
+             * used to assert, and what left agents without a clock.
+             */
+            .path("updateAgent.tools").entityList(String::class.java).get()
+            .let { held ->
+                assertThat(held).containsAll(tools)
+                assertThat(held).containsAll(io.mszymanski.orknux.server.chat.BuiltInTools.GRANTED)
+            }
     }
 
     private fun expectInvalid(content: String, reason: String) {

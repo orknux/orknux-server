@@ -128,6 +128,7 @@ class BuiltInTools(
             AgentTools.SAVE_ARTIFACT,
             AgentTools.BASE64_ENCODE,
             AgentTools.BASE64_DECODE,
+            ZipTools.ZIP_FILES,
             ConnectionTools.FIND,
             AgentRunTools.ASK,
             AgentRunTools.ASKS,

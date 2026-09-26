@@ -69,7 +69,15 @@ class AgentToolCallTest(
         providers.deleteAll()
         audit.deleteAll()
         workspaces.deleteAll()
-        workspaceId = requireNotNull(workspaces.save(Workspace(name = "backend")).id)
+        /*
+         * With hiding built-ins allowed: this class is about what the round
+         * withholds, and since #482 a built-in is offered to every agent unless
+         * the workspace has said it will take the risk of taking one away. The
+         * gate itself is pinned in BuiltInToolsTest.
+         */
+        workspaceId = requireNotNull(
+            workspaces.save(Workspace(name = "backend", unsafeBuiltInTools = true)).id,
+        )
         received.clear()
     }
 

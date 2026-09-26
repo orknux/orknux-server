@@ -63,10 +63,72 @@ class InstallationSettingsAPI(
         commandMarkerConfigured = settings.commandMarkerConfigured(),
         toolsNamedInSearch = settings.toolsNamedInSearch(),
         toolsNamedInSearchConfigured = settings.toolsNamedInSearchConfigured(),
+        scratchpadFileBudgetBytes = settings.scratchpadFileBudgetBytes(),
+        scratchpadKeepDays = settings.scratchpadKeepDays(),
+        scratchpadKeepDaysConfigured = settings.scratchpadKeepDaysConfigured(),
+        scratchpadFileBudgetBytesConfigured = settings.scratchpadFileBudgetBytesConfigured(),
+        toolSummariesFullUpTo = settings.toolSummariesFullUpTo(),
+        toolSummariesFullUpToConfigured = settings.toolSummariesFullUpToConfigured(),
+        toolSummaryTrimPercent = settings.toolSummaryTrimPercent(),
+        toolSummaryTrimPercentConfigured = settings.toolSummaryTrimPercentConfigured(),
         sessionsRemovable = settings.sessionsRemovable(),
         sessionsActiveWindowSeconds = settings.sessionsActiveWindowSeconds(),
         sessionsActiveWindowSecondsConfigured = settings.sessionsActiveWindowSecondsConfigured(),
     )
+
+    /** How long a scratchpad nobody touches is kept; zero keeps them for ever. Issue #492. */
+    @MutationMapping
+    fun setScratchpadKeepDays(@Argument days: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setScratchpadKeepDays(days, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            if (days == 0) "Scratchpads are kept for ever" else "Scratchpads are kept for $days days",
+        )
+        return installationSettings()
+    }
+
+    /** What the files in one session's scratchpads may come to. Issue #491. */
+    @MutationMapping
+    fun setScratchpadFileBudgetBytes(@Argument bytes: Long): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setScratchpadFileBudgetBytes(bytes, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "A session's scratchpad files may come to ${bytes / (1024 * 1024)} MB",
+        )
+        return installationSettings()
+    }
+
+    /**
+     * How many tools fit in a briefing before their lines are cut, and by how
+     * much each further block of that many cuts them. Issue #481.
+     */
+    @MutationMapping
+    fun setToolSummariesFullUpTo(@Argument count: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setToolSummariesFullUpTo(count, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "A tool's line in a briefing is kept whole up to $count tools",
+        )
+        return installationSettings()
+    }
+
+    @MutationMapping
+    fun setToolSummaryTrimPercent(@Argument percent: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setToolSummaryTrimPercent(percent, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "Each further block of tools takes $percent% off a tool's line",
+        )
+        return installationSettings()
+    }
 
     /**
      * Up to how many findable tools `find_tools` names outright. Issue #442.
@@ -504,6 +566,18 @@ data class InstallationSettingsView(
     val commandMarkerConfigured: String,
     /** Up to how many findable tools find_tools names outright; zero never does. Issue #442. */
     val toolsNamedInSearch: Int,
+    /** How many tools fit before their lines in a briefing are cut. Issue #481. */
+    /** What the files in one session's scratchpads may come to, in bytes. Issue #491. */
+    val scratchpadFileBudgetBytes: Long,
+    /** How long a scratchpad nobody touches is kept, in days; zero is for ever. Issue #492. */
+    val scratchpadKeepDays: Int,
+    val scratchpadKeepDaysConfigured: Int,
+    val scratchpadFileBudgetBytesConfigured: Long,
+    val toolSummariesFullUpTo: Int,
+    val toolSummariesFullUpToConfigured: Int,
+    /** And what each further block of that many costs, in percent. Issue #481. */
+    val toolSummaryTrimPercent: Int,
+    val toolSummaryTrimPercentConfigured: Int,
     /** What a fresh installation names - ORKNUX_CHAT_TOOLS_NAMED_IN_SEARCH. */
     val toolsNamedInSearchConfigured: Int,
     /**

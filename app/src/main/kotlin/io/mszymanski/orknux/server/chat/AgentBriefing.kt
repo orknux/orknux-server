@@ -2,8 +2,19 @@ package io.mszymanski.orknux.server.chat
 
 import io.mszymanski.orknux.connector.connection.WorkspaceConnectionService
 import io.mszymanski.orknux.server.agent.Agent
+import io.mszymanski.orknux.server.agent.MOST_TOOL_SUMMARY_CHARS
 import io.mszymanski.orknux.server.agent.SkillTool
 import org.springframework.stereotype.Service
+
+/**
+ * The shortest a trimmed line is allowed to get. Issue #481.
+ *
+ * A phrase cut to nothing is a name with a colon after it, which is worse than
+ * a name on its own: it reads as a description that failed to load. Eight
+ * characters is about two words, which is the least that can still say
+ * something.
+ */
+private const val SHORTEST_SUMMARY = 8
 
 /**
  * What an agent is told before anything is said to it.
@@ -50,6 +61,14 @@ class AgentBriefing(
      * written, by which time everything exists. Issue #476.
      */
     private val runTools: org.springframework.beans.factory.ObjectProvider<AgentRunTools>,
+    /**
+     * Every tool this agent holds, for the inventory below. Issue #481.
+     *
+     * Through a provider for the reason the asks are: [AgentTools] reaches the
+     * conversation and the conversation reaches this, so a direct edge is a
+     * cycle refused at startup.
+     */
+    private val tools: org.springframework.beans.factory.ObjectProvider<AgentTools>,
     /** For the command marker the agent advertises its skills under. Issue #381. */
     private val workspaces: io.mszymanski.orknux.server.workspace.WorkspaceRepository,
     /** The installation's default marker, where the workspace has none. Issue #402. */
@@ -244,6 +263,44 @@ class AgentBriefing(
          * agent that knows it has two asks spends them on the two things worth
          * asking about - and the refusal is what stops the pretending.
          */
+        /*
+         * What it holds, by name, always. Issue #481.
+         *
+         * The request carries the tools it may call, and that used to be the
+         * whole of what an agent knew: with a ceiling set, only some of them
+         * travel at a time and the rest are behind a search - so an agent
+         * looking for something reached for words it hoped existed, and gave up
+         * where nothing matched. The inventory is the fix: every tool it holds,
+         * named, with a phrase saying what it is for, in the one place that is
+         * always in front of the model.
+         *
+         * Trimmed rather than dropped where an agent holds a great many. The
+         * two numbers are the installation's, because what a system prompt can
+         * afford is a fact about its models and its plugins: lines are whole up
+         * to the first, and each further block of that many costs the second in
+         * percent. The front of the phrase is what survives, which is what the
+         * editor tells whoever writes one.
+         */
+        val held = tools.getObject().specsFor(agent)
+        if (held.isNotEmpty()) {
+            val block = installation.toolSummariesFullUpTo()
+            val step = installation.toolSummaryTrimPercent()
+            val blocks = ((held.size - 1) / block).coerceAtLeast(0)
+            val kept = (MOST_TOOL_SUMMARY_CHARS * (100 - blocks * step).coerceAtLeast(0) / 100)
+                .coerceAtLeast(SHORTEST_SUMMARY)
+            parts += buildString {
+                append("These are the tools you have, all of them, whether or not they are in front of you ")
+                append("this turn. Where one is not offered in this round, search for it by the name below ")
+                appendLine("rather than guessing at words.")
+                held.sortedBy { it.name }.forEach { spec ->
+                    val said = spec.summary?.trim()?.ifEmpty { null } ?: spec.description.trim()
+                    appendLine()
+                    append("- ").append(spec.name)
+                    said.take(kept).trim().takeIf { it.isNotEmpty() }?.let { append(": ").append(it) }
+                }
+            }
+        }
+
         val asks = runTools.getObject()
         if (asks.offered(agent)) {
             parts += buildString {

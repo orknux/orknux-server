@@ -88,6 +88,25 @@ class AgentTool(
     @Column(length = 4000)
     var description: String? = null,
 
+    /**
+     * The one line that goes in the system prompt, at most
+     * [MOST_TOOL_SUMMARY_CHARS] characters. Issue #481.
+     *
+     * Apart from [description], which is read at the moment of calling by a
+     * model that has already decided to call something. This is read before
+     * that: every tool the agent holds is listed in its briefing, so it knows
+     * what it has rather than searching for words it hopes exist. A list like
+     * that is only affordable if each line is short, which is what the bound is
+     * for - and why the front of the line matters most, since a long list is
+     * trimmed from the end.
+     *
+     * Null where nobody wrote one, and the description's own first words stand
+     * in: a tool that says nothing about itself in the list is worse than one
+     * described badly.
+     */
+    @Column(length = 50)
+    var summary: String? = null,
+
     /** What runs: the JavaScript the editor compiled from [typescript]. */
     @Column(nullable = false, columnDefinition = "text")
     var source: String,
@@ -266,6 +285,24 @@ class ToolSourceInvalidException(val reason: String) : RuntimeException(reason),
  */
 class ToolDescriptionTooLongException(val length: Int, val limit: Int) : RuntimeException(
     "The description is $length characters and at most $limit fit",
+), Refusal {
+
+    override val arguments get() = mapOf("length" to length, "limit" to limit)
+}
+
+/**
+ * How long a tool's line in the system prompt may be. Issue #481.
+ *
+ * Fifty characters is a phrase, not a sentence, and that is the point: every
+ * tool an agent holds is listed in its briefing, so the list has to stay
+ * affordable at a hundred tools as well as at five. A long list is trimmed from
+ * the end, which is why what goes at the front of the phrase matters most.
+ */
+const val MOST_TOOL_SUMMARY_CHARS = 50
+
+/** The one line a tool gets in the system prompt is fifty characters. Issue #481. */
+class ToolSummaryTooLongException(val length: Int, val limit: Int) : RuntimeException(
+    "The summary is $length characters and at most $limit fit",
 ), Refusal {
 
     override val arguments get() = mapOf("length" to length, "limit" to limit)

@@ -694,6 +694,34 @@ class WorkspaceAPI(
      * an agent asks, so it applies to the next ask and not to conversations
      * already had. Issue #380.
      */
+    /**
+     * Whether this workspace's agents may have a built-in tool hidden. Issue #482.
+     *
+     * Off, and the screen says why: the tools the server brings are what the
+     * product is built on, and an agent missing one behaves in ways nothing
+     * here can stand behind. What this opens is the ability to switch them,
+     * never the switching itself - the rows stay where they are, and become
+     * pressable.
+     */
+    @MutationMapping
+    @Transactional
+    fun setWorkspaceUnsafeBuiltInTools(@Argument workspaceId: Long, @Argument allowed: Boolean): Workspace {
+        val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
+        access.requireVisible(workspace)
+
+        workspace.unsafeBuiltInTools = allowed
+        auditRecorder.record(
+            workspaceId,
+            WorkspaceAuditCategory.WORKSPACE,
+            if (allowed) {
+                "Built-in tools may be hidden from this workspace's agents"
+            } else {
+                "Built-in tools are offered to every agent in this workspace again"
+            },
+        )
+        return workspace
+    }
+
     @MutationMapping
     @Transactional
     fun setWorkspaceAgentMaxSubagents(@Argument workspaceId: Long, @Argument count: Int?): Workspace {

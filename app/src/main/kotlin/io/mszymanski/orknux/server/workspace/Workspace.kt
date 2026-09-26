@@ -246,6 +246,25 @@ class Workspace(
     var agentMaxSubagents: Int? = null,
 
     /**
+     * Whether this workspace's agents may have built-in tools hidden from them.
+     * Issue #482.
+     *
+     * Off, and off is the answer almost everybody should keep. The tools the
+     * server brings are what the product is built on - a scratchpad to work in,
+     * a way to finish a turn, a clock, a note, a way to ask another agent - and
+     * an agent missing one of them behaves in ways nothing here can stand
+     * behind: it retypes a file it could have kept, it answers in prose because
+     * it cannot say it has finished, it invents today's date.
+     *
+     * So hiding one is refused unless a workspace has said, in as many words,
+     * that it will take that risk. What is switched here is the *ability to
+     * switch*, which is why it reads as unsafe on the screen: the setting does
+     * nothing on its own and only ever opens a door.
+     */
+    @Column(name = "unsafe_built_in_tools", nullable = false)
+    var unsafeBuiltInTools: Boolean = false,
+
+    /**
      * What marks a command in a message that starts a run here: `!review`.
      *
      * Orknux's own, because Slack polices `/`: a slash command has to be

@@ -1183,6 +1183,14 @@ type Mutation {
     Administrators only. Issue #442.
     """
     setToolsNamedInSearch(count: Int!): InstallationSettings!
+    "What one session's scratchpad files may come to, 1 MB to 512 MB. Issue #491."
+    setScratchpadFileBudgetBytes(bytes: Float!): InstallationSettings!
+    "How long a scratchpad nobody touches is kept, 0 to 1825 days; 0 is for ever. Issue #492."
+    setScratchpadKeepDays(days: Int!): InstallationSettings!
+    "How many tools fit in a briefing before their lines are cut, 10 to 1000. Issue #481."
+    setToolSummariesFullUpTo(count: Int!): InstallationSettings!
+    "And what each further block of that many takes off a line, 0 to 50 percent. Issue #481."
+    setToolSummaryTrimPercent(percent: Int!): InstallationSettings!
     """
     How long a session counts as active after its last line, between 1 and 3600
     seconds. The recency half of the sessions list's dot; an open line is the
@@ -1649,6 +1657,15 @@ type Mutation {
     """
     setWorkspaceAgentMaxSubagents(workspaceId: ID!, count: Int): Workspace!
     """
+    Whether this workspace's agents may have a built-in tool hidden from them.
+
+    Off, and off is what almost everybody should keep: the tools Orknux brings
+    are what the product is built on, and an agent missing one behaves in ways
+    this product cannot stand behind. What this opens is the ability to switch
+    those rows, never the switching itself. Issue #482.
+    """
+    setWorkspaceUnsafeBuiltInTools(workspaceId: ID!, allowed: Boolean!): Workspace!
+    """
     What marks a command in a message that starts a run here; one to three
     characters, none a letter, a digit or a space. Issue #381.
     """
@@ -2055,6 +2072,13 @@ type Workspace {
     agentMaxSubagents: Int
     "What an agent here gets when `agentMaxSubagents` is null: the installation's number."
     agentMaxSubagentsDefault: Int!
+    """
+    Whether an agent here may have a built-in tool hidden from it.
+
+    False, and the agent's Tools list draws the built-in rows fixed while it is,
+    with the reason on hover. Issue #482.
+    """
+    unsafeBuiltInTools: Boolean!
     """
     What marks a command in a message that starts a run here - `!review`.
     Null follows the installation's; a workspace may carry its own. Issue #381, #402.
@@ -3531,6 +3555,18 @@ type Tool {
     name: String!
     "What the tool is for. An agent reads this to decide whether to call it."
     description: String
+    """
+    The phrase this tool is listed by where every tool is listed at once, at
+    most 50 characters.
+
+    Apart from the description, which is read at the moment of calling by a
+    model that has already decided to call something. This is read before that:
+    an agent's briefing names everything it holds, so it knows what it has
+    rather than guessing words for a search. A long list is trimmed from the
+    end, so the first words are the ones that survive. Null where nobody wrote
+    one, and the description's first words stand in.
+    """
+    summary: String
     "The JavaScript that runs."
     source: String!
     "The TypeScript it was compiled from, which is what the editor opens."
@@ -3819,6 +3855,8 @@ input ToolParamInput {
 }
 
 input CreateToolInput {
+    "The phrase it is listed by in an agent's briefing, 50 characters at most."
+    summary: String
     workspaceId: ID!
     name: String!
     description: String
@@ -3841,6 +3879,8 @@ input CreateToolInput {
 }
 
 input UpdateToolInput {
+    "The phrase it is listed by in an agent's briefing, 50 characters at most."
+    summary: String
     name: String
     description: String
     "The compiled JavaScript. Given together with `typescript` or not at all."
@@ -6098,6 +6138,45 @@ type InstallationSettings {
     toolsNamedInSearch: Int!
     "What a fresh installation names - ORKNUX_CHAT_TOOLS_NAMED_IN_SEARCH."
     toolsNamedInSearchConfigured: Int!
+    """
+    How long a scratchpad nobody has touched is kept, in days; zero keeps them
+    for ever.
+
+    From the last change and not from when it was made, so a document still
+    being worked on survives. A sweeper removes what is older on a timer, and
+    the session's transcript is left alone: these are the workings beside it.
+    Issue #492.
+    """
+    scratchpadKeepDays: Int!
+    "What a fresh installation keeps them for."
+    scratchpadKeepDaysConfigured: Int!
+    """
+    What the files in one session's scratchpads may come to, in bytes.
+
+    Apart from the character budget above, which holds the text an agent writes.
+    A picture kept in a pad is base64 in a text column and stays as long as the
+    session does, so past this the oldest files are removed until the session is
+    under it and the tool's answer says which went. Ten megabytes to start with.
+    Issue #491.
+    """
+    scratchpadFileBudgetBytes: Float!
+    "What a fresh installation allows before anybody sets it."
+    scratchpadFileBudgetBytesConfigured: Float!
+    """
+    How many tools an agent may hold before the lines in its briefing are cut,
+    and by how much each further block of that many cuts them.
+
+    Every tool an agent holds is named in its system prompt with a phrase saying
+    what it is for. That is cheap at twenty tools and is not at three hundred,
+    so lines are whole up to the first number and each further block of that
+    many takes the second off what is kept, front first. Issue #481.
+    """
+    toolSummariesFullUpTo: Int!
+    "What a fresh installation carries - ORKNUX_CHAT_TOOL_SUMMARIES_FULL_UP_TO."
+    toolSummariesFullUpToConfigured: Int!
+    toolSummaryTrimPercent: Int!
+    "What a fresh installation carries - ORKNUX_CHAT_TOOL_SUMMARY_TRIM_PERCENT."
+    toolSummaryTrimPercentConfigured: Int!
     """
     Whether a conversation may be thrown away.
 

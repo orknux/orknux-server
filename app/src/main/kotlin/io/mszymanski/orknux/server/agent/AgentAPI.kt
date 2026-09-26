@@ -412,7 +412,22 @@ class AgentAPI(
              */
             val given = input.tools.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
             agent.tools = given.filterNot { BuiltInTools.switchable(it) }.toMutableList()
-            agent.hiddenTools = BuiltInTools.hiddenBy(given)
+            /*
+             * And the built-ins, which are only this agent's to hide where the
+             * workspace has said so. Issue #482.
+             *
+             * The tools the server brings are what the product is built on,
+             * and an agent missing one behaves in ways nothing here can stand
+             * behind - so while a workspace has not said it will take that
+             * risk, every built-in stays offered whatever arrives here. The
+             * screen draws those rows fixed with the reason on hover, so
+             * nothing is asking for it; this is what makes the rule true for
+             * the doors that are not the screen - the MCP, a script, an import
+             * - without turning each of them into a refusal somebody has to
+             * handle.
+             */
+            val allowed = workspaces.findByIdOrNull(agent.workspaceId)?.unsafeBuiltInTools == true
+            agent.hiddenTools = if (allowed) BuiltInTools.hiddenBy(given) else mutableListOf()
         }
         /*
          * The three switches that were columns, kept as a way of saying the same

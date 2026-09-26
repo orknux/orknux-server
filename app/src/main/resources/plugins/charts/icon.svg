@@ -1,0 +1,13 @@
+<!--
+  Three columns on a baseline, for a light listing. Drawn here; it fronts no service and has no mark.
+  Regenerate with plugins/icons.mjs; do not hand-edit.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img">
+  <title>Three columns on a baseline</title>
+  <g fill="none" stroke="#1E232B" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 20.5h18"/>
+    <path d="M6 16.5v-6"/>
+    <path d="M12 16.5V5.5"/>
+    <path d="M18 16.5v-9"/>
+  </g>
+</svg>

@@ -238,6 +238,9 @@ class AgentTools(
                     ToolSpec(
                         name = tool.name,
                         description = tool.description ?: "One of this workspace's tools.",
+                        // The phrase the briefing lists it by, where its author
+                        // wrote one. Issue #481.
+                        summary = tool.summary,
                         /*
                          * What the tool says it takes. Every tool used to be shown
                          * as taking one optional `input`, whatever it actually

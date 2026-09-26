@@ -47,9 +47,48 @@ class BuiltInToolsTest(
 
     @BeforeEach
     fun make() {
-        workspaceId = requireNotNull(
-            (workspaces.findByName("built-ins") ?: workspaces.save(Workspace(name = "built-ins"))).id,
-        )
+        val workspace = workspaces.findByName("built-ins") ?: workspaces.save(Workspace(name = "built-ins"))
+        /*
+         * Hiding a built-in is the workspace's to allow. Issue #482: the tools
+         * the server brings are offered to every agent unless a workspace has
+         * said, in as many words, that it will take the risk of taking one
+         * away - and these tests are about what happens when it has. The gate
+         * itself is pinned below.
+         */
+        workspace.unsafeBuiltInTools = true
+        workspaces.save(workspace)
+        workspaceId = requireNotNull(workspace.id)
+    }
+
+    /**
+     * And the gate: while a workspace has not allowed it, nothing hides.
+     *
+     * Issue #482. An agent without a clock invents today's date and an agent
+     * that cannot say it has finished answers in prose - behaviour nothing here
+     * can stand behind, and none of it reads as a missing tool to the person
+     * watching. So a save that names no built-in leaves them all offered, on
+     * every door: the screen draws those rows fixed, and this is what makes it
+     * true for the MCP, a script and an import as well.
+     */
+    @Test
+    fun `a workspace that has not allowed it keeps every built-in offered`() {
+        val workspace = requireNotNull(workspaces.findByName("built-ins"))
+        workspace.unsafeBuiltInTools = false
+        workspaces.save(workspace)
+        try {
+            val id = created("Fixed")
+            graphQlTester.document(
+                """mutation { updateAgent(id: $id, input: { name: "Fixed", tools: [] }) { tools } }""",
+            ).execute().path("updateAgent.tools").entityList(String::class.java).get()
+                .let { held -> assertThat(held).containsAll(BuiltInTools.GRANTED) }
+
+            assertThat(requireNotNull(agents.findByIdOrNull(id)).hiddenTools)
+                .describedAs("nothing is hidden while the workspace has not allowed it")
+                .isEmpty()
+        } finally {
+            workspace.unsafeBuiltInTools = true
+            workspaces.save(workspace)
+        }
     }
 
     /* ------------------------------------------------------ the inventory -- */

@@ -46,6 +46,15 @@ class ScratchpadTools(
      * thing the output cap cuts off.
      */
     private val scratch: io.mszymanski.orknux.server.llm.LlmSessionStore,
+    /**
+     * Putting several of these files into one. Issue #467.
+     *
+     * Lent with the pads rather than beside them: it reads what the session
+     * holds and writes back into the same store, so it exists exactly where
+     * they do - in a session - and an agent that has no working files has
+     * nothing to zip.
+     */
+    private val zips: ZipTools,
     private val mapper: ObjectMapper,
 ) {
 
@@ -72,6 +81,19 @@ class ScratchpadTools(
             append("with $APPEND, change a piece with $REPLACE, and read it back with $READ before you hand it ")
             append("on; $LIST says what you have already started. Working in a scratchpad and then posting the ")
             append("result beats composing the whole of it in one answer. ")
+            /*
+             * And the habit that matters most, said where the pads are
+             * introduced. Issue #486: an agent read a 5000-character pad and
+             * then wrote 6671 characters back to change part of it - the whole
+             * document through the model twice, most of a turn's budget spent
+             * retyping text nobody touched, and the place a truncated write
+             * loses work. Coding agents edit a file in place; so should this.
+             */
+            append("Edit a pad in place: once it exists, change it with ").append(REPLACE)
+            append(" or add to it with ").append(APPEND).append(", the way you would edit a file. ")
+            append("Writing the whole document again is for making one, or for a rewrite that really is total - ")
+            append("resending a page to change a paragraph costs the whole page twice and is where a long ")
+            append("file gets cut off. ")
             append("To hand a pad to a tool that takes a key - an upload, a message, a mail - call ")
             append(KEEP).append(" and pass the key it answers with, rather than reading the pad and typing ")
             append("its content into the call.")
@@ -99,13 +121,23 @@ class ScratchpadTools(
             ),
             ToolSpec(
                 name = WRITE,
-                description = "Creates a scratchpad, or replaces the whole content of one that exists. Use " +
-                    "$APPEND or $REPLACE to change part of a large file rather than resending it. You may set " +
-                    "$DESCRIPTION to say what the file is for.",
+                description = "Creates a scratchpad. On one that already exists this replaces the whole " +
+                    "content, which is rarely what you want: to change part of a pad use $REPLACE, and to add " +
+                    "to the end use $APPEND. Sending the whole document again to change a paragraph costs the " +
+                    "page twice over and is where a long file gets cut off - edit it in place instead, the way " +
+                    "you would edit a file. You may set $DESCRIPTION to say what the file is for.",
                 parameters = listOf(
                     ToolParameterSpec(NAME, "The scratchpad's name, like a filename.", required = true),
                     ToolParameterSpec(CONTENT, "The whole content to write.", required = true),
                     ToolParameterSpec(DESCRIPTION, "What this scratchpad is for, in a line.", required = false),
+                    ToolParameterSpec(
+                        CONTENT_TYPE,
+                        "Set this to keep a file rather than text - \"image/png\", \"application/pdf\" - and " +
+                            "send the file's base64 as the content. A pad kept this way sits beside your " +
+                            "text files, goes into an archive under its own name, and is never read back at " +
+                            "you as base64. Leave it out for anything you would read.",
+                        required = false,
+                    ),
                 ),
             ),
             ToolSpec(
@@ -167,9 +199,17 @@ class ScratchpadTools(
                     ToolParameterSpec(NAME, "Which scratchpad to remove.", required = true),
                 ),
             ),
-        )
+        ) + zips.descriptors().map { one ->
+            // The archive tool, drawn from its own descriptor so its words live
+            // with its code. Issue #467.
+            ToolSpec(
+                name = one.name,
+                description = one.description,
+                parameters = one.parameters.map { ToolParameterSpec(it.name, it.description, it.required) },
+            )
+        }
 
-        override fun handles(name: String): Boolean = name in NAMES
+        override fun handles(name: String): Boolean = name in NAMES || zips.handles(name)
 
         override fun run(call: ToolCall): String {
             val args = runCatching { mapper.readTree(call.arguments) }.getOrNull() ?: mapper.createObjectNode()
@@ -183,7 +223,11 @@ class ScratchpadTools(
                 SHARE -> shared(args)
                 KEEP -> kept(args)
                 DELETE -> deleted(args)
-                else -> refusal("There is no scratchpad tool called ${call.name}.")
+                else -> if (zips.handles(call.name)) {
+                    zips.run(call.arguments, session)
+                } else {
+                    refusal("There is no scratchpad tool called ${call.name}.")
+                }
             }
         }
 
@@ -236,6 +280,27 @@ class ScratchpadTools(
         private fun read(args: JsonNode): String {
             val name = text(args, NAME) ?: return refusal("Say which scratchpad to read.")
             val pad = pads.find(session, name) ?: return refusal("There is no scratchpad named \"$name\" in this session.")
+            /*
+             * A pad holding bytes answers with what it is, not with the bytes.
+             * Issue #490: a megabyte of base64 spends the turn and tells the
+             * model nothing it can act on - what it can act on is the key,
+             * which every tool that sends or packs a file takes.
+             */
+            pad.contentType?.let { type ->
+                val key = KEPT_PREFIX + pad.name
+                scratch.put(session, key, pad.content)
+                return mapper.writeValueAsString(
+                    mapOf(
+                        "name" to pad.name,
+                        "description" to pad.description,
+                        "contentType" to type,
+                        "bytes" to pad.content.length * 3 / 4,
+                        "contentKey" to key,
+                        "note" to "This scratchpad holds a file, not text. Pass contentKey to whatever " +
+                            "sends, uploads or packs it; zip_files takes the scratchpad's name directly.",
+                    ),
+                )
+            }
             val from = int(args, FROM)?.coerceAtLeast(0) ?: 0
             val length = int(args, LENGTH)
             val whole = pad.content
@@ -259,9 +324,17 @@ class ScratchpadTools(
             val name = text(args, NAME) ?: return refusal("Say the scratchpad's name.")
             val content = text(args, CONTENT) ?: return refusal("Say what to write.")
             val description = text(args, DESCRIPTION)
+            /*
+             * A file rather than text, where the call says so. Issue #490: a
+             * report's pictures belong beside its pages, not in a second place
+             * the agent has to remember, and a pad that says what it holds is
+             * what lets the read tool, the archive and the screen each do the
+             * right thing with it.
+             */
+            val type = text(args, CONTENT_TYPE)?.trim()?.ifEmpty { null }
             val existing = pads.find(session, name)
             val result = if (existing == null || existing.sessionId != session) {
-                pads.create(session, name, description, content)
+                pads.create(session, name, description, content, type)
             } else {
                 val written = pads.write(session, name, content)
                 if (written is ScratchpadResult.Ok && description != null) {
@@ -270,7 +343,25 @@ class ScratchpadTools(
                     written
                 }
             }
-            return report(result, "written")
+            /*
+             * And the sweep, where this one was a file. Issue #491: the oldest
+             * go once the session is over its budget, and the answer says which
+             * - an agent told afterwards is one that packed an archive around a
+             * file that is no longer there.
+             */
+            if (type == null) return report(result, "written")
+            val swept = pads.sweepFiles(session)
+            if (swept.isEmpty()) return report(result, "written")
+            return mapper.writeValueAsString(
+                mapOf(
+                    "written" to true,
+                    "name" to name,
+                    "contentType" to type,
+                    "removed" to swept,
+                    "note" to "This session's files went over their budget, so the oldest were removed. " +
+                        "Send or pack anything you still need rather than leaving it here.",
+                ),
+            )
         }
 
         private fun appended(args: JsonNode): String {
@@ -344,6 +435,12 @@ class ScratchpadTools(
 
         const val NAME = "name"
         const val CONTENT = "content"
+
+        /** What a pad holds where it is not text, so the content is base64. Issue #490. */
+        const val CONTENT_TYPE = "contentType"
+
+        /** What a binary pad's bytes are put under when it is read. Issue #490. */
+        const val KEPT_PREFIX = "pad:"
         const val TEXT = "text"
         const val DESCRIPTION = "description"
         const val FROM = "from"

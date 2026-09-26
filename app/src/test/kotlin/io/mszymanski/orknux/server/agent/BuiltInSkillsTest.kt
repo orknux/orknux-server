@@ -26,7 +26,7 @@ class BuiltInSkillsTest(
         val catalog = builtIn.catalogs().single()
         assertThat(catalog.name).isEqualTo(BuiltInSkills.CATALOG)
         assertThat(catalog.plugin).isEqualTo("Orknux")
-        assertThat(catalog.skills.map { it.name }).contains("Caveman", "TL;DR", "Angryman", "Grill me", "Plan", "Memory", "Commands", "Output format", "Language", "Agents")
+        assertThat(catalog.skills.map { it.name }).contains("Caveman", "TL;DR", "Angryman", "Grill me", "Plan", "Memory", "Commands", "Output format", "Language", "Agents", "Complex HTML")
         // Every one of them is a skill by the rules a workspace's own is held
         // to - the frontmatter, a body - because nothing downstream knows these
         // came from a file rather than a row.
@@ -60,6 +60,10 @@ class BuiltInSkillsTest(
         // asked of other agents, and how each is going. Issue #477.
         assertThat(catalog.skills.single { it.name == "Agents" }.key).isEqualTo("agents")
         assertThat(catalog.skills.single { it.name == "Agents" }.content).contains("agent_asks")
+        // And the one that says how a site is delivered: one archive, with the
+        // pictures it references inside it. Issue #489.
+        assertThat(catalog.skills.single { it.name == "Complex HTML" }.key).isEqualTo("complex-html")
+        assertThat(catalog.skills.single { it.name == "Complex HTML" }.content).contains("zip")
         assertThat(SkillFormat.check(tldr.content).valid).isTrue()
 
         /*
