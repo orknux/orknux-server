@@ -126,6 +126,29 @@ class ToolSearchTest(
         assertThat(found("post message")).first().isEqualTo("slack_postMessage")
     }
 
+    /**
+     * One call, several searches. Issue #464: a job that touches two systems
+     * used to cost a round each, and the room is shared, so the first search
+     * must not spend all of it.
+     */
+    @Test
+    fun `several searches in one call each bring back their own tools`() {
+        val found = mutableSetOf<String>()
+        val shed = searching.shed(granted, found, room = { 4 })
+
+        val said = shed.run(call("send a message in slack; file a jira issue"))
+
+        assertThat(found).contains("slack_postMessage", "jira_createIssue")
+        assertThat(said).contains("from your next message onwards")
+
+        // A new line does the same, and a search that matched nothing is named.
+        val second = mutableSetOf<String>()
+        val again = searching.shed(granted, second, room = { 4 })
+            .run(call("read a page in confluence\\nkubernetes"))
+        assertThat(second).contains("confluence_readPage")
+        assertThat(again).contains("Nothing matched: \"kubernetes\"")
+    }
+
     @Test
     fun `nothing matching says so rather than answering with everything`() {
         val found = mutableSetOf<String>()

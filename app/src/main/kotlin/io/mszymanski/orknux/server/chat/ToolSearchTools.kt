@@ -127,13 +127,18 @@ class ToolSearchTools(
                         ?: " - too many to be listed at once - so ") +
                     "search for what the work needs before saying you cannot do it. `query` is a tool's " +
                     "name or words about the job: what you want to do, or the system you want to do it in. " +
+                    "Ask for everything the job needs in one call - put each search on its own line, or " +
+                    "separate them with a semicolon, and each is looked for on its own. " +
                     "What comes back is usable from your next message onwards, not in this one.",
                 parameters = listOf(
                     ToolParameterSpec(
                         name = QUERY,
                         description = "What you are looking for, in words: \"send a message in Slack\", " +
                             "\"jira issue\", \"read a page\". Matched against every tool's name and " +
-                            "what it says it does.",
+                            "what it says it does. Several at once are separated by a semicolon or a " +
+                            "new line - \"upload a file to slack; comment on a jira issue\" - and each " +
+                            "brings back its own tools, so a job that needs two systems takes one call " +
+                            "rather than two rounds.",
                         required = true,
                     ),
                 ),
@@ -146,7 +151,25 @@ class ToolSearchTools(
             val asked = argument(call).orEmpty().trim()
             if (asked.isEmpty()) return "Say what you are looking for: $QUERY is words about the job."
 
-            val matches = matching(asked)
+            /*
+             * One call, as many searches as the job needs. Issue #464.
+             *
+             * A job is rarely about one system - read the thread, file the
+             * issue, post the answer - and one search per system meant one
+             * round per system, each of them a paid call to the model before
+             * the work had begun. Separated by a semicolon or a new line
+             * because those are what a model reaches for unprompted; each is
+             * scored on its own, and what comes back is drawn from all of them
+             * in turn, so a broad search does not take the whole of the room
+             * from a narrow one beside it.
+             */
+            val searches = asked.split(SEARCH_SEPARATOR)
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+                .take(MOST_SEARCHES)
+            val byQuery = searches.associateWith { matching(it) }
+            val matches = interleaved(searches.map { byQuery.getValue(it) })
             if (matches.isEmpty()) {
                 // The names, where they fit: a miss that lists what there is
                 // ends the guessing, where "try fewer words" invites another go.
@@ -207,6 +230,18 @@ class ToolSearchTools(
                     append("\n\nTo make room, these are no longer in your hands: ${dropped.joinToString(", ")}. ")
                     append("Search for one again if you need it back.")
                 }
+                /*
+                 * And which of several searches found nothing, by name. A model
+                 * that asked for three things and was handed tools for two has
+                 * no way to tell which of the three to think again about, and
+                 * the one it needed may be the one that missed.
+                 */
+                val empty = searches.filter { byQuery.getValue(it).isEmpty() }
+                if (searches.size > 1 && empty.isNotEmpty()) {
+                    append("\n\nNothing matched: ")
+                    append(empty.joinToString("; ") { "\"" + it + "\"" })
+                    append(".")
+                }
                 if (taken.size < matches.size) {
                     append(
                         "\n\n${matches.size - taken.size} more matched and were left out. " +
@@ -214,6 +249,30 @@ class ToolSearchTools(
                     )
                 }
             }
+        }
+
+        /**
+         * Several searches' results as one list: the best of each, then the
+         * next best of each. Issue #464.
+         *
+         * Round-robin rather than one list after another, because the room is
+         * shared and the first search would otherwise spend it all - an agent
+         * that asked for Slack and for Jira would be handed eight Slack tools
+         * and told there was no room for the rest, which is the opposite of
+         * what asking for both meant. A tool matched by two searches is taken
+         * once, at the first place it comes up.
+         */
+        private fun interleaved(lists: List<List<ToolSpec>>): List<ToolSpec> {
+            if (lists.size <= 1) return lists.firstOrNull().orEmpty()
+            val out = mutableListOf<ToolSpec>()
+            val seen = mutableSetOf<String>()
+            val deepest = lists.maxOf { it.size }
+            for (at in 0 until deepest) {
+                lists.forEach { list ->
+                    list.getOrNull(at)?.let { spec -> if (seen.add(spec.name)) out += spec }
+                }
+            }
+            return out
         }
 
         /**
@@ -305,6 +364,21 @@ class ToolSearchTools(
         private const val LOADED_AT_ONCE = 8
 
         private val NOT_A_WORD = Regex("[^a-z0-9]+")
+
+        /**
+         * What separates one search from the next in a single call: a semicolon
+         * or a new line. Issue #464. Not a comma - "jira, slack" is one phrase
+         * as often as it is two, and a model writing a list of words usually
+         * means them as one search.
+         */
+        private val SEARCH_SEPARATOR = Regex("[;\n\r]+")
+
+        /**
+         * How many searches one call may carry. Enough for a job that touches
+         * three or four systems, and a bound so a paragraph pasted into the box
+         * is not read as forty searches of one word each.
+         */
+        private const val MOST_SEARCHES = 8
 
         /** Where a name changes case, which is where its words meet: `uploadBinary`. */
         private val CASE_CHANGE = Regex("([a-z0-9])([A-Z])")
