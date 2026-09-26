@@ -61,8 +61,26 @@ class InstallationSettingsAPI(
         scratchpadBudgetBytesConfigured = settings.scratchpadBudgetBytesConfigured(),
         commandMarker = settings.commandMarker(),
         commandMarkerConfigured = settings.commandMarkerConfigured(),
+        toolsNamedInSearch = settings.toolsNamedInSearch(),
+        toolsNamedInSearchConfigured = settings.toolsNamedInSearchConfigured(),
         sessionsRemovable = settings.sessionsRemovable(),
     )
+
+    /**
+     * Up to how many findable tools `find_tools` names outright. Issue #442.
+     */
+    @MutationMapping
+    fun setToolsNamedInSearch(@Argument count: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setToolsNamedInSearch(count, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "find_tools names up to $count findable tools outright",
+        )
+        return installationSettings()
+    }
 
     @MutationMapping
     fun setChatEnabled(@Argument enabled: Boolean): InstallationSettingsView {
@@ -461,6 +479,10 @@ data class InstallationSettingsView(
     val commandMarker: String,
     /** What a fresh installation starts on - ORKNUX_COMMAND_MARKER. */
     val commandMarkerConfigured: String,
+    /** Up to how many findable tools find_tools names outright; zero never does. Issue #442. */
+    val toolsNamedInSearch: Int,
+    /** What a fresh installation names - ORKNUX_CHAT_TOOLS_NAMED_IN_SEARCH. */
+    val toolsNamedInSearchConfigured: Int,
     /**
      * Whether a conversation may be thrown away.
      *

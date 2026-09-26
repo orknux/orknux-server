@@ -195,6 +195,9 @@ orknux:
     # What marks a command in a message that starts a run, `!` by default.
     # Admin -> Settings overrides it, and a workspace may carry its own.
     command-marker: ${ORKNUX_COMMAND_MARKER:!}
+    # Up to how many findable tools find_tools names outright in its own
+    # description, so a model asks for one by name. Admin -> Settings overrides it.
+    tools-named-in-search: ${ORKNUX_CHAT_TOOLS_NAMED_IN_SEARCH:40}
   attachments:
     # Whether a chat may carry files at all. False here is final: an
     # administrator can turn attachments off from the screen, but not back on

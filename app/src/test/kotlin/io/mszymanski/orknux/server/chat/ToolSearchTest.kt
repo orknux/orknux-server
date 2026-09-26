@@ -39,6 +39,8 @@ class ToolSearchTest(
     @Autowired val searching: ToolSearchTools,
     @Autowired val sessions: LlmSessionRecorder,
     @Autowired val workspaces: WorkspaceRepository,
+    /** For how many tools are named outright, which Admin -> Settings decides. Issue #442. */
+    @Autowired val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
 ) {
 
     /*
@@ -133,6 +135,57 @@ class ToolSearchTest(
         assertThat(spec.description).contains("You hold 6 of them")
         assertThat(spec.parameters.map { it.name }).containsExactly(ToolSearchTools.QUERY)
         assertThat(spec.parameters.single().required).isTrue()
+    }
+
+    /**
+     * Six tools are not "too many to be listed"; seventeen were not either, and a
+     * model told so had to guess words for a search when the names would have
+     * fitted in the sentence. Issue #442.
+     */
+    @Test
+    fun `few enough tools are named in the description and in a miss, so the model asks by name`() {
+        val shed = searching.shed(granted, mutableSetOf(), room = { 10 })
+        val description = shed.specs().single().description
+
+        assertThat(description).contains("You hold 6 of them: confluence_readPage, deploy_rollback, jira_createIssue")
+        assertThat(description).contains("Ask for one by name")
+        assertThat(description).doesNotContain("too many to be listed")
+
+        assertThat(shed.run(call("kubernetes"))).contains("They are: confluence_readPage, deploy_rollback")
+    }
+
+    @Test
+    fun `a long list is still counted rather than named`() {
+        val many = (1..60).map { ToolSpec("tool_$it", "Tool number $it.") }
+        val shed = searching.shed(many, mutableSetOf(), room = { 10 })
+
+        assertThat(shed.specs().single().description).contains("You hold 60 of them - too many to be listed at once")
+        assertThat(shed.run(call("kubernetes"))).contains("Try the name of the system")
+    }
+
+    /**
+     * Where "few enough" ends is the installation's to say, not the source's:
+     * forty names are nothing to a large model and a wall to a small one. The
+     * default is the configured one; zero switches the naming off. Issue #442.
+     */
+    @Test
+    fun `how many are named is a setting, and zero names none`() {
+        assertThat(settings.toolsNamedInSearch()).isEqualTo(settings.toolsNamedInSearchConfigured())
+        try {
+            settings.setToolsNamedInSearch(0, "alice")
+            val description = searching.shed(granted, mutableSetOf(), room = { 10 }).specs().single().description
+            assertThat(description).contains("You hold 6 of them - too many to be listed at once")
+
+            settings.setToolsNamedInSearch(6, "alice")
+            assertThat(searching.shed(granted, mutableSetOf(), room = { 10 }).specs().single().description)
+                .contains("You hold 6 of them: confluence_readPage")
+
+            org.junit.jupiter.api.assertThrows<io.mszymanski.orknux.server.attachment.ToolsNamedOutOfRangeException> {
+                settings.setToolsNamedInSearch(501, "alice")
+            }
+        } finally {
+            settings.setToolsNamedInSearch(settings.toolsNamedInSearchConfigured(), "alice")
+        }
     }
 
     /* ----------------------------------------------- what is found stays found */

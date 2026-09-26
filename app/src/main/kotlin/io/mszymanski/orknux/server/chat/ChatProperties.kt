@@ -67,4 +67,13 @@ data class ChatProperties(
      * may carry its own. Issue #402.
      */
     val commandMarker: String = "!",
+
+    /**
+     * Up to how many findable tools `find_tools` names in its own description,
+     * so a model asks for one by name rather than guessing words. Forty names
+     * is a few hundred characters - a fraction of one tool's full declaration.
+     * Admin -> Settings is the switch; this is where a fresh installation
+     * starts. Issue #442.
+     */
+    val toolsNamedInSearch: Int = 40,
 )

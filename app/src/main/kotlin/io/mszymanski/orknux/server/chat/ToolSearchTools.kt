@@ -49,7 +49,11 @@ import tools.jackson.databind.ObjectMapper
  * change under it between turns.
  */
 @Service
-class ToolSearchTools(private val mapper: ObjectMapper) {
+class ToolSearchTools(
+    private val mapper: ObjectMapper,
+    /** For how many findable tools are named outright; Admin -> Settings decides. Issue #442. */
+    private val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
+) {
 
     /**
      * A shed over [searchable], writing what it finds into [found].
@@ -97,15 +101,33 @@ class ToolSearchTools(private val mapper: ObjectMapper) {
         private val forget: (Int) -> List<String>,
     ) : ToolShed {
 
+        /**
+         * The names of everything findable, where there are few enough to say.
+         *
+         * A model told it holds seventeen tools "too many to be listed" was
+         * being told something untrue, and paid for it: it had to guess words
+         * for a search when the names would have fitted in the sentence. Names
+         * are short and a model reads a list of them at a glance, so up to as
+         * many as Admin -> Settings allows go into the tool's own description -
+         * the model then asks for one by name and the search is a lookup. Above
+         * that the list really would be the cost the whole mechanism exists to
+         * avoid, and the description says how many there are, as before. The
+         * number is the installation's to set, not this file's: zero turns the
+         * listing off. Issue #442.
+         */
+        private fun listed(): String =
+            if (searchable.size <= settings.toolsNamedInSearch()) searchable.map { it.name }.sorted().joinToString(", ") else ""
+
         override fun specs(): List<ToolSpec> = listOf(
             ToolSpec(
                 name = FIND,
                 description = "Finds the tools you have been given but are not carrying, and puts them " +
-                    "in your hands for the rest of this conversation. You hold ${searchable.size} of " +
-                    "them - too many to be listed at once - so search for what the work needs before " +
-                    "saying you cannot do it. `query` is words about the job: what you want to do, or " +
-                    "the system you want to do it in. What comes back is usable from your next message " +
-                    "onwards, not in this one.",
+                    "in your hands for the rest of this conversation. You hold ${searchable.size} of them" +
+                    (listed().takeIf { it.isNotEmpty() }?.let { ": $it. Ask for one by name, or " }
+                        ?: " - too many to be listed at once - so ") +
+                    "search for what the work needs before saying you cannot do it. `query` is a tool's " +
+                    "name or words about the job: what you want to do, or the system you want to do it in. " +
+                    "What comes back is usable from your next message onwards, not in this one.",
                 parameters = listOf(
                     ToolParameterSpec(
                         name = QUERY,
@@ -126,8 +148,11 @@ class ToolSearchTools(private val mapper: ObjectMapper) {
 
             val matches = matching(asked)
             if (matches.isEmpty()) {
+                // The names, where they fit: a miss that lists what there is
+                // ends the guessing, where "try fewer words" invites another go.
                 return "Nothing among the ${searchable.size} tools you hold matches \"$asked\". " +
-                    "Try the name of the system rather than the action, or fewer words."
+                    (listed().takeIf { it.isNotEmpty() }?.let { "They are: $it. Ask for one by name." }
+                        ?: "Try the name of the system rather than the action, or fewer words.")
             }
 
             /*

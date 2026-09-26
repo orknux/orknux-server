@@ -67,6 +67,7 @@ object SettingNames {
     const val COMMAND_MARKER = "command.marker"
     const val SESSIONS_REMOVABLE = "sessions.removable"
     const val SCRATCHPAD_BUDGET_BYTES = "scratchpad.budget.bytes"
+    const val TOOLS_NAMED_IN_SEARCH = "tools.named.in.search"
 }
 
 /**
@@ -402,6 +403,31 @@ class InstallationSettings(
     }
 
     /**
+     * Up to how many findable tools `find_tools` names outright, in its own
+     * description and in a miss, so the model asks for one by name instead of
+     * guessing words for a search. Above the number the tool says only how
+     * many there are; zero never names them. Issue #442.
+     *
+     * A setting and not a constant, because what is "few enough to list" is
+     * a judgement about the models an installation runs and the tools its
+     * plugins bring - forty names are nothing to a large model and a wall to a
+     * small one - and the first cut of this had the number in the source.
+     */
+    fun toolsNamedInSearch(): Int {
+        val held = settings.findByIdOrNull(SettingNames.TOOLS_NAMED_IN_SEARCH) ?: return toolsNamedInSearchConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_TOOLS_NAMED..MAX_TOOLS_NAMED } ?: toolsNamedInSearchConfigured()
+    }
+
+    /** What a fresh installation names - ORKNUX_CHAT_TOOLS_NAMED_IN_SEARCH. */
+    fun toolsNamedInSearchConfigured(): Int = chat.toolsNamedInSearch.coerceIn(MIN_TOOLS_NAMED, MAX_TOOLS_NAMED)
+
+    @Transactional
+    fun setToolsNamedInSearch(count: Int, by: String) {
+        if (count !in MIN_TOOLS_NAMED..MAX_TOOLS_NAMED) throw ToolsNamedOutOfRangeException(count)
+        write(SettingNames.TOOLS_NAMED_IN_SEARCH, count.toString(), by)
+    }
+
+    /**
      * What marks a command in a message that starts a run, for the whole
      * installation - `!review`. A workspace may carry its own, which wins.
      * Issue #402.
@@ -682,6 +708,22 @@ class ScratchpadBudgetOutOfRangeException(val bytes: Int) : RuntimeException(
 ), Refusal {
 
     override val arguments get() = mapOf("bytes" to bytes)
+}
+
+/**
+ * None and five hundred, for how many findable tools `find_tools` names outright.
+ * Zero is the listing switched off; five hundred names is already a page of
+ * text, past which the tool would be the cost it exists to avoid. Issue #442.
+ */
+const val MIN_TOOLS_NAMED = 0
+const val MAX_TOOLS_NAMED = 500
+
+class ToolsNamedOutOfRangeException(val count: Int) : RuntimeException(
+    "$count is not a number of tools find_tools can be told to name. " +
+        "Choose between $MIN_TOOLS_NAMED and $MAX_TOOLS_NAMED.",
+), Refusal {
+
+    override val arguments get() = mapOf("count" to count)
 }
 
 const val MIN_PLUGIN_SOURCE_KB = 64
