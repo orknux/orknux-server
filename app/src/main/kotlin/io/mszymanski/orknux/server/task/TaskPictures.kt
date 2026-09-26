@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.task
 
+import io.mszymanski.orknux.connector.model.ImageOptions
 import io.mszymanski.orknux.connector.model.ModelImageClient
 import io.mszymanski.orknux.connector.model.Picture
 import io.mszymanski.orknux.server.attachment.AttachmentStore
@@ -74,8 +75,13 @@ class TaskPictures(
      * after the drawing, and a picture held in memory until the loop catches
      * something is a picture lost the moment that round throws - having already
      * been paid for. The task's own row is still written only by the loop.
+     *
+     * @param options size and quality where the agent asked for them, already
+     *   held to what the model takes by `DrawToolParameters`. Left out, the
+     *   model draws at its own defaults, which is what every call did before
+     *   the tool took a size.
      */
-    fun draw(task: Task, prompt: String): Drawing {
+    fun draw(task: Task, prompt: String, options: ImageOptions = ImageOptions.NONE): Drawing {
         if (!settings.attachmentsEnabled()) {
             return Drawing.Refused(
                 "A drawn picture is kept as an attachment, and attachments are turned off for this installation.",
@@ -114,7 +120,7 @@ class TaskPictures(
             return Drawing.Refused("That description is too long to draw from; say it in under $MOST_PROMPT characters.")
         }
 
-        val drawn = when (val picture = drawing.draw(modelId, asked)) {
+        val drawn = when (val picture = drawing.draw(modelId, asked, options)) {
             is Picture.Failed -> return Drawing.Refused(picture.reason)
             is Picture.Drawn -> picture
         }
@@ -202,8 +208,14 @@ class TaskPictures(
         return (listOf(summary).filter { it.isNotEmpty() } + shown).joinToString("\n\n")
     }
 
-    /** What this task draws with: whatever its workspace chose, or nothing. */
-    private fun modelFor(task: Task): Long? =
+    /**
+     * What this task draws with: whatever its workspace chose, or nothing.
+     *
+     * Public because the tool's descriptor is the model's - which sizes it
+     * draws, whether it takes a quality - and the shed has to know which model
+     * that is before the turn starts.
+     */
+    fun modelFor(task: Task): Long? =
         workspaces.findByIdOrNull(task.workspaceId)?.imageModelId
 
     /**

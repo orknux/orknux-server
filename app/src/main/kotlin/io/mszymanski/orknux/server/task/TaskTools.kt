@@ -1,10 +1,12 @@
 package io.mszymanski.orknux.server.task
 
+import io.mszymanski.orknux.connector.model.ImageOptions
 import io.mszymanski.orknux.connector.model.ToolCall
 import io.mszymanski.orknux.connector.model.ToolParameterSpec
 import io.mszymanski.orknux.connector.model.ToolSpec
 import io.mszymanski.orknux.server.chat.AgentRoundHalted
 import io.mszymanski.orknux.server.chat.ToolShed
+import io.mszymanski.orknux.server.workflow.DrawToolParameters
 import org.springframework.stereotype.Service
 import tools.jackson.databind.ObjectMapper
 
@@ -40,6 +42,12 @@ class TaskTools(
      * the session's own store, which every tool that uploads bytes reads from.
      */
     private val scratch: io.mszymanski.orknux.workflow.script.SessionScratch,
+    /**
+     * The width, height and quality the drawing takes, as the workspace's
+     * model takes them. See [DrawToolParameters] for why the list is the
+     * model's and why a size arrives as two numbers.
+     */
+    private val parameters: DrawToolParameters,
 ) {
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
@@ -78,9 +86,13 @@ class TaskTools(
         override fun specs(): List<ToolSpec> =
             when {
                 !pictures.offered(task) -> SPECS
-                mayLink -> SPECS + DRAWING + LINKING
-                else -> SPECS + DRAWING
+                // The drawing as this workspace's model takes it, read every
+                // turn: the workspace can change its model between two of them.
+                mayLink -> SPECS + drawing() + LINKING
+                else -> SPECS + drawing()
             }
+
+        private fun drawing(): ToolSpec = parameters.offering(DRAWING, pictures.modelFor(task))
 
         override fun handles(name: String): Boolean =
             name in NAMES && (mayLink || name != LINK)
@@ -101,62 +113,16 @@ class TaskTools(
 
             DRAW -> {
                 val description = argument(call, "description")?.trim()
+                // The size and quality, held to what the model takes before the
+                // provider is asked; a refusal names what it does take, where
+                // the provider's would be a 400 about a field name.
+                val asked = parameters.asked(pictures.modelFor(task), call.arguments)
                 if (description.isNullOrBlank()) {
                     refuse("Say what the picture should be of: task_draw_picture takes a description.")
                 } else {
-                    when (val drawn = pictures.draw(task, description)) {
-                        is Drawing.Refused -> refuse(drawn.reason)
-                        /*
-                         * The markdown goes back to the model, and the sentence
-                         * beside it says it does not have to be used. The
-                         * picture is already filed and will be shown under the
-                         * outcome whatever the model does next - see
-                         * [TaskPictures.outcomeOf] - so this is an offer of
-                         * where to *place* it rather than the only way it will
-                         * be seen. Handing over a link and depending on the
-                         * model to repeat it would be a picture lost every time
-                         * one forgot.
-                         */
-                        is Drawing.Drawn -> {
-                            /*
-                             * A key first, because a key is the thing that can
-                             * be *delivered*.
-                             *
-                             * The bytes go into this task's session store, which
-                             * is what every tool that uploads a file reads
-                             * from - a content key rather than the bytes
-                             * themselves. Which tools those are depends on the
-                             * plugins an installation loaded, so this does not
-                             * name one. Handed only
-                             * markdown, a model that wanted to show somebody a
-                             * picture pasted a link, and a chat client with no
-                             * document to resolve it against printed the
-                             * construction instead.
-                             */
-                            val key = keyFor(drawn)
-                            mapper.writeValueAsString(
-                                buildMap {
-                                    put("drawn", true)
-                                    if (key != null) put("key", key)
-                                    /*
-                                     * The markdown a task's outcome carries is
-                                     * composed by `TaskPictures.outcomeOf`
-                                     * from the row, so the model never needed
-                                     * it - and handed a link with no other way
-                                     * to deliver anything, it pasted one into
-                                     * a chat that printed the construction.
-                                     *
-                                     * The note has to say what `key` is *not*,
-                                     * as well as what it is. Told to place a
-                                     * picture and given one string, a model
-                                     * wrote `![a tower](picture.18)` - the
-                                     * store key as a URL - and the outcome
-                                     * drew "This picture is gone" four times.
-                                     */
-                                    put("note", noteFor(key))
-                                },
-                            )
-                        }
+                    when (asked) {
+                        is DrawToolParameters.Asked.Refused -> refuse(asked.reason)
+                        is DrawToolParameters.Asked.Options -> drawn(description, asked.options)
                     }
                 }
             }
@@ -197,6 +163,58 @@ class TaskTools(
 
             else -> refuse("There is no tool called ${call.name}")
         }
+
+        /**
+         * The drawing itself, and what the model is told about it.
+         *
+         * The markdown goes back to the model, and the sentence beside it says
+         * it does not have to be used. The picture is already filed and will be
+         * shown under the outcome whatever the model does next - see
+         * [TaskPictures.outcomeOf] - so this is an offer of where to *place* it
+         * rather than the only way it will be seen. Handing over a link and
+         * depending on the model to repeat it would be a picture lost every
+         * time one forgot.
+         */
+        private fun drawn(description: String, options: ImageOptions): String =
+            when (val drawn = pictures.draw(task, description, options)) {
+                is Drawing.Refused -> refuse(drawn.reason)
+                is Drawing.Drawn -> {
+                    /*
+                     * A key first, because a key is the thing that can be
+                     * *delivered*.
+                     *
+                     * The bytes go into this task's session store, which is
+                     * what every tool that uploads a file reads from - a
+                     * content key rather than the bytes themselves. Which tools
+                     * those are depends on the plugins an installation loaded,
+                     * so this does not name one. Handed only markdown, a model
+                     * that wanted to show somebody a picture pasted a link, and
+                     * a chat client with no document to resolve it against
+                     * printed the construction instead.
+                     */
+                    val key = keyFor(drawn)
+                    mapper.writeValueAsString(
+                        buildMap {
+                            put("drawn", true)
+                            if (key != null) put("key", key)
+                            /*
+                             * The markdown a task's outcome carries is composed
+                             * by `TaskPictures.outcomeOf` from the row, so the
+                             * model never needed it - and handed a link with no
+                             * other way to deliver anything, it pasted one into
+                             * a chat that printed the construction.
+                             *
+                             * The note has to say what `key` is *not*, as well
+                             * as what it is. Told to place a picture and given
+                             * one string, a model wrote `![a tower](picture.18)`
+                             * - the store key as a URL - and the outcome drew
+                             * "This picture is gone" four times.
+                             */
+                            put("note", noteFor(key))
+                        },
+                    )
+                }
+            }
 
         /**
          * The bytes, where something else can reach them by name, or null.
@@ -373,6 +391,10 @@ class TaskTools(
          * it. It also says what happens to the picture afterwards: a model that
          * believes the result vanishes unless it repeats the link will repeat
          * it, and the outcome will show the picture twice.
+         *
+         * One fixed parameter. The width, height and quality are added per
+         * turn by [DrawToolParameters.offering], because which of them there
+         * are and what they may be is the workspace's model's to say.
          */
         val DRAWING = ToolSpec(
             name = DRAW,
@@ -387,7 +409,8 @@ class TaskTools(
                     "sends or uploads a file to put the picture in front of somebody, or to " +
                     "task_picture_link to get markdown for putting the picture at a particular point in " +
                     "what you write. The key is not an address and there is nothing to guess: those two " +
-                    "tools are what it is for.",
+                    "tools are what it is for. Width and height, and quality where offered, are optional: " +
+                    "leave them out for the model's defaults.",
             parameters = listOf(
                 ToolParameterSpec("description", "What the picture should be of.", required = true),
             ),

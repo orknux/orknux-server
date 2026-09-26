@@ -1,7 +1,14 @@
 package io.mszymanski.orknux.server.workflow
 
+import io.mszymanski.orknux.connector.model.ImageOptions
+import io.mszymanski.orknux.connector.model.LlmModel
+import io.mszymanski.orknux.connector.model.LlmModelRepository
 import io.mszymanski.orknux.connector.model.ModelImageClient
+import io.mszymanski.orknux.connector.model.ModelKind
+import io.mszymanski.orknux.connector.model.ModelProvider
+import io.mszymanski.orknux.connector.model.ModelProviderRepository
 import io.mszymanski.orknux.connector.model.Picture
+import io.mszymanski.orknux.connector.model.ProviderType
 import io.mszymanski.orknux.connector.model.ToolCall
 import io.mszymanski.orknux.server.attachment.AttachmentStore
 import io.mszymanski.orknux.server.attachment.InstallationSettings
@@ -73,7 +80,18 @@ class StepPictureToolsTest {
         }
     }
 
-    private val tools = StepPictureTools(mapper, steps, scratch)
+    /**
+     * What the workspace's model takes, for the tool to offer and hold a call
+     * to. Real capabilities over mocked rows, because the spec is a function of
+     * the model's id and its provider's host and that arithmetic is what the
+     * size tests are about; unstubbed, the model is unknown and nothing is
+     * offered beyond a width and a height described generally.
+     */
+    private val models = mock(LlmModelRepository::class.java)
+    private val providers = mock(ModelProviderRepository::class.java)
+    private val parameters = DrawToolParameters(mapper, ImageModelCapabilities(models, providers))
+
+    private val tools = StepPictureTools(mapper, steps, scratch, parameters)
 
     @Suppress("UNCHECKED_CAST")
     private fun <T> anyOf(): T = Mockito.any<T>() ?: (null as T)
@@ -81,10 +99,25 @@ class StepPictureToolsTest {
     private fun workspace(imageModelId: Long? = 5) = Workspace(id = 9, name = "Acme")
         .also { it.imageModelId = imageModelId }
 
-    private fun call(description: String?) = ToolCall(
+    /**
+     * Model 5 is this, on this host. DALL-E 3 by default, because it is the
+     * model with the most to say: three sizes and two qualities, and a style
+     * the tool must not offer. Anything else on a host that is not OpenAI's is
+     * a self-hosted server, which takes free dimensions and nothing more.
+     */
+    private fun drawsWith(modelId: String = "dall-e-3", endpoint: String = "https://api.openai.com/v1") {
+        `when`(models.findById(5)).thenReturn(
+            Optional.of(LlmModel(id = 5, providerId = 3, name = "Drawer", modelId = modelId, kind = ModelKind.IMAGE)),
+        )
+        `when`(providers.findById(3)).thenReturn(
+            Optional.of(ModelProvider(id = 3, workspaceId = 9, name = "Pictures", type = ProviderType.OPENAI, endpoint = endpoint)),
+        )
+    }
+
+    private fun call(description: String?, vararg also: Pair<String, Any>) = ToolCall(
         id = "call-1",
         name = "draw_picture",
-        arguments = if (description == null) "{}" else mapper.writeValueAsString(mapOf("description" to description)),
+        arguments = if (description == null) "{}" else mapper.writeValueAsString(mapOf("description" to description) + also),
     )
 
     /**
@@ -226,10 +259,192 @@ class StepPictureToolsTest {
         // drawing answers with a key, and this is where a model that wants the
         // picture inside what it writes asks for an address.
         assertThat(shed.specs().map { it.name }).containsExactly("draw_picture", "picture_link")
-        assertThat(shed.specs().first().parameters.map { it.name }).containsExactly("description")
+        // A model nothing knows: a width and a height are still offered, since
+        // every model takes a size, and no quality, since not every one does.
+        assertThat(shed.specs().first().parameters.map { it.name }).containsExactly("description", "width", "height")
         assertThat(shed.specs().last().parameters.map { it.name }).containsExactly("key")
         assertThat(shed.handles("draw_picture")).isTrue()
         assertThat(shed.handles("chat_draw_picture")).isFalse()
+    }
+
+    /**
+     * The descriptor is the model's. Issue #436.
+     *
+     * A DALL-E 3 draws three sizes and takes two qualities, and the agent is
+     * told exactly those - as a list it can match a width and a height to,
+     * rather than "a size", which it would fill with whatever it thought a
+     * picture was. Style is never offered: it is one model's knob, and the
+     * description the agent writes already says what the picture should look
+     * like.
+     */
+    @Test
+    fun `the drawing offers the sizes and qualities the workspace's model takes`() {
+        `when`(settings.attachmentsEnabled()).thenReturn(true)
+        `when`(workspaces.findById(9)).thenReturn(Optional.of(workspace()))
+        drawsWith("dall-e-3")
+
+        val drawing = requireNotNull(tools.shed(100, "ask", 9)).specs().first()
+        val byName = drawing.parameters.associateBy { it.name }
+
+        assertThat(byName.keys).containsExactly("description", "width", "height", "quality")
+        assertThat(byName.getValue("width").description).contains("1024x1024, 1792x1024, 1024x1792")
+        assertThat(byName.getValue("height").description).contains("1024x1024, 1792x1024, 1024x1792")
+        assertThat(byName.getValue("quality").description).contains("standard, hd")
+        // Optional, all three: a call with the description alone is the call
+        // every agent made before this, and it still draws at the defaults.
+        assertThat(drawing.parameters.filter { it.required }.map { it.name }).containsExactly("description")
+    }
+
+    /**
+     * A self-hosted server is offered a range, and no quality.
+     *
+     * The servers that imitate OpenAI's endpoint take a `WIDTHxHEIGHT` and
+     * refuse or ignore the rest, so a quality offered here is a parameter the
+     * agent fills in and the provider throws the request out over. gpt-image-1's
+     * `auto` is left out of every list for the same reason: it is not a pair
+     * of numbers, and leaving both out already means it.
+     */
+    @Test
+    fun `a model that takes free dimensions is offered a range and no quality`() {
+        `when`(settings.attachmentsEnabled()).thenReturn(true)
+        `when`(workspaces.findById(9)).thenReturn(Optional.of(workspace()))
+        drawsWith("sdxl-turbo", endpoint = "http://gpu.internal:7860/v1")
+
+        val drawing = requireNotNull(tools.shed(100, "ask", 9)).specs().first()
+        val byName = drawing.parameters.associateBy { it.name }
+
+        assertThat(byName.keys).containsExactly("description", "width", "height")
+        assertThat(byName.getValue("width").description).contains("from 64 to 4096").contains("multiple of 8")
+    }
+
+    /** And gpt-image-1's `auto` is not offered as a width. */
+    @Test
+    fun `a size word that is not a pair of numbers is not listed`() {
+        `when`(settings.attachmentsEnabled()).thenReturn(true)
+        `when`(workspaces.findById(9)).thenReturn(Optional.of(workspace()))
+        drawsWith("gpt-image-1")
+
+        val width = requireNotNull(tools.shed(100, "ask", 9)).specs().first().parameters.first { it.name == "width" }
+
+        assertThat(width.description).contains("1024x1024, 1536x1024, 1024x1536").doesNotContain("auto")
+    }
+
+    /**
+     * A size and quality the model takes reach the drawing as the provider
+     * spells them: the two numbers joined into `WIDTHxHEIGHT`, once, here.
+     *
+     * The numbers arrive as JSON numbers in this test and as strings in the
+     * next, because every tool parameter is declared a string and a model sends
+     * whichever it feels like; both are the number.
+     */
+    @Test
+    fun `a size the model draws reaches the drawing as the provider spells it`() {
+        `when`(settings.attachmentsEnabled()).thenReturn(true)
+        `when`(workspaces.findById(9)).thenReturn(Optional.of(workspace()))
+        `when`(pictures.countByExecutionId(100)).thenReturn(0)
+        drawsWith("dall-e-3")
+        `when`(drawing.draw(5, "a red bicycle", ImageOptions(size = "1792x1024", quality = "hd"))).thenReturn(drawn())
+        `when`(store.put(anyLong(), anyString(), anyOf())).thenReturn("9/a-red-bicycle.png")
+        `when`(pictures.save(anyOf<ExecutionPicture>())).thenReturn(filed())
+
+        val answer = mapper.readTree(
+            requireNotNull(tools.shed(100, "ask", 9)).run(call("a red bicycle", "width" to 1792, "height" to 1024, "quality" to "hd")),
+        )
+
+        assertThat(answer.path("drawn").booleanValue()).isTrue()
+        verify(drawing).draw(5, "a red bicycle", ImageOptions(size = "1792x1024", quality = "hd"))
+    }
+
+    @Test
+    fun `a size written as strings is the same size`() {
+        `when`(settings.attachmentsEnabled()).thenReturn(true)
+        `when`(workspaces.findById(9)).thenReturn(Optional.of(workspace()))
+        `when`(pictures.countByExecutionId(100)).thenReturn(0)
+        drawsWith("dall-e-3")
+        `when`(drawing.draw(5, "a red bicycle", ImageOptions(size = "1024x1792"))).thenReturn(drawn())
+        `when`(store.put(anyLong(), anyString(), anyOf())).thenReturn("9/a-red-bicycle.png")
+        `when`(pictures.save(anyOf<ExecutionPicture>())).thenReturn(filed())
+
+        requireNotNull(tools.shed(100, "ask", 9)).run(call("a red bicycle", "width" to "1024", "height" to " 1792 "))
+
+        verify(drawing).draw(5, "a red bicycle", ImageOptions(size = "1024x1792"))
+    }
+
+    /**
+     * A size the model does not draw is refused with the model's list, before
+     * the provider is asked.
+     *
+     * The same sentence the editor's save gives a person, through the same
+     * check: what the agent asked for, and what the model does take. Sent on,
+     * it would come back as a 400 about a field after a round trip, and the
+     * agent would be left to guess which of its three numbers was wrong.
+     */
+    @Test
+    fun `a size the model does not draw is refused naming the sizes it does`() {
+        `when`(settings.attachmentsEnabled()).thenReturn(true)
+        `when`(workspaces.findById(9)).thenReturn(Optional.of(workspace()))
+        drawsWith("dall-e-3")
+
+        val answer = mapper.readTree(
+            requireNotNull(tools.shed(100, "ask", 9)).run(call("a red bicycle", "width" to 800, "height" to 600)),
+        )
+
+        assertThat(answer.path("drawn").booleanValue()).isFalse()
+        assertThat(answer.path("reason").stringValue())
+            .contains("800x600")
+            .contains("1024x1024, 1792x1024, 1024x1792")
+        verify(drawing, never()).draw(anyLong(), anyString(), anyOf())
+    }
+
+    /** A quality the model has no such parameter for is refused the same way. */
+    @Test
+    fun `a quality for a model that takes none is refused in words`() {
+        `when`(settings.attachmentsEnabled()).thenReturn(true)
+        `when`(workspaces.findById(9)).thenReturn(Optional.of(workspace()))
+        drawsWith("sdxl-turbo", endpoint = "http://gpu.internal:7860/v1")
+
+        val answer = mapper.readTree(
+            requireNotNull(tools.shed(100, "ask", 9)).run(call("a red bicycle", "quality" to "hd")),
+        )
+
+        assertThat(answer.path("drawn").booleanValue()).isFalse()
+        assertThat(answer.path("reason").stringValue()).contains("does not take a quality")
+        verify(drawing, never()).draw(anyLong(), anyString(), anyOf())
+    }
+
+    /**
+     * One side is not half a size. Guessing the other would draw a picture
+     * the agent did not ask for and charge for it; a sentence costs a round.
+     */
+    @Test
+    fun `a width without a height is refused, and nothing is drawn`() {
+        `when`(settings.attachmentsEnabled()).thenReturn(true)
+        `when`(workspaces.findById(9)).thenReturn(Optional.of(workspace()))
+        drawsWith("dall-e-3")
+
+        val answer = mapper.readTree(
+            requireNotNull(tools.shed(100, "ask", 9)).run(call("a red bicycle", "width" to 1024)),
+        )
+
+        assertThat(answer.path("drawn").booleanValue()).isFalse()
+        assertThat(answer.path("reason").stringValue()).contains("both width and height")
+        verify(drawing, never()).draw(anyLong(), anyString(), anyOf())
+    }
+
+    /** A width that is not a number of pixels is refused rather than read as none. */
+    @Test
+    fun `a width that is not a whole number is refused`() {
+        `when`(settings.attachmentsEnabled()).thenReturn(true)
+        `when`(workspaces.findById(9)).thenReturn(Optional.of(workspace()))
+        drawsWith("dall-e-3")
+
+        val answer = mapper.readTree(
+            requireNotNull(tools.shed(100, "ask", 9)).run(call("a red bicycle", "width" to "wide", "height" to 1024)),
+        )
+
+        assertThat(answer.path("drawn").booleanValue()).isFalse()
+        assertThat(answer.path("reason").stringValue()).contains("width is a whole number of pixels")
+        verify(drawing, never()).draw(anyLong(), anyString(), anyOf())
     }
 
     @Test

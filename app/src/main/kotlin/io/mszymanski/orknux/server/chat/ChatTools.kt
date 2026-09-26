@@ -1,8 +1,10 @@
 package io.mszymanski.orknux.server.chat
 
+import io.mszymanski.orknux.connector.model.ImageOptions
 import io.mszymanski.orknux.connector.model.ToolCall
 import io.mszymanski.orknux.connector.model.ToolParameterSpec
 import io.mszymanski.orknux.connector.model.ToolSpec
+import io.mszymanski.orknux.server.workflow.DrawToolParameters
 import org.springframework.stereotype.Service
 import tools.jackson.databind.ObjectMapper
 
@@ -47,6 +49,12 @@ import tools.jackson.databind.ObjectMapper
 class ChatTools(
     private val mapper: ObjectMapper,
     private val pictures: ChatPictures,
+    /**
+     * The width, height and quality the drawing takes, as the workspace's
+     * model takes them. See [DrawToolParameters] for why the list is the
+     * model's and why a size arrives as two numbers.
+     */
+    private val parameters: DrawToolParameters,
 ) {
 
     /**
@@ -61,7 +69,13 @@ class ChatTools(
 
     private inner class Shed(private val chat: ChatSession, private val watch: RoundWatch) : ToolShed {
 
-        override fun specs(): List<ToolSpec> = if (pictures.offered(chat)) listOf(DRAWING) else emptyList()
+        /**
+         * The drawing as this workspace's model takes it, read every send:
+         * what is offered is decided per round already, and the model the
+         * workspace chose can change between two of them.
+         */
+        override fun specs(): List<ToolSpec> =
+            if (pictures.offered(chat)) listOf(parameters.offering(DRAWING, pictures.modelFor(chat))) else emptyList()
 
         override fun handles(name: String): Boolean = name == DRAW
 
@@ -77,41 +91,58 @@ class ChatTools(
         override fun run(call: ToolCall): String = when (call.name) {
             DRAW -> {
                 val description = argument(call, "description")?.trim()
+                // The size and quality, held to what the model takes before the
+                // provider is asked; a refusal names what it does take, where
+                // the provider's would be a 400 about a field name.
+                val asked = parameters.asked(pictures.modelFor(chat), call.arguments)
                 if (description.isNullOrBlank()) {
                     refuse("Say what the picture should be of: $DRAW takes a description.")
                 } else {
-                    when (val drawn = pictures.draw(chat, description)) {
-                        is ChatDrawing.Refused -> refuse(drawn.reason)
-                        /*
-                         * The markdown goes back, and the sentence beside it says
-                         * not to repeat it. The picture is already in the thread
-                         * - see [ChatPictures.draw] for why it goes in there and
-                         * then rather than being left to the model - so this is
-                         * the model being told what happened, not being handed
-                         * the only copy of it. A model that believed the picture
-                         * vanished unless it pasted the link would paste it, and
-                         * the chat would show the picture twice.
-                         */
-                        is ChatDrawing.Drawn -> {
-                            // The picture is in the thread already; this is what
-                            // puts it on the screen of whoever is watching the
-                            // round, rather than at their next reload.
-                            watch.drew(drawn.said)
-                            mapper.writeValueAsString(
-                            mapOf(
-                                "drawn" to true,
-                                "markdown" to drawn.said,
-                                "note" to "The picture is already in this conversation, above your answer. " +
-                                    "Do not repeat the markdown; say what you drew and why, and carry on.",
-                                ),
-                            )
-                        }
+                    when (asked) {
+                        is DrawToolParameters.Asked.Refused -> refuse(asked.reason)
+                        is DrawToolParameters.Asked.Options -> drawn(description, asked.options)
                     }
                 }
             }
 
             else -> refuse("There is no tool called ${call.name}")
         }
+
+        /**
+         * The drawing itself, and what the model is told about it.
+         *
+         * Split out of [run] because a `when` over the call's name, the
+         * description and the size is three questions, and the answer to the
+         * last of them is a picture with a paragraph of its own to say.
+         */
+        private fun drawn(description: String, options: ImageOptions): String =
+            when (val drawn = pictures.draw(chat, description, options)) {
+                is ChatDrawing.Refused -> refuse(drawn.reason)
+                /*
+                 * The markdown goes back, and the sentence beside it says
+                 * not to repeat it. The picture is already in the thread
+                 * - see [ChatPictures.draw] for why it goes in there and
+                 * then rather than being left to the model - so this is
+                 * the model being told what happened, not being handed
+                 * the only copy of it. A model that believed the picture
+                 * vanished unless it pasted the link would paste it, and
+                 * the chat would show the picture twice.
+                 */
+                is ChatDrawing.Drawn -> {
+                    // The picture is in the thread already; this is what
+                    // puts it on the screen of whoever is watching the
+                    // round, rather than at their next reload.
+                    watch.drew(drawn.said)
+                    mapper.writeValueAsString(
+                        mapOf(
+                            "drawn" to true,
+                            "markdown" to drawn.said,
+                            "note" to "The picture is already in this conversation, above your answer. " +
+                                "Do not repeat the markdown; say what you drew and why, and carry on.",
+                        ),
+                    )
+                }
+            }
 
         private fun refuse(why: String): String = mapper.writeValueAsString(mapOf("error" to why))
 
@@ -132,6 +163,10 @@ class ChatTools(
          * is tens of seconds and real money. It also says what happens to the
          * picture afterwards, because a model that believes the result vanishes
          * unless it repeats the link will repeat it.
+         *
+         * One fixed parameter. The width, height and quality are added per
+         * round by [DrawToolParameters.offering], because which of them there
+         * are and what they may be is the workspace's model's to say.
          */
         val DRAWING = ToolSpec(
             name = DRAW,
@@ -142,7 +177,8 @@ class ChatTools(
                     "and costs money. Describe what should be in the picture rather than instructing a model, " +
                     "since the description is sent to a drawing model and not to you. The picture appears in the " +
                     "conversation as soon as it is drawn, above whatever you say next, so do not paste the " +
-                    "markdown into your answer - say what you drew.",
+                    "markdown into your answer - say what you drew. Width and height, and quality where " +
+                    "offered, are optional: leave them out for the model's defaults.",
             parameters = listOf(
                 ToolParameterSpec("description", "What the picture should be of.", required = true),
             ),

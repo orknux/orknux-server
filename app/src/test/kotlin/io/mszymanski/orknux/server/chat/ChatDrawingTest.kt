@@ -93,6 +93,9 @@ class ChatDrawingTest(
     /** Every body sent to the chat endpoint, so what was *offered* can be read off it. */
     private val offered = CopyOnWriteArrayList<String>()
 
+    /** Every body sent to the image endpoint, which is the only place the size asked for can be seen. */
+    private val drawn = CopyOnWriteArrayList<String>()
+
     @BeforeEach
     fun reset() {
         sessions.findAll().forEach { history.deleteByConversationId(it.conversationId) }
@@ -109,6 +112,7 @@ class ChatDrawingTest(
         workspaceId = requireNotNull(workspaces.save(Workspace(name = "backend")).id)
         asked.clear()
         offered.clear()
+        drawn.clear()
     }
 
     @AfterEach
@@ -373,6 +377,89 @@ class ChatDrawingTest(
         assertThat(audit.findAll().map { it.message }).contains("An agent drew a picture in a chat")
     }
 
+    /**
+     * The tool offers the sizes the workspace's model draws, and a quality
+     * only where the model takes one. Issue #436.
+     *
+     * Read off the body the chat endpoint was sent, because what the model was
+     * told is the only thing at issue. A DALL-E 3 is told its three sizes and
+     * its two qualities; the stub's own model - an OpenAI-shaped endpoint on a
+     * host that is not OpenAI's, which is what a self-hosted server is - is told
+     * a range and offered no quality at all, since those servers refuse the
+     * whole request over a parameter they do not take.
+     */
+    @Test
+    fun `the drawing tool offers what the workspace's model takes, and no more`() {
+        val chatId = chatWithAgent(serve { saying("Noted.") })
+
+        drawWith(modelId = "dall-e-3")
+        graphQlTester.document("""mutation { sendChatMessage(id: $chatId, text: "Draw it") { millis } }""").execute()
+        assertThat(offered.last())
+            .contains("\"width\"")
+            .contains("\"height\"")
+            .contains("1024x1024, 1792x1024, 1024x1792")
+            .contains("\"quality\":{")
+            .contains("standard, hd")
+            .doesNotContain("\"style\"")
+
+        // A second model on the same stub, and the workspace re-pointed at it:
+        // what is offered follows the choice, send by send.
+        drawWith(modelId = "stub-image", again = true)
+        graphQlTester.document("""mutation { sendChatMessage(id: $chatId, text: "Draw it again") { millis } }""").execute()
+        assertThat(offered.last())
+            .contains("from 64 to 4096")
+            .doesNotContain("\"quality\":{")
+    }
+
+    /**
+     * A size the agent asks for reaches the drawing model, spelled the way the
+     * provider takes it.
+     *
+     * Two numbers in the call, one `WIDTHxHEIGHT` on the wire: the join is the
+     * tool's and it happens once. The quality goes as the word it was.
+     */
+    @Test
+    fun `a size and quality the agent asks for reach the drawing model`() {
+        val chatId = drawingChat(modelId = "dall-e-3") { body ->
+            if (body.contains("/api/attachments/")) {
+                saying("There it is.")
+            } else {
+                drawingCall("""{"description":"A red square","width":1792,"height":1024,"quality":"hd"}""")
+            }
+        }
+
+        graphQlTester.document("""mutation { sendChatMessage(id: $chatId, text: "Draw a banner") { millis } }""").execute()
+
+        assertThat(drawn.single()).contains("\"size\":\"1792x1024\"").contains("\"quality\":\"hd\"")
+        assertThat(attachments.count()).isEqualTo(1)
+    }
+
+    /**
+     * A size the model does not draw is refused to the agent with the sizes it
+     * does, and the provider is never asked.
+     *
+     * The refusal is a tool result the model reads and works around - here it
+     * says so - not a provider's 400 after a round trip, and not an ending.
+     */
+    @Test
+    fun `a size the model does not draw is refused with its list, before the provider is asked`() {
+        val chatId = drawingChat(modelId = "dall-e-3") { body ->
+            if (body.contains("is not a size")) {
+                saying("It only draws 1024x1024, 1792x1024 or 1024x1792.")
+            } else {
+                drawingCall("""{"description":"A red square","width":800,"height":600}""")
+            }
+        }
+
+        graphQlTester.document("""mutation { sendChatMessage(id: $chatId, text: "Draw it small") { answer { content } } }""")
+            .execute().path("sendChatMessage.answer.content").entity(String::class.java)
+            .isEqualTo("It only draws 1024x1024, 1792x1024 or 1024x1792.")
+
+        assertThat(asked).doesNotContain("/images/generations")
+        assertThat(attachments.count()).isZero()
+        assertThat(offered.last()).contains("800x600").contains("1024x1024, 1792x1024, 1024x1792").contains("error")
+    }
+
     /* ------------------------------------------------------------- the stubs */
 
     /**
@@ -410,19 +497,28 @@ class ChatDrawingTest(
      * @param draws false for a provider that refuses, answering the way these
      *   providers actually refuse a description - a 400 carrying the reason in
      *   `error.message`, which is the sentence the agent is handed.
+     * @param modelId what the model calls itself, which is what decides which
+     *   sizes the tool offers: a `dall-e-3` is one wherever it is served, and
+     *   an id nothing knows on a host that is not OpenAI's is self-hosted.
+     * @param again true the second time in one test, when the image context is
+     *   already on the stub and only the model is to change - so the second
+     *   provider is named apart from the first, since a workspace refuses two
+     *   of one name.
      */
-    private fun drawWith(draws: Boolean = true) {
-        server.createContext("/images/generations") { exchange ->
-            asked += exchange.requestURI.path
-            exchange.requestBody.use { it.readBytes() }
-            if (draws) {
-                reply(exchange, """{"data":[{"b64_json":"$PIXEL"}]}""", 200)
-            } else {
-                reply(exchange, """{"error":{"message":"That is something it would not draw"}}""", 400)
+    private fun drawWith(draws: Boolean = true, modelId: String = "stub-image", again: Boolean = false) {
+        if (!again) {
+            server.createContext("/images/generations") { exchange ->
+                asked += exchange.requestURI.path
+                drawn += exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
+                if (draws) {
+                    reply(exchange, """{"data":[{"b64_json":"$PIXEL"}]}""", 200)
+                } else {
+                    reply(exchange, """{"error":{"message":"That is something it would not draw"}}""", 400)
+                }
             }
         }
 
-        val modelId = model("Drawer", "stub-image", "IMAGE")
+        val modelId = model(if (again) "Second drawer" else "Drawer", modelId, "IMAGE")
         graphQlTester.document(
             """mutation { setWorkspaceImageModel(workspaceId: $workspaceId, modelId: $modelId) { id } }""",
         ).execute().path("setWorkspaceImageModel.id").hasValue()
@@ -456,7 +552,8 @@ class ChatDrawingTest(
     /** One round the stub is to produce, said once and rendered two ways. */
     private data class Round(val said: String = "", val tool: String? = null, val arguments: String = "{}")
 
-    private fun drawingCall() = Round(tool = "chat_draw_picture", arguments = """{"description":"A red square"}""")
+    private fun drawingCall(arguments: String = """{"description":"A red square"}""") =
+        Round(tool = "chat_draw_picture", arguments = arguments)
 
     private fun saying(said: String) = Round(said = said)
 
@@ -506,12 +603,13 @@ class ChatDrawingTest(
      */
     private fun drawingChat(
         draws: Boolean = true,
+        modelId: String = "stub-image",
         answer: (String) -> Round = { body ->
             if (body.contains("/api/attachments/")) saying("There it is.") else drawingCall()
         },
     ): Long {
         val chatId = chatWithAgent(serve(answer))
-        drawWith(draws)
+        drawWith(draws, modelId)
         return chatId
     }
 

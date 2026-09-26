@@ -47,6 +47,12 @@ class StepPictureTools(
      * already writes to and what every tool that uploads them reads from.
      */
     private val scratch: io.mszymanski.orknux.workflow.script.SessionScratch,
+    /**
+     * The width, height and quality the drawing takes, as the workspace's
+     * model takes them. See [DrawToolParameters] for why the list is the
+     * model's and why a size arrives as two numbers.
+     */
+    private val parameters: DrawToolParameters,
 ) {
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
@@ -103,8 +109,16 @@ class StepPictureTools(
         private val mayLink: Boolean,
     ) : ToolShed {
 
-        override fun specs(): List<ToolSpec> =
-            if (mayLink) listOf(DRAWING, LINKING) else listOf(DRAWING)
+        /**
+         * The drawing as this workspace's model takes it, read every time it
+         * is asked for: the workspace can change its model between rounds,
+         * and a descriptor listing the old model's sizes would have the agent
+         * ask for one the new model refuses.
+         */
+        override fun specs(): List<ToolSpec> {
+            val drawing = parameters.offering(DRAWING, pictures.modelFor(workspaceId))
+            return if (mayLink) listOf(drawing, LINKING) else listOf(drawing)
+        }
 
         override fun handles(name: String): Boolean = name == DRAW || (mayLink && name == LINK)
 
@@ -128,7 +142,19 @@ class StepPictureTools(
                 return refuse("Say what the picture should be of: $DRAW takes a description.")
             }
 
-            return when (val drawn = pictures.draw(executionId, nodeKey, workspaceId, description)) {
+            /*
+             * The size and quality, held to what the model takes before the
+             * provider is asked. A refusal here is the agent's to read and act
+             * on - it names the sizes the model does draw - where the same
+             * request sent on would come back as a 400 about a field name,
+             * after a round trip.
+             */
+            val options = when (val asked = parameters.asked(pictures.modelFor(workspaceId), call.arguments)) {
+                is DrawToolParameters.Asked.Refused -> return refuse(asked.reason)
+                is DrawToolParameters.Asked.Options -> asked.options
+            }
+
+            return when (val drawn = pictures.draw(executionId, nodeKey, workspaceId, description, options = options)) {
                 is StepDrawing.Refused -> refuse(drawn.reason)
 
                 /*
@@ -295,6 +321,12 @@ class StepPictureTools(
             ),
         )
 
+        /**
+         * The drawing with its one fixed parameter. The width, height and
+         * quality are added per shed by [DrawToolParameters.offering], because
+         * which of them there are and what they may be is the workspace's
+         * model's to say.
+         */
         val DRAWING = ToolSpec(
             name = DRAW,
             /*
@@ -314,7 +346,8 @@ class StepPictureTools(
                 "What comes back is `key`: pass it to a tool that sends or uploads a file to put the " +
                 "picture in front of somebody, or to picture_link to get markdown for placing the " +
                 "picture at a point in your answer. The key is not an address and there is nothing to " +
-                "guess: those two tools are what it is for.",
+                "guess: those two tools are what it is for. Width and height, and quality where offered, " +
+                "are optional: leave them out for the model's defaults.",
             parameters = listOf(
                 ToolParameterSpec(
                     name = "description",

@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.chat
 
+import io.mszymanski.orknux.connector.model.ImageOptions
 import io.mszymanski.orknux.connector.model.ModelImageClient
 import io.mszymanski.orknux.connector.model.Picture
 import io.mszymanski.orknux.server.attachment.AttachmentStore
@@ -96,8 +97,13 @@ class ChatPictures(
      * rule and this runs from inside a round it opened nothing for: a call that
      * takes half a minute must not hold a connection, or on SQLite the one write
      * lock there is. The two writes either side are each their own.
+     *
+     * @param options size and quality where the agent asked for them, already
+     *   held to what the model takes by `DrawToolParameters`. Left out, the
+     *   model draws at its own defaults, which is what every call did before
+     *   the tool took a size.
      */
-    fun draw(chat: ChatSession, prompt: String): ChatDrawing {
+    fun draw(chat: ChatSession, prompt: String, options: ImageOptions = ImageOptions.NONE): ChatDrawing {
         if (!settings.attachmentsEnabled()) {
             return ChatDrawing.Refused(
                 "A drawn picture is kept as an attachment, and attachments are turned off for this installation.",
@@ -115,7 +121,7 @@ class ChatPictures(
             return ChatDrawing.Refused("That description is too long to draw from; say it in under $MOST_PROMPT characters.")
         }
 
-        val drawn = when (val picture = drawing.draw(modelId, asked)) {
+        val drawn = when (val picture = drawing.draw(modelId, asked, options)) {
             is Picture.Failed -> return ChatDrawing.Refused(picture.reason)
             is Picture.Drawn -> picture
         }
@@ -157,8 +163,14 @@ class ChatPictures(
         return ChatDrawing.Drawn(requireNotNull(saved.id), said, drawn.millis)
     }
 
-    /** What this chat draws with: whatever its workspace chose, or nothing. */
-    private fun modelFor(chat: ChatSession): Long? =
+    /**
+     * What this chat draws with: whatever its workspace chose, or nothing.
+     *
+     * Public because the tool's descriptor is the model's - which sizes it
+     * draws, whether it takes a quality - and the shed has to know which model
+     * that is before the round starts.
+     */
+    fun modelFor(chat: ChatSession): Long? =
         workspaces.findByIdOrNull(chat.workspaceId)?.imageModelId
 
     /**

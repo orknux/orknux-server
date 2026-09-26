@@ -95,6 +95,9 @@ class TaskPictureTest(
     /** Every body sent to the chat endpoint, so what was *offered* can be read off it. */
     private val offered = CopyOnWriteArrayList<String>()
 
+    /** Every body sent to the image endpoint, which is the only place the size asked for can be seen. */
+    private val drawn = CopyOnWriteArrayList<String>()
+
     @BeforeEach
     fun reset() {
         pictures.deleteAll()
@@ -112,6 +115,7 @@ class TaskPictureTest(
         workspaceId = requireNotNull(workspaces.save(Workspace(name = "backend")).id)
         asked.clear()
         offered.clear()
+        drawn.clear()
     }
 
     @AfterEach
@@ -322,6 +326,38 @@ class TaskPictureTest(
         assertThat(task.outcome).isEqualTo("No picture, then.")
     }
 
+    /**
+     * The tool takes a size, offered as the model takes it, and the size
+     * reaches the wire. Issue #436.
+     *
+     * The stub's model is an OpenAI-shaped endpoint on a host that is not
+     * OpenAI's, which is a self-hosted server: it is offered a range and no
+     * quality, and the two numbers the agent sent arrive joined as the one
+     * `size` the provider takes. The list-shaped half - a DALL-E 3's three
+     * sizes, and a refusal naming them - is `ChatDrawingTest`'s, over the same
+     * `DrawToolParameters`.
+     */
+    @Test
+    fun `a size the agent asks for is offered as the model takes it and reaches the wire`() {
+        val taskId = drawingTask { body ->
+            if (body.contains(DREW)) {
+                finishing("Here is the banner.")
+            } else {
+                calling("task_draw_picture", """{\"description\":\"A red square\",\"width\":512,\"height\":256}""")
+            }
+        }
+
+        assertThat(loop.advance(taskId)).isEqualTo(TaskTurn.Over)
+
+        assertThat(offered.first())
+            .contains("\"width\"")
+            .contains("\"height\"")
+            .contains("from 64 to 4096")
+            .doesNotContain("\"quality\":{")
+        assertThat(drawn.single()).contains("\"size\":\"512x256\"").doesNotContain("\"quality\"")
+        assertThat(pictures.count()).isEqualTo(1)
+    }
+
     /* ------------------------------------------------------------- the stubs */
 
     /** A stub answering chat completions, which is what the agent thinks with. */
@@ -348,7 +384,7 @@ class TaskPictureTest(
     private fun drawWith(draws: Boolean = true) {
         server.createContext("/images/generations") { exchange ->
             asked += exchange.requestURI.path
-            exchange.requestBody.use { it.readBytes() }
+            drawn += exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
             if (draws) {
                 reply(exchange, """{"data":[{"b64_json":"$PIXEL"}]}""".toByteArray(StandardCharsets.UTF_8), 200)
             } else {
