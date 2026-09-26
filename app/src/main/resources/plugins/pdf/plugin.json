@@ -9,7 +9,7 @@
     "offline"
   ],
   "summary": "Compose PDF documents from a workflow, diagrams drawn in.",
-  "version": "0.15.3",
+  "version": "0.16.0",
   "icon": "icon.svg",
   "descriptionPath": "README.md",
   "path": "pdf.js"
