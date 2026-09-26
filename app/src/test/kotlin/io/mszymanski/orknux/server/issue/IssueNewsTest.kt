@@ -125,7 +125,7 @@ class IssueNewsTest(
     fun `closing an issue reaches the person who filed it`() {
         val id = fileForClaude()
         // Claude closes it; alice filed it, so alice is the one who hears.
-        desk.statusChanged(issues.findById(id).get().apply { status = IssueStatus.CLOSED }, "claude")
+        desk.statusChanged(issues.findById(id).get().apply { status = IssueStatuses.CLOSED }, "claude")
 
         val told = news.since(workspaceId, AssigneeKind.USER, "alice", 0)
         assertThat(told).hasSize(1)

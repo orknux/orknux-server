@@ -244,8 +244,8 @@ class IssueObserverTest(
             """mutation { observeIssue(id: $id, observerKind: USER, observerId: "$bobId") { id } }""",
         ).execute().path("observeIssue.id").hasValue()
 
-        graphQlTester.document("""mutation { updateIssue(id: $id, input: { status: CLOSED }) { id } }""").execute()
-        graphQlTester.document("""mutation { updateIssue(id: $id, input: { status: OPEN }) { id } }""").execute()
+        graphQlTester.document("""mutation { updateIssue(id: $id, input: { status: "CLOSED" }) { id } }""").execute()
+        graphQlTester.document("""mutation { updateIssue(id: $id, input: { status: "OPEN" }) { id } }""").execute()
 
         // Closing does not end a subscription. A closed issue reopening is
         // exactly the thing an observer put themselves on the list to hear.

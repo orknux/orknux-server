@@ -11,6 +11,7 @@ import io.mszymanski.orknux.server.issue.IssueTypeAPI
 import io.mszymanski.orknux.server.memory.FIRST_MEMORY_CATALOG
 import io.mszymanski.orknux.server.memory.MemoryCatalog
 import io.mszymanski.orknux.server.issue.IssueTypeRepository
+import io.mszymanski.orknux.server.issue.IssueStatusCatalogue
 import io.mszymanski.orknux.server.task.TaskProperties
 import io.mszymanski.orknux.workflow.script.ScriptProperties
 import io.mszymanski.orknux.server.llm.SessionMemoryBudgets
@@ -43,6 +44,8 @@ class WorkspaceAPI(
     private val models: ModelService,
     private val budgets: SessionMemoryBudgets,
     private val issueTypes: IssueTypeRepository,
+    /** Where a new workspace's four issue statuses are written; see `createWorkspace`. */
+    private val issueStatuses: IssueStatusCatalogue,
     /** Where a new workspace's one memory catalog is made; see `createWorkspace`. */
     private val memoryCatalogs: io.mszymanski.orknux.server.memory.MemoryCatalogRepository,
     /** Only to say what a task gets where the workspace has not said. */
@@ -121,6 +124,11 @@ class WorkspaceAPI(
         IssueTypeAPI.TO_BEGIN_WITH.forEach {
             issueTypes.save(IssueType(workspaceId = requireNotNull(workspace.id), name = it))
         }
+        /*
+         * And the four statuses an issue moves through, for the same reason and
+         * with the same silence: they arrive with the workspace. Issue #428.
+         */
+        issueStatuses.ensure(requireNotNull(workspace.id))
         /*
          * And somewhere to remember things, for the same reason and in the same
          * way. A catalog is what an agent is granted and what a memory is filed

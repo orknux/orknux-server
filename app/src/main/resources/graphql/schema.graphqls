@@ -17,7 +17,8 @@ type Query {
     "One workspace's issues, newest first."
     workspaceIssues(
         workspaceId: ID!,
-        status: IssueStatus,
+        "One of this workspace's status keys, in any case; absent is every status. A key it does not have is refused."
+        status: String,
         """
         Which type: absent is every issue, an empty string is the untyped ones,
         an id is that type. One argument with three states, because "nobody has
@@ -46,6 +47,8 @@ type Query {
     it does. That is why this answers rows with ids and that one answers strings.
     """
     workspaceIssueTypes(workspaceId: ID!): [IssueType!]!
+    "The statuses this workspace's issues move through, in order, with how many issues hold each. Anybody who can see the workspace."
+    issueStatuses(workspaceId: ID!): [IssueStatusDefinition!]!
     """
     What has happened to one issue, oldest first.
 
@@ -1187,6 +1190,31 @@ type Mutation {
     delete it then.
     """
     deleteIssueType(id: ID!): Boolean!
+    """
+    Adds a status to this workspace's list, at the end. Whoever administers it may.
+
+    The key is upper snake case - REVIEW, WONTFIX, NEEDS_INFO - and is what an
+    issue stores and a tool call names, so it never changes; the label is what
+    people read. Case-insensitively unique within the workspace.
+    """
+    addIssueStatus(workspaceId: ID!, key: String!, label: String!, color: String): IssueStatusDefinition!
+    """
+    Changes what a status is called, what colour it wears, or whether it counts
+    as closed. Each is left alone when absent; an empty colour clears it. The
+    status new issues start in cannot count as closed, and the last one that
+    counts as closed cannot stop.
+    """
+    updateIssueStatus(id: ID!, label: String, color: String, closed: Boolean): IssueStatusDefinition!
+    "Puts the statuses in this order. Every one of the workspace's, once each."
+    reorderIssueStatuses(workspaceId: ID!, ids: [ID!]!): [IssueStatusDefinition!]!
+    """
+    Takes a status out of the list.
+
+    Refused, in words, for the status new issues start in, for the last one
+    that counts as closed, and for one that issues hold - which says how many,
+    so the way out is the filter: find them, move them, remove it then.
+    """
+    removeIssueStatus(id: ID!): Boolean!
     createIssue(input: IssueInput!): Issue!
     updateIssue(id: ID!, input: IssueInput!): Issue!
     deleteIssue(id: ID!): Boolean!
@@ -7627,13 +7655,31 @@ type Notification {
     unread: Boolean!
 }
 
-enum IssueStatus {
-    OPEN
-    "Somebody has picked it up. Open means nobody has yet."
-    IN_PROGRESS
-    "Done and awaiting review, before a release closes it. Between in-progress and closed."
-    REVIEW
-    CLOSED
+"""
+One status a workspace's issues can be in.
+
+A row per workspace rather than a fixed list: every workspace starts with OPEN,
+IN_PROGRESS, REVIEW and CLOSED and may add, relabel, recolour, reorder and
+remove them. An issue holds the key, which never changes; the label is what
+people read. Exactly one status is initial - where a new issue lands - and any
+number count as closed, since fixed and won't-fix are both done.
+"""
+type IssueStatusDefinition {
+    id: ID!
+    "Upper snake case, unique in the workspace: what an issue stores and a tool call names."
+    key: String!
+    "What people read."
+    label: String!
+    "A CSS colour for the dot and the badge, or null for the interface's own choice."
+    color: String
+    "Where it sits in the list, the filter bar and the cycle the status button walks."
+    position: Int!
+    "Where a new issue lands. Exactly one per workspace."
+    initial: Boolean!
+    "Counts as done: for the list, the mail and the task starter alike."
+    closed: Boolean!
+    "How many issues here hold it. What the settings page shows, and what removing it is refused with."
+    inUse: Int!
 }
 
 """
@@ -7777,7 +7823,8 @@ type IssueRelation {
     issueId: ID!
     number: Int!
     title: String!
-    status: IssueStatus!
+    "The key of one of the workspace's statuses."
+    status: String!
     linkedBy: String!
     "ISO-8601 offset date-time."
     linkedAt: String!
@@ -7791,7 +7838,8 @@ type IssueRef {
     id: ID!
     number: Int!
     title: String!
-    status: IssueStatus!
+    "The key of one of the workspace's statuses."
+    status: String!
 }
 
 """
@@ -7841,7 +7889,8 @@ type Issue {
     number: Int!
     title: String!
     description: String
-    status: IssueStatus!
+    "The key of one of the workspace's statuses; issueStatuses says what it is called and whether it counts as closed."
+    status: String!
     "What kind of thing it is, or null for untyped - which is a real state, not a gap."
     type: IssueType
     reporter: String!
@@ -7966,7 +8015,8 @@ input IssueInput {
     title: String
     "Empty clears it; absent leaves it alone."
     description: String
-    status: IssueStatus
+    "One of the workspace's status keys, in any case; absent leaves it alone. A key it does not have is refused."
+    status: String
     "Which type. Empty means untyped; absent leaves it alone."
     typeId: ID
     labels: [String!]

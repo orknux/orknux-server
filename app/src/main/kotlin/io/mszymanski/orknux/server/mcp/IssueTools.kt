@@ -4,7 +4,6 @@ import io.mszymanski.orknux.connector.model.ModelService
 import io.mszymanski.orknux.server.agent.AgentRepository
 import io.mszymanski.orknux.server.issue.Assignee
 import io.mszymanski.orknux.server.issue.AssigneeKind
-import io.mszymanski.orknux.server.issue.auditedAs
 import io.mszymanski.orknux.server.issue.Issue
 import io.mszymanski.orknux.server.issue.IssueComment
 import io.mszymanski.orknux.server.issue.IssueHistoryRecorder
@@ -14,7 +13,8 @@ import io.mszymanski.orknux.server.issue.IssueObserverRepository
 import io.mszymanski.orknux.server.issue.IssueRelationRepository
 import io.mszymanski.orknux.server.issue.IssueRelations
 import io.mszymanski.orknux.server.issue.IssueRepository
-import io.mszymanski.orknux.server.issue.IssueStatus
+import io.mszymanski.orknux.server.issue.IssueStatusCatalogue
+import io.mszymanski.orknux.server.issue.IssueStatusUnknownException
 import io.mszymanski.orknux.server.issue.IssueType
 import io.mszymanski.orknux.server.issue.IssueTypeRepository
 import io.mszymanski.orknux.server.issue.IssueTypeUnknownException
@@ -79,7 +79,21 @@ class IssueTools(
     private val models: ModelService,
     private val web: WebProperties,
     private val mapper: ObjectMapper,
+    /** What this workspace's statuses are, and which one a model meant. */
+    private val statuses: IssueStatusCatalogue,
 ) {
+
+    /**
+     * The keys this workspace's statuses go by, in order, for the tool
+     * descriptions to name.
+     *
+     * Read when the tools are described rather than written into the
+     * description, because the list is the workspace's and changes when an
+     * administrator changes it - a description that said "OPEN or CLOSED" is
+     * how a model was once told two of three values existed.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
+    fun statusKeys(scope: OrknuxScope): List<String> = statuses.of(scope.workspaceId).map { it.key }
 
     /** Where an issue can be opened, sent back with the issue itself. */
     private fun issueLink(workspaceId: Long, number: Int): String {
@@ -165,8 +179,11 @@ class IssueTools(
     @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
     fun list(scope: OrknuxScope, arguments: String): String {
         val wanted = text(arguments, "status")?.let { asked ->
-            IssueStatus.entries.firstOrNull { it.name.equals(asked, ignoreCase = true) }
-                ?: return refuse("There is no issue status called $asked")
+            try {
+                statuses.match(scope.workspaceId, asked).key
+            } catch (unknown: IssueStatusUnknownException) {
+                return refuse(unknown.message.orEmpty())
+            }
         }
         val assignee = text(arguments, "assignee")?.lowercase()
         /*
@@ -412,6 +429,7 @@ class IssueTools(
                 number = issues.lastNumber(scope.workspaceId) + 1,
                 title = title,
                 description = text(arguments, "description")?.trim(),
+                status = statuses.initialOf(scope.workspaceId),
                 type = type,
                 reporter = currentUser(scope),
                 labels = labels,
@@ -584,9 +602,18 @@ class IssueTools(
     fun setStatus(scope: OrknuxScope, arguments: String): String {
         if (!scope.mayWrite) return refuse("This conversation may read issues, but not change them")
         val held = issueIn(scope, arguments) ?: return refuse("Which issue? Give its number.")
-        val asked = text(arguments, "status") ?: return refuse("Open or closed?")
-        val wanted = IssueStatus.entries.firstOrNull { it.name.equals(asked, ignoreCase = true) }
-            ?: return refuse("There is no issue status called $asked")
+        val asked = text(arguments, "status")
+            ?: return refuse("Which status? One of ${statusKeys(scope).joinToString(", ")}.")
+        /*
+         * The workspace's own list, and the refusal names it. A model that sent
+         * DONE to a workspace whose word is CLOSED can only fix that if it is
+         * told the word, and this is the one place it is going to be told.
+         */
+        val wanted = try {
+            statuses.resolve(scope.workspaceId, asked).key
+        } catch (unknown: IssueStatusUnknownException) {
+            return refuse(unknown.message.orEmpty())
+        }
 
         val was = held.status
         val moved = held.status != wanted
@@ -596,7 +623,7 @@ class IssueTools(
         issues.save(held)
         if (moved) {
             newsDesk.statusChanged(held, currentUser(scope))
-            audited(scope, scope.workspaceId, "Issue #${held.number} ${wanted.auditedAs(was)}")
+            audited(scope, scope.workspaceId, "Issue #${held.number} ${statuses.auditedAs(scope.workspaceId, wanted, was)}")
         }
         // Written here as well as in the controller, because this is the other
         // door into the tracker and a history with a hole exactly where the

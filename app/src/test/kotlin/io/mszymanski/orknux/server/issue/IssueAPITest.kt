@@ -118,11 +118,11 @@ class IssueAPITest(
     fun `closing one takes it out of the open list and says so in the audit`() {
         val id = file("The reply is late")
 
-        graphQlTester.document("""mutation { updateIssue(id: $id, input: { status: CLOSED }) { status } }""")
+        graphQlTester.document("""mutation { updateIssue(id: $id, input: { status: "CLOSED" }) { status } }""")
             .execute()
             .path("updateIssue.status").entity(String::class.java).isEqualTo("CLOSED")
 
-        graphQlTester.document("""{ workspaceIssues(workspaceId: $workspaceId, status: OPEN) { totalElements } }""")
+        graphQlTester.document("""{ workspaceIssues(workspaceId: $workspaceId, status: "OPEN") { totalElements } }""")
             .execute()
             .path("workspaceIssues.totalElements").entity(Int::class.java).isEqualTo(0)
 

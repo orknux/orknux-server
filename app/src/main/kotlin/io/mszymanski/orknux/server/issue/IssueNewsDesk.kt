@@ -86,7 +86,7 @@ class IssueNewsDesk(
     /** It was closed or reopened. Whoever has it, and whoever filed it. */
     @Transactional
     fun statusChanged(issue: Issue, actor: String) {
-        write(issue, IssueNewsKind.STATUS, actor, says = issue.status.name, to = watchers(issue))
+        write(issue, IssueNewsKind.STATUS, actor, says = issue.status, to = watchers(issue))
     }
 
     /**

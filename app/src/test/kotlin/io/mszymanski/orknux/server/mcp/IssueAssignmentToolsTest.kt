@@ -5,7 +5,7 @@ import io.mszymanski.orknux.server.agent.AgentRepository
 import io.mszymanski.orknux.server.agent.AgentType
 import io.mszymanski.orknux.server.issue.Issue
 import io.mszymanski.orknux.server.issue.IssueRepository
-import io.mszymanski.orknux.server.issue.IssueStatus
+import io.mszymanski.orknux.server.issue.IssueStatuses
 import io.mszymanski.orknux.server.user.AppUser
 import io.mszymanski.orknux.server.user.AppUserRepository
 import io.mszymanski.orknux.server.user.UserType
@@ -79,7 +79,7 @@ class IssueAssignmentToolsTest(
     @Test
     fun `an issue can be picked up, and the tool says so`() {
         assertThat(tools.setStatus(scope, """{"issue": 1, "status": "IN_PROGRESS"}""")).contains("IN_PROGRESS")
-        assertThat(held().status).isEqualTo(IssueStatus.IN_PROGRESS)
+        assertThat(held().status).isEqualTo(IssueStatuses.IN_PROGRESS)
 
         // The half that was actually broken: what a model is told it may send.
         val status = surface.specs(scope).single { it.name == "orknux_set_issue_status" }

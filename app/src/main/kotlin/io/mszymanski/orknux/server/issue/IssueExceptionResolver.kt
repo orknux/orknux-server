@@ -55,6 +55,23 @@ class IssueExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is IssueTypeUnknownException,
             is IssueTypeInUseException,
             /*
+             * The statuses' refusals, each the caller's to fix and each saying
+             * how: a key the workspace does not have lists the ones it does; a
+             * malformed key, label or colour says what one looks like; one that
+             * cannot go names the rule - where new issues start, the last that
+             * counts as closed, or how many issues hold it.
+             */
+            is IssueStatusUnknownException,
+            is IssueStatusKeyInvalidException,
+            is IssueStatusKeyTakenException,
+            is IssueStatusLabelInvalidException,
+            is IssueStatusColorInvalidException,
+            is IssueStatusInUseException,
+            is IssueStatusInitialException,
+            is IssueStatusInitialClosedException,
+            is IssueStatusLastClosedException,
+            is IssueStatusReorderException,
+            /*
              * Not theirs to remove, which is the caller's to understand rather
              * than a failure: the sentence names both ways somebody could be
              * allowed to, so a reader who was refused knows which of the two
@@ -66,6 +83,7 @@ class IssueExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is IssueLinkNotFoundException,
             is IssueRelationNotFoundException,
             is IssueTypeNotFoundException,
+            is IssueStatusNotFoundException,
             -> ErrorType.NOT_FOUND
 
             else -> return null

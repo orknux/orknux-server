@@ -72,7 +72,7 @@ class NotificationAPITest(
 
         // Somebody else acts on both; the reporter hears about both.
         desk.commented(issues.findById(here).get(), "bob", "Looking now")
-        desk.statusChanged(issues.findById(elsewhere).get().apply { status = IssueStatus.CLOSED }, "bob")
+        desk.statusChanged(issues.findById(elsewhere).get().apply { status = IssueStatuses.CLOSED }, "bob")
 
         assertThat(count()).isEqualTo(2)
         val kinds = graphQlTester.document("{ myNotifications { issueTitle kind actor } }")

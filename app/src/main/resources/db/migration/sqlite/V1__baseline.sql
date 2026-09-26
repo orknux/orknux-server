@@ -1549,7 +1549,10 @@ CREATE TABLE workspace_issue
     number                       integer not null,
     title                        varchar(200) not null,
     description                  text,
-    status                       varchar(16) not null default 'OPEN',
+    -- The key of one of the workspace's own statuses (workspace_issue_status
+    -- below); the four every workspace begins with are seeded in code when the
+    -- workspace is made. See V296 in the Postgres history. Issue #428.
+    status                       varchar(32) not null default 'OPEN',
     reporter                     varchar(120) not null,
     assignee_kind                varchar(16),
     assignee_id                  varchar(120),
@@ -1662,6 +1665,24 @@ CREATE TABLE workspace_issue_type
     workspace_id                 integer not null,
     name                         varchar(60) not null,
     constraint workspace_issue_type_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspace(id) ON DELETE CASCADE
+);
+
+-- The statuses a workspace's issues move through, decided by the workspace:
+-- a key an issue stores, a label people read, a colour, an order, and two
+-- flags - where a new issue lands (exactly one) and what counts as done (any
+-- number). Seeded in code when a workspace is made. See the Postgres V296.
+CREATE TABLE workspace_issue_status
+(
+    id                           integer not null primary key autoincrement,
+    workspace_id                 integer not null,
+    key                          varchar(32) not null,
+    label                        varchar(60) not null,
+    color                        varchar(32),
+    position                     integer not null default 0,
+    initial                      boolean not null default 0,
+    closed                       boolean not null default 0,
+    created_at                   timestamp not null default CURRENT_TIMESTAMP,
+    constraint workspace_issue_status_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspace(id) ON DELETE CASCADE
 );
 
 CREATE TABLE workspace_role
@@ -1815,6 +1836,9 @@ CREATE UNIQUE INDEX workspace_issue_relation_pair_key ON workspace_issue_relatio
 CREATE INDEX workspace_issue_relation_other_idx ON workspace_issue_relation (other_issue_id, linked_at);
 CREATE UNIQUE INDEX workspace_issue_type_name_key ON workspace_issue_type (workspace_id, lower(name));
 CREATE INDEX workspace_issue_type_idx ON workspace_issue (workspace_id, type_id);
+CREATE UNIQUE INDEX workspace_issue_status_key_key ON workspace_issue_status (workspace_id, upper(key));
+CREATE UNIQUE INDEX workspace_issue_status_initial_key ON workspace_issue_status (workspace_id) WHERE initial;
+CREATE INDEX workspace_issue_status_workspace_idx ON workspace_issue_status (workspace_id, position);
 CREATE INDEX ix_agent_tool_import_imported ON agent_tool_import (imported_id);
 CREATE INDEX ix_agent_tool_library_imported ON agent_tool_library (imported_id);
 CREATE INDEX ix_workflow_function_library_imported ON workflow_function_library (imported_id);

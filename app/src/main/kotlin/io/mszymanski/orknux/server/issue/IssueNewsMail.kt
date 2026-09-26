@@ -80,6 +80,8 @@ class IssueNewsMailer(
     private val mail: InstallationMail,
     private val web: WebProperties,
     @Qualifier("issueNewsPost") private val mailer: Executor,
+    /** Only to say what a status a subject line names means in that workspace. */
+    private val statuses: IssueStatusCatalogue,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -231,7 +233,7 @@ class IssueNewsMailer(
 
             IssueNewsKind.OPENED -> "${item.actor} opened $issue"
             IssueNewsKind.ASSIGNED -> "${item.actor} assigned you $issue"
-            IssueNewsKind.STATUS -> "${item.actor} ${statusVerb(item.says)} $issue"
+            IssueNewsKind.STATUS -> "${item.actor} ${statusSaid(item)}"
             IssueNewsKind.COMMENT -> "${item.actor} commented on $issue"
             IssueNewsKind.MENTIONED -> "${item.actor} mentioned you on $issue"
             IssueNewsKind.OBSERVING -> "${item.actor} added you to $issue"
@@ -242,11 +244,26 @@ class IssueNewsMailer(
         }
     }
 
-    /** The status as something somebody did, since the subject is a sentence about them. */
-    private fun statusVerb(status: String?): String = when (status) {
-        IssueStatus.CLOSED.name -> "closed"
-        IssueStatus.IN_PROGRESS.name -> "started"
-        else -> "reopened"
+    /**
+     * The status as something somebody did, since the subject is a sentence
+     * about them: "closed #4", "started #4", "reopened #4", "moved #4 to Review".
+     *
+     * Read off the workspace's definitions rather than off the key, so a status
+     * this workspace added reads as done where it counts as done. The words the
+     * audit uses are the catalogue's; these are the mail's, because a subject
+     * line is about the person and an audit line is about the issue.
+     */
+    private fun statusSaid(item: IssueNewsItem): String {
+        val issue = "#${item.issueNumber}"
+        val key = item.says ?: return "moved $issue"
+        val held = statuses.of(item.workspaceId)
+        val to = held.firstOrNull { it.key == key }
+        return when {
+            to?.closed == true -> "closed $issue"
+            to?.initial == true -> "reopened $issue"
+            key == IssueStatuses.IN_PROGRESS -> "started $issue"
+            else -> "moved $issue to ${to?.label ?: key}"
+        }
     }
 
     /**

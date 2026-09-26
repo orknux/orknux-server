@@ -125,7 +125,7 @@ class IssueHistoryTest(
         val id = file()
 
         graphQlTester.document(
-            """mutation { updateIssue(id: $id, input: { title: "The reply is late", status: IN_PROGRESS,
+            """mutation { updateIssue(id: $id, input: { title: "The reply is late", status: "IN_PROGRESS",
                  labels: ["slack"], assigneeKind: USER, assigneeId: "$bobId" }) { id } }""",
         ).execute().path("updateIssue.id").hasValue()
 
@@ -142,7 +142,7 @@ class IssueHistoryTest(
         // Labels swapped and the issue put back down in one save, which is what
         // the page does: everything on the form is sent whether it moved or not.
         graphQlTester.document(
-            """mutation { updateIssue(id: $id, input: { title: "The reply is late", status: CLOSED,
+            """mutation { updateIssue(id: $id, input: { title: "The reply is late", status: "CLOSED",
                  labels: ["timing"], assigneeKind: USER, assigneeId: "" }) { id } }""",
         ).execute().path("updateIssue.id").hasValue()
 
@@ -190,14 +190,14 @@ class IssueHistoryTest(
     fun `a save that changed nothing is not a line in the history`() {
         val id = file()
         graphQlTester.document(
-            """mutation { updateIssue(id: $id, input: { title: "The reply is late", status: OPEN,
+            """mutation { updateIssue(id: $id, input: { title: "The reply is late", status: "OPEN",
                  labels: [], assigneeKind: USER, assigneeId: "$bobId" }) { id } }""",
         ).execute().path("updateIssue.id").hasValue()
 
         val was = events.findAll().size
         repeat(2) {
             graphQlTester.document(
-                """mutation { updateIssue(id: $id, input: { title: "The reply is late", status: OPEN,
+                """mutation { updateIssue(id: $id, input: { title: "The reply is late", status: "OPEN",
                      labels: [], assigneeKind: USER, assigneeId: "$bobId" }) { id } }""",
             ).execute().path("updateIssue.id").hasValue()
         }
@@ -252,7 +252,7 @@ class IssueHistoryTest(
         // before this table was.
         events.save(IssueEvent(issueId = id, kind = IssueEventKind.RECORDING, actor = "system"))
 
-        graphQlTester.document("""mutation { updateIssue(id: $id, input: { status: CLOSED }) { id } }""")
+        graphQlTester.document("""mutation { updateIssue(id: $id, input: { status: "CLOSED" }) { id } }""")
             .execute().path("updateIssue.id").hasValue()
 
         assertThat(history().map { it["kind"] }).containsExactly("OPENED", "COMMENT", "RECORDING", "STATUS")
@@ -297,7 +297,7 @@ class IssueHistoryTest(
     @Test
     fun `an issue taking its history with it when it goes`() {
         val id = file()
-        graphQlTester.document("""mutation { updateIssue(id: $id, input: { status: CLOSED }) { id } }""")
+        graphQlTester.document("""mutation { updateIssue(id: $id, input: { status: "CLOSED" }) { id } }""")
             .execute().path("updateIssue.id").hasValue()
         assertThat(events.findAll()).isNotEmpty()
 

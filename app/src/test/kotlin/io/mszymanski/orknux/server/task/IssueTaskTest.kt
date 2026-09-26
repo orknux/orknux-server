@@ -15,7 +15,7 @@ import io.mszymanski.orknux.server.issue.IssueEventKind
 import io.mszymanski.orknux.server.issue.IssueEventRepository
 import io.mszymanski.orknux.server.issue.IssueNewsRepository
 import io.mszymanski.orknux.server.issue.IssueRepository
-import io.mszymanski.orknux.server.issue.IssueStatus
+import io.mszymanski.orknux.server.issue.IssueStatuses
 import io.mszymanski.orknux.server.llm.LlmSessionEventRepository
 import io.mszymanski.orknux.server.llm.LlmSessionRecorder
 import io.mszymanski.orknux.server.llm.LlmSessionRepository
@@ -130,7 +130,7 @@ class IssueTaskTest(
 
         // The issue was picked up, and both records say so exactly once.
         assertThat(issues.findById(requireNotNull(issue.id)).orElseThrow().status)
-            .isEqualTo(IssueStatus.IN_PROGRESS)
+            .isEqualTo(IssueStatuses.IN_PROGRESS)
         val moves = history.findAll().filter { it.kind == IssueEventKind.STATUS }
         assertThat(moves).hasSize(1)
         assertThat(moves.first().became).isEqualTo("IN_PROGRESS")
@@ -221,7 +221,7 @@ class IssueTaskTest(
      */
     @Test
     fun `an ended task neither reopens the issue nor blocks another attempt`() {
-        val issue = filed(assignee = Assignee(AssigneeKind.AGENT, agentId.toString()), status = IssueStatus.IN_PROGRESS)
+        val issue = filed(assignee = Assignee(AssigneeKind.AGENT, agentId.toString()), status = IssueStatuses.IN_PROGRESS)
         val first = live(requireNotNull(issue.id))
         tasks.findById(first).orElseThrow().let {
             it.status = TaskStatus.FAILED
@@ -233,7 +233,7 @@ class IssueTaskTest(
             .execute().path("startIssueTask.id").entity(Long::class.java).matches { it != first }
 
         assertThat(issues.findById(requireNotNull(issue.id)).orElseThrow().status)
-            .isEqualTo(IssueStatus.IN_PROGRESS)
+            .isEqualTo(IssueStatuses.IN_PROGRESS)
         // It was already in progress, so nothing was picked up a second time.
         assertThat(history.findAll().filter { it.kind == IssueEventKind.STATUS }).isEmpty()
     }
@@ -241,12 +241,12 @@ class IssueTaskTest(
     /** A closed issue is not quietly reopened by a button press. */
     @Test
     fun `a closed issue is not started by AI`() {
-        val issue = filed(assignee = Assignee(AssigneeKind.AGENT, agentId.toString()), status = IssueStatus.CLOSED)
+        val issue = filed(assignee = Assignee(AssigneeKind.AGENT, agentId.toString()), status = IssueStatuses.CLOSED)
 
         graphQlTester.document("""mutation { startIssueTask(issueId: ${issue.id}) { id } }""")
             .execute().errors().expect { it.message?.contains("is closed") == true }.verify()
 
-        assertThat(issues.findById(requireNotNull(issue.id)).orElseThrow().status).isEqualTo(IssueStatus.CLOSED)
+        assertThat(issues.findById(requireNotNull(issue.id)).orElseThrow().status).isEqualTo(IssueStatuses.CLOSED)
     }
 
     /** Somebody who cannot see the workspace cannot start anything in it. */
@@ -298,7 +298,7 @@ class IssueTaskTest(
         description: String? = "It does the wrong thing.",
         labels: MutableSet<String> = mutableSetOf(),
         assignee: Assignee? = null,
-        status: IssueStatus = IssueStatus.OPEN,
+        status: String = IssueStatuses.OPEN,
         comments: MutableList<IssueComment> = mutableListOf(),
     ): Issue = issues.save(
         Issue(

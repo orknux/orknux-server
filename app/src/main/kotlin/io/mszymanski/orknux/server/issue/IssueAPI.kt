@@ -78,6 +78,8 @@ class IssueAPI(
     private val observers: IssueObserverRepository,
     private val store: AttachmentStore,
     private val installation: InstallationSettings,
+    /** What the workspace's statuses are, and which one a caller meant. */
+    private val statuses: IssueStatusCatalogue,
 ) {
 
     /*
@@ -89,7 +91,13 @@ class IssueAPI(
     @Transactional(readOnly = true)
     fun workspaceIssues(
         @Argument workspaceId: Long,
-        @Argument status: IssueStatus?,
+        /**
+         * One of the workspace's status keys, in any case, or absent for every
+         * status. A key the workspace does not have is refused rather than
+         * answered with nothing, for the reason an unknown type id is: an empty
+         * list somebody believes is worse than an error.
+         */
+        @Argument status: String?,
         /**
          * Which type, spelled the way the assignee is: absent is every issue,
          * an empty string is the untyped ones, an id is that type. One argument
@@ -152,7 +160,7 @@ class IssueAPI(
         val found = issues.findAll(
             issueFilter(
                 workspaceId = workspaceId,
-                status = status,
+                status = status?.let { statuses.match(workspaceId, it).key },
                 search = search,
                 type = typeWanted(workspaceId, typeId),
             ),
@@ -261,7 +269,7 @@ class IssueAPI(
                 number = issues.lastNumber(workspaceId) + 1,
                 title = title,
                 description = input.description?.trim()?.takeIf { it.isNotEmpty() },
-                status = input.status ?: IssueStatus.OPEN,
+                status = input.status?.let { statuses.resolve(workspaceId, it).key } ?: statuses.initialOf(workspaceId),
                 type = typeFrom(workspaceId, input.typeId),
                 reporter = currentUser(),
                 assignee = assigneeFrom(workspaceId, input),
@@ -318,12 +326,15 @@ class IssueAPI(
         input.typeId?.let { held.type = typeFrom(held.workspaceId, it) }
         val statusWas = held.status
         var statusChanged = false
-        input.status?.let { wanted ->
+        input.status?.let { asked ->
+            // The workspace's own spelling of what was asked for, or a refusal
+            // naming what it has: an issue never holds a key nothing is called.
+            val wanted = statuses.resolve(held.workspaceId, asked).key
             if (wanted != held.status) {
                 audit.record(
                     held.workspaceId,
                     WorkspaceAuditCategory.WORKSPACE,
-                    "Issue #${held.number} ${wanted.auditedAs(statusWas)}",
+                    "Issue #${held.number} ${statuses.auditedAs(held.workspaceId, wanted, statusWas)}",
                 )
                 statusChanged = true
             }
@@ -1239,7 +1250,8 @@ data class IssueView(
     val number: Int,
     val title: String,
     val description: String?,
-    val status: IssueStatus,
+    /** The key of one of the workspace's statuses; the page reads its label off the definitions. */
+    val status: String,
     /**
      * What kind of thing it is, or null for untyped.
      *
@@ -1352,7 +1364,7 @@ data class IssueRelationView(
     val issueId: Long,
     val number: Int,
     val title: String,
-    val status: IssueStatus,
+    val status: String,
     val linkedBy: String,
     val linkedAt: String,
 )
@@ -1369,7 +1381,7 @@ data class IssueRefView(
     val id: Long,
     val number: Int,
     val title: String,
-    val status: IssueStatus,
+    val status: String,
 )
 
 /** Something an issue can be assigned to, as the box shows it. */
@@ -1385,7 +1397,8 @@ data class IssueInput(
     val workspaceId: Long?,
     val title: String?,
     val description: String?,
-    val status: IssueStatus?,
+    /** One of the workspace's status keys, in any case; absent leaves it alone. */
+    val status: String?,
     /**
      * Which type, or empty for untyped, or absent to leave it alone.
      *

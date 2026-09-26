@@ -4,7 +4,7 @@ import io.mszymanski.orknux.server.issue.Assignee
 import io.mszymanski.orknux.server.issue.AssigneeKind
 import io.mszymanski.orknux.server.issue.Issue
 import io.mszymanski.orknux.server.issue.IssueRepository
-import io.mszymanski.orknux.server.issue.IssueStatus
+import io.mszymanski.orknux.server.issue.IssueStatuses
 import io.mszymanski.orknux.server.user.AppUser
 import io.mszymanski.orknux.server.user.AppUserRepository
 import io.mszymanski.orknux.server.user.UserType
@@ -185,7 +185,7 @@ class IssueToolsPagingTest(
     @Test
     fun `status and labels filter together past the page`() {
         val one = requireNotNull(issues.findByWorkspaceIdAndNumber(workspaceId, 2))
-        one.status = IssueStatus.CLOSED
+        one.status = IssueStatuses.CLOSED
         issues.save(one)
 
         val open = numbersIn(tools.list(scope, """{"labels": "p1", "status": "OPEN"}"""))

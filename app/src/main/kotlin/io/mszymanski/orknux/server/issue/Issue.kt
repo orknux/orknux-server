@@ -31,50 +31,6 @@ import org.springframework.data.jpa.repository.Query
 import java.time.OffsetDateTime
 
 /**
- * Where an issue is in its life.
- *
- * The third one earns its place: "open" covers both nobody having looked at it
- * and somebody being halfway through, and those are the two things a person
- * scanning the list most needs told apart. Anything past three would be a
- * workflow this tracker does not have.
- */
-enum class IssueStatus {
-    OPEN,
-    IN_PROGRESS,
-
-    /**
-     * Done and awaiting review, before a release closes it. Between in-progress
-     * and closed. A seeded default until statuses are workspace-configurable
-     * (#428).
-     */
-    REVIEW,
-    CLOSED,
-}
-
-/**
- * What an audit line calls a move to this status.
- *
- * Beside the enum rather than at either door, because both doors write that
- * line and both had the same third value wrong. Each asked
- * `if (wanted == CLOSED) "closed" else "reopened"`, which is a question with
- * two answers being put to something with three - so every issue anybody picked
- * up was recorded as having been reopened, in the browser and through the tools
- * alike. A word per value, decided once, is what stops the next value added
- * here being wrong in two places at the same time.
- *
- * Reopening is the one that needs to know where it came from. Only a closed
- * issue can be reopened; one moved back to open from in progress was put down,
- * which is a different thing to have happened and reads as a falsehood under
- * either of the other two words.
- */
-fun IssueStatus.auditedAs(was: IssueStatus): String = when (this) {
-    IssueStatus.CLOSED -> "closed"
-    IssueStatus.REVIEW -> "put up for review"
-    IssueStatus.IN_PROGRESS -> "picked up"
-    IssueStatus.OPEN -> if (was == IssueStatus.CLOSED) "reopened" else "put back to open"
-}
-
-/**
  * What kind of thing an issue is assigned to.
  *
  * A person is the obvious one and not the only one: this is a product where
@@ -131,9 +87,20 @@ class Issue(
     @Column(columnDefinition = "text")
     var description: String? = null,
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 16)
-    var status: IssueStatus = IssueStatus.OPEN,
+    /**
+     * Where it is in its life, as the key of one of the workspace's statuses.
+     *
+     * A key and not a row, and not an enum either - which it was until #428.
+     * The workspace decides its statuses now ([IssueStatusDefinition]), so the
+     * set is a table and not a type; and the issue holds the key rather than the
+     * row's id so that the history, the news and an agent's tool call all read
+     * one spelling, and so that the column is exactly what it was before with
+     * the enum's four names still in it. Every write goes through
+     * [IssueStatusCatalogue], which is what says the key is one of this
+     * workspace's.
+     */
+    @Column(nullable = false, length = IssueStatuses.KEY_LENGTH)
+    var status: String = IssueStatuses.OPEN,
 
     /**
      * What kind of thing it is, or null for untyped.
@@ -340,6 +307,27 @@ interface IssueRepository : JpaRepository<Issue, Long>, JpaSpecificationExecutor
 
     /** What deleting a type has to ask, and what the refusal reports. */
     fun countByTypeId(typeId: Long): Long
+
+    /**
+     * How many issues here hold each status, counted by the database.
+     *
+     * The settings page's numbers, and what removing a status is refused with.
+     * Keyed by the status's key rather than joined to its row, because the issue
+     * holds the key: a status nothing is called any more still counts here,
+     * which is exactly the row an administrator would want to know about.
+     */
+    @Query(
+        """
+        select new io.mszymanski.orknux.server.issue.IssueStatusCount(i.status, count(i))
+        from Issue i
+        where i.workspaceId = :workspaceId
+        group by i.status
+        """,
+    )
+    fun statusCounts(workspaceId: Long): List<IssueStatusCount>
+
+    /** What removing a status has to ask, and what the refusal reports. */
+    fun countByWorkspaceIdAndStatus(workspaceId: Long, status: String): Long
 }
 
 /**
@@ -375,7 +363,8 @@ data class OfType(val id: Long) : IssueTypeWanted
  */
 fun issueFilter(
     workspaceId: Long,
-    status: IssueStatus?,
+    /** One of the workspace's status keys, as [IssueStatusCatalogue.match] spells it; null is every status. */
+    status: String?,
     /** Read across the title, the description and the labels together. */
     search: String?,
     /**
@@ -406,7 +395,7 @@ fun issueFilter(
 ): Specification<Issue> = Specification { root, query, builder ->
     val predicates = mutableListOf(builder.equal(root.get<Long>("workspaceId"), workspaceId))
 
-    status?.let { predicates += builder.equal(root.get<IssueStatus>("status"), it) }
+    status?.let { predicates += builder.equal(root.get<String>("status"), it) }
 
     when (type) {
         AnyType -> Unit

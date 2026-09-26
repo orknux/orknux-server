@@ -103,7 +103,7 @@ class IssueAuditTest(
         val fromThePage = fileFromThePage("The reply is late")
         tools.open(scope, """{"title": "The webhook answers 500"}""")
 
-        graphQlTester.document("""mutation { updateIssue(id: $fromThePage, input: { status: CLOSED }) { status } }""")
+        graphQlTester.document("""mutation { updateIssue(id: $fromThePage, input: { status: "CLOSED" }) { status } }""")
             .execute().path("updateIssue.status").entity(String::class.java).isEqualTo("CLOSED")
         tools.setStatus(scope, """{"issue": 2, "status": "CLOSED"}""")
 
@@ -111,7 +111,7 @@ class IssueAuditTest(
 
         // Reopening is the other half of the same fact, and is said as such
         // rather than as another "status changed".
-        graphQlTester.document("""mutation { updateIssue(id: $fromThePage, input: { status: OPEN }) { status } }""")
+        graphQlTester.document("""mutation { updateIssue(id: $fromThePage, input: { status: "OPEN" }) { status } }""")
             .execute().path("updateIssue.status").entity(String::class.java).isEqualTo("OPEN")
         tools.setStatus(scope, """{"issue": 2, "status": "OPEN"}""")
 
@@ -129,7 +129,7 @@ class IssueAuditTest(
         tools.open(scope, """{"title": "The webhook answers 500"}""")
         val before = messages().size
 
-        graphQlTester.document("""mutation { updateIssue(id: $fromThePage, input: { status: OPEN }) { status } }""")
+        graphQlTester.document("""mutation { updateIssue(id: $fromThePage, input: { status: "OPEN" }) { status } }""")
             .execute().path("updateIssue.status").entity(String::class.java).isEqualTo("OPEN")
         tools.setStatus(scope, """{"issue": 2, "status": "OPEN"}""")
 

@@ -7,8 +7,8 @@ import io.mszymanski.orknux.server.issue.IssueComment
 import io.mszymanski.orknux.server.issue.IssueHistoryRecorder
 import io.mszymanski.orknux.server.issue.IssueNewsDesk
 import io.mszymanski.orknux.server.issue.IssueRepository
-import io.mszymanski.orknux.server.issue.IssueStatus
-import io.mszymanski.orknux.server.issue.auditedAs
+import io.mszymanski.orknux.server.issue.IssueStatusCatalogue
+import io.mszymanski.orknux.server.issue.IssueStatuses
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
 import org.slf4j.LoggerFactory
@@ -152,6 +152,8 @@ class IssueTaskStarter(
     private val history: IssueHistoryRecorder,
     private val newsDesk: IssueNewsDesk,
     private val audit: WorkspaceAuditRecorder,
+    /** Whether the issue counts as done here, and what picking it up is called. */
+    private val statuses: IssueStatusCatalogue,
 ) {
 
     /**
@@ -183,7 +185,9 @@ class IssueTaskStarter(
     fun start(issue: Issue, by: String): Task {
         val agentId = agentOn(issue)
             ?: throw TaskNotRunnableException("Issue #${issue.number} is not assigned to an agent")
-        if (issue.status == IssueStatus.CLOSED) {
+        // Any status the workspace counts as done, not only the one called
+        // Closed: an issue marked Won't fix is not to be started either.
+        if (statuses.isClosed(issue.workspaceId, issue.status)) {
             throw TaskNotRunnableException("Issue #${issue.number} is closed")
         }
         if (runningOn(issue) != null) {
@@ -296,9 +300,15 @@ class IssueTaskStarter(
      */
     private fun pickUp(issue: Issue, by: String) {
         val was = issue.status
-        if (was != IssueStatus.OPEN) return
+        val held = statuses.of(issue.workspaceId)
+        // From the status new issues start in, whatever the workspace calls it,
+        // and only to IN_PROGRESS - a workspace that has taken that status away
+        // has said that "picked up" is not a state its board has, and the issue
+        // stays where the person who pressed the button left it.
+        if (held.firstOrNull { it.key == was }?.initial != true) return
+        val next = held.firstOrNull { it.key == IssueStatuses.IN_PROGRESS } ?: return
 
-        issue.status = IssueStatus.IN_PROGRESS
+        issue.status = next.key
         issue.lastModifiedAt = OffsetDateTime.now()
         issue.lastModifiedBy = by
         val saved = issues.save(issue)
@@ -306,7 +316,7 @@ class IssueTaskStarter(
         audit.record(
             saved.workspaceId,
             WorkspaceAuditCategory.WORKSPACE,
-            "Issue #${saved.number} ${saved.status.auditedAs(was)}",
+            "Issue #${saved.number} ${statuses.auditedAs(saved.workspaceId, saved.status, was)}",
         )
         history.statusChanged(saved, was, saved.status, by)
         newsDesk.statusChanged(saved, by)

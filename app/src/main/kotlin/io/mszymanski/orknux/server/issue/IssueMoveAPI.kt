@@ -73,6 +73,7 @@ class IssueMoveAPI(
     private val access: WorkspaceAccess,
     private val newsDesk: IssueNewsDesk,
     private val reading: IssueAPI,
+    private val statuses: IssueStatusCatalogue,
 ) {
 
     /**
@@ -202,6 +203,23 @@ class IssueMoveAPI(
      */
     private fun refuseWhatCannotFollow(issue: Issue, destination: Workspace) {
         val there = requireNotNull(destination.id)
+
+        /*
+         * A status is a key in one workspace's list, so an issue in REVIEW can
+         * only stay in review where REVIEW also exists. Matched by key, which is
+         * what the issue holds and what the two workspaces would have to agree
+         * on. Refused rather than reset, like the type below it: every workspace
+         * begins with the same four, so this is the case where somebody has
+         * taken one out or added one, and either is a decision worth asking
+         * about.
+         */
+        if (statuses.of(there).none { it.key == issue.status }) {
+            val called = statuses.labelOf(issue.workspaceId, issue.status)
+            throw IssueMoveRefusedException(
+                "This issue is in $called (${issue.status}), and ${destination.name} has no such status. " +
+                    "Add it to its issue statuses or move this issue to another status, then move it.",
+            )
+        }
 
         /*
          * A type belongs to one workspace's catalogue, so an issue typed `bug`

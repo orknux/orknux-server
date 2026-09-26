@@ -277,7 +277,13 @@ class OrknuxTools(
                 description = "Issues in this workspace. Filter by who they are assigned to, by state, or by words.",
                 parameters = listOf(
                     ToolParameterSpec("assignee", "Only issues assigned to this name - a person, agent or model.", required = false),
-                    ToolParameterSpec("status", "OPEN or CLOSED; both when absent.", required = false),
+                    ToolParameterSpec(
+                        "status",
+                        // The workspace's own list, read now: it is the workspace's to change.
+                        "Only issues in this status, by key - one of ${issueTools.statusKeys(scope).joinToString(", ")}. " +
+                            "Every status when absent.",
+                        required = false,
+                    ),
                     ToolParameterSpec(
                         "type",
                         "Only issues of this type, by name - `bug`, `feature`, or whatever else this " +
@@ -377,15 +383,23 @@ class OrknuxTools(
             add(
                 ToolSpec(
                     name = "orknux_set_issue_status",
-                    description = "Opens an issue, says somebody is working on it, or closes it.",
+                    description = "Moves an issue to another of this workspace's statuses: picks it up, closes it, reopens it.",
                     parameters = listOf(
                         ToolParameterSpec("issue", "Its number in this workspace.", required = true),
                         ToolParameterSpec(
                             "status",
-                            "OPEN, IN_PROGRESS, REVIEW or CLOSED. IN_PROGRESS says somebody has picked it " +
-                                "up and open means nobody has yet, so say it when you start rather than " +
-                                "when you finish - it is how anybody else looking at the same list knows " +
-                                "not to start it too. REVIEW is done but not yet shipped.",
+                            /*
+                             * The list is the workspace's and is read here rather than
+                             * written down, because an administrator can add to it. A
+                             * description that named two of three values is how a
+                             * model was once told IN_PROGRESS did not exist.
+                             */
+                            "One of this workspace's issue statuses, by key: " +
+                                "${issueTools.statusKeys(scope).joinToString(", ")}. A key it does not have is " +
+                                "refused with the list. IN_PROGRESS, where the workspace has it, says somebody " +
+                                "has picked the issue up and OPEN means nobody has yet, so say it when you start " +
+                                "rather than when you finish - it is how anybody else looking at the same list " +
+                                "knows not to start it too.",
                             required = true,
                         ),
                     ),

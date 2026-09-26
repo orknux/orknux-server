@@ -219,10 +219,17 @@ interface IssueEventRepository : JpaRepository<IssueEvent, Long> {
 @Service
 class IssueHistoryRecorder(private val events: IssueEventRepository) {
 
-    /** Nothing is written where nothing changed; the callers check that too. */
-    fun statusChanged(issue: Issue, was: IssueStatus, became: IssueStatus, actor: String) {
+    /**
+     * Nothing is written where nothing changed; the callers check that too.
+     *
+     * Both sides are the status's key and not its label, for the reason the type
+     * is written as a name: this is a record of what happened, and it has to
+     * stay true after the status has been relabelled or - once nothing holds it
+     * - removed. The key is the one spelling that never changes.
+     */
+    fun statusChanged(issue: Issue, was: String, became: String, actor: String) {
         if (was == became) return
-        write(issue, IssueEventKind.STATUS, actor, was.name, became.name)
+        write(issue, IssueEventKind.STATUS, actor, was, became)
     }
 
     /**
