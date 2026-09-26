@@ -26,7 +26,7 @@ class BuiltInSkillsTest(
         val catalog = builtIn.catalogs().single()
         assertThat(catalog.name).isEqualTo(BuiltInSkills.CATALOG)
         assertThat(catalog.plugin).isEqualTo("Orknux")
-        assertThat(catalog.skills.map { it.name }).contains("Caveman", "TL;DR", "Angryman", "Grill me", "Plan", "Memory", "Commands")
+        assertThat(catalog.skills.map { it.name }).contains("Caveman", "TL;DR", "Angryman", "Grill me", "Plan", "Memory", "Commands", "Output format")
         // Every one of them is a skill by the rules a workspace's own is held
         // to - the frontmatter, a body - because nothing downstream knows these
         // came from a file rather than a row.
@@ -50,6 +50,10 @@ class BuiltInSkillsTest(
         assertThat(catalog.skills.single { it.name == "Plan" }.key).isEqualTo("plan")
         assertThat(catalog.skills.single { it.name == "Memory" }.key).isEqualTo("memory")
         assertThat(catalog.skills.single { it.name == "Commands" }.key).isEqualTo("commands")
+        // The one whose command carries an argument: ::output-format=json. The
+        // marker and the id are what the parser reads; the format after the
+        // equals sign is read by the model off the message. Issue #470.
+        assertThat(catalog.skills.single { it.name == "Output format" }.key).isEqualTo("output-format")
         assertThat(SkillFormat.check(tldr.content).valid).isTrue()
     }
 
