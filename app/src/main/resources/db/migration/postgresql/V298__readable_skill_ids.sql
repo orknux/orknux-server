@@ -9,25 +9,39 @@
 -- Nothing is stranded by the rewrite. A skill is looked up by its exact id
 -- first and then on its letters alone, so a graph or a command written against
 -- the old id names the same skill as before.
+--
+-- Derived and told apart in one statement, because the unique index is checked
+-- as each row is written: "Answering in a thread" and "Answering in a thread
+-- (2)" come to the same id, and a second statement to separate them would run
+-- after the first had already been refused. Two that land together are told
+-- apart with a letter, the way V286 told them apart, because the rule allows no
+-- digits.
 
-UPDATE agent_skill
-SET skill_key = COALESCE(
-    NULLIF(
-        LEFT(TRIM(BOTH '-' FROM LOWER(regexp_replace(name, '[^A-Za-z_-]+', '-', 'g'))), 120),
-        ''
-    ),
-    'skill'
-);
-
--- Two names that now come to the same id are told apart the way V286 told them
--- apart: with a letter, because the rule allows no digits.
-WITH ranked AS (
+WITH derived AS (
     SELECT id,
-           skill_key,
-           ROW_NUMBER() OVER (PARTITION BY workspace_id, LOWER(skill_key) ORDER BY id) AS place
+           workspace_id,
+           COALESCE(
+               NULLIF(
+                   TRIM(BOTH '-' FROM LEFT(
+                       TRIM(BOTH '-' FROM LOWER(regexp_replace(name, '[^A-Za-z_-]+', '-', 'g'))),
+                       120
+                   )),
+                   ''
+               ),
+               'skill'
+           ) AS base
     FROM agent_skill
+),
+ranked AS (
+    SELECT id,
+           base,
+           ROW_NUMBER() OVER (PARTITION BY workspace_id, base ORDER BY id) AS place
+    FROM derived
 )
 UPDATE agent_skill s
-SET skill_key = LEFT(r.skill_key, 118) || '-' || CHR((95 + r.place)::int)
+SET skill_key = CASE
+        WHEN r.place = 1 THEN r.base
+        ELSE LEFT(r.base, 118) || '-' || CHR((95 + r.place)::int)
+    END
 FROM ranked r
-WHERE s.id = r.id AND r.place > 1;
+WHERE s.id = r.id;
