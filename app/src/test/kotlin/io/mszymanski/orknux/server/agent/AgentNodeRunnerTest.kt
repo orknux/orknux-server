@@ -440,28 +440,63 @@ class AgentNodeRunnerTest(
     }
 
     /**
-     * A node with a session records the agent's setup at the start, so the log
-     * reads with the context its words were said in. Issue #391.
+     * A node with a session writes the agent's setup into the log where the
+     * agent starts responding, and again only where that setup changed. Issues
+     * #391, #441.
+     *
+     * Three turns, and what each leaves. The first turn logs the setup, so the
+     * log opens with the context its words were said in. The same agent taking
+     * the thread again with the same setup logs nothing: a session one agent
+     * talks in for a week carries one line, not one per turn. A different agent
+     * pointed at the same session logs a second line at that point, signed with
+     * its own name - which is the whole of #441: a Slack thread's session is
+     * answered by whichever agent node a run points at it, and one account at
+     * the top of the log was wrong about every turn but the first.
      */
     @Test
-    fun `a node with a session records the agent's setup once`() {
-        val agentId = agent("Reviewer", model(serveAnswer()), prompt = "You summarise incidents.")
-        withSession(agentId)
+    fun `a node with a session logs the agent's setup where it changes`() {
+        // One stub behind both agents: the fixture stops one server after the test.
+        val modelId = model(serveAnswer())
+        val reviewer = agent("Reviewer", modelId, prompt = "You summarise incidents.")
+        withSession(reviewer)
 
         start()
 
         val session = sessions.findAll().single()
-        val details = requireNotNull(session.agentDetails)
-        // The account is the agent's name, its model, and its system prompt.
-        assertThat(details).contains("Reviewer")
-        assertThat(details).contains("You summarise incidents.")
+        val logged = {
+            sessionEvents.findAll()
+                .filter { it.sessionId == session.id && it.kind == io.mszymanski.orknux.server.llm.LlmSessionEventKind.AGENT_DETAILS }
+                .sortedBy { it.id }
+        }
+        val first = logged().single()
+        // The line is signed by the agent and carries its name, model and
+        // system prompt; the session keeps the same text as the latest.
+        assertThat(first.actor).isEqualTo("Reviewer")
+        assertThat(first.content).contains("Reviewer").contains("You summarise incidents.")
+        assertThat(session.agentDetails).isEqualTo(first.content)
 
-        // Set once: a second pass (a wake) does not rewrite it.
+        // The same agent, the same setup, another turn: nothing more is logged.
+        // A wake is one such turn, and so is a second run reaching the session.
         val step = steps.findAll().single { it.nodeKey == "think" }
         step.agentSleeps = 1
         steps.save(step)
         runner.run(step, step.input, null)
-        assertThat(requireNotNull(sessions.findAll().single().agentDetails)).isEqualTo(details)
+        start()
+        assertThat(logged()).describedAs("the same setup again adds no line").hasSize(1)
+
+        // Another agent takes the thread: a second line, at that point, in its name.
+        val triager = agent("Triager", modelId, prompt = "You decide what is urgent.")
+        withSession(triager)
+        start()
+
+        val lines = logged()
+        assertThat(lines).describedAs("one line per change of setup").hasSize(2)
+        assertThat(lines.map { it.actor }).containsExactly("Reviewer", "Triager")
+        assertThat(lines[1].content).contains("You decide what is urgent.")
+        assertThat(sessions.findAll().single().agentDetails).describedAs("the latest is the second").isEqualTo(lines[1].content)
+        // Still the one session: the second agent joined the conversation
+        // rather than opening its own.
+        assertThat(sessions.findAll()).hasSize(1)
     }
 
     /** The same one agent node, with a session node wired into it. */

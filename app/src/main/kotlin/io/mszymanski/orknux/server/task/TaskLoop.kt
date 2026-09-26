@@ -73,7 +73,7 @@ class TaskLoop(
     private val todos: io.mszymanski.orknux.server.chat.TodoTools,
     /** What lets an agent ask what the current time is; see [DateTools]. #407. */
     private val dates: io.mszymanski.orknux.server.chat.DateTools,
-    /** The agent's setup, snapshotted at the start of the session; see [AgentDetails]. #391. */
+    /** The agent's setup, written into the log where it changes; see [AgentDetails]. #391, #441. */
     private val agentDetails: io.mszymanski.orknux.server.agent.AgentDetails,
     private val news: TaskNewsDesk,
     private val properties: TaskProperties,
@@ -162,8 +162,10 @@ class TaskLoop(
         val agent = working.agent
         val budget = budgets.budget(agent.memoryShare, task.workspaceId, working.modelId)
 
-        // The agent's setup, kept once at the start of the session, so its log
-        // opens with the context its words were said in. Idempotent. Issue #391.
+        // The agent's setup, written into the log where this turn starts if it
+        // differs from the last one logged - so the first turn opens the log
+        // with it, and an agent edited between turns is a line saying so rather
+        // than a silent change. Issues #391, #441.
         sessions.describeAgent(session, agentDetails.snapshot(agent))
 
         deliver(taskId, session)

@@ -56,6 +56,8 @@ class LlmSessionRecorder(
     private val tail: SessionTail,
     /** What an agent wrote down for itself; see [noteTaken]. Issue #371. */
     private val notes: LlmSessionNoteRepository,
+    /** For reading the agent's name out of its setup snapshot; see [describeAgent]. Issue #441. */
+    private val mapper: tools.jackson.databind.ObjectMapper,
 ) {
 
     /**
@@ -83,21 +85,54 @@ class LlmSessionRecorder(
         session?.let { notes.countBySessionId(it).toInt() } ?: 0
 
     /**
-     * Records the agent's setup at the start of a session, once. Issue #391.
+     * Records the setup of the agent about to answer, where it changed. Issues
+     * #391, #441.
      *
-     * Set once and left: the first agent to write into a session is the one
-     * whose configuration the earliest lines are read against, and a session
-     * shared by several agents keeps that one. A no-op where there is already
-     * an account, or no session at all.
+     * Called every time an agent starts responding into a session, with the
+     * setup it is about to answer with. Compared against the last one logged
+     * here, held on the session row: the same setup again writes nothing, and a
+     * different one - another agent taking the thread, or the same agent
+     * edited between turns - is written into the log as an
+     * [LlmSessionEventKind.AGENT_DETAILS] line at that point, signed with the
+     * agent's name, and becomes the latest. The first turn in a session is the
+     * degenerate case of "different from nothing".
+     *
+     * #391 kept the first setup once and never rewrote it, on the reading that
+     * the earliest lines were what a reader needed context for. A Slack
+     * thread's session is written into by whichever agent node a run points at
+     * it, so the one account was wrong for every turn but the first. A line
+     * per change is what lets a reader see which setup each stretch of the log
+     * was answered under.
+     *
+     * The comparison is on the text, so what produces it has to be stable for
+     * the same setup - `AgentDetails` sorts its lists for exactly this reason.
+     * A no-op where there is no session at all.
      */
     @org.springframework.transaction.annotation.Transactional
     fun describeAgent(session: Long?, details: String) {
         val id = session ?: return
-        sessions.findByIdOrNull(id)?.takeIf { it.agentDetails == null }?.let {
-            it.agentDetails = details
-            sessions.save(it)
-        }
+        val row = sessions.findByIdOrNull(id) ?: return
+        if (row.agentDetails == details) return
+        // The latest moves only once its line is there: a line that could not
+        // be written is tried again on the next turn rather than lost.
+        write(id, LlmSessionEventKind.AGENT_DETAILS, agentNamed(details), details) ?: return
+        row.agentDetails = details
+        sessions.save(row)
     }
+
+    /**
+     * Whose setup this is, read back out of the snapshot for the line's actor.
+     *
+     * The recorder is handed the JSON rather than the agent, so the name is
+     * taken from inside it; a snapshot that cannot be read - which nothing
+     * this application writes produces - is signed by the machinery rather
+     * than left unsigned.
+     */
+    private fun agentNamed(details: String): String =
+        runCatching { mapper.readTree(details).path("agent").stringValue() }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?: SYSTEM
 
     /**
      * What has been written down here, oldest first.

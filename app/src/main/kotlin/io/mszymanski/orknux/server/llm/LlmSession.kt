@@ -87,6 +87,27 @@ enum class LlmSessionEventKind {
      * #409.
      */
     NOTE,
+
+    /**
+     * The setup of the agent that is about to answer, as it stood at that
+     * moment: its model, its system prompt, and its grants, as JSON. Issue
+     * #441.
+     *
+     * A session is not one agent's. A Slack thread's session is written into
+     * by whichever agent node a run points at it, and an agent's setup changes
+     * between turns, so one account kept at the top of the log (#391) was right
+     * about the first turn and silently wrong about the rest. This is written
+     * where the agent starts responding, and only when what it is about to
+     * answer with differs from the last one logged here - so a session one
+     * agent talks in for a week carries one of these, and a session two agents
+     * take turns in carries one at each handover. [LlmSession.agentDetails]
+     * keeps the latest for comparing against.
+     *
+     * Never said to a model. Not in [LlmSessionRecorder.remembered]'s kinds:
+     * it is the record of what the agent was, for a person reading the log,
+     * not something anybody said.
+     */
+    AGENT_DETAILS,
 }
 
 /**
@@ -237,16 +258,18 @@ class LlmSession(
     val title: String? = null,
 
     /**
-     * The agent's setup as it stood when the session was first written into, as
-     * JSON. Issue #391.
+     * The setup of the agent that last started answering here, as JSON. Issues
+     * #391, #441.
      *
      * A transcript starts with the first message, so a reader cannot tell what
-     * the agent was configured with when it answered. This is that, snapshotted
-     * once - the model, the system prompt, the tools and skills and connections
-     * and memory it was granted - so the log opens with the context the words
-     * were said in. Set once and left: a session shared by several agents shows
-     * the one that opened it, which is the one whose setup the earliest lines
-     * are read against.
+     * the agent was configured with when it answered. #391 kept that here once,
+     * for the agent that opened the session; #441 moved the record into the log
+     * as [LlmSessionEventKind.AGENT_DETAILS] lines, one at each point the setup
+     * answering changed, because a shared session is answered by more than one
+     * agent and an agent is edited between turns. This column is now the latest
+     * of those lines - what the next turn's setup is compared against to decide
+     * whether another line is due, and what the session's own `agentDetails`
+     * answers. Null on a session no agent has written into.
      */
     @Column(name = "agent_details", columnDefinition = "text")
     var agentDetails: String? = null,

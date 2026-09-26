@@ -1170,6 +1170,12 @@ type Mutation {
     """
     setCommandMarker(marker: String!): InstallationSettings!
     """
+    Up to how many findable tools find_tools names outright in its own
+    description and in a miss, between 0 and 500; zero never names them.
+    Administrators only. Issue #442.
+    """
+    setToolsNamedInSearch(count: Int!): InstallationSettings!
+    """
     Whether a conversation may be thrown away. Administrators only.
 
     False closes the door: `removeLlmSession` refuses in words rather than
@@ -3038,9 +3044,10 @@ type LlmSession {
     """
     notes: [LlmSessionNote!]!
     """
-    The agent's setup as it stood when the session opened - its model, system
-    prompt, and grants - so the log reads with the context its words were said
-    in. Null on a session no agent has written into. Issue #391.
+    The setup of the agent that last started answering here - its model, system
+    prompt, and grants. The log itself carries one AGENT_DETAILS line at each
+    point that setup changed; this is the most recent of them. Null on a session
+    no agent has written into. Issues #391, #441.
     """
     agentDetails: SessionAgentDetails
 }
@@ -3094,10 +3101,11 @@ type SessionExecutionLink {
 }
 
 """
-The agent's setup, snapshotted at the start of a session. Issue #391.
+An agent's setup as it stood when it started answering. Issues #391, #441.
 
-Names rather than ids, because a person reads it, and frozen when the session
-opened, so a later edit to the agent does not rewrite what answered.
+Names rather than ids, because a person reads it, and frozen at the turn, so a
+later edit to the agent does not rewrite what answered - an edit shows up as the
+next AGENT_DETAILS line instead.
 """
 type SessionAgentDetails {
     "The agent's name."
@@ -3195,6 +3203,15 @@ enum LlmSessionEventKind {
     on every turn.
     """
     NOTE
+    """
+    The setup of the agent about to answer - its model, system prompt and
+    grants - written where it started responding, and only where that setup
+    differs from the last one logged in the session. A session shared by two
+    agents carries one at each handover; an agent edited between turns leaves
+    one saying so. The payload is `agentDetails`; `content` holds the same as
+    JSON. Never said to a model. Issue #441.
+    """
+    AGENT_DETAILS
 }
 
 "What a transcript is ordered by."
@@ -3229,6 +3246,11 @@ type LlmSessionEvent {
     millis: Float
     "ISO-8601 offset date-time."
     at: String!
+    """
+    The agent's setup an AGENT_DETAILS line carries, resolved into a shape for
+    the log to draw, and null on every other kind. Issue #441.
+    """
+    agentDetails: SessionAgentDetails
 }
 
 type LlmSessionEventPage {
@@ -5969,6 +5991,10 @@ type InstallationSettings {
     commandMarker: String!
     "What a fresh installation starts on - ORKNUX_COMMAND_MARKER."
     commandMarkerConfigured: String!
+    "Up to how many findable tools find_tools names outright; zero never does. Issue #442."
+    toolsNamedInSearch: Int!
+    "What a fresh installation names - ORKNUX_CHAT_TOOLS_NAMED_IN_SEARCH."
+    toolsNamedInSearchConfigured: Int!
     """
     Whether a conversation may be thrown away.
 

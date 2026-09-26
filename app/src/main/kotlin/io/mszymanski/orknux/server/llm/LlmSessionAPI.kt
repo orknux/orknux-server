@@ -359,13 +359,21 @@ class LlmSessionAPI(
         }
 
     /**
-     * The agent's setup at the start, read back from the JSON it was kept as.
-     * Null where none was recorded, or the record cannot be read. Issue #391.
+     * The setup of the agent that last started answering here, read back from
+     * the JSON it was kept as. Null where none was recorded, or the record
+     * cannot be read. Issues #391, #441.
      */
     @SchemaMapping(typeName = "LlmSession")
-    fun agentDetails(session: LlmSessionView): SessionAgentDetailsView? {
-        val held = session.agentDetails ?: return null
-        return runCatching {
+    fun agentDetails(session: LlmSessionView): SessionAgentDetailsView? =
+        session.agentDetails?.let(::agentDetailsOf)
+
+    /**
+     * One snapshot, resolved into the shape the log draws. Shared by the
+     * session's latest and the AGENT_DETAILS line, so the two cannot read the
+     * same JSON two ways. Null where the record cannot be read. Issue #441.
+     */
+    private fun agentDetailsOf(held: String): SessionAgentDetailsView? =
+        runCatching {
             val node = mapper.readTree(held)
             SessionAgentDetailsView(
                 agent = node.path("agent").stringValue().orEmpty(),
@@ -377,7 +385,6 @@ class LlmSessionAPI(
                 connections = node.path("connections").mapNotNull { it.stringValue() },
             )
         }.getOrNull()
-    }
 
     /**
      * One session's scratchpads: the working files an agent kept within the
@@ -495,6 +502,9 @@ class LlmSessionAPI(
         result = event.result,
         millis = event.millis,
         at = event.at.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+        // The snapshot an AGENT_DETAILS line carries, resolved for the page the
+        // way the session's latest is; null on every other kind. Issue #441.
+        agentDetails = event.content?.takeIf { event.kind == LlmSessionEventKind.AGENT_DETAILS }?.let(::agentDetailsOf),
     )
 
     private companion object {
@@ -545,7 +555,7 @@ data class LlmSessionView(
     val active: Boolean,
     /** How many sessions were started under this one - what the list shows to say which conversations fanned out. Issue #403. */
     val subagentCount: Int,
-    /** The agent's setup at the start, as JSON; resolved into a shape by the field. Null on a session no agent wrote into. Issue #391. */
+    /** The setup of the agent that last started answering, as JSON; resolved into a shape by the field. Null on a session no agent wrote into. Issues #391, #441. */
     val agentDetails: String?,
 )
 
@@ -566,7 +576,11 @@ data class LlmSessionNoteView(
     val writtenAt: String,
 )
 
-/** The agent's setup at the start of a session, read back for the log. Issue #391. */
+/**
+ * An agent's setup as it stood when it started answering, read back for the
+ * log - the payload of an AGENT_DETAILS line, and the session's latest. Issues
+ * #391, #441.
+ */
 data class SessionAgentDetailsView(
     val agent: String,
     val model: String?,
@@ -637,6 +651,12 @@ data class LlmSessionEventView(
     val millis: Long?,
     /** ISO-8601 offset date-time. */
     val at: String,
+    /**
+     * The agent's setup an AGENT_DETAILS line carries, resolved from its
+     * content, and null on every other kind - or on a line whose record cannot
+     * be read, which the page then draws as a plain line. Issue #441.
+     */
+    val agentDetails: SessionAgentDetailsView?,
 )
 
 data class LlmSessionEventPageView(val totalElements: Int, val content: List<LlmSessionEventView>)
