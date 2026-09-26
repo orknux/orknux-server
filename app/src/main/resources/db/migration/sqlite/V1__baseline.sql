@@ -1685,6 +1685,21 @@ CREATE TABLE workspace_issue_status
     constraint workspace_issue_status_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspace(id) ON DELETE CASCADE
 );
 
+-- The size presets a workspace's image nodes pick from: a name, a width and a
+-- height in pixels, and a menu order. Seeded in code when a workspace is made.
+-- See the Postgres V297. Issue #431.
+CREATE TABLE workspace_image_size_preset
+(
+    id                           integer not null primary key autoincrement,
+    workspace_id                 integer not null,
+    name                         varchar(60) not null,
+    width                        integer not null,
+    height                       integer not null,
+    position                     integer not null default 0,
+    created_at                   timestamp not null default CURRENT_TIMESTAMP,
+    constraint workspace_image_size_preset_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspace(id) ON DELETE CASCADE
+);
+
 CREATE TABLE workspace_role
 (
     workspace_id                 integer not null,
@@ -1839,6 +1854,7 @@ CREATE INDEX workspace_issue_type_idx ON workspace_issue (workspace_id, type_id)
 CREATE UNIQUE INDEX workspace_issue_status_key_key ON workspace_issue_status (workspace_id, upper(key));
 CREATE UNIQUE INDEX workspace_issue_status_initial_key ON workspace_issue_status (workspace_id) WHERE initial;
 CREATE INDEX workspace_issue_status_workspace_idx ON workspace_issue_status (workspace_id, position);
+CREATE INDEX workspace_image_size_preset_workspace_idx ON workspace_image_size_preset (workspace_id, position);
 CREATE INDEX ix_agent_tool_import_imported ON agent_tool_import (imported_id);
 CREATE INDEX ix_agent_tool_library_imported ON agent_tool_library (imported_id);
 CREATE INDEX ix_workflow_function_library_imported ON workflow_function_library (imported_id);

@@ -43,6 +43,8 @@ class ImageNodeRunner(
     private val settings: InstallationSettings,
     private val expressions: NodeExpressions,
     private val mapper: ObjectMapper,
+    /** Which of the step's size, quality and style this model's endpoint takes. Issue #431. */
+    private val capabilities: ImageModelCapabilities,
 ) : NodeRunner {
 
     override fun supports(kind: NodeKind): Boolean = kind == NodeKind.IMAGE
@@ -84,8 +86,14 @@ class ImageNodeRunner(
          * say whether it was the prompt or the endpoint.
          */
         // The run's own copy of what the node asked for beyond the prompt; each
-        // null is left out of the request, so the model's default stands.
-        val options = ImageOptions(size = step.imageSize, quality = step.imageQuality, style = step.imageStyle)
+        // null is left out of the request, so the model's default stands. Only
+        // what this model's endpoint takes goes: a step planned against one
+        // model and drawn with another must not carry a style to a model that
+        // would refuse the whole request over it.
+        val options = capabilities.narrow(
+            modelId,
+            ImageOptions(size = step.imageSize, quality = step.imageQuality, style = step.imageStyle),
+        )
         val saved = when (val drew = steps.draw(step.executionId, step.nodeKey, workspaceId, prompt, modelId, options)) {
             is StepDrawing.Drawn -> drew.picture
             is StepDrawing.Refused -> throw StepFailedException(step.nodeKey, "${step.name} could not draw: ${drew.reason}")

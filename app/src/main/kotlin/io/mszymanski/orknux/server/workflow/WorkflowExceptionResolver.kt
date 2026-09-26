@@ -224,8 +224,12 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ImportCycleException,
             is ConditionNotInCatalogueException,
             is AgentOutputNodeInvalidException,
-            /* A size, quality or style no image endpoint takes, refused at save. Issue #423. */
+            /* A size, quality or style the node's model does not take, refused at save. Issues #423, #431. */
             is ImageParameterInvalidException,
+            /* A preset with no name, a side off the pixel range, or an order that misses one. Issue #431. */
+            is ImageSizePresetNameInvalidException,
+            is ImageSizePresetSideInvalidException,
+            is ImageSizePresetReorderException,
             is GraphInvalidException,
             is ConditionNameTakenException,
             is ConditionNameInvalidException,
@@ -285,6 +289,7 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is WorkflowNotFoundException -> ErrorType.NOT_FOUND
             is WorkflowPublicationNotFoundException -> ErrorType.NOT_FOUND
             is ComponentRevisionNotFoundException -> ErrorType.NOT_FOUND
+            is ImageSizePresetNotFoundException -> ErrorType.NOT_FOUND
             else -> return null
         }
 

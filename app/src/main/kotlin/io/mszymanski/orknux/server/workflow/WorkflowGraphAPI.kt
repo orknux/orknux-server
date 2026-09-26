@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.workflow
 
+import io.mszymanski.orknux.connector.model.ImageOptions
 import io.mszymanski.orknux.server.action.WorkflowFunctionRepository
 import io.mszymanski.orknux.server.action.ActionParameters
 import io.mszymanski.orknux.server.agent.AgentRepository
@@ -54,6 +55,8 @@ class WorkflowGraphAPI(
     private val revisions: ComponentRevisionRecorder,
     private val graphSource: AppWorkflowGraphSource,
     private val mapper: ObjectMapper,
+    /** What an image node's model takes beyond a prompt, which its size, quality and style are held to. Issue #431. */
+    private val imageModels: ImageModelCapabilities,
 ) {
 
     @QueryMapping
@@ -402,72 +405,81 @@ class WorkflowGraphAPI(
      *   A save refuses; a preview is asked about a graph somebody is still
      *   typing into, where refusing would be arguing with them mid-word.
      */
-    private fun nodeOf(workflowId: Long, node: WorkflowNodeInput, refusing: Boolean = true) = WorkflowNode(
-        workflowId = workflowId,
-        nodeKey = node.key,
-        kind = node.kind,
-        name = node.name.trim().ifEmpty { "Untitled node" },
-        description = node.description?.trim()?.ifEmpty { null },
-        agentId = node.agentId.takeIf { node.kind == NodeKind.AGENT },
-        triggerId = node.triggerId.takeIf { node.kind == NodeKind.TRIGGER },
-        actionId = node.actionId.takeIf { node.kind == NodeKind.ACTION },
-        conditionId = node.conditionId.takeIf { node.kind == NodeKind.CONDITION },
-        objectId = node.objectId.takeIf { node.kind == NodeKind.OBJECT },
-        // Only an agent's answer has a shape to be held to; on any other kind
-        // the id is dropped the way an object node's would be on an action.
-        outputObjectId = node.outputObjectId.takeIf { node.kind == NodeKind.AGENT },
-        // Which object node the answer is saved into; the shape above is then
-        // derived from it after the whole list is built - see shapedByTargets.
-        outputNodeKey = node.outputNodeKey?.trim()?.ifEmpty { null }?.takeIf { node.kind == NodeKind.AGENT },
-        imageModelId = node.imageModelId.takeIf { node.kind == NodeKind.IMAGE },
+    private fun nodeOf(workflowId: Long, node: WorkflowNodeInput, refusing: Boolean = true): WorkflowNode {
         // What the drawing is asked for beyond the prompt, kept only on the kind
-        // that draws. Held to the list the editor offers when saving, so a word
-        // no endpoint takes is refused here rather than as a 400 mid-run; a
-        // preview is asked about a graph still being typed into, and lets it by.
-        imageSize = ImageNodeParameters.size(node.imageSize, refusing).takeIf { node.kind == NodeKind.IMAGE },
-        imageQuality = ImageNodeParameters.quality(node.imageQuality, refusing).takeIf { node.kind == NodeKind.IMAGE },
-        imageStyle = ImageNodeParameters.style(node.imageStyle, refusing).takeIf { node.kind == NodeKind.IMAGE },
-        outputName = node.outputName?.trim()?.ifEmpty { null }
-            // Only a node that produces something can name it; a trigger names
-            // its own fields and a condition passes through what it was given.
-            ?.takeIf {
-                node.kind == NodeKind.AGENT || node.kind == NodeKind.ACTION ||
-                    node.kind == NodeKind.OBJECT || node.kind == NodeKind.IMAGE
-            }
-            ?.also { if (refusing) requireReferenceable(it) },
-        icon = node.icon?.trim()?.ifEmpty { null },
-        orientation = node.orientation,
-        positionX = node.x,
-        positionY = node.y,
-        // Only a node with two ways out has them to name: a condition, or a
-        // node that handles its own failure.
-        yesLabel = node.yesLabel?.trim()?.ifEmpty { null }?.takeIf { forks(node) },
-        noLabel = node.noLabel?.trim()?.ifEmpty { null }?.takeIf { forks(node) },
-        fallbackEnabled = node.fallbackEnabled && handlesFailure(node.kind),
-        retryAttempts = node.retryAttempts?.coerceIn(MIN_ATTEMPTS, MAX_ATTEMPTS)
-            ?.takeIf { it > MIN_ATTEMPTS && handlesFailure(node.kind) },
-        retryBackoffSeconds = node.retryBackoffSeconds?.coerceIn(0, MAX_BACKOFF_SECONDS)
-            ?.takeIf { handlesFailure(node.kind) },
-        // The four below are kept only where the wait they shape is kept, and
-        // only where there is a second attempt for it to sit between: a curve on
-        // a node that runs once describes nothing, and one saved on a kind that
-        // cannot retry is a setting nothing will ever read.
-        retryMultiplier = node.retryMultiplier?.coerceIn(MIN_MULTIPLIER, MAX_MULTIPLIER)
-            // One is what no multiplier means, so it is stored as no multiplier:
-            // a node that was never given a curve should come back off the panel
-            // as the row it went in as.
-            ?.takeIf { it > MIN_MULTIPLIER && retries(node) },
-        // Dropped on a flat curve rather than kept and ignored, because a
-        // ceiling under a wait that never grows does not bound it - it cuts it,
-        // and a fixed wait quietly shortened by a field the panel had greyed out
-        // is the worst of the two.
-        retryMaxWaitSeconds = node.retryMaxWaitSeconds?.coerceIn(1, MAX_BACKOFF_SECONDS)
-            ?.takeIf { retries(node) && (node.retryMultiplier ?: MIN_MULTIPLIER) > MIN_MULTIPLIER },
-        retryJitter = node.retryJitter?.coerceIn(NO_JITTER, FULL_JITTER)
-            ?.takeIf { it > NO_JITTER && retries(node) },
-        retryBudgetSeconds = node.retryBudgetSeconds?.coerceIn(1, MAX_BUDGET_SECONDS)?.takeIf { retries(node) },
-        mappings = mappingsFor(node, refusing),
-    )
+        // that draws. Held to what the node's own model takes when saving, so a
+        // size DALL-E 3 does not draw or a style gpt-image-1 does not take is
+        // refused here, naming what the model does take, rather than as a 400
+        // mid-run; a preview is asked about a graph still being typed into, and
+        // lets it by. Issue #431.
+        val drawing = if (node.kind == NodeKind.IMAGE) {
+            imageModels.held(node.imageModelId, ImageOptions(node.imageSize, node.imageQuality, node.imageStyle), refusing)
+        } else {
+            ImageOptions.NONE
+        }
+        return WorkflowNode(
+            workflowId = workflowId,
+            nodeKey = node.key,
+            kind = node.kind,
+            name = node.name.trim().ifEmpty { "Untitled node" },
+            description = node.description?.trim()?.ifEmpty { null },
+            agentId = node.agentId.takeIf { node.kind == NodeKind.AGENT },
+            triggerId = node.triggerId.takeIf { node.kind == NodeKind.TRIGGER },
+            actionId = node.actionId.takeIf { node.kind == NodeKind.ACTION },
+            conditionId = node.conditionId.takeIf { node.kind == NodeKind.CONDITION },
+            objectId = node.objectId.takeIf { node.kind == NodeKind.OBJECT },
+            // Only an agent's answer has a shape to be held to; on any other kind
+            // the id is dropped the way an object node's would be on an action.
+            outputObjectId = node.outputObjectId.takeIf { node.kind == NodeKind.AGENT },
+            // Which object node the answer is saved into; the shape above is then
+            // derived from it after the whole list is built - see shapedByTargets.
+            outputNodeKey = node.outputNodeKey?.trim()?.ifEmpty { null }?.takeIf { node.kind == NodeKind.AGENT },
+            imageModelId = node.imageModelId.takeIf { node.kind == NodeKind.IMAGE },
+            imageSize = drawing.size,
+            imageQuality = drawing.quality,
+            imageStyle = drawing.style,
+            outputName = node.outputName?.trim()?.ifEmpty { null }
+                // Only a node that produces something can name it; a trigger names
+                // its own fields and a condition passes through what it was given.
+                ?.takeIf {
+                    node.kind == NodeKind.AGENT || node.kind == NodeKind.ACTION ||
+                        node.kind == NodeKind.OBJECT || node.kind == NodeKind.IMAGE
+                }
+                ?.also { if (refusing) requireReferenceable(it) },
+            icon = node.icon?.trim()?.ifEmpty { null },
+            orientation = node.orientation,
+            positionX = node.x,
+            positionY = node.y,
+            // Only a node with two ways out has them to name: a condition, or a
+            // node that handles its own failure.
+            yesLabel = node.yesLabel?.trim()?.ifEmpty { null }?.takeIf { forks(node) },
+            noLabel = node.noLabel?.trim()?.ifEmpty { null }?.takeIf { forks(node) },
+            fallbackEnabled = node.fallbackEnabled && handlesFailure(node.kind),
+            retryAttempts = node.retryAttempts?.coerceIn(MIN_ATTEMPTS, MAX_ATTEMPTS)
+                ?.takeIf { it > MIN_ATTEMPTS && handlesFailure(node.kind) },
+            retryBackoffSeconds = node.retryBackoffSeconds?.coerceIn(0, MAX_BACKOFF_SECONDS)
+                ?.takeIf { handlesFailure(node.kind) },
+            // The four below are kept only where the wait they shape is kept, and
+            // only where there is a second attempt for it to sit between: a curve on
+            // a node that runs once describes nothing, and one saved on a kind that
+            // cannot retry is a setting nothing will ever read.
+            retryMultiplier = node.retryMultiplier?.coerceIn(MIN_MULTIPLIER, MAX_MULTIPLIER)
+                // One is what no multiplier means, so it is stored as no multiplier:
+                // a node that was never given a curve should come back off the panel
+                // as the row it went in as.
+                ?.takeIf { it > MIN_MULTIPLIER && retries(node) },
+            // Dropped on a flat curve rather than kept and ignored, because a
+            // ceiling under a wait that never grows does not bound it - it cuts it,
+            // and a fixed wait quietly shortened by a field the panel had greyed out
+            // is the worst of the two.
+            retryMaxWaitSeconds = node.retryMaxWaitSeconds?.coerceIn(1, MAX_BACKOFF_SECONDS)
+                ?.takeIf { retries(node) && (node.retryMultiplier ?: MIN_MULTIPLIER) > MIN_MULTIPLIER },
+            retryJitter = node.retryJitter?.coerceIn(NO_JITTER, FULL_JITTER)
+                ?.takeIf { it > NO_JITTER && retries(node) },
+            retryBudgetSeconds = node.retryBudgetSeconds?.coerceIn(1, MAX_BUDGET_SECONDS)?.takeIf { retries(node) },
+            mappings = mappingsFor(node, refusing),
+        )
+    }
 
     /**
      * Whether this node has a second attempt for a backoff to sit between.
@@ -799,8 +811,8 @@ data class WorkflowNodeInput(
     val imageModelId: Long? = null,
     /**
      * What an image node asks of the drawing beyond the prompt; null or blank
-     * is the model's default, and each is held to the values in
-     * [ImageNodeParameters]. Ignored on any other kind.
+     * is the model's default, and each is held to what the node's model takes
+     * (see [ImageModelCapabilities]). Ignored on any other kind.
      */
     val imageSize: String? = null,
     val imageQuality: String? = null,
@@ -1107,47 +1119,6 @@ class ValueHoldsPlaceholderException(parameter: String) : RuntimeException(
 class OutputNameInvalidException(name: String) : RuntimeException(
     "\"$name\" cannot be referred to. An output name is letters, digits and underscores, " +
         "starting with a letter — a later node has to be able to point at it",
-)
-
-/**
- * What an image node may ask of the drawing beyond its prompt, and the words
- * it may ask in.
- *
- * The three parameters every OpenAI-shaped image endpoint takes - size,
- * quality, style - and the values those endpoints know between them. Quality
- * lists both vocabularies on purpose: DALL-E 3 says `standard|hd` and
- * gpt-image-1 says `low|medium|high`, the node does not know which model it
- * will be pointed at, and the value is passed through as given for the model
- * to accept or refuse. Anything off these lists is refused at save, in words,
- * rather than as a 400 in the middle of a run. Blank is null is the model's
- * default. Issue #423.
- */
-object ImageNodeParameters {
-    val SIZES = listOf("1024x1024", "1536x1024", "1024x1536", "1792x1024", "1024x1792", "512x512", "256x256")
-    val QUALITIES = listOf("standard", "hd", "low", "medium", "high")
-    val STYLES = listOf("vivid", "natural")
-
-    fun size(given: String?, refusing: Boolean): String? = held("size", given, SIZES, refusing)
-
-    fun quality(given: String?, refusing: Boolean): String? = held("quality", given, QUALITIES, refusing)
-
-    fun style(given: String?, refusing: Boolean): String? = held("style", given, STYLES, refusing)
-
-    /**
-     * The value as stored: trimmed, null where blank, and on a save one of the
-     * list or refused. A preview keeps an unknown word rather than arguing with
-     * somebody mid-edit, since a preview writes nothing down.
-     */
-    private fun held(parameter: String, given: String?, allowed: List<String>, refusing: Boolean): String? {
-        val value = given?.trim()?.ifEmpty { null } ?: return null
-        if (refusing && value !in allowed) throw ImageParameterInvalidException(parameter, value, allowed)
-        return value
-    }
-}
-
-class ImageParameterInvalidException(parameter: String, value: String, allowed: List<String>) : RuntimeException(
-    "\"$value\" is not a $parameter an image model takes. Choose one of ${allowed.joinToString(", ")}, " +
-        "or leave it to the model's default",
 )
 
 class AgentOutputNodeInvalidException(agent: String, targetKey: String, target: WorkflowNode?) : RuntimeException(

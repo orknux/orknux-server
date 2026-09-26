@@ -60,7 +60,17 @@ class ImageNodeRunnerTest {
      */
     private val steps = StepPictures(workspaces, web, drawing, pictures, store, settings)
 
-    private val runner = ImageNodeRunner(steps, executions, settings, expressions, mapper)
+    /*
+     * Over empty repositories: a model nothing knows is a model whose spec is
+     * unknown, and an unknown spec narrows nothing - so what the step asks for
+     * reaches the drawing as it was asked, which is what these cases pin.
+     */
+    private val capabilities = ImageModelCapabilities(
+        mock(io.mszymanski.orknux.connector.model.LlmModelRepository::class.java),
+        mock(io.mszymanski.orknux.connector.model.ModelProviderRepository::class.java),
+    )
+
+    private val runner = ImageNodeRunner(steps, executions, settings, expressions, mapper, capabilities)
 
     /** Kotlin-typed `any()`, so a null matcher does not trip a non-null parameter. */
     @Suppress("UNCHECKED_CAST")

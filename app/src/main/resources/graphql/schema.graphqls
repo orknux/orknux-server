@@ -49,6 +49,8 @@ type Query {
     workspaceIssueTypes(workspaceId: ID!): [IssueType!]!
     "The statuses this workspace's issues move through, in order, with how many issues hold each. Anybody who can see the workspace."
     issueStatuses(workspaceId: ID!): [IssueStatusDefinition!]!
+    "The size presets this workspace's image nodes pick from, in menu order. Anybody who can see the workspace."
+    imageSizePresets(workspaceId: ID!): [ImageSizePreset!]!
     """
     What has happened to one issue, oldest first.
 
@@ -339,6 +341,13 @@ type Query {
     Asks the provider, so it fails the way a connection check fails.
     """
     discoveredModels(providerId: ID!): [DiscoveredModel!]!
+    """
+    What this image model's endpoint takes beyond a prompt - size, quality,
+    style - and the values it takes for each; a parameter the endpoint does not
+    take is not listed. The editor draws one control per entry, and a save holds
+    the node to the same list. Authorised like reading the model.
+    """
+    imageModelParameters(modelId: ID!): [ImageParameterSpec!]!
     "Workflows assigned to a workspace, by name unless another order is asked for."
     workspaceWorkflows(
         workspaceId: ID!,
@@ -1215,6 +1224,14 @@ type Mutation {
     so the way out is the filter: find them, move them, remove it then.
     """
     removeIssueStatus(id: ID!): Boolean!
+    "Adds a size preset to this workspace's menu, at the end. Sides are pixels, 1 to 8192. Whoever administers it may."
+    addImageSizePreset(workspaceId: ID!, name: String!, width: Int!, height: Int!): ImageSizePreset!
+    "Changes a preset's name, width or height; each is left alone when absent."
+    updateImageSizePreset(id: ID!, name: String, width: Int, height: Int): ImageSizePreset!
+    "Puts the presets in this order. Every one of the workspace's, once each."
+    reorderImageSizePresets(workspaceId: ID!, ids: [ID!]!): [ImageSizePreset!]!
+    "Takes a preset out of the menu. No node holds one - a node stores the numbers it filled in."
+    removeImageSizePreset(id: ID!): Boolean!
     createIssue(input: IssueInput!): Issue!
     updateIssue(id: ID!, input: IssueInput!): Issue!
     deleteIssue(id: ID!): Boolean!
@@ -2249,9 +2266,9 @@ type WorkflowNode {
     imageModelId: ID
     "The size an IMAGE node draws at, as WIDTHxHEIGHT in pixels; null is the model's default."
     imageSize: String
-    "The quality an IMAGE node asks for (standard, hd, low, medium or high); null is the model's default."
+    "The quality an IMAGE node asks for, in the word its model's endpoint takes; null is the model's default."
     imageQuality: String
-    "The style an IMAGE node asks for (vivid or natural); null is the model's default."
+    "The style an IMAGE node asks for, in the word its model's endpoint takes; null is the model's default."
     imageStyle: String
     """
     What this node calls what it produces, so a later node can point a
@@ -2546,11 +2563,11 @@ input WorkflowNodeInput {
     outputNodeKey: String
     "The image model an IMAGE node draws with; ignored on any other kind."
     imageModelId: ID
-    "The size an IMAGE node draws at, one of 1024x1024, 1536x1024, 1024x1536, 1792x1024, 1024x1792, 512x512, 256x256; null is the model's default. Ignored on any other kind."
+    "The size an IMAGE node draws at, as WIDTHxHEIGHT; held at save to what imageModelParameters says the node's model takes. Null is the model's default. Ignored on any other kind."
     imageSize: String
-    "The quality an IMAGE node asks for, one of standard, hd, low, medium, high; null is the model's default. Ignored on any other kind."
+    "The quality an IMAGE node asks for; held at save to the node's model's choices, and refused on a model that takes none. Null is the model's default. Ignored on any other kind."
     imageQuality: String
-    "The style an IMAGE node asks for, vivid or natural; null is the model's default. Ignored on any other kind."
+    "The style an IMAGE node asks for; held at save to the node's model's choices, and refused on a model that takes none. Null is the model's default. Ignored on any other kind."
     imageStyle: String
     "What this node calls what it produces; a later node points a reference at it."
     outputName: String
@@ -7703,6 +7720,56 @@ type IssueType {
     name: String!
     "How many issues here carry it. What the settings page shows, and what deleting it is refused with."
     issues: Int!
+}
+
+"How an image parameter is asked for: one word off a list, or a width and a height."
+enum ImageParameterKind {
+    "One of the spec's choices, as the endpoint spells it."
+    CHOICE
+    "Any WIDTHxHEIGHT with both sides from minSide to maxSide and multiples of step."
+    DIMENSIONS
+}
+
+"""
+One parameter an image model's endpoint takes, and the values it takes for it.
+
+Only the parameters the endpoint takes are listed: a model whose list has no
+style entry does not take one, and a node that sends one anyway is refused at
+save. DALL-E 3 lists a size, a quality and a style; gpt-image-1 a size and a
+quality; DALL-E 2 a size; any model on a provider that is not OpenAI or Azure
+OpenAI takes free dimensions and nothing else.
+"""
+type ImageParameterSpec {
+    "size, quality or style: the name the endpoint takes it under."
+    name: String!
+    kind: ImageParameterKind!
+    "What a CHOICE may be; empty for DIMENSIONS."
+    choices: [String!]!
+    "The smallest side DIMENSIONS take, in pixels; null on a CHOICE."
+    minSide: Int
+    "The largest side DIMENSIONS take, in pixels; null on a CHOICE."
+    maxSide: Int
+    "What each side has to be a multiple of; null on a CHOICE."
+    step: Int
+}
+
+"""
+A named width and height a workspace's image nodes can pick in one click.
+
+Per workspace, editable and ordered. Picking one fills the node's width and
+height; the node stores the numbers, never the preset, so renaming or removing
+one changes no saved node.
+"""
+type ImageSizePreset {
+    id: ID!
+    workspaceId: ID!
+    "What the menu says: Landscape 1536."
+    name: String!
+    "Pixels."
+    width: Int!
+    height: Int!
+    "Menu order."
+    position: Int!
 }
 
 "What a list of issues is ordered by."
