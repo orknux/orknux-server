@@ -38,6 +38,18 @@ class SkillTool(
      * is for, and returning the text here would make the load tool pointless.
      */
     fun list(agent: Agent): List<SkillSummary> = granted(agent)
+        /*
+         * The server's own first, then the workspace's. Issue #471: this list is
+         * what an agent prints when somebody asks what commands it takes, and
+         * the ones every installation has - the plan, the memory search, the
+         * formats - are the ones a person is most likely to be asking after, so
+         * they go at the top rather than after a workspace's dozen.
+         *
+         * A listing order only. [load] still reads [granted] in its own order,
+         * where the workspace's come first, so a workspace skill that shares a
+         * name with a built-in still wins - see there.
+         */
+        .sortedBy { if (it.catalog == BuiltInSkills.CATALOG) 0 else 1 }
         .map { SkillSummary(it.name, it.key, it.description, it.catalog) }
 
     /**

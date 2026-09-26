@@ -165,6 +165,10 @@ class AgentAPI(
                 // Nothing of the workspace's, and every built-in: a fresh agent
                 // hides none, and hiding is the only thing stored. Issue #455.
                 requiredTools = BuiltInTools.GRANTED.toMutableList(),
+                // And the skills the server brings, for the same reason: they
+                // are what a command means, and an agent that holds none has no
+                // commands to tell anybody about. Issue #471.
+                skillCatalogs = mutableListOf(BuiltInSkills.CATALOG),
                 lastModifiedBy = currentUser(),
             ),
         )
@@ -231,6 +235,10 @@ class AgentAPI(
                 icon = DEFAULT_AGENT_ICON,
                 // As a hand-made agent: nothing hidden, so every built-in. #455.
                 requiredTools = BuiltInTools.GRANTED.toMutableList(),
+                // And the server's own skills, as a hand-made agent has. Still
+                // nothing of the workspace's, which is what the paragraph above
+                // is about: this catalog is the server's. Issue #471.
+                skillCatalogs = mutableListOf(BuiltInSkills.CATALOG),
                 lastModifiedBy = currentUser(),
             ),
         )

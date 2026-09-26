@@ -179,6 +179,46 @@ class SkillIdTest(
         assertThat(skillTool.load(agent, "something else")).isNull()
     }
 
+    /**
+     * What an agent prints when somebody asks what it takes. Issue #471: the
+     * ones every installation has go first, since they are what a person asking
+     * about commands is most likely asking after, and a workspace's dozen above
+     * them buries the answer.
+     */
+    @Test
+    fun `the list an agent reads puts the server's own skills first`() {
+        skill("Answering in a thread")
+        val agent = agents.save(
+            Agent(
+                workspaceId = workspaceId,
+                name = "lister",
+                type = AgentType.LLM,
+                skillCatalogs = mutableListOf(catalogs.findAll().first().name, BuiltInSkills.CATALOG),
+            ),
+        )
+
+        val listed = skillTool.list(agent)
+        assertThat(listed.map { it.catalog }.first()).isEqualTo(BuiltInSkills.CATALOG)
+        assertThat(listed.last().name).isEqualTo("Answering in a thread")
+        assertThat(listed.map { it.id }).contains("commands", "plan", "answering-in-a-thread")
+
+        /*
+         * And loading still reads the workspace's first, which is the rule that
+         * stops a built-in quietly shadowing a skill somebody wrote. The
+         * ordering above is the listing's, not the resolver's.
+         */
+        skill("Plan")
+        val own = agents.save(
+            Agent(
+                workspaceId = workspaceId,
+                name = "loader",
+                type = AgentType.LLM,
+                skillCatalogs = mutableListOf(catalogs.findAll().first().name, BuiltInSkills.CATALOG),
+            ),
+        )
+        assertThat(skillTool.load(own, "plan")?.catalog).isNotEqualTo(BuiltInSkills.CATALOG)
+    }
+
     private fun skill(name: String): Long = graphQlTester.document(
         """mutation { createSkill(input: { workspaceId: $workspaceId, name: "$name" }) { id } }""",
     ).execute().path("createSkill.id").entity(Long::class.java).get()
