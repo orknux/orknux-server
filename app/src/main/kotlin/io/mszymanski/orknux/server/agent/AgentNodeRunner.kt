@@ -72,6 +72,8 @@ class AgentNodeRunner(
     private val scratchpads: io.mszymanski.orknux.server.chat.ScratchpadTools,
     /** What lets an agent plan its work as a to-do list; see [TodoTools]. Issue #405. */
     private val todos: io.mszymanski.orknux.server.chat.TodoTools,
+    /** What lets an agent ask what the current time is; see [DateTools]. Issue #407. */
+    private val dates: io.mszymanski.orknux.server.chat.DateTools,
     /** The agent's setup, snapshotted at the start of a session; see [AgentDetails]. Issue #391. */
     private val agentDetails: AgentDetails,
     private val budgets: SessionMemoryBudgets,
@@ -435,6 +437,9 @@ class AgentNodeRunner(
              * cannot finish in one turn. Issue #405.
              */
             todos.shed(session),
+            // And the clock, so it can reason about time it has no way to know
+            // otherwise. Needs no session; see the shed. Issue #407.
+            dates.shed(),
             finishing.shed(
                 granted = agent.finishAccess,
                 shaped = step.outputObjectId != null,

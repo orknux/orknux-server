@@ -71,6 +71,8 @@ class TaskLoop(
     private val scratchpads: io.mszymanski.orknux.server.chat.ScratchpadTools,
     /** What lets an agent plan its work as a to-do list; see [TodoTools]. #405. */
     private val todos: io.mszymanski.orknux.server.chat.TodoTools,
+    /** What lets an agent ask what the current time is; see [DateTools]. #407. */
+    private val dates: io.mszymanski.orknux.server.chat.DateTools,
     /** The agent's setup, snapshotted at the start of the session; see [AgentDetails]. #391. */
     private val agentDetails: io.mszymanski.orknux.server.agent.AgentDetails,
     private val news: TaskNewsDesk,
@@ -236,6 +238,9 @@ class TaskLoop(
                      * Issue #405.
                      */
                     todos.shed(session),
+                    // And the clock: a task runs for hours, so the time it began
+                    // is not the time now. Needs no session. #407.
+                    dates.shed(),
                 ),
                 watching,
                 interjections = { pickUp(taskId, session) },
