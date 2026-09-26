@@ -191,6 +191,49 @@ class Agent(
     var skillCatalogs: MutableList<String> = mutableListOf(),
 
     /**
+     * The skills inside those catalogs this agent may not see, by id. Issue #480.
+     *
+     * The catalogs say what is in scope and these two lists say what happens to
+     * each skill inside them, the way the tools list works: a skill is Offered
+     * by default, Hidden where its id is here, and Always where it is in
+     * [requiredSkills].
+     *
+     * The exception is stored rather than the rule, for the reason
+     * [hiddenTools] stores it: a skill added to a granted catalog next month
+     * should arrive offered, not switched off because nobody went back and
+     * ticked it. So an empty list is what every agent has and means "all of
+     * them", which is also what every agent had before this existed.
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "agent_hidden_skill", joinColumns = [JoinColumn(name = "agent_id")])
+    @OrderColumn(name = "position")
+    @Column(name = "name", nullable = false)
+    var hiddenSkills: MutableList<String> = mutableListOf(),
+
+    /**
+     * The skills in front of the model every turn, by id. Issue #480.
+     *
+     * The Always state. An offered skill is a name and a line the agent may
+     * load; one marked here is loaded already - its whole page is in the system
+     * turn before anybody says anything - because some instructions are not
+     * "read this when it applies" but "this is how you work here", and an agent
+     * that has to decide whether to read them has already half missed them.
+     *
+     * Costly on purpose: a page of markdown per turn per marked skill. That is
+     * why it is a mark and not the default, and why the screen says what it
+     * costs.
+     *
+     * A mark on a skill the agent cannot see does nothing, the way a mark on a
+     * tool it is not granted does nothing: the grant decides whether, and the
+     * mark only decides how.
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "agent_required_skill", joinColumns = [JoinColumn(name = "agent_id")])
+    @OrderColumn(name = "position")
+    @Column(name = "name", nullable = false)
+    var requiredSkills: MutableList<String> = mutableListOf(),
+
+    /**
      * Which tools this agent may call, by name: the workspace's, the plugins',
      * and the server's own.
      *

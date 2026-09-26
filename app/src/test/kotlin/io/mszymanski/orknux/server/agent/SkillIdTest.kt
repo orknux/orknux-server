@@ -257,6 +257,67 @@ class SkillIdTest(
     }
 
 
+    /**
+     * Hidden, Offered, Always. Issue #480.
+     *
+     * The catalog says what is in scope; these two lists say what happens to
+     * each skill inside it. What is stored is the exception either way, so a
+     * skill nobody has said anything about is offered - which is every skill on
+     * every agent before this existed.
+     */
+    @Test
+    fun `a skill can be hidden inside a granted catalog, or put in front of the model`() {
+        skill("Answering in a thread")
+        skill("Escalating")
+        val catalog = catalogs.findAll().first().name
+
+        val plain = agents.save(
+            Agent(
+                workspaceId = workspaceId,
+                name = "plain",
+                type = AgentType.LLM,
+                skillCatalogs = mutableListOf(catalog),
+            ),
+        )
+        assertThat(skillTool.list(plain).map { it.id })
+            .describedAs("nothing said, so both are offered")
+            .contains("answering-in-a-thread", "escalating")
+        assertThat(skillTool.always(plain)).isEmpty()
+
+        val narrowed = agents.save(
+            Agent(
+                workspaceId = workspaceId,
+                name = "narrowed",
+                type = AgentType.LLM,
+                skillCatalogs = mutableListOf(catalog),
+                hiddenSkills = mutableListOf("Escalating".lowercase()),
+                requiredSkills = mutableListOf("answering-in-a-thread"),
+            ),
+        )
+        // Hidden by id, and out of reach of the loader as well as the list -
+        // an agent that cannot see a skill cannot load it by guessing.
+        assertThat(skillTool.list(narrowed).map { it.id }).containsExactly("answering-in-a-thread")
+        assertThat(skillTool.load(narrowed, "escalating")).isNull()
+        // And the marked one is in force, with its page.
+        assertThat(skillTool.always(narrowed).map { it.name }).containsExactly("Answering in a thread")
+        assertThat(skillTool.always(narrowed).single().content).isNotBlank()
+
+        // A mark on a skill the agent cannot see does nothing: the grant
+        // decides whether, the mark only decides how.
+        val confused = agents.save(
+            Agent(
+                workspaceId = workspaceId,
+                name = "confused",
+                type = AgentType.LLM,
+                skillCatalogs = mutableListOf(catalog),
+                hiddenSkills = mutableListOf("escalating"),
+                requiredSkills = mutableListOf("escalating"),
+            ),
+        )
+        assertThat(skillTool.always(confused)).isEmpty()
+    }
+
+
     private fun skill(name: String): Long = graphQlTester.document(
         """mutation { createSkill(input: { workspaceId: $workspaceId, name: "$name" }) { id } }""",
     ).execute().path("createSkill.id").entity(Long::class.java).get()

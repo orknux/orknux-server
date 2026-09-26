@@ -366,6 +366,37 @@ class AgentAPI(
             agent.skillCatalogs =
                 input.skillCatalogs.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
         }
+        /*
+         * What each skill inside those catalogs does. Issue #480.
+         *
+         * Two lists and not a state per skill, for the reason the built-in
+         * tools store the exception: a skill added to a granted catalog next
+         * month should arrive offered rather than switched off because nobody
+         * went back and ticked it. Hidden is the id taken out of reach, Always
+         * is the page put in front of the model every turn, and a skill in
+         * neither list is offered - which is every skill on every agent until
+         * somebody says otherwise.
+         *
+         * Held apart from the catalog grant above and applied after it, so a
+         * request that changes both is answered in the order the screen means:
+         * scope first, then what happens inside it.
+         */
+        if (input.hiddenSkills != null) {
+            agent.hiddenSkills =
+                input.hiddenSkills.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
+        }
+        if (input.requiredSkills != null) {
+            agent.requiredSkills =
+                input.requiredSkills.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
+        }
+        /*
+         * A mark on a skill that is hidden says two things at once, and the
+         * hiding is the one that was meant: a person who pressed a row round to
+         * Hide is not asking for its page every turn. Dropped rather than kept,
+         * so the stored state is the one the screen drew.
+         */
+        val hiddenIds = agent.hiddenSkills.map { it.lowercase() }.toSet()
+        agent.requiredSkills = agent.requiredSkills.filterNot { it.lowercase() in hiddenIds }.toMutableList()
         if (input.tools != null) {
             /*
              * One list in, two out. Issue #455.
@@ -740,6 +771,10 @@ data class UpdateAgentInput(
     val memoryCatalogs: List<String>? = null,
     /** Which skill catalogs it may draw on; null leaves the grant alone. */
     val skillCatalogs: List<String>? = null,
+    /** Skills inside those catalogs it may not see, by id; null leaves them alone. Issue #480. */
+    val hiddenSkills: List<String>? = null,
+    /** Skills whose page is in front of it every turn, by id; null leaves them alone. Issue #480. */
+    val requiredSkills: List<String>? = null,
     /** Which of the workspace's tools it may call; null leaves the grant alone. */
     val tools: List<String>? = null,
     /** Which of the workspace's connections it may name; null leaves the grant alone. */
@@ -795,6 +830,10 @@ data class AgentView(
     val pictureLinkAccess: Boolean,
     val memoryCatalogs: List<String>,
     val skillCatalogs: List<String>,
+    /** The skills in those catalogs this agent may not see, by id. Issue #480. */
+    val hiddenSkills: List<String>,
+    /** And the ones in front of it every turn. Issue #480. */
+    val requiredSkills: List<String>,
     val tools: List<String>,
     /** Which of the workspace's connections it may name when a tool takes one. */
     val connectionIds: List<Long>,
@@ -829,6 +868,8 @@ data class AgentView(
         pictureLinkAccess = agent.pictureLinkAccess,
         memoryCatalogs = agent.memoryCatalogs.toList(),
         skillCatalogs = agent.skillCatalogs.toList(),
+        hiddenSkills = agent.hiddenSkills.toList(),
+        requiredSkills = agent.requiredSkills.toList(),
         // Its grants and the built-ins it has not hidden, as one list: what the
         // form draws its rows from, and what it sends back. Issue #455.
         tools = (agent.tools + BuiltInTools.grantedTo(agent)).distinct(),

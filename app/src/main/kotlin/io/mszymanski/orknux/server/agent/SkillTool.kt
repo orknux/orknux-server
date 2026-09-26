@@ -206,7 +206,38 @@ class SkillTool(
          * around. The workspace's come first, so where two skills share a
          * name, [load] finds the workspace's.
          */
-        return own + fromPlugins.granted(held)
+        /*
+         * And the ones this agent was told not to see. Issue #480: the catalogs
+         * say what is in scope and the hidden list says which of those are out
+         * of it, so a workspace can grant a folder and keep one page of it away
+         * from one agent without splitting the folder in two. Matched on the id
+         * the way everything else is matched on it.
+         *
+         * Filtered here rather than in [list], so it holds for [load] too: a
+         * skill an agent cannot see is a skill it cannot load by guessing the
+         * name, which is the same rule an ungranted catalog has always had.
+         */
+        val unwanted = agent.hiddenSkills.map { it.lowercase() }.toSet()
+        val offered = (own + fromPlugins.granted(held))
+            .filterNot { it.key.lowercase() in unwanted }
+        return offered
+    }
+
+    /**
+     * The skills in force for this agent every turn, whatever it does. Issue #480.
+     *
+     * The Always state, and the whole of what it means: these pages are put in
+     * front of the model before anybody says anything, instead of being a line
+     * it may choose to load. A mark on a skill the agent cannot see does
+     * nothing - the grant decides whether, the mark only decides how - so this
+     * reads the granted list rather than the mark on its own.
+     */
+    fun always(agent: Agent): List<GrantedSkill> {
+        if (agent.requiredSkills.isEmpty()) return emptyList()
+        val wanted = agent.requiredSkills.map { it.lowercase() }.toSet()
+        return granted(agent)
+            .filter { it.key.lowercase() in wanted }
+            .distinctBy { it.catalog + "/" + it.key }
     }
 
     private companion object {

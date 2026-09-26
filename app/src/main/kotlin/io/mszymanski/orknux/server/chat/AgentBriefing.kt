@@ -143,6 +143,33 @@ class AgentBriefing(
                     appendLine(" to read that one instead.")
                 }
             }
+
+        /*
+         * And the ones that are not a choice. Issue #480: a skill marked Always
+         * is in force for every turn, so its page goes in here rather than
+         * waiting for the agent to decide to load it. Some instructions are not
+         * "read this when it applies" but "this is how you work here", and an
+         * agent deciding whether to read those has already half missed them.
+         *
+         * After the list and not instead of it: the skill keeps its line and
+         * its command, because a person can still write the command and because
+         * an agent that sees the page but not the name cannot tell anybody what
+         * it is following. It is marked as already loaded so nothing spends a
+         * call re-reading it.
+         */
+        val forced = skills.always(agent)
+        if (forced.isNotEmpty()) {
+            parts += buildString {
+                append("These skills are in force for this conversation. Follow them; they are ")
+                appendLine("loaded already, so do not spend a call loading them again.")
+                forced.forEach { skill ->
+                    appendLine()
+                    append("--- ").append(skill.name).appendLine(" ---")
+                    appendLine(skill.content.trim())
+                }
+            }.trimEnd()
+        }
+
         }
 
         /*

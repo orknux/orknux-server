@@ -2873,6 +2873,24 @@ type Agent {
     memoryCatalogs: [String!]!
     "Which skill catalogs it may draw on."
     skillCatalogs: [String!]!
+    """
+    The skills inside those catalogs this agent may not see, by id.
+
+    A skill in a granted catalog is offered unless its id is here; what is
+    stored is the exception, so a skill added to that catalog later arrives
+    offered rather than switched off because nobody went back and ticked it.
+    """
+    hiddenSkills: [String!]!
+    """
+    The skills whose page is in front of the model every turn, by id.
+
+    The Always state. An offered skill is a name and a line the agent may load;
+    one marked here is loaded already, for instructions that are not "read this
+    when it applies" but "this is how you work here". It costs a page of
+    markdown per turn, which is why it is a mark rather than the default. A mark
+    on a skill the agent cannot see does nothing.
+    """
+    requiredSkills: [String!]!
     "Which of the workspace's tools it may call."
     tools: [String!]!
     """
@@ -4045,6 +4063,10 @@ input UpdateAgentInput {
     memoryCatalogs: [String!]
     "Null leaves the grant alone."
     skillCatalogs: [String!]
+    "Skills inside those catalogs it may not see, by id; null leaves them alone."
+    hiddenSkills: [String!]
+    "Skills whose page is in front of it every turn, by id; null leaves them alone."
+    requiredSkills: [String!]
     "Which tools it may call; null leaves the grant alone."
     tools: [String!]
     "Which of the workspace's connections it may name; null leaves the grant alone."
