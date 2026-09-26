@@ -116,6 +116,19 @@ class ExecutionService(
     }
 
     /**
+     * Which of these sessions a run is still writing into. Issue #448.
+     *
+     * The sessions list's status dot reads a tool call with no result as an
+     * agent at work - which it is, while the run that made the call is going,
+     * and is not once that run has died under a restart and left the line open
+     * for good. This is the runs' half of telling the two apart: the sessions
+     * among [sessionIds] that a step of a RUNNING run names. Empty for an empty
+     * page rather than a query over nothing.
+     */
+    fun sessionsWithRunningExecutions(sessionIds: Collection<Long>): Set<Long> =
+        if (sessionIds.isEmpty()) emptySet() else steps.sessionsWithRunningExecutions(sessionIds).toSet()
+
+    /**
      * Asks a running execution to stop. Issue #395.
      *
      * The flag, not the ending: the engine reads it before its next step and

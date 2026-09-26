@@ -267,6 +267,8 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is io.mszymanski.orknux.server.attachment.SubagentsOutOfRangeException,
             /* How many findable tools find_tools names outright. Issue #442. */
             is io.mszymanski.orknux.server.attachment.ToolsNamedOutOfRangeException,
+            /* How long a session counts as active after its last line. Issue #448. */
+            is io.mszymanski.orknux.server.attachment.ActiveWindowOutOfRangeException,
             /* What marks a command in a message; a letter is refused. Issue #381. */
             is io.mszymanski.orknux.server.workspace.CommandMarkerInvalidException,
             /* A usage window whose date was not one; see the model API. */

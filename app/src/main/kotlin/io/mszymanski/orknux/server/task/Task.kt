@@ -456,6 +456,18 @@ interface TaskRepository : JpaRepository<Task, Long> {
      */
     @Query("select t.id from Task t where t.status = :status and t.createdAt < :before")
     fun idsInStateSince(status: TaskStatus, before: OffsetDateTime): List<Long>
+
+    /**
+     * Which of these sessions a task in [status] is writing into. Issue #448.
+     *
+     * The tasks' half of the sessions list's status dot, beside the runs' half
+     * in the execution module: a tool call left without a result lights a
+     * session only while something that writes into it is still going, and a
+     * task's log is a session. Asked with RUNNING - a task parked for a person
+     * is not at work, and a queued one has said nothing yet.
+     */
+    @Query("select t.sessionId from Task t where t.sessionId in :sessionIds and t.status = :status")
+    fun sessionsOfTasksIn(sessionIds: Collection<Long>, status: TaskStatus): List<Long>
 }
 
 interface TaskRequestRepository : JpaRepository<TaskRequest, Long> {

@@ -198,6 +198,12 @@ orknux:
     # Up to how many findable tools find_tools names outright in its own
     # description, so a model asks for one by name. Admin -> Settings overrides it.
     tools-named-in-search: ${ORKNUX_CHAT_TOOLS_NAMED_IN_SEARCH:40}
+  sessions:
+    # How long a session counts as active after its last line, in seconds. The
+    # sessions list's dot lights for a line written this recently, so an agent
+    # between two lines still reads as at work; a minute suits a chatty agent
+    # and not one whose model thinks for three. Admin -> Settings overrides it.
+    active-window-seconds: ${ORKNUX_SESSIONS_ACTIVE_WINDOW_SECONDS:60}
   attachments:
     # Whether a chat may carry files at all. False here is final: an
     # administrator can turn attachments off from the screen, but not back on

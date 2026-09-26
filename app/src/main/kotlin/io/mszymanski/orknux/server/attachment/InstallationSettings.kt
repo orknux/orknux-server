@@ -3,6 +3,7 @@ package io.mszymanski.orknux.server.attachment
 import io.mszymanski.orknux.server.workflow.ExecutionRetentionProperties
 import io.mszymanski.orknux.server.chat.ChatProperties
 import io.mszymanski.orknux.server.graphql.Refusal
+import io.mszymanski.orknux.server.llm.SessionProperties
 import io.mszymanski.orknux.server.monitoring.MetricsProperties
 import io.mszymanski.orknux.server.revision.RevisionProperties
 import io.mszymanski.orknux.server.task.TaskSweepProperties
@@ -68,6 +69,7 @@ object SettingNames {
     const val SESSIONS_REMOVABLE = "sessions.removable"
     const val SCRATCHPAD_BUDGET_BYTES = "scratchpad.budget.bytes"
     const val TOOLS_NAMED_IN_SEARCH = "tools.named.in.search"
+    const val SESSIONS_ACTIVE_WINDOW_SECONDS = "sessions.active.window.seconds"
 }
 
 /**
@@ -92,6 +94,8 @@ class InstallationSettings(
      * installation starts before anybody touches the screen.
      */
     private val plugins: io.mszymanski.orknux.workflow.script.PluginProperties,
+    /** Where a fresh installation starts on how long a session counts as active. Issue #448. */
+    private val sessions: SessionProperties,
     /**
      * Which engine is carrying tasks, read as the container reads it.
      *
@@ -428,6 +432,36 @@ class InstallationSettings(
     }
 
     /**
+     * How long a session counts as active after its last line, in seconds.
+     * Issue #448.
+     *
+     * The recency half of the sessions list's dot: a line written within this
+     * long means an agent is still there, even between two lines. The other
+     * half - a tool call with no result, a thought with no end - counts only
+     * while a run or a task that writes into the session is still going, and
+     * needs no number. A minute was in the source (#404), and a minute is right
+     * for a chatty agent and wrong for one whose model thinks for three between
+     * two lines; which an installation has is a judgement about its models,
+     * so it is a knob.
+     */
+    fun sessionsActiveWindowSeconds(): Int {
+        val held = settings.findByIdOrNull(SettingNames.SESSIONS_ACTIVE_WINDOW_SECONDS)
+            ?: return sessionsActiveWindowSecondsConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_ACTIVE_WINDOW_SECONDS..MAX_ACTIVE_WINDOW_SECONDS }
+            ?: sessionsActiveWindowSecondsConfigured()
+    }
+
+    /** What a fresh installation counts - ORKNUX_SESSIONS_ACTIVE_WINDOW_SECONDS. */
+    fun sessionsActiveWindowSecondsConfigured(): Int =
+        sessions.activeWindowSeconds.coerceIn(MIN_ACTIVE_WINDOW_SECONDS, MAX_ACTIVE_WINDOW_SECONDS)
+
+    @Transactional
+    fun setSessionsActiveWindowSeconds(seconds: Int, by: String) {
+        if (seconds !in MIN_ACTIVE_WINDOW_SECONDS..MAX_ACTIVE_WINDOW_SECONDS) throw ActiveWindowOutOfRangeException(seconds)
+        write(SettingNames.SESSIONS_ACTIVE_WINDOW_SECONDS, seconds.toString(), by)
+    }
+
+    /**
      * What marks a command in a message that starts a run, for the whole
      * installation - `!review`. A workspace may carry its own, which wins.
      * Issue #402.
@@ -726,6 +760,25 @@ class ToolsNamedOutOfRangeException(val count: Int) : RuntimeException(
     override val arguments get() = mapOf("count" to count)
 }
 
+/**
+ * A second and an hour, for how long a session counts as active after its
+ * last line. The floor is a second because a window of nothing is the recency
+ * half of the rule switched off, and the switch for that would be a different
+ * setting; the ceiling is an hour because a session nobody has written into
+ * for longer is not one anybody is at work in, whatever its model is doing.
+ * Issue #448.
+ */
+const val MIN_ACTIVE_WINDOW_SECONDS = 1
+const val MAX_ACTIVE_WINDOW_SECONDS = 3600
+
+class ActiveWindowOutOfRangeException(val seconds: Int) : RuntimeException(
+    "$seconds is not a number of seconds a session can be counted active for. " +
+        "Choose between $MIN_ACTIVE_WINDOW_SECONDS and $MAX_ACTIVE_WINDOW_SECONDS.",
+), Refusal {
+
+    override val arguments get() = mapOf("seconds" to seconds)
+}
+
 const val MIN_PLUGIN_SOURCE_KB = 64
 const val MAX_PLUGIN_SOURCE_KB = 20 * 1024
 const val DEFAULT_PLUGIN_SOURCE_KB = 5 * 1024
@@ -784,5 +837,10 @@ class RetentionOutOfRangeException(val days: Int) : RuntimeException(
 }
 
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(AttachmentProperties::class, ChatProperties::class, MetricsProperties::class)
+@EnableConfigurationProperties(
+    AttachmentProperties::class,
+    ChatProperties::class,
+    MetricsProperties::class,
+    SessionProperties::class,
+)
 class AttachmentConfig

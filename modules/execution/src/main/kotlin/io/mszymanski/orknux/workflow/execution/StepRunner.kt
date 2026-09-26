@@ -276,41 +276,7 @@ class StepRunner(
             // cannot come out differently.
             val permanent = (failure as? PermanentFailure)?.permanent == true
             val reason = failure.message ?: failure::class.simpleName ?: "the step failed"
-
-            val policy = retryOf(step)
-            if (policy != null && !permanent && step.attempts < policy.attempts) {
-                // Worked out here rather than inside parkForRetry, because the
-                // budget is a question about this particular wait: a policy with
-                // four attempts left and forty seconds of budget has to know
-                // whether the next wait lands inside it before it parks.
-                val wait = policy.waitAfter(step.attempts, random)
-                val deadline = step.retryDeadline
-                if (deadline == null || !OffsetDateTime.now().plus(wait).isAfter(deadline)) {
-                    return parkForRetry(executionId, step, input, reason, policy, wait)
-                }
-                // Parking would land past the budget, so it does not park. The
-                // attempts it had left are not spent one at a time to arrive at
-                // the same place: the budget is the answer, and it is already in.
-                log.write(
-                    executionId,
-                    step.nodeKey,
-                    LogLevel.INFO,
-                    "${step.name} failed on attempt ${step.attempts} of ${policy.attempts}: $reason. " +
-                        "Its ${policy.budget?.toSeconds() ?: 0}s budget for trying is spent, so it stops here",
-                )
-            }
-
-            /*
-             * A node's own policy is the whole of its retries.
-             *
-             * Temporal retries an activity three times of its own accord, so a
-             * policy left to throw would be multiplied by three - five attempts
-             * asked for and fifteen performed. Exhausting the policy settles the
-             * failure by definition: there is nothing left to try, which is
-             * exactly what `permanent` means to the activity that reads it.
-             * A node with no policy keeps the arrangement it has always had.
-             */
-            failStep(executionId, step, reason, permanent || policy != null)
+            return failed(executionId, step, input, reason, permanent)
         }
 
         if (result.status == StepStatus.WAITING) {
@@ -352,6 +318,89 @@ class StepRunner(
             result.output ?: "${step.name} ${result.status.name.lowercase()}",
         )
         return StepOutcome(result.status, result.output, result.halt, result.branch)
+    }
+
+    /**
+     * Settles a step that was RUNNING when the process died under it, as a
+     * failure that says so. Issue #448.
+     *
+     * The other thing a restart leaves behind besides a wait. A step's work is
+     * in flight on the thread carrying the run, and when that thread is gone
+     * nothing can say how far the work got - the model may have answered, the
+     * message may have been sent - so the step is not quietly run again, which
+     * is the rule the planner already holds for a re-run: a step that charged a
+     * card does not become repeatable because there is a good reason to repeat
+     * it. It is failed with a reason that names the restart, and then treated
+     * exactly as a runner that threw would be: a node with a retry policy and
+     * attempts left parks for its next go, one without fails the run or takes
+     * its failure edge. The dead attempt counts as spent, because it was
+     * begun - `attempts` went up when the step started - which is what makes
+     * "attempt 1 of 2" in the log true.
+     *
+     * Only for a step nobody is carrying: the sweeper asks the engine whether
+     * this process still holds the run before it gets here, so a step that is
+     * simply slow is not failed under a live thread. Refused, rather than
+     * failing the wrong thing, where the step turns out not to be RUNNING any
+     * more - the thread that was carrying it got to the record first.
+     */
+    fun interruptStep(executionId: Long, nodeKey: String): StepOutcome {
+        val step = stepOf(executionId, nodeKey)
+        check(step.status == StepStatus.RUNNING) {
+            "Execution $executionId's step $nodeKey is ${step.status}, not left RUNNING by a restart"
+        }
+        val execution = executionOf(executionId)
+        val input = execution.carried ?: execution.input
+        return failed(executionId, step, input, "${step.name} was interrupted by a restart", permanent = false)
+    }
+
+    /**
+     * What happens to a step that could not do its work: parked for another
+     * go where its node's policy allows one, failed where it does not.
+     *
+     * One place for the runner that threw and the step a restart cut short,
+     * so the two cannot come to read a policy two ways.
+     */
+    private fun failed(
+        executionId: Long,
+        step: ExecutionStep,
+        input: String?,
+        reason: String,
+        permanent: Boolean,
+    ): StepOutcome {
+        val policy = retryOf(step)
+        if (policy != null && !permanent && step.attempts < policy.attempts) {
+            // Worked out here rather than inside parkForRetry, because the
+            // budget is a question about this particular wait: a policy with
+            // four attempts left and forty seconds of budget has to know
+            // whether the next wait lands inside it before it parks.
+            val wait = policy.waitAfter(step.attempts, random)
+            val deadline = step.retryDeadline
+            if (deadline == null || !OffsetDateTime.now().plus(wait).isAfter(deadline)) {
+                return parkForRetry(executionId, step, input, reason, policy, wait)
+            }
+            // Parking would land past the budget, so it does not park. The
+            // attempts it had left are not spent one at a time to arrive at
+            // the same place: the budget is the answer, and it is already in.
+            log.write(
+                executionId,
+                step.nodeKey,
+                LogLevel.INFO,
+                "${step.name} failed on attempt ${step.attempts} of ${policy.attempts}: $reason. " +
+                    "Its ${policy.budget?.toSeconds() ?: 0}s budget for trying is spent, so it stops here",
+            )
+        }
+
+        /*
+         * A node's own policy is the whole of its retries.
+         *
+         * Temporal retries an activity three times of its own accord, so a
+         * policy left to throw would be multiplied by three - five attempts
+         * asked for and fifteen performed. Exhausting the policy settles the
+         * failure by definition: there is nothing left to try, which is
+         * exactly what `permanent` means to the activity that reads it.
+         * A node with no policy keeps the arrangement it has always had.
+         */
+        failStep(executionId, step, reason, permanent || policy != null)
     }
 
     /**

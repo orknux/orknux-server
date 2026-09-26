@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.stereotype.Service
 import java.time.Duration
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Runs a workflow on the calling thread: a restart mid-step loses that step,
@@ -17,7 +18,11 @@ import java.time.Duration
  * A step that is only *waiting* is a different case, and it does survive: the
  * wait is recorded as a wake time on the step, and [resume] walks such a run on
  * from where it parked. [ParkedRunSweeper] is what calls it after a restart.
- * Issue #406.
+ * Issue #406. The same call carries on a run the restart caught anywhere else
+ * (#448): between two steps, where the next simply had not been dispatched,
+ * or inside one, where the lost step is failed as interrupted and its node's
+ * retry policy decides what happens next - the loss is recorded rather than
+ * quietly repeated.
  *
  * It is what runs when `orknux.temporal.enabled` is false — a development
  * machine, or a deployment that would rather not run a Temporal service — and
@@ -39,6 +44,26 @@ class InlineExecutionEngine(
     private val properties: InlineExecutionProperties,
 ) : ExecutionEngine {
 
+    /**
+     * The runs this process is walking right now. Issue #448.
+     *
+     * What tells the sweeper a run is alive. A run's record says RUNNING whether
+     * a thread is carrying it or the thread died an hour ago, and its steps'
+     * timestamps only say when something last moved - a long model call moves
+     * nothing for minutes. This does: a run is here from the moment an engine
+     * thread picks its plan up to the moment that thread ends the run, through
+     * every step, every sleep and every gap between two steps. [StepInterrupts]
+     * knows only a step in the middle of its runner, which leaves the gaps.
+     *
+     * This process only, which for the inline engine is the whole world: it runs
+     * where there is no Temporal, on one JVM, and a second server sharing the
+     * database without one is not a deployment this engine supports.
+     */
+    private val driving = ConcurrentHashMap.newKeySet<Long>()
+
+    /** Whether a thread of this process is carrying the run. */
+    fun isDriving(executionId: Long): Boolean = executionId in driving
+
     override fun start(
         workspaceId: Long,
         workflowId: Long,
@@ -57,19 +82,38 @@ class InlineExecutionEngine(
     }
 
     /**
-     * Carries a parked run on from where its worker died. Issue #406.
+     * Carries a run on from where its worker died. Issues #406, #448.
      *
-     * The wake sweeper's way back in: a run left WAITING by a restart has its
-     * plan rebuilt from what is recorded and is walked from the parked step, on
-     * a fresh thread, exactly as it would have been walked had the first one not
-     * died. Nothing to carry on - the run finished, or is no longer running - is
-     * a run already seen to, and answers null.
+     * The sweeper's way back in: a run left RUNNING by a restart has its plan
+     * rebuilt from what is recorded and is walked from where it stopped, on a
+     * fresh thread, exactly as it would have been walked had the first one not
+     * died. A step left WAITING is asked again once its wake has passed; one
+     * left RUNNING is failed as interrupted first, and its node's retry policy
+     * decides whether it is asked again - see [StepRunner.interruptStep]; a
+     * run with no open step walks on to the next PENDING one. Nothing to carry
+     * on - the run finished, or is no longer running - is a run already seen
+     * to, and answers null.
+     *
+     * So does a run this process is still carrying. The sweeper checks before
+     * it calls, but the check and the call are two moments, and a run picked
+     * up by a live thread between them must not be walked twice.
      */
-    fun resume(executionId: Long): WorkflowExecution? = planner.replan(executionId)?.let(::drive)
+    fun resume(executionId: Long): WorkflowExecution? {
+        if (isDriving(executionId)) return null
+        return planner.replan(executionId)?.let(::drive)
+    }
 
     private fun drive(plan: ExecutionPlan): WorkflowExecution {
         val executionId = requireNotNull(plan.execution.id)
+        driving.add(executionId)
+        try {
+            return walk(plan, executionId)
+        } finally {
+            driving.remove(executionId)
+        }
+    }
 
+    private fun walk(plan: ExecutionPlan, executionId: Long): WorkflowExecution {
         /*
          * What still has a reason to run.
          *
@@ -98,7 +142,10 @@ class InlineExecutionEngine(
             }
 
             val outcome = try {
-                runToDecision(executionId, step.nodeKey)
+                // A step handed over still RUNNING was in flight when the
+                // process died - only a replan hands one over like that, since a
+                // fresh plan's steps are all PENDING. Issue #448.
+                runToDecision(executionId, step.nodeKey, interrupted = step.status == StepStatus.RUNNING)
             } catch (stopped: StepStoppedException) {
                 // Asked to stop while this step was waiting (#395), or while it
                 // was in the middle of its work and the work was cut short (#440).
@@ -149,12 +196,20 @@ class InlineExecutionEngine(
      * while it runs down, and this costs a thread for every second of it. So it
      * is bounded — a run that wants to wait longer than the engine allows fails
      * where it waited, and says what would have carried it.
+     *
+     * @param interrupted whether the step was left RUNNING by a restart. Its
+     *   first go here is then not a run but a settling: the lost attempt is
+     *   failed as interrupted, and what that leaves - a park for the next
+     *   attempt, or a failure - is carried on from exactly as any other
+     *   outcome is. Issue #448.
      */
-    private fun runToDecision(executionId: Long, nodeKey: String): StepOutcome {
+    private fun runToDecision(executionId: Long, nodeKey: String, interrupted: Boolean = false): StepOutcome {
         var waited = Duration.ZERO
+        var first = interrupted
 
         while (true) {
-            val outcome = steps.runStep(executionId, nodeKey)
+            val outcome = if (first) steps.interruptStep(executionId, nodeKey) else steps.runStep(executionId, nodeKey)
+            first = false
             if (outcome.status != StepStatus.WAITING) return outcome
 
             // Unreachable — a parked node says when to come back — but leaving

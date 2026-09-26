@@ -255,16 +255,26 @@ class ExecutionPlanner(
      */
     /**
      * Rebuilds the plan for a run already under way, to carry it on from where
-     * it parked. The wake sweeper's way back into a run whose worker died.
-     * Issue #406.
+     * its worker died. The sweeper's way back into such a run. Issues #406,
+     * #448.
      *
      * Nothing is written: the run and its steps are already recorded. What this
      * puts back together is only what an engine needs in hand to walk the rest -
      * the edges, the exits the finished steps took, and the steps still to do. A
      * step that has settled is carried over, the way a re-run carries over what
-     * ran before its chosen node; the parked step and everything still pending
-     * are what is left. Because a wait blocks the run where it stands, the steps
-     * left are always the parked one and the tail the run never reached.
+     * ran before its chosen node; everything else is what is left. Because a
+     * run walks one step at a time, that is the open step, if there is one, and
+     * the tail the run never reached.
+     *
+     * The open step comes back in whatever state the dead worker left it, and
+     * the engine reads that state to decide what to do with it. WAITING is a
+     * parked step whose wake is read back, and it is asked again (#406).
+     * RUNNING is a step the process died in the middle of: the work was in
+     * flight on a thread that is gone, and nothing can say how far it got, so
+     * the engine fails it as interrupted and lets the node's own retry policy
+     * decide whether to try again (#448). A run with no open step at all -
+     * one step COMPLETED, the next still PENDING, the restart having landed
+     * between the two - has nothing to settle and simply walks on.
      *
      * The version is read the way an ordinary run reads it - a manual run means
      * the draft, anything else the published copy - since the run does not store
@@ -272,15 +282,16 @@ class ExecutionPlanner(
      * the edges and the order come from the graph, and those a redraw rarely
      * moves.
      *
-     * Null when there is nothing to carry on: the run is gone, is no longer
-     * running, or has no open step.
+     * Null when there is nothing to carry on: the run is gone, or is no longer
+     * running. A run that is RUNNING with every step settled is still a plan -
+     * an empty one - because the run itself has not been ended, and walking an
+     * empty plan is what ends it.
      */
     fun replan(executionId: Long): ExecutionPlan? {
         val execution = executions.findByIdOrNull(executionId) ?: return null
         if (execution.status != ExecutionStatus.RUNNING) return null
 
         val recorded = steps.findByExecutionIdOrderByOrderAsc(executionId)
-        if (recorded.none { it.status == StepStatus.WAITING }) return null
 
         val version =
             if (execution.trigger == ExecutionTrigger.MANUAL) GraphVersion.DRAFT else GraphVersion.PUBLISHED
@@ -299,9 +310,12 @@ class ExecutionPlanner(
             .filter { it.status == StepStatus.COMPLETED || it.status == StepStatus.FAILED }
             .map { CarriedExit(it.nodeKey, it.branch) }
 
-        // The parked step and everything the run had not reached. A blocked wait
-        // stops the run where it stands, so this is the parked step and the tail.
-        val toRun = inOrder.filter { it.status == StepStatus.WAITING || it.status == StepStatus.PENDING }
+        // The open step, in the state it was left in, and everything the run had
+        // not reached. A run walks one step at a time, so this is at most one
+        // open step and the tail.
+        val toRun = inOrder.filter {
+            it.status == StepStatus.WAITING || it.status == StepStatus.RUNNING || it.status == StepStatus.PENDING
+        }
 
         val blocked = notBegunAt(graph, execution.firedTriggerId)
         return ExecutionPlan(execution, toRun, graph.edges, carried, blocked)

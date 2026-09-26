@@ -13,16 +13,24 @@ import java.time.Duration
 import java.time.OffsetDateTime
 
 /**
- * A run left waiting by a restart is carried on. Issue #406.
+ * A run left stranded by a restart is carried on. Issues #406, #448.
  *
- * The inline engine spends a wait on the thread carrying the run, so a restart
- * mid-wait kills the only thing that would have woken it and the run sits
- * RUNNING with a WAITING step for ever. The fix reads the wake back: a run still
- * RUNNING whose open step was due long ago is walked on from where it parked.
+ * The inline engine walks a run on one thread, and a restart kills that thread
+ * wherever it happened to be. Three states it can be left in, and all three used
+ * to sit RUNNING for ever. Mid-wait, the wait having been spent on that thread,
+ * so nothing was left to wake it (#406). Between two steps, one COMPLETED and
+ * the next PENDING with nothing to dispatch it. And inside a step, which is left
+ * RUNNING with no thread underneath it - execution 2943 on the dev server, open
+ * since September with a COMPLETED agent step and two PENDING ones behind it.
  *
- * `start` cannot leave such a state - it blocks the wait out and returns a run
- * that finished - so these manufacture the record a dead worker leaves behind
- * and then resume it, which is exactly the situation being recovered.
+ * The wake is read back for the first, and the run's own stillness for the other
+ * two: a run nobody here is carrying whose record has not moved for the whole
+ * grace is walked on from where it stopped, and a step left RUNNING is failed as
+ * interrupted first, because nothing can say how far its work got.
+ *
+ * `start` cannot leave any of those states - it blocks the wait out and returns a
+ * run that finished - so these manufacture the record a dead worker leaves behind
+ * and then sweep it, which is exactly the situation being recovered.
  *
  * The `enabled=false` keeps the timer off so a pass never fires under a test on
  * its own; the pass is called by hand where it is what is under test.
@@ -127,10 +135,90 @@ class ParkedRunResumeTest(
         assertThat(now.status).isEqualTo(ExecutionStatus.RUNNING)
     }
 
+    @Test
+    fun `the sweep carries on a run a restart left between two steps`() {
+        straightLine()
+        val stranded = strandedBetweenSteps()
+
+        assertThat(sweeper.sweep()).isEqualTo(1)
+
+        // The carrier runs on its own thread; the run reaches its end there.
+        await().atMost(Duration.ofSeconds(10)).untilAsserted {
+            val now = requireNotNull(executions.findById(requireNotNull(stranded.id)).orElse(null))
+            assertThat(now.status).isEqualTo(ExecutionStatus.COMPLETED)
+        }
+        val after = stepsOf(stranded).associateBy { it.nodeKey }
+        // The step that finished before the restart keeps the time it finished at:
+        // the run walks on from it rather than doing it again.
+        assertThat(after.getValue("ok-first").finishedAt).isBefore(OffsetDateTime.now().minusMinutes(30))
+        assertThat(after.getValue("ok-second").status).isEqualTo(StepStatus.COMPLETED)
+        assertThat(after.getValue("ok-third").status).isEqualTo(StepStatus.COMPLETED)
+    }
+
+    @Test
+    fun `a step left running by a restart is failed as interrupted, and the retry policy runs`() {
+        graph(
+            nodes = listOf(node("flaky-step"), node("ok-after")),
+            edges = listOf(GraphEdge("flaky-step", "ok-after")),
+        )
+        // A node with three attempts, one of them spent on the try the restart
+        // killed: the scripted runner works on its third.
+        val stranded = strandedInAStep(retryAttempts = 3)
+
+        assertThat(sweeper.sweep()).isEqualTo(1)
+
+        await().atMost(Duration.ofSeconds(10)).untilAsserted {
+            val now = requireNotNull(executions.findById(requireNotNull(stranded.id)).orElse(null))
+            assertThat(now.status).isEqualTo(ExecutionStatus.COMPLETED)
+        }
+        val after = stepsOf(stranded).associateBy { it.nodeKey }
+        // The lost attempt was spent, not forgotten: attempt two is the first the
+        // policy asks for, and the node answers on three.
+        assertThat(after.getValue("flaky-step").status).isEqualTo(StepStatus.COMPLETED)
+        assertThat(after.getValue("flaky-step").output).isEqualTo("flaky-step did the work on attempt 3")
+        assertThat(after.getValue("ok-after").status).isEqualTo(StepStatus.COMPLETED)
+        // And the run says why its first attempt ended, rather than leaving a gap
+        // somebody reading the log has to guess at.
+        assertThat(messagesOf(stranded)).anyMatch { "interrupted by a restart" in it }
+    }
+
+    @Test
+    fun `a step left running with no policy to retry it fails the run as interrupted`() {
+        graph(
+            nodes = listOf(node("flaky-step"), node("ok-after")),
+            edges = listOf(GraphEdge("flaky-step", "ok-after")),
+        )
+        val stranded = strandedInAStep(retryAttempts = null)
+
+        assertThat(sweeper.sweep()).isEqualTo(1)
+
+        await().atMost(Duration.ofSeconds(10)).untilAsserted {
+            val now = requireNotNull(executions.findById(requireNotNull(stranded.id)).orElse(null))
+            assertThat(now.status).isEqualTo(ExecutionStatus.FAILED)
+        }
+        val after = stepsOf(stranded).associateBy { it.nodeKey }
+        // Failed where it was, saying what happened to it - not quietly run
+        // again, because nothing can say whether the lost attempt had already
+        // sent the message or charged the card.
+        assertThat(after.getValue("flaky-step").status).isEqualTo(StepStatus.FAILED)
+        assertThat(after.getValue("flaky-step").error).contains("interrupted by a restart")
+        // The step the run never reached was never reached.
+        assertThat(after.getValue("ok-after").status).isEqualTo(StepStatus.PENDING)
+    }
+
     /** A node, a wait, a node - the shape a run parks in the middle of. */
     private fun straightLineThroughAWait() = graph(
         nodes = listOf(node("ok-before"), node("wait-there"), node("ok-after")),
         edges = listOf(GraphEdge("ok-before", "wait-there"), GraphEdge("wait-there", "ok-after")),
+    )
+
+    /**
+     * Three nodes and nothing that waits - the shape a restart catches either
+     * between two steps or in the middle of one.
+     */
+    private fun straightLine() = graph(
+        nodes = listOf(node("ok-first"), node("ok-second"), node("ok-third")),
+        edges = listOf(GraphEdge("ok-first", "ok-second"), GraphEdge("ok-second", "ok-third")),
     )
 
     /** A condition, a wait on its YES side, a node it refused on the NO side. */
@@ -158,6 +246,33 @@ class ParkedRunResumeTest(
         steps.save(done(id, "ok-before", order = 0))
         steps.save(waiting(id, "wait-there", order = 1, wokeAt = wokeAt))
         steps.save(pending(id, "ok-after", order = 2))
+        return execution
+    }
+
+    /**
+     * The record a restart leaves between two steps: the run still RUNNING, the
+     * first step COMPLETED, the next PENDING with nothing left to dispatch it and
+     * no wake anywhere to read back. Issue #448.
+     */
+    private fun strandedBetweenSteps(): WorkflowExecution {
+        val execution = executions.save(running())
+        val id = requireNotNull(execution.id)
+        steps.save(done(id, "ok-first", order = 0))
+        steps.save(pending(id, "ok-second", order = 1))
+        steps.save(pending(id, "ok-third", order = 2))
+        return execution
+    }
+
+    /**
+     * The record a restart leaves in the middle of a step: the run RUNNING, the
+     * step RUNNING with an attempt already spent on it, and no thread anywhere
+     * doing the work. Issue #448.
+     */
+    private fun strandedInAStep(retryAttempts: Int?): WorkflowExecution {
+        val execution = executions.save(running())
+        val id = requireNotNull(execution.id)
+        steps.save(inFlight(id, "flaky-step", order = 0, retryAttempts = retryAttempts))
+        steps.save(pending(id, "ok-after", order = 1))
         return execution
     }
 
@@ -216,6 +331,26 @@ class ParkedRunResumeTest(
         startedAt = OffsetDateTime.now().minusHours(1),
     )
 
+    /**
+     * A step the process died in the middle of: RUNNING, with the attempt that
+     * died already counted - `attempts` goes up when a step starts, not when it
+     * ends - and no wake, because it was doing its work rather than waiting.
+     */
+    private fun inFlight(executionId: Long, nodeKey: String, order: Int, retryAttempts: Int?) = ExecutionStep(
+        executionId = executionId,
+        nodeKey = nodeKey,
+        kind = NodeKind.ACTION,
+        name = nodeKey,
+        order = order,
+        x = 0.0,
+        y = 0.0,
+        status = StepStatus.RUNNING,
+        retryAttempts = retryAttempts,
+        input = INPUT,
+        startedAt = OffsetDateTime.now().minusHours(1),
+        attempts = 1,
+    )
+
     private fun pending(executionId: Long, nodeKey: String, order: Int) = ExecutionStep(
         executionId = executionId,
         nodeKey = nodeKey,
@@ -237,6 +372,9 @@ class ParkedRunResumeTest(
 
     private fun stepsOf(execution: WorkflowExecution) =
         steps.findByExecutionIdOrderByOrderAsc(requireNotNull(execution.id))
+
+    private fun messagesOf(execution: WorkflowExecution) =
+        logs.findByExecutionIdOrderBySequenceAsc(requireNotNull(execution.id)).map { it.message }
 
     private companion object {
         const val WORKSPACE = 7L

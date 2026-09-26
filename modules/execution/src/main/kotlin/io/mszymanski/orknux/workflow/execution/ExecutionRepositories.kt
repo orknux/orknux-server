@@ -66,6 +66,45 @@ interface WorkflowExecutionRepository :
      */
     @Query("select e.id from WorkflowExecution e where e.workspaceId = :workspaceId")
     fun idsOfWorkspace(workspaceId: Long): List<Long>
+
+    /**
+     * Runs still RUNNING whose record has not moved since [cutoff] and which
+     * are not parked on a wake, for the sweeper that carries them on. Issue
+     * #448.
+     *
+     * The other way a restart strands a run. [ExecutionStepRepository.parkedPast]
+     * finds a run whose open step is WAITING past its wake; this finds the run
+     * the restart caught anywhere else - between two steps, with one COMPLETED
+     * and the next PENDING and nothing to dispatch it, or in the middle of a
+     * step, which is left RUNNING with no thread underneath it. Neither state
+     * has a wake to read back, so what says the run is dead is that nothing on
+     * it has been touched since the cutoff: no step started or finished after
+     * it, and the run itself began before it. A live run moves from one step
+     * to the next in milliseconds and stamps each as it goes, so a record that
+     * has sat still for the whole grace is one nobody is writing.
+     *
+     * A run with a WAITING step is left to the wake query, whatever its
+     * timestamps say: a wait is meant to sit still, and one parked for a retry
+     * carries no wake at all and is being slept out on a live thread.
+     */
+    @Query(
+        """
+        select e.id from WorkflowExecution e
+        where e.status = io.mszymanski.orknux.workflow.execution.ExecutionStatus.RUNNING
+          and e.startedAt < :cutoff
+          and not exists (
+            select 1 from ExecutionStep w
+            where w.executionId = e.id
+              and w.status = io.mszymanski.orknux.workflow.execution.StepStatus.WAITING
+          )
+          and not exists (
+            select 1 from ExecutionStep s
+            where s.executionId = e.id
+              and (s.startedAt >= :cutoff or s.finishedAt >= :cutoff)
+          )
+        """,
+    )
+    fun stalledBefore(cutoff: OffsetDateTime): List<Long>
 }
 
 /** One row of [WorkflowExecutionRepository.workflowsRun]. */
@@ -96,6 +135,31 @@ interface ExecutionStepRepository : JpaRepository<ExecutionStep, Long> {
         """,
     )
     fun executionIdsForSession(sessionId: Long): List<Long>
+
+    /**
+     * Which of these sessions a run is still writing into: the sessions named
+     * by a step of a run that is RUNNING. Issue #448.
+     *
+     * For the sessions list's status dot. A tool called with no result, or a
+     * thought with no end, used to mean an agent was at work in the session -
+     * and it does, for as long as the run that opened the line is going. A run
+     * the process died under leaves the line open for ever, and the session
+     * read as active for ever with it. So the open line counts only while
+     * something that writes into the session is still running, and this is the
+     * runs' half of that answer. One query for a page, not one per row.
+     */
+    @Query(
+        """
+        select distinct s.sessionId from ExecutionStep s
+        where s.sessionId in :sessionIds
+          and exists (
+            select 1 from WorkflowExecution e
+            where e.id = s.executionId
+              and e.status = io.mszymanski.orknux.workflow.execution.ExecutionStatus.RUNNING
+          )
+        """,
+    )
+    fun sessionsWithRunningExecutions(sessionIds: Collection<Long>): List<Long>
 
     /**
      * Runs left parked past their wake, for the sweeper that carries them on.

@@ -145,6 +145,25 @@ class StepInterrupts {
     }
 
     /**
+     * Whether a step of this run is in flight on a thread of this process.
+     * Issue #448.
+     *
+     * Read by the stranded-run sweep, which must never hand a run to a second
+     * thread. The record cannot answer this on its own: a step in the middle of
+     * a model call has stamped nothing for minutes, and looks from the outside
+     * exactly like one whose worker died. The register can, because a step is
+     * on it for precisely as long as its runner is running, and whatever is
+     * carrying it puts it there - the inline engine walking a run, or a Temporal
+     * activity sharing this JVM.
+     *
+     * What it does not know is the gaps: between two steps, and during a wait,
+     * nothing is registered here, and a live run spends a good deal of its time
+     * there. So this is one of the two things the sweep asks; see
+     * [ParkedRunSweeper] for the other and for why neither alone is enough.
+     */
+    fun isCarrying(executionId: Long): Boolean = running.containsKey(executionId)
+
+    /**
      * Cuts short whatever step of this run is in flight, if one is.
      *
      * Only ends the work: the thread carrying the step records what happened

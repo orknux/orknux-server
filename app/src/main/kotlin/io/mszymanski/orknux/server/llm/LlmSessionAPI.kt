@@ -71,6 +71,8 @@ class LlmSessionAPI(
     private val pads: SessionScratchpadService,
     /** The runs that wrote into a session, read back from execution_step.session_id. Issue #420. */
     private val executions: io.mszymanski.orknux.workflow.execution.ExecutionService,
+    /** The tasks whose log a session is, for whether one is still writing into it. Issue #448. */
+    private val tasks: io.mszymanski.orknux.server.task.TaskRepository,
 ) {
 
     @QueryMapping
@@ -114,26 +116,55 @@ class LlmSessionAPI(
         val ids = found.content.mapNotNull { it.id }
         val counts = countsFor(ids)
         // The status dot and the subagent count, each in one query for the whole
-        // page rather than one per row. Issues #403, #404.
+        // page rather than one per row. Issues #403, #404, #448.
         val unfinished = if (ids.isEmpty()) emptySet() else events.unfinishedAmong(ids).toSet()
+        val writing = writtenInto(ids)
+        val window = settings.sessionsActiveWindowSeconds()
         val subagents = if (ids.isEmpty()) emptyMap() else
             sessions.subagentCountsFor(ids).associate { it.sessionId to it.total.toInt() }
         return LlmSessionPageView(
             totalElements = found.totalElements.toInt(),
             content = found.content.map {
-                describe(it, counts[it.id] ?: 0, active(it, unfinished.contains(it.id)), subagents[it.id] ?: 0)
+                describe(
+                    it,
+                    counts[it.id] ?: 0,
+                    active(it, unfinished = it.id in unfinished, writtenInto = it.id in writing, window = window),
+                    subagents[it.id] ?: 0,
+                )
             },
         )
     }
 
     /**
-     * Whether an agent is at work in it right now, the rule the family panel
-     * uses: a line still going, or one written within the last minute. Issue
-     * #404.
+     * Whether an agent is at work in it right now, the rule the list and the
+     * family panel share. Issues #404, #448.
+     *
+     * Two halves. A line still going - a tool called with no result, a thought
+     * with no end - says an agent is mid-turn, but only while the thing that
+     * opened the line is still running: the line is written before the work
+     * and finished after it, so a run or a task the process died under leaves
+     * it open for ever, and a session read as active for a week on the
+     * strength of a call nobody was waiting for. So [unfinished] counts only
+     * with [writtenInto], which is whether a run or a task that writes into the
+     * session is RUNNING. And a line written within the last [window] seconds
+     * says somebody is still there between two lines, whatever state the lines
+     * are in - the window is the installation's, because how long its agents
+     * go quiet between two lines is a fact about its models.
      */
-    private fun active(session: LlmSession, unfinished: Boolean): Boolean =
-        unfinished ||
-            session.lastEventAt?.isAfter(java.time.OffsetDateTime.now().minusSeconds(ACTIVE_WINDOW_SECONDS)) == true
+    private fun active(session: LlmSession, unfinished: Boolean, writtenInto: Boolean, window: Int): Boolean =
+        (unfinished && writtenInto) ||
+            session.lastEventAt?.isAfter(java.time.OffsetDateTime.now().minusSeconds(window.toLong())) == true
+
+    /**
+     * Which of these sessions something is still writing into: the sessions a
+     * step of a RUNNING run names, and the sessions that are the log of a
+     * RUNNING task. Two queries for a page, not two per row. Issue #448.
+     */
+    private fun writtenInto(ids: Collection<Long>): Set<Long> {
+        if (ids.isEmpty()) return emptySet()
+        return executions.sessionsWithRunningExecutions(ids) +
+            tasks.sessionsOfTasksIn(ids, io.mszymanski.orknux.server.task.TaskStatus.RUNNING)
+    }
 
     /** One session, by its row id - which is what the list handed the page. */
     @QueryMapping
@@ -143,7 +174,8 @@ class LlmSessionAPI(
         if (!access.canSee(session.workspaceId)) return null
         val unfinished = events.unfinished(id, Long.MAX_VALUE, PageRequest.of(0, 1)).isNotEmpty()
         val subagents = sessions.subagentCountsFor(listOf(id)).firstOrNull()?.total?.toInt() ?: 0
-        return describe(session, events.countBySessionId(id).toInt(), active(session, unfinished), subagents)
+        val lit = active(session, unfinished, writtenInto = id in writtenInto(listOf(id)), window = settings.sessionsActiveWindowSeconds())
+        return describe(session, events.countBySessionId(id).toInt(), lit, subagents)
     }
 
     /**
@@ -306,8 +338,15 @@ class LlmSessionAPI(
         val root = generateSequence(asked) { held -> held.parentSessionId?.let { sessions.findByIdOrNull(it) } }
             .take(FAMILY_DEPTH)
             .last()
-        return listOf(member(root, main = true, depth = 0)) +
-            descendants(requireNotNull(root.id), depth = 1).map { (child, depth) -> member(child, main = false, depth = depth) }
+        val family = listOf(root) + descendants(requireNotNull(root.id), depth = 1).map { (child, _) -> child }
+        // The same rule the list applies, read once for the whole family rather
+        // than once per member. Issue #448.
+        val writing = writtenInto(family.mapNotNull { it.id })
+        val window = settings.sessionsActiveWindowSeconds()
+        return listOf(member(root, main = true, depth = 0, writtenInto = root.id in writing, window = window)) +
+            descendants(requireNotNull(root.id), depth = 1).map { (child, depth) ->
+                member(child, main = false, depth = depth, writtenInto = child.id in writing, window = window)
+            }
     }
 
     /** Each session under this one, with how deep it sits - so the panel can nest them. Issue #379. */
@@ -319,21 +358,25 @@ class LlmSessionAPI(
     }
 
     /**
-     * Whether an agent is at work in it right now: something started and not
-     * finished - a tool called with no result yet, a thought still being
-     * thought - or a line written within the last minute. The dot on the list.
+     * One member of a family, with the dot the panel draws for it: whether an
+     * agent is at work in it right now, by the same rule as [active].
      */
-    private fun member(session: LlmSession, main: Boolean, depth: Int): LlmSessionMemberView {
+    private fun member(
+        session: LlmSession,
+        main: Boolean,
+        depth: Int,
+        writtenInto: Boolean,
+        window: Int,
+    ): LlmSessionMemberView {
         val id = requireNotNull(session.id)
         val unfinished = events.unfinished(id, Long.MAX_VALUE, org.springframework.data.domain.PageRequest.of(0, 1)).isNotEmpty()
-        val recent = session.lastEventAt?.isAfter(java.time.OffsetDateTime.now().minusSeconds(ACTIVE_WINDOW_SECONDS)) == true
         return LlmSessionMemberView(
             id = id,
             key = session.sessionKey,
             title = if (main) "Main session" else (session.title ?: session.sessionKey),
             main = main,
             depth = depth,
-            active = unfinished || recent,
+            active = active(session, unfinished, writtenInto, window),
             lastEventAt = session.lastEventAt?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         )
     }
@@ -377,6 +420,10 @@ class LlmSessionAPI(
             val node = mapper.readTree(held)
             SessionAgentDetailsView(
                 agent = node.path("agent").stringValue().orEmpty(),
+                // Absent from every line written before #454, which is what the
+                // nullable field says: the log leads to the agent's page where
+                // it is there, and reads as it always did where it is not.
+                agentId = node.path("agentId").takeIf { it.isNumber }?.asLong(),
                 model = node.path("model").takeIf { it.isTextual }?.stringValue(),
                 systemPrompt = node.path("systemPrompt").takeIf { it.isTextual }?.stringValue(),
                 tools = node.path("tools").mapNotNull { it.stringValue() },
@@ -517,9 +564,6 @@ class LlmSessionAPI(
 
         /** How far up and down a family is followed; an agent asking an agent asking an agent is plenty. */
         const val FAMILY_DEPTH = 5
-
-        /** A line written this recently means somebody is still there. */
-        const val ACTIVE_WINDOW_SECONDS = 60L
     }
 }
 
@@ -553,7 +597,7 @@ data class LlmSessionView(
     val title: String?,
     /** The session this one was started from, or null. */
     val parentId: Long?,
-    /** Whether an agent is at work in it right now: something unfinished, or a line within the last minute. The list's status dot. Issue #404. */
+    /** Whether an agent is at work in it right now: a line still going while its run or task is, or a line within the active window. The list's status dot. Issues #404, #448. */
     val active: Boolean,
     /** How many sessions were started under this one - what the list shows to say which conversations fanned out. Issue #403. */
     val subagentCount: Int,
@@ -585,7 +629,15 @@ data class LlmSessionNoteView(
  */
 data class SessionAgentDetailsView(
     val agent: String,
+    /** Which agent it is, so the block can link to it; null on a line written before #454. */
+    val agentId: Long?,
     val model: String?,
+    /**
+     * The whole system text the model was sent - the instructions or the node's
+     * replacement for them, the grants briefing, a forced skill, the shape it is
+     * held to, and what a lent tool says about itself. Issue #454: this was
+     * `agent.systemPrompt`, which is one paragraph of it and null on most agents.
+     */
     val systemPrompt: String?,
     /** Every tool declared to the model on every turn, built-ins and lent ones included. Issue #446. */
     val tools: List<String>,

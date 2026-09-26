@@ -13,29 +13,33 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /**
- * How the parked-run net is timed. Issue #406.
+ * How the stranded-run net is timed. Issues #406, #448.
  *
  * Its own settings, not more fields on [InlineExecutionProperties]: that is
  * about what one run may wait, and this is about the machine noticing a run
- * whose worker died still owes a wake.
+ * whose worker died was left with something still to do.
  */
 @ConfigurationProperties(prefix = "orknux.execution.inline.sweep")
 data class ParkedRunSweepProperties(
     /**
-     * How often a pass looks for a parked run nothing is watching.
+     * How often a pass looks for a stranded run nothing is carrying.
      *
      * Thirty seconds. A wait a live thread is carrying wakes within the engine's
-     * own poll of it, so a pass this often costs one small query and catches a
-     * restart's orphans a half-minute after the process is up.
+     * own poll of it, and a live run moves between steps in milliseconds, so a
+     * pass this often costs two small queries and catches a restart's orphans a
+     * half-minute after the process is up.
      */
     val interval: Duration = Duration.ofSeconds(30),
     /**
-     * How far past its wake a step must be before a pass touches it.
+     * How long a run must have sat still before a pass touches it.
      *
-     * The guard against sweeping a wait out from under the thread that is about
-     * to answer it: a live worker resumes within [InlineExecutionEngine.STOP_POLL]
-     * of the wake, so a step still WAITING a good margin past its wake is one no
-     * thread is watching any more. Comfortably longer than that poll.
+     * For a parked step, how far past its wake: a live worker resumes within
+     * [InlineExecutionEngine.STOP_POLL] of the wake, so a step still WAITING a
+     * good margin past its wake is one no thread is watching any more. For a
+     * run with no wake to read - between two steps, or inside one - how long
+     * since anything on its record was stamped. Comfortably longer than that
+     * poll, and than the gap a live run leaves between finishing one step and
+     * starting the next.
      */
     val grace: Duration = Duration.ofSeconds(30),
     /**
@@ -43,7 +47,9 @@ data class ParkedRunSweepProperties(
      *
      * Twenty seconds: long enough that the context is up and the graph is
      * readable, short enough that a run a restart orphaned is picked up while
-     * whoever started it is still watching for it.
+     * whoever started it is still watching for it. The first pass is an
+     * ordinary pass - it looks for everything a later one does - so a restart's
+     * orphans are found on it rather than an interval later.
      */
     val initialDelay: Duration = Duration.ofSeconds(20),
     /** False sweeps nothing on a timer. The suite sets it and calls [ParkedRunSweeper.sweep]. */
@@ -51,20 +57,50 @@ data class ParkedRunSweepProperties(
 )
 
 /**
- * The net under a wait. Issue #406.
+ * The net under a run the process died under. Issues #406, #448.
  *
- * A step that parks on the inline engine records when to wake and is then
- * waited out on the thread carrying the run. A restart kills that thread, and
- * because nothing else reads the wake back, the run sits RUNNING with a WAITING
- * step for ever. Temporal has a durable timer and needs none of this; the
- * inline engine, which backs the dev and one-container installations, had
- * nothing.
+ * The inline engine carries a run on one thread, from its first step to its
+ * last, and a restart kills that thread. Whatever the run was doing at that
+ * moment is left exactly as it was written down: RUNNING, with something still
+ * to do and nothing left to do it. Temporal has a durable history and needs none
+ * of this; the inline engine, which backs the dev and one-container
+ * installations, had nothing.
  *
- * So: one query on a timer for a run still RUNNING whose open step was due to
- * wake a good while ago, and [InlineExecutionEngine.resume] to carry each on
- * from where it parked. The margin is what keeps it off a wait a live worker is
- * about to answer itself - only a wake left unanswered long enough that no
- * thread can still be watching it is swept.
+ * Three states, found by two queries. A step that parks records when to wake
+ * and is waited out on the thread, so a restart mid-wait leaves a WAITING step
+ * whose wake nothing will read back (#406): [ExecutionStepRepository.parkedPast]
+ * finds a run whose open step was due to wake a good while ago. A restart
+ * between two steps leaves one COMPLETED and the next PENDING with nothing to
+ * dispatch it, and a restart mid-step leaves a RUNNING step with no thread
+ * underneath (#448): [WorkflowExecutionRepository.stalledBefore] finds a run
+ * whose record has not moved for the whole grace and which is not parked. Both
+ * hand their ids to [InlineExecutionEngine.resume], which reads the state the
+ * open step was left in and does the right thing for it - asks a wait again,
+ * fails an interrupted step so its retry policy can answer, walks on from a
+ * finished one.
+ *
+ * Guards against racing a live worker, because a pass that swept a run
+ * somebody is carrying would set two threads walking it at once - and the
+ * second would fail a step the first is in the middle of.
+ *
+ * The grace is the first: only a run left alone long enough that no thread can
+ * still be on it is looked at - a live wait wakes within the engine's poll of
+ * its wake, a live run stamps a step every few milliseconds between two. On its
+ * own it is not enough, because a step in a long model call stamps nothing for
+ * minutes and a run whose approval wait is asked again every half-minute never
+ * restamps the step it is asking about.
+ *
+ * So this process is asked directly, in two places, because a run is carried in
+ * two ways. [StepInterrupts.isCarrying] knows a step in flight - whatever is
+ * running it, the engine here or a Temporal activity in this JVM - and that is
+ * the case the grace gets wrong. [InlineExecutionEngine.isDriving] knows a run
+ * an engine thread is walking, gaps and sleeps included, which is where a run
+ * spends most of its life and where no step register can see it. Neither alone
+ * is the answer, and neither replaces the grace: a register emptied by a
+ * restart says nothing is being carried the moment the process is up, long
+ * before the record can be trusted to have stopped moving. Together: a run is
+ * swept only when nobody here is holding it and it has sat still long enough
+ * that nobody anywhere is.
  *
  * Each recovery runs on its own thread rather than the timer's: a resumed run
  * that walks on and parks again would otherwise hold the timer for its whole
@@ -77,7 +113,10 @@ data class ParkedRunSweepProperties(
 @EnableConfigurationProperties(ParkedRunSweepProperties::class)
 class ParkedRunSweeper(
     private val steps: ExecutionStepRepository,
+    private val executions: WorkflowExecutionRepository,
     private val engine: InlineExecutionEngine,
+    /** Where a step in flight is registered, so one being run is not swept. Issue #440. */
+    private val interrupts: StepInterrupts,
     private val properties: ParkedRunSweepProperties,
 ) : SmartLifecycle {
 
@@ -102,7 +141,11 @@ class ParkedRunSweeper(
         }
         running = true
         arm(properties.initialDelay.toSeconds())
-        log.info("Looking for parked runs left past their wake, every {}s", properties.interval.toSeconds())
+        log.info(
+            "Looking for runs left stranded by a restart, first in {}s and then every {}s",
+            properties.initialDelay.toSeconds(),
+            properties.interval.toSeconds(),
+        )
     }
 
     override fun stop() {
@@ -115,30 +158,46 @@ class ParkedRunSweeper(
     override fun isRunning(): Boolean = running
 
     /**
-     * One pass. Returns how many parked runs this call handed to a carrier,
+     * One pass. Returns how many stranded runs this call handed to a carrier,
      * which is what a test asserts on.
      *
-     * Nothing here is transactional. It reads a list of ids and hands each to a
-     * thread that drives the run through its own step transactions - which is
-     * precisely what must not be done from inside an open one.
+     * Nothing here is transactional. It reads two lists of ids and hands each
+     * to a thread that drives the run through its own step transactions - which
+     * is precisely what must not be done from inside an open one.
      */
     fun sweep(): Int {
         val cutoff = OffsetDateTime.now().minus(properties.grace)
         val parked = steps.parkedPast(cutoff)
-        if (parked.isEmpty()) return 0
+        val stalled = executions.stalledBefore(cutoff)
+        // A run this process is working on is alive whatever its record says - a
+        // step in a long model call stamps nothing for minutes - and is nobody
+        // else's to carry. Both registers are asked because each sees half of
+        // it; see the class comment.
+        val stranded = (parked + stalled)
+            .distinct()
+            .filterNot { engine.isDriving(it) || interrupts.isCarrying(it) }
+        if (stranded.isEmpty()) return 0
 
-        val handed = parked.count { executionId ->
+        val handed = stranded.count { executionId ->
             // Already being carried, or picked up by a pass still running: leave
             // it be, or two threads would walk the same run at once.
             if (!inFlight.add(executionId)) return@count false
             runCatching { carriers.execute { carry(executionId) } }
                 .onFailure {
                     inFlight.remove(executionId)
-                    log.warn("Parked run {} could not be handed to a carrier", executionId, it)
+                    log.warn("Stranded run {} could not be handed to a carrier", executionId, it)
                 }
                 .isSuccess
         }
-        if (handed > 0) log.warn("Carrying on {} parked run(s) left past their wake before {}", handed, cutoff)
+        if (handed > 0) {
+            log.warn(
+                "Carrying on {} run(s) left stranded before {}: {} parked past a wake, {} with no thread underneath",
+                handed,
+                cutoff,
+                parked.size,
+                stalled.size,
+            )
+        }
         return handed
     }
 
@@ -146,7 +205,7 @@ class ParkedRunSweeper(
         try {
             engine.resume(executionId)
         } catch (failure: Exception) {
-            log.warn("Parked run {} was left past its wake and could not be carried on", executionId, failure)
+            log.warn("Stranded run {} could not be carried on", executionId, failure)
         } finally {
             inFlight.remove(executionId)
         }
@@ -165,7 +224,7 @@ class ParkedRunSweeper(
             // Nothing above this catches, so a pass that threw would disappear
             // into the executor and take every later pass with it, since the
             // re-arm below is what keeps the timer alive.
-            log.warn("Could not sweep parked runs", failure)
+            log.warn("Could not sweep stranded runs", failure)
         } finally {
             arm(properties.interval.toSeconds())
         }

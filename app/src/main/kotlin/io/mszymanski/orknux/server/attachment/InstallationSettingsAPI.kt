@@ -64,6 +64,8 @@ class InstallationSettingsAPI(
         toolsNamedInSearch = settings.toolsNamedInSearch(),
         toolsNamedInSearchConfigured = settings.toolsNamedInSearchConfigured(),
         sessionsRemovable = settings.sessionsRemovable(),
+        sessionsActiveWindowSeconds = settings.sessionsActiveWindowSeconds(),
+        sessionsActiveWindowSecondsConfigured = settings.sessionsActiveWindowSecondsConfigured(),
     )
 
     /**
@@ -78,6 +80,27 @@ class InstallationSettingsAPI(
             null,
             WorkspaceAuditCategory.WORKSPACE,
             "find_tools names up to $count findable tools outright",
+        )
+        return installationSettings()
+    }
+
+    /**
+     * How long a session counts as active after its last line. Issue #448.
+     *
+     * The recency half of the sessions list's dot, which was a minute in the
+     * source. An installation whose models think for longer than that between
+     * two lines watched its sessions blink off mid-turn; this is where it says
+     * how long its agents go quiet for.
+     */
+    @MutationMapping
+    fun setSessionsActiveWindowSeconds(@Argument seconds: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setSessionsActiveWindowSeconds(seconds, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "A session counts as active for $seconds seconds after its last line",
         )
         return installationSettings()
     }
@@ -491,6 +514,16 @@ data class InstallationSettingsView(
      * would be worse than the hole it closes.
      */
     val sessionsRemovable: Boolean,
+    /**
+     * How long a session counts as active after its last line, in seconds.
+     *
+     * The recency half of the sessions list's dot; the other half, an open
+     * line, counts only while a run or a task that writes into the session is
+     * still going. Issue #448.
+     */
+    val sessionsActiveWindowSeconds: Int,
+    /** What a fresh installation counts - ORKNUX_SESSIONS_ACTIVE_WINDOW_SECONDS. */
+    val sessionsActiveWindowSecondsConfigured: Int,
     /** What a fresh installation allows: the built-in default. */
     val pluginMaxSourceKbConfigured: Int,
     /**
