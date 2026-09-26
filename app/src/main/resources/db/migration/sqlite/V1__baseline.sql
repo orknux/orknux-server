@@ -36,6 +36,9 @@ CREATE TABLE agent
     icon                         varchar(40),
     orknux_access                boolean not null default false,
     shell_access                 boolean not null default false,
+    -- Gone from the entity since #444, and dropped by V5 - which reads them
+    -- first to decide which built-in names an agent gets, so they have to be
+    -- here for a fresh installation's V5 to read and drop. See that file.
     artifact_access              boolean not null default true,
     finish_access                boolean not null default true,
     picture_link_access          boolean not null default true,

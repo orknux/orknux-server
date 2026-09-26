@@ -162,11 +162,48 @@ class TaskLoop(
         val agent = working.agent
         val budget = budgets.budget(agent.memoryShare, task.workspaceId, working.modelId)
 
+        /*
+         * What this turn lends the agent beside its own tools. Built before the
+         * setup is written down, because the account of it names what was lent
+         * as well as what was granted (#446), and before the turns so the log
+         * opens with the setup its words were said under.
+         */
+        val shed = io.mszymanski.orknux.server.chat.sheds(
+            // Drawing and linking are two decisions; see the shed.
+            tools.shed(task, mayLink = agent.pictureLinkAccess),
+            /*
+             * And somewhere to write a note to itself. Issue #371: a
+             * task is the longest thing an agent does here - many turns
+             * over hours - so it is where the transcript being trimmed
+             * costs the most, and where what was found on turn three is
+             * most likely to be gone by turn thirty.
+             */
+            notes.shed(session, agent.name),
+            /*
+             * And working files across the task - a document it is
+             * building, code it is writing - which the note is too
+             * short to hold. A task is the longest job here, so it is
+             * where a scratchpad earns its keep. Issue #411.
+             */
+            scratchpads.shed(session),
+            /*
+             * And a to-do list to plan the task on. A task is the
+             * longest job here - many turns over hours - so it is where
+             * a plan worked down step by step earns its keep most.
+             * Issue #405.
+             */
+            todos.shed(session),
+            // And the clock: a task runs for hours, so the time it began
+            // is not the time now. Needs no session. #407.
+            dates.shed(),
+        )
+
         // The agent's setup, written into the log where this turn starts if it
         // differs from the last one logged - so the first turn opens the log
         // with it, and an agent edited between turns is a line saying so rather
-        // than a silent change. Issues #391, #441.
-        sessions.describeAgent(session, agentDetails.snapshot(agent))
+        // than a silent change. Issues #391, #441. With the shed, so the account
+        // names every tool the model is handed, lent ones included. #446.
+        sessions.describeAgent(session, agentDetails.snapshot(agent, shed))
 
         deliver(taskId, session)
 
@@ -215,35 +252,7 @@ class TaskLoop(
                 agent,
                 turns,
                 session,
-                io.mszymanski.orknux.server.chat.sheds(
-                    // Drawing and linking are two decisions; see the shed.
-                    tools.shed(task, mayLink = agent.pictureLinkAccess),
-                    /*
-                     * And somewhere to write a note to itself. Issue #371: a
-                     * task is the longest thing an agent does here - many turns
-                     * over hours - so it is where the transcript being trimmed
-                     * costs the most, and where what was found on turn three is
-                     * most likely to be gone by turn thirty.
-                     */
-                    notes.shed(session, agent.name),
-                    /*
-                     * And working files across the task - a document it is
-                     * building, code it is writing - which the note is too
-                     * short to hold. A task is the longest job here, so it is
-                     * where a scratchpad earns its keep. Issue #411.
-                     */
-                    scratchpads.shed(session),
-                    /*
-                     * And a to-do list to plan the task on. A task is the
-                     * longest job here - many turns over hours - so it is where
-                     * a plan worked down step by step earns its keep most.
-                     * Issue #405.
-                     */
-                    todos.shed(session),
-                    // And the clock: a task runs for hours, so the time it began
-                    // is not the time now. Needs no session. #407.
-                    dates.shed(),
-                ),
+                shed,
                 watching,
                 interjections = { pickUp(taskId, session) },
             )

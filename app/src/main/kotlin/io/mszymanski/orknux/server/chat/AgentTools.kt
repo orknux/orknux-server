@@ -118,14 +118,24 @@ class AgentTools(
          * is ever dropped, so marking a tool would be marking it against a thing
          * that never happens - and the screen does not offer the column either.
          */
-        if (agent.maxTools == null || agent.requiredTools.isEmpty()) {
+        if (agent.maxTools == null) {
             return Offering(core = core, searchable = searchable)
         }
 
+        /*
+         * And the other way, for the built-ins the grant list switches. Issue
+         * #444: `save_artifact`, `find_connections` and `ask_agent` are rows on
+         * the Tools list with the same Hide, Offer, Always control as everything
+         * else, so under a ceiling one left at Offer is found rather than
+         * carried - the rule every other tool already lived by. What comes with
+         * a wider grant - the skills, the memories, orknux, the shells - stays
+         * where it was: it has no Always mark to read, and it is few.
+         */
         val always = agent.requiredTools.toSet()
+        val (carried, findable) = core.partition { BuiltInTools.carried(agent, it.name) }
         return Offering(
-            core = core + searchable.filter { it.name in always },
-            searchable = searchable.filterNot { it.name in always },
+            core = carried + searchable.filter { it.name in always },
+            searchable = findable + searchable.filterNot { it.name in always },
         )
     }
 
@@ -157,8 +167,15 @@ class AgentTools(
          * round worse off than one that was simply told. A handful of grants is
          * still recited in the briefing, which is cheaper than a round trip -
          * see [ConnectionTools].
+         *
+         * And, like every built-in from here down, only where its name is in
+         * the agent's Tools list. Issue #444: the list is what somebody reads
+         * to see what an agent may do, and a tool that appears there and can be
+         * hidden there has to be one the round actually withholds.
          */
-        if (connectionTools.offered(agent)) add(connectionTools.specFor(agent))
+        if (connectionTools.offered(agent) && BuiltInTools.granted(agent, ConnectionTools.FIND)) {
+            add(connectionTools.specFor(agent))
+        }
 
         /*
          * And the other agents it may ask, where it was granted any.
@@ -167,23 +184,26 @@ class AgentTools(
          * named in its own description, and an agent that had to find the way to
          * delegate is a round worse off than one that was told.
          */
-        if (agentTools.offered(agent)) add(agentTools.specFor(agent))
+        if (agentTools.offered(agent) && BuiltInTools.granted(agent, AgentRunTools.ASK)) {
+            add(agentTools.specFor(agent))
+        }
 
         /*
          * Somewhere to put what it made, and the one conversion getting it
          * there needs.
          *
-         * Offered to every agent rather than behind a grant: the other grants
-         * open a door onto something that already exists - the workspace, a
-         * machine, a catalog - and these only let an agent keep its own output
-         * where somebody can find it. The bounds that matter are on the saving
-         * (a size, a count per workspace) rather than on who may ask.
+         * On for a new agent rather than behind a grant somebody has to think
+         * to give: the other grants open a door onto something that already
+         * exists - the workspace, a machine, a catalog - and these only let an
+         * agent keep its own output where somebody can find it. The bounds that
+         * matter are on the saving (a size, a count per workspace) rather than
+         * on who may ask. Each of the three is a name on the Tools list all the
+         * same, and hidden there it is not offered here. Issue #444.
          *
          * Left out where attachments are off, because then there is nowhere to
          * file bytes and offering them spends a turn teaching the model that.
          */
-        if (agent.artifactAccess && savedArtifacts.offered()) addAll(ARTIFACT_TOOLS)
-
+        if (savedArtifacts.offered()) addAll(ARTIFACT_TOOLS.filter { BuiltInTools.granted(agent, it.name) })
     }
 
     /**
@@ -312,13 +332,26 @@ class AgentTools(
      */
     fun run(agent: Agent, call: ToolCall, sessionId: Long? = null): String = try {
         /*
-         * orknux's own, and only for an agent granted them.
+         * A built-in the agent's Tools list hides, refused before anything
+         * would run it. Issue #444.
          *
-         * Checked before the rest by the prefix the surface owns, so a model
-         * that guessed the name of a tool it was never offered is refused here
-         * rather than reaching the workspace through a name it made up.
+         * The rule orknux and the shells keep, applied once for every name the
+         * list governs: a model that guessed the name of a tool it was never
+         * offered is refused by the thing that would otherwise run it, and not
+         * only by the menu it was never shown. Said as the same sentence the
+         * fall-through says of a name nothing answers to, because for this
+         * agent that is what it is.
          */
-        if (orknux.handles(call.name)) {
+        if (!BuiltInTools.granted(agent, call.name)) {
+            mapper.writeValueAsString(mapOf("error" to "There is no tool called ${call.name}"))
+        } else if (orknux.handles(call.name)) {
+            /*
+             * orknux's own, and only for an agent granted them.
+             *
+             * Checked before the rest by the prefix the surface owns, so a model
+             * that guessed the name of a tool it was never offered is refused here
+             * rather than reaching the workspace through a name it made up.
+             */
             if (agent.orknuxAccess) {
                 orknux.run(scopeFor(agent), call.name, call.arguments)
             } else {
@@ -347,18 +380,6 @@ class AgentTools(
              * knows what this agent was granted.
              */
             connectionTools.run(agent, call.arguments)
-        } else if (call.name in ARTIFACT_TOOL_NAMES && !agent.artifactAccess) {
-            /*
-             * Refused here as well as left off the menu.
-             *
-             * The rule orknux and the shells already keep: a model that guessed
-             * the name of a tool it was never offered is refused by the thing
-             * that would otherwise run it, and not only by the menu it was
-             * never shown.
-             */
-            mapper.writeValueAsString(
-                mapOf("error" to "This agent has not been given permission to save artifacts"),
-            )
         } else when (call.name) {
             SAVE_ARTIFACT -> {
                 val saving = savedArtifacts.save(
@@ -530,7 +551,11 @@ class AgentTools(
          * will produce something that looks like base64. A tool that actually
          * encodes is the difference between a saved PNG and a saved apology.
          */
-        /** The three names the grant covers, for the refusal at the running end. */
+        /**
+         * The three names, for a reader that wants to set them aside. Each is a
+         * row of its own on the agent's Tools list and is refused by
+         * [BuiltInTools.granted] like every other built-in there. Issue #444.
+         */
         val ARTIFACT_TOOL_NAMES = setOf(SAVE_ARTIFACT, BASE64_ENCODE, BASE64_DECODE)
 
         /**

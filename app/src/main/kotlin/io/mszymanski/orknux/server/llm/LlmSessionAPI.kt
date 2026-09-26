@@ -380,6 +380,8 @@ class LlmSessionAPI(
                 model = node.path("model").takeIf { it.isTextual }?.stringValue(),
                 systemPrompt = node.path("systemPrompt").takeIf { it.isTextual }?.stringValue(),
                 tools = node.path("tools").mapNotNull { it.stringValue() },
+                // Absent from a snapshot written before #446, which reads as none.
+                findable = node.path("findable").mapNotNull { it.stringValue() },
                 skills = node.path("skills").mapNotNull { it.stringValue() },
                 memory = node.path("memory").mapNotNull { it.stringValue() },
                 connections = node.path("connections").mapNotNull { it.stringValue() },
@@ -585,7 +587,10 @@ data class SessionAgentDetailsView(
     val agent: String,
     val model: String?,
     val systemPrompt: String?,
+    /** Every tool declared to the model on every turn, built-ins and lent ones included. Issue #446. */
     val tools: List<String>,
+    /** The tools it finds rather than carries, where it has a ceiling of its own; empty otherwise. */
+    val findable: List<String>,
     val skills: List<String>,
     val memory: List<String>,
     val connections: List<String>,

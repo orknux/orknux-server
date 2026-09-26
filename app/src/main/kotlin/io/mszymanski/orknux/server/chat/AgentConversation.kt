@@ -246,7 +246,20 @@ class AgentConversation(
         interjections: Interjections? = null,
     ): ChatCompletion {
         val holding = tools.offeringFor(agent)
-        val lent = shed?.specs().orEmpty()
+
+        /*
+         * What the caller lent, as this agent may use it. Issue #444.
+         *
+         * A lender lends what it always did - a note, a to-do list, the clock, a
+         * scratchpad, the ending - and the agent's Tools list decides here, once,
+         * which of those it is offered: a built-in hidden on the agent's page is
+         * neither declared nor answered, whoever lent it. Then the same split
+         * every other tool gets under a ceiling: marked Always and carried, or
+         * left at Offer and found. A shed's own names - `task_done`, the chat's
+         * drawing - are not the list's to switch and are carried as they were.
+         */
+        val lending = BuiltInTools.lentTo(agent, shed)
+        val (lent, lentFindable) = lending?.specs().orEmpty().partition { BuiltInTools.carried(agent, it.name) }
         /*
          * And what the lent tools want said about themselves, put with the
          * briefing. A shed's descriptions say what its tools do; its briefing
@@ -282,7 +295,15 @@ class AgentConversation(
          * the provider takes has been given a number that cannot be honoured.
          */
         val limit = minOf(models.toolLimit(modelId), agent.maxTools ?: Int.MAX_VALUE)
-        val hunting = holding.core.size + holding.searchable.size + lent.size > limit
+        val hunting = holding.core.size + holding.searchable.size + lent.size + lentFindable.size > limit
+
+        /*
+         * Everything that is found rather than carried: the agent's own
+         * searchable half, and the lent built-ins left at Offer. One list,
+         * because the finder holds one shelf and a tool it cannot see is a tool
+         * it cannot find.
+         */
+        val findable = holding.searchable + lentFindable
 
         /*
          * What this agent has already found, and where it is kept.
@@ -304,7 +325,7 @@ class AgentConversation(
             null
         } else {
             searching.shed(
-                holding.searchable,
+                findable,
                 found,
                 /*
                  * What is left of the array once the core, what was lent and
@@ -331,13 +352,13 @@ class AgentConversation(
                 },
             )
         }
-        val hunt = if (finder == null) shed else sheds(shed, finder)
+        val hunt = if (finder == null) lending else sheds(lending, finder)
 
         /** What one round declares: everything, or the core and what has been found. */
         fun offering(): List<ToolSpec> = if (finder == null) {
-            holding.core + holding.searchable + lent
+            holding.core + holding.searchable + lent + lentFindable
         } else {
-            holding.core + lent + finder.specs() + holding.searchable.filter { it.name in found }
+            holding.core + lent + finder.specs() + findable.filter { it.name in found }
         }
 
         var offered = offering()

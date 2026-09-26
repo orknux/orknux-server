@@ -142,6 +142,14 @@ type Query {
     """
     pluginActions(workspaceId: ID!): [PluginAction!]!
     """
+    Every tool this server brings itself, and what decides whether an agent is
+    offered it. The agent form draws a row per entry so the one list somebody
+    reads to see what an agent may do is complete; the round offers and
+    withholds by the same names. The same for every workspace, because the
+    tools are the server's. Issue #444.
+    """
+    builtInTools: [BuiltInTool!]!
+    """
     The libraries loaded into this installation, by name, with what imports them.
 
     Administrators only, and `usedBy` is why: it names functions and tools across
@@ -3114,8 +3122,17 @@ type SessionAgentDetails {
     model: String
     "The system prompt it worked under, or null where it had none."
     systemPrompt: String
-    "The tools it was granted, by name."
+    """
+    Every tool the model was handed on each turn, by name: what the agent was
+    granted, the server's own built-ins, and what the turn lent it. Not the
+    grant list alone, which left out most of what the model could call.
+    """
     tools: [String!]!
+    """
+    The tools it finds rather than carries - offered but not marked Always -
+    where the agent carries a ceiling of its own. Empty where it has none.
+    """
+    findable: [String!]!
     "The skill catalogs it was granted, by name."
     skills: [String!]!
     "The memory catalogs it was granted, by name."
@@ -5764,6 +5781,34 @@ type PluginAgentTool {
     plugin: String!
     "The function this tool fronts, when it fronts one. Null for a tool with its own run."
     functionId: ID
+}
+
+"""
+One of the tools the server brings itself, and what switches it. Issue #444.
+
+A GRANT tool is switched on the agent's Tools list by its name like any other,
+and carried or found per its Always mark. The other kinds come with a wider
+grant and are listed so the reader sees them, but switched where that grant is
+switched - two switches for one thing is how they disagree.
+"""
+type BuiltInTool {
+    "The name the model calls it by, which is also the name the grant list stores."
+    name: String!
+    governance: BuiltInToolGovernance!
+}
+
+"What decides whether an agent is offered a built-in tool."
+enum BuiltInToolGovernance {
+    "Its name in the agent's Tools list."
+    GRANT
+    "Any skill catalog granted."
+    SKILL_CATALOGS
+    "Any memory catalog granted."
+    MEMORY_CATALOGS
+    "Orknux access."
+    ORKNUX_ACCESS
+    "Shell access."
+    SHELL_ACCESS
 }
 
 """

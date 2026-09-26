@@ -157,50 +157,6 @@ class Agent(
     @Column(name = "shell_access", nullable = false)
     var shellAccess: Boolean = false,
 
-    /**
-     * Whether it may keep a file it made, on the workspace's Artifacts page.
-     *
-     * On by default, which is the one grant here that is. The others open a
-     * door onto something that already exists and could be damaged through it
-     * - the workspace's own data, a machine, a catalog - so the safe default
-     * for those is off, and turning one on is a decision somebody makes.
-     *
-     * This one only lets an agent keep its own output where a person can find
-     * it. Refusing that by default would mean every agent that draws a
-     * diagram or writes a report has nowhere to put it until somebody notices
-     * a setting, and the common answer to "may it save what it made" is yes.
-     * The bounds that matter are on the saving - a size, a count per workspace
-     * - and they hold whoever is asking. It is here at all so that an agent
-     * which should not be filling the disk can be told so.
-     */
-    @Column(name = "artifact_access", nullable = false)
-    var artifactAccess: Boolean = true,
-
-    /**
-     * Whether it may end its turn by saying so, rather than by writing prose.
-     *
-     * On, like the one above, and for a plainer reason: this takes nothing and
-     * reaches nothing. See [io.mszymanski.orknux.server.agent.FinishAnswerTools]
-     * for what a turn with nothing left to say does without it. The switch is
-     * for the workflow whose next node needs an answer to work with, where an
-     * agent finishing early hands it an empty one.
-     */
-    @Column(name = "finish_access", nullable = false)
-    var finishAccess: Boolean = true,
-
-    /**
-     * Whether it may ask for an address for a picture it drew.
-     *
-     * On, like the two above. What it buys is placing a picture inside what
-     * the agent writes; what it costs is a link the agent could put somewhere
-     * this installation is not, where it resolves to nothing for the reader -
-     * which is the reason there is a switch at all. See
-     * [io.mszymanski.orknux.server.workflow.StepPictureTools].
-     */
-    @Column(name = "picture_link_access", nullable = false)
-    var pictureLinkAccess: Boolean = true,
-
-
     /** MCP servers this agent may connect to, in the order they were added. */
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "agent_mcp_server", joinColumns = [JoinColumn(name = "agent_id")])
@@ -235,11 +191,22 @@ class Agent(
     var skillCatalogs: MutableList<String> = mutableListOf(),
 
     /**
-     * Which of the workspace's tools this agent may call.
+     * Which tools this agent may call, by name: the workspace's, the plugins',
+     * and the server's own.
      *
      * The same grant as the rest, and the strictest of them in effect: a skill
      * is a page an agent reads, and a tool is code that does something. An agent
      * granted none calls none.
+     *
+     * The server's own built-ins are names here too, since issue #444 - the
+     * note, the to-do list, the clock, the scratchpad, saving a file, finishing
+     * a turn, drawing. Three of those were booleans on this row (`artifact_access`,
+     * `finish_access`, `picture_link_access`) and the rest were handed out
+     * without asking, so the Tools list that people read to see what an agent
+     * may do showed three of them. One list now, and one rule: a name here is
+     * offered, a name not here is not. See
+     * [io.mszymanski.orknux.server.chat.BuiltInTools] for which names, and V302
+     * for how every agent that predates the list kept what it had.
      */
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "agent_granted_tool", joinColumns = [JoinColumn(name = "agent_id")])
@@ -343,4 +310,30 @@ class Agent(
 
     @Column(name = "last_modified_by", nullable = false, length = 120)
     var lastModifiedBy: String = "",
-)
+) {
+
+    /*
+     * The three switches that used to be columns, read off the grant list.
+     *
+     * Issue #444 made saving a file, finishing a turn and asking for a picture's
+     * address names in [tools] like every other built-in, and dropped the
+     * booleans that had said the same thing a second way. These stay as views of
+     * the list so that the loop that lends `finish_answer` and the shed that
+     * offers `picture_link` go on asking the question in the words they always
+     * did, and so the API's `finishAccess` and its two siblings keep answering.
+     * Not columns: Hibernate maps the fields, and a property with no field
+     * behind it is exactly what this is.
+     */
+
+    /** Whether it may keep a file it made; `save_artifact` in [tools]. */
+    val artifactAccess: Boolean
+        get() = io.mszymanski.orknux.server.chat.AgentTools.SAVE_ARTIFACT in tools
+
+    /** Whether it may end its turn by saying so; `finish_answer` in [tools]. */
+    val finishAccess: Boolean
+        get() = FinishAnswerTools.FINISH in tools
+
+    /** Whether it may ask for a picture's address; `picture_link` in [tools]. */
+    val pictureLinkAccess: Boolean
+        get() = io.mszymanski.orknux.server.workflow.StepPictureTools.LINK in tools
+}

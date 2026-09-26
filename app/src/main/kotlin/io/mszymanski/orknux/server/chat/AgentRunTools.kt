@@ -296,10 +296,10 @@ class AgentRunTools(
         memoryShare = agent.memoryShare,
         orknuxAccess = agent.orknuxAccess,
         shellAccess = agent.shellAccess,
-        artifactAccess = agent.artifactAccess,
-        finishAccess = agent.finishAccess,
-        pictureLinkAccess = agent.pictureLinkAccess,
+        // The built-ins ride in these two like every other tool now (#444), so
+        // the copy carries both or the specialist is offered a different set.
         tools = agent.tools.toMutableList(),
+        requiredTools = agent.requiredTools.toMutableList(),
         connections = agent.connections.toMutableList(),
         skillCatalogs = agent.skillCatalogs.toMutableList(),
         memoryCatalogs = agent.memoryCatalogs.toMutableList(),

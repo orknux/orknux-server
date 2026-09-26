@@ -65,6 +65,8 @@ class AgentNodeRunnerTest(
     @Autowired val sessions: io.mszymanski.orknux.server.llm.LlmSessionRepository,
     @Autowired val sessionEvents: io.mszymanski.orknux.server.llm.LlmSessionEventRepository,
     @Autowired val runner: AgentNodeRunner,
+    /** For reading the setup snapshot back as the page does. #446. */
+    @Autowired val mapper: tools.jackson.databind.ObjectMapper,
 ) {
 
     /**
@@ -458,6 +460,18 @@ class AgentNodeRunnerTest(
         // One stub behind both agents: the fixture stops one server after the test.
         val modelId = model(serveAnswer())
         val reviewer = agent("Reviewer", modelId, prompt = "You summarise incidents.")
+        // A skill catalog, so the setup has a tool that comes with a grant
+        // rather than by name - the kind the block used to leave out. #446.
+        graphQlTester.document(
+            """mutation { createSkillCatalog(workspaceId: $workspaceId, name: "Reviews") { id } }""",
+        ).execute()
+        // The model and prompt sent again: the form sends every field on a
+        // save, so the mutation reads a missing model as "none chosen".
+        graphQlTester.document(
+            """mutation { updateAgent(id: $reviewer, input: {
+                 name: "Reviewer", modelId: $modelId, systemPrompt: "You summarise incidents.", skillCatalogs: ["Reviews"]
+               }) { id } }""",
+        ).execute()
         withSession(reviewer)
 
         start()
@@ -474,6 +488,17 @@ class AgentNodeRunnerTest(
         assertThat(first.actor).isEqualTo("Reviewer")
         assertThat(first.content).contains("Reviewer").contains("You summarise incidents.")
         assertThat(session.agentDetails).isEqualTo(first.content)
+        /*
+         * And every tool the model was handed, not the grant list alone. Issue
+         * #446: the block printed `agent.tools`, so `finish_answer` - lent by
+         * this runner - and `skill_load` - which comes with the catalog - were
+         * absent from the account of an agent that could call both.
+         */
+        val held = mapper.readTree(first.content).path("tools").mapNotNull { it.stringValue() }
+        assertThat(held).contains("finish_answer", "skill_load", "skill_list", "note_to_self", "current_time")
+        assertThat(held).describedAs("sorted, so the same setup is the same text").isEqualTo(held.sorted())
+        // No ceiling on this agent, so nothing is found rather than carried.
+        assertThat(mapper.readTree(first.content).path("findable")).isEmpty()
 
         // The same agent, the same setup, another turn: nothing more is logged.
         // A wake is one such turn, and so is a second run reaching the session.

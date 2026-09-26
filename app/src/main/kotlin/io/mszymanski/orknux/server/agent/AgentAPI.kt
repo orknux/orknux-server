@@ -3,6 +3,8 @@ package io.mszymanski.orknux.server.agent
 import io.mszymanski.orknux.connector.connection.WorkspaceConnectionService
 import io.mszymanski.orknux.connector.model.ModelKind
 import io.mszymanski.orknux.connector.model.ModelService
+import io.mszymanski.orknux.server.chat.AgentTools
+import io.mszymanski.orknux.server.chat.BuiltInTools
 import io.mszymanski.orknux.server.dependency.ComponentDependants
 import io.mszymanski.orknux.server.dependency.DependencyKind
 import io.mszymanski.orknux.server.dependency.phrases
@@ -16,6 +18,7 @@ import io.mszymanski.orknux.server.attachment.MAX_CHAT_ROUNDS
 import io.mszymanski.orknux.server.attachment.MIN_CHAT_ROUNDS
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
+import io.mszymanski.orknux.server.workflow.StepPictureTools
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import io.mszymanski.orknux.server.workspace.pageRequest
 import io.mszymanski.orknux.server.workspace.sortBy
@@ -159,6 +162,8 @@ class AgentAPI(
                 // The bot icon, unless the caller named one. A fresh agent draws
                 // as a bot rather than as the node kind's plain default. Issue #415.
                 icon = input.icon?.trim()?.ifEmpty { null } ?: DEFAULT_AGENT_ICON,
+                tools = BuiltInTools.GRANTED.toMutableList(),
+                requiredTools = BuiltInTools.GRANTED.toMutableList(),
                 lastModifiedBy = currentUser(),
             ),
         )
@@ -176,14 +181,18 @@ class AgentAPI(
      * that path, one press long, and it leaves behind a real agent rather than
      * something to throw away.
      *
-     * **What it is granted: nothing.** No tools, no skills, no MCP servers, no
-     * catalogues, no shell, no orknux access. Granting is a deliberate act - it
-     * is what an agent's whole settings page is for - and an action that quietly
-     * handed out capabilities because it was convenient would be the worst
-     * possible place in this product to be generous. What comes back is a bare
-     * agent, which is a thing you then dress. It is not a bare *model*: it has a
-     * name, a page, a system prompt it can be given, memory, and somewhere for
-     * every grant to go, and those are the whole of the difference.
+     * **What it is granted: nothing of the workspace's.** No tools of its own,
+     * no skills, no MCP servers, no catalogues, no shell, no orknux access.
+     * Granting is a deliberate act - it is what an agent's whole settings page
+     * is for - and an action that quietly handed out capabilities because it
+     * was convenient would be the worst possible place in this product to be
+     * generous. What comes back is a bare agent, which is a thing you then
+     * dress. It is not a bare *model*: it has a name, a page, a system prompt
+     * it can be given, memory, and somewhere for every grant to go, and those
+     * are the whole of the difference. The server's own built-ins - the note,
+     * the clock, saving a file, finishing a turn - are on, as they are for an
+     * agent made by hand: they reach nothing of the workspace's, and an agent
+     * without them is one nobody asked for. Issue #444.
      *
      * **What it is called: the model's own name**, and where that is taken, the
      * same with a number after it. Derived rather than asked for, because asking
@@ -219,6 +228,8 @@ class AgentAPI(
                 modelId = model.id,
                 // The bot icon, the same default a hand-made agent takes. Issue #415.
                 icon = DEFAULT_AGENT_ICON,
+                tools = BuiltInTools.GRANTED.toMutableList(),
+                requiredTools = BuiltInTools.GRANTED.toMutableList(),
                 lastModifiedBy = currentUser(),
             ),
         )
@@ -335,9 +346,6 @@ class AgentAPI(
         }
         if (input.orknuxAccess != null) agent.orknuxAccess = input.orknuxAccess
         if (input.shellAccess != null) agent.shellAccess = input.shellAccess
-        if (input.artifactAccess != null) agent.artifactAccess = input.artifactAccess
-        if (input.finishAccess != null) agent.finishAccess = input.finishAccess
-        if (input.pictureLinkAccess != null) agent.pictureLinkAccess = input.pictureLinkAccess
         if (input.memoryCatalogs != null) {
             agent.memoryCatalogs =
                 input.memoryCatalogs.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
@@ -349,6 +357,21 @@ class AgentAPI(
         if (input.tools != null) {
             agent.tools = input.tools.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
         }
+        /*
+         * The three switches that were columns, kept as a way of saying the same
+         * thing about the grant list. Issue #444.
+         *
+         * `save_artifact`, `finish_answer` and `picture_link` are names in
+         * `tools` now, and the form sends them there. A caller still sending
+         * the boolean - the API, a script written against 0.9.9 - gets what it
+         * asked for: on puts the name in the list and marks it Always, which is
+         * what the switch always meant, and off takes it out. Read after
+         * `tools` so that a request naming both is answered by the switch, which
+         * is the more specific statement.
+         */
+        input.artifactAccess?.let { on -> AgentTools.ARTIFACT_TOOL_NAMES.forEach { switched(agent, it, on) } }
+        input.finishAccess?.let { switched(agent, FinishAnswerTools.FINISH, it) }
+        input.pictureLinkAccess?.let { switched(agent, StepPictureTools.LINK, it) }
         if (input.maxTools != null) {
             if (input.maxTools !in MIN_AGENT_TOOLS..MAX_AGENT_TOOLS) throw AgentToolLimitUnusableException(input.maxTools)
             agent.maxTools = input.maxTools
@@ -367,6 +390,9 @@ class AgentAPI(
                 .distinct()
                 .toMutableList()
         }
+        // And the same rule where the marks were not sent: a grant taken away
+        // takes its Always mark with it, or the mark names a tool nothing resolves.
+        agent.requiredTools.retainAll(agent.tools.toSet())
         if (input.connectionIds != null) {
             // Another workspace's connection is not this agent's to be granted,
             // so the id is checked here rather than trusted into the briefing.
@@ -611,6 +637,24 @@ class AgentAPI(
         access.requireVisible(workspaceId)
     }
 
+    /**
+     * One built-in switched on or off by name, the way the boolean used to be.
+     *
+     * On is granted and Always, because a switch that was on meant "carried
+     * every turn" and nothing less; off is out of both lists. Idempotent, so a
+     * caller repeating what is already true changes nothing and the audit log
+     * says nothing.
+     */
+    private fun switched(agent: Agent, name: String, on: Boolean) {
+        if (on) {
+            if (name !in agent.tools) agent.tools.add(name)
+            if (name !in agent.requiredTools) agent.requiredTools.add(name)
+        } else {
+            agent.tools.remove(name)
+            agent.requiredTools.remove(name)
+        }
+    }
+
     /** Whoever is asking, for the stamp a revision of this state will carry. */
     private fun currentUser(): String =
         SecurityContextHolder.getContext().authentication?.name ?: "system"
@@ -648,11 +692,15 @@ data class UpdateAgentInput(
     val orknuxAccess: Boolean? = null,
     /** Whether it may open a shell on a machine; null leaves the grant alone. */
     val shellAccess: Boolean? = null,
-    /** Whether it may keep a file it made; on by default, see [Agent.artifactAccess]. */
+    /**
+     * Whether it may keep a file it made: `save_artifact` and the two base64
+     * tools in and out of `tools`, as a switch. Null leaves the list alone.
+     * The form sends the names in `tools` instead; see `switched`. Issue #444.
+     */
     val artifactAccess: Boolean? = null,
-    /** Whether it may end its turn by saying so; on by default, see [Agent.finishAccess]. */
+    /** Whether it may end its turn by saying so: `finish_answer` in and out of `tools`, as a switch. */
     val finishAccess: Boolean? = null,
-    /** Whether it may ask for a picture's address; on by default, see [Agent.pictureLinkAccess]. */
+    /** Whether it may ask for a picture's address: `picture_link` in and out of `tools`, as a switch. */
     val pictureLinkAccess: Boolean? = null,
     /** Same rule: null leaves it alone, an empty list clears it. */
     val memoryCatalogs: List<String>? = null,
@@ -705,10 +753,11 @@ data class AgentView(
     val orknuxAccess: Boolean,
     /** Whether it may open a shell on one of the installation's machines. */
     val shellAccess: Boolean,
+    /** Whether it may keep a file it made - `save_artifact` in `tools`; see [Agent.artifactAccess]. */
     val artifactAccess: Boolean,
-    /** Whether it may end its turn by saying so rather than by writing prose. */
+    /** Whether it may end its turn by saying so - `finish_answer` in `tools`. */
     val finishAccess: Boolean,
-    /** Whether it may ask for an address for a picture it drew. */
+    /** Whether it may ask for an address for a picture it drew - `picture_link` in `tools`. */
     val pictureLinkAccess: Boolean,
     val memoryCatalogs: List<String>,
     val skillCatalogs: List<String>,

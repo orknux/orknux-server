@@ -244,6 +244,99 @@ class AgentNodeRunner(
         // it produced. The engine saves the step whether this round completes or
         // parks, so a still-talking agent is reachable too. Issue #387.
         step.sessionId = session
+
+        /*
+         * A picture is something an agent decides on while it is working, so
+         * the tool that draws one is lent for this step rather than granted on
+         * the agent.
+         *
+         * Whether it is offered at all is a grant like any other tool's - it
+         * is ticked in the agent's Tools list, which is where somebody looks
+         * to see what an agent may do. Where the picture goes is not on the
+         * agent and cannot be: filing needs the run and the step to file
+         * against, and only this knows which those are. So the grant says
+         * *may it*, and the shed says *where*.
+         *
+         * Null where the agent was not granted it, or the installation keeps
+         * no attachments, or the workspace has chosen no image model - and
+         * then the round is exactly the round it was before this existed.
+         *
+         * Built here, before the turns, because the account of the agent's
+         * setup written into the log below names what was lent as well as what
+         * was granted (#446), and that account goes in before the question so
+         * the log opens with the setup its words were said under.
+         */
+        val drawing = drawings.shed(
+            step.executionId,
+            step.nodeKey,
+            agent.workspaceId,
+            granted = io.mszymanski.orknux.server.workflow.StepPictureTools.DRAW in agent.tools,
+            // The session this round is written into, which is also the only
+            // place a drawn picture's bytes can be left for something else to
+            // send. A node that keeps no session gets no key; see the shed.
+            sessionId = session,
+            // Drawing and linking are two decisions: an agent may be trusted to
+            // draw and still have no business writing an address into an answer
+            // that is read somewhere this installation is not.
+            mayLink = agent.pictureLinkAccess,
+        )
+
+        /*
+         * And the ending, lent beside the drawing.
+         *
+         * A round ends when the model writes prose, which assumes the answer
+         * is the prose. An agent that posted its reply to Slack itself has
+         * nothing left to write, and being asked for an answer anyway is what
+         * made it either repeat the message or answer with nothing - an empty
+         * message, which reads as a failure, which is retried, which posts the
+         * whole thing twice. See [FinishAnswerTools].
+         */
+        val shed = io.mszymanski.orknux.server.chat.sheds(
+            drawing,
+            /*
+             * Somewhere to write a note to itself, where this node keeps a
+             * session to write it into. Issue #371: a wake-up already carries
+             * one, and this is the same thing without the parking - what the
+             * first six steps of a long job found, which the transcript trims
+             * away exactly when it starts to matter.
+             */
+            notes.shed(session, agent.name),
+            /*
+             * And somewhere to keep a working file across the job - a document
+             * it is drafting, code it is writing - which the note is too short
+             * to be and the transcript too trimmed. Only where there is a
+             * session to keep it in. Issue #411.
+             */
+            scratchpads.shed(session),
+            /*
+             * And a to-do list to plan the job on, where this node keeps a
+             * session to hold it. The plan an agent works down across steps it
+             * cannot finish in one turn. Issue #405.
+             */
+            todos.shed(session),
+            // And the clock, so it can reason about time it has no way to know
+            // otherwise. Needs no session; see the shed. Issue #407.
+            dates.shed(),
+            finishing.shed(
+                granted = agent.finishAccess,
+                shaped = step.outputObjectId != null,
+                /*
+                 * And what is left of its waiting, which is a fact about this
+                 * step rather than about the agent: the count is on the row
+                 * because the wake-up may be carried by another worker
+                 * entirely. Both numbers are the installation's, read now
+                 * rather than when the run started - an operator who shortens
+                 * the ceiling means it for the wait being asked for next, not
+                 * for runs that start tomorrow.
+                 */
+                sleeping = FinishAnswerTools.Sleeping(
+                    longest = java.time.Duration.ofSeconds(settings.agentSleepSeconds().toLong()),
+                    left = (settings.agentSleepTimes() - step.agentSleeps).coerceAtLeast(0),
+                    spent = step.agentSleeps,
+                ),
+            ),
+        )
+
         /*
          * The agent's setup, written into the log where this agent starts
          * responding - if it differs from the last setup logged there. A
@@ -253,9 +346,10 @@ class AgentNodeRunner(
          * was answered under rather than the one that opened it. On every pass,
          * a wake included: the recorder compares and writes nothing for the
          * same setup, and an agent edited while its step slept is a change
-         * worth a line. Issues #391, #441.
+         * worth a line. Issues #391, #441. With the shed, so the account names
+         * every tool the model is about to be handed, lent ones included. #446.
          */
-        sessions.describeAgent(session, agentDetails.snapshot(agent))
+        sessions.describeAgent(session, agentDetails.snapshot(agent, shed))
 
         /*
          * How much of it this agent is allowed to bring back.
@@ -382,93 +476,6 @@ class AgentNodeRunner(
          * itself, leaves the transcript exactly as it was.
          */
         val watching = session?.let { SessionThinking(it, agent.name, sessions) }
-
-        /*
-         * A picture is something an agent decides on while it is working, so
-         * the tool that draws one is lent for this step rather than granted on
-         * the agent.
-         *
-         * Whether it is offered at all is a grant like any other tool's - it
-         * is ticked in the agent's Tools list, which is where somebody looks
-         * to see what an agent may do. Where the picture goes is not on the
-         * agent and cannot be: filing needs the run and the step to file
-         * against, and only this knows which those are. So the grant says
-         * *may it*, and the shed says *where*.
-         *
-         * Null where the agent was not granted it, or the installation keeps
-         * no attachments, or the workspace has chosen no image model - and
-         * then the round is exactly the round it was before this existed.
-         */
-        val drawing = drawings.shed(
-            step.executionId,
-            step.nodeKey,
-            agent.workspaceId,
-            granted = io.mszymanski.orknux.server.workflow.StepPictureTools.DRAW in agent.tools,
-            // The session this round is written into, which is also the only
-            // place a drawn picture's bytes can be left for something else to
-            // send. A node that keeps no session gets no key; see the shed.
-            sessionId = session,
-            // Drawing and linking are two decisions: an agent may be trusted to
-            // draw and still have no business writing an address into an answer
-            // that is read somewhere this installation is not.
-            mayLink = agent.pictureLinkAccess,
-        )
-
-        /*
-         * And the ending, lent beside the drawing.
-         *
-         * A round ends when the model writes prose, which assumes the answer
-         * is the prose. An agent that posted its reply to Slack itself has
-         * nothing left to write, and being asked for an answer anyway is what
-         * made it either repeat the message or answer with nothing - an empty
-         * message, which reads as a failure, which is retried, which posts the
-         * whole thing twice. See [FinishAnswerTools].
-         */
-        val shed = io.mszymanski.orknux.server.chat.sheds(
-            drawing,
-            /*
-             * Somewhere to write a note to itself, where this node keeps a
-             * session to write it into. Issue #371: a wake-up already carries
-             * one, and this is the same thing without the parking - what the
-             * first six steps of a long job found, which the transcript trims
-             * away exactly when it starts to matter.
-             */
-            notes.shed(session, agent.name),
-            /*
-             * And somewhere to keep a working file across the job - a document
-             * it is drafting, code it is writing - which the note is too short
-             * to be and the transcript too trimmed. Only where there is a
-             * session to keep it in. Issue #411.
-             */
-            scratchpads.shed(session),
-            /*
-             * And a to-do list to plan the job on, where this node keeps a
-             * session to hold it. The plan an agent works down across steps it
-             * cannot finish in one turn. Issue #405.
-             */
-            todos.shed(session),
-            // And the clock, so it can reason about time it has no way to know
-            // otherwise. Needs no session; see the shed. Issue #407.
-            dates.shed(),
-            finishing.shed(
-                granted = agent.finishAccess,
-                shaped = step.outputObjectId != null,
-                /*
-                 * And what is left of its waiting, which is a fact about this
-                 * step rather than about the agent: the count is on the row
-                 * because the wake-up may be carried by another worker
-                 * entirely. Both numbers are the installation's, read now
-                 * rather than when the run started - an operator who shortens
-                 * the ceiling means it for the wait being asked for next, not
-                 * for runs that start tomorrow.
-                 */
-                sleeping = FinishAnswerTools.Sleeping(
-                    longest = java.time.Duration.ofSeconds(settings.agentSleepSeconds().toLong()),
-                    left = (settings.agentSleepTimes() - step.agentSleeps).coerceAtLeast(0),
-                    spent = step.agentSleeps,
-                ),
-            ),
-        )
 
         /*
          * And the way to end the call early, handed to the step's interrupt.

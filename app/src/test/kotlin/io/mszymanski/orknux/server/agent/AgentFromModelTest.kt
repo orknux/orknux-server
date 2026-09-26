@@ -88,7 +88,11 @@ class AgentFromModelTest(
         val made = requireNotNull(agents.findByIdOrNull(agentId))
         assertThat(made.systemPrompt).isNull()
         assertThat(made.description).isNull()
-        assertThat(made.tools).isEmpty()
+        // Nothing of the workspace's. The server's own built-ins are on, as
+        // they are for an agent made by hand - they reach nothing of the
+        // workspace's, and an agent without a clock or a way to finish its
+        // turn is one nobody asked for. Issue #444.
+        assertThat(made.tools).containsExactlyElementsOf(io.mszymanski.orknux.server.chat.BuiltInTools.GRANTED)
         assertThat(made.skillCatalogs).isEmpty()
         assertThat(made.memoryCatalogs).isEmpty()
         assertThat(made.mcpServers).isEmpty()

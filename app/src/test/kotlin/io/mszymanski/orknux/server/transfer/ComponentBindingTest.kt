@@ -115,7 +115,9 @@ class ComponentBindingTest(
             from,
             "Triage bot",
             modelId = modelId,
-            tools = listOf("lookup"),
+            // And one of the server's own, which every agent holds by name
+            // since #444 and which is a component of no file.
+            tools = listOf("lookup", "note_to_self"),
             skillCatalogs = listOf("Support"),
             memoryCatalogs = listOf("Runbooks"),
             mcpServers = listOf("Jira MCP"),
@@ -125,8 +127,10 @@ class ComponentBindingTest(
 
         // What it may call travels with it; what it thinks with is named. The
         // key that reaches the model is the thing this whole format exists to
-        // leave behind.
+        // leave behind. The built-in is a name in the grant and nothing more:
+        // no component, and nothing the target has to be asked for.
         assertThat(kinds(json)).containsExactly("TOOL", "SKILL", "AGENT")
+        assertThat(json).contains("note_to_self")
         assertThat(json)
             .contains("Claude Sonnet").contains("Anthropic prod").contains("Jira MCP")
             .doesNotContain("sk-never-exported").doesNotContain("mcp-never-exported")
@@ -157,7 +161,8 @@ class ComponentBindingTest(
 
         val agent = agents.findByWorkspaceIdAndName(into, "Triage bot")!!
         assertThat(agent.modelId).isEqualTo(theirs)
-        assertThat(agent.tools).containsExactly("lookup")
+        // The built-in arrives as itself, beside the tool the file carried.
+        assertThat(agent.tools).containsExactly("lookup", "note_to_self")
         assertThat(agent.skillCatalogs).containsExactly("Support")
         assertThat(agent.memoryCatalogs).containsExactly("Runbooks")
         // An agent holds an MCP server by name, so the grant is written as the

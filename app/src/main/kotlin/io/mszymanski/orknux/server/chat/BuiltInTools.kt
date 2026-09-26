@@ -1,0 +1,190 @@
+package io.mszymanski.orknux.server.chat
+
+import io.mszymanski.orknux.connector.model.ToolCall
+import io.mszymanski.orknux.connector.model.ToolSpec
+import io.mszymanski.orknux.server.agent.Agent
+import io.mszymanski.orknux.server.agent.FinishAnswerTools
+import io.mszymanski.orknux.server.agent.SkillTool
+import io.mszymanski.orknux.server.mcp.OrknuxScope
+import io.mszymanski.orknux.server.mcp.OrknuxTools
+import io.mszymanski.orknux.server.memory.MemoryTool
+import io.mszymanski.orknux.server.shell.ShellTools
+import io.mszymanski.orknux.server.workflow.StepPictureTools
+import org.springframework.stereotype.Service
+
+/**
+ * What decides whether an agent is offered one of the server's own tools.
+ *
+ * Issue #444. Every tool the server brings itself is switched somewhere, and
+ * until this the somewheres were five: a name in the agent's grant list, three
+ * booleans on its row, a catalog grant, an access grant, and "always" for the
+ * handful the round loop lent without asking. The agent's Tools list - the one
+ * place somebody reads to see what an agent may do - showed three of them.
+ *
+ * There are two kinds now, and the kind is declared beside the name.
+ *
+ * [GRANT] is a tool switched on the Tools list like any other: by its name in
+ * [Agent.tools], carried on every turn where it is in [Agent.requiredTools] and
+ * findable otherwise, exactly as a workspace's or a plugin's tool is. Everything
+ * an agent could once be handed without asking is this kind. The other four are
+ * a tool that comes with a wider grant - the skill tools with the skill catalogs,
+ * the memories with the memory catalogs, `orknux_*` with orknux access, the
+ * shells with shell access - and is listed so the reader sees it, but switched
+ * where the grant is switched: two switches for one thing is how they disagree.
+ */
+enum class BuiltInGovernance {
+    /** By its name in the agent's Tools list; carried or found per the Always mark. */
+    GRANT,
+
+    /** Offered while the agent holds any skill catalog. */
+    SKILL_CATALOGS,
+
+    /** Offered while the agent holds any memory catalog. */
+    MEMORY_CATALOGS,
+
+    /** Offered while the agent has orknux access. */
+    ORKNUX_ACCESS,
+
+    /** Offered while the agent has shell access. */
+    SHELL_ACCESS,
+}
+
+/** One of the server's own tools, and what switches it. */
+data class BuiltInTool(val name: String, val governance: BuiltInGovernance)
+
+/**
+ * The one list of the tools this server brings itself. Issue #444.
+ *
+ * Both readers read it: the agent form draws a row per entry, and the round
+ * offers or withholds by the same names. A tool added to one and not the other
+ * was how `note_to_self` came to be something every agent had and nobody could
+ * see; a tool the form lists and the server never offers would be the same
+ * fault the other way round, which is why the names here are the constants the
+ * tools themselves are called by rather than a second spelling of them.
+ *
+ * The four grant-bound kinds are read off the services that own them, so a
+ * tool added to the orknux surface is a row here without anybody remembering
+ * to add it.
+ */
+@Service
+class BuiltInTools(
+    private val skills: SkillTool,
+    private val memories: MemoryTool,
+    private val orknux: OrknuxTools,
+    private val shells: ShellTools,
+) {
+
+    /** Every built-in, the grant-governed first and in the order the form lists them. */
+    fun all(): List<BuiltInTool> = buildList {
+        GRANTED.forEach { add(BuiltInTool(it, BuiltInGovernance.GRANT)) }
+        skills.descriptors().forEach { add(BuiltInTool(it.name, BuiltInGovernance.SKILL_CATALOGS)) }
+        add(BuiltInTool(memories.descriptor().name, BuiltInGovernance.MEMORY_CATALOGS))
+        add(BuiltInTool(memories.saveDescriptor().name, BuiltInGovernance.MEMORY_CATALOGS))
+        /*
+         * As an agent is offered them: an agent's scope may write, since starting
+         * a workflow is most of what the grant is for, and has nobody at a screen
+         * to show a proposal to. The list is what the names are; the workspace
+         * in the scope is read by nothing here.
+         */
+        orknux.specs(OrknuxScope(workspaceId = 0, mayWrite = true)).forEach {
+            add(BuiltInTool(it.name, BuiltInGovernance.ORKNUX_ACCESS))
+        }
+        shells.specs().forEach { add(BuiltInTool(it.name, BuiltInGovernance.SHELL_ACCESS)) }
+    }
+
+    companion object {
+
+        /**
+         * The built-ins switched by name in the agent's Tools list, in the order
+         * the form lists them and a new agent is given them.
+         *
+         * Every name here is one the round used to hand out without asking:
+         * lent by whatever was running the agent, or offered by [AgentTools]
+         * behind a boolean on the row. A new agent starts with all of them on
+         * and Always, so what it is offered is what it was offered before this
+         * list existed; V302 gives every agent that predates it the same.
+         *
+         * `draw_picture` was already a grant here and keeps its place. The two
+         * base64 tools travel with `save_artifact` in [AgentTools] but are rows
+         * of their own: a row per name is the rule, and a name a model can call
+         * that the form does not show is the fault this list is for.
+         */
+        val GRANTED: List<String> = listOf(
+            NoteTools.NOTE,
+            TodoTools.ADD,
+            TodoTools.LIST,
+            TodoTools.REORDER,
+            TodoTools.NOTE,
+            TodoTools.COMPLETE,
+            DateTools.NOW,
+            ScratchpadTools.LIST,
+            ScratchpadTools.READ,
+            ScratchpadTools.WRITE,
+            ScratchpadTools.APPEND,
+            ScratchpadTools.REPLACE,
+            ScratchpadTools.SEARCH,
+            ScratchpadTools.SHARE,
+            ScratchpadTools.DELETE,
+            AgentTools.SAVE_ARTIFACT,
+            AgentTools.BASE64_ENCODE,
+            AgentTools.BASE64_DECODE,
+            ConnectionTools.FIND,
+            AgentRunTools.ASK,
+            FinishAnswerTools.FINISH,
+            StepPictureTools.DRAW,
+            StepPictureTools.LINK,
+        )
+
+        private val GRANTED_SET = GRANTED.toSet()
+
+        /**
+         * Whether this agent may be offered a tool of this name.
+         *
+         * True for every name that is not a grant-governed built-in: a
+         * workspace's tool, a plugin's, a shed's own like `task_done`, and the
+         * catalog- and access-bound built-ins are all decided elsewhere, and
+         * this says nothing about them. A grant-governed one is offered only
+         * where its name is in the agent's list, which is the whole of the rule.
+         */
+        fun granted(agent: Agent, name: String): Boolean = name !in GRANTED_SET || name in agent.tools
+
+        /**
+         * Whether a tool of this name travels on every turn, or is found.
+         *
+         * The rule [AgentTools.offeringFor] keeps for every other tool, applied
+         * to the built-ins: only an agent carrying a ceiling of its own drops
+         * anything, and under one what is marked Always is carried and the rest
+         * is looked for. A name that is not a grant-governed built-in is always
+         * carried here, because whether *it* is found is somebody else's decision.
+         */
+        fun carried(agent: Agent, name: String): Boolean =
+            name !in GRANTED_SET || agent.maxTools == null || name in agent.requiredTools
+
+        /**
+         * The shed as this agent may use it: every tool it lends that the agent
+         * has hidden is neither declared nor answered.
+         *
+         * The lenders keep lending what they always did - a note, a to-do list,
+         * the clock, a scratchpad - and the grant is applied once, here, where
+         * the round takes the shed. That is what makes hiding `note_to_self` on
+         * an agent's page mean the server stops declaring it, with no lender
+         * having to learn about grants. A hidden name falls through to the
+         * agent's own tools and is refused there as a tool that does not exist,
+         * which for this agent is true.
+         *
+         * Null in, null out; a shed with nothing left is still a shed, because
+         * what it holds is asked again every round and the caller's is the one
+         * that knows when.
+         */
+        fun lentTo(agent: Agent, shed: ToolShed?): ToolShed? {
+            if (shed == null) return null
+            return object : ToolShed {
+                override fun specs(): List<ToolSpec> = shed.specs().filter { granted(agent, it.name) }
+
+                override fun handles(name: String): Boolean = granted(agent, name) && shed.handles(name)
+
+                override fun run(call: ToolCall): String = shed.run(call)
+            }
+        }
+    }
+}

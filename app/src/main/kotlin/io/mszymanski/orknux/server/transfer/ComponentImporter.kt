@@ -2,6 +2,7 @@ package io.mszymanski.orknux.server.transfer
 
 import io.mszymanski.orknux.server.action.ActionSubtype
 import io.mszymanski.orknux.server.action.ActionType
+import io.mszymanski.orknux.server.chat.BuiltInTools
 import io.mszymanski.orknux.server.action.ArgumentMapping
 import io.mszymanski.orknux.server.action.ConnectionAction
 import io.mszymanski.orknux.server.action.FunctionExternal
@@ -644,7 +645,12 @@ class ComponentImporter(
             // answer a skill's own folder already gets.
             // A tool a plugin brings is in the same list and is not a reference
             // to anything of this workspace's: every workspace has it. Issue #383.
-            ComponentKind.AGENT -> node.names("toolRefs").filter { it !in pluginToolNames() }.map { ComponentKind.TOOL to it }
+            // Nor is one the server brings itself - the note, the clock, saving a
+            // file - which every agent holds by name since #444 and every
+            // installation has: a file naming one is asking for nothing.
+            ComponentKind.AGENT -> node.names("toolRefs")
+                .filter { it !in pluginToolNames() && it !in BuiltInTools.GRANTED }
+                .map { ComponentKind.TOOL to it }
 
             ComponentKind.WORKFLOW -> node.path("nodes").values().flatMap { drawn ->
                 listOfNotNull(
@@ -1053,9 +1059,14 @@ class ComponentImporter(
                     // A tool it was granted may have been renamed on the way in,
                     // and the grant follows it, exactly as every other reference
                     // in the file does.
+                    // A plugin's tool and a built-in of the server's travel as
+                    // the name itself: neither is a component of the file, and
+                    // both mean the same thing here as where the file was made.
                     tools = node.names("toolRefs")
                         .filter { it !in dropped }
-                        .map { if (it in pluginToolNames()) it else toolNameFor(workspaceId, it, resolved) }
+                        .map {
+                            if (it in pluginToolNames() || it in BuiltInTools.GRANTED) it else toolNameFor(workspaceId, it, resolved)
+                        }
                         .toMutableList(),
                     // A plugin's catalog is a grant string, not a folder of
                     // this workspace's; making a folder by that name would

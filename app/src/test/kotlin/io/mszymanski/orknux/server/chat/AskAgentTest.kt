@@ -69,6 +69,10 @@ class AskAgentTest(
                 name = name,
                 type = AgentType.LLM,
                 agents = asks.toMutableList(),
+                // As a fresh agent is made: `ask_agent` is a name on the Tools
+                // list since #444, and a row built without it has hidden the
+                // tool this test is about.
+                tools = BuiltInTools.GRANTED.toMutableList(),
             ),
         )
 

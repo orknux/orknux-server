@@ -299,13 +299,18 @@ is reported to the module rather than cascaded.
   function has nobody, so `forScripts` is a decision about what holds it in:
   reading a thread is bounded by the run's own workspace, and `NETWORK_REQUEST`
   by the installation's proxy rules. Write the reason beside the entry.
-- **A default-on switch is a column, not a grant.** The name-grants in
-  `agent.tools` are a list of what an agent was *given*; anything that should be
-  on for every agent until somebody turns it off is a boolean on the agent -
-  `artifactAccess`, `finishAccess`, `pictureLinkAccess` - drawn as a row in the
-  Tools list because that list is where somebody looks, and folded in and out of
-  the granted names by the form. Adding one to the list instead means every
-  agent that predates it has it switched off.
+- **A built-in the server brings is a row on the Tools list, and a name in
+  `agent.tools`.** `BuiltInTools.GRANTED` is the list; the form draws a row per
+  entry and the round offers and withholds by the same names, so a tool added
+  there is visible and switchable the same day. A new agent starts with all of
+  them on and Always. Adding one is therefore two things: the name in that
+  list, and a migration that gives every agent that predates it the name - or
+  every existing agent has it switched off. V302 is the shape. The three
+  booleans this rule used to name (`artifactAccess`, `finishAccess`,
+  `pictureLinkAccess`) are views of the list now, kept so the API still
+  answers them. A built-in that comes with a wider grant - the skill tools, the
+  memories, `orknux_*`, the shells - is a row too, read-only, and is switched
+  where that grant is.
 - **A shed is how the loop is talked to, not a capability.** `finish_answer`
   ends the round because the work went somewhere the graph is not; `task_done`
   is the same idea. If a new tool is really the *caller* being addressed by the
