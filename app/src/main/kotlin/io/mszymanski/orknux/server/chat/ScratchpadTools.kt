@@ -94,6 +94,8 @@ class ScratchpadTools(
             append("Writing the whole document again is for making one, or for a rewrite that really is total - ")
             append("resending a page to change a paragraph costs the whole page twice and is where a long ")
             append("file gets cut off. ")
+            append("Your pads are this conversation's: an agent you ask sees them and writes to the same ")
+            append("files, and what it makes is here for you when it answers. Nothing has to be shared. ")
             append("To hand a pad to a tool that takes a key - an upload, a message, a mail - call ")
             append(KEEP).append(" and pass the key it answers with, rather than reading the pad and typing ")
             append("its content into the call.")
@@ -167,16 +169,7 @@ class ScratchpadTools(
                     ToolParameterSpec(QUERY, "The text to look for; matched anywhere, ignoring case.", required = true),
                 ),
             ),
-            ToolSpec(
-                name = SHARE,
-                description = "Lets the agents you ask in this conversation read and add to a scratchpad, or " +
-                    "stops them. Share a file when a subagent should work on the same document; only the file's " +
-                    "own session can share it.",
-                parameters = listOf(
-                    ToolParameterSpec(NAME, "Which scratchpad to share.", required = true),
-                    ToolParameterSpec(SHARED, "true to share it with the agents you ask, false to stop. Default true.", required = false),
-                ),
-            ),
+/* scratchpad_share is gone: see NAMES. Issue #498. */
             ToolSpec(
                 name = KEEP,
                 description = "Puts a scratchpad's content into this session's store and answers with the " +
@@ -220,7 +213,6 @@ class ScratchpadTools(
                 APPEND -> appended(args)
                 REPLACE -> replaced(args)
                 SEARCH -> searched(args)
-                SHARE -> shared(args)
                 KEEP -> kept(args)
                 DELETE -> deleted(args)
                 else -> if (zips.handles(call.name)) {
@@ -334,8 +326,29 @@ class ScratchpadTools(
              * right thing with it.
              */
             val type = text(args, CONTENT_TYPE)?.trim()?.ifEmpty { null }
+            /*
+             * A file this session can see is a file this session writes.
+             * Issue #497.
+             *
+             * This used to create a new pad whenever the name resolved to an
+             * ancestor's shared file rather than to one of its own - so a
+             * subagent asked to rewrite the conversation's stylesheet wrote a
+             * stylesheet of its own, said it had done the work, and the
+             * conversation went on reading the original. Nothing anywhere said
+             * a fork had happened; the bytes were simply in the wrong session.
+             *
+             * Append and replace have always written through, because they go
+             * by the edit path, which resolves a shared ancestor's pad and
+             * saves it. Write forking alone made the operation an agent reaches
+             * for first the one that quietly did something else.
+             *
+             * Sharing is what permits it, and sharing is opt-in: a pad is
+             * visible below only where the session that owns it said so, which
+             * is exactly the statement "the sessions under me may use this
+             * file".
+             */
             val existing = pads.find(session, name)
-            val result = if (existing == null || existing.sessionId != session) {
+            val result = if (existing == null) {
                 pads.create(session, name, description, content, type)
             } else {
                 val written = pads.write(session, name, content)
@@ -398,12 +411,27 @@ class ScratchpadTools(
 
         private fun report(result: ScratchpadResult, verb: String): String = when (result) {
             is ScratchpadResult.Ok -> mapper.writeValueAsString(
-                mapOf(
-                    verb to true,
-                    "name" to result.pad.name,
-                    "bytes" to result.pad.bytes,
-                    "shared" to result.pad.shared,
-                ),
+                buildMap {
+                    put(verb, true)
+                    put("name", result.pad.name)
+                    put("bytes", result.pad.bytes)
+                    put("shared", result.pad.shared)
+                    /*
+                     * Whose file it is. Issue #497: an agent that has just
+                     * written a file belonging to the conversation above it
+                     * should know that is where the change landed, and one
+                     * that expected its own copy should find out here rather
+                     * than from somebody reading the old version.
+                     */
+                    if (!result.ownedHere) {
+                        put("ownedHere", false)
+                        put(
+                            "note",
+                            "This file belongs to the conversation that started you, which shared it. " +
+                                "The change is there too, which is the point of a shared file.",
+                        )
+                    }
+                },
             )
             is ScratchpadResult.No -> refusal(result.why)
         }
@@ -433,7 +461,15 @@ class ScratchpadTools(
         /** Putting a pad's content where a key reaches it. Issue #417. */
         const val KEEP = "scratchpad_keep"
 
-        val NAMES = setOf(LIST, READ, WRITE, APPEND, REPLACE, SEARCH, SHARE, KEEP, DELETE)
+        /*
+         * What the shed answers to. `scratchpad_share` is not among them any
+         * more: since #498 a conversation's files are the conversation's,
+         * reachable from the session that made them and from every session it
+         * asks, so there is nothing left for a share tool to switch. The
+         * operation stays on the service and on the script door, where a
+         * caller outside a conversation may still have a use for the flag.
+         */
+        val NAMES = setOf(LIST, READ, WRITE, APPEND, REPLACE, SEARCH, KEEP, DELETE)
 
         const val NAME = "name"
         const val CONTENT = "content"

@@ -396,6 +396,9 @@ interface LlmSessionRepository : JpaRepository<LlmSession, Long> {
     /** The sessions started from this one, oldest first. Issue #379. */
     fun findByParentSessionIdOrderByCreatedAtAscIdAsc(parentSessionId: Long): List<LlmSession>
 
+    /** The sessions started under any of these, for walking a conversation's family. Issue #498. */
+    fun findByParentSessionIdInOrderByIdAsc(parentSessionIds: Collection<Long>): List<LlmSession>
+
     /**
      * The list, filtered the way the page asks.
      *

@@ -123,7 +123,6 @@ class BuiltInTools(
             ScratchpadTools.APPEND,
             ScratchpadTools.REPLACE,
             ScratchpadTools.SEARCH,
-            ScratchpadTools.SHARE,
             ScratchpadTools.DELETE,
             AgentTools.SAVE_ARTIFACT,
             AgentTools.BASE64_ENCODE,

@@ -108,6 +108,9 @@ interface SessionScratchpadRepository : JpaRepository<SessionScratchpad, Long> {
 
     fun findBySessionIdInAndSharedTrueOrderByNameAsc(sessionIds: Collection<Long>): List<SessionScratchpad>
 
+    /** Every pad these sessions hold, for the family's list. Issue #498. */
+    fun findBySessionIdInOrderByNameAsc(sessionIds: Collection<Long>): List<SessionScratchpad>
+
     fun countBySessionId(sessionId: Long): Long
 
     /** Everything nobody has touched since then, for the sweeper. Issue #492. */
@@ -144,17 +147,31 @@ class SessionScratchpadService(
     private val settings: InstallationSettings,
 ) {
 
-    /** Every pad this session may see: its own, and the shared ones of its ancestors. */
+    /**
+     * Every pad in this conversation: its own and every other session's in the
+     * family. Issue #498.
+     *
+     * The family and not a sharing flag. A subagent is not a separate piece of
+     * work, it is this conversation asking somebody to do part of it, so the
+     * files are the conversation's - and a flag meant an agent had to remember
+     * to set it, a subagent's work landed where nobody looked, and the question
+     * "did it save?" had two answers.
+     *
+     * Both directions: what the conversation made is there for the agents it
+     * asks, and what they make is there for the conversation. A name this
+     * session has of its own still wins, the way a local file shadows one
+     * further up, so a subagent may keep a working copy under a name the
+     * conversation is also using without either overwriting the other by
+     * accident.
+     */
     @Transactional(readOnly = true)
     fun list(sessionId: Long): List<SessionScratchpad> {
         val own = pads.findBySessionIdOrderByNameAsc(sessionId)
-        val ancestors = ancestorsOf(sessionId)
-        val shared = if (ancestors.isEmpty()) emptyList() else
-            pads.findBySessionIdInAndSharedTrueOrderByNameAsc(ancestors)
-                // A name the session has of its own hides the inherited one, the
-                // way a local file shadows one further up.
-                .filter { inherited -> own.none { it.name == inherited.name } }
-        return (own + shared).sortedBy { it.name }
+        val relatives = familyOf(sessionId)
+        val theirs = if (relatives.isEmpty()) emptyList() else
+            pads.findBySessionIdInOrderByNameAsc(relatives)
+                .filter { other -> own.none { it.name == other.name } }
+        return (own + theirs).sortedBy { it.name }
     }
 
     /** The pad this name resolves to for this session, or null if there is none. */
@@ -347,14 +364,45 @@ class SessionScratchpadService(
         return ScratchpadResult.Ok(pads.save(pad), found.second)
     }
 
-    /** The pad and whether this session owns it: its own first, then a shared one from an ancestor. */
+    /** The pad and whether this session owns it: its own first, then the family's. Issue #498. */
     private fun resolve(sessionId: Long, name: String): Pair<SessionScratchpad, Boolean>? {
         pads.findBySessionIdAndName(sessionId, name)?.let { return it to true }
-        val ancestors = ancestorsOf(sessionId)
-        if (ancestors.isEmpty()) return null
-        return pads.findBySessionIdInAndSharedTrueOrderByNameAsc(ancestors)
+        val relatives = familyOf(sessionId)
+        if (relatives.isEmpty()) return null
+        return pads.findBySessionIdInOrderByNameAsc(relatives)
             .firstOrNull { it.name == name }
             ?.let { it to false }
+    }
+
+    /**
+     * The other sessions in this conversation: the root it descends from and
+     * everything under that root. Issue #498.
+     *
+     * Nearest first, so a name held twice resolves to the closest copy - which
+     * is the ancestor an agent inherited it from rather than a cousin that
+     * happens to use the same name.
+     *
+     * Bounded the way the family panel is: a conversation is a few sessions
+     * deep and a hundred wide at the very worst, and a walk with no bound is a
+     * query that one malformed row turns into a loop.
+     */
+    private fun familyOf(sessionId: Long): List<Long> {
+        val ancestors = ancestorsOf(sessionId)
+        val root = ancestors.lastOrNull() ?: sessionId
+        val seen = mutableSetOf(root)
+        val below = mutableListOf<Long>()
+        var edge = listOf(root)
+        var depth = 0
+        while (edge.isNotEmpty() && depth < ANCESTOR_DEPTH && seen.size < MOST_IN_FAMILY) {
+            val next = pads.let { _ -> sessions.findByParentSessionIdInOrderByIdAsc(edge) }
+                .mapNotNull { it.id }
+                .filter { seen.add(it) }
+            below += next
+            edge = next
+            depth += 1
+        }
+        // Nearest first: what this session inherited, then the rest of the family.
+        return (ancestors + below).filter { it != sessionId }.distinct()
     }
 
     /** The sessions this one descends from, nearest first, bounded like the family. */
@@ -411,6 +459,16 @@ class SessionScratchpadService(
 
         /** How far up the family a shared pad is inherited, matching the family panel's reach. */
         const val ANCESTOR_DEPTH = 8
+
+        /**
+         * How many sessions of one conversation are read for its files.
+         * Issue #498.
+         *
+         * A conversation is a handful of sessions; a hundred is a fan-out
+         * nobody intended, and past it the walk stops rather than reading a
+         * workspace's worth of rows to answer one list.
+         */
+        const val MOST_IN_FAMILY = 100
     }
 }
 

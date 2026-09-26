@@ -121,7 +121,7 @@ class AgentRunTools(
                 "it made, pass the key to the tool that takes one rather than typing the text back, " +
                 "which is what cuts a long file off. Where you want something long made - a page, a " +
                 "file, a list of a hundred things - say in the question that it should be written " +
-                "into a scratchpad and shared, and the answer will name the pad: you then read and " +
+                "into a scratchpad, and the answer will name the pad: you then read and " +
                 "edit that pad yourself instead of it being typed back at you. You may ask: " +
                 named.joinToString(", ") { "${it.name} (${it.description ?: "no description"})" },
             parameters = listOf(
@@ -395,10 +395,11 @@ class AgentRunTools(
             override fun briefing(): String = listOfNotNull(
                 pads.briefing(),
                 "You are answering another agent, not a person. Anything long you make - a page, a file, " +
-                    "a list - goes in a scratchpad which you then share with " + ScratchpadTools.SHARE +
-                    ": a shared pad is the same document the agent that asked reads and edits, so your " +
-                    "answer should say which pad it is in and what is in it in a line or two, and never " +
-                    "repeat the whole of it. What you write twice is paid for twice and cut off once.",
+                    "a list - goes in a scratchpad, and the scratchpads are the conversation's: the agent " +
+                    "that asked you reads and edits the same files, and a file it already has is one you " +
+                    "edit rather than copy. Nothing has to be shared. So your answer says which pad the " +
+                    "work is in and what is in it in a line or two, and never repeats the whole of it. " +
+                    "What you write twice is paid for twice and cut off once.",
             ).joinToString(separator = System.lineSeparator() + System.lineSeparator())
         }
     }

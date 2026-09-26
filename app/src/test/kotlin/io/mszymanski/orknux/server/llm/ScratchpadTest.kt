@@ -55,9 +55,11 @@ class ScratchpadTest(
         assertThat(io.mszymanski.orknux.server.chat.sheds(silent, shed)?.briefing()).isEqualTo(said)
     }
 
+    private var workspaceId: Long = 0
+
     @BeforeEach
     fun make() {
-        val workspaceId = requireNotNull(
+        workspaceId = requireNotNull(
             (workspaces.findByName("pads") ?: workspaces.save(Workspace(name = "pads"))).id,
         )
         session = recorder.open(workspaceId, "test", "pads-${System.nanoTime()}")
@@ -215,13 +217,71 @@ class ScratchpadTest(
             .isEqualTo("what the shift found\nand what the child added\n")
     }
 
+    /**
+     * A subagent rewriting the conversation's file rewrites the conversation's
+     * file. Issue #497.
+     *
+     * The write tool used to make a copy in the child's own session whenever
+     * the name resolved to an ancestor's shared pad - so a subagent asked to
+     * rewrite a stylesheet did the work, said so, and the conversation went on
+     * reading the original, with nothing anywhere saying a fork had happened.
+     * Append and replace always wrote through; write forking alone made the
+     * first operation anybody reaches for the one that quietly did something
+     * else.
+     */
     @Test
-    fun `a file that is not shared is invisible to a session under it`() {
-        ok(pads.create(session, "private", null, "for me only"))
+    fun `a subagent writing a shared file writes the shared file, not a copy`() {
+        ok(pads.create(session, "styles.css", "The stylesheet", "body { color: #333; }"))
+        ok(pads.share(session, "styles.css", true))
+        val child = recorder.openUnder(session, "Make it dark")
+
+        val shed = requireNotNull(tools.shed(child))
+        val said = shed.run(
+            io.mszymanski.orknux.connector.model.ToolCall(
+                id = "call_1",
+                name = "scratchpad_write",
+                arguments = """{"name":"styles.css","content":"body { color: #eee; }"}""",
+            ),
+        )
+
+        // Written where the file actually is.
+        assertThat(requireNotNull(pads.find(session, "styles.css")).content).isEqualTo("body { color: #eee; }")
+        // And no second file of that name under the child, which is the fork
+        // this is about.
+        assertThat(pads.list(child).count { it.name == "styles.css" }).isEqualTo(1)
+        // The answer says whose file it was, so an agent can tell.
+        assertThat(said).contains("\"ownedHere\":false")
+        assertThat(said).contains("belongs to the conversation that started you")
+    }
+
+    /**
+     * The files are the conversation's, in both directions. Issue #498.
+     *
+     * This used to assert the opposite - a pad nobody had shared was invisible
+     * below - and the flag was the fault: an agent had to remember to set it,
+     * a subagent's work landed where nobody looked, and "did it save?" had two
+     * answers. A subagent is not separate work; it is this conversation asking
+     * somebody to do part of it.
+     */
+    @Test
+    fun `a conversation's files reach the sessions it asks, and theirs come back`() {
+        ok(pads.create(session, "notes.md", null, "what the shift found"))
         val child = recorder.openUnder(session, "A task")
 
-        assertThat(pads.find(child, "private")).isNull()
-        assertThat(pads.list(child).map { it.name }).doesNotContain("private")
+        // Down, with nothing shared.
+        assertThat(pads.find(child, "notes.md")?.content).isEqualTo("what the shift found")
+        assertThat(pads.list(child).map { it.name }).contains("notes.md")
+
+        // And up: what the subagent makes is there for the conversation.
+        ok(pads.create(child, "findings.md", null, "what the subagent found"))
+        assertThat(pads.find(session, "findings.md")?.content).isEqualTo("what the subagent found")
+        assertThat(pads.list(session).map { it.name }).contains("findings.md")
+
+        // A session of another conversation sees neither, which is the bound
+        // that makes this a family rather than a workspace-wide pile.
+        val stranger = recorder.open(workspaceId, "unrelated", "stranger-${System.nanoTime()}")
+        assertThat(pads.find(stranger, "notes.md")).isNull()
+        assertThat(pads.find(stranger, "findings.md")).isNull()
     }
 
     @Test
