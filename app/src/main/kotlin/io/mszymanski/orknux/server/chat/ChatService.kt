@@ -59,6 +59,8 @@ class ChatService(
     /** Keeps a long chat inside the window its model will accept; see [ChatCompaction]. */
     private val compaction: ChatCompaction,
     private val workspaces: WorkspaceRepository,
+    /** The working files a chat's agent keeps in the chat's session; see [ScratchpadTools]. Issue #445. */
+    private val scratchpads: ScratchpadTools,
 ) {
 
     /**
@@ -716,8 +718,16 @@ class ChatService(
             // lent either - there is no round to lend into.
             models.complete(start.modelId, start.turns)
         } else {
-            // An agent may need its tools before it can answer; a bare model cannot.
-            conversation.answer(start.modelId, start.agentId, start.turns, start.llmSessionId, shed, watch, hangup)
+            /*
+             * An agent may need its tools before it can answer; a bare model
+             * cannot. Beside what the door lent, the scratchpads: a chat has a
+             * session to keep files in like a task does, and an agent drafting
+             * something long in a chat was doing it in its head for want of
+             * them. Lent here rather than by each door, so the two doors cannot
+             * come to lend different things. Issue #445.
+             */
+            val lent = sheds(shed, scratchpads.shed(start.llmSessionId))
+            conversation.answer(start.modelId, start.agentId, start.turns, start.llmSessionId, lent, watch, hangup)
         }
 
     /**

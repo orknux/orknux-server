@@ -46,6 +46,26 @@ class ScratchpadTools(
 
     private inner class Shed(private val session: Long) : ToolShed {
 
+        /**
+         * That the agent has working files, and when to use them.
+         *
+         * Eight tool descriptions said what each did and nothing said the agent
+         * had any, so a model drafting a long page did it in its head, badly,
+         * and never wrote a file - the same silence that kept memory search
+         * unused before the briefing named the memory. Said once, with the
+         * when: the trigger for a scratchpad is length or several turns, and a
+         * model told only "you may" reaches for it never. Issue #445.
+         */
+        override fun briefing(): String = buildString {
+            append("You have scratchpads: working files kept for this whole session, never shown to you unless ")
+            append("you read them, so they can be long. Use one whenever what you are making is longer than a ")
+            append("message, is built up over several turns, or is something you will revise - a document, ")
+            append("a page of HTML, a file of code, notes you are organising. Write it with $WRITE, grow it ")
+            append("with $APPEND, change a piece with $REPLACE, and read it back with $READ before you hand it ")
+            append("on; $LIST says what you have already started. Working in a scratchpad and then posting the ")
+            append("result beats composing the whole of it in one answer.")
+        }
+
         override fun specs(): List<ToolSpec> = listOf(
             ToolSpec(
                 name = LIST,

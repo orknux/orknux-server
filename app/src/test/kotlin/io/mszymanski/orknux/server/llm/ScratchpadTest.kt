@@ -22,9 +22,36 @@ class ScratchpadTest(
     @Autowired val recorder: LlmSessionRecorder,
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val settings: InstallationSettings,
+    /** The model's way in, and what it is told about it. Issue #445. */
+    @Autowired val tools: io.mszymanski.orknux.server.chat.ScratchpadTools,
 ) {
 
     private var session: Long = 0
+
+    /**
+     * Nothing told the agent it had scratchpads, so it never used one - the
+     * silence that kept memory search unused until the briefing named the
+     * memory. The shed says so itself, and says when; two sheds lent together
+     * say both. Issue #445.
+     */
+    @Test
+    fun `the shed tells the agent it has scratchpads, and when to use one`() {
+        val shed = requireNotNull(tools.shed(session))
+        val said = requireNotNull(shed.briefing())
+        assertThat(said).contains("You have scratchpads")
+        assertThat(said).contains("longer than a message")
+        assertThat(said).contains("scratchpad_write")
+
+        assertThat(tools.shed(null)).describedAs("nowhere to keep a file").isNull()
+
+        val silent = object : io.mszymanski.orknux.server.chat.ToolShed {
+            override fun specs() = emptyList<io.mszymanski.orknux.connector.model.ToolSpec>()
+            override fun handles(name: String) = false
+            override fun run(call: io.mszymanski.orknux.connector.model.ToolCall) = ""
+        }
+        assertThat(silent.briefing()).describedAs("a shed with nothing to say").isNull()
+        assertThat(io.mszymanski.orknux.server.chat.sheds(silent, shed)?.briefing()).isEqualTo(said)
+    }
 
     @BeforeEach
     fun make() {
