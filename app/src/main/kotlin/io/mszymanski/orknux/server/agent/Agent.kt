@@ -237,6 +237,31 @@ class Agent(
     var requiredTools: MutableList<String> = mutableListOf(),
 
     /**
+     * Which of the server's own tools this agent may *not* use. Issue #455.
+     *
+     * The one list here that says no rather than yes, and it is the built-ins
+     * alone. #444 put them in [tools] with everything else, which reads well on
+     * the screen and has a fault that only shows at the next release: a
+     * built-in added later is in no agent's list, so it would arrive switched
+     * off for everybody, silently, until somebody wrote a migration to
+     * remember it - and an agent made by a door that did not know to add the
+     * names had none at all.
+     *
+     * So what is stored is the exception. A built-in not named here is
+     * offered, which makes "built-in" mean what it says: it is there unless
+     * somebody turned it off, on every agent that exists and every one made
+     * afterwards. The screen is unchanged - the form still sends one list of
+     * tool names, and the door turns the built-ins among them into this. What
+     * [requiredTools] says about a built-in is untouched by any of it: a mark
+     * qualifies a tool that is on and says nothing about whether it is.
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "agent_hidden_tool", joinColumns = [JoinColumn(name = "agent_id")])
+    @OrderColumn(name = "position")
+    @Column(name = "name", nullable = false)
+    var hiddenTools: MutableList<String> = mutableListOf(),
+
+    /**
      * Which of the workspace's connections this agent may name when a tool
      * takes one, by id.
      *
@@ -325,15 +350,17 @@ class Agent(
      * behind it is exactly what this is.
      */
 
-    /** Whether it may keep a file it made; `save_artifact` in [tools]. */
+    /** Whether it may keep a file it made; `save_artifact` not hidden. */
     val artifactAccess: Boolean
-        get() = io.mszymanski.orknux.server.chat.AgentTools.SAVE_ARTIFACT in tools
+        get() = io.mszymanski.orknux.server.chat.BuiltInTools
+            .granted(this, io.mszymanski.orknux.server.chat.AgentTools.SAVE_ARTIFACT)
 
-    /** Whether it may end its turn by saying so; `finish_answer` in [tools]. */
+    /** Whether it may end its turn by saying so; `finish_answer` not hidden. */
     val finishAccess: Boolean
-        get() = FinishAnswerTools.FINISH in tools
+        get() = io.mszymanski.orknux.server.chat.BuiltInTools.granted(this, FinishAnswerTools.FINISH)
 
-    /** Whether it may ask for a picture's address; `picture_link` in [tools]. */
+    /** Whether it may ask for a picture's address; `picture_link` not hidden. */
     val pictureLinkAccess: Boolean
-        get() = io.mszymanski.orknux.server.workflow.StepPictureTools.LINK in tools
+        get() = io.mszymanski.orknux.server.chat.BuiltInTools
+            .granted(this, io.mszymanski.orknux.server.workflow.StepPictureTools.LINK)
 }

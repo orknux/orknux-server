@@ -318,6 +318,9 @@ class TaskSweepTest(
         // How long a plugin may take to load, which this test says nothing
         // about either.
         io.mszymanski.orknux.workflow.script.PluginProperties(),
+        // How long a session counts as active, which this test says nothing
+        // about either.
+        io.mszymanski.orknux.server.llm.SessionProperties(),
         temporalEnabled = true,
     )
 

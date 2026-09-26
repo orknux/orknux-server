@@ -161,8 +161,11 @@ class ComponentBindingTest(
 
         val agent = agents.findByWorkspaceIdAndName(into, "Triage bot")!!
         assertThat(agent.modelId).isEqualTo(theirs)
-        // The built-in arrives as itself, beside the tool the file carried.
-        assertThat(agent.tools).containsExactly("lookup", "note_to_self")
+        // The built-in arrives as itself, beside the tool the file carried -
+        // and is kept the way #455 keeps one: not a grant, but not hidden.
+        assertThat(agent.tools).containsExactly("lookup")
+        assertThat(io.mszymanski.orknux.server.chat.BuiltInTools.granted(agent, "note_to_self")).isTrue()
+        assertThat(agent.hiddenTools).contains("finish_answer")
         assertThat(agent.skillCatalogs).containsExactly("Support")
         assertThat(agent.memoryCatalogs).containsExactly("Runbooks")
         // An agent holds an MCP server by name, so the grant is written as the

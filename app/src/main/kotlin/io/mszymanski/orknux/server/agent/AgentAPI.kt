@@ -162,7 +162,8 @@ class AgentAPI(
                 // The bot icon, unless the caller named one. A fresh agent draws
                 // as a bot rather than as the node kind's plain default. Issue #415.
                 icon = input.icon?.trim()?.ifEmpty { null } ?: DEFAULT_AGENT_ICON,
-                tools = BuiltInTools.GRANTED.toMutableList(),
+                // Nothing of the workspace's, and every built-in: a fresh agent
+                // hides none, and hiding is the only thing stored. Issue #455.
                 requiredTools = BuiltInTools.GRANTED.toMutableList(),
                 lastModifiedBy = currentUser(),
             ),
@@ -228,7 +229,7 @@ class AgentAPI(
                 modelId = model.id,
                 // The bot icon, the same default a hand-made agent takes. Issue #415.
                 icon = DEFAULT_AGENT_ICON,
-                tools = BuiltInTools.GRANTED.toMutableList(),
+                // As a hand-made agent: nothing hidden, so every built-in. #455.
                 requiredTools = BuiltInTools.GRANTED.toMutableList(),
                 lastModifiedBy = currentUser(),
             ),
@@ -287,7 +288,10 @@ class AgentAPI(
         val previousShell = agent.shellAccess
         val previousCatalogs = agent.memoryCatalogs.toList()
         val previousSkillCatalogs = agent.skillCatalogs.toList()
-        val previousTools = agent.tools.toList()
+        // Everything it could call before this save: its grants and the
+        // built-ins it had not hidden, so the audit reads the same either side
+        // of #455 changing where a built-in's answer is kept.
+        val previousTools = (agent.tools + BuiltInTools.grantedTo(agent)).distinct()
         val previousConnections = agent.connections.toList()
         val previousShare = agent.memoryShare
 
@@ -355,7 +359,21 @@ class AgentAPI(
                 input.skillCatalogs.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
         }
         if (input.tools != null) {
-            agent.tools = input.tools.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
+            /*
+             * One list in, two out. Issue #455.
+             *
+             * The form sends every tool row it drew as one list of names, the
+             * built-ins among them, which is what it has always sent. What is
+             * stored is a grant for the workspace's and the plugins' tools, and
+             * for the built-ins the opposite: the ones *not* in what arrived,
+             * so a built-in written after today is in nobody's hidden list and
+             * is therefore on. A caller that sends only workspace tools - the
+             * MCP, a script - hides every built-in, which is the same thing the
+             * old list-of-grants did and is what "these are its tools" means.
+             */
+            val given = input.tools.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+            agent.tools = given.filterNot { BuiltInTools.switchable(it) }.toMutableList()
+            agent.hiddenTools = BuiltInTools.hiddenBy(given)
         }
         /*
          * The three switches that were columns, kept as a way of saying the same
@@ -383,7 +401,7 @@ class AgentAPI(
              * dropped rather than stored - and the grant is what decides, which
              * is why this is applied after `tools` above.
              */
-            val granted = agent.tools.toSet()
+            val granted = held(agent)
             agent.requiredTools = input.requiredTools
                 .map { it.trim() }
                 .filter { it.isNotEmpty() && it in granted }
@@ -392,7 +410,7 @@ class AgentAPI(
         }
         // And the same rule where the marks were not sent: a grant taken away
         // takes its Always mark with it, or the mark names a tool nothing resolves.
-        agent.requiredTools.retainAll(agent.tools.toSet())
+        agent.requiredTools.retainAll(held(agent))
         if (input.connectionIds != null) {
             // Another workspace's connection is not this agent's to be granted,
             // so the id is checked here rather than trusted into the briefing.
@@ -489,14 +507,15 @@ class AgentAPI(
         }
         // Worth its own entry above all the others: this one changes what an
         // agent can do, not just what it can read.
-        (agent.tools - previousTools.toSet()).forEach { tool ->
+        val nowTools = (agent.tools + BuiltInTools.grantedTo(agent)).distinct()
+        (nowTools - previousTools.toSet()).forEach { tool ->
             auditRecorder.record(
                 agent.workspaceId,
                 WorkspaceAuditCategory.AGENT,
                 "Agent ${agent.name} given tool $tool",
             )
         }
-        (previousTools - agent.tools.toSet()).forEach { tool ->
+        (previousTools - nowTools.toSet()).forEach { tool ->
             auditRecorder.record(
                 agent.workspaceId,
                 WorkspaceAuditCategory.AGENT,
@@ -647,13 +666,20 @@ class AgentAPI(
      */
     private fun switched(agent: Agent, name: String, on: Boolean) {
         if (on) {
-            if (name !in agent.tools) agent.tools.add(name)
+            agent.hiddenTools.remove(name)
             if (name !in agent.requiredTools) agent.requiredTools.add(name)
         } else {
-            agent.tools.remove(name)
+            if (name !in agent.hiddenTools) agent.hiddenTools.add(name)
             agent.requiredTools.remove(name)
         }
     }
+
+    /**
+     * Everything this agent may call by name: its grants and the built-ins it
+     * has not hidden. What the screen is shown, and what an Always mark is
+     * held to. Issue #455.
+     */
+    private fun held(agent: Agent): Set<String> = agent.tools.toSet() + BuiltInTools.grantedTo(agent)
 
     /** Whoever is asking, for the stamp a revision of this state will carry. */
     private fun currentUser(): String =
@@ -795,7 +821,9 @@ data class AgentView(
         pictureLinkAccess = agent.pictureLinkAccess,
         memoryCatalogs = agent.memoryCatalogs.toList(),
         skillCatalogs = agent.skillCatalogs.toList(),
-        tools = agent.tools.toList(),
+        // Its grants and the built-ins it has not hidden, as one list: what the
+        // form draws its rows from, and what it sends back. Issue #455.
+        tools = (agent.tools + BuiltInTools.grantedTo(agent)).distinct(),
         connectionIds = agent.connections.toList(),
         agentIds = agent.agents.toList(),
         maxTools = agent.maxTools,

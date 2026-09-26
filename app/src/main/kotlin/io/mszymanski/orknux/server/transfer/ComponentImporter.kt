@@ -1063,11 +1063,22 @@ class ComponentImporter(
                     // the name itself: neither is a component of the file, and
                     // both mean the same thing here as where the file was made.
                     tools = node.names("toolRefs")
-                        .filter { it !in dropped }
+                        .filter { it !in dropped && !BuiltInTools.switchable(it) }
                         .map {
-                            if (it in pluginToolNames() || it in BuiltInTools.GRANTED) it else toolNameFor(workspaceId, it, resolved)
+                            if (it in pluginToolNames()) it else toolNameFor(workspaceId, it, resolved)
                         }
                         .toMutableList(),
+                    // And the built-ins among them the other way round: the file
+                    // says what the agent holds, the row keeps what it does not,
+                    // so a built-in this file has never heard of arrives on -
+                    // which is the whole of #455. A file written before the
+                    // built-ins were named at all carries none, and its agent
+                    // therefore arrives with all of them, as it had.
+                    hiddenTools = node.names("toolRefs")
+                        .filter { BuiltInTools.switchable(it) }
+                        .takeIf { named -> named.isNotEmpty() }
+                        ?.let { BuiltInTools.hiddenBy(it) }
+                        ?: mutableListOf(),
                     // A plugin's catalog is a grant string, not a folder of
                     // this workspace's; making a folder by that name would
                     // shadow the plugin's own. Issue #383.

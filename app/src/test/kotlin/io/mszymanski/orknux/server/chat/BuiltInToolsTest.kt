@@ -213,13 +213,84 @@ class BuiltInToolsTest(
         ).execute().path("createAgent.id").entity(Long::class.java).get()
     }
 
-    /** An agent as the round sees it, never saved: the rule is about the row's lists, not the database. */
+    /**
+     * An agent as the round sees it, never saved: the rule is about the row's
+     * lists, not the database.
+     *
+     * `tools` is what the agent holds, said the way the screen says it - and
+     * turned into what the row keeps, which since #455 is the built-ins it does
+     * *not* hold. The same translation the door makes, so a test that says
+     * "this agent has all but the note" reads as one.
+     */
     private fun agent(tools: List<String>, required: List<String> = tools, ceiling: Int? = null) = Agent(
         workspaceId = workspaceId,
         name = "Scratch",
         type = AgentType.LLM,
-        tools = tools.toMutableList(),
+        tools = tools.filterNot { BuiltInTools.switchable(it) }.toMutableList(),
+        hiddenTools = BuiltInTools.hiddenBy(tools),
         requiredTools = required.toMutableList(),
         maxTools = ceiling,
     )
+
+    /* ---------------------------------------- a built-in nobody has judged -- */
+
+    /**
+     * The case the list of grants got wrong, and the reason for #455.
+     *
+     * A row that says nothing about a built-in - an agent made before the name
+     * existed, or by a door that never heard of it - holds it. Under the old
+     * rule the answer was no, so a built-in shipped in a later release would
+     * have arrived switched off on every agent in every installation, silently,
+     * and the only cure would have been another migration.
+     */
+    @Test
+    fun `a built-in nobody has hidden is offered, whatever the row says`() {
+        val quiet = Agent(workspaceId = workspaceId, name = "Quiet", type = AgentType.LLM)
+
+        BuiltInTools.GRANTED.forEach { name ->
+            assertThat(BuiltInTools.granted(quiet, name)).describedAs(name).isTrue()
+            assertThat(BuiltInTools.carried(quiet, name)).describedAs(name).isTrue()
+        }
+        assertThat(quiet.finishAccess).isTrue()
+        assertThat(quiet.artifactAccess).isTrue()
+        assertThat(quiet.pictureLinkAccess).isTrue()
+        // The two that need nothing else: `ask_agent` and `find_connections`
+        // wait on a grant of their own - agents to ask, connections to name -
+        // and say nothing about this rule either way.
+        assertThat(tools.offeringFor(quiet).core.map { it.name })
+            .contains(AgentTools.SAVE_ARTIFACT, AgentTools.BASE64_ENCODE)
+
+        // And one deliberately hidden is still hidden, which is the whole of
+        // the other half of the rule.
+        val hiding = agent(tools = BuiltInTools.GRANTED - NoteTools.NOTE)
+        assertThat(BuiltInTools.granted(hiding, NoteTools.NOTE)).isFalse()
+        assertThat(BuiltInTools.granted(hiding, DateTools.NOW)).isTrue()
+    }
+
+    /**
+     * What the screen is shown is what the screen sent, and what is stored is
+     * the other half of it. A save that names no built-in hides them all -
+     * which is what "these are its tools" has always meant - and naming one
+     * again brings it back.
+     */
+    @Test
+    fun `the API keeps the list the form sends, and stores what is hidden`() {
+        val id = created("Stored")
+
+        graphQlTester.document(
+            """mutation { updateAgent(id: $id, input: { name: "Stored", tools: ["note_to_self", "current_time"] }) { tools } }""",
+        ).execute().path("updateAgent.tools").entityList(String::class.java)
+            .containsExactly(NoteTools.NOTE, DateTools.NOW)
+
+        val stored = requireNotNull(agents.findByIdOrNull(id))
+        assertThat(stored.tools).describedAs("no built-in is a grant any more").isEmpty()
+        assertThat(stored.hiddenTools).contains(FinishAnswerTools.FINISH, AgentTools.SAVE_ARTIFACT)
+        assertThat(stored.hiddenTools).doesNotContain(NoteTools.NOTE, DateTools.NOW)
+
+        graphQlTester.document(
+            """mutation { updateAgent(id: $id, input: { name: "Stored", tools: [] }) { tools } }""",
+        ).execute().path("updateAgent.tools").entityList(String::class.java).hasSize(0)
+        assertThat(requireNotNull(agents.findByIdOrNull(id)).hiddenTools)
+            .containsExactlyInAnyOrderElementsOf(BuiltInTools.GRANTED)
+    }
 }

@@ -543,8 +543,16 @@ class ComponentExporter(
             putExternal("modelRef", externals.modelReference(workspaceId, held.modelId))
             val servers = putArray("mcpServerRefs")
             held.mcpServers.forEach { servers.add(it) }
+            /*
+             * Everything it may call, its grants and the built-ins it has not
+             * hidden - one list, the way the screen and the API say it. The row
+             * keeps the built-ins the other way round since #455, and an
+             * envelope that carried that would be a file whose meaning depended
+             * on which release wrote it; the import splits it again.
+             */
             val granted: ArrayNode = putArray("toolRefs")
-            held.tools.forEach { granted.add(it) }
+            (held.tools + io.mszymanski.orknux.server.chat.BuiltInTools.grantedTo(held))
+                .distinct().forEach { granted.add(it) }
             // Grants by name, and by name is how the agent holds them. A catalog
             // holds nothing but a name, so the import makes one it does not have
             // rather than refusing — the same answer a skill's folder gets.

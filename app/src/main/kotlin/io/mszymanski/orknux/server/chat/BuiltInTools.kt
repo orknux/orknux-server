@@ -137,16 +137,33 @@ class BuiltInTools(
 
         private val GRANTED_SET = GRANTED.toSet()
 
+        /** Whether this name is one of the built-ins switched on the Tools list. */
+        fun switchable(name: String): Boolean = name in GRANTED_SET
+
         /**
          * Whether this agent may be offered a tool of this name.
          *
          * True for every name that is not a grant-governed built-in: a
          * workspace's tool, a plugin's, a shed's own like `task_done`, and the
          * catalog- and access-bound built-ins are all decided elsewhere, and
-         * this says nothing about them. A grant-governed one is offered only
-         * where its name is in the agent's list, which is the whole of the rule.
+         * this says nothing about them.
+         *
+         * A grant-governed one is offered unless the agent has it hidden, which
+         * is the way round issue #455 settled on: a list of what is allowed
+         * answers "no" for every built-in written after it, so one added in a
+         * later release would arrive switched off everywhere and an agent made
+         * without the names would hold none. A list of what is refused answers
+         * "yes" to a name nobody has ever had an opinion about, which is what a
+         * built-in ought to be.
          */
-        fun granted(agent: Agent, name: String): Boolean = name !in GRANTED_SET || name in agent.tools
+        fun granted(agent: Agent, name: String): Boolean = name !in GRANTED_SET || name !in agent.hiddenTools
+
+        /** The built-ins this agent holds, in the order the list declares them. */
+        fun grantedTo(agent: Agent): List<String> = GRANTED.filter { it !in agent.hiddenTools }
+
+        /** The ones it does not, which is what the agent stores; anything else given is ignored. */
+        fun hiddenBy(given: Collection<String>): MutableList<String> =
+            GRANTED.filterNot { it in given }.toMutableList()
 
         /**
          * Whether a tool of this name travels on every turn, or is found.
@@ -180,6 +197,15 @@ class BuiltInTools(
             if (shed == null) return null
             return object : ToolShed {
                 override fun specs(): List<ToolSpec> = shed.specs().filter { granted(agent, it.name) }
+
+                /*
+                 * And what the shed wanted said about its tools, which this has
+                 * to carry rather than answer null to: a shed briefs the model
+                 * about what it is lending (#445, the scratchpads), and a
+                 * wrapper that forgot to pass it on would take the paragraph
+                 * away from every agent while leaving the tools in place.
+                 */
+                override fun briefing(): String? = shed.briefing()
 
                 override fun handles(name: String): Boolean = granted(agent, name) && shed.handles(name)
 

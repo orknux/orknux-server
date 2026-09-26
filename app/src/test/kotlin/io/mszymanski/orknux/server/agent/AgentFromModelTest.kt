@@ -92,7 +92,12 @@ class AgentFromModelTest(
         // they are for an agent made by hand - they reach nothing of the
         // workspace's, and an agent without a clock or a way to finish its
         // turn is one nobody asked for. Issue #444.
-        assertThat(made.tools).containsExactlyElementsOf(io.mszymanski.orknux.server.chat.BuiltInTools.GRANTED)
+        // Nothing granted and nothing hidden, which since #455 is how "every
+        // built-in, and none of the workspace's tools" is stored.
+        assertThat(made.tools).isEmpty()
+        assertThat(made.hiddenTools).isEmpty()
+        assertThat(io.mszymanski.orknux.server.chat.BuiltInTools.grantedTo(made))
+            .containsExactlyElementsOf(io.mszymanski.orknux.server.chat.BuiltInTools.GRANTED)
         assertThat(made.skillCatalogs).isEmpty()
         assertThat(made.memoryCatalogs).isEmpty()
         assertThat(made.mcpServers).isEmpty()

@@ -66,6 +66,18 @@ CREATE TABLE agent_granted_tool
     constraint agent_granted_tool_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES agent(id) ON DELETE CASCADE
 );
 
+-- Which of the server's own tools this agent may NOT use. Everything not named
+-- here is offered, so a built-in added in a later release is on for every agent
+-- the moment the server starts. Issue #455.
+CREATE TABLE agent_hidden_tool
+(
+    agent_id                     integer not null,
+    position                     integer not null,
+    name                         varchar(255) not null,
+    primary key (agent_id, position),
+    constraint agent_hidden_tool_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES agent(id) ON DELETE CASCADE
+);
+
 CREATE TABLE agent_connection
 (
     agent_id                     integer not null,

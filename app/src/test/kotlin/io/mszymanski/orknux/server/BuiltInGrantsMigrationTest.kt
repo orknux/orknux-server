@@ -9,8 +9,8 @@ import java.sql.Connection
 import java.sql.DriverManager
 
 /**
- * What an agent written before the built-ins were grants holds after V302 runs.
- * Issue #444.
+ * What an agent written before the built-ins were grants holds afterwards.
+ * Issues #444, #455.
  *
  * The promise of that migration is that nothing changes for an agent that
  * exists: every built-in it was being handed is now a name on its list, the
@@ -43,23 +43,31 @@ class BuiltInGrantsMigrationTest {
                 migrate(postgres, target = "latest")
 
                 DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password).use { db ->
-                    val plain = granted(db, 900)
-                    // Everything that was unconditional, and nothing that was
-                    // switched off: this agent had finish_answer turned off.
-                    assertThat(plain).contains("note_to_self", "current_time", "scratchpad_write", "save_artifact", "ask_agent")
-                    assertThat(plain).doesNotContain("finish_answer")
-                    assertThat(plain).contains("picture_link")
+                    /*
+                     * V302 put every built-in it was handed on its grant list;
+                     * V303 turned that round, so what is stored now is what it
+                     * does *not* hold - and the answer for this agent is the
+                     * same answer, said the other way. Issue #455.
+                     */
+                    val plainHidden = hidden(db, 900)
+                    assertThat(plainHidden)
+                        .doesNotContain("note_to_self", "current_time", "scratchpad_write", "save_artifact", "ask_agent")
+                    assertThat(plainHidden).contains("finish_answer")
+                    assertThat(plainHidden).doesNotContain("picture_link")
+                    // draw_picture was a grant before the list and this agent never had it.
+                    assertThat(plainHidden).contains("draw_picture")
+                    // No built-in is a grant any more, and this agent had nothing else.
+                    assertThat(granted(db, 900)).isEmpty()
                     // No ceiling, so no marks: without one nothing is ever dropped.
                     assertThat(required(db, 900)).isEmpty()
 
-                    val capped = granted(db, 901)
-                    // What it held stays first, in its place; the built-ins follow.
-                    assertThat(capped.take(2)).containsExactly("jira_search", "draw_picture")
-                    assertThat(capped).contains("finish_answer", "note_to_self")
-                    // Saving was off, so the three that grant depended on are absent.
-                    assertThat(capped).doesNotContain("save_artifact", "base64_encode", "base64_decode")
-                    // Everything the agent holds is named once.
-                    assertThat(capped).doesNotHaveDuplicates()
+                    // The workspace's own tool stays, alone and at nought.
+                    assertThat(granted(db, 901)).containsExactly("jira_search")
+                    val cappedHidden = hidden(db, 901)
+                    assertThat(cappedHidden).doesNotContain("finish_answer", "note_to_self", "draw_picture")
+                    // Saving was off, so the three that grant depended on are hidden.
+                    assertThat(cappedHidden).contains("save_artifact", "base64_encode", "base64_decode")
+                    assertThat(cappedHidden).doesNotHaveDuplicates()
                     // Under a ceiling every built-in it now holds is Always, after the
                     // one it had marked already - draw_picture included, which was a
                     // grant before and was carried all the same.
@@ -70,7 +78,8 @@ class BuiltInGrantsMigrationTest {
                     assertThat(marked).doesNotHaveDuplicates()
                     // The positions are contiguous from nought, which is what an
                     // ordered collection column requires to load at all.
-                    assertThat(positions(db, "agent_granted_tool", 901)).isEqualTo((0 until capped.size).toList())
+                    assertThat(positions(db, "agent_granted_tool", 901)).isEqualTo(listOf(0))
+                    assertThat(positions(db, "agent_hidden_tool", 901)).isEqualTo((0 until cappedHidden.size).toList())
                     assertThat(positions(db, "agent_required_tool", 901)).isEqualTo((0 until marked.size).toList())
 
                     // And the columns are gone: the list says what they said.
@@ -88,6 +97,16 @@ class BuiltInGrantsMigrationTest {
             .toList() + "note_to_self"
         // draw_picture was a grant already and is not inserted, only marked.
         assertThat(inThisFile).containsExactlyInAnyOrderElementsOf(BuiltInTools.GRANTED - "draw_picture")
+    }
+
+    /** And the list V303 turns round is the whole of it, draw_picture included. */
+    @Test
+    fun `the inversion names every grant-governed built-in the code knows`() {
+        val inThisFile = Regex("""UNION ALL SELECT \d+, '([a-z_0-9]+)'""")
+            .findAll(javaClass.getResource("/db/migration/postgresql/V303__built_ins_on_by_default.sql")!!.readText())
+            .map { it.groupValues[1] }
+            .toList() + "note_to_self"
+        assertThat(inThisFile).containsExactlyInAnyOrderElementsOf(BuiltInTools.GRANTED)
     }
 
     private fun migrate(postgres: PostgreSQLContainer<*>, target: String) {
@@ -122,6 +141,9 @@ class BuiltInGrantsMigrationTest {
     }
 
     private fun granted(db: Connection, agent: Long): List<String> = names(db, "agent_granted_tool", agent)
+
+    /** What V303 stores instead: the built-ins this agent may not use. Issue #455. */
+    private fun hidden(db: Connection, agent: Long): List<String> = names(db, "agent_hidden_tool", agent)
 
     private fun required(db: Connection, agent: Long): List<String> = names(db, "agent_required_tool", agent)
 
