@@ -341,6 +341,18 @@ class ImageNodeParametersTest(
             .path("imageModelParameters[*].name").entityList(String::class.java).containsExactly("size")
             .path("imageModelParameters[0].choices").entityList(String::class.java).containsExactly("256x256", "512x512", "1024x1024")
 
+        /*
+         * And the self-hosted server registered as OPENAI answers the editor
+         * the same way it answers the save. It did not: the query read the
+         * type and the id but not the host, so the editor drew gpt-image-1's
+         * quality list for a model the save then refused a quality on.
+         */
+        val selfHosted = imageModel("sd-cpp-local", name = "Local", type = "OPENAI")
+        graphQlTester.document("""{ imageModelParameters(modelId: $selfHosted) { name kind } }""")
+            .execute()
+            .path("imageModelParameters[*].name").entityList(String::class.java).containsExactly("size")
+            .path("imageModelParameters[0].kind").entity(String::class.java).isEqualTo("DIMENSIONS")
+
         graphQlTester.document("""{ imageModelParameters(modelId: 999999) { name } }""")
             .execute().errors().expect { it.message?.contains("No model with id 999999") == true }.verify()
     }

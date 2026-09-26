@@ -218,7 +218,10 @@ class ImageModelParametersAPI(
         val model = models.findByIdOrNull(modelId) ?: throw ModelNotFoundException(modelId)
         val provider = providers.findByIdOrNull(model.providerId)?.takeIf { access.canSee(it.workspaceId) }
             ?: throw ModelNotFoundException(modelId)
-        return capabilities.specFor(provider.type, model.modelId)
+        // The endpoint too, or the editor and the save disagree: a self-hosted
+        // server registered as OPENAI would be drawn with gpt-image-1's lists
+        // here and refused for them at save.
+        return capabilities.specFor(provider.type, model.modelId, provider.endpoint)
     }
 }
 
