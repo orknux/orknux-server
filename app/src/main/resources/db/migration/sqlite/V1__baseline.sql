@@ -444,6 +444,12 @@ CREATE TABLE llm_model
     token_limit                  integer,
     reset_interval               varchar(16) not null default 'MONTHLY',
     requests_per_minute          integer,
+    -- V293: this model's own throttle, overriding the provider default. Null
+    -- inherits; 0 turns a dimension off. A rate to stay under, not a cap that
+    -- resets. Issue #426.
+    throttle_tokens_per_second   bigint,
+    throttle_requests_per_second double precision,
+    accept_retry_after           boolean,
     input_cost_per_million       numeric(12,4),
     output_cost_per_million      numeric(12,4),
     voice                        varchar(80),
@@ -608,6 +614,11 @@ CREATE TABLE model_provider
     -- V225: whether the sweep is allowed to ask this one anything. The timer
     -- only; Test Connection and every call made through the provider ignore it.
     check_enabled                boolean not null default true,
+    -- V293: default rate this provider's models hold themselves under, and
+    -- whether a 429's Retry-After is obeyed. A model overrides. Issue #426.
+    throttle_tokens_per_second   bigint,
+    throttle_requests_per_second double precision,
+    accept_retry_after           boolean not null default true,
     status                       varchar(16) not null default 'NOT_CONFIGURED',
     last_check_message           varchar(500),
     last_checked_at              timestamp,

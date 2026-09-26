@@ -248,6 +248,27 @@ class ModelProvider(
     @Column(name = "check_enabled", nullable = false)
     var checkEnabled: Boolean = true,
 
+    /**
+     * The default rate this provider's models hold themselves to, so a run
+     * stays under the provider's limit rather than being turned away with a
+     * 429. The tokens and the requests each second, either or both; a model may
+     * override them on its own page. Null is no default throttle. Issue #426.
+     */
+    @Column(name = "throttle_tokens_per_second")
+    var throttleTokensPerSecond: Long? = null,
+
+    @Column(name = "throttle_requests_per_second")
+    var throttleRequestsPerSecond: Double? = null,
+
+    /**
+     * Whether a 429's Retry-After is obeyed: waiting exactly what it says, and
+     * ahead of any node's own retry policy - retry-after wins. On by default;
+     * turned off for a provider whose Retry-After is not to be trusted. A model
+     * may override it. Issue #426.
+     */
+    @Column(name = "accept_retry_after", nullable = false)
+    var acceptRetryAfter: Boolean = true,
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     var status: ProviderStatus = ProviderStatus.NOT_CONFIGURED,
@@ -367,6 +388,26 @@ class LlmModel(
 
     @Column(name = "requests_per_minute")
     var requestsPerMinute: Int? = null,
+
+    /**
+     * This model's own throttle, overriding the provider's default where set.
+     *
+     * Limits differ per model, so the rate is the model's: every run using this
+     * model shares one budget and one growing delay, and a different model of
+     * the same provider shares none of it. Null on either field inherits the
+     * provider's default for it; a 0 turns that dimension off though the
+     * provider sets one. Distinct from [tokenLimit] and [requestsPerMinute],
+     * which are a spending cap that resets, not a rate to stay under. Issue #426.
+     */
+    @Column(name = "throttle_tokens_per_second")
+    var throttleTokensPerSecond: Long? = null,
+
+    @Column(name = "throttle_requests_per_second")
+    var throttleRequestsPerSecond: Double? = null,
+
+    /** Null inherits the provider's choice on obeying a 429's Retry-After. Issue #426. */
+    @Column(name = "accept_retry_after")
+    var acceptRetryAfter: Boolean? = null,
 
     @Column(name = "input_cost_per_million", precision = 12, scale = 4)
     var inputCostPerMillion: BigDecimal? = null,
