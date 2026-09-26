@@ -105,6 +105,22 @@ class PluginToolCaller(
      * tool's call makes and under the same two kindnesses.
      */
     fun call(agent: Agent, tool: PluginTool, arguments: String, sessionId: Long? = null): String {
+        /*
+         * A key, or the document where a key was meant. Issue #466.
+         *
+         * Every tool that takes a `contentKey` takes it precisely so the bytes
+         * do not travel through the model - and a model that has the document
+         * in front of it will sometimes send the document. What happened then
+         * was a lookup that failed, and an answer saying nothing was kept under
+         * eight thousand characters of HTML, which reads as the store being
+         * broken rather than as the argument being wrong.
+         *
+         * Refused here rather than in each plugin: it is the same mistake
+         * whatever the tool, and a rule every plugin has to remember is a rule
+         * half of them will not.
+         */
+        retypedKeyIn(arguments)?.let { said -> return mapper.writeValueAsString(mapOf("error" to said)) }
+
         val positional = argumentsFor(tool.params, arguments)
 
         val result = if (tool.declared.proxyOf != null) {
@@ -140,6 +156,33 @@ class PluginToolCaller(
                 mapper.writeValueAsString(mapOf("error" to result.reason))
             }
         }
+    }
+
+    /**
+     * Whether a key-shaped argument was given a document, and what to say.
+     * Issue #466.
+     *
+     * A key is short, one line and has no spaces - `pdf.1lt2fm6`, `report.zip`.
+     * Anything long, or with a line break in it, is the content: nothing that
+     * hands out keys has ever made one of those. Null where every key-shaped
+     * argument looks like a key, which is almost every call.
+     */
+    internal fun retypedKeyIn(arguments: String): String? {
+        val sent = runCatching { mapper.readTree(arguments) }.getOrNull() ?: return null
+        if (!sent.isObject) return null
+
+        sent.properties().forEach { (name, value) ->
+            if (!name.lowercase().endsWith("contentkey") || !value.isTextual) return@forEach
+            val given = value.stringValue()
+            val bad = given.length > MOST_KEY_CHARS || given.any { it == LINE_BREAK || it == RETURN }
+            if (bad) {
+                return "$name takes the key something handed you - a short name like report.zip - " +
+                    "not the content itself. What arrived is ${given.length} characters. " +
+                    "Call the tool that made or fetched this and pass the key its answer carried; " +
+                    "where it is in a scratchpad, keep the pad and pass that key."
+            }
+        }
+        return null
     }
 
     /** The same layout rule as a workspace tool's; see [WorkspaceToolCaller.argumentsFor]. */
@@ -178,6 +221,21 @@ class PluginToolCaller(
     }
 
     private companion object {
+
+        /**
+         * The longest a key is before what arrived is plainly a document.
+         * Issue #466.
+         *
+         * Keys here are short by construction - a tool names one after the file
+         * it made - and the longest anything hands out is well under this. A
+         * bound rather than a pattern, because a key is only ever compared for
+         * equality and nothing should have to guess its shape.
+         */
+        const val MOST_KEY_CHARS = 200
+
+        /** What no key has in it, and every document has. */
+        const val LINE_BREAK = 10.toChar()
+        const val RETURN = 13.toChar()
         val log = LoggerFactory.getLogger(PluginToolCaller::class.java)
     }
 }

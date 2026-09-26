@@ -3251,6 +3251,15 @@ enum LlmSessionOrder {
     here. A session nothing has been recorded in yet sorts last, whichever way round.
     """
     LAST_EVENT
+    """
+    By how many lines the session holds, which is its event count.
+
+    Ordered in the query rather than by a column, since nothing on the session
+    row holds it. Issue #419.
+    """
+    LINES
+    "By how many sessions were started under it by an agent asking another."
+    SUBAGENTS
 }
 
 """

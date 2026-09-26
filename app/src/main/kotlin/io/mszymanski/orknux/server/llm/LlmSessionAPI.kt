@@ -24,6 +24,17 @@ enum class LlmSessionOrder {
     KEY,
     CREATED,
     LAST_EVENT,
+
+    /**
+     * And the two the table draws that no column of it holds: how many lines a
+     * session has, and how many sessions were started under it. Issue #419.
+     *
+     * Every column on the list sorts now, which is what made the Sort control
+     * above it redundant - a second way to say the same thing, in words that
+     * did not match the headers.
+     */
+    LINES,
+    SUBAGENTS,
 }
 
 /**
@@ -88,12 +99,16 @@ class LlmSessionAPI(
     ): LlmSessionPageView {
         access.requireVisible(workspaceId)
 
-        val by = when (order ?: LlmSessionOrder.LAST_EVENT) {
+        val asking = order ?: LlmSessionOrder.LAST_EVENT
+        val up = ascending == true
+        val by = when (asking) {
             LlmSessionOrder.KEY -> "sessionKey"
             LlmSessionOrder.CREATED -> "createdAt"
             LlmSessionOrder.LAST_EVENT -> "lastEventAt"
+            // The two counts are ordered in the query; see below.
+            LlmSessionOrder.LINES, LlmSessionOrder.SUBAGENTS -> "id"
         }
-        val direction = if (ascending == true) Sort.Direction.ASC else Sort.Direction.DESC
+        val direction = if (up) Sort.Direction.ASC else Sort.Direction.DESC
         val sorted = Sort.by(
             Sort.Order(direction, by)
                 /*
@@ -111,8 +126,27 @@ class LlmSessionAPI(
                 .let { if (by == "lastEventAt") it.nullsLast() else it },
         )
 
-        val asked = PageRequest.of((page ?: 0).coerceAtLeast(0), (size ?: PAGE).coerceIn(1, BIGGEST_PAGE), sorted)
-        val found = sessions.search(workspaceId, search?.trim().orEmpty(), includeSubagents == true, asked)
+        /*
+         * A count is not a column, so the two that are counts carry their order
+         * in the query and are asked for unsorted. Everything else sorts the
+         * ordinary way. Issue #419.
+         */
+        val counted = asking == LlmSessionOrder.LINES || asking == LlmSessionOrder.SUBAGENTS
+        val room = PageRequest.of((page ?: 0).coerceAtLeast(0), (size ?: PAGE).coerceIn(1, BIGGEST_PAGE))
+        val asked = if (counted) room else room.withSort(sorted)
+        val looking = search?.trim().orEmpty()
+        val subagentsToo = includeSubagents == true
+        val found = when {
+            asking == LlmSessionOrder.LINES && up ->
+                sessions.searchByLinesAscending(workspaceId, looking, subagentsToo, asked)
+            asking == LlmSessionOrder.LINES ->
+                sessions.searchByLinesDescending(workspaceId, looking, subagentsToo, asked)
+            asking == LlmSessionOrder.SUBAGENTS && up ->
+                sessions.searchBySubagentsAscending(workspaceId, looking, subagentsToo, asked)
+            asking == LlmSessionOrder.SUBAGENTS ->
+                sessions.searchBySubagentsDescending(workspaceId, looking, subagentsToo, asked)
+            else -> sessions.search(workspaceId, looking, subagentsToo, asked)
+        }
         val ids = found.content.mapNotNull { it.id }
         val counts = countsFor(ids)
         // The status dot and the subagent count, each in one query for the whole

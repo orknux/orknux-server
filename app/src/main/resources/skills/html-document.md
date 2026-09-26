@@ -18,9 +18,12 @@ stylesheet where it has one, and its pictures.
 
 ## Steps
 
-1. **Settle the shape first, in one short line to the person:** which pages
-   there are, what each is for, and what they share. A site nobody agreed the
-   shape of is a site rebuilt twice.
+1. **Say the shape in one line, then build it in the same turn.** Which files
+   there will be and what each is for - one sentence, not a proposal. Do not
+   wait for approval: somebody who asked for a report wants the report, and a
+   turn that ends on a question has delivered nothing. Ask only where the
+   request is genuinely ambiguous and you would otherwise build the wrong thing,
+   and say what you will do if nobody answers.
 2. **One scratchpad per file.** `index.html`, `about.html`, `styles.css`, and so
    on, named as they will be named inside the archive. Never compose a page
    inside your answer: it costs the page twice and gets cut off.
@@ -35,10 +38,11 @@ stylesheet where it has one, and its pictures.
 5. **Read each pad back before you pack it.** What you meant to write and what
    is in the file are two different things, and the archive is made from the
    file.
-6. **Pack the site into one archive** with the zip tool: every page, the
-   stylesheet, and every picture that lives in the site, each named exactly as
-   the HTML refers to it. Pass the scratchpad names and the content keys; never
-   retype a file's content into the call.
+6. **Pack it into one archive** with the zip tool: every page, the stylesheet,
+   and every picture, each named exactly as the HTML refers to it. A name may
+   carry a folder - `charts/metals.png` puts it in a folder inside the archive,
+   which is all a folder is. Pass the scratchpad names and the content keys;
+   never retype a file's content into the call.
 7. **Hand over the archive's key** to whatever sends, uploads or saves a file,
    and say in one line what is in it.
 

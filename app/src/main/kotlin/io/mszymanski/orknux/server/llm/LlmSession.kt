@@ -437,6 +437,140 @@ interface LlmSessionRepository : JpaRepository<LlmSession, Long> {
     fun search(workspaceId: Long, search: String, includeSubagents: Boolean, pageable: Pageable): Page<LlmSession>
 
     /**
+     * The same list, ordered by something no column of this table holds: how
+     * many lines a session has, and how many sessions were started under it.
+     * Issue #419.
+     *
+     * Four methods rather than one, and the repetition is the point. A `Sort`
+     * can only name a property, and these two are counts over other tables - so
+     * the order goes in the query, and a query's order cannot be parameterised.
+     * Hiding that behind a string built in Kotlin would put the one part a
+     * reader needs to check out of their reach.
+     *
+     * Each falls back to the id, so a page boundary between two sessions with
+     * the same count does not shuffle between requests.
+     */
+    @Query(
+        """
+        select s from LlmSession s
+        where s.workspaceId = :workspaceId
+          and (:includeSubagents = true or s.parentSessionId is null)
+          and (
+            :search = ''
+            or lower(s.sessionKey) like lower(concat('%', :search, '%'))
+            or lower(coalesce(s.keyPrefix, '')) like lower(concat('%', :search, '%'))
+          )
+        order by (select count(e) from LlmSessionEvent e where e.sessionId = s.id) asc, s.id desc
+        """,
+        countQuery = """
+        select count(s) from LlmSession s
+        where s.workspaceId = :workspaceId
+          and (:includeSubagents = true or s.parentSessionId is null)
+          and (
+            :search = ''
+            or lower(s.sessionKey) like lower(concat('%', :search, '%'))
+            or lower(coalesce(s.keyPrefix, '')) like lower(concat('%', :search, '%'))
+          )
+        """,
+    )
+    fun searchByLinesAscending(
+        workspaceId: Long,
+        search: String,
+        includeSubagents: Boolean,
+        pageable: Pageable,
+    ): Page<LlmSession>
+
+    @Query(
+        """
+        select s from LlmSession s
+        where s.workspaceId = :workspaceId
+          and (:includeSubagents = true or s.parentSessionId is null)
+          and (
+            :search = ''
+            or lower(s.sessionKey) like lower(concat('%', :search, '%'))
+            or lower(coalesce(s.keyPrefix, '')) like lower(concat('%', :search, '%'))
+          )
+        order by (select count(e) from LlmSessionEvent e where e.sessionId = s.id) desc, s.id desc
+        """,
+        countQuery = """
+        select count(s) from LlmSession s
+        where s.workspaceId = :workspaceId
+          and (:includeSubagents = true or s.parentSessionId is null)
+          and (
+            :search = ''
+            or lower(s.sessionKey) like lower(concat('%', :search, '%'))
+            or lower(coalesce(s.keyPrefix, '')) like lower(concat('%', :search, '%'))
+          )
+        """,
+    )
+    fun searchByLinesDescending(
+        workspaceId: Long,
+        search: String,
+        includeSubagents: Boolean,
+        pageable: Pageable,
+    ): Page<LlmSession>
+
+    @Query(
+        """
+        select s from LlmSession s
+        where s.workspaceId = :workspaceId
+          and (:includeSubagents = true or s.parentSessionId is null)
+          and (
+            :search = ''
+            or lower(s.sessionKey) like lower(concat('%', :search, '%'))
+            or lower(coalesce(s.keyPrefix, '')) like lower(concat('%', :search, '%'))
+          )
+        order by (select count(c) from LlmSession c where c.parentSessionId = s.id) asc, s.id desc
+        """,
+        countQuery = """
+        select count(s) from LlmSession s
+        where s.workspaceId = :workspaceId
+          and (:includeSubagents = true or s.parentSessionId is null)
+          and (
+            :search = ''
+            or lower(s.sessionKey) like lower(concat('%', :search, '%'))
+            or lower(coalesce(s.keyPrefix, '')) like lower(concat('%', :search, '%'))
+          )
+        """,
+    )
+    fun searchBySubagentsAscending(
+        workspaceId: Long,
+        search: String,
+        includeSubagents: Boolean,
+        pageable: Pageable,
+    ): Page<LlmSession>
+
+    @Query(
+        """
+        select s from LlmSession s
+        where s.workspaceId = :workspaceId
+          and (:includeSubagents = true or s.parentSessionId is null)
+          and (
+            :search = ''
+            or lower(s.sessionKey) like lower(concat('%', :search, '%'))
+            or lower(coalesce(s.keyPrefix, '')) like lower(concat('%', :search, '%'))
+          )
+        order by (select count(c) from LlmSession c where c.parentSessionId = s.id) desc, s.id desc
+        """,
+        countQuery = """
+        select count(s) from LlmSession s
+        where s.workspaceId = :workspaceId
+          and (:includeSubagents = true or s.parentSessionId is null)
+          and (
+            :search = ''
+            or lower(s.sessionKey) like lower(concat('%', :search, '%'))
+            or lower(coalesce(s.keyPrefix, '')) like lower(concat('%', :search, '%'))
+          )
+        """,
+    )
+    fun searchBySubagentsDescending(
+        workspaceId: Long,
+        search: String,
+        includeSubagents: Boolean,
+        pageable: Pageable,
+    ): Page<LlmSession>
+
+    /**
      * How many sessions were started under each of these - the subagent count
      * the list shows. One query for a whole page rather than one per row, the
      * same bargain [LlmSessionEventRepository.countsFor] makes. The direct
