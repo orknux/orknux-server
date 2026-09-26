@@ -2,6 +2,8 @@ package io.mszymanski.orknux.workflow.temporal
 
 import io.mszymanski.orknux.workflow.execution.StepFailedException
 import io.mszymanski.orknux.workflow.execution.StepRunner
+import io.mszymanski.orknux.workflow.execution.StepStatus
+import io.mszymanski.orknux.workflow.execution.StepStoppedException
 import io.temporal.failure.ApplicationFailure
 import io.temporal.activity.ActivityInterface
 import io.temporal.activity.ActivityMethod
@@ -38,6 +40,10 @@ interface ExecutionActivities {
     /** Writes down that a failed step's failure edge is where the run went next. */
     @ActivityMethod
     fun recordFailureExit(command: RecordFailureExitCommand)
+
+    /** Ends a run that was asked to stop, where it stands. Issue #440. */
+    @ActivityMethod
+    fun stopRun(command: StopRunCommand)
 }
 
 /**
@@ -64,6 +70,15 @@ class ExecutionActivitiesImpl(private val steps: StepRunner) : ExecutionActiviti
                 )
             }
             throw failure
+        } catch (stopped: StepStoppedException) {
+            /*
+             * Cut short because the run was asked to stop. Answered normally
+             * rather than thrown, for the reason a parked step is: a thrown
+             * activity is one Temporal retries, and a stop that was retried
+             * would not be a stop. The step is already recorded; the workflow
+             * reads the flag and ends the run. Issue #440.
+             */
+            return StepReport(status = StepStatus.SKIPPED, stopped = true)
         }
         return StepReport(
             status = outcome.status,
@@ -90,5 +105,9 @@ class ExecutionActivitiesImpl(private val steps: StepRunner) : ExecutionActiviti
 
     override fun finishRun(command: FinishRunCommand) {
         steps.finishRun(command.executionId, command.stoppedAt, command.reason)
+    }
+
+    override fun stopRun(command: StopRunCommand) {
+        steps.stopRun(command.executionId)
     }
 }

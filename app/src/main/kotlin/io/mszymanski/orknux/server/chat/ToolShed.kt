@@ -25,6 +25,20 @@ interface ToolShed {
     /** What to offer the model, alongside the agent's own. */
     fun specs(): List<ToolSpec>
 
+    /**
+     * What the model is told about these tools in its briefing, or null where
+     * the descriptions say it all.
+     *
+     * A tool description says what a tool does; it does not say that the
+     * agent has one, or when to reach for it, and a model reads thirty of them
+     * and reaches for none. Memory search went unused until the briefing said
+     * there was a memory to search (9031e2e), and scratchpads went the same
+     * way until this. A shed that wants to be used says so here, in a
+     * paragraph appended to the system turn for the round it is lent. Issue
+     * #445.
+     */
+    fun briefing(): String? = null
+
     /** Whether this is one of the shed's, by exact name. */
     fun handles(name: String): Boolean
 
@@ -69,6 +83,10 @@ fun sheds(vararg lent: ToolShed?): ToolShed? {
         1 -> held.first()
         else -> object : ToolShed {
             override fun specs(): List<ToolSpec> = held.flatMap { it.specs() }
+
+            /** Each shed's paragraph, in the order lent; null where none has one. */
+            override fun briefing(): String? =
+                held.mapNotNull { it.briefing() }.takeIf { it.isNotEmpty() }?.joinToString("\n\n")
 
             override fun handles(name: String): Boolean = held.any { it.handles(name) }
 

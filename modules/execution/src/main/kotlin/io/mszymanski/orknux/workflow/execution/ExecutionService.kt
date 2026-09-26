@@ -21,6 +21,8 @@ class ExecutionService(
     private val executions: WorkflowExecutionRepository,
     private val steps: ExecutionStepRepository,
     private val logs: ExecutionLogRepository,
+    /** The steps in flight in this process, so a stop can cut one short. Issue #440. */
+    private val interrupts: StepInterrupts,
 ) {
 
     /**
@@ -120,13 +122,22 @@ class ExecutionService(
      * ends the run itself, so this returns the run as it stands - RUNNING still,
      * until the engine notices - and a caller that polls sees it become STOPPED.
      * A run that has already ended is left as it is; there is nothing to stop.
+     *
+     * A step in the middle of its work is cut short as well (#440): the flag
+     * alone is read only between steps and during a wait, and a step blocked
+     * on a model for two minutes would otherwise go on for the two minutes.
+     * Asked whether or not the flag was already set, so a second press reaches
+     * a step the first one did not find running yet.
      */
     @org.springframework.transaction.annotation.Transactional
     fun requestStop(id: Long): ExecutionDetailView? {
         val execution = executions.findByIdOrNull(id) ?: return null
-        if (execution.status == ExecutionStatus.RUNNING && !execution.stopRequested) {
-            execution.stopRequested = true
-            executions.save(execution)
+        if (execution.status == ExecutionStatus.RUNNING) {
+            if (!execution.stopRequested) {
+                execution.stopRequested = true
+                executions.save(execution)
+            }
+            interrupts.stop(id)
         }
         return detailOf(execution)
     }

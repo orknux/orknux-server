@@ -14,6 +14,8 @@ import com.openai.models.chat.completions.ChatCompletionStreamOptions
 import com.openai.models.chat.completions.ChatCompletionToolMessageParam
 import com.openai.models.chat.completions.ChatCompletionUserMessageParam
 import org.springframework.stereotype.Component
+import java.util.concurrent.CancellationException
+import java.util.concurrent.ExecutionException
 
 /**
  * The OpenAI-shaped half of a chat, spoken through the official SDK.
@@ -52,19 +54,54 @@ class OpenAiChat(
     private fun argumentsBroken(arguments: String): Boolean =
         arguments.isNotBlank() && runCatching { mapper.readTree(arguments) }.getOrNull() == null
 
-    /** One answer, waited for. */
+    /**
+     * One answer, waited for.
+     *
+     * @param hangup somebody who may give up on the call while it is still
+     *   running, or null for the caller that cannot. There is no stream to
+     *   close here, so what is torn down is the request: it is made through
+     *   the SDK's asynchronous client and waited on, and cancelling that wait
+     *   is what the SDK turns into cancelling the HTTP call underneath - a
+     *   blocking `create` offers nothing to cancel, and a socket read does not
+     *   wake on an interrupt. Issue #440.
+     */
     fun complete(
         provider: ModelProvider,
         model: LlmModel,
         turns: List<ChatTurn>,
         tools: List<ToolSpec>,
+        hangup: Hangup? = null,
     ): Outcome {
+        if (hangup?.hungUp == true) return Outcome.Failed(HUNG_UP)
+
         val client = when (val ready = ready(provider)) {
             is Ready.No -> return Outcome.Failed(ready.reason)
             is Ready.Yes -> ready.client
         }
 
-        val answer = clients.again { client.chat().completions().create(params(model, turns, tools).build()) }
+        val params = params(model, turns, tools).build()
+        val answer = try {
+            clients.again {
+                val asked = client.async().chat().completions().create(params)
+                hangup?.holding { asked.cancel(true) }
+                try {
+                    asked.get()
+                } catch (failed: ExecutionException) {
+                    // What the call threw, not the future's wrapper around it:
+                    // `again` reads the SDK's own exception to decide whether
+                    // a closed connection is worth one more go.
+                    throw failed.cause ?: failed
+                } finally {
+                    hangup?.letGo()
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            // Hung up on: the wait was cancelled and the request with it. Not
+            // an answer, and said in the words every hung-up call uses.
+            return Outcome.Failed(HUNG_UP)
+        }
+        if (hangup?.hungUp == true) return Outcome.Failed(HUNG_UP)
+
         val said = answer.choices().firstOrNull()?.message()
         val calls = said?.toolCalls()?.orElse(null).orEmpty()
             .filter { it.isFunction() }

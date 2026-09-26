@@ -160,6 +160,17 @@ class StepFailedException(
 ) : RuntimeException(reason), PermanentFailure
 
 /**
+ * Raised when a step ended because its run was asked to stop. Issue #440.
+ *
+ * Not a failure, and deliberately not a subclass of one: nothing went wrong
+ * with the step, somebody decided the run should end, and a catch written for
+ * failures - a retry policy, a failure edge, Temporal's own retries - must not
+ * see it. The step is already recorded by the time this is thrown; what is
+ * left is for whichever engine is carrying the run to end the run.
+ */
+class StepStoppedException(val nodeKey: String) : RuntimeException("$nodeKey was stopped by request")
+
+/**
  * The work of one step, and the two ways a run ends.
  *
  * Everything here is a single step's worth of work with its own writes, so it
@@ -180,6 +191,8 @@ class StepRunner(
      * an activity. Counting in either engine would count one deployment's runs.
      */
     private val metrics: WorkflowRunMetrics,
+    /** Where a running step is registered, so a stop can reach it mid-call. Issue #440. */
+    private val interrupts: StepInterrupts,
 ) {
 
     /**
@@ -245,8 +258,18 @@ class StepRunner(
                 // What began the run, alongside what it is carrying now. The second
                 // is what lets a step deep in the graph still ask about the event
                 // that started everything.
-                runnerFor(step.kind).run(step, input, execution.input)
+                //
+                // Registered while it runs, so a stop asked mid-call reaches the
+                // call rather than waiting for it to finish on its own. #440.
+                interrupts.stoppable(executionId, nodeKey) {
+                    runnerFor(step.kind).run(step, input, execution.input)
+                }
             }
+        } catch (interrupted: StepInterruptedException) {
+            // The runner threw because the run was asked to stop and the call it
+            // was in was cut short. Not a failure, so no policy is consulted and
+            // nothing is parked: a stop that was retried would not be a stop.
+            stopStep(executionId, step)
         } catch (failure: Exception) {
             // A runner that knows its failure is final says so, and that travels
             // with the step: Temporal reads it and stops retrying something that
@@ -461,6 +484,29 @@ class StepRunner(
     }
 
     /**
+     * Records a step that was cut short because its run was asked to stop, and
+     * hands the ending to the engine. Issue #440.
+     *
+     * SKIPPED, with a line saying why, rather than FAILED or PENDING. It did not
+     * fail - nothing about it went wrong, and a red step saying "stopped by
+     * request" would send somebody looking for a fault. It was not unreached
+     * either: it started, and has the times to show it. Skipped is the status
+     * the run already uses for a step that was not carried out for a reason
+     * that is the run's rather than the step's, and the output is where such a
+     * step says its reason. It does not go through [failStep], so no policy
+     * sees it and no attempt is spent.
+     */
+    private fun stopStep(executionId: Long, step: ExecutionStep): Nothing {
+        step.status = StepStatus.SKIPPED
+        step.output = STOPPED_STEP
+        step.error = null
+        step.finishedAt = OffsetDateTime.now()
+        steps.save(step)
+        log.write(executionId, step.nodeKey, LogLevel.INFO, "${step.name} was stopped before it finished")
+        throw StepStoppedException(step.nodeKey)
+    }
+
+    /**
      * Records a step the run went past, because the branch that reaches it was
      * not the one taken.
      *
@@ -539,7 +585,8 @@ class StepRunner(
      * completion or a failure: a stopped run did neither, and it does not
      * resume. The steps it had not reached stay PENDING, which on a run that
      * has ended reads as "never reached", the same as a run stopped by a
-     * condition.
+     * condition. A step the stop cut short is already recorded by [stopStep]
+     * as skipped, saying so. Issue #440.
      */
     fun stopRun(executionId: Long): WorkflowExecution {
         val execution = executionOf(executionId)
@@ -568,6 +615,9 @@ class StepRunner(
 
         /** What a stopped run says for why it ended. Issue #395. */
         const val STOP_REASON = "stopped by request"
+
+        /** What a step cut short by a stop says for itself. Issue #440. */
+        const val STOPPED_STEP = "Stopped by request before it finished"
 
         /** What a step whose node is switched off says for itself. Issue #439. */
         const val DISABLED_REASON = "Skipped: the node is disabled"

@@ -247,6 +247,13 @@ class AgentConversation(
     ): ChatCompletion {
         val holding = tools.offeringFor(agent)
         val lent = shed?.specs().orEmpty()
+        /*
+         * And what the lent tools want said about themselves, put with the
+         * briefing. A shed's descriptions say what its tools do; its briefing
+         * says that the agent has them and when to reach for one, which is the
+         * half a model acts on - see [ToolShed.briefing]. Issue #445.
+         */
+        val told = briefed(turns, shed?.briefing())
 
         /*
          * Whether everything fits in one request.
@@ -345,11 +352,11 @@ class AgentConversation(
              * would be drawn twice.
              */
             val once = if (watch == null) {
-                models.complete(modelId, turns).also { told(watch, it) }
+                models.complete(modelId, told, hangup = hangup).also { told(watch, it) }
             } else {
                 models.stream(
                     modelId,
-                    turns,
+                    told,
                     onThinking = { watch.thinking(it) },
                     hangup = hangup,
                 ) { watch.answering() }
@@ -357,7 +364,7 @@ class AgentConversation(
             return once.also { record(into, agent, it) }
         }
 
-        val conversation = turns.toMutableList()
+        val conversation = told.toMutableList()
         var spent = 0L
         /*
          * And what the rounds cost, added up the same way the time is.
@@ -447,8 +454,11 @@ class AgentConversation(
              * chat — a task's loop, a workflow's agent — on the path they were
              * already on.
              */
+            // The hangup reaches the blocking call as well as the stream: a
+            // workflow's agent node is stopped this way, and most of them keep
+            // no session and so nobody watching. Issue #440.
             val answer = if (watch == null) {
-                models.complete(modelId, conversation, offered)
+                models.complete(modelId, conversation, offered, hangup = hangup)
             } else {
                 models.stream(
                     modelId,
@@ -682,6 +692,24 @@ class AgentConversation(
      * passed on. Written out rather than folded into [record], which is about
      * what is kept rather than about who is watching.
      */
+    /**
+     * The turns with a lent shed's briefing added to the system turn.
+     *
+     * Appended to the system turn where there is one and put first as one where
+     * there is not, because that is where a model reads standing instructions
+     * from; a paragraph in the user's turn would read as the user's. Nothing to
+     * add hands the turns back as they came, so a round with nothing lent is
+     * the round it always was. Issue #445.
+     */
+    private fun briefed(turns: List<ChatTurn>, advice: String?): List<ChatTurn> {
+        if (advice.isNullOrBlank()) return turns
+        val system = turns.indexOfFirst { it.role == "system" }
+        if (system == -1) return listOf(ChatTurn(role = "system", content = advice)) + turns
+        return turns.mapIndexed { index, turn ->
+            if (index == system) turn.copy(content = turn.content.trimEnd() + "\n\n" + advice) else turn
+        }
+    }
+
     private fun told(watch: RoundWatch?, answer: ChatCompletion) {
         if (watch == null) return
         val reasoning = when (answer) {

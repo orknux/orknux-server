@@ -1,7 +1,9 @@
 package io.mszymanski.orknux.workflow.temporal
 
 import io.mszymanski.orknux.server.OrknuxServer
+import io.mszymanski.orknux.workflow.execution.Blocking
 import io.mszymanski.orknux.workflow.execution.ExecutionPlanner
+import io.mszymanski.orknux.workflow.execution.ExecutionService
 import io.mszymanski.orknux.workflow.execution.ExecutionStatus
 import io.mszymanski.orknux.workflow.execution.ExecutionStepRepository
 import io.mszymanski.orknux.workflow.execution.EdgeBranch
@@ -18,7 +20,9 @@ import io.mszymanski.orknux.workflow.execution.WorkflowExecutionRepository
 import io.mszymanski.orknux.workflow.execution.WorkflowGraph
 import io.mszymanski.orknux.workflow.execution.WorkflowGraphSource
 import io.temporal.activity.ActivityOptions
+import io.temporal.client.WorkflowClient
 import io.temporal.client.WorkflowOptions
+import io.temporal.client.WorkflowStub
 import io.temporal.common.RetryOptions
 import io.temporal.testing.TestWorkflowEnvironment
 import io.temporal.worker.WorkflowImplementationOptions
@@ -31,6 +35,7 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
 import org.springframework.test.context.TestPropertySource
 import java.time.Duration
+import java.util.concurrent.TimeUnit
 
 /**
  * The interpreter, against Temporal's in-process test service: a real workflow
@@ -46,6 +51,7 @@ import java.time.Duration
 class ExecutionWorkflowTest(
     @Autowired val planner: ExecutionPlanner,
     @Autowired val activities: ExecutionActivities,
+    @Autowired val runs: ExecutionService,
     @Autowired val executions: WorkflowExecutionRepository,
     @Autowired val steps: ExecutionStepRepository,
     @Autowired val logs: ExecutionLogRepository,
@@ -323,6 +329,46 @@ class ExecutionWorkflowTest(
         assertThat(recorded.getValue("ok-through").status).isEqualTo(StepStatus.COMPLETED)
         assertThat(recorded.getValue("ok-through").input).isEqualTo("ok did the work")
         assertThat(recorded.getValue("ok-refused").status).isEqualTo(StepStatus.SKIPPED)
+    }
+
+    /**
+     * A stop that lands mid-step, carried by Temporal. Issue #440.
+     *
+     * The activity runs on a worker thread in this process, where the step's
+     * interrupt can reach it; what is asserted is that the activity answers a
+     * stop as a report rather than a failure - so Temporal has nothing to retry
+     * - and that the workflow ends the run STOPPED on reading it, the same
+     * ending the inline engine gives.
+     */
+    @Test
+    fun `a stop cuts short a step mid-call, and the workflow ends the run stopped`() {
+        Blocking.reset()
+        val plan = plan(
+            WorkflowGraph(
+                workflowId = WORKFLOW,
+                name = "Nightly Report",
+                nodes = listOf(retrying("block-model", attempts = 3), node("ok-onwards")),
+                edges = listOf(GraphEdge("block-model", "ok-onwards")),
+            ),
+        )
+        val stub = workflow()
+        WorkflowClient.start(stub::run, plan)
+        assertThat(Blocking.entered(within = Duration.ofSeconds(10))).isEqualTo(plan.executionId)
+
+        runs.requestStop(plan.executionId)
+        val status = WorkflowStub.fromTyped(stub).getResult(5, TimeUnit.SECONDS, ExecutionStatus::class.java)
+
+        assertThat(status).isEqualTo(ExecutionStatus.STOPPED)
+        val execution = executions.findById(plan.executionId).orElseThrow()
+        assertThat(execution.status).isEqualTo(ExecutionStatus.STOPPED)
+        assertThat(execution.stoppedReason).isEqualTo("stopped by request")
+
+        val recorded = steps.findByExecutionIdOrderByOrderAsc(plan.executionId).associateBy { it.nodeKey }
+        assertThat(recorded.getValue("block-model").status).isEqualTo(StepStatus.SKIPPED)
+        assertThat(recorded.getValue("block-model").output).isEqualTo("Stopped by request before it finished")
+        // Once: neither the node's policy nor Temporal's retries spent another attempt on it.
+        assertThat(recorded.getValue("block-model").attempts).isEqualTo(1)
+        assertThat(recorded.getValue("ok-onwards").status).isEqualTo(StepStatus.PENDING)
     }
 
     private fun workflow() = environment.workflowClient.newWorkflowStub(

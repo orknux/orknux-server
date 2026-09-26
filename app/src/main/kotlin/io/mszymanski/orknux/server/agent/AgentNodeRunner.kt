@@ -2,6 +2,7 @@ package io.mszymanski.orknux.server.agent
 
 import io.mszymanski.orknux.connector.model.ChatCompletion
 import io.mszymanski.orknux.connector.model.ChatTurn
+import io.mszymanski.orknux.connector.model.Hangup
 import io.mszymanski.orknux.server.chat.AgentBriefing
 import io.mszymanski.orknux.server.chat.AgentConversation
 import io.mszymanski.orknux.server.llm.LlmSessionKeyTooLongException
@@ -18,6 +19,7 @@ import io.mszymanski.orknux.workflow.execution.NodeRunner
 import io.mszymanski.orknux.workflow.execution.LogLevel
 import io.mszymanski.orknux.workflow.execution.RunLogger
 import io.mszymanski.orknux.workflow.execution.StepFailedException
+import io.mszymanski.orknux.workflow.execution.StepInterrupts
 import io.mszymanski.orknux.workflow.execution.StepResult
 import io.mszymanski.orknux.workflow.execution.StepStatus
 import io.mszymanski.orknux.server.obj.ObjectShapes
@@ -74,7 +76,7 @@ class AgentNodeRunner(
     private val todos: io.mszymanski.orknux.server.chat.TodoTools,
     /** What lets an agent ask what the current time is; see [DateTools]. Issue #407. */
     private val dates: io.mszymanski.orknux.server.chat.DateTools,
-    /** The agent's setup, snapshotted at the start of a session; see [AgentDetails]. Issue #391. */
+    /** The agent's setup, written into the log where it changes; see [AgentDetails]. Issues #391, #441. */
     private val agentDetails: AgentDetails,
     private val budgets: SessionMemoryBudgets,
     private val shapes: ObjectShapes,
@@ -242,10 +244,18 @@ class AgentNodeRunner(
         // it produced. The engine saves the step whether this round completes or
         // parks, so a still-talking agent is reachable too. Issue #387.
         step.sessionId = session
-        // The agent's setup, kept once at the start of the session, so its log
-        // opens with the context its words were said in. Only on the first pass:
-        // a wake re-runs this and the record is already there. Issue #391.
-        if (step.agentSleeps == 0) sessions.describeAgent(session, agentDetails.snapshot(agent))
+        /*
+         * The agent's setup, written into the log where this agent starts
+         * responding - if it differs from the last setup logged there. A
+         * session is not this node's alone: a Slack thread's session is
+         * answered by whichever agent node a run points at it, and an agent is
+         * edited between turns, so the log says which setup each stretch of it
+         * was answered under rather than the one that opened it. On every pass,
+         * a wake included: the recorder compares and writes nothing for the
+         * same setup, and an agent edited while its step slept is a change
+         * worth a line. Issues #391, #441.
+         */
+        sessions.describeAgent(session, agentDetails.snapshot(agent))
 
         /*
          * How much of it this agent is allowed to bring back.
@@ -460,8 +470,22 @@ class AgentNodeRunner(
             ),
         )
 
+        /*
+         * And the way to end the call early, handed to the step's interrupt.
+         *
+         * Stop on the run used to be read between steps only, so an agent in
+         * the middle of a two-minute model call carried on for the two minutes
+         * and the run noticed afterwards. The hangup is what a chat's Stop
+         * button pulls, and it does the same here: the stream is closed, or
+         * the blocking request cancelled, and the round comes back a failure
+         * nobody is left to read - which the engine records as a stopped step
+         * rather than a failed one, because it asked. Issue #440.
+         */
+        val hangup = Hangup()
         val answer = try {
-            conversation.answer(modelId, agent, turns, session, shed = shed, watch = watching)
+            stoppable(hangup) {
+                conversation.answer(modelId, agent, turns, session, shed = shed, watch = watching, hangup = hangup)
+            }
         } catch (finished: AnswerFinished) {
             val wake = finished.wake
             if (wake != null) {
@@ -548,6 +572,18 @@ class AgentNodeRunner(
                 permanent = true,
             )
         }
+    }
+
+    /**
+     * Runs [body] with [hangup] pulled if the run is asked to stop meanwhile.
+     *
+     * Only where this thread is carrying a workflow step, which is where the
+     * interrupt is registered; a chat or a task reaching this runner some other
+     * way has nothing to register with and simply runs. Issue #440.
+     */
+    private fun <T> stoppable(hangup: Hangup, body: () -> T): T {
+        val interrupt = StepInterrupts.current() ?: return body()
+        return interrupt.holding({ hangup.hangUp() }, body)
     }
 
     /**

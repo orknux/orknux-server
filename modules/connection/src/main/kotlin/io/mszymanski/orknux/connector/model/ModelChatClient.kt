@@ -13,6 +13,7 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
+import java.util.concurrent.ExecutionException
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 import tools.jackson.databind.node.ArrayNode
@@ -691,11 +692,28 @@ class ModelChatClient(
     /**
      * @param tools what the model may call. Empty means it answers or fails —
      *   which is every caller that is not running an agent.
+     * @param hangup somebody who may give up on this call while it is still
+     *   running, or null for the caller that cannot. A blocking call has no
+     *   stream to close, so what is handed over is the request itself: the
+     *   future it is waited on is cancelled, which cancels the request under
+     *   it, and the wait ends with a failure nobody is left to read. Also
+     *   asked before the call is made and after the throttle has been waited
+     *   out, because a stop that lands during the wait for the model's turn
+     *   must not be followed by the call it was waiting to make. Issue #440.
      */
-    fun complete(modelId: Long, turns: List<ChatTurn>, tools: List<ToolSpec> = emptyList()): ChatCompletion {
+    fun complete(
+        modelId: Long,
+        turns: List<ChatTurn>,
+        tools: List<ToolSpec> = emptyList(),
+        hangup: Hangup? = null,
+    ): ChatCompletion {
+        if (hangup?.hungUp == true) return ChatCompletion.Failed(HUNG_UP, permanent = false)
         val limits = throttled(modelId)
+        if (hangup?.hungUp == true) return ChatCompletion.Failed(HUNG_UP, permanent = false)
         spoken(modelId)?.let { shape ->
-            return through(modelId, shape, limits) { openAi.complete(shape.provider, shape.model, turns, tools) }
+            return through(modelId, shape, limits) {
+                openAi.complete(shape.provider, shape.model, turns, tools, hangup)
+            }
         }
 
         val call = prepare(modelId, turns, streaming = false, tools = tools)
@@ -708,14 +726,30 @@ class ModelChatClient(
         while (true) {
             val started = System.nanoTime()
             val response = try {
-                client.send(ready.request, HttpResponse.BodyHandlers.ofString())
+                /*
+                 * Sent and then waited for, rather than `send`, so there is a
+                 * handle to cancel: cancelling the future cancels the exchange
+                 * under it, which is what a hangup means for a call that has
+                 * no stream to close. Waiting on it is what `send` does too,
+                 * and it ends the same way on an interrupt. Issue #440.
+                 */
+                val sent = client.sendAsync(ready.request, HttpResponse.BodyHandlers.ofString())
+                hangup?.holding { sent.cancel(true) }
+                try {
+                    sent.get()
+                } finally {
+                    hangup?.letGo()
+                }
             } catch (failure: Exception) {
+                if (hangup?.hungUp == true) return ChatCompletion.Failed(HUNG_UP, permanent = false)
                 // Nothing came back at all: a socket that closed, a name that
                 // did not resolve, the request timeout running out on a model
                 // still thinking. None of it is the provider's answer, so none
-                // of it is settled.
-                log.warn("Calling {} failed", ready.request.uri(), failure)
-                return ChatCompletion.Failed(failure.message ?: "The provider could not be reached", permanent = false)
+                // of it is settled. The future wraps what went wrong, and the
+                // sentence wanted is the wrapped one's.
+                val cause = (failure as? ExecutionException)?.cause ?: failure
+                log.warn("Calling {} failed", ready.request.uri(), cause)
+                return ChatCompletion.Failed(cause.message ?: "The provider could not be reached", permanent = false)
             }
             val millis = (System.nanoTime() - started) / 1_000_000
 

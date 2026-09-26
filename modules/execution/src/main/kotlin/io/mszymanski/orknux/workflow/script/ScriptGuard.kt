@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.workflow.script
 
+import io.mszymanski.orknux.workflow.execution.StepInterrupts
 import org.graalvm.polyglot.Context
 import java.lang.management.ManagementFactory
 import java.lang.management.MemoryPoolMXBean
@@ -75,8 +76,13 @@ internal data class Bounds(
     val queueMillis: Long,
 )
 
-/** Which of the host's bounds a run ran into. */
-internal enum class Overrun { TIME, MEMORY }
+/**
+ * Which of the host's bounds a run ran into - or, [STOPPED], that it ran into
+ * none and was cancelled because the workflow run it belongs to was asked to
+ * stop. Issue #440. Carried here because the cancelled context says only that
+ * somebody stopped it, and the sentence for a stop must not be the timeout's.
+ */
+internal enum class Overrun { TIME, MEMORY, STOPPED }
 
 /** There was no permit to be had in time. Not the script's fault, and worth retrying. */
 internal class ScriptBusyException(message: String) : RuntimeException(message)
@@ -137,7 +143,25 @@ internal class ScriptGuard(name: String, private val bounds: Bounds) {
                     TimeUnit.MILLISECONDS,
                 )
                 try {
-                    body(polyglot)
+                    /*
+                     * And cancelled the same way, from outside, if the workflow
+                     * run this script belongs to is asked to stop while it is
+                     * running. A script blocks nothing the interrupt could wake
+                     * - it is computing, or waiting on the host - and the one
+                     * thing that ends it is the context being closed, which is
+                     * exactly what the watchdog does for an overrun. Off any
+                     * workflow step - the editor's Run, a chat's tool - there is
+                     * nothing to register with and the body simply runs. #440.
+                     */
+                    val interrupt = StepInterrupts.current()
+                    if (interrupt == null) {
+                        body(polyglot)
+                    } else {
+                        interrupt.holding({
+                            stopped.compareAndSet(null, Overrun.STOPPED)
+                            runCatching { polyglot.close(true) }
+                        }) { body(polyglot) }
+                    }
                 } finally {
                     sampler.cancel(false)
                 }
@@ -151,6 +175,7 @@ internal class ScriptGuard(name: String, private val bounds: Bounds) {
     fun overrunReason(stopped: Overrun?, timeoutMillis: Long? = null): String? = when (stopped) {
         Overrun.MEMORY -> "was taking more of the heap than the server could spare"
         Overrun.TIME -> "took longer than ${timeoutMillis ?: bounds.timeoutMillis} ms"
+        Overrun.STOPPED -> "was cut short because its run was asked to stop"
         null -> null
     }
 

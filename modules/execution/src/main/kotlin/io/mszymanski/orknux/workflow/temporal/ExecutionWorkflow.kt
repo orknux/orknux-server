@@ -125,6 +125,20 @@ data class StepReport @JsonCreator constructor(
      * hours without holding a worker for any of them.
      */
     @JsonProperty("resumeAfterSeconds") val resumeAfterSeconds: Long? = null,
+    /**
+     * True when the step was cut short because the run was asked to stop, and
+     * the workflow should end the run rather than go on. Issue #440.
+     *
+     * Defaulted, like [RunPlan.blocked] and for the same reason: a run in
+     * flight when this was added replays from a history written without it,
+     * and an absent flag has to read as the report it always was.
+     */
+    @JsonProperty("stopped") val stopped: Boolean = false,
+)
+
+/** A run that was asked to stop, to be ended where it stands. Issue #440. */
+data class StopRunCommand @JsonCreator constructor(
+    @JsonProperty("executionId") val executionId: Long,
 )
 
 /** What ended the run, when something decided there was nothing further to do. */
@@ -211,6 +225,16 @@ class ExecutionWorkflowImpl : ExecutionWorkflow {
                         ),
                     )
                     return ExecutionStatus.FAILED
+                }
+
+                /*
+                 * The step was cut short because somebody asked the run to
+                 * stop: the same ending the inline engine gives it, so a run
+                 * stops the same way whichever engine carries it. Issue #440.
+                 */
+                if (attempt.stopped) {
+                    activities.stopRun(StopRunCommand(plan.executionId))
+                    return ExecutionStatus.STOPPED
                 }
 
                 if (attempt.status != StepStatus.WAITING) {

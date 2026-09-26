@@ -99,9 +99,11 @@ class InlineExecutionEngine(
 
             val outcome = try {
                 runToDecision(executionId, step.nodeKey)
-            } catch (stopped: RunStopped) {
-                // Asked to stop while this step was waiting. Issue #395.
-                log.info("Execution {} was stopped while waiting at {}", executionId, step.nodeKey)
+            } catch (stopped: StepStoppedException) {
+                // Asked to stop while this step was waiting (#395), or while it
+                // was in the middle of its work and the work was cut short (#440).
+                // Either way the step is recorded and the run ends here.
+                log.info("Execution {} was stopped at {}", executionId, step.nodeKey)
                 return steps.stopRun(executionId)
             } catch (failure: StepFailedException) {
                 /*
@@ -172,30 +174,28 @@ class InlineExecutionEngine(
             log.debug("Execution {} is waiting {}s at {}", executionId, pause.toSeconds(), nodeKey)
             // Slept in chunks so a stop asked during a long wait is noticed
             // within a chunk rather than only when the wait is over. Issue #395.
-            sleepUnlessStopped(executionId, pause)
+            sleepUnlessStopped(executionId, nodeKey, pause)
         }
     }
 
     /**
-     * Sleeps for [pause], in chunks, and throws [RunStopped] the moment the run
-     * is asked to stop. Issue #395.
+     * Sleeps for [pause], in chunks, and throws [StepStoppedException] the
+     * moment the run is asked to stop. Issue #395.
      *
      * The chunk is what makes a stop take effect during a wait rather than only
      * after it: a node parked for ten minutes would otherwise be un-stoppable
-     * until it woke on its own.
+     * until it woke on its own. The same exception a step cut short mid-work
+     * throws, so the loop above has one way of ending a stopped run. #440.
      */
-    private fun sleepUnlessStopped(executionId: Long, pause: Duration) {
+    private fun sleepUnlessStopped(executionId: Long, nodeKey: String, pause: Duration) {
         var left = pause
         while (left > Duration.ZERO) {
-            if (steps.wasStopAsked(executionId)) throw RunStopped()
+            if (steps.wasStopAsked(executionId)) throw StepStoppedException(nodeKey)
             val chunk = if (left < STOP_POLL) left else STOP_POLL
             Thread.sleep(chunk.toMillis())
             left -= chunk
         }
     }
-
-    /** Thrown to end a run that was asked to stop while it was waiting. Issue #395. */
-    private class RunStopped : RuntimeException()
 
     private companion object {
         val log = LoggerFactory.getLogger(InlineExecutionEngine::class.java)
