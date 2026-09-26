@@ -26,7 +26,15 @@ class BuiltInSkillsTest(
         val catalog = builtIn.catalogs().single()
         assertThat(catalog.name).isEqualTo(BuiltInSkills.CATALOG)
         assertThat(catalog.plugin).isEqualTo("Orknux")
-        assertThat(catalog.skills.map { it.name }).contains("Caveman", "TL;DR")
+        assertThat(catalog.skills.map { it.name }).contains("Caveman", "TL;DR", "Angryman", "Grill me")
+        // Every one of them is a skill by the rules a workspace's own is held
+        // to - the frontmatter, a body - because nothing downstream knows these
+        // came from a file rather than a row.
+        catalog.skills.forEach { skill ->
+            assertThat(SkillFormat.check(skill.content).valid).describedAs(skill.name).isTrue()
+            assertThat(skill.description).describedAs(skill.name).isNotBlank()
+            assertThat(SkillKeys.usable(skill.key)).describedAs(skill.key).isTrue()
+        }
 
         val caveman = catalog.skills.single { it.name == "Caveman" }
         assertThat(caveman.key).isEqualTo("caveman")
