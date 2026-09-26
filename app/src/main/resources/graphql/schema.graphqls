@@ -774,6 +774,16 @@ type Query {
     """
     sessionScratchpad(sessionId: ID!, name: String!): SessionScratchpadContent
     """
+    The workflow run or runs that wrote into this session, newest first. Issue
+    #420.
+
+    The reverse of what a run records: an agent step files which session it
+    talked into, and this reads a session back to the runs that produced it.
+    Usually one; several where more than one run computed the same session key.
+    Empty for a session nothing wrote into, such as a chat.
+    """
+    sessionExecutions(sessionId: ID!): [SessionExecutionLink!]!
+    """
     A workspace's tasks, newest first.
 
     What each one has *done* is not here: a task's event log is an LLM session,
@@ -2985,6 +2995,23 @@ type SessionScratchpadContent {
     bytes: Int!
     shared: Boolean!
     ownedHere: Boolean!
+}
+
+"""
+A workflow run that wrote into a session, as the session page links to it.
+Issue #420.
+
+Small on purpose: enough to tell one run from another where several wrote into
+one session - the workflow's name, when it started, and where it got to - and
+the id to open it.
+"""
+type SessionExecutionLink {
+    id: ID!
+    "The name the workflow had when the run started."
+    workflowName: String!
+    "ISO-8601 offset date-time."
+    startedAt: String!
+    status: ExecutionStatus!
 }
 
 """

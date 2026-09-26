@@ -69,6 +69,8 @@ class LlmSessionAPI(
     private val mapper: tools.jackson.databind.ObjectMapper,
     /** The session's working files, listed and read beside its transcript. Issue #429. */
     private val pads: SessionScratchpadService,
+    /** The runs that wrote into a session, read back from execution_step.session_id. Issue #420. */
+    private val executions: io.mszymanski.orknux.workflow.execution.ExecutionService,
 ) {
 
     @QueryMapping
@@ -142,6 +144,29 @@ class LlmSessionAPI(
         val unfinished = events.unfinished(id, Long.MAX_VALUE, PageRequest.of(0, 1)).isNotEmpty()
         val subagents = sessions.subagentCountsFor(listOf(id)).firstOrNull()?.total?.toInt() ?: 0
         return describe(session, events.countBySessionId(id).toInt(), active(session, unfinished), subagents)
+    }
+
+    /**
+     * The workflow run or runs that wrote into this session. Issue #420.
+     *
+     * The reverse of what a run records: an agent step files which session it
+     * talked into, and this reads a session back to the runs that produced it.
+     * Usually one; several where more than one run computed the same session
+     * key. Empty for a session nothing wrote into, such as a chat - so the page
+     * draws nothing rather than an empty control.
+     *
+     * Checked on the session's own workspace, like the transcript beside it: the
+     * access check is on the row rather than an id the caller names, so naming a
+     * workspace one can see does not open another's runs.
+     */
+    @QueryMapping
+    @Transactional(readOnly = true)
+    fun sessionExecutions(
+        @Argument sessionId: Long,
+    ): List<io.mszymanski.orknux.workflow.execution.SessionExecutionLink> {
+        val session = sessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
+        access.requireVisible(session.workspaceId)
+        return executions.executionsForSession(sessionId)
     }
 
     /**

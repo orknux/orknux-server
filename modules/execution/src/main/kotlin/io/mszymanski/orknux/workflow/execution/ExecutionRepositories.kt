@@ -81,6 +81,23 @@ interface ExecutionStepRepository : JpaRepository<ExecutionStep, Long> {
     fun findByExecutionIdAndNodeKey(executionId: Long, nodeKey: String): ExecutionStep?
 
     /**
+     * The runs that wrote into one session: the distinct executions whose steps
+     * name it. Issue #420.
+     *
+     * The reverse of [ExecutionStep.sessionId] - a step records which session
+     * its agent talked into, and this reads it the other way, so a session's
+     * page can find the run or runs that produced it. Distinct because a run
+     * that touched one session in more than one step is still one run.
+     */
+    @Query(
+        """
+        select distinct s.executionId from ExecutionStep s
+        where s.sessionId = :sessionId
+        """,
+    )
+    fun executionIdsForSession(sessionId: Long): List<Long>
+
+    /**
      * Runs left parked past their wake, for the sweeper that carries them on.
      * Issue #406.
      *

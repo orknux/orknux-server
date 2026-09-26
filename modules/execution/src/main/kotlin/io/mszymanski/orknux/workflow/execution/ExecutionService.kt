@@ -97,6 +97,23 @@ class ExecutionService(
     }
 
     /**
+     * The runs that wrote into one session, newest first. Issue #420.
+     *
+     * A session's page reads this the other way round from how it is written: a
+     * step records which session its agent talked into, and this finds the runs
+     * whose steps name it. Usually one; several where more than one run computed
+     * the same session key. Empty for a session nothing wrote into, such as a
+     * chat - so the page can draw nothing rather than an empty control.
+     */
+    fun executionsForSession(sessionId: Long): List<SessionExecutionLink> {
+        val ids = steps.executionIdsForSession(sessionId)
+        if (ids.isEmpty()) return emptyList()
+        return executions.findAllById(ids)
+            .sortedByDescending { it.startedAt }
+            .map(::SessionExecutionLink)
+    }
+
+    /**
      * Asks a running execution to stop. Issue #395.
      *
      * The flag, not the ending: the engine reads it before its next step and
@@ -222,6 +239,28 @@ data class ExecutionView(
         durationSeconds = execution.finishedAt?.let { seconds(execution.startedAt, it) },
         error = execution.error,
         stoppedReason = execution.stoppedReason,
+    )
+}
+
+/**
+ * A run that wrote into a session, as the session's page links to it. Issue #420.
+ *
+ * Small on purpose: enough to tell one run from another where several wrote
+ * into the same session - the workflow's name, when it started, and where it
+ * got to - and the id to open it. Not the whole [ExecutionView], which carries
+ * more than a link needs.
+ */
+data class SessionExecutionLink(
+    val id: Long,
+    val workflowName: String,
+    val startedAt: String,
+    val status: ExecutionStatus,
+) {
+    constructor(execution: WorkflowExecution) : this(
+        id = requireNotNull(execution.id),
+        workflowName = execution.workflowName,
+        startedAt = execution.startedAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+        status = execution.status,
     )
 }
 
