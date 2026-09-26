@@ -512,6 +512,10 @@ class AgentNodeRunnerTest(
         assertThat(prompt).describedAs("the agent's own prose first").startsWith("You summarise incidents.")
         assertThat(prompt).describedAs("then the grants briefing, which is what #454 found missing")
             .contains("You have been given these skills").contains("Reviewing")
+        // And where to ask for that list again, hours into the conversation,
+        // which is what an agent asked for its commands was guessing at. #471.
+        assertThat(prompt).describedAs("the briefing names the tool that lists the skills")
+            .contains("Call skill_list when you need this list again")
         assertThat(prompt).describedAs("and what the turn lent it says about itself (#445)")
             .contains("You have scratchpads")
         // And which agent that was, so the log can lead to its page. #454.

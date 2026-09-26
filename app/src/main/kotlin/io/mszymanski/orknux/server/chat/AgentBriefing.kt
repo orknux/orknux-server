@@ -104,6 +104,18 @@ class AgentBriefing(
                 append("syntax people have with you - so when they ask what you can do, or how to use ")
                 append("commands, tell them these commands and this ").append(marker)
                 appendLine("id syntax rather than saying there is none.")
+                /*
+                 * And where to get the list again. This paragraph is written once,
+                 * at the top of a conversation that may run for hours, and what it
+                 * listed is a dozen turns back by the time somebody asks what the
+                 * commands are - so an agent asked for its commands was answering
+                 * from memory of a list it had half forgotten, or from the skills
+                 * loaded into that one turn, which is one skill and reads as a bug.
+                 * `skill_list` is the same list, live, and asking for it costs a
+                 * call. Issue #471.
+                 */
+                append("\nCall skill_list when you need this list again - it returns every skill ")
+                appendLine("with its id, and it is what to answer from when somebody asks what commands you take.")
             }
         }
 

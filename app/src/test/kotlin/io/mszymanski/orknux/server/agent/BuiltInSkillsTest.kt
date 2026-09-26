@@ -55,6 +55,19 @@ class BuiltInSkillsTest(
         // equals sign is read by the model off the message. Issue #470.
         assertThat(catalog.skills.single { it.name == "Output format" }.key).isEqualTo("output-format")
         assertThat(SkillFormat.check(tldr.content).valid).isTrue()
+
+        /*
+         * And the one that has to name a tool. Issue #471: Commands told the
+         * model to read the list off its briefing, which is one paragraph at the
+         * top of a conversation that had since loaded a skill of its own - so it
+         * listed that one skill and nothing else. `skill_list` is the same list,
+         * live, and the skill says to call it.
+         */
+        val commands = catalog.skills.single { it.name == "Commands" }
+        assertThat(commands.content).describedAs("it names the tool that answers the question")
+            .contains("skill_list")
+        assertThat(commands.content).describedAs("and says not to answer from this turn's loaded skills")
+            .contains("loaded into this turn")
     }
 
     /** Offered where a plugin's are, which is what makes everything downstream work. */
