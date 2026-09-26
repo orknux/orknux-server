@@ -168,7 +168,26 @@ class ModelChatClient(
     private val usage: ModelUsageRecorder,
     private val proxies: ProxyRouter,
     private val openAi: OpenAiChat,
+    /** Holds a model's calls under its rate, shared across runs; see [ModelThrottle]. Issue #426. */
+    private val throttle: ModelThrottle,
 ) {
+
+    /**
+     * Waits as long as this model's throttle asks before a call is made, and
+     * hands back the limits so the caller can honour a Retry-After under the
+     * same rule. Issue #426.
+     *
+     * Resolved and awaited here, at the one door every call goes through, so a
+     * new caller cannot forget it. A model or provider that has gone throttles
+     * nothing - the call is about to fail for a better reason.
+     */
+    private fun throttled(modelId: Long): ModelThrottle.Limits? {
+        val model = models.findByIdOrNull(modelId) ?: return null
+        val provider = providers.findByIdOrNull(model.providerId) ?: return null
+        val limits = ModelThrottle.Limits.of(model, provider)
+        throttle.awaitTurn(modelId, limits)
+        return limits
+    }
 
     /**
      * Every answered call is counted, wherever it came from.
@@ -181,10 +200,17 @@ class ModelChatClient(
         // A round that only asked for tools still cost tokens and still took
         // time, so it counts: an agent's real cost is every round it took.
         when (answer) {
-            is ChatCompletion.Answered ->
+            is ChatCompletion.Answered -> {
                 runCatching { usage.record(modelId, answer.inputTokens, answer.outputTokens, answer.millis) }
-            is ChatCompletion.CalledTools ->
+                // The tokens this call spent, into the throttle's window, so the
+                // rate it holds the model to reflects what was actually used and
+                // not just how often it was called. Issue #426.
+                runCatching { throttle.recordUsage(modelId, answer.inputTokens + answer.outputTokens) }
+            }
+            is ChatCompletion.CalledTools -> {
                 runCatching { usage.record(modelId, answer.inputTokens, answer.outputTokens, answer.millis) }
+                runCatching { throttle.recordUsage(modelId, answer.inputTokens + answer.outputTokens) }
+            }
             is ChatCompletion.Failed -> Unit
         }
         return answer
@@ -244,8 +270,9 @@ class ModelChatClient(
         hangup: Hangup? = null,
         onChunk: (String) -> Unit,
     ): ChatCompletion {
+        val limits = throttled(modelId)
         spoken(modelId)?.let { shape ->
-            return through(modelId, shape) {
+            return through(modelId, shape, limits) {
                 openAi.stream(shape.provider, shape.model, turns, tools, onThinking, hangup, onChunk)
             }
         }
@@ -666,19 +693,38 @@ class ModelChatClient(
      *   which is every caller that is not running an agent.
      */
     fun complete(modelId: Long, turns: List<ChatTurn>, tools: List<ToolSpec> = emptyList()): ChatCompletion {
+        val limits = throttled(modelId)
         spoken(modelId)?.let { shape ->
-            return through(modelId, shape) { openAi.complete(shape.provider, shape.model, turns, tools) }
+            return through(modelId, shape, limits) { openAi.complete(shape.provider, shape.model, turns, tools) }
         }
 
         val call = prepare(modelId, turns, streaming = false, tools = tools)
         if (call is Prepared.Failed) return ChatCompletion.Failed(call.reason)
         val ready = call as Prepared.Call
 
-        val started = System.nanoTime()
-        return try {
-            val response = client.send(ready.request, HttpResponse.BodyHandlers.ofString())
+        // Retried only for a 429 that carried a Retry-After the model accepts;
+        // everything else is answered once and handed on. Issue #426.
+        var attempt = 0
+        while (true) {
+            val started = System.nanoTime()
+            val response = try {
+                client.send(ready.request, HttpResponse.BodyHandlers.ofString())
+            } catch (failure: Exception) {
+                // Nothing came back at all: a socket that closed, a name that
+                // did not resolve, the request timeout running out on a model
+                // still thinking. None of it is the provider's answer, so none
+                // of it is settled.
+                log.warn("Calling {} failed", ready.request.uri(), failure)
+                return ChatCompletion.Failed(failure.message ?: "The provider could not be reached", permanent = false)
+            }
             val millis = (System.nanoTime() - started) / 1_000_000
 
+            if (response.statusCode() == HTTP_TOO_MANY_REQUESTS &&
+                waitedForRetryAfter(modelId, limits, retryAfterOf(response), attempt)
+            ) {
+                attempt++
+                continue
+            }
             if (response.statusCode() !in 200..299) {
                 refused(ready.request, response.statusCode())
                 return ChatCompletion.Failed(
@@ -686,14 +732,7 @@ class ModelChatClient(
                     permanent = settled(response.statusCode()),
                 )
             }
-            wholeAnswer(modelId, ready, response.body(), millis)
-        } catch (failure: Exception) {
-            // Nothing came back at all: a socket that closed, a name that did
-            // not resolve, the request timeout running out on a model still
-            // thinking. None of it is the provider's answer to this request, so
-            // none of it is settled.
-            log.warn("Calling {} failed", ready.request.uri(), failure)
-            ChatCompletion.Failed(failure.message ?: "The provider could not be reached", permanent = false)
+            return wholeAnswer(modelId, ready, response.body(), millis)
         }
     }
 
@@ -744,37 +783,58 @@ class ModelChatClient(
      * The timing is taken here too, because it is what the caller shows and the
      * SDK does not report it.
      */
-    private fun through(modelId: Long, shape: Spoken, call: () -> OpenAiChat.Outcome): ChatCompletion {
+    private fun through(
+        modelId: Long,
+        shape: Spoken,
+        limits: ModelThrottle.Limits?,
+        call: () -> OpenAiChat.Outcome,
+    ): ChatCompletion {
         val endpoint = shape.provider.openAiBase()
         connections.vet(endpoint)?.let {
             return ChatCompletion.Failed("${shape.provider.name} cannot be called: $it")
         }
 
-        val started = System.nanoTime()
-        val outcome = try {
-            call()
-        } catch (refused: OpenAIServiceException) {
-            /*
-             * The provider answered, and what it answered decides whether asking
-             * again is worth anything. [settled] is the same rule the hand-built
-             * path applies to a status code, and it has to stay the same rule:
-             * an agent that retried a refusal in one shape and not the other
-             * would behave differently for a reason nobody could see.
-             */
-            log.warn("{} answered {}", endpoint, refused.statusCode())
-            return ChatCompletion.Failed(refused.message ?: "The provider refused the request", settled(refused.statusCode()))
-        } catch (failure: Exception) {
-            // Nothing came back at all: a socket that closed, a name that did
-            // not resolve, a timeout on a model still thinking. None of it is
-            // the provider's answer, so none of it is settled.
-            log.warn("Calling {} failed", endpoint, failure)
-            return ChatCompletion.Failed(failure.message ?: "The provider could not be reached", permanent = false)
-        }
-        val millis = (System.nanoTime() - started) / 1_000_000
+        // Retried only for a 429 whose Retry-After the model accepts - which is
+        // the case this SDK path most has to answer, since Azure is what rate
+        // limits and Azure is spoken here. Issue #426.
+        var attempt = 0
+        while (true) {
+            val started = System.nanoTime()
+            val outcome = try {
+                call()
+            } catch (refused: OpenAIServiceException) {
+                if (refused.statusCode() == HTTP_TOO_MANY_REQUESTS &&
+                    waitedForRetryAfter(modelId, limits, retryAfterOf(refused), attempt)
+                ) {
+                    attempt++
+                    continue
+                }
+                /*
+                 * The provider answered, and what it answered decides whether
+                 * asking again is worth anything. [settled] is the same rule the
+                 * hand-built path applies to a status code, and it has to stay
+                 * the same rule: an agent that retried a refusal in one shape and
+                 * not the other would behave differently for a reason nobody
+                 * could see.
+                 */
+                log.warn("{} answered {}", endpoint, refused.statusCode())
+                return ChatCompletion.Failed(
+                    refused.message ?: "The provider refused the request",
+                    settled(refused.statusCode()),
+                )
+            } catch (failure: Exception) {
+                // Nothing came back at all: a socket that closed, a name that
+                // did not resolve, a timeout on a model still thinking. None of
+                // it is the provider's answer, so none of it is settled.
+                log.warn("Calling {} failed", endpoint, failure)
+                return ChatCompletion.Failed(failure.message ?: "The provider could not be reached", permanent = false)
+            }
+            val millis = (System.nanoTime() - started) / 1_000_000
 
-        return when (outcome) {
-            is OpenAiChat.Outcome.Failed -> ChatCompletion.Failed(outcome.reason)
-            is OpenAiChat.Outcome.Answered -> answered(modelId, outcome, millis)
+            return when (outcome) {
+                is OpenAiChat.Outcome.Failed -> ChatCompletion.Failed(outcome.reason)
+                is OpenAiChat.Outcome.Answered -> answered(modelId, outcome, millis)
+            }
         }
     }
 
@@ -1358,6 +1418,57 @@ class ModelChatClient(
     }
 
     /**
+     * Waits a 429's Retry-After out and says whether to try the call again.
+     * Issue #426.
+     *
+     * The heart of "retry-after wins": on a 429 the model accepts one for, this
+     * waits exactly what the header says and asks again, below any node's own
+     * retry policy - the node never sees the 429 if this recovers. The block is
+     * recorded on the model as well, so every other run calling it holds off
+     * too, not only this one. Bounded: a wait longer than [MAX_RETRY_AFTER] or a
+     * few attempts in, and it gives up so the node's policy takes over later
+     * rather than one call sitting on a worker for an unbounded time.
+     */
+    private fun waitedForRetryAfter(
+        modelId: Long,
+        limits: ModelThrottle.Limits?,
+        wait: Duration?,
+        attempt: Int,
+    ): Boolean {
+        if (limits?.acceptRetryAfter != true) return false
+        if (attempt >= MAX_RETRY_AFTER_ATTEMPTS) return false
+        val delay = wait ?: return false
+        if (delay > MAX_RETRY_AFTER) return false
+        throttle.blockFor(modelId, delay)
+        try {
+            Thread.sleep(delay.toMillis())
+        } catch (interrupted: InterruptedException) {
+            Thread.currentThread().interrupt()
+            return false
+        }
+        return true
+    }
+
+    private fun retryAfterOf(response: HttpResponse<*>): Duration? =
+        retryAfter(response.headers().firstValue("retry-after").orElse(null))
+
+    private fun retryAfterOf(refused: OpenAIServiceException): Duration? =
+        retryAfter(refused.headers().values("retry-after").firstOrNull())
+
+    /**
+     * A Retry-After header as a duration: seconds is the common form, an
+     * HTTP-date the other the spec allows. Null where it is absent or unreadable.
+     */
+    private fun retryAfter(raw: String?): Duration? {
+        val value = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        value.toLongOrNull()?.let { return Duration.ofSeconds(it.coerceAtLeast(0)) }
+        return runCatching {
+            val at = java.time.ZonedDateTime.parse(value, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME)
+            Duration.between(java.time.ZonedDateTime.now(), at).takeIf { !it.isNegative }
+        }.getOrNull()
+    }
+
+    /**
      * What went wrong, in the provider's own words where it gave any. A refused
      * key and a bad request read very differently to whoever has to fix it.
      */
@@ -1395,6 +1506,16 @@ class ModelChatClient(
         /** The two statuses that are about the moment rather than the request. */
         const val HTTP_TIMEOUT = 408
         const val HTTP_TOO_MANY_REQUESTS = 429
+
+        /**
+         * How patient the client is with a Retry-After before it hands back to
+         * the node's own policy. Issue #426. A long wait belongs on a durable
+         * timer, not on a worker held here; a couple of attempts covers a
+         * provider clearing a brief burst without turning one call into an
+         * unbounded hold.
+         */
+        val MAX_RETRY_AFTER: Duration = Duration.ofSeconds(120)
+        const val MAX_RETRY_AFTER_ATTEMPTS = 2
 
         /** Where the provider stops objecting to the request and starts failing. */
         const val SERVER_ERROR = 500
