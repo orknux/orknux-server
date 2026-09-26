@@ -759,6 +759,21 @@ type Query {
         ascending: Boolean
     ): LlmSessionEventPage!
     """
+    One session's scratchpads: the working files an agent kept within the
+    conversation. Issue #429.
+
+    Its own, and the shared ones of the sessions it was started under - the same
+    files the agent's own tools work on. Named and sized without the content,
+    because a list is scanned rather than read and a pad can be a whole page; the
+    content is asked for one at a time with `sessionScratchpad`.
+    """
+    sessionScratchpads(sessionId: ID!): [SessionScratchpad!]!
+    """
+    One scratchpad opened, with the document itself. Null where this session has
+    none by that name. Issue #429.
+    """
+    sessionScratchpad(sessionId: ID!, name: String!): SessionScratchpadContent
+    """
     A workspace's tasks, newest first.
 
     What each one has *done* is not here: a task's event log is an LLM session,
@@ -1327,6 +1342,26 @@ type Mutation {
     none this caller can see.
     """
     removeLlmSession(id: ID!): Boolean!
+    """
+    Makes a new scratchpad in a session, from the session page. Issue #429.
+
+    Refused in words - a name taken here, one over the byte budget - so the form
+    asking shows why rather than a correlation id. `content` and `description`
+    are optional; a pad may start empty.
+    """
+    createSessionScratchpad(sessionId: ID!, name: String!, description: String, content: String): SessionScratchpadContent!
+    """
+    Replaces a session scratchpad's whole content, the way an agent's write tool
+    does and against the same byte budget - a paste too large is refused in
+    words. Issue #429.
+    """
+    writeSessionScratchpad(sessionId: ID!, name: String!, content: String!): SessionScratchpadContent!
+    """
+    Removes one of a session's scratchpads. Only the session that owns it may; an
+    inherited one is refused in words. False is never returned - it answers true,
+    or refuses. Issue #429.
+    """
+    deleteSessionScratchpad(sessionId: ID!, name: String!): Boolean!
     """
     Sets an agent to work on a problem, on its own, until it is done.
 
@@ -2917,6 +2952,37 @@ type LlmSession {
     in. Null on a session no agent has written into. Issue #391.
     """
     agentDetails: SessionAgentDetails
+}
+
+"""
+One of a session's scratchpads, listed beside the transcript: a working file an
+agent kept within the conversation. Issue #429.
+
+Named and sized without the content - a list is scanned rather than read, and a
+pad can be a whole page. Opened one at a time with `sessionScratchpad`.
+"""
+type SessionScratchpad {
+    "Its name within the session, which is how the agent addresses it - like a filename."
+    name: String!
+    "What it is for, in a line, or null where none was set."
+    description: String
+    "Its size in bytes, which is what the session's scratchpad budget is spent in."
+    bytes: Int!
+    "Whether the sessions started under the owner may read and add to it."
+    shared: Boolean!
+    "Whether this session owns it, or only inherited it shared from a session it was started under - only the owner may delete it."
+    ownedHere: Boolean!
+}
+
+"One scratchpad opened: the listed row, with the document itself. Issue #429."
+type SessionScratchpadContent {
+    name: String!
+    description: String
+    "The document itself."
+    content: String!
+    bytes: Int!
+    shared: Boolean!
+    ownedHere: Boolean!
 }
 
 """

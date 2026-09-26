@@ -25,6 +25,10 @@ class LlmSessionExceptionResolver : DataFetcherExceptionResolverAdapter() {
             // A key nobody can store, and a prefix with nothing after it. Both
             // are what was asked for rather than what went wrong.
             is LlmSessionKeyMissingException, is LlmSessionKeyTooLongException -> ErrorType.BAD_REQUEST
+            // A scratchpad create, write or delete the service refused: a name
+            // taken, a write over the byte budget, an inherited pad nobody here
+            // may delete. What was asked for, not a failure. Issue #429.
+            is ScratchpadRefusedException -> ErrorType.BAD_REQUEST
             else -> return null
         }
 

@@ -67,6 +67,8 @@ class LlmSessionAPI(
     private val notes: LlmSessionNoteRepository,
     /** For reading the agent-details snapshot back into a shape. Issue #391. */
     private val mapper: tools.jackson.databind.ObjectMapper,
+    /** The session's working files, listed and read beside its transcript. Issue #429. */
+    private val pads: SessionScratchpadService,
 ) {
 
     @QueryMapping
@@ -352,6 +354,114 @@ class LlmSessionAPI(
         }.getOrNull()
     }
 
+    /**
+     * One session's scratchpads: the working files an agent kept within the
+     * conversation. Issue #429.
+     *
+     * Its own, and the shared ones of the sessions it was started under - the
+     * same list the agent's own tools see, so the page shows the files the
+     * agent works on. Named and sized without the content, because a list is
+     * scanned rather than read and a pad can be a whole document; the content is
+     * asked for one at a time with [sessionScratchpad].
+     *
+     * Visible to whoever can see the workspace, like the transcript beside it:
+     * the check is on the session's own workspace rather than an id the caller
+     * names, so naming a workspace one can see does not open another's files.
+     */
+    @QueryMapping
+    @Transactional(readOnly = true)
+    fun sessionScratchpads(@Argument sessionId: Long): List<SessionScratchpadView> {
+        val session = sessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
+        access.requireVisible(session.workspaceId)
+        return pads.list(sessionId).map { scratchpadView(it, sessionId) }
+    }
+
+    /**
+     * One scratchpad opened, with the document itself. Null where this session
+     * has none by that name. Issue #429.
+     */
+    @QueryMapping
+    @Transactional(readOnly = true)
+    fun sessionScratchpad(@Argument sessionId: Long, @Argument name: String): SessionScratchpadContentView? {
+        val session = sessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
+        access.requireVisible(session.workspaceId)
+        val pad = pads.find(sessionId, name) ?: return null
+        return scratchpadContent(pad, sessionId)
+    }
+
+    /**
+     * Makes a new scratchpad in this session. Issue #429.
+     *
+     * Refused in words - a name taken here, one over the byte budget - so the
+     * form asking can show why rather than a correlation id.
+     */
+    @MutationMapping
+    @Transactional
+    fun createSessionScratchpad(
+        @Argument sessionId: Long,
+        @Argument name: String,
+        @Argument description: String?,
+        @Argument content: String?,
+    ): SessionScratchpadContentView {
+        val session = sessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
+        access.requireVisible(session.workspaceId)
+        return when (val result = pads.create(sessionId, name, description, content.orEmpty())) {
+            is ScratchpadResult.Ok -> scratchpadContent(result.pad, sessionId)
+            is ScratchpadResult.No -> throw ScratchpadRefusedException(result.why)
+        }
+    }
+
+    /**
+     * Replaces a scratchpad's whole content, the way an agent's write tool does
+     * and against the same byte budget. Issue #429.
+     */
+    @MutationMapping
+    @Transactional
+    fun writeSessionScratchpad(
+        @Argument sessionId: Long,
+        @Argument name: String,
+        @Argument content: String,
+    ): SessionScratchpadContentView {
+        val session = sessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
+        access.requireVisible(session.workspaceId)
+        return when (val result = pads.write(sessionId, name, content)) {
+            is ScratchpadResult.Ok -> scratchpadContent(result.pad, sessionId)
+            is ScratchpadResult.No -> throw ScratchpadRefusedException(result.why)
+        }
+    }
+
+    /**
+     * Removes one of a session's scratchpads. Only the owner may; an inherited
+     * one is refused in words. Answers true when it went. Issue #429.
+     */
+    @MutationMapping
+    @Transactional
+    fun deleteSessionScratchpad(@Argument sessionId: Long, @Argument name: String): Boolean {
+        val session = sessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
+        access.requireVisible(session.workspaceId)
+        return when (val result = pads.delete(sessionId, name)) {
+            is ScratchpadResult.Ok -> true
+            is ScratchpadResult.No -> throw ScratchpadRefusedException(result.why)
+        }
+    }
+
+    private fun scratchpadView(pad: SessionScratchpad, viewer: Long) = SessionScratchpadView(
+        name = pad.name,
+        description = pad.description,
+        bytes = pad.bytes,
+        shared = pad.shared,
+        ownedHere = pad.sessionId == viewer,
+    )
+
+    private fun scratchpadContent(pad: SessionScratchpad, viewer: Long) = SessionScratchpadContentView(
+        name = pad.name,
+        description = pad.description,
+        content = pad.content,
+        bytes = pad.bytes,
+        shared = pad.shared,
+        ownedHere = pad.sessionId == viewer,
+    )
+
     private fun describe(event: LlmSessionEvent) = LlmSessionEventView(
         id = requireNotNull(event.id),
         kind = event.kind,
@@ -442,6 +552,37 @@ data class SessionAgentDetailsView(
     val connections: List<String>,
 )
 
+/**
+ * One of a session's scratchpads, listed beside the transcript. Issue #429.
+ *
+ * Named and sized without the document itself: a list is scanned rather than
+ * read, and a pad can be a whole page. The content is asked for one at a time
+ * with `sessionScratchpad`, which answers a [SessionScratchpadContentView].
+ */
+data class SessionScratchpadView(
+    /** Its name within the session, which is how the agent addresses it - like a filename. */
+    val name: String,
+    /** What it is for, in a line, or null where none was set. */
+    val description: String?,
+    /** Its size in bytes, which is what the session's scratchpad budget is spent in. */
+    val bytes: Int,
+    /** Whether the sessions started under the owner may read and add to it. */
+    val shared: Boolean,
+    /** Whether this session owns it, or only inherited it shared from an ancestor - only the owner may delete it. */
+    val ownedHere: Boolean,
+)
+
+/** One scratchpad opened: the listed row, with the document itself. Issue #429. */
+data class SessionScratchpadContentView(
+    val name: String,
+    val description: String?,
+    /** The document itself. */
+    val content: String,
+    val bytes: Int,
+    val shared: Boolean,
+    val ownedHere: Boolean,
+)
+
 data class LlmSessionPageView(val totalElements: Int, val content: List<LlmSessionView>)
 
 data class LlmSessionEventView(
@@ -493,5 +634,20 @@ class SessionsNotRemovableException : RuntimeException(
 ), Refusal {
 
     /** Nothing to carry: the refusal is about the installation, not the id. */
+    override val arguments get() = emptyMap<String, Any?>()
+}
+
+/**
+ * A scratchpad create, write or delete the service refused, in its own words.
+ * Issue #429.
+ *
+ * The bounds live in [SessionScratchpadService], which answers a name that is
+ * taken, a write over the byte budget or an inherited pad nobody here may
+ * delete as a [ScratchpadResult.No] carrying a sentence. The page asking has to
+ * show that sentence, so it comes back as a refusal rather than a correlation
+ * id. The words are already the message; there is nothing to interpolate.
+ */
+class ScratchpadRefusedException(why: String) : RuntimeException(why), Refusal {
+
     override val arguments get() = emptyMap<String, Any?>()
 }
