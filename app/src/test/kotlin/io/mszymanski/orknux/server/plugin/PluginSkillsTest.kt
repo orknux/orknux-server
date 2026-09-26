@@ -13,6 +13,7 @@ import io.mszymanski.orknux.server.workspace.Workspace
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRepository
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -123,7 +124,10 @@ class PluginSkillsTest(
     fun `they are offered as a catalog named after the plugin, and only to an agent granted it`() {
         load()
 
-        val offered = fromPlugins.catalogs().single()
+        // The plugin's, among what is offered: the server's own catalog is
+        // offered through this same door since #468, and is not this test's
+        // subject.
+        val offered = fromPlugins.catalogs().single { it.key == "deploys" }
         assertThat(offered.name).describedAs("the key, suffixed, is the grant").isEqualTo("deploys_plugin")
         assertThat(offered.key).isEqualTo("deploys")
         assertThat(offered.skills).hasSize(2)
@@ -176,7 +180,7 @@ class PluginSkillsTest(
         plugin.enabled = false
         plugins.save(plugin)
 
-        assertThat(fromPlugins.catalogs()).isEmpty()
+        assertThat(fromPlugins.catalogs().map { it.key }).doesNotContain("deploys")
         assertThat(skillTool.list(granted)).isEmpty()
         assertThat(agents.findById(requireNotNull(granted.id)).get().skillCatalogs)
             .describedAs("the grant is about the plugin, not about this moment")
@@ -185,5 +189,64 @@ class PluginSkillsTest(
         plugin.enabled = true
         plugins.save(plugin)
         assertThat(skillTool.list(granted)).hasSize(2)
+    }
+
+    /**
+     * A plugin may name the id its skill is loaded by. Issue #469: it was
+     * always derived from the name, so a plugin could not choose one and lost
+     * it the moment somebody renamed the skill - while a workspace's own skill
+     * has been able to say its id since #381.
+     */
+    @Test
+    fun `a plugin names its skill's id, or has one derived`() {
+        val kept = declarations.validatedSkills(
+            listOf(
+                io.mszymanski.orknux.workflow.script.DeclaredSkill(
+                    name = "Rolling back a release",
+                    id = "rollback",
+                    description = "How this team backs one out.",
+                    content = "# Rolling back" + BREAK + "Stop the deploy.",
+                ),
+                io.mszymanski.orknux.workflow.script.DeclaredSkill(
+                    name = "Handing over",
+                    id = null,
+                    description = null,
+                    content = "# Handing over" + BREAK + "Write the note.",
+                ),
+            ),
+        )
+
+        val read = declarations.readSkills(kept)
+        assertThat(read.map { it.key }).containsExactly("rollback", "handing-over")
+
+        // Held to the rule a typed id is held to everywhere, and refused rather
+        // than quietly rewritten.
+        assertThatThrownBy {
+            declarations.validatedSkills(
+                listOf(
+                    io.mszymanski.orknux.workflow.script.DeclaredSkill(
+                        name = "Review",
+                        id = "code review",
+                        description = null,
+                        content = "# Review" + BREAK + "Read it.",
+                    ),
+                ),
+            )
+        }.hasMessageContaining("not a usable skill id")
+
+        // And two skills cannot answer to one id, however they came by it.
+        assertThatThrownBy {
+            declarations.validatedSkills(
+                listOf(
+                    io.mszymanski.orknux.workflow.script.DeclaredSkill("Review", "review", null, "# A" + BREAK + "x"),
+                    io.mszymanski.orknux.workflow.script.DeclaredSkill("Second", "review", null, "# B" + BREAK + "y"),
+                ),
+            )
+        }.hasMessageContaining("two skills with the id review")
+    }
+
+    private companion object {
+        /** A blank line, which is what a skill's fence and its body are parted by. */
+        val BREAK = System.lineSeparator() + System.lineSeparator()
     }
 }

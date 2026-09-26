@@ -696,7 +696,12 @@ class PluginRunner(
                         "the skill $name is ${content.length} characters, and a skill is at most $MOST_SKILL_CHARS",
                     )
                 }
-                DeclaredSkill(name = name.trim(), description = text(one, "description"), content = content)
+                DeclaredSkill(
+                    name = name.trim(),
+                    id = text(one, "id")?.trim()?.takeIf { it.isNotEmpty() },
+                    description = text(one, "description"),
+                    content = content,
+                )
             }
         } else {
             emptyList()
@@ -1512,6 +1517,12 @@ class PluginRunner(
               skills() {
                 return [];
               }
+              // Each is { name, content, description?, id? }. `id` is what a
+              // graph names the skill by and what a person writes after the
+              // command marker; letters, underscores and hyphens, unique within
+              // this plugin. Left out, it is derived from the name - which is
+              // fine until the name changes, so a skill anything points at
+              // should say its own. Issue #469.
 
               /**
                * The shapes this plugin exports, for its own functions and
@@ -2241,6 +2252,14 @@ data class DeclaredType(
 
 data class DeclaredSkill(
     val name: String,
+    /**
+     * What a graph or a command names it by, where the plugin said. Issue #469:
+     * it was always derived from the name, so a plugin could not choose one and
+     * could not keep it across a rename - which a workspace's own skill has
+     * been able to do since #381. Null is "derive it", which is every plugin
+     * written before this and most of them after.
+     */
+    val id: String?,
     val description: String?,
     /** Markdown. Whether it opens with the frontmatter a skill needs is the server's question. */
     val content: String,

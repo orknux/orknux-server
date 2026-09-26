@@ -461,6 +461,8 @@ class PluginDeclarations(private val mapper: ObjectMapper) {
 
     fun validatedSkills(declared: List<DeclaredSkill>): String {
         val names = mutableSetOf<String>()
+        /* And the ids, which are what a graph and a command name. Issue #469. */
+        val ids = mutableSetOf<String>()
 
         val array = mapper.createArrayNode()
         declared.forEach { skill ->
@@ -483,8 +485,30 @@ class PluginDeclarations(private val mapper: ObjectMapper) {
                 )
             }
 
+            /*
+             * The id it named, or the one its name comes to. Held to the rule a
+             * typed id is held to everywhere - letters, underscores and hyphens
+             * - because this is the same string: a graph names it, a message
+             * carries it after the command marker, and `skill_load` is asked
+             * for it. Refused rather than corrected, since a plugin that meant
+             * `Code Review` as an id has a bug to fix and a silent rewrite
+             * would hide it. Issue #469.
+             */
+            val id = skill.id?.trim()?.takeIf { it.isNotEmpty() }
+            if (id != null && !SkillKeys.usable(id)) {
+                throw PluginDeclarationInvalidException(
+                    "\"$id\" is not a usable skill id: letters, underscores and hyphens only, " +
+                        "up to ${SkillKeys.KEY_LENGTH} of them",
+                )
+            }
+            val held = id ?: SkillKeys.derive(name)
+            if (!ids.add(held.lowercase())) {
+                throw PluginDeclarationInvalidException("it declares two skills with the id $held")
+            }
+
             val node = array.addObject()
             node.put("name", name)
+            node.put("id", held)
             description?.let { node.put("description", it) }
             node.put("content", content)
         }
@@ -518,7 +542,10 @@ class PluginDeclarations(private val mapper: ObjectMapper) {
             val node = array.get(at)
             PluginSkillView(
                 name = node.get("name").asString(),
-                key = SkillKeys.derive(node.get("name").asString()),
+                // What the plugin named, where it did; derived for a plugin
+                // stored before ids were its to choose. Issue #469.
+                key = node.get("id")?.asString()?.takeIf { SkillKeys.usable(it) }
+                    ?: SkillKeys.derive(node.get("name").asString()),
                 description = node.get("description")?.asString(),
                 content = node.get("content").asString(),
             )
