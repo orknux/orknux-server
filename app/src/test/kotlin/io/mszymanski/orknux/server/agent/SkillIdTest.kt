@@ -219,6 +219,44 @@ class SkillIdTest(
         assertThat(skillTool.load(own, "plan")?.catalog).isNotEqualTo(BuiltInSkills.CATALOG)
     }
 
+    /**
+     * Two skills, one id. Issue #473.
+     *
+     * An id is unique inside a plugin and inside the workspace; nothing makes it
+     * unique across two of them. The order still decides which one a bare id
+     * loads - what changes is that the agent is told there was a decision, and
+     * can name the catalog to reach the other.
+     */
+    @Test
+    fun `where two skills answer to one id the list says so and the catalog reaches either`() {
+        skill("Plan")
+        val agent = agents.save(
+            Agent(
+                workspaceId = workspaceId,
+                name = "twofold",
+                type = AgentType.LLM,
+                skillCatalogs = mutableListOf(catalogs.findAll().first().name, BuiltInSkills.CATALOG),
+            ),
+        )
+
+        val rows = skillTool.list(agent).filter { it.id == "plan" }
+        assertThat(rows).describedAs("both are listed").hasSize(2)
+        rows.forEach { row ->
+            assertThat(row.alsoIn).describedAs(row.catalog).isNotEmpty()
+            assertThat(row.alsoIn).doesNotContain(row.catalog)
+        }
+
+        // The bare id is the workspace's, as the resolver's order says.
+        val bare = requireNotNull(skillTool.load(agent, "plan"))
+        assertThat(bare.catalog).isNotEqualTo(BuiltInSkills.CATALOG)
+        // And the other is reachable by naming its catalog, which is what the
+        // list now tells the agent to write.
+        val built = requireNotNull(skillTool.load(agent, BuiltInSkills.CATALOG + ":plan"))
+        assertThat(built.catalog).isEqualTo(BuiltInSkills.CATALOG)
+        assertThat(skillTool.alsoAnswering(agent, built)).containsExactly(bare.catalog)
+    }
+
+
     private fun skill(name: String): Long = graphQlTester.document(
         """mutation { createSkill(input: { workspaceId: $workspaceId, name: "$name" }) { id } }""",
     ).execute().path("createSkill.id").entity(Long::class.java).get()

@@ -465,7 +465,25 @@ class AgentTools(
                         ),
                     )
                 } else {
-                    mapper.writeValueAsString(mapOf("name" to found.name, "content" to found.content))
+                    /*
+                     * Which catalog this page came from, and what else answers
+                     * to its id. Issue #473: two plugins may each declare one
+                     * id, the order decides which a bare id loads, and an agent
+                     * that asked had no way of knowing the other existed.
+                     */
+                    val also = skills.alsoAnswering(agent, found)
+                    val answer = linkedMapOf<String, Any>(
+                        "name" to found.name,
+                        "catalog" to found.catalog,
+                        "content" to found.content,
+                    )
+                    if (also.isNotEmpty()) {
+                        answer["shared"] =
+                            "More than one skill answers to ${found.key}. This is the one in ${found.catalog}; " +
+                                "${also.joinToString(" and ")} hold another. " +
+                                "Ask for ${also.first()}:${found.key} to read that one."
+                    }
+                    mapper.writeValueAsString(answer)
                 }
             }
 

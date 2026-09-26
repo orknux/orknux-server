@@ -37,7 +37,9 @@ class SkillTool(
      * Deliberately without content — choosing which skill applies is what this
      * is for, and returning the text here would make the load tool pointless.
      */
-    fun list(agent: Agent): List<SkillSummary> = granted(agent)
+    fun list(agent: Agent): List<SkillSummary> = summarise(granted(agent))
+
+    private fun summarise(held: List<GrantedSkill>): List<SkillSummary> = held
         /*
          * The server's own first, then the workspace's. Issue #471: this list is
          * what an agent prints when somebody asks what commands it takes, and
@@ -50,7 +52,26 @@ class SkillTool(
          * name with a built-in still wins - see there.
          */
         .sortedBy { if (it.catalog == BuiltInSkills.CATALOG) 0 else 1 }
-        .map { SkillSummary(it.name, it.key, it.description, it.catalog) }
+        .map { skill ->
+            /*
+             * And where two of them answer to one id, both rows say so and
+             * name the other's catalog. Issue #473: an id is unique inside a
+             * plugin and inside the workspace, and nothing makes it unique
+             * across two plugins - so a command could mean either, the first in
+             * the order below won it silently, and the other was unreachable
+             * without anybody being told. The order still decides; what changes
+             * is that the agent can see there was a decision and can ask for
+             * the other one by catalog.
+             */
+            val also = held.filter { it !== skill && it.key.equals(skill.key, ignoreCase = true) }
+            SkillSummary(
+                name = skill.name,
+                id = skill.key,
+                description = skill.description,
+                catalog = skill.catalog,
+                alsoIn = also.map { it.catalog },
+            )
+        }
 
     /**
      * One skill in full, by name or by id, spelled how the model managed.
@@ -71,7 +92,25 @@ class SkillTool(
      */
     fun load(agent: Agent, name: String): GrantedSkill? {
         val held = granted(agent)
-        val asked = name.substringAfterLast(':').trim().ifEmpty { name.trim() }
+        val typed = name.trim()
+        val asked = typed.substringAfterLast(':').trim().ifEmpty { typed }
+
+        /*
+         * A qualified ask first: `jira_plugin:review`, or `jira:review` with the
+         * plugin's key on its own. Issue #473: an id is unique inside a catalog
+         * and nothing makes it unique across two plugins, so where two answer to
+         * one id the list says so and this is how the agent reaches the one the
+         * bare id does not. It was already writing a namespace in front of an id
+         * sometimes - the prefix used to be stripped and thrown away - so this
+         * reads what was always being typed rather than asking for a new spelling.
+         */
+        val where = typed.substringBeforeLast(':', "").trim().trimEnd(':').trim()
+        if (where.isNotEmpty()) {
+            held.firstOrNull {
+                sameCatalog(it.catalog, where) &&
+                    (it.key.equals(asked, ignoreCase = true) || it.name.equals(asked, ignoreCase = true))
+            }?.let { return it }
+        }
 
         held.firstOrNull { it.key.equals(asked, ignoreCase = true) || it.name.equals(asked, ignoreCase = true) }
             ?.let { return it }
@@ -109,6 +148,22 @@ class SkillTool(
         }
         return ResolvedSkills(found, missing)
     }
+
+    /**
+     * The other catalogs holding a skill with this one's id. Issue #473.
+     *
+     * For the answer `skill_load` gives: an agent that asked for a shared id got
+     * one of two pages and had no way of knowing the other existed. Empty for
+     * almost every skill.
+     */
+    fun alsoAnswering(agent: Agent, skill: GrantedSkill): List<String> = granted(agent)
+        .filter { it.key.equals(skill.key, ignoreCase = true) && it.catalog != skill.catalog }
+        .map { it.catalog }
+        .distinct()
+
+    /** `jira_plugin`, `jira`, or a workspace folder's own name: all three name that catalog. */
+    private fun sameCatalog(catalog: String, asked: String): Boolean =
+        catalog.equals(asked, ignoreCase = true) || catalog.equals(catalogOf(asked), ignoreCase = true)
 
     private fun catalogNameOf(catalogId: Long): String =
         catalogs.findById(catalogId).map { it.name }.orElse("")
@@ -181,7 +236,20 @@ class SkillTool(
 }
 
 /** One line about a skill: enough to decide whether to load it. */
-data class SkillSummary(val name: String, val id: String, val description: String?, val catalog: String)
+data class SkillSummary(
+    val name: String,
+    val id: String,
+    val description: String?,
+    val catalog: String,
+    /**
+     * The other catalogs holding a skill with this same id, where any do.
+     *
+     * Empty for almost every skill. Where it is not, this id names more than one
+     * page and the agent is told so rather than left to find out that half of
+     * them cannot be loaded. Issue #473.
+     */
+    val alsoIn: List<String> = emptyList(),
+)
 
 /** What a list of skill ids resolved to, and which ids named nothing. Issue #381. */
 data class ResolvedSkills(val found: List<GrantedSkill>, val missing: List<String>)

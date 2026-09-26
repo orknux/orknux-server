@@ -190,7 +190,13 @@ class AgentToolCallTest(
             """mutation { createAgent(input: { workspaceId: $workspaceId, name: "$name", type: LLM }) { id } }""",
         ).execute().path("createAgent.id").entity(Long::class.java).get()
 
-        val grant = if (granted == null) "" else """, skillCatalogs: ["$granted"]"""
+        /*
+         * And the server's own skills are cleared where this wants nothing.
+         * Issue #471 grants that catalog to every new agent, which hands it
+         * skill_list and skill_load - right for a real agent, and the opposite
+         * of what a fixture for "granted nothing" is asking for.
+         */
+        val grant = if (granted == null) ", skillCatalogs: []" else """, skillCatalogs: ["$granted"]"""
         /*
          * Saving a file is off here, and that is what "granted nothing" has to
          * mean now.

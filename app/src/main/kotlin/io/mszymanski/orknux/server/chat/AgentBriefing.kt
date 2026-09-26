@@ -116,6 +116,23 @@ class AgentBriefing(
                  */
                 append("\nCall skill_list when you need this list again - it returns every skill ")
                 appendLine("with its id, and it is what to answer from when somebody asks what commands you take.")
+                /*
+                 * And where two of them answer to one command. Issue #473: an
+                 * id is unique inside a plugin and inside the workspace, and
+                 * nothing makes it unique across two plugins - so the command
+                 * means whichever the order picked, and the other was out of
+                 * reach with nobody told. Said here because this paragraph is
+                 * where the commands are, and said as the way out of it: the
+                 * catalog written in front of the id reaches either one.
+                 */
+                instructions.filter { it.alsoIn.isNotEmpty() }.distinctBy { it.id.lowercase() }.forEach { one ->
+                    appendLine()
+                    append("More than one of your skills answers to ").append(marker).append(one.id)
+                    append(": the command loads the one in ").append(one.catalog).append(", and ")
+                    append(one.alsoIn.joinToString(" and ")).append(" hold another of that id. ")
+                    append("Ask skill_load for ").append(one.alsoIn.first()).append(":").append(one.id)
+                    appendLine(" to read that one instead.")
+                }
             }
         }
 
