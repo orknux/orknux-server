@@ -34,6 +34,14 @@ import org.springframework.stereotype.Service
 class PluginSkills(
     private val plugins: PluginRepository,
     private val declarations: PluginDeclarations,
+    /**
+     * The skills Orknux brings itself, offered through the same door. Issue
+     * #468: a built-in skill is granted, listed and loaded exactly as a
+     * plugin's is, so putting it here rather than beside here is what keeps
+     * every reader downstream - the briefing, `skill_load`, a graph naming one
+     * by id, the catalog picker - from learning that a third kind exists.
+     */
+    private val builtIn: BuiltInSkills,
 ) {
 
     /**
@@ -42,7 +50,7 @@ class PluginSkills(
      * A plugin that declares no skills offers no catalog: an empty folder in
      * the picker is a thing somebody grants and then wonders about.
      */
-    fun catalogs(): List<PluginSkillCatalog> = plugins.findAllByOrderByNameAsc()
+    fun catalogs(): List<PluginSkillCatalog> = builtIn.catalogs() + plugins.findAllByOrderByNameAsc()
         .filter { it.enabled }
         .mapNotNull { plugin ->
             val held = declarations.readSkills(plugin.declaredSkills)
