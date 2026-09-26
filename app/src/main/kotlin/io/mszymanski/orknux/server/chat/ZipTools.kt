@@ -96,7 +96,15 @@ class ZipTools(
         val packed = archive.toByteArray()
         val named = text(asked, NAME)?.trim()?.ifEmpty { null } ?: "files.zip"
         val key = text(asked, KEY)?.trim()?.ifEmpty { null } ?: named
-        scratch.put(sessionId, key, Base64.getEncoder().encodeToString(packed))
+        /*
+         * JSON, not the bare base64. Issue #493: every key in this store holds a
+         * JSON value - `save_artifact`, a kept pad, a drawn picture all write
+         * `writeValueAsString(content)` - and every reader parses it. Writing
+         * the raw string put a zip's own header in there, so Slack's upload
+         * answered "Unexpected token U in JSON at position 0": UEsDBBQ is what
+         * a zip looks like in base64.
+         */
+        scratch.put(sessionId, key, mapper.writeValueAsString(Base64.getEncoder().encodeToString(packed)))
 
         return mapper.writeValueAsString(
             linkedMapOf(

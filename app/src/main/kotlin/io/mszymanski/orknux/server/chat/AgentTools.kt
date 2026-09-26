@@ -827,6 +827,11 @@ class AgentTools(
             val tree = reader.readTree(result)
             tree.isObject && tree.size() == 1 && tree.has("error")
         }.getOrDefault(false)
+
+        /** What a failed answer said, for quoting back at the model. Issue #494. */
+        fun reasonIn(result: String): String? = runCatching {
+            reader.readTree(result).path("error").takeIf { it.isTextual }?.stringValue()?.trim()?.ifEmpty { null }
+        }.getOrNull()
     }
 }
 

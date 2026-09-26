@@ -288,7 +288,9 @@ class ScratchpadTools(
              */
             pad.contentType?.let { type ->
                 val key = KEPT_PREFIX + pad.name
-                scratch.put(session, key, pad.content)
+                // JSON, as every other writer into this store does: what reads
+                // a key parses it. Issue #493.
+                scratch.put(session, key, mapper.writeValueAsString(pad.content))
                 return mapper.writeValueAsString(
                     mapOf(
                         "name" to pad.name,

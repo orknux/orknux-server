@@ -114,21 +114,29 @@ class AgentToolCallTest(
     }
 
     /**
-     * An agent with no grants is offered nothing.
+     * An agent with no grants is offered nothing of the workspace's.
      *
      * Not tools that answer "nothing here": that is a round trip spent learning
-     * what the grant already said, and the model pays for it.
+     * what the grant already said, and the model pays for it. What it still
+     * holds is what reaches nothing at all - since #416, reading a document to
+     * say whether it parses - because withholding arithmetic on a string buys
+     * nobody anything.
      */
     @Test
-    fun `an agent granted nothing is handed no tools`() {
+    fun `an agent granted nothing is handed only what reaches nothing`() {
         val endpoint = serveToolThenAnswer()
         val agentId = agentGranted("Plain", model(endpoint), granted = null)
 
         val agent = requireNotNull(agents.findByIdOrNull(agentId))
         conversation.answer(requireNotNull(agent.modelId), agent, listOf(ChatTurn("user", "Hello")))
 
-        assertThat(received).hasSize(1)
-        assertThat(received[0]).doesNotContain("tools")
+        /*
+         * The round count is not the assertion: this stub asks for a skill
+         * whatever it is offered, so what matters is what it was offered.
+         */
+        assertThat(received[0]).doesNotContain("skill_list").doesNotContain("memory_search")
+        assertThat(received[0]).doesNotContain("scratchpad_write").doesNotContain("ask_agent")
+        assertThat(received[0]).contains("validate_format")
     }
 
     /**

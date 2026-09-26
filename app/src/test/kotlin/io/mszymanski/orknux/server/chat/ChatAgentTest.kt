@@ -181,9 +181,25 @@ class ChatAgentTest(
 
     /** Nothing to say is no system turn: an empty briefing costs tokens for nothing. */
     @Test
-    fun `an agent with no prompt and no skills is briefed with nothing`() {
+    fun `an agent with no prompt and no skills is still told what it holds`() {
         val agentId = agent("Plain", model("Gemma"))
-        assertThat(briefing.of(requireNotNull(agents.findByIdOrNull(agentId)))).isNull()
+        val said = briefing.of(requireNotNull(agents.findByIdOrNull(agentId)))
+        /*
+         * It used to be briefed with nothing at all, on the reasoning that an
+         * agent with no prompt and no skills is a model with a name on it.
+         * Issue #481 changed what "nothing" means: every tool it holds is named
+         * here, because an agent that cannot see its own inventory searches for
+         * words it hopes exist. A bare agent still holds the built-ins.
+         */
+        assertThat(said).isNotNull()
+        assertThat(said).contains("These are the tools you have")
+        /*
+         * And the server's own skills, which every agent holds since #471 - so
+         * a bare agent knows its commands as well as its tools. What it has
+         * none of is the workspace's, which is what having no grants means.
+         */
+        assertThat(said).contains("You have been given these skills")
+        assertThat(said).doesNotContain("Reviews")
     }
 
     /**

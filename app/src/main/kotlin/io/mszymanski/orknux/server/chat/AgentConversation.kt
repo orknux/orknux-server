@@ -444,6 +444,13 @@ class AgentConversation(
          * at all and why it is small.
          */
         var retried = 0
+
+        /*
+         * What the last tool call answered with, where it failed, and whether
+         * the model has already been told not to end on it. Issue #494.
+         */
+        var failedLast: String? = null
+        var warnedOfFailure = false
         repeat(rounds) {
             /*
              * Rebuilt every round, because a search changes what the next one
@@ -616,6 +623,31 @@ class AgentConversation(
                         // and told to anybody watching for the same reason.
                         val line = into?.let { sessions.toolCalled(it, call.name, asked) }
                         watch?.called(here, call.name, asked)
+                        /*
+                         * A turn does not end on a failure nobody acknowledged.
+                         * Issue #494: a tool answered with an error, and the
+                         * very next call was finish_answer with "the work was
+                         * delivered" - which is the worst shape a failure can
+                         * take, because it removes the only signal anybody had.
+                         *
+                         * Refused once, with the error quoted back, and then
+                         * never again this round: an agent that genuinely
+                         * cannot get past something has to be able to end its
+                         * turn and say so, and a guard that would not let it is
+                         * a loop rather than a rule.
+                         */
+                        if (call.name == io.mszymanski.orknux.server.agent.FinishAnswerTools.FINISH &&
+                            failedLast != null && !warnedOfFailure
+                        ) {
+                            warnedOfFailure = true
+                            val said = "The last thing you did failed: $failedLast. " +
+                                "Do not finish saying the work is done. Either try another way, " +
+                                "or finish with an answer that says plainly what went wrong."
+                            sessions.toolReturned(line, said)
+                            watch?.returned(here, said, failed = true)
+                            conversation += ChatTurn(role = "user", content = said, respondingTo = call.id)
+                            return@forEach
+                        }
                         val got = try {
                             if (hunt != null && hunt.handles(call.name)) hunt.run(call) else tools.run(agent, call, into)
                         } catch (halted: AgentRoundHalted) {
@@ -677,6 +709,14 @@ class AgentConversation(
                         val picture = AgentTools.pictureIn(got)
                         val said = picture?.let { AgentTools.withoutPicture(got, it) } ?: got
                         picture?.let { shown.add(call.name to it) }
+
+                        // What the next call is judged against, where that call
+                        // is the one that ends the turn. Issue #494.
+                        failedLast = if (AgentTools.failed(got)) {
+                            AgentTools.reasonIn(got) ?: "it answered with an error"
+                        } else {
+                            null
+                        }
 
                         val gave = AuditRedaction.redactObvious(said)
                         sessions.toolReturned(line, gave)
