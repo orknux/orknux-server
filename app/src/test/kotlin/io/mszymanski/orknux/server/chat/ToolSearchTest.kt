@@ -101,6 +101,31 @@ class ToolSearchTest(
         assertThat(found).doesNotContain("deploy_rollback")
     }
 
+    /**
+     * By the word, not by the letters. "uploads" used to miss `slack_upload`
+     * while "up" matched half the list; a name is read as the words it is made
+     * of and a word meets another from a four-letter prefix on. Issue #451.
+     */
+    @Test
+    fun `a query meets a tool by its words, with a prefix either way, and never by a scrap of letters`() {
+        val tools = granted + listOf(
+            ToolSpec("slack_uploadBinary", "Puts bytes into Slack as a file."),
+            ToolSpec("slack_readAttachment", "Reads a file somebody attached."),
+        )
+
+        fun found(query: String): List<String> {
+            val held = mutableSetOf<String>()
+            searching.shed(tools, held, room = { 10 }).run(call(query))
+            return held.toList()
+        }
+
+        assertThat(found("uploads")).containsExactlyInAnyOrder("slack_uploadBinary")
+        assertThat(found("attachment")).describedAs("camel case is split into words")
+            .containsExactlyInAnyOrder("slack_readAttachment")
+        assertThat(found("up")).describedAs("two letters are not a word of anything").isEmpty()
+        assertThat(found("post message")).first().isEqualTo("slack_postMessage")
+    }
+
     @Test
     fun `nothing matching says so rather than answering with everything`() {
         val found = mutableSetOf<String>()

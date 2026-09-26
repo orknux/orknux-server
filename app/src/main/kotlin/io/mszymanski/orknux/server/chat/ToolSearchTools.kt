@@ -219,17 +219,25 @@ class ToolSearchTools(
         /**
          * What matches, best first.
          *
-         * Every word of the query is looked for in the name and in the
-         * description, and a tool is scored by how many it carries and where.
-         * A name match counts for more than a description match, because a
-         * model asking for "jira" means the tools called `jira_*` rather than
+         * Every word of the query is looked for among the words of the name and
+         * of the description, and a tool is scored by how many it carries and
+         * where. A name match counts for more than a description match, because
+         * a model asking for "jira" means the tools called `jira_*` rather than
          * every tool whose description mentions one.
          *
-         * Deliberately not a stemmer or an index. What is being searched is at
-         * most a few hundred short strings held in memory, and the thing asking
-         * is a model that will read the answer and search again if it was
-         * wrong - so what matters is that a reasonable query finds the right
-         * tool, not that the ranking is defensible to two decimal places.
+         * By the word rather than by the letters, the rule the memory search
+         * settled on: `contains` made "up" match half a list and "uploads" miss
+         * `slack_upload`. A name is split on `_` and on the case change inside
+         * it - `slack_uploadBinary` is slack, upload, binary - and a query word
+         * and a held word match when equal or when one is a prefix of the other
+         * from [STEM] letters on, which is as much stemming as is worth having
+         * without a language to do it in. Issue #451.
+         *
+         * Deliberately not an index. What is being searched is at most a few
+         * hundred short strings held in memory, and the thing asking is a model
+         * that will read the answer and search again if it was wrong - so what
+         * matters is that a reasonable query finds the right tool, not that the
+         * ranking is defensible to two decimal places.
          */
         private fun matching(asked: String): List<ToolSpec> {
             val words = asked.lowercase().split(NOT_A_WORD).filter { it.length > 1 }.distinct()
@@ -243,16 +251,24 @@ class ToolSearchTools(
         }
 
         private fun score(tool: ToolSpec, words: List<String>): Int {
-            val name = tool.name.lowercase()
-            val described = tool.description.lowercase()
+            val named = wordsOfName(tool.name)
+            val described = tool.description.lowercase().split(NOT_A_WORD).filter { it.isNotEmpty() }
             return words.sumOf { word ->
                 when {
-                    name.contains(word) -> NAME_WORTH
-                    described.contains(word) -> DESCRIPTION_WORTH
+                    named.any { carries(it, word) } -> NAME_WORTH
+                    described.any { carries(it, word) } -> DESCRIPTION_WORTH
                     else -> 0
                 }
             }
         }
+
+        /** The words a tool's name is made of: `slack_uploadBinary` is slack, upload, binary. */
+        private fun wordsOfName(name: String): List<String> =
+            name.replace(CASE_CHANGE, "$1 $2").lowercase().split(NOT_A_WORD).filter { it.isNotEmpty() }
+
+        /** Equal, or one a prefix of the other from [STEM] letters on - so "uploads" and "upload" meet, "up" meets nothing. */
+        private fun carries(held: String, word: String): Boolean =
+            held == word || (minOf(held.length, word.length) >= STEM && (held.startsWith(word) || word.startsWith(held)))
 
         private fun argument(call: ToolCall): String? = runCatching {
             mapper.readTree(call.arguments).path(QUERY).takeIf { it.isTextual }?.stringValue()
@@ -289,5 +305,15 @@ class ToolSearchTools(
         private const val LOADED_AT_ONCE = 8
 
         private val NOT_A_WORD = Regex("[^a-z0-9]+")
+
+        /** Where a name changes case, which is where its words meet: `uploadBinary`. */
+        private val CASE_CHANGE = Regex("([a-z0-9])([A-Z])")
+
+        /**
+         * From how many letters a prefix counts as the same word. Four, as the
+         * memory search has it: shorter and "post" would meet "postpone" but so
+         * would "up" meet "upload", which is the substring rule back again.
+         */
+        private const val STEM = 4
     }
 }
