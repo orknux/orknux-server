@@ -26,7 +26,7 @@ class BuiltInSkillsTest(
         val catalog = builtIn.catalogs().single()
         assertThat(catalog.name).isEqualTo(BuiltInSkills.CATALOG)
         assertThat(catalog.plugin).isEqualTo("Orknux")
-        assertThat(catalog.skills.map { it.name }).contains("Caveman", "TL;DR", "Angryman", "Grill me", "Plan", "Memory", "Commands", "Output format", "Language")
+        assertThat(catalog.skills.map { it.name }).contains("Caveman", "TL;DR", "Angryman", "Grill me", "Plan", "Memory", "Commands", "Output format", "Language", "Agents")
         // Every one of them is a skill by the rules a workspace's own is held
         // to - the frontmatter, a body - because nothing downstream knows these
         // came from a file rather than a row.
@@ -56,6 +56,10 @@ class BuiltInSkillsTest(
         assertThat(catalog.skills.single { it.name == "Output format" }.key).isEqualTo("output-format")
         // And the other one with an argument: ::language=pl, ::language=polish.
         assertThat(catalog.skills.single { it.name == "Language" }.key).isEqualTo("language")
+        // And the one that calls a tool to answer: what this conversation has
+        // asked of other agents, and how each is going. Issue #477.
+        assertThat(catalog.skills.single { it.name == "Agents" }.key).isEqualTo("agents")
+        assertThat(catalog.skills.single { it.name == "Agents" }.content).contains("agent_asks")
         assertThat(SkillFormat.check(tldr.content).valid).isTrue()
 
         /*

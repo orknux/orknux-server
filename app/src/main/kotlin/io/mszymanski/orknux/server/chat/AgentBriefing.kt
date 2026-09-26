@@ -41,6 +41,15 @@ class AgentBriefing(
     private val connections: WorkspaceConnectionService,
     /** Which of the two ways the granted connections are told; see [ConnectionTools]. */
     private val connectionTools: ConnectionTools,
+    /**
+     * How many other agents this one may ask, and whether it may ask at all.
+     *
+     * Through a provider rather than wired in: [AgentRunTools] reaches the
+     * conversation, and the conversation reaches this, so a direct edge is a
+     * cycle Spring refuses at startup. Asked for at the moment a briefing is
+     * written, by which time everything exists. Issue #476.
+     */
+    private val runTools: org.springframework.beans.factory.ObjectProvider<AgentRunTools>,
     /** For the command marker the agent advertises its skills under. Issue #381. */
     private val workspaces: io.mszymanski.orknux.server.workspace.WorkspaceRepository,
     /** The installation's default marker, where the workspace has none. Issue #402. */
@@ -194,6 +203,38 @@ class AgentBriefing(
          * read, and past that point the agent is better off asking. See
          * [ConnectionTools].
          */
+        /*
+         * Whether it may hand any of this to another agent, said outright.
+         *
+         * Issue #476: a workspace that allows none takes `ask_agent` off the
+         * list, which is correct and silent - and a model that has been told
+         * nothing assumes the ordinary thing, so agents went on planning to
+         * delegate, telling people work had been handed over, and waiting for
+         * an answer nobody was writing. A tool that is absent is not a sentence
+         * anybody reads; this is.
+         *
+         * Both halves are said. The number is what the issue asked for - an
+         * agent that knows it has two asks spends them on the two things worth
+         * asking about - and the refusal is what stops the pretending.
+         */
+        val asks = runTools.getObject()
+        if (asks.offered(agent)) {
+            parts += buildString {
+                append("You may put a question to another agent with ").append(AgentRunTools.ASK)
+                append(", up to ").append(asks.limitFor(agent))
+                appendLine(" times in this conversation. Spend them on work you have no tool for.")
+            }
+        } else if (agent.agents.isNotEmpty()) {
+            /*
+             * Said only where somebody granted agents and something else - a
+             * limit of zero, or every one of them switched off - takes the tool
+             * away. An agent nobody gave anybody to needs no sentence about it,
+             * and every prompt in the product is not the place to pay for one.
+             */
+            parts += "You cannot hand any part of this to another agent in this conversation: this " +
+                "workspace allows none. Do the work yourself rather than saying you will pass it on."
+        }
+
         if (connectionTools.offered(agent)) {
             parts += buildString {
                 append("You have been granted ").append(agent.connections.size)

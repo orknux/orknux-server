@@ -407,6 +407,19 @@ class OrknuxTools(
             )
             add(
                 ToolSpec(
+                    name = "orknux_delete_issue",
+                    description =
+                        "Removes an issue for good, with its comments and anything attached to it. " +
+                            "This cannot be undone and is not the same as closing one: close an issue " +
+                            "that is finished or will not be done, and delete one that should never " +
+                            "have been written down - a duplicate, or one filed against the wrong thing.",
+                    parameters = listOf(
+                        ToolParameterSpec("issue", "Its number in this workspace.", required = true),
+                    ),
+                ),
+            )
+            add(
+                ToolSpec(
                     name = "orknux_update_issue",
                     description =
                         "Changes an issue's title, description, type, labels or who is on it. " +
@@ -690,6 +703,7 @@ class OrknuxTools(
             "orknux_comment_on_issue" -> issueTools.comment(scope, arguments)
             "orknux_set_issue_status" -> issueTools.setStatus(scope, arguments)
             "orknux_update_issue" -> issueTools.update(scope, arguments)
+            "orknux_delete_issue" -> issueTools.delete(scope, arguments)
             "orknux_suggest_function_code" -> suggest(scope, arguments)
             "orknux_run_workflow" -> runWorkflow(scope, arguments)
             "orknux_rerun_execution" -> rerun(scope, arguments)

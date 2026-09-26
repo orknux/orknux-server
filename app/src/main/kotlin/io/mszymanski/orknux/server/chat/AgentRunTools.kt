@@ -83,6 +83,8 @@ class AgentRunTools(
     private val scratchpads: ScratchpadTools,
     /** The conversations already started from one, for the count in [run]. Issue #380. */
     private val held: io.mszymanski.orknux.server.llm.LlmSessionRepository,
+    /** Whether a line in one of those is still open, for [asked]. Issue #477. */
+    private val lines: io.mszymanski.orknux.server.llm.LlmSessionEventRepository,
     private val workspaces: io.mszymanski.orknux.server.workspace.WorkspaceRepository,
     private val installation: io.mszymanski.orknux.server.attachment.InstallationSettings,
     /** Where an answer, and whatever the asked agent's tools kept, is put for the asker. Issue #393. */
@@ -145,7 +147,70 @@ class AgentRunTools(
         )
     }
 
-    fun handles(name: String): Boolean = name == ASK
+    /** What `agent_asks` is, to a model. Issue #477. */
+    fun asksSpec(): ToolSpec = ToolSpec(
+        name = ASKS,
+        description = "Lists the agents you have asked in this conversation and how each one is going: " +
+            "what it was asked about, whether it is still working, and when it last did anything. " +
+            "Also says how many asks you have left. Call it when somebody asks what your agents are " +
+            "doing, and before asking again where you are not sure whether an earlier ask is finished.",
+        parameters = emptyList(),
+    )
+
+    fun handles(name: String): Boolean = name == ASK || name == ASKS
+
+    /**
+     * What this conversation has handed out, and how each of them is going.
+     * Issue #477.
+     *
+     * The asks are sessions under this one, so the list is the children. An
+     * agent that has asked three things and is waiting on them had no way of
+     * seeing that: it knew what it had sent, in its own transcript, and nothing
+     * about what came of it - so `::agents` was a question nobody could answer
+     * and a person asking what the subagents were doing got a guess.
+     *
+     * Still working is read the way the sessions list reads it: a line opened
+     * and not finished, or something written within the installation's own
+     * window. Deliberately the same rule and deliberately not the same code -
+     * the screen's copy checks a run is running, which needs two more
+     * repositories than this tool has any business holding.
+     */
+    fun asked(agent: Agent, parent: Long?): String {
+        if (parent == null) {
+            return mapper.writeValueAsString(
+                mapOf("asks" to emptyList<Any>(), "note" to "This conversation is not one that can ask."),
+            )
+        }
+        val children = held.findByParentSessionIdOrderByCreatedAtAscIdAsc(parent)
+        val ids = children.mapNotNull { it.id }
+        val open = if (ids.isEmpty()) emptySet() else lines.unfinishedAmong(ids).toSet()
+        val window = installation.sessionsActiveWindowSeconds().toLong()
+        val recently = java.time.OffsetDateTime.now().minusSeconds(window)
+
+        val listed = children.map { session ->
+            val working = session.id in open || session.lastEventAt?.isAfter(recently) == true
+            linkedMapOf<String, Any?>(
+                "asked" to (nameIn(session.agentDetails) ?: "an agent"),
+                "about" to session.title,
+                "working" to working,
+                "startedAt" to session.createdAt.toString(),
+                "lastAt" to session.lastEventAt?.toString(),
+            )
+        }
+        val allowed = limitFor(agent)
+        return mapper.writeValueAsString(
+            linkedMapOf(
+                "asks" to listed,
+                "working" to listed.count { it["working"] == true },
+                "left" to (allowed - listed.size).coerceAtLeast(0),
+            ),
+        )
+    }
+
+    /** The agent's name out of the details line the session opens with. Issue #456. */
+    private fun nameIn(details: String?): String? = details?.let { held ->
+        runCatching { mapper.readTree(held).path("name").stringValue() }.getOrNull()?.takeIf { it.isNotBlank() }
+    }
 
     /**
      * Asks one of them, and answers with what it said.
@@ -388,6 +453,9 @@ class AgentRunTools(
     companion object {
 
         const val ASK = "ask_agent"
+
+        /** What this conversation has asked, and how it is going. Issue #477. */
+        const val ASKS = "agent_asks"
         const val AGENT = "agent"
         const val QUESTION = "question"
         const val TITLE = "title"

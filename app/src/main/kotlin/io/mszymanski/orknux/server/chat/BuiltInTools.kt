@@ -130,6 +130,7 @@ class BuiltInTools(
             AgentTools.BASE64_DECODE,
             ConnectionTools.FIND,
             AgentRunTools.ASK,
+            AgentRunTools.ASKS,
             FinishAnswerTools.FINISH,
             StepPictureTools.DRAW,
             StepPictureTools.LINK,

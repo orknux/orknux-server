@@ -81,6 +81,9 @@ class IssueTools(
     private val mapper: ObjectMapper,
     /** What this workspace's statuses are, and which one a model meant. */
     private val statuses: IssueStatusCatalogue,
+    /** What a deleted issue was carrying, so the bytes go with the rows. Issue #478. */
+    private val attachments: io.mszymanski.orknux.server.issue.IssueAttachmentRepository,
+    private val store: io.mszymanski.orknux.server.attachment.AttachmentStore,
 ) {
 
     /**
@@ -630,6 +633,37 @@ class IssueTools(
         // agents worked is worse than no history at all.
         history.statusChanged(held, was, wanted, currentUser(scope))
         return mapper.writeValueAsString(mapOf("issue" to held.number, "status" to wanted))
+    }
+
+    /**
+     * Removing an issue, for good. Issue #478.
+     *
+     * The one tool here that destroys something. Written because the door
+     * existed on the screen and not through the tracker's other door, so an
+     * agent that had filed a duplicate, or opened one against the wrong
+     * workspace, could only ask a person to tidy up after it.
+     *
+     * Deliberately unlike closing: closing is a statement about the work, and
+     * this says the issue should never have been written down. So it names what
+     * it is about to remove in the answer - the number and the title - because
+     * an agent that deleted the wrong one has nothing else to tell anybody, and
+     * the audit line is written the way every other door writes one.
+     *
+     * The attachments' bytes go with the rows, as they do in the controller: an
+     * issue tracker that leaves its screenshots behind fills a disk with files
+     * belonging to issues nobody can name.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    fun delete(scope: OrknuxScope, arguments: String): String {
+        if (!scope.mayWrite) return refuse("This conversation may read issues, but not change them")
+        val held = issueIn(scope, arguments) ?: return refuse("Which issue? Give its number.")
+
+        val number = held.number
+        val title = held.title
+        attachments.findByIssueIdOrderByUploadedAtAsc(requireNotNull(held.id)).forEach { store.remove(it.location) }
+        issues.delete(held)
+        audited(scope, scope.workspaceId, "Issue #$number deleted")
+        return mapper.writeValueAsString(mapOf("deleted" to number, "title" to title))
     }
 
     /**

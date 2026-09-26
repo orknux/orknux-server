@@ -186,6 +186,10 @@ class AgentTools(
          */
         if (agentTools.offered(agent) && BuiltInTools.granted(agent, AgentRunTools.ASK)) {
             add(agentTools.specFor(agent))
+            // And the one that says how those asks are going. Offered with the
+            // asking rather than on its own: a list of what you cannot do is
+            // not worth a tool. Issue #477.
+            if (BuiltInTools.granted(agent, AgentRunTools.ASKS)) add(agentTools.asksSpec())
         }
 
         /*
@@ -366,6 +370,8 @@ class AgentTools(
              * grant itself and says so in the words the model needs.
              */
             shells.run(agent, call.name, call.arguments)
+        } else if (call.name == AgentRunTools.ASKS) {
+            agentTools.asked(agent, sessionId)
         } else if (agentTools.handles(call.name)) {
             /*
              * Asking another agent, checked here as well as left off the menu -
