@@ -720,6 +720,7 @@ CREATE TABLE plugin
     permissions_accepted_at      timestamp,
     permissions_accepted_by      varchar(120),
     enabled                      boolean not null default true,
+    built_in                     boolean not null default false,
     marketplace_key              varchar(64),
     marketplace_version          varchar(32),
     icon                         text,

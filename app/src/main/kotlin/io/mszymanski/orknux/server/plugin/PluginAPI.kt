@@ -650,7 +650,7 @@ class PluginUploadAPI(
      * is questioned, its declaration checked against what arrived, the
      * agreement checked against what is new, and only then is anything stored.
      */
-    private fun loaded(
+    internal fun loaded(
         filename: String,
         source: String,
         files: List<PluginLibraryFile>,
@@ -670,6 +670,18 @@ class PluginUploadAPI(
         iconDark: String? = null,
         /** What it says about itself, where it ships a manifest. */
         manifest: PluginManifest? = null,
+        /**
+         * Whether the server is writing one of its own. Issue #474.
+         *
+         * Two things follow from it, and only these two. The row is marked, so
+         * Remove is refused and the boot writer knows which rows are its to
+         * replace; and what the bundle asks for is taken as accepted, because
+         * the party who would have been asked is the party that chose to run
+         * this release. Everything else on this path is the same as an upload:
+         * the same inspection, the same contract, the same refusals, and
+         * `enabled` is left exactly as somebody set it.
+         */
+        builtIn: Boolean = false,
     ): ResponseEntity<Any> {
         /*
          * The plugin is loaded and questioned before anything is stored: what it
@@ -785,9 +797,10 @@ class PluginUploadAPI(
          * first again. The lists stay separately named all the way to the
          * screen, so nothing is agreed to under cover of the other.
          */
-        val refusedPermissions = agreeing && permissions.accepted(accept) != wanted
-        val refusedCapabilities = agreeingCapabilities && capabilities.accepted(accept) != wantedCapabilities
-        val refusedLibraries = agreeingLibraries && acceptedLibraries(accept) != wantedLibraries
+        val refusedPermissions = !builtIn && agreeing && permissions.accepted(accept) != wanted
+        val refusedCapabilities =
+            !builtIn && agreeingCapabilities && capabilities.accepted(accept) != wantedCapabilities
+        val refusedLibraries = !builtIn && agreeingLibraries && acceptedLibraries(accept) != wantedLibraries
         if (refusedPermissions || refusedCapabilities || refusedLibraries) {
             throw PluginAgreementNeededException(
                 // Each list travels only while it is being agreed to: what was
@@ -851,6 +864,13 @@ class PluginUploadAPI(
             this.sha256 = fingerprint
             this.uploadedAt = OffsetDateTime.now()
             this.uploadedBy = currentUser()
+            /*
+             * And whose row it is now. An upload under a built-in's key takes
+             * it over - the flag goes false, and the boot writer then leaves it
+             * alone rather than writing the shipped bundle over somebody's own.
+             * Issue #474.
+             */
+            this.builtIn = builtIn
             marketplace?.let { (fromKey, version) ->
                 this.marketplaceKey = fromKey
                 this.marketplaceVersion = version
@@ -896,6 +916,7 @@ class PluginUploadAPI(
             permissionsAcceptedBy = acceptedBy,
             sha256 = fingerprint,
             uploadedBy = currentUser(),
+            builtIn = builtIn,
             marketplaceKey = marketplace?.first,
             marketplaceVersion = marketplace?.second,
             icon = icon,
@@ -2134,6 +2155,14 @@ class PluginAPI(
          * the cascade, because a workflow pointing at a function that has stopped
          * existing fails at the moment it runs, which is the worst moment to learn.
          */
+        /*
+         * A plugin the server brings itself is not removable: the next start
+         * would write it back, so the button would be offering something that
+         * does not hold. Switching it off is the honest way to say no to one,
+         * and that survives every write. Issue #474.
+         */
+        if (plugin.builtIn) throw PluginBuiltInException(plugin.name)
+
         val used = registry.inUse(plugin)
         if (used.isNotEmpty()) throw PluginInUseException(used)
 
@@ -2424,3 +2453,14 @@ class PluginExceptionResolver : DataFetcherExceptionResolverAdapter() {
             .build()
     }
 }
+
+/**
+ * Removing a plugin the release brings. Issue #474.
+ *
+ * Refused rather than allowed and quietly undone: the next start writes it back,
+ * so a Remove that appeared to work would be a lie the first restart tells.
+ * Switching it off is the decision that holds, and it survives every upgrade.
+ */
+class PluginBuiltInException(name: String) : RuntimeException(
+    "$name ships with Orknux, so it cannot be removed. Switch it off instead.",
+)

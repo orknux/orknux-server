@@ -1,0 +1,16 @@
+{
+  "$schema": "https://orknux.ai/marketplace/plugin.schema.json",
+  "key": "pdf",
+  "name": "PDF",
+  "author": "Orknux",
+  "tags": [
+    "documents",
+    "reports",
+    "offline"
+  ],
+  "summary": "Compose PDF documents from a workflow, diagrams drawn in.",
+  "version": "0.15.3",
+  "icon": "icon.svg",
+  "descriptionPath": "README.md",
+  "path": "pdf.js"
+}

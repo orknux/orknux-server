@@ -5555,6 +5555,17 @@ type Plugin {
     """
     enabled: Boolean!
     """
+    Whether the release brought this plugin itself.
+
+    A built-in is written at boot from a bundle inside the release, its own
+    declarations taken as accepted because the party who would have been asked
+    is the party that chose to run this version, and it cannot be removed: the
+    next start would write it back. Switching it off is the decision that
+    holds. Uploading a bundle of your own under the same key takes the row
+    over, and this turns false.
+    """
+    builtIn: Boolean!
+    """
     The library files it ships with, by path. Empty for a single-file plugin.
 
     What somebody allowed when it was loaded: these travel with the plugin and
