@@ -599,6 +599,42 @@ internal object HostHelpers {
      * Bound only where the call belongs to a session; elsewhere every method
      * says there are no scratchpads here instead of writing into nowhere.
      */
+    /**
+     * `orknux.validate`: whether a document is the thing it claims to be.
+     * Issue #416.
+     *
+     * Four named functions rather than one `check(format, text)`, because the
+     * format is a fact about the call and not an argument somebody should be
+     * able to misspell: `orknux.validate.json(text)` cannot be asked for a
+     * format that does not exist.
+     */
+    fun validation(): String = """
+        validate: {
+          __call(format, text) {
+            const door = globalThis.__orknuxValidate;
+            if (door === undefined) {
+              return { error: 'validation is not available here' };
+            }
+            const answer = door(JSON.stringify({ format: format, text: String(text ?? '') }));
+            try {
+              return JSON.parse(answer);
+            } catch (error) {
+              return { error: 'the validator said nothing' };
+            }
+          },
+          /** True or false, for the common case: `if (!orknux.validate.isJson(text))`. */
+          isJson(text) { return this.json(text).valid === true; },
+          isYaml(text) { return this.yaml(text).valid === true; },
+          isHtml(text) { return this.html(text).valid === true; },
+          isMarkdown(text) { return this.markdown(text).valid === true; },
+          /** `{ valid }`, or `{ valid: false, problems: [{ line, column, message }] }`. */
+          json(text) { return this.__call('json', text); },
+          yaml(text) { return this.__call('yaml', text); },
+          html(text) { return this.__call('html', text); },
+          markdown(text) { return this.__call('markdown', text); },
+        },
+    """.trimIndent()
+
     fun scratchpads(): String = """
         scratchpad: {
           /** The one door, request and answer both JSON. */

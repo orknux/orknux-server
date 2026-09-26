@@ -38,6 +38,8 @@ class AgentTools(
     /** Where this installation is, for the one answer that carries a link. */
     private val web: io.mszymanski.orknux.server.security.WebProperties,
     private val skills: SkillTool,
+    /** Whether a document is the thing it claims to be. Issue #416. */
+    private val validator: FormatValidator,
     private val memories: MemoryTool,
     private val workspaceTools: WorkspaceToolCaller,
     private val pluginTools: PluginToolCaller,
@@ -184,6 +186,10 @@ class AgentTools(
          * named in its own description, and an agent that had to find the way to
          * delegate is a round worse off than one that was told.
          */
+        // Reading a document to find out whether it is one. Reaches nothing, so
+        // it is offered wherever it is not hidden. Issue #416.
+        if (BuiltInTools.granted(agent, VALIDATE)) add(VALIDATE_SPEC)
+
         if (agentTools.offered(agent) && BuiltInTools.granted(agent, AgentRunTools.ASK)) {
             add(agentTools.specFor(agent))
             // And the one that says how those asks are going. Offered with the
@@ -373,6 +379,8 @@ class AgentTools(
              * grant itself and says so in the words the model needs.
              */
             shells.run(agent, call.name, call.arguments)
+        } else if (call.name == VALIDATE) {
+            validator.check(call.arguments)
         } else if (call.name == AgentRunTools.ASKS) {
             agentTools.asked(agent, sessionId)
         } else if (agentTools.handles(call.name)) {
@@ -564,6 +572,40 @@ class AgentTools(
         const val SAVE_ARTIFACT = "save_artifact"
         const val BASE64_ENCODE = "base64_encode"
         const val BASE64_DECODE = "base64_decode"
+
+        /** Whether a document parses as the format it claims. Issue #416. */
+        const val VALIDATE = "validate_format"
+
+        /**
+         * What `validate_format` is, to a model.
+         *
+         * Written to be reached for before handing a document on rather than
+         * after something else refuses it: a config file a person opens, an
+         * answer another system parses, a page somebody views. The answer is
+         * where the fault is, which is what makes it worth a call.
+         */
+        val VALIDATE_SPEC = ToolSpec(
+            name = VALIDATE,
+            description = "Reads a document to say whether it is valid JSON, YAML, HTML or markdown, and " +
+                "where it is not - the line, the column and what a parser made of it. Use it on anything " +
+                "you built and are about to hand on: a config file, a page, an answer something else will " +
+                "parse. It says whether the document parses, not whether it is well written, so a valid " +
+                "document you find ugly is still valid. Markdown is checked for the mistakes that break a " +
+                "page rather than for style: a code fence left open, a link left unfinished, a table row " +
+                "that does not match its header.",
+            parameters = listOf(
+                ToolParameterSpec(
+                    name = FormatValidator.FORMAT,
+                    description = "Which format to read it as: " + FormatValidator.FORMATS.joinToString(", ") + ".",
+                    required = true,
+                ),
+                ToolParameterSpec(
+                    name = FormatValidator.TEXT,
+                    description = "The document itself.",
+                    required = true,
+                ),
+            ),
+        )
 
         /**
          * Keeping a file, and the conversion getting a binary one there.

@@ -78,6 +78,14 @@ class ScriptRunner(
      * scratchpads here. Issue #411.
      */
     private val scratchpads: SessionScratchpads? = null,
+    /**
+     * Reading a document to say whether it is one, for `orknux.validate`.
+     *
+     * Bound wherever a script runs and not behind a session or a permission:
+     * it parses a string and reaches nothing. Null in tests that do not care.
+     * Issue #416.
+     */
+    private val validation: FormatValidation? = null,
 ) {
 
     private val engine: Engine = Engine.newBuilder("js")
@@ -565,6 +573,7 @@ class ScriptRunner(
             .replace("%LOG%", HostHelpers.log(kept).prependIndent("  "))
             .replace("%STORE%", HostHelpers.sessionStore().prependIndent("  "))
             .replace("%SCRATCHPAD%", HostHelpers.scratchpads().prependIndent("  "))
+            .replace("%VALIDATE%", HostHelpers.validation().prependIndent("  "))
     }
 
     private fun serve(
@@ -660,6 +669,21 @@ class ScriptRunner(
          * working file belongs to a session, so a call outside one is told
          * there is nowhere to keep it. One door, request and answer JSON. #411.
          */
+        /*
+         * The validator, bound unconditionally: no session, no grant, nothing
+         * reached. A script that has just built JSON can ask whether it built
+         * it, which is the one question it could not answer before. Issue #416.
+         */
+        if (validation != null) {
+            bindings.putMember(
+                VALIDATE,
+                ProxyExecutable { given ->
+                    val request = given.getOrNull(0)?.takeIf { it.isString }?.asString()
+                        ?: return@ProxyExecutable """{"error":"a validation request has to be a string"}"""
+                    validation.check(request)
+                },
+            )
+        }
         if (scratchpads != null && sessionId != null) {
             bindings.putMember(
                 SCRATCHPAD,
@@ -695,6 +719,9 @@ class ScriptRunner(
         const val LOG = "__orknuxLog"
 
         /** The execution store's two doors; bound only inside a workflow execution. */
+        /** Where `orknux.validate` hands a document over. Not a capability. Issue #416. */
+        const val VALIDATE = "__orknuxValidate"
+
         const val STORE_PUT = "__orknuxStorePut"
         const val STORE_GET = "__orknuxStoreGet"
         const val STORE_UNSET = "__orknuxStoreUnset"
@@ -737,6 +764,7 @@ class ScriptRunner(
 %LOG%
 %STORE%
 %SCRATCHPAD%
+%VALIDATE%
             };
         """.trimIndent()
 
