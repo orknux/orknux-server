@@ -102,6 +102,20 @@ class LlmSessionRecordingTest(
     fun stop() = server.stop(0)
 
     /**
+     * The conversation's own lines, oldest first, without the setup line.
+     *
+     * A session opens with an AGENT_DETAILS line since #441 - the setup the
+     * agent was about to answer under, written before anything is said - and
+     * again wherever that setup changes. What this class is about is what the
+     * runtime records *of the conversation*, so the setup is left out here
+     * rather than written into every expectation; `AgentNodeRunnerTest` is where
+     * the line itself, and when a second one is due, are pinned.
+     */
+    private fun said(): List<LlmSessionEvent> = events.findAll()
+        .filter { it.kind != LlmSessionEventKind.AGENT_DETAILS }
+        .sortedBy { it.id }
+
+    /**
      * The question, the tool, and the answer - none of which the graph asked to
      * have written down.
      *
@@ -123,7 +137,7 @@ class LlmSessionRecordingTest(
         assertThat(session.keyPrefix).isEqualTo("issue")
         assertThat(session.workspaceId).isEqualTo(workspaceId)
 
-        val lines = events.findAll().sortedBy { it.id }
+        val lines = said()
         assertThat(lines.map { it.kind }).containsExactly(
             LlmSessionEventKind.USER,
             LlmSessionEventKind.TOOL,
@@ -140,7 +154,9 @@ class LlmSessionRecordingTest(
         assertThat(lines[2].actor).isEqualTo("Reviewer")
         assertThat(lines[2].content).isEqualTo("Read the diff twice.")
 
-        assertThat(session.id?.let { events.countBySessionId(it) }).isEqualTo(3)
+        // All of it in the one session, and nothing else in there: the three
+        // lines above plus the setup line the log opens with (#441).
+        assertThat(session.id?.let { events.countBySessionId(it) }).isEqualTo(4)
     }
 
     /**
@@ -166,7 +182,7 @@ class LlmSessionRecordingTest(
 
         start()
 
-        val lines = events.findAll().sortedBy { it.id }
+        val lines = said()
         assertThat(lines.map { it.kind }).containsExactly(
             LlmSessionEventKind.USER,
             LlmSessionEventKind.AGENT,
@@ -197,7 +213,7 @@ class LlmSessionRecordingTest(
 
         start()
 
-        assertThat(events.findAll().sortedBy { it.id }.map { it.kind }).containsExactly(
+        assertThat(said().map { it.kind }).containsExactly(
             LlmSessionEventKind.USER,
             LlmSessionEventKind.TOOL,
             LlmSessionEventKind.AGENT,
@@ -219,7 +235,7 @@ class LlmSessionRecordingTest(
 
         start()
 
-        assertThat(events.findAll().sortedBy { it.id }.map { it.kind }).containsExactly(
+        assertThat(said().map { it.kind }).containsExactly(
             LlmSessionEventKind.USER,
             LlmSessionEventKind.TOOL,
             LlmSessionEventKind.AGENT,
@@ -269,7 +285,7 @@ class LlmSessionRecordingTest(
 
         assertThat(sessions.findAll()).hasSize(1)
         // Two rounds of two lines each, in the order the two runs happened.
-        assertThat(events.findAll().sortedBy { it.id }.map { it.kind })
+        assertThat(said().map { it.kind })
             .containsExactly(
                 LlmSessionEventKind.USER,
                 LlmSessionEventKind.AGENT,
@@ -389,7 +405,7 @@ class LlmSessionRecordingTest(
 
         start(expectFailure = true)
 
-        val lines = events.findAll().sortedBy { it.id }
+        val lines = said()
         assertThat(lines.first().kind).isEqualTo(LlmSessionEventKind.USER)
         assertThat(lines.last().kind).isEqualTo(LlmSessionEventKind.SYSTEM)
         assertThat(lines.last().actor).isEqualTo("system")
@@ -417,7 +433,7 @@ class LlmSessionRecordingTest(
         val session = sessions.findAll().single()
         assertThat(session.sessionKey).isEqualTo("issue:42")
         assertThat(session.keyPrefix).isEqualTo("issue")
-        assertThat(events.findAll().sortedBy { it.id }.map { it.kind })
+        assertThat(said().map { it.kind })
             .containsExactly(LlmSessionEventKind.USER, LlmSessionEventKind.AGENT)
     }
 
@@ -458,7 +474,7 @@ class LlmSessionRecordingTest(
 
         // One conversation, with both nodes' rounds in it, in the order they ran.
         assertThat(sessions.findAll()).hasSize(1)
-        val lines = events.findAll().sortedBy { it.id }
+        val lines = said()
         assertThat(lines.map { it.actor })
             .containsExactly("Ask reviewer", "Reviewer", "Ask again", "Reviewer")
         // And the second node heard the first: what it sent carries the answer

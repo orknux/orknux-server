@@ -202,10 +202,9 @@ class AgentRunTools(
          * specialist is not shown the conversation it was asked from: it has no
          * business reading it, and a question that needed it would be a question
          * the agent asking should have written out.
-         */
-        /*
+         *
          * Composed once: the same string is the system turn and the record of
-         * what this agent was working under. Issue #456 - see below.
+         * what this agent was working under. Issues #454, #456 - see below.
          */
         val system = briefing.of(wanted)
         val turns = buildList {
