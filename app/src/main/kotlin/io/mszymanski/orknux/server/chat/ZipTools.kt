@@ -134,13 +134,28 @@ class ZipTools(
             }
         }
         text(one, KEY)?.trim()?.takeIf { it.isNotEmpty() }?.let { key ->
-            val held = scratch.get(sessionId, key) ?: return null
+            val stored = scratch.get(sessionId, key) ?: return null
             /*
-             * A key holds text or base64 and nothing says which, so this reads
-             * it as base64 only where it decodes cleanly and is long enough to
-             * have been bytes. A short piece of text that happens to be valid
-             * base64 - "report" is not, "data" is - would otherwise be written
-             * into the archive as four mangled bytes.
+             * What the store holds is a JSON value, so it is parsed before it is
+             * anything else. Issue #499: this read the raw row, and since the
+             * row is `"iVBORw0KGgo..."` with the quotes, the base64 never
+             * decoded and the quoted string itself went into the archive - a
+             * PNG that opens as text beginning with a quotation mark.
+             *
+             * The raw text is still the fallback, for a row written before the
+             * store settled on JSON.
+             */
+            val held = runCatching { mapper.readTree(stored) }
+                .getOrNull()
+                ?.takeIf { it.isTextual }
+                ?.stringValue()
+                ?: stored
+            /*
+             * Then text or base64, with nothing saying which: read as base64
+             * only where it decodes cleanly and is long enough to have been
+             * bytes, since a short piece of text that happens to be valid
+             * base64 - "report" is not, "data" is - would otherwise land in the
+             * archive as four mangled bytes.
              */
             return runCatching { Base64.getDecoder().decode(held) }
                 .getOrNull()
