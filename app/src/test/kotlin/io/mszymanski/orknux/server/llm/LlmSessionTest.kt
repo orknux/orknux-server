@@ -218,16 +218,33 @@ class LlmSessionTest(
         assertThat(byKey["thread:C9"]?.get("subagentCount")).isEqualTo(0)
     }
 
-    /** An unfinished line makes a session active even when it has gone quiet. Issue #404. */
+    /**
+     * An unfinished line only counts while something is still writing.
+     *
+     * Issue #404 read a tool call with no result as an agent at work, which it
+     * is - right up until the run that made the call dies under a restart and
+     * leaves the line open for ever, and the session reads as active for ever
+     * with it. Issue #448 made the open line count only while a run or a task
+     * writing into that session is still going, and this session has neither:
+     * nothing started it, so an old clock and an open call is a session nobody
+     * is in.
+     */
     @Test
-    fun `a session with a call still out is active though its clock is old`() {
+    fun `a call still out does not light a session nothing is writing into`() {
         val session = recorder.open(workspaceId, "issue", "77")
-        // A tool called with no result yet is the unfinished half of the rule.
+        // A tool called with no result yet: the unfinished half of the old rule.
         recorder.toolCalled(session, "skill_load", """{"name":"codeReview"}""")
         val held = sessions.findById(session).orElseThrow()
         held.lastEventAt = java.time.OffsetDateTime.now().minusMinutes(5)
         sessions.save(held)
 
+        assertThat(list().single { it["key"] == "issue:77" }["active"]).isEqualTo(false)
+
+        // And the recency half is untouched: a line written just now still
+        // lights it, whoever wrote it.
+        val spoken = sessions.findById(session).orElseThrow()
+        spoken.lastEventAt = java.time.OffsetDateTime.now()
+        sessions.save(spoken)
         assertThat(list().single { it["key"] == "issue:77" }["active"]).isEqualTo(true)
     }
 
