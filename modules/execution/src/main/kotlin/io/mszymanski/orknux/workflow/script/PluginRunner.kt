@@ -539,6 +539,77 @@ class PluginRunner(
             emptyList()
         }
 
+        /*
+         * The workflow actions it declares. Issue #438.
+         *
+         * A fourth callable surface, and a fourth reader: a function is called
+         * with positional arguments by whoever wrote the call, where an action
+         * is a node on a canvas whose inputs somebody wired by name - so an
+         * action's `run` is handed one object keyed by parameter name, and the
+         * declaration carries a label for the node picker and the outputs the
+         * next node may read. Only the shape is judged here; whether the types
+         * are ones this server has is the server's question, as it is for a
+         * function. Optional, like connectionTypes: a plugin written before
+         * this existed is read as declaring none.
+         */
+        val actions = if (plugin.hasMember("actions")) {
+            val declaredActions = plugin.invokeMember("actions")
+            if (!declaredActions.hasArrayElements()) {
+                return PluginInspection.Unreadable("actions() did not answer with an array")
+            }
+            if (declaredActions.arraySize > MAX_ACTIONS) {
+                return PluginInspection.Unreadable("actions() declared more than $MAX_ACTIONS actions")
+            }
+            (0 until declaredActions.arraySize).map { at ->
+                val one = declaredActions.getArrayElement(at)
+                val name = text(one, "name") ?: return PluginInspection.Unreadable("an action has no name")
+                if (one.getMember("run")?.canExecute() != true) {
+                    return PluginInspection.Unreadable("the action $name has no run function; it is what the action does")
+                }
+                val asked = one.getMember("parameters")?.takeIf { it.hasArrayElements() }
+                if (asked != null && asked.arraySize > MAX_ACTION_PARAMETERS) {
+                    return PluginInspection.Unreadable(
+                        "the action $name declares more than $MAX_ACTION_PARAMETERS parameters",
+                    )
+                }
+                val parameters = (0 until (asked?.arraySize ?: 0)).map { index ->
+                    val held = asked!!.getArrayElement(index)
+                    DeclaredActionParam(
+                        name = text(held, "name")
+                            ?: return PluginInspection.Unreadable("the action $name has a parameter with no name"),
+                        type = text(held, "type")
+                            ?: return PluginInspection.Unreadable("the action $name has a parameter with no type"),
+                        required = flag(held, "required", default = true),
+                        description = text(held, "description"),
+                    )
+                }
+                val answers = one.getMember("outputs")?.takeIf { it.hasArrayElements() }
+                if (answers != null && answers.arraySize > MAX_ACTION_PARAMETERS) {
+                    return PluginInspection.Unreadable("the action $name declares more than $MAX_ACTION_PARAMETERS outputs")
+                }
+                val outputs = (0 until (answers?.arraySize ?: 0)).map { index ->
+                    val held = answers!!.getArrayElement(index)
+                    DeclaredActionParam(
+                        name = text(held, "name")
+                            ?: return PluginInspection.Unreadable("the action $name has an output with no name"),
+                        type = text(held, "type")
+                            ?: return PluginInspection.Unreadable("the action $name has an output with no type"),
+                        required = true,
+                        description = text(held, "description"),
+                    )
+                }
+                DeclaredAction(
+                    name = name,
+                    label = text(one, "label") ?: return PluginInspection.Unreadable("the action $name has no label"),
+                    description = text(one, "description"),
+                    parameters = parameters,
+                    outputs = outputs,
+                )
+            }
+        } else {
+            emptyList()
+        }
+
         val asked = plugin.invokeMember("permissions")
         if (!asked.hasArrayElements()) {
             return PluginInspection.Unreadable("permissions() did not answer with an array")
@@ -735,6 +806,7 @@ class PluginRunner(
             objects = shapes,
             types = kinds,
             connectionTypes = connectionTypes,
+            actions = actions,
         )
     }
 
@@ -1245,6 +1317,18 @@ class PluginRunner(
         /** As many connection kinds as one plugin may declare. A plugin talks to a handful of hosts, not a catalogue. */
         const val MAX_CONNECTION_TYPES = 20
 
+        /**
+         * Workflow actions one plugin may declare. Issue #438.
+         *
+         * Every one is a row in the editor's action picker for every workspace,
+         * and a plugin offering more than this is a menu rather than a plugin.
+         * `MAX_ACTIONS` in @orknux/plugin mirrors it.
+         */
+        const val MAX_ACTIONS = 50
+
+        /** What one action may be handed, and what it may hand on. A node panel, not a form with fifty rows. */
+        const val MAX_ACTION_PARAMETERS = 30
+
         /** What one type may ask to be told; a connection and a couple of settings. */
         const val MAX_TYPE_PARAMETERS = 10
 
@@ -1276,13 +1360,14 @@ class PluginRunner(
               try {
                 var plugin = globalThis.$PLUGIN;
                 /*
-                 * Which list is searched and which member is called. A function
-                 * and a tool run; a type is asked to suggest or to validate,
-                 * which are two doors on the one declaration.
+                 * Which list is searched and which member is called. A function,
+                 * a tool and an action run; a type is asked to suggest or to
+                 * validate, which are two doors on the one declaration.
                  */
                 var surface = globalThis.$SURFACE;
                 var declared, method;
                 if (surface === 'tools') { declared = plugin.tools(); method = 'run'; }
+                else if (surface === 'actions') { declared = plugin.actions(); method = 'run'; }
                 else if (surface === 'types:suggest') { declared = plugin.types(); method = 'suggest'; }
                 else if (surface === 'types:validate') { declared = plugin.types(); method = 'validate'; }
                 else { declared = plugin.functions(); method = 'run'; }
@@ -1299,6 +1384,16 @@ class PluginRunner(
                   return;
                 }
                 var args = JSON.parse(globalThis.$ARGUMENTS);
+                /*
+                 * An action's run is handed (input, context), and the context
+                 * carries the plugin's settings under `settings` - the same
+                 * frozen object `this.settings` is - so a run written as an
+                 * arrow function, which has no `this` of its own, still reaches
+                 * the connection the workspace pointed the plugin at. Issue #438.
+                 */
+                if (surface === 'actions') {
+                  args = [args[0], Object.assign({}, args[1] || {}, { settings: plugin.settings })];
+                }
                 var limit = Number(globalThis.$RESULT_LIMIT);
                 Promise.resolve(wanted[method].apply(plugin, args)).then(
                   function (value) {
@@ -1435,6 +1530,25 @@ class PluginRunner(
               }
 
               types() {
+                return [];
+              }
+
+              /**
+               * The workflow actions this plugin offers: blocks a workflow's
+               * Action node can be pointed at, each `{ name, label, description,
+               * parameters, outputs, run }`.
+               *
+               * A fourth surface with a fourth reader. A function is called with
+               * positional arguments by whoever wrote the call; an action is a
+               * node on a canvas whose inputs somebody wired by name, so `run`
+               * is handed one object keyed by parameter name - an `array`
+               * parameter arrives as an array - and a `context` carrying this
+               * plugin's `settings`, which is how it reaches the connection the
+               * workspace pointed it at. What `run` returns is handed to the
+               * next node: an object's fields under the names `outputs`
+               * declares, anything else under `result`. Defaults to none.
+               */
+              actions() {
                 return [];
               }
             };
@@ -1952,6 +2066,8 @@ sealed interface PluginInspection {
         val skills: List<DeclaredSkill> = emptyList(),
         /** The connection kinds it declares, for a workspace to hold hosts of. Issue #363. */
         val connectionTypes: List<DeclaredConnectionType> = emptyList(),
+        /** The workflow actions it declares, shape-checked and no more; see [DeclaredAction]. Issue #438. */
+        val actions: List<DeclaredAction> = emptyList(),
         /**
          * The shapes it exports, each field shape-checked and no more.
          * Whether an `of` names one of these, and what reference that becomes,
@@ -2027,6 +2143,39 @@ data class DeclaredTool(
     val params: List<DeclaredParam>,
     val returnType: String,
     val proxyOf: String?,
+)
+
+/**
+ * One workflow action a plugin declares. Issue #438.
+ *
+ * Not a function under another name. A function is called positionally by
+ * code somebody wrote; an action is a block on a canvas whose inputs are wired
+ * by name, so its `run` is handed one object keyed by [parameters] and what it
+ * answers is read back under the names [outputs] declares. [label] is what the
+ * node picker shows - "Reply in the thread" rather than `respond`.
+ *
+ * Types are kept as the plugin wrote them. Whether each names one this server
+ * has is decided where a function's are, on the server.
+ */
+data class DeclaredAction(
+    val name: String,
+    val label: String,
+    val description: String?,
+    val parameters: List<DeclaredActionParam>,
+    val outputs: List<DeclaredActionParam>,
+)
+
+/**
+ * One input an action takes, or one output it hands on.
+ *
+ * [required] is only ever false on an input: an output is whatever the run
+ * answered, and there is nothing for "optional" to mean about it.
+ */
+data class DeclaredActionParam(
+    val name: String,
+    val type: String,
+    val required: Boolean = true,
+    val description: String? = null,
 )
 
 /**

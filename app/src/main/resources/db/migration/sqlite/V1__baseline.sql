@@ -383,6 +383,7 @@ CREATE TABLE execution_step
     agent_sleeps                 integer not null default 0,
     agent_sleep_note             text,
     session_id                   integer,
+    enabled                      boolean not null default true,
     constraint uk_execution_step UNIQUE (execution_id, node_key),
     constraint ck_execution_step_branch CHECK (((branch IS NULL) OR ((branch) IN ('YES', 'NO', 'FAILURE')))),
     constraint ck_execution_step_kind CHECK (((kind) IN ('TRIGGER', 'AGENT', 'ACTION', 'CONDITION', 'OBJECT', 'IMAGE'))),
@@ -698,6 +699,8 @@ CREATE TABLE plugin
     declared_capabilities        text not null default '[]',
     -- V294: the connection kinds it declares, for a workspace to hold hosts of. Issue #363.
     declared_connection_types    text not null default '[]',
+    -- V299: the workflow actions it declares, for an Action node to be pointed at. Issue #438.
+    declared_actions             text not null default '[]',
     accepted_capabilities        text not null default '[]',
     permissions_accepted_at      timestamp,
     permissions_accepted_by      varchar(120),
@@ -1106,8 +1109,11 @@ CREATE TABLE workflow_action
     speech_text                  text,
     speech_voice                 varchar(80),
     speech_model_id              integer,
-    constraint ck_workflow_action_shape CHECK ((workflow_id IS NOT NULL) OR (((((type) = 'EXECUTE') AND ((subtype) = 'OUTGOING_CONNECTION') AND (connection_id IS NOT NULL)) OR (((type) = 'EXECUTE') AND ((subtype) = 'SEND_EMAIL') AND (connection_id IS NOT NULL)) OR (((type) = 'EXECUTE') AND ((subtype) = 'HTTP_REQUEST') AND (url IS NOT NULL)) OR (((type) = 'EXECUTE') AND ((subtype) = 'FUNCTION') AND (function_id IS NOT NULL)) OR (((type) = 'WAIT') AND ((subtype) = 'INLINE_CONDITION') AND (condition_expression IS NOT NULL)) OR (((type) = 'WAIT') AND ((subtype) = 'CONDITION') AND (condition_id IS NOT NULL)) OR (((type) = 'WAIT') AND ((subtype) = 'TIME') AND (duration_seconds IS NOT NULL))))),
-    constraint ck_workflow_action_subtype CHECK (((subtype) IN ('OUTGOING_CONNECTION', 'SEND_EMAIL', 'HTTP_REQUEST', 'FUNCTION', 'INLINE_CONDITION', 'CONDITION', 'TIME', 'SPEAK'))),
+    -- V299: which plugin's action a PLUGIN_ACTION runs, and what the plugin calls it. Issue #438.
+    plugin_key                   varchar(64),
+    plugin_action                varchar(64),
+    constraint ck_workflow_action_shape CHECK ((workflow_id IS NOT NULL) OR (((((type) = 'EXECUTE') AND ((subtype) = 'OUTGOING_CONNECTION') AND (connection_id IS NOT NULL)) OR (((type) = 'EXECUTE') AND ((subtype) = 'SEND_EMAIL') AND (connection_id IS NOT NULL)) OR (((type) = 'EXECUTE') AND ((subtype) = 'HTTP_REQUEST') AND (url IS NOT NULL)) OR (((type) = 'EXECUTE') AND ((subtype) = 'FUNCTION') AND (function_id IS NOT NULL)) OR (((type) = 'EXECUTE') AND ((subtype) = 'PLUGIN_ACTION') AND (plugin_key IS NOT NULL) AND (plugin_action IS NOT NULL)) OR (((type) = 'EXECUTE') AND ((subtype) = 'SPEAK') AND (speech_text IS NOT NULL)) OR (((type) = 'WAIT') AND ((subtype) = 'INLINE_CONDITION') AND (condition_expression IS NOT NULL)) OR (((type) = 'WAIT') AND ((subtype) = 'CONDITION') AND (condition_id IS NOT NULL)) OR (((type) = 'WAIT') AND ((subtype) = 'TIME') AND (duration_seconds IS NOT NULL))))),
+    constraint ck_workflow_action_subtype CHECK (((subtype) IN ('OUTGOING_CONNECTION', 'SEND_EMAIL', 'HTTP_REQUEST', 'FUNCTION', 'PLUGIN_ACTION', 'INLINE_CONDITION', 'CONDITION', 'TIME', 'SPEAK'))),
     constraint ck_workflow_action_type CHECK (((type) IN ('EXECUTE', 'WAIT'))),
     constraint workflow_action_condition_id_fkey FOREIGN KEY (condition_id) REFERENCES workflow_condition(id),
     constraint workflow_action_function_id_fkey FOREIGN KEY (function_id) REFERENCES workflow_function(id),
@@ -1317,6 +1323,7 @@ CREATE TABLE workflow_node
     retry_max_wait_seconds       integer,
     retry_jitter                 float,
     retry_budget_seconds         integer,
+    enabled                      boolean not null default true,
     constraint uk_workflow_node UNIQUE (workflow_id, node_key),
     constraint ck_workflow_node_retry_multiplier CHECK (((retry_multiplier IS NULL) OR ((retry_multiplier >= 1) AND (retry_multiplier <= 10)))),
     constraint ck_workflow_node_retry_max_wait CHECK (((retry_max_wait_seconds IS NULL) OR ((retry_max_wait_seconds >= 1) AND (retry_max_wait_seconds <= 3600)))),

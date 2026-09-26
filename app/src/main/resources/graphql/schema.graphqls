@@ -135,6 +135,13 @@ type Query {
     """
     pluginConnectionTypes: [PluginConnectionType!]!
     """
+    The workflow actions the loaded plugins declare, for the editor's Action node
+    to offer beside the built-in subtypes. A plugin belongs to the installation,
+    so the list is the same for every workspace; the argument is who is asking.
+    Only plugins that are switched on. Issue #438.
+    """
+    pluginActions(workspaceId: ID!): [PluginAction!]!
+    """
     The libraries loaded into this installation, by name, with what imports them.
 
     Administrators only, and `usedBy` is why: it names functions and tools across
@@ -2280,6 +2287,12 @@ type WorkflowNode {
     "Which way round the node faces on the canvas; null is left to right."
     orientation: NodeOrientation
     """
+    Whether the run does this node's work. A disabled node is kept on the
+    graph with its edges and skipped by the run, which passes what it was
+    handed straight on; for switching one piece off while debugging the rest.
+    """
+    enabled: Boolean!
+    """
     What a node's two ways out are called; null leaves it to the interface,
     which says Yes and No for a condition and "If works" / "If fails" for a node
     that handles its own failure.
@@ -2575,6 +2588,8 @@ input WorkflowNodeInput {
     icon: String
     "Which way round the node faces on the canvas; null is left to right."
     orientation: NodeOrientation
+    "Whether the run does this node's work; null keeps it on, which is what every node was."
+    enabled: Boolean
     """
     What a node's two ways out are called; null leaves it to the interface.
     Kept on a condition, and on an action or agent with `fallbackEnabled`;
@@ -5372,6 +5387,37 @@ type PluginConnectionType {
 }
 
 """
+A workflow action a plugin declares: a block an Action node of subtype
+PLUGIN_ACTION runs. Issue #438.
+
+Addressed by `pluginKey` and `name` together, which is what the Action stores -
+two plugins may both declare `respond`. The parameters are the node's inputs,
+wired by name and handed to the plugin as one object (an ARRAY arrives as an
+array); the outputs are the fields the next node reads, under these names.
+"""
+type PluginAction {
+    pluginKey: String!
+    pluginName: String!
+    "An identifier, stable: what the Action stores as pluginAction."
+    name: String!
+    "What the node picker shows."
+    label: String!
+    description: String
+    parameters: [PluginActionParam!]!
+    "Empty means the whole answer is handed on under `result`."
+    outputs: [PluginActionParam!]!
+}
+
+"One input a plugin action takes, or one output it hands on."
+type PluginActionParam {
+    name: String!
+    type: ValueType!
+    "Whether a node has to wire it; always true on an output."
+    required: Boolean!
+    description: String
+}
+
+"""
 A plugin loaded into this installation.
 
 The source is not here. A list of what is loaded does not need the text of it,
@@ -5424,6 +5470,8 @@ type Plugin {
     permissions: [PluginPermission!]!
     "The kinds of host it declares, for a workspace to hold connections of. Issue #363."
     connectionTypes: [PluginConnectionType!]!
+    "The workflow actions it declares, for an Action node to be pointed at. Issue #438."
+    actions: [PluginAction!]!
     "ISO-8601 offset date-time. Null when the plugin asked for nothing."
     permissionsAcceptedAt: String
     "Null when the plugin asked for nothing, so nobody accepted anything."
@@ -6723,11 +6771,18 @@ enum ActionSubtype {
     SEND_EMAIL
     HTTP_REQUEST
     FUNCTION
+    """
+    Runs a workflow action a loaded plugin declares, named by `pluginKey` and
+    `pluginAction`; its inputs and outputs are the plugin's declaration. Issue #438.
+    """
+    PLUGIN_ACTION
     "Waits until an expression written into the action holds."
     INLINE_CONDITION
     "Waits until one of the workspace's conditions holds."
     CONDITION
     TIME
+    "Says something out loud, and leaves the audio with the run."
+    SPEAK
 }
 
 enum ConnectionActionKind {
@@ -6875,6 +6930,11 @@ type Action {
     headersReadable: Boolean!
     functionId: ID
     functionName: String
+    "Which plugin's action a PLUGIN_ACTION runs, and what the plugin calls it. Issue #438."
+    pluginKey: String
+    pluginAction: String
+    "What the plugin labels it; null where no loaded plugin declares it any more."
+    pluginActionLabel: String
     mappings: [ArgumentMapping!]!
     conditionExpression: String
     conditionId: ID
@@ -6969,6 +7029,9 @@ input CreateActionInput {
     "The headers as rows. Wins over `headers` when both arrive."
     headerRows: [ActionHeaderInput!]
     functionId: ID
+    "Which plugin's action a PLUGIN_ACTION runs, and what the plugin calls it; both required for that subtype. Issue #438."
+    pluginKey: String
+    pluginAction: String
     mappings: [ArgumentMappingInput!]
     conditionExpression: String
     conditionId: ID
@@ -7009,6 +7072,9 @@ input UpdateActionInput {
     "The headers as rows. Wins over `headers` when both arrive."
     headerRows: [ActionHeaderInput!]
     functionId: ID
+    "Which plugin's action a PLUGIN_ACTION runs, and what the plugin calls it. Issue #438."
+    pluginKey: String
+    pluginAction: String
     mappings: [ArgumentMappingInput!]
     conditionExpression: String
     conditionId: ID

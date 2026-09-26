@@ -201,6 +201,61 @@ class FunctionCaller(
     }
 
     /**
+     * Runs one of a plugin's workflow actions - a declaration in `actions()`
+     * with a `run` that takes the node's inputs as one object. Issue #438.
+     *
+     * Here for the reason [callPluginTool] is: it is the same assembly as a
+     * plugin function's - the workspace's settings, the accepted permissions
+     * and capabilities, all read per call from the plugin's row - and a second
+     * copy of it would be a second place a grant could be resolved differently.
+     *
+     * @param actionName the name the plugin gave it, without the key prefix.
+     * @param input the node's mapped inputs as one JSON object, keyed by
+     *   parameter name; what the plugin declared as an array arrives as one.
+     * @param context what the script may know about where it is running, as
+     *   JSON; the sandbox adds the plugin's settings to it before the call.
+     */
+    fun callPluginAction(
+        plugin: Plugin,
+        actionName: String,
+        input: String,
+        context: String,
+        workspaceId: Long,
+        origin: ScriptOrigin = ScriptOrigin(),
+    ): ScriptResult {
+        if (!plugin.enabled) {
+            return ScriptResult.Failed(
+                "cannot run: the ${plugin.key} plugin is switched off. Switch it on under Admin → Plugins.",
+                0,
+            )
+        }
+
+        val missing = pluginParameters.missingFor(plugin, workspaceId)
+        if (missing.isNotEmpty()) {
+            return ScriptResult.Failed(
+                "cannot run: the ${plugin.key} plugin has not been told " + missing.joinToString(", ") +
+                    ". Set it on this workspace's plugins page.",
+                0,
+            )
+        }
+
+        return pluginRunner.call(
+            plugin.source,
+            actionName,
+            listOf(input, context),
+            pluginParameters.settingsFor(plugin, workspaceId),
+            pluginPermissions.grantedTo(plugin),
+            pluginCapabilities.grantedTo(plugin),
+            on = workspaceId,
+            surface = "actions",
+            libraries = pluginSources.librariesOf(plugin),
+            // The function bound, which is what a workflow's step waits on; a
+            // plugin's action has no row of its own to carry one.
+            timeoutMillis = timeouts.forFunction(null, workspaceId),
+        )
+    }
+
+    /**
      * Runs a function one of the plugins declared.
      *
      * A required parameter nobody answered stops it before the plugin is loaded,

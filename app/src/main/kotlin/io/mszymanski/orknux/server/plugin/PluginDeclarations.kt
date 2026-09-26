@@ -5,6 +5,8 @@ import io.mszymanski.orknux.server.action.ValueType
 import io.mszymanski.orknux.server.agent.SkillFormat
 import io.mszymanski.orknux.server.agent.SkillKeys
 import io.mszymanski.orknux.server.obj.PropertyKind
+import io.mszymanski.orknux.workflow.script.DeclaredAction
+import io.mszymanski.orknux.workflow.script.DeclaredActionParam
 import io.mszymanski.orknux.workflow.script.DeclaredConnectionType
 import io.mszymanski.orknux.workflow.script.DeclaredFunction
 import io.mszymanski.orknux.workflow.script.DeclaredObject
@@ -14,7 +16,9 @@ import io.mszymanski.orknux.workflow.script.DeclaredParameter
 import io.mszymanski.orknux.workflow.script.DeclaredSkill
 import io.mszymanski.orknux.workflow.script.DeclaredTool
 import org.springframework.stereotype.Component
+import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
+import tools.jackson.databind.node.ArrayNode
 
 /**
  * What a plugin declared, checked and kept.
@@ -333,6 +337,127 @@ class PluginDeclarations(private val mapper: ObjectMapper) {
                 )
             }
         }.getOrDefault(emptyList())
+
+    /**
+     * The workflow actions a plugin declares, checked and written down. Issue #438.
+     *
+     * A name is an identifier the way a function's is and declared once: an
+     * Action row stores it beside the plugin key, so it has to be stable and
+     * unambiguous. The label is what the node picker shows and may not be
+     * empty. Parameters and outputs are held to the function rules - usable
+     * names, declared once - with a type list of their own: an action's inputs
+     * are wired from what a run carries, so beside the scalars it may take an
+     * `array` (the Slack trigger's `commands`) and an `object`, which a plugin
+     * spells `object` or `map` and this server keeps as MAP - a plugin belongs
+     * to every workspace at once and can name none of a workspace's own shapes.
+     *
+     * The stored types are [ValueType] names, so the editor can draw a node's
+     * ports and the validator can check an edge without entering the sandbox.
+     */
+    fun validatedActions(declared: List<DeclaredAction>): String {
+        val names = mutableSetOf<String>()
+        val array = mapper.createArrayNode()
+        declared.forEach { action ->
+            val name = action.name.trim()
+            if (!IDENTIFIER.matches(name)) {
+                throw PluginDeclarationInvalidException("\"${action.name}\" is not a usable action name")
+            }
+            if (!names.add(name)) {
+                throw PluginDeclarationInvalidException("it declares the action $name more than once")
+            }
+            val label = action.label.trim()
+            if (label.isEmpty()) throw PluginDeclarationInvalidException("the action $name has no label")
+
+            val node = array.addObject()
+            node.put("name", name)
+            node.put("label", label)
+            action.description?.trim()?.takeIf { it.isNotEmpty() }?.let { node.put("description", it) }
+            writeActionParams(node.putArray("parameters"), name, "parameter", action.parameters)
+            writeActionParams(node.putArray("outputs"), name, "output", action.outputs)
+        }
+        return mapper.writeValueAsString(array)
+    }
+
+    /** One side of an action - its inputs or its outputs - checked and written. [side] names which, for the refusal. */
+    private fun writeActionParams(
+        into: ArrayNode,
+        action: String,
+        side: String,
+        declared: List<DeclaredActionParam>,
+    ) {
+        val names = mutableSetOf<String>()
+        declared.forEach { param ->
+            if (!IDENTIFIER.matches(param.name)) {
+                throw PluginDeclarationInvalidException(
+                    "the action $action has ${aOrAn(side)} called \"${param.name}\", which is not a usable name",
+                )
+            }
+            if (!names.add(param.name)) {
+                throw PluginDeclarationInvalidException("the action $action declares the $side ${param.name} twice")
+            }
+            val type = actionValueType(param.type)
+                ?: throw PluginDeclarationInvalidException(
+                    "the action $action's ${param.name} is a \"${param.type}\", and ${aOrAn(side)} is one of " +
+                        "${actionTypes().joinToString(", ")}",
+                )
+            val held = into.addObject().put("name", param.name).put("type", type.name)
+            param.description?.trim()?.takeIf { it.isNotEmpty() }?.let { held.put("description", it) }
+            // Written only where it is not the default, so a declaration that
+            // says nothing and one that says "required" read the same.
+            if (!param.required) held.put("required", false)
+        }
+    }
+
+    private fun aOrAn(side: String): String = if (side.first() in "aeiou") "an $side" else "a $side"
+
+    /**
+     * What was kept about the actions, read back with the plugin joined on so
+     * each is addressable by key and name. Issue #438.
+     */
+    fun readActions(json: String, pluginKey: String, pluginName: String): List<PluginActionView> = runCatching {
+        val array = mapper.readTree(json)
+        (0 until array.size()).map { at ->
+            val node = array.get(at)
+            val name = node.get("name").asString()
+            PluginActionView(
+                pluginKey = pluginKey,
+                pluginName = pluginName,
+                name = name,
+                label = node.get("label")?.asString() ?: name,
+                description = node.get("description")?.asString(),
+                parameters = readActionParams(node.get("parameters")),
+                outputs = readActionParams(node.get("outputs")),
+            )
+        }
+    }.getOrDefault(emptyList())
+
+    private fun readActionParams(array: JsonNode?): List<PluginActionParamView> =
+        (0 until (array?.size() ?: 0)).map { index ->
+            val held = array!!.get(index)
+            PluginActionParamView(
+                name = held.get("name").asString(),
+                type = held.get("type").asString(),
+                // Absent means required, which is what a declaration that said
+                // nothing meant by saying nothing.
+                required = held.get("required")?.asBoolean() ?: true,
+                description = held.get("description")?.asString(),
+            )
+        }
+
+    /** The types an action's input or output may be, as a plugin should write them. */
+    fun actionTypes(): List<String> = ACTION_TYPES.map { it.name.lowercase() } + OBJECT_SPELLING
+
+    /**
+     * An action's type by its spelling: a value type on the list, or `object`,
+     * which is the plugin's word for a free-form map. Not [valueType], which
+     * would read `object` as one of a workspace's definitions - a thing a plugin
+     * cannot mean - and would let `none` and `connection` through.
+     */
+    private fun actionValueType(name: String): ValueType? {
+        val written = name.trim()
+        if (written.equals(OBJECT_SPELLING, ignoreCase = true)) return ValueType.MAP
+        return valueType(written)?.takeIf { it in ACTION_TYPES }
+    }
 
     fun validatedSkills(declared: List<DeclaredSkill>): String {
         val names = mutableSetOf<String>()
@@ -937,6 +1062,24 @@ class PluginDeclarations(private val mapper: ObjectMapper) {
 
         /** What a plugin's type may be underneath; the three a variable can hold. Issue #377. */
         val BASES = listOf("string", "number", "boolean")
+
+        /**
+         * What an action's input or output may be. Issue #438.
+         *
+         * Wider than [SETTABLE], because an action's inputs are wired from what
+         * a run carries rather than typed into a settings form: a trigger's
+         * list of commands is an array, and there is no variable it could have
+         * come from. Narrower than [usableTypes] only in spelling - a plugin
+         * writes `object` for MAP, see [OBJECT_SPELLING].
+         */
+        val ACTION_TYPES = listOf(ValueType.STRING, ValueType.NUMBER, ValueType.BOOLEAN, ValueType.ARRAY, ValueType.MAP)
+
+        /**
+         * How a plugin spells a free-form map on an action. `map` is taken
+         * too; this is the word the SDK's type union offers, because it is the
+         * word JavaScript uses.
+         */
+        const val OBJECT_SPELLING = "object"
 
         /** What the `agent_skill` name column holds. */
         const val MOST_SKILL_NAME_CHARS = 120

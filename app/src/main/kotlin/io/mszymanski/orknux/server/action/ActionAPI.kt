@@ -6,6 +6,7 @@ import io.mszymanski.orknux.server.condition.WorkflowConditionRepository
 import io.mszymanski.orknux.server.dependency.ComponentDependants
 import io.mszymanski.orknux.server.dependency.DependencyKind
 import io.mszymanski.orknux.server.dependency.phrases
+import io.mszymanski.orknux.server.plugin.PluginActions
 import io.mszymanski.orknux.server.security.WorkspaceAccess
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
@@ -41,6 +42,8 @@ class ActionAPI(
     private val access: WorkspaceAccess,
     private val auditRecorder: WorkspaceAuditRecorder,
     private val dependants: ComponentDependants,
+    /** What the loaded plugins declare, for a PLUGIN_ACTION to be checked against. Issue #438. */
+    private val pluginActions: PluginActions,
 ) {
 
     /**
@@ -160,6 +163,8 @@ class ActionAPI(
                 method = input.method?.trim()?.uppercase()?.ifEmpty { null },
                 headers = writtenHeaders(input.workspaceId, input.headerRows, input.headers),
                 functionId = input.functionId,
+                pluginKey = input.pluginKey?.trim()?.ifEmpty { null },
+                pluginAction = input.pluginAction?.trim()?.ifEmpty { null },
                 mappings = input.mappings.orEmpty().toMappings(),
                 conditionExpression = input.conditionExpression?.trim()?.ifEmpty { null },
                 conditionId = input.conditionId,
@@ -220,6 +225,8 @@ class ActionAPI(
         input.headerRows?.let { action.headers = headers.write(headers.checked(action.workspaceId, it.toRows())) }
             ?: input.headers?.let { action.headers = it.trim().ifEmpty { null } }
         input.functionId?.let { action.functionId = it }
+        input.pluginKey?.let { action.pluginKey = it.trim().ifEmpty { null } }
+        input.pluginAction?.let { action.pluginAction = it.trim().ifEmpty { null } }
         input.mappings?.let { action.mappings = it.toMappings() }
         input.conditionExpression?.let { action.conditionExpression = it.trim().ifEmpty { null } }
         input.conditionId?.let { action.conditionId = it }
@@ -304,6 +311,11 @@ class ActionAPI(
             headersReadable = headers.rowsOf(action.headers) != null,
             functionId = action.functionId,
             functionName = function?.name,
+            pluginKey = action.pluginKey,
+            pluginAction = action.pluginAction,
+            // Null where the plugin is gone or stopped declaring it, which is
+            // what lets the form say so beside the two names it still holds.
+            pluginActionLabel = declaredBy(action)?.label,
             mappings = action.mappings.map { ArgumentMappingView(it.argument, it.expression) },
             conditionExpression = action.conditionExpression,
             conditionId = action.conditionId,
@@ -315,6 +327,11 @@ class ActionAPI(
             inputParams = parameters.inputsOf(action),
             outputParams = parameters.outputsOf(action),
         )
+    }
+
+    /** The declaration a PLUGIN_ACTION names, or null for any other subtype and for a name nothing declares. */
+    private fun declaredBy(action: WorkflowAction) = action.pluginKey?.let { key ->
+        action.pluginAction?.let { name -> pluginActions.declared(key, name) }
     }
 
     /**
@@ -342,6 +359,7 @@ class ActionAPI(
                 ActionSubtype.SEND_EMAIL,
                 ActionSubtype.HTTP_REQUEST,
                 ActionSubtype.FUNCTION,
+                ActionSubtype.PLUGIN_ACTION,
                 // Speaking performs something and carries on, which is what
                 // EXECUTE means. It waits for nothing.
                 ActionSubtype.SPEAK,
@@ -405,6 +423,23 @@ class ActionAPI(
                 if (function == null) throw ActionSettingMissingException("a function")
                 if (function.scope != FunctionScope.PLUGIN && function.workspaceId != action.workspaceId) {
                     throw ActionSettingMissingException("a function this workspace owns")
+                }
+            }
+
+            /*
+             * Both names, and a plugin that declares them. Checked against the
+             * declaration whatever the plugin's switch says - a shared action
+             * is a finished thing people pick from a list, and one naming a
+             * block no plugin declares is a row nobody could ever run - but
+             * not against `enabled`: a plugin switched off is a decision about
+             * the plugin, and renaming an action that points at it should not
+             * be refused over it. The run is where the switch is felt.
+             */
+            ActionSubtype.PLUGIN_ACTION -> {
+                val key = action.pluginKey ?: throw ActionSettingMissingException("a plugin")
+                val name = action.pluginAction ?: throw ActionSettingMissingException("an action the plugin declares")
+                if (pluginActions.declared(key, name) == null) {
+                    throw ActionSettingMissingException("an action the $key plugin declares; it does not declare $name")
                 }
             }
 
@@ -554,6 +589,9 @@ data class CreateActionInput(
     /** The headers as rows, which is what the form sends. Wins over [headers] when both arrive. */
     val headerRows: List<ActionHeaderInput>? = null,
     val functionId: Long? = null,
+    /** Which plugin's action a PLUGIN_ACTION runs, and what the plugin calls it. Issue #438. */
+    val pluginKey: String? = null,
+    val pluginAction: String? = null,
     val mappings: List<ArgumentMappingInput>? = null,
     val conditionExpression: String? = null,
     val conditionId: Long? = null,
@@ -590,6 +628,9 @@ data class UpdateActionInput(
     /** The headers as rows, which is what the form sends. Wins over [headers] when both arrive. */
     val headerRows: List<ActionHeaderInput>? = null,
     val functionId: Long? = null,
+    /** Which plugin's action a PLUGIN_ACTION runs, and what the plugin calls it. Issue #438. */
+    val pluginKey: String? = null,
+    val pluginAction: String? = null,
     val mappings: List<ArgumentMappingInput>? = null,
     val conditionExpression: String? = null,
     val conditionId: Long? = null,
@@ -648,6 +689,11 @@ data class ActionView(
     val headersReadable: Boolean,
     val functionId: Long?,
     val functionName: String?,
+    /** Which plugin's action a PLUGIN_ACTION runs, and what the plugin calls it. Issue #438. */
+    val pluginKey: String?,
+    val pluginAction: String?,
+    /** What the plugin labels it, or null where no loaded plugin declares it any more. */
+    val pluginActionLabel: String?,
     val mappings: List<ArgumentMappingView>,
     val conditionExpression: String?,
     val conditionId: Long?,

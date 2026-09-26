@@ -315,6 +315,10 @@ class GraphValidator(
 
         ActionSubtype.HTTP_REQUEST -> "no address to call".takeIf { action.url.isNullOrBlank() }
         ActionSubtype.FUNCTION -> "no function chosen".takeIf { action.functionId == null }
+        ActionSubtype.PLUGIN_ACTION -> "no plugin action chosen".takeIf {
+            action.pluginKey.isNullOrBlank() || action.pluginAction.isNullOrBlank()
+        }
+
         ActionSubtype.INLINE_CONDITION -> "nothing to wait for".takeIf { action.conditionExpression.isNullOrBlank() }
         ActionSubtype.CONDITION -> "no condition chosen".takeIf { action.conditionId == null }
         ActionSubtype.TIME -> "no time to wait".takeIf { action.durationSeconds == null }
@@ -383,6 +387,25 @@ class GraphValidator(
             }
 
         // --- The shape that could never run ---
+        /*
+         * A trigger cannot be switched off from the graph.
+         *
+         * Disabling a node means the run walks through it without doing its
+         * work, and a trigger does no work to walk through: it is where a run
+         * begins. A disabled trigger would either still start runs, in which
+         * case the switch says something false, or stop starting them, which is
+         * the trigger's own Enabled switch said in a second place - and two
+         * switches for one thing is how a workflow ends up silent with both of
+         * them reading on. Refused rather than warned about, because there is
+         * no version of it that was intended. Issue #439.
+         */
+        nodes.filter { it.kind == NodeKind.TRIGGER && !it.enabled }.forEach { node ->
+            problems += GraphProblem(
+                severity = GraphProblemSeverity.ERROR,
+                nodeKey = node.nodeKey,
+                message = "${node.name} is a trigger and cannot be disabled: a run has to start somewhere.",
+            )
+        }
         known.forEach { edge ->
             val target = byKey.getValue(edge.targetKey)
             val source = byKey.getValue(edge.sourceKey)

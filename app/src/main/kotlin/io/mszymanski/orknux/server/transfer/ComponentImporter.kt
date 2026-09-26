@@ -990,6 +990,8 @@ class ComponentImporter(
                     method = node.text("method"),
                     headers = node.text("headers"),
                     functionId = node.text("functionRef")?.let { idOf(ComponentKind.FUNCTION, it) },
+                    pluginKey = node.text("pluginKey"),
+                    pluginAction = node.text("pluginAction"),
                     mappings = node.path("mappings").values().map { mapping ->
                         ArgumentMapping(
                             argument = mapping.text("argument").orEmpty(),
@@ -1147,6 +1149,11 @@ class ComponentImporter(
                     retryMaxWaitSeconds = drawn.path("retryMaxWaitSeconds").let { if (it.isNumber) it.asInt() else null },
                     retryJitter = drawn.path("retryJitter").let { if (it.isNumber) it.asDouble() else null },
                     retryBudgetSeconds = drawn.path("retryBudgetSeconds").let { if (it.isNumber) it.asInt() else null },
+                    // Absent from every envelope written before a node could be
+                    // switched off, and read as on - which is what it was. A
+                    // trigger is kept on whatever the file says, because a save
+                    // would refuse it and an import is a save nobody is watching.
+                    enabled = drawn.path("enabled").asBoolean(true) || drawn.text("kind") == NodeKind.TRIGGER.name,
                     mappings = drawn.path("mappings").values().map { mapping ->
                         NodeMapping(
                             name = mapping.text("name").orEmpty(),

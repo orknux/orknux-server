@@ -118,6 +118,18 @@ class Plugin(
     var declaredConnectionTypes: String = "[]",
 
     /**
+     * The workflow actions it declares, as JSON, so the editor's Action node
+     * can offer them and a run can call one. See [PluginActionView]. Issue #438.
+     *
+     * A row rather than a question to the sandbox, for the reason every other
+     * declaration is: the editor lists them, the validator checks a node's
+     * wiring against them and the runner reads a run's inputs off them, and
+     * none of those should have to load a plugin to find out what it says.
+     */
+    @Column(name = "declared_actions", nullable = false, columnDefinition = "text")
+    var declaredActions: String = "[]",
+
+    /**
      * The shapes the plugin exports, as JSON.
      *
      * The declaration, not the registration — the same split the functions
@@ -321,6 +333,8 @@ data class PluginView(
     val uploadedBy: String,
     /** The connection kinds it declares, for a workspace to hold hosts of. Issue #363. */
     val connectionTypes: List<PluginConnectionTypeView> = emptyList(),
+    /** The workflow actions it declares, for an Action node to be pointed at. Issue #438. */
+    val actions: List<PluginActionView> = emptyList(),
     /** Whether it is switched on; off keeps everything and offers nothing. */
     val enabled: Boolean = true,
     /** The files it ships with, by path. Empty for a single-file plugin. */
@@ -461,6 +475,35 @@ data class PluginConnectionTypeView(
 )
 
 /**
+ * One workflow action a plugin declares, as the editor and the runner see it.
+ * Issue #438.
+ *
+ * Addressed by [pluginKey] and [name] together, which is what an Action of
+ * subtype PLUGIN_ACTION stores: two plugins may both declare `respond`, and a
+ * name on its own would not say whose. [label] is what the node picker shows.
+ * The parameter and output types are [io.mszymanski.orknux.server.action.ValueType]
+ * names, already checked at load, so the node's ports can be drawn from them
+ * without asking the plugin anything.
+ */
+data class PluginActionView(
+    val pluginKey: String,
+    val pluginName: String,
+    val name: String,
+    val label: String,
+    val description: String?,
+    val parameters: List<PluginActionParamView>,
+    val outputs: List<PluginActionParamView>,
+)
+
+/** One input a plugin action takes, or one output it hands on; [type] is a `ValueType` name. */
+data class PluginActionParamView(
+    val name: String,
+    val type: String,
+    val required: Boolean,
+    val description: String?,
+)
+
+/**
  * One tool a plugin offers to agents, as the grant list is told about it.
  *
  * [name] carries the plugin's key prefix - it is what goes on the grant list.
@@ -559,6 +602,8 @@ fun Plugin.view(
     types: List<PluginTypeView> = emptyList(),
     /** The kinds of host it declares; read beside the declarations. Issue #363. */
     connectionTypes: List<PluginConnectionTypeView> = emptyList(),
+    /** The workflow actions it declares; read beside the declarations. Issue #438. */
+    actions: List<PluginActionView> = emptyList(),
 ): PluginView = PluginView(
     id = requireNotNull(id).toString(),
     key = key,
@@ -580,6 +625,7 @@ fun Plugin.view(
     libraries = libraries,
     skills = skills,
     connectionTypes = connectionTypes,
+    actions = actions,
     objects = objects,
     types = types,
     marketplaceKey = marketplaceKey,

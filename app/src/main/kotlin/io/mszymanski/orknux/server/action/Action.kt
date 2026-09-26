@@ -53,6 +53,22 @@ enum class ActionSubtype {
     /** Calls one of the workspace's functions. */
     FUNCTION,
 
+    /**
+     * Runs a workflow action one of the loaded plugins declares. Issue #438.
+     *
+     * Its own subtype rather than a FUNCTION pointing at a plugin's function,
+     * because the two are called differently and a subtype is what decides
+     * how a node is filled in. A function is called positionally, with the
+     * arguments the workspace's row declares; a plugin action is called with
+     * one object keyed by the parameters the *plugin* declares - which is what
+     * lets a trigger's list of commands arrive as a list - and what it hands
+     * on is read back under the outputs the plugin declares. There is no
+     * function row to point at: the action is addressed by [WorkflowAction.pluginKey]
+     * and [WorkflowAction.pluginAction], the way a function action is by its
+     * `functionId`, and the declaration is read off the plugin's row.
+     */
+    PLUGIN_ACTION,
+
     /** Waits until an expression written into the action holds. */
     INLINE_CONDITION,
 
@@ -228,6 +244,22 @@ class WorkflowAction(
 
     @Column(name = "function_id")
     var functionId: Long? = null,
+
+    /**
+     * Which plugin declares the action a [ActionSubtype.PLUGIN_ACTION] runs,
+     * and what that plugin calls it. Issue #438.
+     *
+     * Two names rather than an id, because a plugin's declarations have no
+     * rows: they are JSON on the plugin, replaced whole on every load. A key
+     * and a name survive a re-upload the way a function id survives an edit,
+     * and a plugin that stops declaring the name is found out at the run, in
+     * a sentence naming both.
+     */
+    @Column(name = "plugin_key", length = 64)
+    var pluginKey: String? = null,
+
+    @Column(name = "plugin_action", length = 64)
+    var pluginAction: String? = null,
 
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "workflow_action_mapping", joinColumns = [JoinColumn(name = "action_id")])

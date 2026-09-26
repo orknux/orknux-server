@@ -1,5 +1,8 @@
 package io.mszymanski.orknux.server.action
 
+import io.mszymanski.orknux.server.plugin.PluginActionParamView
+import io.mszymanski.orknux.server.plugin.PluginActionView
+import io.mszymanski.orknux.server.plugin.PluginActions
 import io.mszymanski.orknux.server.workflow.MappingMode
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
@@ -14,7 +17,11 @@ import org.springframework.stereotype.Service
  * here.
  */
 @Service
-class ActionParameters(private val functions: WorkflowFunctionRepository) {
+class ActionParameters(
+    private val functions: WorkflowFunctionRepository,
+    /** Where a PLUGIN_ACTION's parameters come from: the declaration on the plugin's row. Issue #438. */
+    private val pluginActions: PluginActions,
+) {
 
     /**
      * What the action has to be given.
@@ -43,6 +50,12 @@ class ActionParameters(private val functions: WorkflowFunctionRepository) {
      */
     fun requiredInputsOf(action: WorkflowAction): List<ActionParamView> = when (action.subtype) {
         ActionSubtype.TIME -> emptyList()
+        // Only what the plugin says it cannot do without: an optional
+        // parameter left unwired is left out of the call, not a gap.
+        ActionSubtype.PLUGIN_ACTION -> declaredBy(action)?.parameters.orEmpty()
+            .filter { it.required }
+            .map { ActionParamView(it.name, typeOf(it)) }
+
         else -> inputsOf(action)
     }
 
@@ -76,6 +89,19 @@ class ActionParameters(private val functions: WorkflowFunctionRepository) {
                 action.functionId?.let { functions.findByIdOrNull(it) }?.returnType ?: ValueType.MAP,
             ),
         )
+
+        /*
+         * What the plugin says it hands on, each a field the next node reads
+         * by name - the runner puts an object's fields beside what arrived
+         * under exactly these names. A plugin that declared no outputs hands
+         * its whole answer on under `result`, as a function does, and that is
+         * the one port shown; so is a plugin nothing declares any more, since
+         * an unanswered question is not a defined shape.
+         */
+        ActionSubtype.PLUGIN_ACTION -> declaredBy(action)?.outputs
+            ?.takeIf { it.isNotEmpty() }
+            ?.map { ActionParamView(it.name, typeOf(it)) }
+            ?: listOf(ActionParamView("result", ValueType.MAP))
 
         // A wait answers with what it was waiting on.
         ActionSubtype.INLINE_CONDITION ->
@@ -117,6 +143,21 @@ class ActionParameters(private val functions: WorkflowFunctionRepository) {
             // Nothing suggested means take it from upstream under its own name,
             // which is the reference somebody would otherwise pick by hand.
             declared.map { param -> seed(param.name, param.type, suggested[param.name]) }
+        }
+
+        /*
+         * The plugin decides the parameters, read off its row rather than by
+         * asking it - the same arrangement as a function's, with the
+         * declaration on the plugin instead of on a function row. The action
+         * may suggest what to pass for some of them; nothing suggested means
+         * take it from upstream under its own name, which is how the Slack
+         * trigger's `commands` reaches a `commands` parameter without anybody
+         * wiring it. A plugin nothing declares any more seeds nothing, and the
+         * run says why.
+         */
+        ActionSubtype.PLUGIN_ACTION -> {
+            val suggested = action.mappings.associate { it.argument to it.expression }
+            declaredBy(action)?.parameters.orEmpty().map { param -> seed(param.name, typeOf(param), suggested[param.name]) }
         }
 
         /*
@@ -181,6 +222,19 @@ class ActionParameters(private val functions: WorkflowFunctionRepository) {
          */
         ActionSubtype.SPEAK -> listOf(seed(SPEECH, ValueType.STRING, action.speechText))
     }
+
+    /** The declaration a PLUGIN_ACTION names, or null where no loaded plugin declares it. Issue #438. */
+    private fun declaredBy(action: WorkflowAction): PluginActionView? = action.pluginKey?.let { key ->
+        action.pluginAction?.let { name -> pluginActions.declared(key, name) }
+    }
+
+    /**
+     * The type a declared parameter was stored with. Checked at load, so a
+     * name this does not know is a row written by a newer server; a map is the
+     * honest answer for a shape this one cannot name.
+     */
+    private fun typeOf(param: PluginActionParamView): ValueType =
+        ValueType.entries.firstOrNull { it.name == param.type } ?: ValueType.MAP
 
     /**
      * A parameter the definition expects to be filled from upstream, offered as

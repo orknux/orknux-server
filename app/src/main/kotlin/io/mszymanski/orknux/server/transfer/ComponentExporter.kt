@@ -478,6 +478,10 @@ class ComponentExporter(
             put("method", held.method)
             put("headers", held.headers)
             put("functionRef", held.functionId?.let { functions.findByIdOrNull(it)?.name })
+            // Two names and no ref: a plugin belongs to the installation, and
+            // the importing one either has it loaded or says so at the run.
+            put("pluginKey", held.pluginKey)
+            put("pluginAction", held.pluginAction)
             put("conditionExpression", held.conditionExpression)
             put("conditionRef", held.conditionId?.let { conditions.findByIdOrNull(it)?.name })
             put("timeoutSeconds", held.timeoutSeconds)
@@ -600,6 +604,7 @@ class ComponentExporter(
         put("retryMaxWaitSeconds", held.retryMaxWaitSeconds)
         put("retryJitter", held.retryJitter)
         put("retryBudgetSeconds", held.retryBudgetSeconds)
+        put("enabled", held.enabled)
         // The one the node's kind uses, and only that one: an id left behind by
         // a node that changed kind is not something this workflow points at.
         put("agentRef", held.agentId.takeIf { held.kind == NodeKind.AGENT }?.let { agents.findByIdOrNull(it)?.name })

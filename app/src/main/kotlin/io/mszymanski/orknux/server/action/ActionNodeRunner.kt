@@ -10,6 +10,9 @@ import io.mszymanski.orknux.connector.connection.MailMessage
 import io.mszymanski.orknux.connector.connection.OutgoingHttp
 import io.mszymanski.orknux.connector.connection.OutgoingMail
 import io.mszymanski.orknux.connector.connection.OutgoingMessages
+import io.mszymanski.orknux.server.plugin.PluginActionView
+import io.mszymanski.orknux.server.plugin.PluginActions
+import io.mszymanski.orknux.server.plugin.PluginRepository
 import io.mszymanski.orknux.server.workflow.NodeExpressions
 import io.mszymanski.orknux.server.workflow.StepSpeech
 import io.mszymanski.orknux.server.workflow.StepSpoken
@@ -31,6 +34,7 @@ import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
+import tools.jackson.databind.node.ObjectNode
 import java.time.Duration
 import java.time.OffsetDateTime
 
@@ -75,6 +79,9 @@ class ActionNodeRunner(
     private val executions: WorkflowExecutionRepository,
     /** What lets a node say something out loud; see [StepSpeech]. */
     private val speech: StepSpeech,
+    /** The plugin a PLUGIN_ACTION names, and what that plugin declares. Issue #438. */
+    private val plugins: PluginRepository,
+    private val pluginActions: PluginActions,
 ) : NodeRunner {
 
     override fun supports(kind: NodeKind): Boolean = kind == NodeKind.ACTION
@@ -93,6 +100,7 @@ class ActionNodeRunner(
 
         return when (action.subtype) {
             ActionSubtype.FUNCTION -> callFunction(action, step, input, trigger)
+            ActionSubtype.PLUGIN_ACTION -> callPluginAction(action, step, input, trigger)
             ActionSubtype.INLINE_CONDITION -> waitFor(step, action, input) { holds(action, input) }
             ActionSubtype.CONDITION -> waitForSavedCondition(step, action, input)
             ActionSubtype.TIME -> waitForTime(step, action, input)
@@ -485,6 +493,110 @@ class ActionNodeRunner(
                 permanent = result.settled,
             )
         }
+    }
+
+    /**
+     * Runs the workflow action a plugin declares, with the node's inputs as one
+     * object. Issue #438.
+     *
+     * The difference from [callFunction] is the shape of the call, and it is
+     * the reason this subtype exists. A function takes its arguments in the
+     * order its row declares them; an action takes one object keyed by the
+     * parameters the plugin declared, each read from the node's binding with
+     * its own JSON shape intact - so a trigger's `commands` arrives as the
+     * array it is rather than as its string, and a parameter nobody wired is
+     * absent rather than null, which is what lets a plugin tell "not told"
+     * from "told nothing". Beside it goes the same context a function is told,
+     * and the sandbox adds the plugin's settings to it.
+     *
+     * A plugin that is no longer loaded, or no longer declares the name, fails
+     * the step permanently, in a sentence naming both: nothing about trying
+     * again would load a plugin somebody unloaded, and the alternative - a
+     * skipped step - would let a run that was meant to answer somebody walk
+     * quietly past the place it was going to.
+     */
+    private fun callPluginAction(action: WorkflowAction, step: ExecutionStep, input: String?, trigger: String?): StepResult {
+        val key = action.pluginKey?.takeIf { it.isNotBlank() }
+        val name = action.pluginAction?.takeIf { it.isNotBlank() }
+        if (key == null || name == null) {
+            return StepResult(StepStatus.SKIPPED, "${action.name} names no plugin action, so there was nothing to run.")
+        }
+        val plugin = plugins.findByKey(key)
+            ?: throw ActionFailedException(
+                "${step.name} runs $name of the $key plugin, which is not loaded",
+                permanent = true,
+            )
+        val declared = pluginActions.declared(plugin, name)
+            ?: throw ActionFailedException(
+                "${step.name} runs $name, which the $key plugin no longer declares",
+                permanent = true,
+            )
+
+        val given = expressions.parse(input)
+        val started = expressions.parse(trigger)
+        // The node's mappings, for the reason callFunction reads them: the
+        // action's own are only ever a seed for a node.
+        val byName = expressions.mappingsOf(step)
+        val handed = mapper.createObjectNode()
+        declared.parameters.forEach { parameter ->
+            val binding = byName[parameter.name] ?: return@forEach
+            val json = expressions.jsonOf(binding, given, started)
+            /*
+             * A reference that reached nothing is left out rather than sent as
+             * null: the field it named is not there, and "absent" is the
+             * answer that says so. A value somebody typed is always sent, null
+             * included, because typing it was saying something.
+             */
+            if (binding.reference && json == "null") return@forEach
+            handed.set(parameter.name, runCatching { mapper.readTree(json) }.getOrElse { mapper.nodeFactory.textNode(json) })
+        }
+
+        val result = caller.callPluginAction(
+            plugin,
+            name,
+            mapper.writeValueAsString(handed),
+            contextFor(action),
+            action.workspaceId,
+            origin = originOf(step),
+        )
+
+        return when (result) {
+            is ScriptResult.Returned -> StepResult(StepStatus.COMPLETED, handedOn(step, declared, result.json, input))
+
+            // Whether this is worth trying again travels with the answer; see
+            // the note on the same arm in callFunction.
+            is ScriptResult.Failed -> throw ActionFailedException(
+                "${step.name}: ${action.name} ${result.reason}",
+                permanent = result.settled,
+            )
+        }
+    }
+
+    /**
+     * What a plugin action's answer becomes on its way to the next node.
+     *
+     * Under the node's output name where it gave one, which is the node asking
+     * for a namespace. Otherwise an object's fields go beside what reached the
+     * step under their own names, because those are the names the plugin
+     * declared as outputs and the ports the node shows - a later node reading
+     * `ts` should find `ts`, not `result.ts`. Anything that is not an object
+     * of declared fields joins under `result`, the way a function's answer
+     * does, so the payload is never replaced: a step's result is something a
+     * run gains on its way past (#333).
+     */
+    private fun handedOn(step: ExecutionStep, declared: PluginActionView, json: String?, input: String?): String {
+        val answered = json ?: "null"
+        val named = step.outputName?.trim()?.takeIf { it.isNotEmpty() }
+        if (named != null) return expressions.alongsideJson(named, answered, input)
+
+        val parsed = runCatching { mapper.readTree(answered) }.getOrNull()
+        if (declared.outputs.isEmpty() || parsed == null || !parsed.isObject) {
+            return expressions.alongsideJson(DEFAULT_OUTPUT, answered, input)
+        }
+        val before = expressions.parse(input)
+        val merged = if (before != null && before.isObject) before.deepCopy() as ObjectNode else mapper.createObjectNode()
+        parsed.properties().forEach { (field, value) -> merged.set(field, value) }
+        return mapper.writeValueAsString(merged)
     }
 
     /** What this step was told to pass, as the planner wrote it down. */
