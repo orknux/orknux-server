@@ -69,6 +69,8 @@ class TaskLoop(
     private val notes: io.mszymanski.orknux.server.chat.NoteTools,
     /** What lets an agent keep working files across the task; see [ScratchpadTools]. #411. */
     private val scratchpads: io.mszymanski.orknux.server.chat.ScratchpadTools,
+    /** What lets an agent plan its work as a to-do list; see [TodoTools]. #405. */
+    private val todos: io.mszymanski.orknux.server.chat.TodoTools,
     /** The agent's setup, snapshotted at the start of the session; see [AgentDetails]. #391. */
     private val agentDetails: io.mszymanski.orknux.server.agent.AgentDetails,
     private val news: TaskNewsDesk,
@@ -178,6 +180,8 @@ class TaskLoop(
                     listOfNotNull(
                         briefing(agent.let(briefings::of), task),
                         notes.recalled(session).takeIf { it.isNotBlank() },
+                        // The plan it is working down, put back each turn. #405.
+                        todos.recalled(session).takeIf { it.isNotBlank() },
                     ).joinToString(separator = "\n\n"),
                 ),
             )
@@ -225,6 +229,13 @@ class TaskLoop(
                      * where a scratchpad earns its keep. Issue #411.
                      */
                     scratchpads.shed(session),
+                    /*
+                     * And a to-do list to plan the task on. A task is the
+                     * longest job here - many turns over hours - so it is where
+                     * a plan worked down step by step earns its keep most.
+                     * Issue #405.
+                     */
+                    todos.shed(session),
                 ),
                 watching,
                 interjections = { pickUp(taskId, session) },

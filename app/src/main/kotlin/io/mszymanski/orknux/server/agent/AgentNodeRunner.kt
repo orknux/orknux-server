@@ -70,6 +70,8 @@ class AgentNodeRunner(
     private val notes: io.mszymanski.orknux.server.chat.NoteTools,
     /** What lets an agent keep working files across the job; see [ScratchpadTools]. Issue #411. */
     private val scratchpads: io.mszymanski.orknux.server.chat.ScratchpadTools,
+    /** What lets an agent plan its work as a to-do list; see [TodoTools]. Issue #405. */
+    private val todos: io.mszymanski.orknux.server.chat.TodoTools,
     /** The agent's setup, snapshotted at the start of a session; see [AgentDetails]. Issue #391. */
     private val agentDetails: AgentDetails,
     private val budgets: SessionMemoryBudgets,
@@ -299,9 +301,11 @@ class AgentNodeRunner(
          * which is most turns.
          */
         val written = notes.recalled(session)
+        // The plan it is working down, put back beside its notes. Issue #405.
+        val planned = todos.recalled(session)
 
         val turns = buildList {
-            listOfNotNull(instructed, written.takeIf { it.isNotBlank() })
+            listOfNotNull(instructed, written.takeIf { it.isNotBlank() }, planned.takeIf { it.isNotBlank() })
                 .takeIf { it.isNotEmpty() }
                 ?.let { add(ChatTurn("system", it.joinToString(separator = "\n\n"))) }
             addAll(remembered)
@@ -425,6 +429,12 @@ class AgentNodeRunner(
              * session to keep it in. Issue #411.
              */
             scratchpads.shed(session),
+            /*
+             * And a to-do list to plan the job on, where this node keeps a
+             * session to hold it. The plan an agent works down across steps it
+             * cannot finish in one turn. Issue #405.
+             */
+            todos.shed(session),
             finishing.shed(
                 granted = agent.finishAccess,
                 shaped = step.outputObjectId != null,
