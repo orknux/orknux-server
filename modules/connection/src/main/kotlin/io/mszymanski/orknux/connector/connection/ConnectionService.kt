@@ -171,4 +171,7 @@ class ConnectionNameTakenException(name: String) :
 
 class ConnectionNameInvalidException : RuntimeException("A connection name is required")
 
+/** A plugin-declared kind can only sit on an HTTP connection, or names a kind no loaded plugin declares. Issue #363. */
+class ConnectionPluginTypeInvalidException(why: String) : RuntimeException(why)
+
 class ConnectionUrlInvalidException : RuntimeException("A connection URL is required")

@@ -71,6 +71,12 @@ class WorkspaceConnectionService(
         val url = if (slack) SLACK_API_URL else input.url.orEmpty().trim()
         if (name.isEmpty()) throw ConnectionNameInvalidException()
         if (url.isEmpty()) throw ConnectionUrlInvalidException()
+        // A plugin's kind of host is an HTTP endpoint with a label over it; on
+        // any other type the label would be a lie about the wire. Issue #363.
+        val pluginType = input.pluginType?.trim()?.ifEmpty { null }
+        if (pluginType != null && input.type != ConnectionType.HTTP) {
+            throw ConnectionPluginTypeInvalidException("A plugin's kind of connection is an HTTP connection")
+        }
         if (workspaceConnections.findByWorkspaceIdAndName(input.workspaceId, name) != null) {
             throw ConnectionNameTakenException(name)
         }
@@ -88,6 +94,7 @@ class WorkspaceConnectionService(
                 workspaceId = input.workspaceId,
                 name = name,
                 type = input.type,
+                pluginType = pluginType,
                 url = url,
                 authType = if (slack) AuthType.BEARER_TOKEN else input.authType ?: AuthType.NONE,
                 secret = if (secretVariable == null) ownSecret else null,
@@ -127,6 +134,11 @@ class WorkspaceConnectionService(
                 connection.name = name
             }
             input.type?.let { connection.type = it }
+            // Null leaves the plugin kind alone; an empty string takes it off. Issue #363.
+            input.pluginType?.let { connection.pluginType = it.trim().ifEmpty { null } }
+            if (connection.pluginType != null && connection.type != ConnectionType.HTTP) {
+                throw ConnectionPluginTypeInvalidException("A plugin's kind of connection is an HTTP connection")
+            }
             input.url?.trim()?.let { url ->
                 if (url.isEmpty()) throw ConnectionUrlInvalidException()
                 connection.url = url
@@ -344,6 +356,8 @@ data class CreateWorkspaceConnectionInput(
     val workspaceId: Long,
     val name: String,
     val type: ConnectionType,
+    /** Which plugin-declared kind of host this is, as `key/name`; only with [ConnectionType.HTTP]. Issue #363. */
+    val pluginType: String? = null,
     /** Required, except for the types that have one address: Slack is filled in. */
     val url: String? = null,
     /** Ignored for Slack, which is always a bearer token. */
@@ -372,6 +386,8 @@ data class UpdateWorkspaceConnectionInput(
     /** Ignored for inherited connections, which follow the admin default. */
     val name: String? = null,
     val type: ConnectionType? = null,
+    /** Null leaves the plugin kind as it is; an empty string clears it. Issue #363. */
+    val pluginType: String? = null,
     val url: String? = null,
     val urlOverride: String? = null,
     val authType: AuthType? = null,
@@ -414,6 +430,8 @@ data class WorkspaceConnectionView(
     /** Where requests actually go: the override when set, the default otherwise. */
     val effectiveUrl: String,
     val authType: AuthType,
+    /** Which plugin-declared kind of host this is, as `key/name`, or null. Issue #363. */
+    val pluginType: String?,
     val headers: List<HttpHeaderView>,
     /** True while the workspace follows an admin default. */
     val inherited: Boolean,
@@ -478,6 +496,7 @@ data class WorkspaceConnectionView(
         urlOverride = connection.urlOverride,
         effectiveUrl = connection.effectiveUrl,
         authType = connection.authType,
+        pluginType = connection.pluginType,
         headers = connection.headers.map { HttpHeaderView(it.name, it.value) },
         inherited = connection.inherited,
         secretSet = !connection.secret.isNullOrBlank(),

@@ -4,6 +4,7 @@ import graphql.GraphQLError
 import graphql.schema.DataFetchingEnvironment
 import io.mszymanski.orknux.server.graphql.refused
 import io.mszymanski.orknux.connector.connection.ConnectionNameInvalidException
+import io.mszymanski.orknux.connector.connection.ConnectionPluginTypeInvalidException
 import io.mszymanski.orknux.connector.connection.ConnectionNameTakenException
 import io.mszymanski.orknux.connector.connection.ConnectionNotConfiguredException
 import io.mszymanski.orknux.connector.connection.ConnectionUrlInvalidException
@@ -43,6 +44,7 @@ class IntegrationExceptionResolver : DataFetcherExceptionResolverAdapter() {
         val errorType = when (exception) {
             is ConnectionNameTakenException,
             is ConnectionNameInvalidException,
+            is ConnectionPluginTypeInvalidException,
             is ConnectionUrlInvalidException,
             is ConnectionNotConfiguredException,
             is McpServerNameTakenException,

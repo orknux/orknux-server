@@ -32,6 +32,8 @@ class WorkspaceConnectionAPI(
     private val access: WorkspaceAccess,
     private val auditRecorder: WorkspaceAuditRecorder,
     private val slackDirectory: SlackDirectory,
+    /** The kinds of host the loaded plugins declare, to refuse one nothing declares. Issue #363. */
+    private val pluginKinds: io.mszymanski.orknux.server.plugin.PluginConnectionTypes,
 ) {
 
     @QueryMapping
@@ -159,6 +161,7 @@ class WorkspaceConnectionAPI(
     @MutationMapping
     fun createWorkspaceConnection(@Argument input: CreateWorkspaceConnectionInput): WorkspaceConnectionView {
         requireWorkspaceAccess(input.workspaceId)
+        requireKnownKind(input.pluginType)
         val created = connections.createWorkspaceConnection(input)
         auditRecorder.record(input.workspaceId, WorkspaceAuditCategory.INTEGRATION, "Connection ${created.name} added")
         return created
@@ -173,6 +176,7 @@ class WorkspaceConnectionAPI(
         val connection = connections.workspaceConnection(id)?.takeIf { access.canSee(it.workspaceId) }
             ?: throw ConnectionNotFoundException(id)
 
+        requireKnownKind(input.pluginType)
         val updated = connections.updateWorkspaceConnection(id, input)
         auditRecorder.record(
             connection.workspaceId,
@@ -180,6 +184,20 @@ class WorkspaceConnectionAPI(
             "Connection ${updated.name} settings updated",
         )
         return updated
+    }
+
+    /**
+     * A plugin kind has to be one an enabled plugin declares: a label nothing
+     * will ever offer to a picker is a connection nobody can choose. An empty
+     * string is the clearing of one and passes. Issue #363.
+     */
+    private fun requireKnownKind(pluginType: String?) {
+        val wanted = pluginType?.trim()?.ifEmpty { null } ?: return
+        if (!pluginKinds.known(wanted)) {
+            throw io.mszymanski.orknux.connector.connection.ConnectionPluginTypeInvalidException(
+                "No loaded plugin declares a connection kind called $wanted",
+            )
+        }
     }
 
     /**

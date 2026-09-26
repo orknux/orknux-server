@@ -152,7 +152,7 @@ class PluginParameters(
                 ?: throw PluginParameterNotValueException(name, "connection", literal.orEmpty())
             val connection = connections.workspaceConnection(id)
                 ?.takeIf { it.workspaceId == workspaceId }
-                ?.takeIf { parameter.connectionType == null || it.type.name == parameter.connectionType }
+                ?.takeIf { ofKind(plugin.key, parameter.connectionType, it.type.name, it.pluginType) }
                 ?: throw PluginParameterNotValueException(name, "connection", literal)
             log.debug("Plugin {} parameter {} points at connection {}", plugin.key, name, connection.id)
         } else if (literal != null) {
@@ -225,6 +225,22 @@ class PluginParameters(
      * variable's: the plugin said what it wanted, and a variable holding "8080" is
      * a usable answer to a parameter declared as a number.
      */
+    /**
+     * Whether a connection is of the kind a parameter names. Issue #363.
+     *
+     * A core kind matches by its type name. A plugin's own declared kind
+     * matches by the id a connection stores - the plugin key and the declared
+     * name joined - checked strictly where the key is known (the setting being
+     * saved), and by the declared name alone where it is not (a value already
+     * saved and checked once, being read back to build the handle).
+     */
+    private fun ofKind(pluginKey: String?, wanted: String?, type: String, pluginType: String?): Boolean {
+        if (wanted == null) return true
+        if (type == wanted) return true
+        if (pluginType == null) return false
+        return if (pluginKey != null) pluginType == "$pluginKey/$wanted" else pluginType.substringAfter('/') == wanted
+    }
+
     private fun resolved(parameter: PluginParameterView, setting: PluginParameterSetting?): String? {
         if (setting == null) return null
 
@@ -241,10 +257,12 @@ class PluginParameters(
         if (parameter.type.equals(PluginDeclarations.CONNECTION, ignoreCase = true)) {
             val id = setting.literalValue?.toLongOrNull() ?: return null
             val connection = connections.workspaceConnection(id) ?: return null
-            if (parameter.connectionType != null && connection.type.name != parameter.connectionType) return null
+            if (!ofKind(null, parameter.connectionType, connection.type.name, connection.pluginType)) return null
             val handle = mapper.createObjectNode()
             handle.put("id", id)
             handle.put("type", connection.type.name)
+            // Which of the plugin's own kinds of host this is, where it is one. Issue #363.
+            connection.pluginType?.let { handle.put("pluginType", it) }
             return mapper.writeValueAsString(handle)
         }
 

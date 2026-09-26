@@ -724,7 +724,14 @@ class PluginUploadAPI(
         val declared = declarations.validated(inspected.functions, exported)
         val declaredTools = declarations.validatedTools(inspected.tools, exported)
         val declaredSkills = declarations.validatedSkills(inspected.skills)
-        val parameters = declarations.validatedParameters(inspected.parameters)
+        // The kinds of host it declares, and the parameters checked against
+        // them too, so a `connection` parameter may name the plugin's own kind.
+        // Issue #363.
+        val declaredConnectionTypes = declarations.validatedConnectionTypes(inspected.connectionTypes)
+        val parameters = declarations.validatedParameters(
+            inspected.parameters,
+            inspected.connectionTypes.map { it.name.trim() }.toSet(),
+        )
 
         /*
          * What it needs, and whether anybody has said it may have it.
@@ -826,6 +833,7 @@ class PluginUploadAPI(
             this.declaredFunctions = declared
             this.declaredTools = declaredTools
             this.declaredSkills = declaredSkills
+            this.declaredConnectionTypes = declaredConnectionTypes
             this.declaredObjects = declaredObjects
             this.declaredTypes = declaredTypes
             this.declaredParameters = parameters
@@ -865,6 +873,7 @@ class PluginUploadAPI(
             declaredFunctions = declared,
             declaredTools = declaredTools,
             declaredSkills = declaredSkills,
+            declaredConnectionTypes = declaredConnectionTypes,
             declaredObjects = declaredObjects,
             declaredTypes = declaredTypes,
             declaredParameters = parameters,
@@ -930,6 +939,7 @@ class PluginUploadAPI(
                     declarations.readSkills(saved.declaredSkills),
                     declarations.readObjects(saved.declaredObjects),
                     declarations.readTypes(saved.declaredTypes),
+                    declarations.readConnectionTypes(saved.declaredConnectionTypes, saved.key, saved.name),
                 ),
                 "replaced" to (existing != null),
                 "provides" to provided,
@@ -1276,6 +1286,15 @@ class PluginUploadAPI(
                * than reaching anything.
                */
               capabilities(): OrknuxCapability[];
+              /**
+               * The kinds of host this plugin talks to, so a workspace can hold
+               * several connections of each - two Prometheus servers, two wikis -
+               * labelled by you rather than all reading as "HTTP". Each is an
+               * HTTP connection (a URL, an auth kind, a secret) wearing your
+               * label; a `connection` parameter may then name one of these to
+               * be offered only your own hosts. Defaults to none.
+               */
+              connectionTypes?(): OrknuxConnectionType[];
               /**
                * The library files this plugin ships with, as paths relative
                * to its own file: 'lib/util.js' or './lib/util.js'. Defaults
@@ -1741,6 +1760,17 @@ class PluginUploadAPI(
             /** What a plugin may ask the server to do. Exactly this list, and nothing else. */
             type OrknuxCapability = @CAPABILITY_UNION@;
 
+            /** A kind of host a plugin declares; see `connectionTypes()`. */
+            interface OrknuxConnectionType {
+              /** An identifier, stable: it becomes part of what a connection stores. */
+              name: string;
+              /** What a person reads on the type menu and the connection list. */
+              label: string;
+              description?: string;
+              /** What the URL box shows before anything is typed, e.g. 'https://prometheus.example.com'. */
+              urlPlaceholder?: string;
+            }
+
             declare class OrknuxFunction {
               constructor(declaration: {
                 /** An identifier: letters, digits and underscores. */
@@ -1830,7 +1860,7 @@ class PluginUploadAPI(
                  * an id and a type, never the connection's credential. The
                  * sandbox has no network; the server makes the call.
                  */
-                connectionType?: ConnectionType;
+                connectionType?: ConnectionType | (string & {});
               });
             }
 
@@ -2001,6 +2031,7 @@ class PluginAPI(
                 declarations.readSkills(it.declaredSkills),
                 declarations.readObjects(it.declaredObjects),
                 declarations.readTypes(it.declaredTypes),
+                declarations.readConnectionTypes(it.declaredConnectionTypes, it.key, it.name),
             )
         }
     }

@@ -5,6 +5,7 @@ import io.mszymanski.orknux.server.action.ValueType
 import io.mszymanski.orknux.server.agent.SkillFormat
 import io.mszymanski.orknux.server.agent.SkillKeys
 import io.mszymanski.orknux.server.obj.PropertyKind
+import io.mszymanski.orknux.workflow.script.DeclaredConnectionType
 import io.mszymanski.orknux.workflow.script.DeclaredFunction
 import io.mszymanski.orknux.workflow.script.DeclaredObject
 import io.mszymanski.orknux.workflow.script.DeclaredType
@@ -283,6 +284,56 @@ class PluginDeclarations(private val mapper: ObjectMapper) {
      *
      * @throws PluginDeclarationInvalidException if anything about it is wrong.
      */
+    /**
+     * The connection kinds a plugin declares, checked and written down. Issue #363.
+     *
+     * A name is an identifier the way a tool's is, and declared once: it becomes
+     * half of the id a connection stores, so it has to be stable and unambiguous.
+     * Bare names in the JSON; the plugin key is joined on when they are read
+     * back, so what was written does not depend on the key's spelling.
+     */
+    fun validatedConnectionTypes(declared: List<DeclaredConnectionType>): String {
+        val names = mutableSetOf<String>()
+        val array = mapper.createArrayNode()
+        declared.forEach { kind ->
+            val name = kind.name.trim()
+            if (!IDENTIFIER.matches(name)) {
+                throw PluginDeclarationInvalidException("\"${kind.name}\" is not a usable connection type name")
+            }
+            if (!names.add(name)) {
+                throw PluginDeclarationInvalidException("it declares the connection type $name more than once")
+            }
+            val label = kind.label.trim()
+            if (label.isEmpty()) throw PluginDeclarationInvalidException("the connection type $name has no label")
+
+            val node = array.addObject()
+            node.put("name", name)
+            node.put("label", label)
+            kind.description?.trim()?.takeIf { it.isNotEmpty() }?.let { node.put("description", it) }
+            kind.urlPlaceholder?.trim()?.takeIf { it.isNotEmpty() }?.let { node.put("urlPlaceholder", it) }
+        }
+        return mapper.writeValueAsString(array)
+    }
+
+    /** What a plugin declared, read back with its key joined on to make each kind's id. Issue #363. */
+    fun readConnectionTypes(json: String, pluginKey: String, pluginName: String): List<PluginConnectionTypeView> =
+        runCatching {
+            val array = mapper.readTree(json)
+            (0 until array.size()).map { at ->
+                val node = array.get(at)
+                val name = node.get("name").asString()
+                PluginConnectionTypeView(
+                    id = "$pluginKey/$name",
+                    name = name,
+                    label = node.get("label")?.asString() ?: name,
+                    description = node.get("description")?.asString(),
+                    urlPlaceholder = node.get("urlPlaceholder")?.asString(),
+                    pluginKey = pluginKey,
+                    pluginName = pluginName,
+                )
+            }
+        }.getOrDefault(emptyList())
+
     fun validatedSkills(declared: List<DeclaredSkill>): String {
         val names = mutableSetOf<String>()
 
@@ -567,7 +618,15 @@ class PluginDeclarations(private val mapper: ObjectMapper) {
      *
      * @throws PluginDeclarationInvalidException if anything about it is wrong.
      */
-    fun validatedParameters(declared: List<DeclaredParameter>): String {
+    /**
+     * @param declaredConnectionTypes the connection kinds this same plugin
+     *   declares, which a `connection` parameter may name beside the core ones.
+     *   Issue #363.
+     */
+    fun validatedParameters(
+        declared: List<DeclaredParameter>,
+        declaredConnectionTypes: Set<String> = emptySet(),
+    ): String {
         val names = mutableSetOf<String>()
 
         val array = mapper.createArrayNode()
@@ -587,10 +646,14 @@ class PluginDeclarations(private val mapper: ObjectMapper) {
              * own terms and never against [SETTABLE], which is about scalars.
              */
             if (parameter.type.trim().equals(CONNECTION, ignoreCase = true)) {
-                val kind = connectionType(parameter.connectionType)
+                // A core kind by its name, or one this plugin declares itself,
+                // which is what lets its picker offer only its own hosts. Issue #363.
+                val core = connectionType(parameter.connectionType)
+                val own = parameter.connectionType?.trim()?.takeIf { it in declaredConnectionTypes }
+                val kindName = core?.name ?: own
                     ?: throw PluginDeclarationInvalidException(
                         "the parameter ${parameter.name} is a connection but does not say which kind. " +
-                            "It has to name one of ${connectionTypes().joinToString(", ")}.",
+                            "It has to name one of ${(connectionTypes() + declaredConnectionTypes).joinToString(", ")}.",
                     )
                 if (parameter.secret) {
                     /*
@@ -612,7 +675,7 @@ class PluginDeclarations(private val mapper: ObjectMapper) {
                 node.put("name", parameter.name)
                 parameter.description?.let { node.put("description", it) }
                 node.put("type", CONNECTION)
-                node.put("connectionType", kind.name)
+                node.put("connectionType", kindName)
                 node.put("required", parameter.required)
                 node.put("secret", false)
                 return@forEach

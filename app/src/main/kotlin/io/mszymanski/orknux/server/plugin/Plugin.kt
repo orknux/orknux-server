@@ -111,6 +111,13 @@ class Plugin(
     var declaredSkills: String = "[]",
 
     /**
+     * The connection kinds it declares, as JSON, so a workspace can hold hosts
+     * of each by name. See [PluginConnectionTypeView]. Issue #363.
+     */
+    @Column(name = "declared_connection_types", nullable = false, columnDefinition = "text")
+    var declaredConnectionTypes: String = "[]",
+
+    /**
      * The shapes the plugin exports, as JSON.
      *
      * The declaration, not the registration — the same split the functions
@@ -312,6 +319,8 @@ data class PluginView(
     val sha256: String,
     val uploadedAt: String,
     val uploadedBy: String,
+    /** The connection kinds it declares, for a workspace to hold hosts of. Issue #363. */
+    val connectionTypes: List<PluginConnectionTypeView> = emptyList(),
     /** Whether it is switched on; off keeps everything and offers nothing. */
     val enabled: Boolean = true,
     /** The files it ships with, by path. Empty for a single-file plugin. */
@@ -435,6 +444,23 @@ data class PluginToolView(
 )
 
 /**
+ * A kind of connection a plugin declares, as the interface sees it. Issue #363.
+ *
+ * [id] is the plugin key and the declared name joined - `prometheus/server` -
+ * which is what a connection stores in `pluginType` and what a picker narrows
+ * by; [label] is what a person reads on the type menu and the list.
+ */
+data class PluginConnectionTypeView(
+    val id: String,
+    val name: String,
+    val label: String,
+    val description: String?,
+    val urlPlaceholder: String?,
+    val pluginKey: String,
+    val pluginName: String,
+)
+
+/**
  * One tool a plugin offers to agents, as the grant list is told about it.
  *
  * [name] carries the plugin's key prefix - it is what goes on the grant list.
@@ -531,6 +557,8 @@ fun Plugin.view(
     /** The shapes it exports; read beside the declarations. */
     objects: List<PluginObjectView> = emptyList(),
     types: List<PluginTypeView> = emptyList(),
+    /** The kinds of host it declares; read beside the declarations. Issue #363. */
+    connectionTypes: List<PluginConnectionTypeView> = emptyList(),
 ): PluginView = PluginView(
     id = requireNotNull(id).toString(),
     key = key,
@@ -551,6 +579,7 @@ fun Plugin.view(
     enabled = enabled,
     libraries = libraries,
     skills = skills,
+    connectionTypes = connectionTypes,
     objects = objects,
     types = types,
     marketplaceKey = marketplaceKey,

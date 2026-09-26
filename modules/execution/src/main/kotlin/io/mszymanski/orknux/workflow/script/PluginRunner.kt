@@ -504,6 +504,41 @@ class PluginRunner(
             emptyList()
         }
 
+        /*
+         * The connection types it declares, so a workspace can hold several
+         * hosts of its kind - two Prometheus servers, two wikis - each labelled
+         * and picked by name rather than every one of them reading as "HTTP".
+         * Optional, like capabilities: a plugin that talks to no host declares
+         * none, and one written before this existed is read as declaring none.
+         * The shape of such a connection is the generic one - a URL, an auth
+         * kind, a secret - which is what a host needs; only the name is the
+         * plugin's. Issue #363.
+         */
+        val connectionTypes = if (plugin.hasMember("connectionTypes")) {
+            val declaredConnectionTypes = plugin.invokeMember("connectionTypes")
+            if (!declaredConnectionTypes.hasArrayElements()) {
+                return PluginInspection.Unreadable("connectionTypes() did not answer with an array")
+            }
+            if (declaredConnectionTypes.arraySize > MAX_CONNECTION_TYPES) {
+                return PluginInspection.Unreadable(
+                    "connectionTypes() declared more than $MAX_CONNECTION_TYPES connection types",
+                )
+            }
+            (0 until declaredConnectionTypes.arraySize).map { at ->
+                val one = declaredConnectionTypes.getArrayElement(at)
+                DeclaredConnectionType(
+                    name = text(one, "name")
+                        ?: return PluginInspection.Unreadable("a connection type has no name"),
+                    label = text(one, "label")
+                        ?: return PluginInspection.Unreadable("a connection type has no label"),
+                    description = text(one, "description"),
+                    urlPlaceholder = text(one, "urlPlaceholder"),
+                )
+            }
+        } else {
+            emptyList()
+        }
+
         val asked = plugin.invokeMember("permissions")
         if (!asked.hasArrayElements()) {
             return PluginInspection.Unreadable("permissions() did not answer with an array")
@@ -699,6 +734,7 @@ class PluginRunner(
             skills = taught,
             objects = shapes,
             types = kinds,
+            connectionTypes = connectionTypes,
         )
     }
 
@@ -1205,6 +1241,9 @@ class PluginRunner(
          * `MAX_TYPES` in @orknux/plugin mirrors it.
          */
         const val MAX_TYPES = 20
+
+        /** As many connection kinds as one plugin may declare. A plugin talks to a handful of hosts, not a catalogue. */
+        const val MAX_CONNECTION_TYPES = 20
 
         /** What one type may ask to be told; a connection and a couple of settings. */
         const val MAX_TYPE_PARAMETERS = 10
@@ -1911,6 +1950,8 @@ sealed interface PluginInspection {
          * which is what owns that format.
          */
         val skills: List<DeclaredSkill> = emptyList(),
+        /** The connection kinds it declares, for a workspace to hold hosts of. Issue #363. */
+        val connectionTypes: List<DeclaredConnectionType> = emptyList(),
         /**
          * The shapes it exports, each field shape-checked and no more.
          * Whether an `of` names one of these, and what reference that becomes,
@@ -1964,6 +2005,22 @@ data class DeclaredParam(
  * type here were copied from it at inspection. Null for a tool with a `run` of
  * its own.
  */
+/**
+ * A kind of connection a plugin declares, so a workspace can hold hosts of it
+ * by name. Issue #363.
+ *
+ * Only the name and how to present it: the connection itself keeps the generic
+ * shape - a URL, an auth kind, a secret - which is what a host needs. A
+ * plugin-specific credential form is a follow-up, not this.
+ */
+data class DeclaredConnectionType(
+    val name: String,
+    val label: String,
+    val description: String?,
+    /** What to show in the URL box before anything is typed, e.g. `https://prometheus.example.com`. */
+    val urlPlaceholder: String?,
+)
+
 data class DeclaredTool(
     val name: String,
     val description: String?,

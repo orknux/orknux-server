@@ -693,6 +693,8 @@ CREATE TABLE plugin
     declared_permissions         text not null default '[]',
     accepted_permissions         text not null default '[]',
     declared_capabilities        text not null default '[]',
+    -- V294: the connection kinds it declares, for a workspace to hold hosts of. Issue #363.
+    declared_connection_types    text not null default '[]',
     accepted_capabilities        text not null default '[]',
     permissions_accepted_at      timestamp,
     permissions_accepted_by      varchar(120),
@@ -1497,6 +1499,8 @@ CREATE TABLE workspace_connection
     type                         varchar(24) not null,
     url                          varchar(1000) not null,
     url_override                 varchar(1000),
+    -- V294: which plugin-declared kind of host this is (key/name); HTTP only. Issue #363.
+    plugin_type                  varchar(120),
     auth_type                    varchar(16) not null default 'NONE',
     secret                       varchar(4000),
     secret_variable_id           integer,

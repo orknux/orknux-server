@@ -178,6 +178,20 @@ class WorkspaceConnection(
     @Column(name = "url_override", length = 1000)
     var urlOverride: String? = null,
 
+    /**
+     * Which plugin-declared kind of host this is, where it is one. Issue #363.
+     *
+     * The plugin key and its declared name, joined - `prometheus/server` - so
+     * two plugins declaring the same name cannot collide. Set only on an
+     * [ConnectionType.HTTP] connection: the wire shape is the generic one, a
+     * URL with an auth kind and a secret, and this is the label over it that
+     * lets a plugin's picker offer only its own hosts, and a list say
+     * "Prometheus" rather than "HTTP". Null for every core type and for a
+     * plain HTTP endpoint nobody has typed.
+     */
+    @Column(name = "plugin_type", length = 120)
+    var pluginType: String? = null,
+
     @Enumerated(EnumType.STRING)
     @Column(name = "auth_type", nullable = false, length = 16)
     var authType: AuthType = AuthType.NONE,

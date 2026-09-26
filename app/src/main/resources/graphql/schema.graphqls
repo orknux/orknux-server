@@ -123,6 +123,13 @@ type Query {
     """
     pluginTools: [PluginAgentTool!]!
     """
+    The kinds of host the loaded plugins declare, for the connection form's type
+    menu: each is an HTTP connection labelled by the plugin, so a workspace can
+    hold several of one kind - two Prometheus servers, two wikis - and a plugin's
+    picker offers only its own. Issue #363.
+    """
+    pluginConnectionTypes: [PluginConnectionType!]!
+    """
     The libraries loaded into this installation, by name, with what imports them.
 
     Administrators only, and `usedBy` is why: it names functions and tools across
@@ -4310,6 +4317,8 @@ type WorkspaceConnection {
     "Where requests actually go: the override when set, the default otherwise."
     effectiveUrl: String!
     authType: AuthType!
+    "Which plugin-declared kind of host this is, as key/name; null for a core type or a plain HTTP endpoint. Issue #363."
+    pluginType: String
     headers: [HttpHeader!]!
     "True while the workspace follows an admin default, which locks name, type and URL."
     inherited: Boolean!
@@ -4520,6 +4529,8 @@ input CreateWorkspaceConnectionInput {
     workspaceId: ID!
     name: String!
     type: ConnectionType!
+    "A plugin-declared kind of host, as key/name; needs type HTTP. Issue #363."
+    pluginType: String
     "Required, except for the types that have one address: Slack is filled in."
     url: String
     "Ignored for Slack, which is always a bearer token."
@@ -4558,6 +4569,8 @@ input UpdateWorkspaceConnectionInput {
     "Ignored for inherited connections, which follow the admin default."
     name: String
     type: ConnectionType
+    "Null leaves the plugin kind alone; an empty string clears it. Issue #363."
+    pluginType: String
     url: String
     urlOverride: String
     authType: AuthType
@@ -5283,6 +5296,25 @@ enum WebhookAuthType {
 }
 
 """
+A kind of host a plugin declares, so a workspace can hold several connections of
+it by name. An HTTP connection wearing the plugin's label: the URL, auth kind and
+secret are the generic ones, and a plugin's picker offers only its own kinds.
+Issue #363.
+"""
+type PluginConnectionType {
+    "The plugin key and the declared name joined - prometheus/server - which a connection stores as pluginType."
+    id: String!
+    name: String!
+    "What a person reads on the type menu and the list."
+    label: String!
+    description: String
+    "What the URL box shows before anything is typed."
+    urlPlaceholder: String
+    pluginKey: String!
+    pluginName: String!
+}
+
+"""
 A plugin loaded into this installation.
 
 The source is not here. A list of what is loaded does not need the text of it,
@@ -5333,6 +5365,8 @@ type Plugin {
     somebody clicked through last month is a decision nobody can audit.
     """
     permissions: [PluginPermission!]!
+    "The kinds of host it declares, for a workspace to hold connections of. Issue #363."
+    connectionTypes: [PluginConnectionType!]!
     "ISO-8601 offset date-time. Null when the plugin asked for nothing."
     permissionsAcceptedAt: String
     "Null when the plugin asked for nothing, so nobody accepted anything."
