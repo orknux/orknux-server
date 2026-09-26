@@ -413,6 +413,24 @@ class WorkflowNode(
      */
     @Column(name = "retry_budget_seconds")
     var retryBudgetSeconds: Int? = null,
+
+    /**
+     * Whether a run does this node's work.
+     *
+     * Off, the node stays on the graph with every edge it had and the run
+     * walks straight through it: the step is recorded as skipped and what
+     * reached it is handed on unchanged. For switching one piece off while
+     * the rest is tried - a Slack post nobody wants sent forty times while the
+     * agent before it is being tuned - without deleting the node and redrawing
+     * its lines afterwards.
+     *
+     * Kept on the node rather than inferred from anything else, because there
+     * is nothing else that says it: a disabled node is otherwise exactly the
+     * node it was. A trigger cannot be disabled - a run has to start somewhere,
+     * and a trigger that does not fire is the trigger's own switch. Issue #439.
+     */
+    @Column(nullable = false)
+    var enabled: Boolean = true,
 ) {
 
     /**
@@ -456,6 +474,7 @@ class WorkflowNode(
         retryMaxWaitSeconds = retryMaxWaitSeconds,
         retryJitter = retryJitter,
         retryBudgetSeconds = retryBudgetSeconds,
+        enabled = enabled,
     )
 }
 

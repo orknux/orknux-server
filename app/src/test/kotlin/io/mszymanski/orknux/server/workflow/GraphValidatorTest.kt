@@ -275,6 +275,41 @@ class GraphValidatorTest(
         ).execute().errors().expect { it.message?.contains("Nothing can feed") == true }.verify()
     }
 
+    /**
+     * A trigger cannot be switched off from the graph; the sentence names the
+     * node, and an action switched off beside it is kept. Issue #439.
+     */
+    @Test
+    fun `a disabled trigger is refused, and a disabled action is kept`() {
+        graphQlTester.document(
+            """
+            mutation {
+              saveWorkflowGraph(workspaceId: $workspaceId, workflowId: $workflowId, input: {
+                nodes: [
+                  { key: "start", kind: TRIGGER, name: "Nightly", enabled: false, x: 0, y: 0 },
+                  { key: "act", kind: ACTION, name: "Act", x: 200, y: 0 }
+                ],
+                edges: [{ source: "start", target: "act" }]
+              }) { nodes { key } }
+            }
+            """,
+        ).execute().errors().expect { it.message?.contains("Nightly is a trigger and cannot be disabled") == true }.verify()
+
+        graphQlTester.document(
+            """
+            mutation {
+              saveWorkflowGraph(workspaceId: $workspaceId, workflowId: $workflowId, input: {
+                nodes: [
+                  { key: "start", kind: TRIGGER, name: "Nightly", x: 0, y: 0 },
+                  { key: "act", kind: ACTION, name: "Act", enabled: false, x: 200, y: 0 }
+                ],
+                edges: [{ source: "start", target: "act" }]
+              }) { nodes { key enabled } }
+            }
+            """,
+        ).execute().path("saveWorkflowGraph.nodes[*].enabled").entityList(Boolean::class.java).containsExactly(true, false)
+    }
+
     @Test
     fun `a condition node needs what its condition asks about`() {
         val conditionId = graphQlTester.document(

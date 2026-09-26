@@ -139,6 +139,16 @@ data class GraphNode(
      * seconds, work included; null is no limit beyond the attempts themselves.
      */
     val retryBudgetSeconds: Int? = null,
+    /**
+     * Whether a run does this node's work.
+     *
+     * Off, the engine records the step as skipped without asking any runner
+     * and hands on what reached it unchanged - a disabled condition takes its
+     * "yes" way out, so the graph past it still runs. True on every graph
+     * published before there was a switch, which is what every node was.
+     * Issue #439.
+     */
+    val enabled: Boolean = true,
     val x: Double = 0.0,
     val y: Double = 0.0,
 )

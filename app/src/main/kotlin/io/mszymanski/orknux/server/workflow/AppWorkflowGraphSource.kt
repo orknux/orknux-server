@@ -166,6 +166,11 @@ class AppWorkflowGraphSource(
                     retryMaxWaitSeconds = node.retryMaxWaitSeconds,
                     retryJitter = node.retryJitter,
                     retryBudgetSeconds = node.retryBudgetSeconds,
+                    // Carried to the run rather than folded out of the graph
+                    // here: a skipped step is a fact about what happened, and
+                    // a node quietly absent from a run is an afternoon's
+                    // debugging. The engine skips it and says so.
+                    enabled = node.enabled,
                     x = node.positionX,
                     y = node.positionY,
                 )

@@ -239,10 +239,14 @@ class StepRunner(
         steps.save(step)
 
         val result = try {
-            // What began the run, alongside what it is carrying now. The second
-            // is what lets a step deep in the graph still ask about the event
-            // that started everything.
-            runnerFor(step.kind).run(step, input, execution.input)
+            if (!step.enabled) {
+                skippedAsDisabled(step)
+            } else {
+                // What began the run, alongside what it is carrying now. The second
+                // is what lets a step deep in the graph still ask about the event
+                // that started everything.
+                runnerFor(step.kind).run(step, input, execution.input)
+            }
         } catch (failure: Exception) {
             // A runner that knows its failure is final says so, and that travels
             // with the step: Temporal reads it and stops retrying something that
@@ -326,6 +330,30 @@ class StepRunner(
         )
         return StepOutcome(result.status, result.output, result.halt, result.branch)
     }
+
+    /**
+     * What a step whose node is switched off did, which is nothing, said the
+     * way a runner would say it.
+     *
+     * Here, before any runner is chosen, rather than inside each of the five:
+     * one place that every kind passes through is one place that cannot be
+     * forgotten when the sixth kind arrives. SKIPPED rather than COMPLETED,
+     * because a step that performed no work and reports success is the lie
+     * [UnimplementedNodeRunner] exists to avoid - and because a skipped step
+     * leaves what the run carries untouched, which is exactly "hand on what
+     * reached it unchanged" without a second way of saying so.
+     *
+     * A condition that is switched off takes its "yes" way out. A disabled
+     * condition is one somebody wants out of the way while the rest is tried,
+     * and the rest is down the path the condition would have let through; the
+     * "no" path is the one that stops the run, which is the opposite of what
+     * switching the question off is for. Issue #439.
+     */
+    private fun skippedAsDisabled(step: ExecutionStep): StepResult = StepResult(
+        StepStatus.SKIPPED,
+        DISABLED_REASON,
+        branch = EdgeBranch.YES.takeIf { step.kind == NodeKind.CONDITION },
+    )
 
     /**
      * The node's retry policy, or null where it has none.
@@ -540,5 +568,8 @@ class StepRunner(
 
         /** What a stopped run says for why it ended. Issue #395. */
         const val STOP_REASON = "stopped by request"
+
+        /** What a step whose node is switched off says for itself. Issue #439. */
+        const val DISABLED_REASON = "Skipped: the node is disabled"
     }
 }

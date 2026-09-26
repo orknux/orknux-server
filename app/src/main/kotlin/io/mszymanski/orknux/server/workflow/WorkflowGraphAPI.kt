@@ -167,6 +167,9 @@ class WorkflowGraphAPI(
                 // shapes a save refuses, and without this it would be judged
                 // against a node that never handles it.
                 fallbackEnabled = node.fallbackEnabled && handlesFailure(node.kind),
+                // Carried into the check because a disabled trigger is a shape a
+                // save refuses, and the rule can only see it with the flag here.
+                enabled = node.enabled ?: true,
                 positionX = node.x,
                 positionY = node.y,
                 // Carried into the check for the same reason again: a skill id
@@ -477,6 +480,10 @@ class WorkflowGraphAPI(
             retryJitter = node.retryJitter?.coerceIn(NO_JITTER, FULL_JITTER)
                 ?.takeIf { it > NO_JITTER && retries(node) },
             retryBudgetSeconds = node.retryBudgetSeconds?.coerceIn(1, MAX_BUDGET_SECONDS)?.takeIf { retries(node) },
+            // Null is on, which is what every node was before there was a switch
+            // and what an older client that sends no flag still means. A
+            // disabled trigger never gets this far: the validator refuses it.
+            enabled = node.enabled ?: true,
             mappings = mappingsFor(node, refusing),
         )
     }
@@ -849,6 +856,11 @@ data class WorkflowNodeInput(
     val retryJitter: Double? = null,
     /** The longest this node may go on being attempted for, in seconds; null is no limit. */
     val retryBudgetSeconds: Int? = null,
+    /**
+     * Whether a run does this node's work; null is on, which is what every
+     * node was. Off is refused on a trigger. Issue #439.
+     */
+    val enabled: Boolean? = null,
     val x: Double,
     val y: Double,
 )
@@ -925,6 +937,8 @@ data class WorkflowNodeView(
     val retryJitter: Double?,
     /** The longest this node may go on being attempted for; null is no limit. */
     val retryBudgetSeconds: Int?,
+    /** Whether a run does this node's work; off is skipped, handing its input on. */
+    val enabled: Boolean,
     val x: Double,
     val y: Double,
     /** What the node needs, read off whatever it points at. */
@@ -966,6 +980,7 @@ data class WorkflowNodeView(
         retryMaxWaitSeconds = node.retryMaxWaitSeconds,
         retryJitter = node.retryJitter,
         retryBudgetSeconds = node.retryBudgetSeconds,
+        enabled = node.enabled,
         x = node.positionX,
         y = node.positionY,
         inputs = inputs,

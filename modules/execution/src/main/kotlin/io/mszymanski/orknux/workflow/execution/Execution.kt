@@ -425,6 +425,18 @@ class ExecutionStep(
      */
     @Column(name = "session_id")
     var sessionId: Long? = null,
+
+    /**
+     * Whether this step does its node's work, copied when the run started.
+     *
+     * Off, the engine records it as skipped without asking any runner and
+     * hands on what reached it. The run's own copy for the reason the mappings
+     * are: a node switched back on while this run is between steps must not
+     * change what this run does, and the engine picks a step up by its row and
+     * not by the graph it came from. Issue #439.
+     */
+    @Column(nullable = false)
+    val enabled: Boolean = true,
 )
 
 /** One line of what a run reported. */

@@ -256,6 +256,75 @@ class ExecutionWorkflowTest(
         assertThat(steps.findByExecutionIdOrderByOrderAsc(plan.executionId).single().attempts).isEqualTo(2)
     }
 
+    /**
+     * A node switched off is walked through, not run. Issue #439.
+     *
+     * The middle node is `boom`, which fails the moment any runner is asked
+     * about it - so a run that finishes is a run that asked no runner. The
+     * step is on the record as skipped, saying why, and the node after it is
+     * handed exactly what the node before it produced.
+     */
+    @Test
+    fun `a disabled node is skipped, saying so, and its input goes on to the next node unchanged`() {
+        val plan = plan(
+            WorkflowGraph(
+                workflowId = WORKFLOW,
+                name = "Nightly Report",
+                nodes = listOf(node("ok"), node("boom", enabled = false), node("ok-2")),
+                edges = listOf(GraphEdge("ok", "boom"), GraphEdge("boom", "ok-2")),
+            ),
+        )
+
+        val status = workflow().run(plan)
+
+        assertThat(status).isEqualTo(ExecutionStatus.COMPLETED)
+        val recorded = steps.findByExecutionIdOrderByOrderAsc(plan.executionId)
+        assertThat(recorded.map { it.status })
+            .containsExactly(StepStatus.COMPLETED, StepStatus.SKIPPED, StepStatus.COMPLETED)
+        assertThat(recorded[1].output).isEqualTo("Skipped: the node is disabled")
+        assertThat(recorded[2].input).isEqualTo("ok did the work")
+
+        val lines = logs.findByExecutionIdOrderBySequenceAsc(plan.executionId).map { it.message }
+        assertThat(lines).contains("Skipped: the node is disabled")
+    }
+
+    /**
+     * A disabled condition lets the run through. The node here would answer no
+     * and stop the run if it were asked, so the "yes" path running is the proof
+     * that it was not - and the "no" path is skipped for the reason a branch
+     * not taken always is.
+     */
+    @Test
+    fun `a disabled condition takes its yes way out`() {
+        val plan = plan(
+            WorkflowGraph(
+                workflowId = WORKFLOW,
+                name = "Nightly Report",
+                nodes = listOf(
+                    node("ok"),
+                    GraphNode(key = "gate", kind = NodeKind.CONDITION, name = "asks-no", enabled = false),
+                    node("ok-through"),
+                    node("ok-refused"),
+                ),
+                edges = listOf(
+                    GraphEdge("ok", "gate"),
+                    GraphEdge("gate", "ok-through", EdgeBranch.YES),
+                    GraphEdge("gate", "ok-refused", EdgeBranch.NO),
+                ),
+            ),
+        )
+
+        val status = workflow().run(plan)
+
+        assertThat(status).isEqualTo(ExecutionStatus.COMPLETED)
+        val recorded = steps.findByExecutionIdOrderByOrderAsc(plan.executionId).associateBy { it.nodeKey }
+        assertThat(recorded.getValue("gate").status).isEqualTo(StepStatus.SKIPPED)
+        assertThat(recorded.getValue("gate").branch).isEqualTo(EdgeBranch.YES)
+        assertThat(recorded.getValue("ok-through").status).isEqualTo(StepStatus.COMPLETED)
+        assertThat(recorded.getValue("ok-through").input).isEqualTo("ok did the work")
+        assertThat(recorded.getValue("ok-refused").status).isEqualTo(StepStatus.SKIPPED)
+    }
+
     private fun workflow() = environment.workflowClient.newWorkflowStub(
         ExecutionWorkflow::class.java,
         WorkflowOptions.newBuilder().setTaskQueue(QUEUE).build(),
@@ -274,7 +343,8 @@ class ExecutionWorkflowTest(
         )
     }
 
-    private fun node(key: String) = GraphNode(key = key, kind = NodeKind.ACTION, name = key)
+    private fun node(key: String, enabled: Boolean = true) =
+        GraphNode(key = key, kind = NodeKind.ACTION, name = key, enabled = enabled)
 
     /** No wait between attempts: what is under test is the count, not the clock. */
     private fun retrying(key: String, attempts: Int) =
