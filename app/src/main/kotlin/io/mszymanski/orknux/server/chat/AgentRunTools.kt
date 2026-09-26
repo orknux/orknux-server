@@ -106,7 +106,10 @@ class AgentRunTools(
                 "as text and under a contentKey as well, and any key the answer names - a file it " +
                 "saved, a picture it drew - works in this conversation too: to upload or send what " +
                 "it made, pass the key to the tool that takes one rather than typing the text back, " +
-                "which is what cuts a long file off. You may ask: " +
+                "which is what cuts a long file off. Where you want something long made - a page, a " +
+                "file, a list of a hundred things - say in the question that it should be written " +
+                "into a scratchpad and shared, and the answer will name the pad: you then read and " +
+                "edit that pad yourself instead of it being typed back at you. You may ask: " +
                 named.joinToString(", ") { "${it.name} (${it.description ?: "no description"})" },
             parameters = listOf(
                 ToolParameterSpec(
@@ -218,7 +221,7 @@ class AgentRunTools(
         // pad the asker shared is one it can read and add to - the same document,
         // worked on by both. A subagent in no session gets none. Issue #411.
         return when (
-            val said = conversations.getObject().answer(modelId, sub, turns, into = into, shed = scratchpads.shed(into))
+            val said = conversations.getObject().answer(modelId, sub, turns, into = into, shed = handing(into))
         ) {
             /*
              * The answer, and a key it is kept under in the asker's session. A
@@ -269,6 +272,33 @@ class AgentRunTools(
         // upload door requires what comes out to be the text itself.
         val refused = scratch.put(parent, key, mapper.writeValueAsString(answer))
         return if (refused == null) key else null
+    }
+
+    /**
+     * The scratchpads the asked agent works in, and what it is told about
+     * handing one back. Issue #458.
+     *
+     * A subagent asked for something long writes it into a pad and then puts
+     * the whole of it in its answer as well, because the answer is the only
+     * thing it believes reaches the asker - so a page is paid for twice and
+     * trimmed once. It is not the only thing: a pad it shares is one the agent
+     * that asked can read and edit, the same document rather than a copy. So
+     * the paragraph the scratchpad shed already says about having working files
+     * gains the part only a subagent needs, and it is added here rather than in
+     * [ScratchpadTools] because it is true of nothing else that is lent them.
+     */
+    private fun handing(into: Long?): ToolShed? {
+        val pads = scratchpads.shed(into) ?: return null
+        return object : ToolShed by pads {
+            override fun briefing(): String = listOfNotNull(
+                pads.briefing(),
+                "You are answering another agent, not a person. Anything long you make - a page, a file, " +
+                    "a list - goes in a scratchpad which you then share with " + ScratchpadTools.SHARE +
+                    ": a shared pad is the same document the agent that asked reads and edits, so your " +
+                    "answer should say which pad it is in and what is in it in a line or two, and never " +
+                    "repeat the whole of it. What you write twice is paid for twice and cut off once.",
+            ).joinToString(separator = System.lineSeparator() + System.lineSeparator())
+        }
     }
 
     /** The agents this one may ask: its grant list, in its own workspace, as rows. */
