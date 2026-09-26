@@ -38,6 +38,14 @@ import tools.jackson.databind.ObjectMapper
 @Service
 class ScratchpadTools(
     private val pads: SessionScratchpadService,
+    /**
+     * Where a pad's content is put when the agent wants a key for it rather
+     * than the text. Issue #417: an upload, a Slack post, a mail all take a
+     * key, and a model that had written a page into a pad could only get it to
+     * one of them by reading the pad and typing it back - which is the very
+     * thing the output cap cuts off.
+     */
+    private val scratch: io.mszymanski.orknux.server.llm.LlmSessionStore,
     private val mapper: ObjectMapper,
 ) {
 
@@ -63,7 +71,10 @@ class ScratchpadTools(
             append("a page of HTML, a file of code, notes you are organising. Write it with $WRITE, grow it ")
             append("with $APPEND, change a piece with $REPLACE, and read it back with $READ before you hand it ")
             append("on; $LIST says what you have already started. Working in a scratchpad and then posting the ")
-            append("result beats composing the whole of it in one answer.")
+            append("result beats composing the whole of it in one answer. ")
+            append("To hand a pad to a tool that takes a key - an upload, a message, a mail - call ")
+            append(KEEP).append(" and pass the key it answers with, rather than reading the pad and typing ")
+            append("its content into the call.")
         }
 
         override fun specs(): List<ToolSpec> = listOf(
@@ -135,6 +146,21 @@ class ScratchpadTools(
                 ),
             ),
             ToolSpec(
+                name = KEEP,
+                description = "Puts a scratchpad's content into this session's store and answers with the " +
+                    "key it is under. Use it to hand a file you have written to a tool that takes a key - " +
+                    "an upload, a message, a mail - instead of reading the pad and typing its content back, " +
+                    "which is what the output limit cuts off. The pad is left as it is.",
+                parameters = listOf(
+                    ToolParameterSpec(NAME, "Which scratchpad to keep.", required = true),
+                    ToolParameterSpec(
+                        KEY,
+                        "What to call it in the store. Left out, the pad's own name is used.",
+                        required = false,
+                    ),
+                ),
+            ),
+            ToolSpec(
                 name = DELETE,
                 description = "Removes a scratchpad and everything in it. Only the file's own session may.",
                 parameters = listOf(
@@ -155,9 +181,43 @@ class ScratchpadTools(
                 REPLACE -> replaced(args)
                 SEARCH -> searched(args)
                 SHARE -> shared(args)
+                KEEP -> kept(args)
                 DELETE -> deleted(args)
                 else -> refusal("There is no scratchpad tool called ${call.name}.")
             }
+        }
+
+        /**
+         * A pad's content put into the session store, and the key it went under.
+         * Issue #417.
+         *
+         * The one thing a scratchpad could not do: be handed to something else.
+         * Every door that takes a lot of text - an upload, a Slack message, a
+         * mail - takes a key into this store rather than the text, precisely so
+         * a model never has to type a page back at the server; and a model that
+         * had written that page into a pad had no way to turn it into a key. It
+         * read the pad and typed it out, and the output cap cut it off, which is
+         * the failure the keys exist to prevent.
+         *
+         * The pad is left where it is: this is a copy into the store, not a move
+         * out of the file. Under the pad's own name unless the agent says
+         * otherwise, so the key is one it can predict without being told.
+         */
+        private fun kept(args: JsonNode): String {
+            val name = text(args, NAME) ?: return refusal("Say which scratchpad to keep.")
+            val held = pads.find(session, name)
+                ?: return refusal("You have no scratchpad called \"$name\".")
+            val key = text(args, KEY)?.trim()?.ifEmpty { null } ?: name
+            /*
+             * A JSON-encoded *string*, which is what every reader of this store
+             * expects: the sandbox parses what it reads, and an upload hands on
+             * what comes out as the content itself.
+             */
+            val refused = scratch.put(session, key, mapper.writeValueAsString(held.content))
+            if (refused != null) return refusal("That could not be kept: $refused.")
+            return mapper.writeValueAsString(
+                mapOf("kept" to true, "key" to key, "name" to name, "bytes" to held.content.length),
+            )
         }
 
         private fun listed(): String {
@@ -277,7 +337,10 @@ class ScratchpadTools(
         const val SHARE = "scratchpad_share"
         const val DELETE = "scratchpad_delete"
 
-        val NAMES = setOf(LIST, READ, WRITE, APPEND, REPLACE, SEARCH, SHARE, DELETE)
+        /** Putting a pad's content where a key reaches it. Issue #417. */
+        const val KEEP = "scratchpad_keep"
+
+        val NAMES = setOf(LIST, READ, WRITE, APPEND, REPLACE, SEARCH, SHARE, KEEP, DELETE)
 
         const val NAME = "name"
         const val CONTENT = "content"
@@ -289,5 +352,6 @@ class ScratchpadTools(
         const val NEW = "new"
         const val QUERY = "query"
         const val SHARED = "shared"
+        const val KEY = "key"
     }
 }

@@ -24,6 +24,8 @@ class ScratchpadTest(
     @Autowired val settings: InstallationSettings,
     /** The model's way in, and what it is told about it. Issue #445. */
     @Autowired val tools: io.mszymanski.orknux.server.chat.ScratchpadTools,
+    /** Where a kept pad lands, for the tool that hands one to a key. Issue #417. */
+    @Autowired val store: LlmSessionStore,
 ) {
 
     private var session: Long = 0
@@ -59,6 +61,43 @@ class ScratchpadTest(
             (workspaces.findByName("pads") ?: workspaces.save(Workspace(name = "pads"))).id,
         )
         session = recorder.open(workspaceId, "test", "pads-${System.nanoTime()}")
+    }
+
+    /**
+     * A pad handed to something that takes a key. Issue #417: an upload, a
+     * message, a mail all take a key into the session store, and a model that
+     * had written a page into a pad could only reach them by reading it and
+     * typing it back - which is the thing the output limit cuts off.
+     */
+    @Test
+    fun `a scratchpad is kept in the session store, and answers with its key`() {
+        ok(pads.create(session, "page.html", "The landing page", "<h1>Hello</h1>"))
+        val shed = requireNotNull(tools.shed(session))
+
+        val said = shed.run(
+            io.mszymanski.orknux.connector.model.ToolCall("1", "scratchpad_keep", """{"name":"page.html"}"""),
+        )
+
+        assertThat(said).contains("\"key\":\"page.html\"")
+        assertThat(store.get(session, "page.html")).isEqualTo("\"<h1>Hello</h1>\"")
+        // The pad is left where it was: this is a copy, not a move.
+        assertThat(requireNotNull(pads.find(session, "page.html")).content).isEqualTo("<h1>Hello</h1>")
+
+        // Under a name of the agent's choosing where it gives one.
+        shed.run(
+            io.mszymanski.orknux.connector.model.ToolCall(
+                "2",
+                "scratchpad_keep",
+                """{"name":"page.html","key":"site"}""",
+            ),
+        )
+        assertThat(store.get(session, "site")).isEqualTo("\"<h1>Hello</h1>\"")
+
+        // And a pad that is not there is said so rather than kept as nothing.
+        val missed = shed.run(
+            io.mszymanski.orknux.connector.model.ToolCall("3", "scratchpad_keep", """{"name":"nothing"}"""),
+        )
+        assertThat(missed).contains("no scratchpad called")
     }
 
     private fun ok(result: ScratchpadResult): ScratchpadResult.Ok {
