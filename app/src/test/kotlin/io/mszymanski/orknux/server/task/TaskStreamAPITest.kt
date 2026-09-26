@@ -392,18 +392,29 @@ class TaskStreamAPITest(
      */
     private fun nextOf(frames: Frames, event: String): String {
         val seen = mutableListOf<String>()
-        val until = System.currentTimeMillis() + WAIT_MILLIS
+        val began = System.currentTimeMillis()
+        val until = began + WAIT_MILLIS
         while (System.currentTimeMillis() < until) {
             val frame = frames.next(WAIT_SLICE) ?: continue
             // Matched on the line and not on the start of the frame: a step
             // carries its `id:` first, so anything anchored at the front finds
             // the state frames and misses every one of the steps.
             if (frame.lineSequence().any { it == "event: $event" }) return frame
-            seen.add(frame.replace("\n", " "))
+            seen.add(frame.replace(System.lineSeparator(), " "))
         }
+        /*
+         * How long it actually waited, and whether the stream was still open.
+         * Issue #373: this goes red on a release build and green on a rerun of
+         * the same commit, and the message it failed with could not tell a
+         * stream that said the wrong thing from one that said nothing at all
+         * and from one the server had already let go of. The next red is worth
+         * something only if it says which of the three it was.
+         */
+        val waited = System.currentTimeMillis() - began
         throw AssertionError(
-            "No $event frame arrived in ${WAIT_MILLIS}ms. What did arrive: " +
-                if (seen.isEmpty()) "nothing at all" else seen.joinToString(" | "),
+            "No $event frame arrived in ${waited}ms (waiting up to ${WAIT_MILLIS}ms). " +
+                "The stream was ${if (frames.closed(0)) "closed by the server" else "still open"}. " +
+                "What did arrive: " + if (seen.isEmpty()) "nothing at all" else seen.joinToString(" | "),
         )
     }
 
@@ -478,8 +489,19 @@ class TaskStreamAPITest(
          */
         const val SOCKET_TIMEOUT = 30_000
 
-        /** Long enough for a stir and the backstop behind it. */
-        const val WAIT_MILLIS = 8_000L
+        /**
+         * Long enough for a stir and the backstop behind it, with room for a
+         * machine under load. Issue #373.
+         *
+         * Eight seconds was enough on every machine this has been run on by
+         * hand, and not enough twice on the box that builds a release - where
+         * the whole suite is running beside it and a pass that takes half a
+         * second here takes several. A ceiling nothing reaches costs nothing
+         * while the feature works, and the failure above now says how long it
+         * really waited, so a red at twenty seconds is a different report from
+         * a red at eight.
+         */
+        const val WAIT_MILLIS = 20_000L
 
         const val WAIT_SLICE = 250L
     }
