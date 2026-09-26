@@ -34,6 +34,8 @@ class SkillIdTest(
     @Autowired val agents: AgentRepository,
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val audit: WorkspaceAuditRepository,
+    /** For the ids a model types back at it; see the load test. Issue #435. */
+    @Autowired val skillTool: SkillTool,
 ) {
 
     private var workspaceId: Long = 0
@@ -61,10 +63,26 @@ class SkillIdTest(
     }
 
     @Test
-    fun `a name becomes an id by losing what the rule refuses`() {
-        assertThat(SkillKeys.derive("Incident Response (2024)")).isEqualTo("IncidentResponse")
+    fun `a name becomes an id that keeps its words`() {
+        // A hyphen where the rule refuses a run, not nothing: an id a model can
+        // read off a list and type back. Issue #435.
+        assertThat(SkillKeys.derive("Answering in a thread")).isEqualTo("answering-in-a-thread")
+        assertThat(SkillKeys.derive("Incident Response (2024)")).isEqualTo("incident-response")
         assertThat(SkillKeys.derive("code-review_v2")).isEqualTo("code-review_v")
         assertThat(SkillKeys.derive("2024")).describedAs("nothing left").isEqualTo("skill")
+    }
+
+    /**
+     * The ids an older rule ran together are still the same id, so a graph or a
+     * command written against one goes on naming its skill. Issue #435.
+     */
+    @Test
+    fun `an id is the same id however it is spelled`() {
+        assertThat(SkillKeys.same("answering-in-a-thread", "Answeringinathread")).isTrue()
+        assertThat(SkillKeys.same("answering-in-a-thread", "Answering in a thread")).isTrue()
+        assertThat(SkillKeys.same("answering-in-a-thread", "answering_in_a_thread")).isTrue()
+        assertThat(SkillKeys.same("review", "escalation")).isFalse()
+        assertThat(SkillKeys.same("", "")).describedAs("nothing is not an id").isFalse()
     }
 
     /* ---------------------------------------------------- the two doors --- */
@@ -73,7 +91,7 @@ class SkillIdTest(
     fun `a skill made without an id gets the name's`() {
         graphQlTester.document(
             """mutation { createSkill(input: { workspaceId: $workspaceId, name: "Incident Response!" }) { key } }""",
-        ).execute().path("createSkill.key").entity(String::class.java).isEqualTo("IncidentResponse")
+        ).execute().path("createSkill.key").entity(String::class.java).isEqualTo("incident-response")
     }
 
     @Test
@@ -81,7 +99,7 @@ class SkillIdTest(
         skill("Review")
         graphQlTester.document(
             """mutation { createSkill(input: { workspaceId: $workspaceId, name: "Review!" }) { key } }""",
-        ).execute().path("createSkill.key").entity(String::class.java).isEqualTo("Review-b")
+        ).execute().path("createSkill.key").entity(String::class.java).isEqualTo("review-b")
     }
 
     @Test
@@ -125,7 +143,40 @@ class SkillIdTest(
     fun `renaming a skill leaves its id alone`() {
         val id = skill("Review")
         graphQlTester.document("""mutation { updateSkill(id: $id, input: { name: "Thorough review" }) { key } }""")
-            .execute().path("updateSkill.key").entity(String::class.java).isEqualTo("Review")
+            .execute().path("updateSkill.key").entity(String::class.java).isEqualTo("review")
+    }
+
+    /**
+     * What a model actually types. It read the id in `skill_list` some turns
+     * ago and types it back from memory - or types the name, or an id it has
+     * put a borrowed namespace in front of. None of those is a different skill.
+     * Issue #435.
+     */
+    @Test
+    fun `a skill is loaded however the model spells its id`() {
+        skill("Answering in a thread")
+        val agent = agents.save(
+            Agent(
+                workspaceId = workspaceId,
+                name = "responder",
+                type = AgentType.LLM,
+                skillCatalogs = mutableListOf(catalogs.findAll().first().name),
+            ),
+        )
+
+        listOf(
+            "answering-in-a-thread",
+            "Answering in a thread",
+            "answering_in_a_thread",
+            "Answeringinathread",
+            "plugin::answering-in-a-thread",
+        ).forEach { asked ->
+            assertThat(skillTool.load(agent, asked)?.name)
+                .describedAs(asked)
+                .isEqualTo("Answering in a thread")
+        }
+
+        assertThat(skillTool.load(agent, "something else")).isNull()
     }
 
     private fun skill(name: String): Long = graphQlTester.document(

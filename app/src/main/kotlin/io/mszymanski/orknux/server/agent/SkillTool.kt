@@ -41,14 +41,32 @@ class SkillTool(
         .map { SkillSummary(it.name, it.key, it.description, it.catalog) }
 
     /**
-     * One skill in full, by name or by id.
+     * One skill in full, by name or by id, spelled how the model managed.
      *
      * A name that is not in the granted list reads as absent rather than
      * refused: an agent guessing at a skill it was never given should learn that
      * there is no such skill, not that there is one it may not have.
+     *
+     * Asked forgivingly on purpose. What arrives is whatever a model typed from
+     * a list it read a few turns ago, and it will not always be the exact id:
+     * the name with its spaces, the id with underscores where the hyphens were,
+     * or the id behind a namespace it borrowed from somewhere else -
+     * `plugin::review`. None of those is a different skill, and refusing them
+     * teaches a model to guess again rather than to look. So an exact match is
+     * preferred, and anything left is matched on letters alone - but only where
+     * exactly one skill answers, since two that differ by a separator are two
+     * skills and guessing between them would be worse than saying no.
      */
-    fun load(agent: Agent, name: String): GrantedSkill? = granted(agent)
-        .firstOrNull { it.name.equals(name, ignoreCase = true) || it.key.equals(name, ignoreCase = true) }
+    fun load(agent: Agent, name: String): GrantedSkill? {
+        val held = granted(agent)
+        val asked = name.substringAfterLast(':').trim().ifEmpty { name.trim() }
+
+        held.firstOrNull { it.key.equals(asked, ignoreCase = true) || it.name.equals(asked, ignoreCase = true) }
+            ?.let { return it }
+
+        val alike = held.filter { SkillKeys.same(it.key, asked) || SkillKeys.same(it.name, asked) }
+        return alike.singleOrNull()
+    }
 
     /**
      * The skills these ids name, for a graph that loads them by force.
@@ -59,6 +77,12 @@ class SkillTool(
      * have kept up. A workspace skill switched off is out of reach here as
      * everywhere; an id nothing answers to is handed back, so the run can say
      * so. Issue #381.
+     *
+     * An id is matched exactly first and then on its letters alone, so a graph
+     * written against the ids an older rule derived - `Answeringinathread` for
+     * what is now `answering-in-a-thread` - goes on naming the same skill.
+     * Where two skills answer to those letters the id is not guessed at; it is
+     * reported missing, which is what a graph's author needs to hear.
      */
     fun byKeys(workspaceId: Long, keys: Collection<String>): ResolvedSkills {
         val own = skills.findByWorkspaceIdAndEnabledTrue(workspaceId)
@@ -68,6 +92,7 @@ class SkillTool(
         val missing = mutableListOf<String>()
         keys.map { it.trim() }.filter { it.isNotEmpty() }.distinctBy { it.lowercase() }.forEach { key ->
             val match = pool.firstOrNull { it.key.equals(key, ignoreCase = true) }
+                ?: pool.filter { SkillKeys.same(it.key, key) }.singleOrNull()
             if (match == null) missing += key else if (match !in found) found += match
         }
         return ResolvedSkills(found, missing)
@@ -129,10 +154,15 @@ class SkillTool(
         val LOAD = ToolDescriptor(
             name = "skill_load",
             description =
-                "Read one skill in full, by its exact name or id from skill_list. " +
-                    "Load a skill before following it rather than guessing at what it says.",
+                "Read one skill in full. Pass the id skill_list gave it, copied as it stands - " +
+                    "an id is lower-case words joined by hyphens, like answering-in-a-thread, and nothing " +
+                    "goes in front of it. Load a skill before following it rather than guessing at what it says.",
             parameters = listOf(
-                ToolParameter(name = "name", description = "The skill's name or id, as skill_list gave it", required = true),
+                ToolParameter(
+                    name = "name",
+                    description = "The skill's id from skill_list, such as answering-in-a-thread. Its name works too.",
+                    required = true,
+                ),
             ),
         )
     }

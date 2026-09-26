@@ -94,16 +94,44 @@ object SkillKeys {
 
     val RULE = Regex("[A-Za-z_-]+")
 
-    private val UNWANTED = Regex("[^A-Za-z_-]")
+    private val UNWANTED = Regex("[^A-Za-z_-]+")
+
+    /** Everything but letters, for telling two spellings of one id apart from two ids. */
+    private val NOT_A_LETTER = Regex("[^a-z]")
 
     /** Whether this is a usable id: only the characters the rule allows, and at least one. */
     fun usable(key: String): Boolean = key.length in 1..KEY_LENGTH && RULE.matches(key)
 
     /**
-     * The id a name becomes: everything the rule refuses removed, and a name
-     * with nothing left - "2024", say - given a stand-in.
+     * The id a name becomes: a hyphen where the rule refuses a run of
+     * characters, so the words stay words - "Answering in a thread" is
+     * `answering-in-a-thread`, not `answeringinathread`. A name with nothing
+     * left - "2024", say - is given a stand-in.
+     *
+     * The words matter because this id is what a model types back at
+     * `skill_load` and what a person types after the command marker. Run
+     * together it reads as one long word nobody can spell from memory, which is
+     * how a model ends up guessing at shapes like `plugin::skill`.
      */
-    fun derive(name: String): String = UNWANTED.replace(name.trim(), "").take(KEY_LENGTH).ifEmpty { "skill" }
+    fun derive(name: String): String = UNWANTED.replace(name.trim(), "-")
+        .trim('-')
+        .lowercase()
+        .take(KEY_LENGTH)
+        .trim('-')
+        .ifEmpty { "skill" }
+
+    /**
+     * Whether two ids are the same id said differently.
+     *
+     * Only the letters are compared, so `answering-in-a-thread`, the
+     * `Answeringinathread` an older rule derived, and `Answering in a thread`
+     * are one id. It is what lets a name typed from memory find its skill, and
+     * what lets an id written on a graph before the rule changed go on working.
+     */
+    fun same(one: String, other: String): Boolean = bare(one).isNotEmpty() && bare(one) == bare(other)
+
+    /** An id with everything but its letters taken off, for [same]. */
+    fun bare(key: String): String = NOT_A_LETTER.replace(key.trim().lowercase(), "")
 
     /**
      * The first of this id and its lettered variants that nothing holds:

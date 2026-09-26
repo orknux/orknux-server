@@ -430,8 +430,18 @@ class AgentTools(
                 val name = argument(call, "name").orEmpty()
                 val found = skills.load(agent, name)
                 if (found == null) {
+                    // The ids with the refusal rather than a second call to
+                    // find them: a model that mistyped one is about to guess
+                    // again, and the list is what stops it. Issue #435.
+                    val ids = skills.list(agent).joinToString(", ") { it.id }
                     mapper.writeValueAsString(
-                        mapOf("error" to "You have no skill called $name. Call skill_list for the ones you have."),
+                        mapOf(
+                            "error" to if (ids.isEmpty()) {
+                                "You have no skills."
+                            } else {
+                                "You have no skill called $name. Yours are: $ids. Pass one of those ids exactly."
+                            },
+                        ),
                     )
                 } else {
                     mapper.writeValueAsString(mapOf("name" to found.name, "content" to found.content))
