@@ -174,6 +174,12 @@ class ModelService(
         // own and it sends all of them, while a caller written before this
         // column existed would otherwise turn checking back on every save.
         input.checkEnabled?.let { provider.checkEnabled = it }
+        // The provider form sends both rates, so they are set as given and a
+        // cleared field is no default throttle. Retry-After is a checkbox that
+        // is always sent, but left as it is when it is not. Issue #426.
+        provider.throttleTokensPerSecond = input.throttleTokensPerSecond?.toLong()
+        provider.throttleRequestsPerSecond = input.throttleRequestsPerSecond
+        input.acceptRetryAfter?.let { provider.acceptRetryAfter = it }
 
         provider.forgetCheck()
         events.publishEvent(ModelProviderSaved(id))
@@ -328,6 +334,26 @@ class ModelService(
         model.tokenLimit = input.tokenLimit
         model.resetInterval = input.resetInterval
         model.requestsPerMinute = input.requestsPerMinute
+        return LlmModelView(model, provider)
+    }
+
+    /**
+     * Sets a model's rate throttle, overriding its provider's default. Issue #426.
+     *
+     * The card sends all three, so they are set as given: a null rate inherits
+     * the provider, a 0 turns it off, and a null Retry-After inherits too. All
+     * are valid stored values, which is why this is a plain set and not the
+     * null-leaves-alone the provider fields use.
+     */
+    @Transactional
+    fun updateModelThrottle(id: Long, input: ModelThrottleInput): LlmModelView {
+        val model = models.findByIdOrNull(id) ?: throw ModelNotFoundException(id)
+        val provider = providers.findByIdOrNull(model.providerId)
+            ?: throw ModelProviderNotFoundException(model.providerId)
+
+        model.throttleTokensPerSecond = input.throttleTokensPerSecond
+        model.throttleRequestsPerSecond = input.throttleRequestsPerSecond
+        model.acceptRetryAfter = input.acceptRetryAfter
         return LlmModelView(model, provider)
     }
 
@@ -625,6 +651,15 @@ data class UpdateProviderInput(
     val scope: String? = null,
     /** Null leaves it as it is, so a caller that does not know about it cannot turn it off. */
     val checkEnabled: Boolean? = null,
+    /**
+     * The default throttle for this provider's models. The provider form sends
+     * these with the rest, so they are set as given - a null clears the rate to
+     * no default. Issue #426.
+     */
+    val throttleTokensPerSecond: Double? = null,
+    val throttleRequestsPerSecond: Double? = null,
+    /** Null leaves it as it is, like [checkEnabled]. Issue #426. */
+    val acceptRetryAfter: Boolean? = null,
 )
 
 data class CreateModelInput(
@@ -671,6 +706,17 @@ data class ModelQuotasInput(
     val requestsPerMinute: Int? = null,
 )
 
+/**
+ * The Throttle card on the model page, which saves its fields together. A null
+ * rate inherits the provider's default; a 0 turns that dimension off; a null
+ * acceptRetryAfter inherits the provider's choice. Issue #426.
+ */
+data class ModelThrottleInput(
+    val throttleTokensPerSecond: Long? = null,
+    val throttleRequestsPerSecond: Double? = null,
+    val acceptRetryAfter: Boolean? = null,
+)
+
 data class ModelProviderView(
     val id: Long,
     val workspaceId: Long,
@@ -690,6 +736,11 @@ data class ModelProviderView(
      * the status beside it may be "Not checked" indefinitely.
      */
     val checkEnabled: Boolean,
+    /** The default throttle this provider's models inherit; null on a rate is none. Issue #426. */
+    val throttleTokensPerSecond: Long?,
+    val throttleRequestsPerSecond: Double?,
+    /** Whether a 429's Retry-After is obeyed by default. Issue #426. */
+    val acceptRetryAfter: Boolean,
     val status: ProviderStatus,
     val lastCheckMessage: String?,
     /** ISO-8601, as `WorkspaceConnectionView` reports its own. */
@@ -726,6 +777,9 @@ data class ModelProviderView(
         clientId = provider.clientId,
         scope = provider.scope,
         checkEnabled = provider.checkEnabled,
+        throttleTokensPerSecond = provider.throttleTokensPerSecond,
+        throttleRequestsPerSecond = provider.throttleRequestsPerSecond,
+        acceptRetryAfter = provider.acceptRetryAfter,
         status = provider.status,
         lastCheckMessage = provider.lastCheckMessage,
         lastCheckedAt = provider.lastCheckedAt?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
@@ -751,6 +805,11 @@ data class LlmModelView(
     val tokenLimit: Long?,
     val resetInterval: ResetInterval,
     val requestsPerMinute: Int?,
+    /** This model's own throttle; null on a rate inherits the provider, 0 turns it off. Issue #426. */
+    val throttleTokensPerSecond: Long?,
+    val throttleRequestsPerSecond: Double?,
+    /** Whether it obeys a 429's Retry-After; null inherits the provider. Issue #426. */
+    val acceptRetryAfter: Boolean?,
     val inputCostPerMillion: Double?,
     val outputCostPerMillion: Double?,
     /** Which voice a SPEECH model reads in; null sends none. */
@@ -774,6 +833,9 @@ data class LlmModelView(
         tokenLimit = model.tokenLimit,
         resetInterval = model.resetInterval,
         requestsPerMinute = model.requestsPerMinute,
+        throttleTokensPerSecond = model.throttleTokensPerSecond,
+        throttleRequestsPerSecond = model.throttleRequestsPerSecond,
+        acceptRetryAfter = model.acceptRetryAfter,
         inputCostPerMillion = model.inputCostPerMillion?.toDouble(),
         outputCostPerMillion = model.outputCostPerMillion?.toDouble(),
         voice = model.voice,

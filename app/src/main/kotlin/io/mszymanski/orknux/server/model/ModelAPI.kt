@@ -7,6 +7,7 @@ import io.mszymanski.orknux.connector.model.LlmModelView
 import io.mszymanski.orknux.connector.model.ModelProviderView
 import io.mszymanski.orknux.connector.model.ModelQuotasInput
 import io.mszymanski.orknux.connector.model.ModelService
+import io.mszymanski.orknux.connector.model.ModelThrottleInput
 import io.mszymanski.orknux.connector.model.ModelUsageView
 import io.mszymanski.orknux.connector.model.ResetInterval
 import io.mszymanski.orknux.connector.model.UpdateModelInput
@@ -222,6 +223,23 @@ class ModelAPI(
     }
 
     @MutationMapping
+    fun updateModelThrottle(@Argument id: Long, @Argument input: ModelThrottleArgs): LlmModelView {
+        val model = models.model(id)?.takeIf { access.canSee(it.workspaceId) } ?: throw ModelNotFoundException(id)
+
+        val updated = models.updateModelThrottle(
+            id,
+            ModelThrottleInput(
+                // Float on the wire, because a token rate outgrows a 32-bit Int.
+                throttleTokensPerSecond = input.throttleTokensPerSecond?.toLong(),
+                throttleRequestsPerSecond = input.throttleRequestsPerSecond,
+                acceptRetryAfter = input.acceptRetryAfter,
+            ),
+        )
+        auditRecorder.record(model.workspaceId, WorkspaceAuditCategory.MODEL, "Throttle for ${model.name} updated")
+        return updated
+    }
+
+    @MutationMapping
     fun setModelEnabled(@Argument id: Long, @Argument enabled: Boolean): LlmModelView {
         val model = models.model(id)?.takeIf { access.canSee(it.workspaceId) } ?: throw ModelNotFoundException(id)
 
@@ -250,6 +268,13 @@ data class ModelQuotasArgs(
     val tokenLimit: Double? = null,
     val resetInterval: ResetInterval? = null,
     val requestsPerMinute: Int? = null,
+)
+
+/** The throttle card's values; the token rate arrives as a Float for its range. Issue #426. */
+data class ModelThrottleArgs(
+    val throttleTokensPerSecond: Double? = null,
+    val throttleRequestsPerSecond: Double? = null,
+    val acceptRetryAfter: Boolean? = null,
 )
 
 /** [ModelUsageView] with its dates as the ISO-8601 strings the schema says. */

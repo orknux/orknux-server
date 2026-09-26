@@ -1797,6 +1797,8 @@ type Mutation {
     updateModel(id: ID!, input: UpdateModelInput!): Model!
     "The Quotas and Limits card, whose fields are saved together. Null is no limit."
     updateModelQuotas(id: ID!, input: ModelQuotasInput!): Model!
+    "Sets a model's rate throttle, overriding its provider's default. Issue #426."
+    updateModelThrottle(id: ID!, input: ModelThrottleInput!): Model!
     "The Active toggle on the models list."
     setModelEnabled(id: ID!, enabled: Boolean!): Model!
     removeModel(id: ID!): Boolean!
@@ -4718,6 +4720,12 @@ type ModelProvider {
     Test Connection, and every chat and task the provider serves, ignore it.
     """
     checkEnabled: Boolean!
+    "The default tokens a second this provider's models hold under; null is no default throttle. Issue #426."
+    throttleTokensPerSecond: Float
+    "The default requests a second, possibly below one; null is no default throttle. Issue #426."
+    throttleRequestsPerSecond: Float
+    "Whether a 429's Retry-After is obeyed, ahead of a node's own retry. On by default. Issue #426."
+    acceptRetryAfter: Boolean!
     status: ProviderStatus!
     "What the last check found, and when it ran."
     lastCheckMessage: String
@@ -4775,6 +4783,16 @@ type Model {
     tokenLimit: Float
     resetInterval: ResetInterval!
     requestsPerMinute: Int
+    """
+    This model's own rate throttle, overriding the provider's default where set.
+    Every run using the model shares one budget; null inherits the provider, 0
+    turns a dimension off. A rate to stay under, not the token_limit cap that
+    resets. Issue #426.
+    """
+    throttleTokensPerSecond: Float
+    throttleRequestsPerSecond: Float
+    "Whether this model obeys a 429's Retry-After; null inherits the provider. Issue #426."
+    acceptRetryAfter: Boolean
     "What the provider charges per million tokens; null when it is not recorded."
     inputCostPerMillion: Float
     outputCostPerMillion: Float
@@ -4895,6 +4913,11 @@ input UpdateModelProviderInput {
     scope: String
     "Whether the timed sweep may call it. Null leaves it as it is."
     checkEnabled: Boolean
+    "Default throttle for this provider's models; null leaves each as it is, 0 clears one. Issue #426."
+    throttleTokensPerSecond: Float
+    throttleRequestsPerSecond: Float
+    "Whether a 429's Retry-After is obeyed by default. Null leaves it as it is. Issue #426."
+    acceptRetryAfter: Boolean
 }
 
 
@@ -4940,6 +4963,19 @@ input ModelQuotasInput {
     tokenLimit: Float
     resetInterval: ResetInterval
     requestsPerMinute: Int
+}
+
+"""
+A model's rate throttle, overriding its provider's default. Issue #426.
+
+Every field null inherits the provider's default for it; a 0 turns that
+dimension off though the provider sets one. The whole input is the throttle
+section on the model page, sent together.
+"""
+input ModelThrottleInput {
+    throttleTokensPerSecond: Float
+    throttleRequestsPerSecond: Float
+    acceptRetryAfter: Boolean
 }
 
 "Where one node of the graph got to in a run."

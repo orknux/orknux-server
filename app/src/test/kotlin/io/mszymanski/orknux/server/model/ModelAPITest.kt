@@ -316,6 +316,48 @@ class ModelAPITest(
     }
 
     @Test
+    fun `the throttle card saves a model's own rate, and an emptied one inherits`() {
+        val providerId = provider("Anthropic", "https://api.anthropic.com/v1")
+        val modelId = model(providerId, "Claude 3.5 Sonnet", "claude-3-5-sonnet-20241022")
+
+        graphQlTester.document(
+            """mutation { updateModelThrottle(id: $modelId, input: {
+                 throttleTokensPerSecond: 40000, throttleRequestsPerSecond: 5, acceptRetryAfter: false
+               }) { throttleTokensPerSecond throttleRequestsPerSecond acceptRetryAfter } }""",
+        ).execute()
+            .path("updateModelThrottle.throttleTokensPerSecond").entity(Double::class.java).isEqualTo(40_000.0)
+            .path("updateModelThrottle.throttleRequestsPerSecond").entity(Double::class.java).isEqualTo(5.0)
+            .path("updateModelThrottle.acceptRetryAfter").entity(Boolean::class.java).isEqualTo(false)
+
+        // Emptied, so the rate goes back to inheriting the provider's default.
+        graphQlTester.document(
+            """mutation { updateModelThrottle(id: $modelId, input: {
+                 throttleTokensPerSecond: null, throttleRequestsPerSecond: null, acceptRetryAfter: null
+               }) { throttleTokensPerSecond acceptRetryAfter } }""",
+        ).execute()
+            .path("updateModelThrottle.throttleTokensPerSecond").valueIsNull()
+            .path("updateModelThrottle.acceptRetryAfter").valueIsNull()
+
+        assertThat(audit.findAll().map { it.message })
+            .contains("Throttle for Claude 3.5 Sonnet updated")
+    }
+
+    @Test
+    fun `a provider's default throttle is saved and read back`() {
+        val providerId = provider("Anthropic", "https://api.anthropic.com/v1")
+
+        graphQlTester.document(
+            """mutation { updateModelProvider(id: $providerId, input: {
+                 name: "Anthropic", endpoint: "https://api.anthropic.com/v1",
+                 throttleTokensPerSecond: 100000, throttleRequestsPerSecond: 8, acceptRetryAfter: false
+               }) { throttleTokensPerSecond throttleRequestsPerSecond acceptRetryAfter } }""",
+        ).execute()
+            .path("updateModelProvider.throttleTokensPerSecond").entity(Double::class.java).isEqualTo(100_000.0)
+            .path("updateModelProvider.throttleRequestsPerSecond").entity(Double::class.java).isEqualTo(8.0)
+            .path("updateModelProvider.acceptRetryAfter").entity(Boolean::class.java).isEqualTo(false)
+    }
+
+    @Test
     fun `a model nothing has called reports an empty window rather than zeros as a result`() {
         val providerId = provider("Anthropic", "https://api.anthropic.com/v1")
         val modelId = model(providerId, "Claude 3.5 Sonnet", "claude-3-5-sonnet-20241022")
