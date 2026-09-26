@@ -64,6 +64,31 @@ interface ToolShed {
 open class AgentRoundHalted(note: String) : RuntimeException(note)
 
 /**
+ * The system text a round actually sends: what the caller composed, with a lent
+ * shed's [ToolShed.briefing] after it.
+ *
+ * One function rather than two, because two things need the same answer and they
+ * must not disagree. [AgentConversation] applies it to build the turn the
+ * provider is sent, and [io.mszymanski.orknux.server.agent.AgentDetails] applies
+ * it to write down what the model was working under - and the whole point of
+ * that record is that it is what was sent. Issue #454: the record used to be
+ * `agent.systemPrompt`, so a node that overrode the prompt, the grants briefing
+ * appended after it and every paragraph a lent shed added were all missing from
+ * an account that read as complete.
+ *
+ * Nothing lent hands the caller's own text back unchanged, so a round with no
+ * shed is composed exactly as it was before any of this.
+ */
+fun briefedWith(system: String?, advice: String?): String? = when {
+    advice.isNullOrBlank() -> system
+    system.isNullOrBlank() -> advice
+    // Trimmed at the end rather than joined raw: a briefing that ends in a
+    // newline and one that does not must produce the same text, or the same
+    // setup would compare as two.
+    else -> system.trimEnd() + "\n\n" + advice
+}
+
+/**
  * Two sheds lent to one round, as one.
  *
  * A caller may have more than one thing to lend - an agent node lends drawing

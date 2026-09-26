@@ -41,15 +41,28 @@ class AskAgentTest(
     @Autowired val tools: AgentTools,
     @Autowired val agents: AgentRepository,
     @Autowired val workspaces: WorkspaceRepository,
+    /** For the conversation an ask opens, and the setup written into it. Issue #456. */
+    @Autowired val recorder: io.mszymanski.orknux.server.llm.LlmSessionRecorder,
+    @Autowired val sessions: io.mszymanski.orknux.server.llm.LlmSessionRepository,
+    @Autowired val events: io.mszymanski.orknux.server.llm.LlmSessionEventRepository,
+    @Autowired val models: io.mszymanski.orknux.connector.model.LlmModelRepository,
+    @Autowired val providers: io.mszymanski.orknux.connector.model.ModelProviderRepository,
     @Autowired val mapper: ObjectMapper,
 ) {
 
     private var workspaceId: Long = 0
     private var otherWorkspaceId: Long = 0
 
+    /** The provider the one test that lets an agent answer talks to; see [model]. */
+    private var server: com.sun.net.httpserver.HttpServer? = null
+
     @BeforeEach
     fun make() {
+        events.deleteAll()
+        sessions.deleteAll()
         agents.deleteAll()
+        models.deleteAll()
+        providers.deleteAll()
         /*
          * Found rather than made again: a workspace name is unique and the table
          * is not emptied between classes.
@@ -62,12 +75,58 @@ class AskAgentTest(
         )
     }
 
-    private fun agent(name: String, workspace: Long = workspaceId, asks: List<Long> = emptyList()): Agent =
+    @org.junit.jupiter.api.AfterEach
+    fun stop() {
+        server?.stop(0)
+        server = null
+    }
+
+    /**
+     * A provider that answers anything, and a model on it. Only the one test
+     * that lets a specialist actually answer needs it - the rest are about what
+     * is offered and what is refused, and neither reaches a model.
+     */
+    private fun model(): Long {
+        val started = com.sun.net.httpserver.HttpServer.create(
+            java.net.InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), 0),
+            0,
+        )
+        started.createContext("/chat/completions") { exchange ->
+            exchange.requestBody.reader(java.nio.charset.StandardCharsets.UTF_8).use { it.readText() }
+            val bytes = """{"choices":[{"message":{"role":"assistant","content":"Twice a year."}}],
+               "usage":{"prompt_tokens":3,"completion_tokens":1}}""".toByteArray(java.nio.charset.StandardCharsets.UTF_8)
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+            exchange.close()
+        }
+        started.start()
+        server = started
+        val endpoint = "http://${started.address.hostString}:${started.address.port}"
+
+        val providerId = graphQlTester.document(
+            """mutation { createModelProvider(input: {
+                 workspaceId: $workspaceId, name: "Stub", endpoint: "$endpoint", secret: "sk-test"
+               }) { id } }""",
+        ).execute().path("createModelProvider.id").entity(Long::class.java).get()
+        return graphQlTester.document(
+            """mutation { createModel(input: { providerId: $providerId, name: "Stub", modelId: "stub", kind: CHAT })
+               { id } }""",
+        ).execute().path("createModel.id").entity(Long::class.java).get()
+    }
+
+    private fun agent(
+        name: String,
+        workspace: Long = workspaceId,
+        asks: List<Long> = emptyList(),
+        model: Long? = null,
+    ): Agent =
         agents.save(
             Agent(
                 workspaceId = workspace,
                 name = name,
                 type = AgentType.LLM,
+                modelId = model,
                 agents = asks.toMutableList(),
                 // As a fresh agent is made: `ask_agent` is a name on the Tools
                 // list since #444, and a row built without it has hidden the
@@ -178,6 +237,64 @@ class AskAgentTest(
         assertThat(asking.offered(asker)).isTrue()
         val spec = tools.specsFor(asker).single { it.name == AgentRunTools.ASK }
         assertThat(spec.description).contains("Librarian").doesNotContain("Archivist")
+    }
+
+    /* ------------------------------------------ who answered, written down */
+
+    /**
+     * A subagent's session opens with the setup the asked agent answered under.
+     * Issue #456.
+     *
+     * An agent node and a task both write that line where an agent starts
+     * responding, and the one conversation in a family whose agent nobody chose
+     * did not: a subagent's session opened with a tool call, and nothing in it
+     * ever said which agent had been asked, on which model, with what in front of
+     * it or holding what. Which is the first question anybody reading one has.
+     *
+     * Three things are pinned here. That the line is there at all and comes
+     * *before* the question, so the log opens with the setup its words were said
+     * under. That it is the setup the round was actually given - the asked
+     * agent's own model, its id, and the prompt including what its lent
+     * scratchpads say about themselves, which for a subagent carries a paragraph
+     * nothing else gets. And that the tools are the ones the model was handed:
+     * reached this way an agent is granted nobody, so `ask_agent` is absent from
+     * the record exactly as it was absent from the request.
+     */
+    @Test
+    fun `a subagent's session opens with the agent's setup, before the question`() {
+        val modelId = model()
+        val specialist = agent("Librarian", model = modelId)
+        val asker = agent("Support", asks = listOf(requireNotNull(specialist.id)), model = modelId)
+        val main = recorder.open(workspaceId, "chat", "asking-${System.nanoTime()}")
+
+        asking.run(asker, """{"agent":"Librarian","question":"How often is it reviewed?"}""", parent = main)
+
+        val child = sessions.findByParentSessionIdOrderByCreatedAtAscIdAsc(main).single()
+        val lines = events.findAll().filter { it.sessionId == child.id }.sortedBy { it.id }
+        val details = lines.filter { it.kind == io.mszymanski.orknux.server.llm.LlmSessionEventKind.AGENT_DETAILS }
+
+        assertThat(details).describedAs("one line, for the agent that was asked").hasSize(1)
+        assertThat(details.single().actor).isEqualTo("Librarian")
+        assertThat(lines.first().kind)
+            .describedAs("first in the log, before the question the asker put")
+            .isEqualTo(io.mszymanski.orknux.server.llm.LlmSessionEventKind.AGENT_DETAILS)
+
+        val held = mapper.readTree(details.single().content)
+        assertThat(held.path("agent").stringValue()).isEqualTo("Librarian")
+        assertThat(held.path("agentId").asLong()).isEqualTo(specialist.id)
+        assertThat(held.path("model").stringValue()).isEqualTo("Stub")
+        // The prompt is what the round was given, which for an agent with no
+        // prose of its own is what its lent tools say about themselves - and a
+        // subagent is told something nothing else is. Issues #454, #458.
+        assertThat(held.path("systemPrompt").stringValue())
+            .contains("You have scratchpads")
+            .contains("You are answering another agent")
+
+        val handed = held.path("tools").mapNotNull { it.stringValue() }
+        assertThat(handed).contains(ScratchpadTools.WRITE)
+        assertThat(handed)
+            .describedAs("reached this way it is granted nobody, so the record says so too")
+            .doesNotContain(AgentRunTools.ASK)
     }
 
     /* --------------------------------------------------- setting the grant */

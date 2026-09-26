@@ -767,8 +767,11 @@ class AgentConversation(
         if (advice.isNullOrBlank()) return turns
         val system = turns.indexOfFirst { it.role == "system" }
         if (system == -1) return listOf(ChatTurn(role = "system", content = advice)) + turns
+        // Through [briefedWith], because the record of what the model was
+        // working under is composed by the same rule and the two must not
+        // disagree about it. Issue #454.
         return turns.mapIndexed { index, turn ->
-            if (index == system) turn.copy(content = turn.content.trimEnd() + "\n\n" + advice) else turn
+            if (index == system) turn.copy(content = requireNotNull(briefedWith(turn.content, advice))) else turn
         }
     }
 

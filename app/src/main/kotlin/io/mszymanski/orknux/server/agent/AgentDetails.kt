@@ -5,6 +5,7 @@ import io.mszymanski.orknux.connector.model.LlmModelRepository
 import io.mszymanski.orknux.server.chat.AgentTools
 import io.mszymanski.orknux.server.chat.BuiltInTools
 import io.mszymanski.orknux.server.chat.ToolShed
+import io.mszymanski.orknux.server.chat.briefedWith
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
 import tools.jackson.databind.ObjectMapper
@@ -30,6 +31,21 @@ import tools.jackson.databind.ObjectMapper
  * where the agent carries a ceiling, because under one "held" is two different
  * things - carried on every turn, or found when a job needs it.
  *
+ * **The system prompt is the text that was sent, not the agent's own field.**
+ * Issue #454: this wrote `agent.systemPrompt`, which is one paragraph of what
+ * the model read and is null on every agent whose instructions are its grants -
+ * so the block said "no system prompt" about agents that had been told a page of
+ * things. The caller composes the system text for the round and hands the same
+ * string here, and a lent shed's paragraph goes on the end by the same rule the
+ * round uses ([briefedWith]).
+ *
+ * What is deliberately left out of it is the agent's own working state - the note
+ * it wrote itself, the to-do list it is working down - which the caller puts in
+ * the same turn. Those change every turn and are lines of the log in their own
+ * right, and folding them in would write a fresh page of prompt into the
+ * transcript between every pair of turns, which is what the comparison below
+ * exists to prevent.
+ *
  * The same setup has to come out as the same text every time, because the
  * recorder decides whether a new line is due by comparing this against the
  * last one it logged (#441). So every list is sorted rather than left in the
@@ -54,8 +70,17 @@ class AgentDetails(
      *   the account names the tools the model actually saw, and held to the
      *   agent's grants by the same rule the round applies, so a built-in hidden
      *   on the agent's page is absent from both.
+     * @param prompt the standing instructions this turn is answered under, as
+     *   the caller composed them for the round - not `agent.systemPrompt`, which
+     *   is only the first paragraph of it and is null for most agents. Issue
+     *   #454: what the record said and what the model read had drifted apart, so
+     *   a node that replaced the prompt, an agent whose whole instruction is its
+     *   grants briefing, and every paragraph a lent shed adds all read as "no
+     *   system prompt at all". The caller composes it once and hands the same
+     *   string to the round and to this, and [briefedWith] puts the lent shed's
+     *   paragraph on the end here exactly as the round puts it there.
      */
-    fun snapshot(agent: Agent, lent: ToolShed? = null): String {
+    fun snapshot(agent: Agent, lent: ToolShed?, prompt: String?): String {
         val modelName = agent.modelId?.let { models.findByIdOrNull(it)?.name }
         val connectionNames = agent.connections
             .mapNotNull { connections.workspaceConnection(it)?.takeIf { held -> held.workspaceId == agent.workspaceId }?.name }
@@ -78,8 +103,18 @@ class AgentDetails(
         return mapper.writeValueAsString(
             linkedMapOf(
                 "agent" to agent.name,
+                /*
+                 * And which agent that is, so the log can lead to it. Issue
+                 * #454: the name was the only thing kept, and two agents in a
+                 * workspace may be called nearly the same thing - a reader
+                 * wanting to see the setup behind a name had to go and find it
+                 * on the Agents list. Null only where the row was never saved,
+                 * which nothing that answers a turn is; old lines carry none,
+                 * which is why the field is nullable everywhere above the JSON.
+                 */
+                "agentId" to agent.id,
                 "model" to modelName,
-                "systemPrompt" to agent.systemPrompt,
+                "systemPrompt" to briefedWith(prompt, lent?.briefing()),
                 "tools" to held.sorted(),
                 "findable" to found.sorted(),
                 "skills" to agent.skillCatalogs.sorted(),

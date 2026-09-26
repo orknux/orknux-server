@@ -198,12 +198,21 @@ class TaskLoop(
             dates.shed(),
         )
 
+        /*
+         * The standing instructions this turn is answered under, composed once:
+         * the same string goes into the system turn below and into the record of
+         * the setup. Issue #454 - the record used to be `agent.systemPrompt`, so
+         * a task agent whose instructions are its grants briefing and the task
+         * rules read as having no system prompt at all.
+         */
+        val instructions = instructions(briefings.of(agent))
+
         // The agent's setup, written into the log where this turn starts if it
         // differs from the last one logged - so the first turn opens the log
         // with it, and an agent edited between turns is a line saying so rather
         // than a silent change. Issues #391, #441. With the shed, so the account
         // names every tool the model is handed, lent ones included. #446.
-        sessions.describeAgent(session, agentDetails.snapshot(agent, shed))
+        sessions.describeAgent(session, agentDetails.snapshot(agent, shed, instructions))
 
         deliver(taskId, session)
 
@@ -219,7 +228,7 @@ class TaskLoop(
                 ChatTurn(
                     "system",
                     listOfNotNull(
-                        briefing(agent.let(briefings::of), task),
+                        briefing(instructions, task),
                         notes.recalled(session).takeIf { it.isNotBlank() },
                         // The plan it is working down, put back each turn. #405.
                         todos.recalled(session).takeIf { it.isNotBlank() },
@@ -363,8 +372,25 @@ class TaskLoop(
      * and system turns are not remembered - only what was *said* is. It is also
      * where the bounds are named: a model that knows it has forty turns spends
      * them differently from one that thinks it has for ever.
+     *
+     * Two halves since #454, and the split is what changes between turns. The
+     * [instructions] are the standing ones - the agent's briefing and what
+     * working on a task means - and are what the log records as the setup this
+     * turn was answered under. The count below is a fact about the turn rather
+     * than about the setup, and recording it would put a fresh page of prompt in
+     * the transcript before every single turn, which is the one thing the
+     * setup-changed comparison exists to avoid.
      */
-    private fun briefing(agentBriefing: String?, task: Task): String = buildString {
+    private fun briefing(instructions: String, task: Task): String = buildString {
+        append(instructions)
+        appendLine(
+            "You have taken ${task.turnsSpent} of ${task.turnsAllowed} turns. When they run out the task stops " +
+                "unfinished, so if you are running short, finish what you can and say so.",
+        )
+    }
+
+    /** The standing half of the briefing: everything that is the same on every turn. */
+    private fun instructions(agentBriefing: String?): String = buildString {
         agentBriefing?.let { appendLine(it).appendLine() }
         appendLine(
             "You are working on a task on your own. Nobody is answering between your turns, so do the work " +
@@ -383,10 +409,6 @@ class TaskLoop(
             "If you need something you have not been given, call task_request_permission. If you cannot sensibly " +
                 "go on without knowing something - most often how what you are producing should be delivered - " +
                 "call task_ask. Both stop the task until a person answers, so use them when you mean them.",
-        )
-        appendLine(
-            "You have taken ${task.turnsSpent} of ${task.turnsAllowed} turns. When they run out the task stops " +
-                "unfinished, so if you are running short, finish what you can and say so.",
         )
     }
 

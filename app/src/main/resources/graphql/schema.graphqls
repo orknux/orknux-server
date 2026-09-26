@@ -1184,6 +1184,13 @@ type Mutation {
     """
     setToolsNamedInSearch(count: Int!): InstallationSettings!
     """
+    How long a session counts as active after its last line, between 1 and 3600
+    seconds. The recency half of the sessions list's dot; an open line is the
+    other half, and counts only while a run or a task that writes into the
+    session is still going. Administrators only. Issue #448.
+    """
+    setSessionsActiveWindowSeconds(seconds: Int!): InstallationSettings!
+    """
     Whether a conversation may be thrown away. Administrators only.
 
     False closes the door: `removeLlmSession` refuses in words rather than
@@ -3039,7 +3046,7 @@ type LlmSession {
     title: String
     "The session this one was started from - the one whose agent asked - or null."
     parentId: ID
-    "Whether an agent is at work in it right now: something unfinished, or a line within the last minute. The list's status dot."
+    "Whether an agent is at work in it right now: a line still going while the run or task that opened it is running, or a line within the active window Admin sets. The list's status dot."
     active: Boolean!
     "How many sessions were started under this one, so the list says which conversations fanned out. Zero for a plain conversation."
     subagentCount: Int!
@@ -3118,9 +3125,27 @@ next AGENT_DETAILS line instead.
 type SessionAgentDetails {
     "The agent's name."
     agent: String!
+    """
+    Which agent it is, so the log can lead to its page. Issue #454.
+
+    Null on a line written before this was kept, and on nothing else - two agents
+    in a workspace may be called nearly the same thing, and a reader wanting the
+    setup behind a name had to go and find it on the Agents list.
+    """
+    agentId: ID
     "The model it answered with, or null where none was set."
     model: String
-    "The system prompt it worked under, or null where it had none."
+    """
+    The system text the model was actually sent: the agent's own instructions or
+    the node's replacement for them, the grants briefing appended after it, any
+    skill the step forced, the shape the answer is held to, and the paragraph a
+    lent tool adds about itself. Issue #454.
+
+    Not `agent.systemPrompt`, which is one paragraph of that and is null on every
+    agent whose whole instruction is what it was granted - so this field used to
+    say "none" about agents that had been told a page of things. Null only where
+    the round really sent no system turn at all.
+    """
     systemPrompt: String
     """
     Every tool the model was handed on each turn, by name: what the agent was
@@ -3163,7 +3188,7 @@ type LlmSessionMember {
     main: Boolean!
     "How deep under the main session it sits: 0 for the main, 1 for what it asked, and so on. For nesting the panel. Issue #379."
     depth: Int!
-    "Whether an agent is at work in it right now: something unfinished, or a line within the last minute."
+    "Whether an agent is at work in it right now: a line still going while the run or task that opened it is running, or a line within the active window Admin sets."
     active: Boolean!
     lastEventAt: String
 }
@@ -6048,6 +6073,16 @@ type InstallationSettings {
     True until an operator turns it off, which is how this has always worked.
     """
     sessionsRemovable: Boolean!
+    """
+    How long a session counts as active after its last line, in seconds.
+
+    The recency half of the sessions list's dot. The other half - a tool call
+    with no result, a thought with no end - counts only while a run or a task
+    that writes into the session is still going. Issue #448.
+    """
+    sessionsActiveWindowSeconds: Int!
+    "What a fresh installation counts - ORKNUX_SESSIONS_ACTIVE_WINDOW_SECONDS."
+    sessionsActiveWindowSecondsConfigured: Int!
     """
     False where the installation runs Temporal, and the field is not offered.
 

@@ -361,8 +361,16 @@ class AgentNodeRunner(
          * same setup, and an agent edited while its step slept is a change
          * worth a line. Issues #391, #441. With the shed, so the account names
          * every tool the model is about to be handed, lent ones included. #446.
+         *
+         * And with the instructions this turn is answered under - `instructed`,
+         * the same string the system turn below is built from, rather than
+         * `agent.systemPrompt`. Issue #454: a node that replaced the prompt, the
+         * grants briefing appended after it, the skills this node forced and the
+         * shape the answer is held to were all absent from the record, which
+         * read as complete; a lent shed's paragraph goes on the end of it by the
+         * rule the round uses.
          */
-        sessions.describeAgent(session, agentDetails.snapshot(agent, shed))
+        sessions.describeAgent(session, agentDetails.snapshot(agent, shed, instructed))
 
         /*
          * How much of it this agent is allowed to bring back.

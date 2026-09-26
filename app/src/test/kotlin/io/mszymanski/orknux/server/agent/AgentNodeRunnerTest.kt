@@ -465,6 +465,19 @@ class AgentNodeRunnerTest(
         graphQlTester.document(
             """mutation { createSkillCatalog(workspaceId: $workspaceId, name: "Reviews") { id } }""",
         ).execute()
+        /*
+         * And a skill in it, so the agent's grants have a sentence of their own.
+         * Issue #454: the record kept `agent.systemPrompt` alone, so everything
+         * the briefing appends after the agent's own prose - the skills it can
+         * load and the commands people reach it by - was missing from an account
+         * that read as the whole prompt.
+         */
+        val skill = "---\nname: Reviewing\ndescription: How this workspace reviews.\n---\n\nRead it twice.\n"
+        graphQlTester.document(
+            """mutation(${'$'}content: String) { createSkill(input: {
+                 workspaceId: $workspaceId, name: "Reviewing", key: "review", content: ${'$'}content
+               }) { id } }""",
+        ).variable("content", skill).execute().path("createSkill.id").entity(Long::class.java).get()
         // The model and prompt sent again: the form sends every field on a
         // save, so the mutation reads a missing model as "none chosen".
         graphQlTester.document(
@@ -488,6 +501,21 @@ class AgentNodeRunnerTest(
         assertThat(first.actor).isEqualTo("Reviewer")
         assertThat(first.content).contains("Reviewer").contains("You summarise incidents.")
         assertThat(session.agentDetails).isEqualTo(first.content)
+        /*
+         * And the prompt is the text the model was sent rather than the agent's
+         * own field. Issue #454: what was kept was `agent.systemPrompt`, so a
+         * node that replaced the prompt, the grants briefing appended after it
+         * and every paragraph a lent tool adds about itself were absent from a
+         * record whose whole purpose is to say what the agent was working under.
+         */
+        val prompt = mapper.readTree(first.content).path("systemPrompt").stringValue()
+        assertThat(prompt).describedAs("the agent's own prose first").startsWith("You summarise incidents.")
+        assertThat(prompt).describedAs("then the grants briefing, which is what #454 found missing")
+            .contains("You have been given these skills").contains("Reviewing")
+        assertThat(prompt).describedAs("and what the turn lent it says about itself (#445)")
+            .contains("You have scratchpads")
+        // And which agent that was, so the log can lead to its page. #454.
+        assertThat(mapper.readTree(first.content).path("agentId").asLong()).isEqualTo(reviewer)
         /*
          * And every tool the model was handed, not the grant list alone. Issue
          * #446: the block printed `agent.tools`, so `finish_answer` - lent by

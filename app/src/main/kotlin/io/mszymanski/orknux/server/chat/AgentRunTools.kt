@@ -66,6 +66,17 @@ class AgentRunTools(
      * while the beans are being wired, by which time everything exists.
      */
     private val conversations: ObjectProvider<AgentConversation>,
+    /**
+     * The asked agent's setup, written into its session before the question.
+     * Issue #456.
+     *
+     * Fetched rather than injected for the same reason the conversation is:
+     * [io.mszymanski.orknux.server.agent.AgentDetails] asks [AgentTools] what the
+     * agent holds, and [AgentTools] holds this - so wiring it in directly is a
+     * cycle Spring refuses at startup. By the time a question is being asked,
+     * everything exists.
+     */
+    private val details: ObjectProvider<io.mszymanski.orknux.server.agent.AgentDetails>,
     /** Where the asked agent's own conversation is written; see [run]. Issue #379. */
     private val sessions: io.mszymanski.orknux.server.llm.LlmSessionRecorder,
     /** The working files lent to the asked agent, so a shared pad reaches it. Issue #411. */
@@ -192,8 +203,13 @@ class AgentRunTools(
          * business reading it, and a question that needed it would be a question
          * the agent asking should have written out.
          */
+        /*
+         * Composed once: the same string is the system turn and the record of
+         * what this agent was working under. Issue #456 - see below.
+         */
+        val system = briefing.of(wanted)
         val turns = buildList {
-            briefing.of(wanted)?.let { add(ChatTurn("system", it)) }
+            system?.let { add(ChatTurn("system", it)) }
             add(ChatTurn("user", question))
         }
 
@@ -213,15 +229,37 @@ class AgentRunTools(
          * agent does with it - the tools it calls, what it answers - is
          * recorded by the round the same way any agent's is. Issue #379.
          */
-        val into = parent?.let { above ->
-            sessions.openUnder(above, title).also { sessions.userSaid(it, agent.name, question) }
-        }
+        val into = parent?.let { above -> sessions.openUnder(above, title) }
 
         // The asked agent gets scratchpad tools scoped to its own session, so a
         // pad the asker shared is one it can read and add to - the same document,
         // worked on by both. A subagent in no session gets none. Issue #411.
+        //
+        // Built before the question goes in, because the account of the setup
+        // below names what was lent as well as what was granted.
+        val lent = handing(into)
+
+        if (into != null) {
+            /*
+             * The setup this agent answered under, first thing in its own
+             * session. Issue #456: an agent node and a task both write this line
+             * where an agent starts responding, and a subagent's session did not
+             * - so the one conversation in the family whose agent nobody chose
+             * opened with a tool call and never said which agent had been asked,
+             * on which model, with what prompt or holding what. Which is the
+             * first question anybody reading a subagent's log has.
+             *
+             * Of `sub` rather than of the row: that is the agent the round was
+             * given, and the one difference between them - no agents of its own
+             * to ask - is a difference in the tools the model was handed, which
+             * is precisely what this record is for.
+             */
+            sessions.describeAgent(into, details.getObject().snapshot(sub, lent, system))
+            sessions.userSaid(into, agent.name, question)
+        }
+
         return when (
-            val said = conversations.getObject().answer(modelId, sub, turns, into = into, shed = handing(into))
+            val said = conversations.getObject().answer(modelId, sub, turns, into = into, shed = lent)
         ) {
             /*
              * The answer, and a key it is kept under in the asker's session. A
