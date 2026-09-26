@@ -42,9 +42,19 @@ fun auditFilter(
     }
 
     if (adminOnly) {
+        /*
+         * Admin-level is a workspace's lifecycle - it appearing, being renamed
+         * or removed, which is the entry that carries an operationType - and
+         * anything that belongs to no workspace at all. Matching on the
+         * WORKSPACE category instead swept in a workspace's own business filed
+         * under it, the whole of the issue tracker included: an issue opened, an
+         * observer added, an issue assigned are workspace activity, not
+         * administration, and belong in that workspace's log rather than here.
+         * Issue #410.
+         */
         predicates += builder.or(
             builder.isNull(root.get<Long>("workspaceId")),
-            builder.equal(root.get<WorkspaceAuditCategory>("category"), WorkspaceAuditCategory.WORKSPACE),
+            builder.isNotNull(root.get<WorkspaceOperationType>("operationType")),
         )
     }
 

@@ -88,6 +88,55 @@ class WorkspaceAuditAPITest(
     }
 
     @Test
+    fun `the admin log leaves the issue tracker to the workspace`() {
+        // A tracker event is filed under the WORKSPACE category but carries no
+        // operationType and belongs to a workspace, so it is that workspace's
+        // business - not administration. The old filter matched the category and
+        // swept it into the admin log. Issue #410.
+        repository.save(
+            WorkspaceAudit(
+                workspaceId = workspaceId,
+                category = WorkspaceAuditCategory.WORKSPACE,
+                message = "Issue #42 \"the parser drops a token\" opened",
+                date = start.plusHours(3),
+                userId = "alice",
+            ),
+        )
+
+        val admin = graphQlTester.document(
+            """query { workspaceAudit(size: 50) { content { message } } }""",
+        ).execute().path("workspaceAudit.content[*].message").entityList(String::class.java).get()
+        assertThat(admin).noneMatch { it.contains("Issue #42") }
+
+        // But the workspace's own log still has it.
+        val workspace = graphQlTester.document(
+            """query { workspaceActivity(workspaceId: $workspaceId, size: 50) { content { message } } }""",
+        ).execute().path("workspaceActivity.content[*].message").entityList(String::class.java).get()
+        assertThat(workspace).anyMatch { it.contains("Issue #42") }
+    }
+
+    @Test
+    fun `an admin change belonging to no workspace still shows`() {
+        // The other half of admin-level: something that belongs to no workspace
+        // at all, filed under WORKSPACE with a null id. It has no operationType
+        // either, so this is what the null-workspace clause is for. Issue #410.
+        repository.save(
+            WorkspaceAudit(
+                workspaceId = null,
+                category = WorkspaceAuditCategory.WORKSPACE,
+                message = "Commands in a message are marked with !",
+                date = start.plusHours(3),
+                userId = "alice",
+            ),
+        )
+
+        val admin = graphQlTester.document(
+            """query { workspaceAudit(size: 50) { content { message } } }""",
+        ).execute().path("workspaceAudit.content[*].message").entityList(String::class.java).get()
+        assertThat(admin).anyMatch { it.contains("Commands in a message") }
+    }
+
+    @Test
     fun `returns every entry newest first`() {
         graphQlTester.document(
             """
