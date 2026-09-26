@@ -136,7 +136,23 @@ sealed interface ChatCompletion {
      *   it is wrong: a failure nobody classified is asked once and reported,
      *   rather than billed for three times on the way to the same message.
      */
-    data class Failed(val reason: String, val permanent: Boolean = true) : ChatCompletion
+    data class Failed(
+        val reason: String,
+        val permanent: Boolean = true,
+        /**
+         * Whether what went wrong was the model's own reply rather than the
+         * asking of it. Issue #465.
+         *
+         * A tool call it did not finish, arguments that were not JSON, a
+         * payload the provider refused to parse: things the model can put right
+         * itself on the next round if somebody tells it what happened - which
+         * is what the round does with this. False for everything about
+         * reaching the provider at all, a rate limit included: being told "that
+         * reply could not be used" about a 429 would be a lie, and the step's
+         * own retry policy is what answers those.
+         */
+        val replyFault: Boolean = false,
+    ) : ChatCompletion
 }
 
 @ConfigurationProperties(prefix = "orknux.model")
@@ -301,6 +317,7 @@ class ModelChatClient(
                 return ChatCompletion.Failed(
                     reason(response.statusCode(), body),
                     permanent = settled(response.statusCode()),
+                    replyFault = aboutTheCall(body),
                 )
             }
 
@@ -643,11 +660,13 @@ class ModelChatClient(
                             "${unfinished.name} tool call, so the call is incomplete. Raise the model's maximum " +
                             "output, or have it do less in one turn.",
                         permanent = false,
+                        replyFault = true,
                     )
                 } else {
                     ChatCompletion.Failed(
                         "The model asked to call ${unfinished.name} but the arguments it sent were not valid JSON.",
                         permanent = false,
+                        replyFault = true,
                     )
                 }
             }
@@ -764,6 +783,7 @@ class ModelChatClient(
                 return ChatCompletion.Failed(
                     reason(response.statusCode(), response.body()),
                     permanent = settled(response.statusCode()),
+                    replyFault = aboutTheCall(response.body()),
                 )
             }
             return wholeAnswer(modelId, ready, response.body(), millis)
@@ -855,6 +875,7 @@ class ModelChatClient(
                 return ChatCompletion.Failed(
                     refused.message ?: "The provider refused the request",
                     settled(refused.statusCode()),
+                    replyFault = aboutTheCall(refused.message.orEmpty()),
                 )
             } catch (failure: Exception) {
                 // Nothing came back at all: a socket that closed, a name that
@@ -1446,6 +1467,22 @@ class ModelChatClient(
      * not now. 5xx is a provider that failed to answer at all, which says
      * nothing about the request and is the case a second attempt exists for.
      */
+    /**
+     * Whether what the provider complained about was the model's own tool call.
+     * Issue #465.
+     *
+     * A server that cannot parse the arguments the model sent says so in its
+     * body - llama.cpp answers a 500 reading "Failed to parse tool call
+     * arguments as JSON" - and that is a reply the model can put right, not a
+     * server that is unwell. Read off the words because there is nothing else
+     * to read: the shape of an error body is each provider's own, and the
+     * question here is only whether to let the model try again.
+     */
+    private fun aboutTheCall(body: String): Boolean {
+        val said = body.lowercase()
+        return said.contains("tool call") && (said.contains("parse") || said.contains("json"))
+    }
+
     private fun settled(status: Int): Boolean = when (status) {
         HTTP_TIMEOUT, HTTP_TOO_MANY_REQUESTS -> false
         else -> status < SERVER_ERROR

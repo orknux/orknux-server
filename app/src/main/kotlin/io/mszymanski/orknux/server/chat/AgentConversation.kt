@@ -438,6 +438,12 @@ class AgentConversation(
         }
 
         val rounds = roundsFor(agent)
+        /*
+         * How many rounds have been spent putting a refused reply back to the
+         * model. Issue #465; see the Failed arm below for why there is a bound
+         * at all and why it is small.
+         */
+        var retried = 0
         repeat(rounds) {
             /*
              * Rebuilt every round, because a search changes what the next one
@@ -490,7 +496,42 @@ class AgentConversation(
                 ) { watch.answering() }
             }
             when (answer) {
-                is ChatCompletion.Failed -> return answer.also { record(into, agent, it) }
+                /*
+                 * A round that could not be used is put back to the model
+                 * rather than ending the turn. Issue #465.
+                 *
+                 * An agent put three kilobytes of CSS into a tool call, the
+                 * provider refused the whole request over the JSON that made,
+                 * and the run ended - while the model, told what had happened,
+                 * fixes it on the next round: this is the same kind of thing as
+                 * a tool that failed, which it is always told about and carries
+                 * on from. So it is told, in the turn a person would otherwise
+                 * have had to type, and asked again.
+                 *
+                 * Only what can be recovered from, and only twice: a permanent
+                 * failure - a model that no longer exists, a refusal the
+                 * provider will repeat - ends the turn as it did, and a model
+                 * that cannot get it right gives up rather than spending the
+                 * whole round budget on one mistake. The sentence names the way
+                 * out of the case this keeps happening for, because "not valid
+                 * JSON" leaves a model to guess that its own payload was what
+                 * broke.
+                 */
+                is ChatCompletion.Failed -> {
+                    if (!answer.replyFault || answer.permanent || retried >= MOST_RETRIES) {
+                        return answer.also { record(into, agent, it) }
+                    }
+                    retried += 1
+                    into?.let { session -> sessions.note(session, "Could not be used: ${answer.reason}") }
+                    conversation += ChatTurn(
+                        role = "user",
+                        content = "That reply could not be used: ${answer.reason}. Try again. If you were " +
+                            "passing a lot of text to a tool, do not type it into the call - put it in a " +
+                            "scratchpad and pass the key " + ScratchpadTools.KEEP + " answers with, or a key " +
+                            "another tool has already given you.",
+                    )
+                    return@repeat
+                }
 
                 is ChatCompletion.Answered -> {
                     thought(answer.reasoning, answer.reasoningMillis, announce = watch == null)
@@ -789,6 +830,15 @@ class AgentConversation(
     }
 
     private companion object {
+
+        /**
+         * How many times one turn may put a refused reply back to the model.
+         * Twice: a model that has been told twice what was wrong with its last
+         * two replies is not about to get the third right, and every attempt is
+         * a paid call. Issue #465.
+         */
+        const val MOST_RETRIES = 2
+
         val log = LoggerFactory.getLogger(AgentConversation::class.java)
     }
 }
