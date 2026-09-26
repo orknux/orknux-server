@@ -223,6 +223,22 @@ class ExecutionStep(
     @Column(name = "image_model_id")
     val imageModelId: Long? = null,
 
+    /**
+     * What this step asks of the drawing beyond the prompt, copied when the run
+     * started: the size in pixels, the quality and the style, each as the word
+     * the image endpoint takes. Null is the model's default. The run's own
+     * copy, like the mappings: a node re-sized while this waits draws what it
+     * was started with. Issue #423.
+     */
+    @Column(name = "image_size", length = 16)
+    val imageSize: String? = null,
+
+    @Column(name = "image_quality", length = 16)
+    val imageQuality: String? = null,
+
+    @Column(name = "image_style", length = 16)
+    val imageStyle: String? = null,
+
     /** The shape an agent step's answer is held to, copied when the run started. */
     @Column(name = "output_object_id")
     val outputObjectId: Long? = null,

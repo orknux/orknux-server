@@ -62,6 +62,15 @@ data class GraphNode(
     val conditionId: Long? = null,
     /** The image model an [NodeKind.IMAGE] node draws with; null on every other kind. */
     val imageModelId: Long? = null,
+    /**
+     * What an [NodeKind.IMAGE] node asks of the drawing beyond the prompt: the
+     * size in pixels as `WIDTHxHEIGHT`, the quality and the style, each as the
+     * word the image endpoint takes. Null is the model's own default, which is
+     * what every graph published before these existed asked for. Issue #423.
+     */
+    val imageSize: String? = null,
+    val imageQuality: String? = null,
+    val imageStyle: String? = null,
     /** The shape an [NodeKind.AGENT] node's answer is held to; null is prose. */
     val outputObjectId: Long? = null,
     /**

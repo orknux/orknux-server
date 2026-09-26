@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.workflow
 
+import io.mszymanski.orknux.connector.model.ImageOptions
 import io.mszymanski.orknux.connector.model.ModelImageClient
 import io.mszymanski.orknux.connector.model.Picture
 import io.mszymanski.orknux.server.attachment.AttachmentStore
@@ -96,7 +97,9 @@ class ImageNodeRunnerTest {
         val bytes = byteArrayOf(1, 2, 3)
         `when`(settings.attachmentsEnabled()).thenReturn(true)
         `when`(executions.findById(100)).thenReturn(Optional.of(execution()))
-        `when`(drawing.draw(eq(5L), eqOf("a red bicycle"))).thenReturn(Picture.Drawn(bytes, "image/png", 12))
+        // Nothing asked beyond the prompt, so the model's defaults are what is sent.
+        `when`(drawing.draw(eq(5L), eqOf("a red bicycle"), eqOf(ImageOptions.NONE)))
+            .thenReturn(Picture.Drawn(bytes, "image/png", 12))
         // The same array the drawing returned, matched by identity.
         `when`(store.put(eq(9L), anyString(), eqOf(bytes))).thenReturn("workspace-9/abc.png")
         `when`(pictures.save(anyOf())).thenAnswer { invocation ->
@@ -138,7 +141,8 @@ class ImageNodeRunnerTest {
         val bytes = byteArrayOf(1, 2, 3)
         `when`(settings.attachmentsEnabled()).thenReturn(true)
         `when`(executions.findById(100)).thenReturn(Optional.of(execution()))
-        `when`(drawing.draw(eq(5L), eqOf("a red bicycle"))).thenReturn(Picture.Drawn(bytes, "image/png", 12))
+        `when`(drawing.draw(eq(5L), eqOf("a red bicycle"), eqOf(ImageOptions.NONE)))
+            .thenReturn(Picture.Drawn(bytes, "image/png", 12))
         `when`(store.put(eq(9L), anyString(), eqOf(bytes))).thenReturn("workspace-9/abc.png")
         `when`(pictures.save(anyOf())).thenAnswer { invocation ->
             val given = invocation.arguments[0] as ExecutionPicture
@@ -160,6 +164,55 @@ class ImageNodeRunnerTest {
         assertThat(result.status).isEqualTo(StepStatus.COMPLETED)
         assertThat(result.output).contains(""""ai_out_1":"here it is"""")
         assertThat(result.output).contains("/api/execution-pictures/7")
+    }
+
+    /**
+     * What the node asked for beyond the prompt reaches the drawing as it was
+     * asked, and what it left alone reaches it as nothing. The step's copy is
+     * what is read - not the node's - so a node re-sized mid-run draws what the
+     * run was started with. Issue #423.
+     */
+    @Test
+    fun `the step's size, quality and style are handed to the drawing`() {
+        val bytes = byteArrayOf(1, 2, 3)
+        `when`(settings.attachmentsEnabled()).thenReturn(true)
+        `when`(executions.findById(100)).thenReturn(Optional.of(execution()))
+        val asked = ImageOptions(size = "1024x1536", quality = "hd", style = null)
+        `when`(drawing.draw(eq(5L), eqOf("a red bicycle"), eqOf(asked))).thenReturn(Picture.Drawn(bytes, "image/png", 12))
+        `when`(store.put(eq(9L), anyString(), eqOf(bytes))).thenReturn("workspace-9/abc.png")
+        `when`(pictures.save(anyOf())).thenAnswer { invocation ->
+            val given = invocation.arguments[0] as ExecutionPicture
+            ExecutionPicture(
+                id = 7,
+                executionId = given.executionId,
+                nodeKey = given.nodeKey,
+                workspaceId = given.workspaceId,
+                prompt = given.prompt,
+                filename = given.filename,
+                contentType = given.contentType,
+                sizeBytes = given.sizeBytes,
+                location = given.location,
+            )
+        }
+
+        val sized = ExecutionStep(
+            executionId = 100,
+            nodeKey = "draw",
+            kind = NodeKind.IMAGE,
+            name = "Draw",
+            imageModelId = 5,
+            imageSize = "1024x1536",
+            imageQuality = "hd",
+            outputName = "image",
+            mappings = """{"prompt":{"expression":"a red bicycle","reference":false,"from":null}}""",
+            order = 0,
+            x = 0.0,
+            y = 0.0,
+        )
+        val result = runner.run(sized, input = null, trigger = null)
+
+        assertThat(result.status).isEqualTo(StepStatus.COMPLETED)
+        verify(drawing).draw(eq(5L), eqOf("a red bicycle"), eqOf(asked))
     }
 
     @Test

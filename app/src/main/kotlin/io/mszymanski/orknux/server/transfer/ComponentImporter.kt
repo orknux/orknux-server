@@ -1116,6 +1116,11 @@ class ComponentImporter(
                     // the prose they were.
                     outputObjectId = drawn.text("outputShapeRef")?.let { idOf(ComponentKind.OBJECT, it) },
                     outputNodeKey = drawn.text("outputNodeKey"),
+                    // Absent from every envelope written before an image node
+                    // could say a size, and read as the model's default.
+                    imageSize = drawn.text("imageSize"),
+                    imageQuality = drawn.text("imageQuality"),
+                    imageStyle = drawn.text("imageStyle"),
                     outputName = drawn.text("outputName"),
                     orientation = drawn.enumOrNull<NodeOrientation>("orientation", component),
                     icon = drawn.text("icon"),

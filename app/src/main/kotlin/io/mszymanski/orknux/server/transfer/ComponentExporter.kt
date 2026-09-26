@@ -618,6 +618,13 @@ class ComponentExporter(
             held.outputObjectId.takeIf { held.kind == NodeKind.AGENT }?.let { objects.findByIdOrNull(it)?.name },
         )
         put("outputNodeKey", held.outputNodeKey.takeIf { held.kind == NodeKind.AGENT })
+        // What an image node asks of the drawing. Plain words, not references:
+        // a size means the same thing in every workspace. The model itself is
+        // not carried - an id, and an installation's own - so the far side
+        // picks one and draws it at this size.
+        put("imageSize", held.imageSize.takeIf { held.kind == NodeKind.IMAGE })
+        put("imageQuality", held.imageQuality.takeIf { held.kind == NodeKind.IMAGE })
+        put("imageStyle", held.imageStyle.takeIf { held.kind == NodeKind.IMAGE })
         val mappings = putArray("mappings")
         held.mappings.forEach { mapping ->
             mappings.addObject().apply {

@@ -39,6 +39,9 @@ object WorkflowSnapshot {
                     "actionId" to node.actionId,
                     "conditionId" to node.conditionId,
                     "imageModelId" to node.imageModelId,
+                    "imageSize" to node.imageSize,
+                    "imageQuality" to node.imageQuality,
+                    "imageStyle" to node.imageStyle,
                     "outputObjectId" to node.outputObjectId,
                     "triggerId" to node.triggerId,
                     "outputName" to node.outputName,
@@ -83,6 +86,12 @@ object WorkflowSnapshot {
                     actionId = number(node, "actionId"),
                     conditionId = number(node, "conditionId"),
                     imageModelId = number(node, "imageModelId"),
+                    // Absent from every snapshot published before an image node
+                    // could say a size, and read as the model's default - which
+                    // is what such a node drew at.
+                    imageSize = text(node, "imageSize"),
+                    imageQuality = text(node, "imageQuality"),
+                    imageStyle = text(node, "imageStyle"),
                     // Absent from every snapshot published before answers had
                     // shapes, and read as prose - which is what it was.
                     outputObjectId = number(node, "outputObjectId"),

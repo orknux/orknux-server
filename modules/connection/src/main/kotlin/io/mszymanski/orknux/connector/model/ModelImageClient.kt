@@ -41,6 +41,28 @@ sealed interface Picture {
 }
 
 /**
+ * What a caller may ask of the drawing beyond the prompt.
+ *
+ * The three fields every OpenAI-shaped image endpoint understands, and nothing
+ * provider-specific: `size` as `WIDTHxHEIGHT` in pixels, `quality` (DALL-E 3
+ * says `standard|hd`, gpt-image-1 says `low|medium|high`) and `style`
+ * (`vivid|natural`). Each is passed through as given, and null is left out of
+ * the request altogether so the model draws at its own default - which is what
+ * every caller before this asked for, and what [NONE] still asks for.
+ * Issue #423.
+ */
+data class ImageOptions(
+    val size: String? = null,
+    val quality: String? = null,
+    val style: String? = null,
+) {
+    companion object {
+        /** The model's own defaults throughout; what a chat's button and a task's tool send. */
+        val NONE = ImageOptions()
+    }
+}
+
+/**
  * Draws a picture, using one of the workspace's models.
  *
  * The fourth client beside the chat, the reader and the dictation, and built
@@ -105,8 +127,10 @@ class ModelImageClient(
      * @param modelId one of the workspace's models, which has to be an
      *   [ModelKind.IMAGE] one: a chat model handed this would write about the
      *   picture rather than draw it.
+     * @param options size, quality and style where the caller has a say; an
+     *   image node names its own. Left out, the model's defaults stand.
      */
-    fun draw(modelId: Long, prompt: String): Picture {
+    fun draw(modelId: Long, prompt: String, options: ImageOptions = ImageOptions.NONE): Picture {
         val model = models.findByIdOrNull(modelId)
             ?: return Picture.Failed("That model no longer exists")
         if (model.kind != ModelKind.IMAGE) {
@@ -146,7 +170,7 @@ class ModelImageClient(
 
         val started = System.currentTimeMillis()
         return try {
-            when (val drawn = media.draw(provider, model, asked)) {
+            when (val drawn = media.draw(provider, model, asked, options)) {
                 is OpenAiMedia.Drawn.Failed -> Picture.Failed(drawn.reason)
                 is OpenAiMedia.Drawn.Bytes -> {
                     val bytes = runCatching { Base64.getDecoder().decode(drawn.base64) }.getOrNull()

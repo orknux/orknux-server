@@ -261,6 +261,23 @@ class WorkflowNode(
     var imageModelId: Long? = null,
 
     /**
+     * What an [NodeKind.IMAGE] node asks of the drawing beyond the prompt: the
+     * size in pixels as `WIDTHxHEIGHT`, the quality and the style, each as the
+     * word the image endpoint takes and each held to the list the editor
+     * offers (see `ImageNodeParameters`). Null is the model's own default,
+     * which is what every image node drawn before these existed asked for and
+     * goes on asking for. Only that kind has them. Issue #423.
+     */
+    @Column(name = "image_size", length = 16)
+    var imageSize: String? = null,
+
+    @Column(name = "image_quality", length = 16)
+    var imageQuality: String? = null,
+
+    @Column(name = "image_style", length = 16)
+    var imageStyle: String? = null,
+
+    /**
      * The shape an object node makes, when it uses one the workspace has saved.
      *
      * Null is a shape of the node's own: its fields are whatever it holds. A
@@ -425,6 +442,9 @@ class WorkflowNode(
         outputObjectId = outputObjectId,
         outputNodeKey = outputNodeKey,
         imageModelId = imageModelId,
+        imageSize = imageSize,
+        imageQuality = imageQuality,
+        imageStyle = imageStyle,
         positionX = positionX,
         positionY = positionY,
         yesLabel = yesLabel,

@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.workflow
 
+import io.mszymanski.orknux.connector.model.ImageOptions
 import io.mszymanski.orknux.connector.model.ModelImageClient
 import io.mszymanski.orknux.connector.model.Picture
 import io.mszymanski.orknux.server.attachment.AttachmentStore
@@ -78,6 +79,9 @@ class StepPictures(
      * @param modelId what to draw with, where the caller has a say - an image
      *   node names its own model. Left out, the workspace's choice is used,
      *   which is what an agent's tool has.
+     * @param options size, quality and style, where the caller has a say - again
+     *   the image node's. Left out, the model draws at its own defaults, which
+     *   is what an agent's tool asks for.
      */
     fun draw(
         executionId: Long,
@@ -85,6 +89,7 @@ class StepPictures(
         workspaceId: Long,
         prompt: String,
         modelId: Long? = null,
+        options: ImageOptions = ImageOptions.NONE,
     ): StepDrawing {
         if (!settings.attachmentsEnabled()) {
             return StepDrawing.Refused(
@@ -121,7 +126,7 @@ class StepPictures(
             )
         }
 
-        val drawn = when (val picture = drawing.draw(drawsWith, asked)) {
+        val drawn = when (val picture = drawing.draw(drawsWith, asked, options)) {
             is Picture.Failed -> return StepDrawing.Refused(picture.reason)
             is Picture.Drawn -> picture
         }

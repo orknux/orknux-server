@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.workflow
 
+import io.mszymanski.orknux.connector.model.ImageOptions
 import io.mszymanski.orknux.server.attachment.InstallationSettings
 import io.mszymanski.orknux.workflow.execution.ExecutionStep
 import io.mszymanski.orknux.workflow.execution.KIND_RUNNER_ORDER
@@ -82,7 +83,10 @@ class ImageNodeRunner(
          * meant this to draw and it did not. The provider's own words, which
          * say whether it was the prompt or the endpoint.
          */
-        val saved = when (val drew = steps.draw(step.executionId, step.nodeKey, workspaceId, prompt, modelId)) {
+        // The run's own copy of what the node asked for beyond the prompt; each
+        // null is left out of the request, so the model's default stands.
+        val options = ImageOptions(size = step.imageSize, quality = step.imageQuality, style = step.imageStyle)
+        val saved = when (val drew = steps.draw(step.executionId, step.nodeKey, workspaceId, prompt, modelId, options)) {
             is StepDrawing.Drawn -> drew.picture
             is StepDrawing.Refused -> throw StepFailedException(step.nodeKey, "${step.name} could not draw: ${drew.reason}")
         }

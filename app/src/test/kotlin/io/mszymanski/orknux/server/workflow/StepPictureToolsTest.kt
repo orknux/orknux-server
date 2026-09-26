@@ -396,7 +396,7 @@ class StepPictureToolsTest {
 
         assertThat(answer.path("drawn").booleanValue()).isFalse()
         assertThat(answer.path("reason").stringValue()).contains("draw_picture takes a description")
-        verify(drawing, never()).draw(anyLong(), anyString())
+        verify(drawing, never()).draw(anyLong(), anyString(), anyOf())
     }
 
     @Test
@@ -423,7 +423,7 @@ class StepPictureToolsTest {
 
         assertThat(answer.path("drawn").booleanValue()).isFalse()
         assertThat(answer.path("reason").stringValue()).contains("${StepPictures.MOST_PICTURES} pictures")
-        verify(drawing, never()).draw(anyLong(), anyString())
+        verify(drawing, never()).draw(anyLong(), anyString(), anyOf())
     }
 
     @Test
@@ -431,7 +431,7 @@ class StepPictureToolsTest {
         `when`(settings.attachmentsEnabled()).thenReturn(true)
         `when`(workspaces.findById(9)).thenReturn(Optional.of(workspace()))
         `when`(pictures.countByExecutionId(100)).thenReturn(0)
-        `when`(drawing.draw(anyLong(), anyString())).thenReturn(drawn())
+        `when`(drawing.draw(anyLong(), anyString(), anyOf())).thenReturn(drawn())
         `when`(store.put(anyLong(), anyString(), anyOf())).thenReturn("9/x.png")
         val awkward = filed().let {
             ExecutionPicture(

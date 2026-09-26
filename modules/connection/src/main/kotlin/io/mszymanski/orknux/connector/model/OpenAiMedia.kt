@@ -30,8 +30,15 @@ import java.io.InputStream
 @Component
 class OpenAiMedia(private val clients: ModelClients, private val probe: ModelProviderProbe) {
 
-    /** A picture, as bytes or as a URL to fetch - whichever the provider gave. */
-    fun draw(provider: ModelProvider, model: LlmModel, prompt: String): Drawn {
+    /**
+     * A picture, as bytes or as a URL to fetch - whichever the provider gave.
+     *
+     * @param options what to ask for beyond the prompt. Each field that is set
+     *   goes into the body under its standard name - `size`, `quality`,
+     *   `style` - and each that is null is left out, so the model's own
+     *   default stands rather than a guess at it made here.
+     */
+    fun draw(provider: ModelProvider, model: LlmModel, prompt: String, options: ImageOptions = ImageOptions.NONE): Drawn {
         val client = when (val ready = ready(provider)) {
             is Ready.No -> return Drawn.Failed(ready.reason)
             is Ready.Yes -> ready.client
@@ -45,10 +52,19 @@ class OpenAiMedia(private val clients: ModelClients, private val probe: ModelPro
          * No format is asked for. The providers disagree - some answer bytes,
          * some a URL, some refuse a request that names the one they do not do -
          * so both shapes are read back instead.
+         *
+         * Size, quality and style are passed through as the words they were
+         * given rather than mapped onto the SDK's constants: `of(...)` takes
+         * any string, and which words a model accepts is the model's business.
+         * DALL-E 3 knows `hd` and gpt-image-1 knows `high`; a word the model
+         * does not know is answered 400 with the provider's own sentence, which
+         * the caller shows.
          */
-        val answer = clients.again { client.images().generate(
-            ImageGenerateParams.builder().model(model.modelId).prompt(prompt).n(1).build(),
-        ) }
+        val params = ImageGenerateParams.builder().model(model.modelId).prompt(prompt).n(1)
+        options.size?.let { params.size(ImageGenerateParams.Size.of(it)) }
+        options.quality?.let { params.quality(ImageGenerateParams.Quality.of(it)) }
+        options.style?.let { params.style(ImageGenerateParams.Style.of(it)) }
+        val answer = clients.again { client.images().generate(params.build()) }
 
         val first = answer.data().orElse(null)?.firstOrNull()
             ?: return Drawn.Failed("${model.name} answered without a picture")

@@ -145,6 +145,9 @@ class AppWorkflowGraphSource(
                     actionId = node.actionId,
                     conditionId = node.conditionId,
                     imageModelId = node.imageModelId,
+                    imageSize = node.imageSize,
+                    imageQuality = node.imageQuality,
+                    imageStyle = node.imageStyle,
                     outputObjectId = node.outputObjectId,
                     // Which trigger this node stands for, so a run started by
                     // one of two triggers can tell which half of the graph is

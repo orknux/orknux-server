@@ -224,6 +224,8 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ImportCycleException,
             is ConditionNotInCatalogueException,
             is AgentOutputNodeInvalidException,
+            /* A size, quality or style no image endpoint takes, refused at save. Issue #423. */
+            is ImageParameterInvalidException,
             is GraphInvalidException,
             is ConditionNameTakenException,
             is ConditionNameInvalidException,

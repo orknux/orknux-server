@@ -170,6 +170,9 @@ class ExecutionPlanner(
                     conditionId = node.conditionId,
                     agentId = node.agentId,
                     imageModelId = node.imageModelId,
+                    imageSize = node.imageSize,
+                    imageQuality = node.imageQuality,
+                    imageStyle = node.imageStyle,
                     outputObjectId = node.outputObjectId,
                     outputName = node.outputName,
                     // The run's own copy of what to pass; see ExecutionStep.

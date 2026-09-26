@@ -420,6 +420,13 @@ class WorkflowGraphAPI(
         // derived from it after the whole list is built - see shapedByTargets.
         outputNodeKey = node.outputNodeKey?.trim()?.ifEmpty { null }?.takeIf { node.kind == NodeKind.AGENT },
         imageModelId = node.imageModelId.takeIf { node.kind == NodeKind.IMAGE },
+        // What the drawing is asked for beyond the prompt, kept only on the kind
+        // that draws. Held to the list the editor offers when saving, so a word
+        // no endpoint takes is refused here rather than as a 400 mid-run; a
+        // preview is asked about a graph still being typed into, and lets it by.
+        imageSize = ImageNodeParameters.size(node.imageSize, refusing).takeIf { node.kind == NodeKind.IMAGE },
+        imageQuality = ImageNodeParameters.quality(node.imageQuality, refusing).takeIf { node.kind == NodeKind.IMAGE },
+        imageStyle = ImageNodeParameters.style(node.imageStyle, refusing).takeIf { node.kind == NodeKind.IMAGE },
         outputName = node.outputName?.trim()?.ifEmpty { null }
             // Only a node that produces something can name it; a trigger names
             // its own fields and a condition passes through what it was given.
@@ -790,6 +797,14 @@ data class WorkflowNodeInput(
     val outputNodeKey: String? = null,
     /** The image model an image node draws with; ignored on any other kind. */
     val imageModelId: Long? = null,
+    /**
+     * What an image node asks of the drawing beyond the prompt; null or blank
+     * is the model's default, and each is held to the values in
+     * [ImageNodeParameters]. Ignored on any other kind.
+     */
+    val imageSize: String? = null,
+    val imageQuality: String? = null,
+    val imageStyle: String? = null,
     val outputName: String? = null,
     val icon: String? = null,
     val orientation: NodeOrientation? = null,
@@ -874,6 +889,10 @@ data class WorkflowNodeView(
     val outputNodeKey: String?,
     /** The image model an image node draws with; ignored on any other kind. */
     val imageModelId: Long?,
+    /** What an image node asks of the drawing beyond the prompt; null is the model's default. */
+    val imageSize: String?,
+    val imageQuality: String?,
+    val imageStyle: String?,
     val outputName: String?,
     val icon: String?,
     /** Which way round it faces on the canvas; null is left to right. */
@@ -920,6 +939,9 @@ data class WorkflowNodeView(
         outputObjectId = node.outputObjectId,
         outputNodeKey = node.outputNodeKey,
         imageModelId = node.imageModelId,
+        imageSize = node.imageSize,
+        imageQuality = node.imageQuality,
+        imageStyle = node.imageStyle,
         outputName = node.outputName,
         icon = node.icon,
         orientation = node.orientation,
@@ -1085,6 +1107,47 @@ class ValueHoldsPlaceholderException(parameter: String) : RuntimeException(
 class OutputNameInvalidException(name: String) : RuntimeException(
     "\"$name\" cannot be referred to. An output name is letters, digits and underscores, " +
         "starting with a letter — a later node has to be able to point at it",
+)
+
+/**
+ * What an image node may ask of the drawing beyond its prompt, and the words
+ * it may ask in.
+ *
+ * The three parameters every OpenAI-shaped image endpoint takes - size,
+ * quality, style - and the values those endpoints know between them. Quality
+ * lists both vocabularies on purpose: DALL-E 3 says `standard|hd` and
+ * gpt-image-1 says `low|medium|high`, the node does not know which model it
+ * will be pointed at, and the value is passed through as given for the model
+ * to accept or refuse. Anything off these lists is refused at save, in words,
+ * rather than as a 400 in the middle of a run. Blank is null is the model's
+ * default. Issue #423.
+ */
+object ImageNodeParameters {
+    val SIZES = listOf("1024x1024", "1536x1024", "1024x1536", "1792x1024", "1024x1792", "512x512", "256x256")
+    val QUALITIES = listOf("standard", "hd", "low", "medium", "high")
+    val STYLES = listOf("vivid", "natural")
+
+    fun size(given: String?, refusing: Boolean): String? = held("size", given, SIZES, refusing)
+
+    fun quality(given: String?, refusing: Boolean): String? = held("quality", given, QUALITIES, refusing)
+
+    fun style(given: String?, refusing: Boolean): String? = held("style", given, STYLES, refusing)
+
+    /**
+     * The value as stored: trimmed, null where blank, and on a save one of the
+     * list or refused. A preview keeps an unknown word rather than arguing with
+     * somebody mid-edit, since a preview writes nothing down.
+     */
+    private fun held(parameter: String, given: String?, allowed: List<String>, refusing: Boolean): String? {
+        val value = given?.trim()?.ifEmpty { null } ?: return null
+        if (refusing && value !in allowed) throw ImageParameterInvalidException(parameter, value, allowed)
+        return value
+    }
+}
+
+class ImageParameterInvalidException(parameter: String, value: String, allowed: List<String>) : RuntimeException(
+    "\"$value\" is not a $parameter an image model takes. Choose one of ${allowed.joinToString(", ")}, " +
+        "or leave it to the model's default",
 )
 
 class AgentOutputNodeInvalidException(agent: String, targetKey: String, target: WorkflowNode?) : RuntimeException(

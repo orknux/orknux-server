@@ -2219,6 +2219,12 @@ type WorkflowNode {
     outputNodeKey: String
     "The image model an IMAGE node draws with, if it names one."
     imageModelId: ID
+    "The size an IMAGE node draws at, as WIDTHxHEIGHT in pixels; null is the model's default."
+    imageSize: String
+    "The quality an IMAGE node asks for (standard, hd, low, medium or high); null is the model's default."
+    imageQuality: String
+    "The style an IMAGE node asks for (vivid or natural); null is the model's default."
+    imageStyle: String
     """
     What this node calls what it produces, so a later node can point a
     reference at it. Null hands the output on unchanged.
@@ -2512,6 +2518,12 @@ input WorkflowNodeInput {
     outputNodeKey: String
     "The image model an IMAGE node draws with; ignored on any other kind."
     imageModelId: ID
+    "The size an IMAGE node draws at, one of 1024x1024, 1536x1024, 1024x1536, 1792x1024, 1024x1792, 512x512, 256x256; null is the model's default. Ignored on any other kind."
+    imageSize: String
+    "The quality an IMAGE node asks for, one of standard, hd, low, medium, high; null is the model's default. Ignored on any other kind."
+    imageQuality: String
+    "The style an IMAGE node asks for, vivid or natural; null is the model's default. Ignored on any other kind."
+    imageStyle: String
     "What this node calls what it produces; a later node points a reference at it."
     outputName: String
     "Which icon the canvas draws on this node; a name from the interface's own set."
