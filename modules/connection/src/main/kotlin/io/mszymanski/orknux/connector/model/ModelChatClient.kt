@@ -50,6 +50,20 @@ data class ChatTurn(
     val asked: List<ToolCall> = emptyList(),
     /** Set on a turn answering one, naming the call it answers. */
     val respondingTo: String? = null,
+    /**
+     * What the model thought before asking for the tools on this turn, sent
+     * back as `reasoning_content`. Issue #532.
+     *
+     * Gemma's template renders an earlier round's reasoning in front of its
+     * calls, for the rounds of the turn in progress, and it was never sent: the
+     * model saw its own last round as a bare call with no thought in front of
+     * it, learnt from its own history that calls here come without thinking,
+     * and stopped thinking - and, having lost the plan that produced the call,
+     * started over at "first, load the skill". Null wherever the model
+     * produced none, which is every hosted model that does not return its
+     * reasoning, so what they are sent does not change.
+     */
+    val reasoning: String? = null,
 )
 
 /** A model asking for a tool, with the arguments it chose, as JSON. */
@@ -1082,6 +1096,7 @@ class ModelChatClient(
                     message.put("role", turn.role)
                     // A turn that only asked may carry no text at all.
                     if (turn.content.isNotEmpty()) message.put("content", turn.content)
+                    turn.reasoning?.takeIf { it.isNotBlank() }?.let { message.put("reasoning_content", it) }
                     val calls = message.putArray("tool_calls")
                     turn.asked.forEach { asked ->
                         val call = calls.addObject()

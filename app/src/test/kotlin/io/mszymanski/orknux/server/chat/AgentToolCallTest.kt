@@ -290,6 +290,68 @@ class AgentToolCallTest(
         assertThat(second).contains("its arguments were cut off")
     }
 
+    /**
+     * The model's thinking goes back with its calls. Issue #532: it never did,
+     * so round two saw round one as a bare call, and the model stopped thinking
+     * and started its plan over.
+     */
+    @Test
+    fun `what the model thought before its calls is sent back with them`() {
+        val endpoint = serve { body ->
+            if (body.contains("tool_call_id")) {
+                """{"choices":[{"message":{"role":"assistant","content":"Done."}}],
+                   "usage":{"prompt_tokens":9,"completion_tokens":1}}"""
+            } else {
+                """{"choices":[{"message":{"role":"assistant","content":null,
+                     "reasoning_content":"I need the review rules first.",
+                     "tool_calls":[{"id":"call_1","type":"function",
+                       "function":{"name":"skill_list","arguments":"{}"}}]}}],
+                   "usage":{"prompt_tokens":7,"completion_tokens":2}}"""
+            }
+        }
+        val agentId = agentGranted("Reviewer", model(endpoint), "Reviews")
+        catalog("Reviews")
+        val agent = requireNotNull(agents.findByIdOrNull(agentId))
+
+        conversation.answer(requireNotNull(agent.modelId), agent, listOf(ChatTurn("user", "hi")))
+
+        assertThat(received[1]).contains("reasoning_content").contains("I need the review rules first.")
+        // And not invented where the model said nothing.
+        assertThat(received[0]).doesNotContain("reasoning_content")
+    }
+
+    /**
+     * A skill read earlier in the turn is pointed at, not read again. Issue
+     * #531: session 509 reloaded one skill thirty-two times, each copy putting
+     * the whole page back into the prompt.
+     */
+    @Test
+    fun `a skill loaded twice in one turn is sent once`() {
+        var round = 0
+        val endpoint = serve {
+            round += 1
+            if (round <= 2) {
+                """{"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[
+                  {"id":"call_$round","type":"function",
+                   "function":{"name":"skill_load","arguments":"{\"name\":\"codeReview\"}"}}
+                ]}}],"usage":{"prompt_tokens":7,"completion_tokens":2}}"""
+            } else {
+                """{"choices":[{"message":{"role":"assistant","content":"Done."}}],
+                   "usage":{"prompt_tokens":9,"completion_tokens":1}}"""
+            }
+        }
+        val catalogId = catalog("Reviews")
+        skill("codeReview", catalogId, "Read the diff twice before commenting.")
+        val agentId = agentGranted("Reviewer", model(endpoint), "Reviews")
+        val agent = requireNotNull(agents.findByIdOrNull(agentId))
+
+        conversation.answer(requireNotNull(agent.modelId), agent, listOf(ChatTurn("user", "hi")))
+
+        val third = received[2]
+        assertThat(Regex("Read the diff twice before commenting").findAll(third).count()).isEqualTo(1)
+        assertThat(third).contains("alreadyLoaded").contains("call_1")
+    }
+
     private fun serveAlwaysCallingTools(): String = serve {
         """
         {"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[

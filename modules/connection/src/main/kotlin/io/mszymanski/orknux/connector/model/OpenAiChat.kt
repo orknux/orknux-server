@@ -365,6 +365,10 @@ class OpenAiChat(
                 val assistant = ChatCompletionAssistantMessageParam.builder()
                 // A turn that only asked may carry no text at all.
                 if (turn.content.isNotEmpty()) assistant.content(turn.content)
+                // Its thinking, for a template that shows it in front of the calls. Issue #532.
+                turn.reasoning?.takeIf { it.isNotBlank() }?.let {
+                    assistant.putAdditionalProperty("reasoning_content", com.openai.core.JsonValue.from(it))
+                }
                 turn.asked.forEach { asked ->
                     assistant.addToolCall(
                         ChatCompletionMessageFunctionToolCall.builder()

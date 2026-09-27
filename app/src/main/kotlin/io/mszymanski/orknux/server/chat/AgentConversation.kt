@@ -531,6 +531,14 @@ class AgentConversation(
         var emptied = 0
 
         /*
+         * The skills this turn has already read, by what they were asked
+         * with, and the call that read each. Issue #531: a skill's page does
+         * not change inside a turn and is already in the conversation, so a
+         * second load answers with where it is rather than with the page again.
+         */
+        val skillsRead = mutableMapOf<String, String>()
+
+        /*
          * What the last tool call answered with, where it failed, and whether
          * the model has already been told not to end on it. Issue #494.
          */
@@ -774,13 +782,19 @@ class AgentConversation(
                      * the answer below still lines up with it; it is not run.
                      */
                     val cut = answer.calls.filterNot { wholeArguments(it.arguments) }.map { it.id }.toSet()
-                    conversation += if (cut.isEmpty()) {
-                        answer.turn
-                    } else {
-                        answer.turn.copy(
-                            asked = answer.turn.asked.map { if (it.id in cut) it.copy(arguments = "{}") else it },
-                        )
-                    }
+                    /*
+                     * With what it thought before asking, so the next round
+                     * sees its reasoning and not only its calls. Issue #532.
+                     */
+                    val thought = answer.reasoning.takeIf { it.isNotBlank() }
+                    conversation += answer.turn.copy(
+                        asked = if (cut.isEmpty()) {
+                            answer.turn.asked
+                        } else {
+                            answer.turn.asked.map { if (it.id in cut) it.copy(arguments = "{}") else it }
+                        },
+                        reasoning = thought,
+                    )
                     thought(answer.reasoning, answer.reasoningMillis, announce = watch == null)
                     /*
                      * Before the calls, because that is the order it happened
@@ -982,7 +996,27 @@ class AgentConversation(
                          * leaves the model able to ask again in the next round,
                          * where a fresh call is what it would get.
                          */
-                        val got = try {
+                        /*
+                         * A skill already read in this turn is pointed at, not
+                         * read again. Issue #531.
+                         *
+                         * Limited to one call per reply, session 509 loaded the
+                         * same skill once a round, thirty-two times, each load
+                         * putting the whole page back - the prompt grew from ten
+                         * thousand tokens to twenty-nine thousand, and every
+                         * copy made the next reload likelier. The page is
+                         * already above, in the answer to the first load, and
+                         * inside one turn it cannot have changed.
+                         */
+                        val readAs = if (call.name == SKILL_LOAD) {
+                            call.arguments.filterNot { it.isWhitespace() }
+                        } else {
+                            null
+                        }
+                        val readBefore = readAs?.let { skillsRead[it] }
+                        val got = if (readBefore != null) {
+                            alreadyRead(call, readBefore)
+                        } else try {
                             if (hunt != null && hunt.handles(call.name)) hunt.run(call) else tools.run(agent, call, into)
                         } catch (halted: AgentRoundHalted) {
                             // The lent tool ended the round. What it did is
@@ -995,6 +1029,8 @@ class AgentConversation(
                             watch?.returned(here, ended, failed = false)
                             throw halted
                         }
+                        // Remembered only once it loaded: a refusal is not a page to point at.
+                        if (readAs != null && readBefore == null && !AgentTools.failed(got)) skillsRead[readAs] = call.id
                         /*
                          * And what came back, onto that same line.
                          *
@@ -1455,6 +1491,24 @@ class AgentConversation(
     }
 
     /**
+     * What a skill already read in this turn answers with. Issue #531. A
+     * pointer, structured like the other two, because the page is already in
+     * the conversation and a copy of it is what fed session 509's loop.
+     */
+    private fun alreadyRead(call: ToolCall, readAs: String): String {
+        val envelope = jackson.createObjectNode()
+        envelope.put("alreadyLoaded", true)
+        envelope.put("sameAsCall", readAs)
+        envelope.put("tool", call.name)
+        envelope.put(
+            "note",
+            "You loaded this skill earlier in this turn and its page is above, in the answer to that call. It " +
+                "has not changed. Follow it rather than loading it again, and get on with what you were asked.",
+        )
+        return jackson.writeValueAsString(envelope)
+    }
+
+    /**
      * What a repeated call answers with. Issue #518.
      *
      * Structured, and a pointer rather than a copy: which call ran and that
@@ -1497,6 +1551,9 @@ class AgentConversation(
          * the one caller that re-asks. Issue #527.
          */
         const val NO_MESSAGE = "The provider answered with no message"
+
+        /** The one tool whose answer cannot change inside a turn. Issue #531. */
+        const val SKILL_LOAD = "skill_load"
 
         /**
          * What a provider says when the request will not fit. Issue #522.
