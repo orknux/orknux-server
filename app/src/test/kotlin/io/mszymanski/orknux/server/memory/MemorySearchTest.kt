@@ -200,7 +200,9 @@ class MemorySearchTest(
     fun `an empty catalogue is not announced, because there is nothing to find`() {
         val said = briefing.of(agent).orEmpty()
 
-        assertThat(said).doesNotContain("memory_search")
+        // The paragraph that invites a search. The tool itself is still named in
+        // the list of every tool the agent holds (#481), which is not an invitation.
+        assertThat(said).doesNotContain("Search it with memory_search")
     }
 
     @Test

@@ -165,7 +165,11 @@ class ComponentBindingTest(
         // and is kept the way #455 keeps one: not a grant, but not hidden.
         assertThat(agent.tools).containsExactly("lookup")
         assertThat(io.mszymanski.orknux.server.chat.BuiltInTools.granted(agent, "note_to_self")).isTrue()
-        assertThat(agent.hiddenTools).contains("finish_answer")
+        // And one the grant list left out is still on: hiding a built-in is
+        // refused unless the workspace allows it (#482, #483), so the source
+        // agent never had finish_answer hidden, and neither does its copy.
+        assertThat(agent.hiddenTools).doesNotContain("finish_answer")
+        assertThat(io.mszymanski.orknux.server.chat.BuiltInTools.granted(agent, "finish_answer")).isTrue()
         assertThat(agent.skillCatalogs).containsExactly("Support")
         assertThat(agent.memoryCatalogs).containsExactly("Runbooks")
         // An agent holds an MCP server by name, so the grant is written as the
