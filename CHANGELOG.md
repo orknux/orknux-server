@@ -150,9 +150,31 @@ have failed.
 - 🧮 **Asking other agents is bounded.** Ten per conversation where nothing was
   bounded; an agent that has spent them is told to answer with what it has.
   Raise it under Admin → Settings or per workspace.
+- 📄 **PDF and charts ship as part of the product, not as plugins.** They
+  used to be written into the Plugins page as built-in plugin rows: something
+  the release already contained, offered for installing and removing, with an
+  Uninstall button that always failed. `pdf_fromHtml`, `pdf_read`,
+  `pdf_preview` and `charts_render` are now tools every agent holds by default
+  the way it holds the clock, switched on its Tools list like any other
+  built-in, and there is nothing on the Plugins page to install or unload. A
+  workflow that calls one of them is unaffected: the function keeps its name
+  and its id, so existing graphs go on running. There is no `built_in` flag on
+  a plugin any more.
 
 ### 🐛 Fixed
 
+- 🗜️ **`zip_files` takes the list of files however it is written.** A model
+  that wrote the list out as a string - which is a shape they land on often -
+  was told "files is a list", which is the one thing it believed it had sent,
+  and it tried again the same way. The string is read now, and both the tool's
+  description and its refusal carry a whole call written out rather than a
+  sentence describing the shape.
+- 📈 **A mermaid diagram this cannot draw says what can.** `pie` is real
+  mermaid and gets written sooner or later; the PDF draws five kinds -
+  flowchart/graph, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram -
+  and used to answer by naming the headers that work, which reads as "try
+  another spelling". It now says those five are the whole set and points at
+  `charts_render` for a pie, donut, bar, column, line or area chart.
 - 🚫 **A duplicate variable name says so where you are looking.** The server
   refused it and the page drew the refusal - as one red line at the top of the
   panel, above the catalog's name and off the screen from the add row at the
