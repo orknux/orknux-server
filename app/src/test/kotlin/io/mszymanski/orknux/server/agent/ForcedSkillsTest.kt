@@ -206,7 +206,7 @@ class ForcedSkillsTest(
          */
         assertThat(received.single())
             .contains("You have 1 skill")
-            .contains("Call skill_list")
+            .contains("call skill_list only when a request needs one")
             .contains("like !review")
             .contains("write one anywhere in a message")
             .contains("how to use")

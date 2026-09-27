@@ -133,13 +133,20 @@ class AgentBriefing(
              * call rather than a permanent cost. Hidden is neither, as before.
              */
             val named = skills.always(agent)
-            val rest = instructions.size - named.size
             parts += buildString {
                 if (named.isEmpty()) {
+                    /*
+                     * Said without an invitation. It read "call skill_list to see
+                     * them", and a model told there are pages it has not seen
+                     * goes and looks: session 493 answered "hi" with eighty-nine
+                     * skill_list calls. Listing is for when a request needs a
+                     * skill or somebody asks what the agent can do.
+                     */
                     append("You have ").append(instructions.size)
                     append(if (instructions.size == 1) " skill" else " skills")
-                    append(" - pages describing how this workspace goes about things. ")
-                    appendLine("Call skill_list to see them, and skill_load to read one.")
+                    append(" - pages describing how this workspace goes about things. You do not need ")
+                    append("them to answer; call skill_list only when a request needs one or somebody asks ")
+                    appendLine("what you can do.")
                 } else {
                     /*
                      * Every one of them, and said as an instruction rather than
@@ -171,12 +178,13 @@ class AgentBriefing(
                     skill.description?.takeIf { it.isNotBlank() }?.let { append(": ").append(it) }
                 }
                 if (named.isNotEmpty()) appendLine()
-                // Only beside a list: with none named, the count above already said it.
-                if (named.isNotEmpty() && rest > 0) {
-                    append("\nThere ").append(if (rest == 1) "is " else "are ").append(rest)
-                    append(if (rest == 1) " other skill" else " other skills")
-                    appendLine(" you have. They are not listed here - call skill_list for them.")
-                }
+                /*
+                 * The rest are not counted or pointed at. "There are 24 other
+                 * skills - call skill_list for them" is the same invitation as
+                 * above, and the model accepted it. They are reachable through
+                 * skill_list when a request needs one, which the paragraph on
+                 * commands below already says.
+                 */
                 append("\nEvery skill has a command: the marker and its id, like ")
                 append(marker).append(instructions.first().id).append(". ")
                 append("Anybody can write one anywhere in a message to have you load and follow that skill. ")
@@ -200,8 +208,8 @@ class AgentBriefing(
                  * `skill_list` is the same list, live, and asking for it costs a
                  * call. Issue #471.
                  */
-                append("\nCall skill_list when you need this list again - it returns every skill ")
-                appendLine("with its id, and it is what to answer from when somebody asks what commands you take.")
+                append("\nWhen somebody asks what commands you take, call skill_list - it returns every ")
+                appendLine("skill with its id, and it is what to answer from.")
                 /*
                  * And where two of them answer to one command. Issue #473: an
                  * id is unique inside a plugin and inside the workspace, and
