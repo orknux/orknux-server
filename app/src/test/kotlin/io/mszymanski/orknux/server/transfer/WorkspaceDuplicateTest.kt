@@ -30,7 +30,42 @@ class WorkspaceDuplicateTest(
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val agents: AgentRepository,
     @Autowired val functions: io.mszymanski.orknux.server.action.WorkflowFunctionRepository,
+    @Autowired val skillCatalogs: io.mszymanski.orknux.server.agent.SkillCatalogRepository,
+    @Autowired val skills: io.mszymanski.orknux.server.agent.AgentSkillRepository,
 ) {
+
+    /**
+     * Skills keep their commands. Issue #570, again: the importer never set a
+     * skill's key, so the second skill in the copy broke the unique index, and
+     * the failed insert left the shared session unusable for everything after.
+     */
+    @Test
+    fun `skills are copied with their commands, however many there are`() {
+        val stamp = System.nanoTime()
+        val source = requireNotNull(workspaces.save(Workspace(name = "dup-skills-$stamp")).id)
+        val folder = requireNotNull(skillCatalogs.save(
+            io.mszymanski.orknux.server.agent.SkillCatalog(workspaceId = source, name = "Playbooks $stamp"),
+        ).id)
+        listOf("When to escalate", "Answering in a thread").forEach { name ->
+            val key = io.mszymanski.orknux.server.agent.SkillKeys.derive(name)
+            skills.save(
+                io.mszymanski.orknux.server.agent.AgentSkill(
+                    workspaceId = source, catalogId = folder, name = name, key = key,
+                    content = "---\nname: $name\ndescription: How.\n---\n\n# $name\n\nDo it well.\n",
+                ),
+            )
+        }
+
+        val copy = graphQlTester.document(
+            """mutation { duplicateWorkspace(id: $source, name: "dup-skills-copy-$stamp") { workspace { id } problems } }""",
+        ).execute()
+        copy.errors().verify()
+        val copiedId = copy.path("duplicateWorkspace.workspace.id").entity(Long::class.java).get()
+
+        assertThat(copy.path("duplicateWorkspace.problems").entityList(String::class.java).get()).isEmpty()
+        assertThat(skills.findByWorkspaceIdAndKeyIgnoreCase(copiedId, "when-to-escalate")).isNotNull()
+        assertThat(skills.findByWorkspaceIdAndKeyIgnoreCase(copiedId, "answering-in-a-thread")).isNotNull()
+    }
 
     @Test
     fun `a component that cannot come is named, and the rest of the copy is made`() {

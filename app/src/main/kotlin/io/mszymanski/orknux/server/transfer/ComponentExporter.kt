@@ -448,6 +448,8 @@ class ComponentExporter(
         put("catalog", catalogs.findByIdOrNull(held.catalogId)?.name)
         put("content", held.content)
         put("enabled", held.enabled)
+        // Its command, so a copy answers to the same one where it is free. Issue #570.
+        put("key", held.key)
     }
 
     /**

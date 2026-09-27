@@ -25,6 +25,7 @@ import io.mszymanski.orknux.server.agent.AgentToolRepository
 import io.mszymanski.orknux.server.agent.AgentType
 import io.mszymanski.orknux.server.agent.SkillCatalog
 import io.mszymanski.orknux.server.agent.SkillCatalogRepository
+import io.mszymanski.orknux.server.agent.SkillKeys
 import io.mszymanski.orknux.server.agent.SkillFormat
 import io.mszymanski.orknux.server.condition.ConditionCheck
 import io.mszymanski.orknux.server.condition.ConditionProperty
@@ -960,6 +961,14 @@ class ComponentImporter(
                         workspaceId = workspaceId,
                         catalogId = catalogFor(workspaceId, node.text("catalog"), who),
                         name = name,
+                        /*
+                         * Its command, which the importer never set: every skill
+                         * came in with an empty key, and the second one in a
+                         * workspace broke the unique index. Issue #570. The key
+                         * the file carries where it is usable and free here, and
+                         * otherwise one derived from the name, as the editor does.
+                         */
+                        key = skillKeyFor(workspaceId, node.text("key"), name),
                         description = node.text("description"),
                         content = content,
                         enabled = node.path("enabled").asBoolean(true),
@@ -1280,6 +1289,13 @@ class ComponentImporter(
      * else's endpoint is theirs, and quietly taking it over would answer their
      * callers with this workspace's workflow.
      */
+    /** A command for an imported skill that is usable and not taken in this workspace. */
+    private fun skillKeyFor(workspaceId: Long, carried: String?, name: String): String {
+        val taken = { key: String -> skills.findByWorkspaceIdAndKeyIgnoreCase(workspaceId, key) != null }
+        val wanted = carried?.trim()?.takeIf { it.isNotEmpty() && SkillKeys.usable(it) && !taken(it) }
+        return wanted ?: SkillKeys.free(SkillKeys.derive(name), taken)
+    }
+
     private fun freeWebhookPath(wanted: String): String {
         if (triggers.findByWebhookPath(wanted) == null) return wanted
         for (attempt in 2..MAX_RENAME) {

@@ -17,7 +17,6 @@ import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import org.slf4j.LoggerFactory
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.Transactional
 
 /**
  * A workspace copied whole. Issue #408.
@@ -70,7 +69,16 @@ class WorkspaceDuplicator(
     private val workflows: WorkflowRepository,
     private val assignments: WorkspaceWorkflowRepository,
     private val variables: WorkspaceVariableRepository,
+    /**
+     * One transaction per piece rather than one for the whole copy. Issue #570:
+     * a component that failed in the database left the one shared session
+     * unusable - Hibernate cannot go on after a failed flush - so every piece
+     * after it failed too, and the copy was lost.
+     */
+    transactions: org.springframework.transaction.PlatformTransactionManager,
 ) {
+
+    private val inOwnTransaction = org.springframework.transaction.support.TransactionTemplate(transactions)
 
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -107,7 +115,13 @@ class WorkspaceDuplicator(
         ComponentKind.WORKFLOW,
     )
 
-    @Transactional
+    /**
+     * Not one transaction, deliberately. The new workspace is committed first,
+     * then each component in a transaction of its own, so one that cannot be
+     * copied - refused by the plan, or failing in the database - is named in
+     * the answer and costs nothing else. What is copied is what the answer says
+     * was copied. Issue #570.
+     */
     fun duplicate(sourceId: Long, name: String, by: String): Copied {
         val source = workspaces.findByIdOrNull(sourceId)
             ?: throw IllegalArgumentException("There is no workspace $sourceId.")
@@ -115,7 +129,7 @@ class WorkspaceDuplicator(
         require(wanted.isNotEmpty()) { "Give the new workspace a name." }
         require(workspaces.findByName(wanted) == null) { "There is already a workspace called \"$wanted\"." }
 
-        val copy = workspaces.save(settingsOf(source, wanted))
+        val copy = requireNotNull(inOwnTransaction.execute { workspaces.save(settingsOf(source, wanted)) })
         val into = requireNotNull(copy.id)
 
         val counts = linkedMapOf<String, Int>()
@@ -133,6 +147,7 @@ class WorkspaceDuplicator(
                  * great deal of work to arrive at the same place.
                  */
                 runCatching {
+                    inOwnTransaction.executeWithoutResult {
                     val envelope = exporter.export(sourceId, kind, id, ExportDepth.SHALLOW)
                     /*
                      * Planned before it is applied. Issue #570: apply refuses by
@@ -146,12 +161,15 @@ class WorkspaceDuplicator(
                     val plan = importer.plan(into, envelope)
                     if (!plan.importable) throw ImportNotPossibleException(plan.problems)
                     importer.apply(into, envelope)
+                    }
                 }
                     .onSuccess { carried++ }
                     .onFailure { why ->
                         val called = runCatching { nameOf(sourceId, kind, id) }.getOrNull() ?: id.toString()
                         log.warn("Copying {} {} into workspace {} failed: {}", kind.label, called, into, why.message)
-                        problems += "${kind.label} \"$called\" was not copied: ${why.message}"
+                        // The database's own words stop at the first line: the rest is SQL and binds.
+                        val said = why.message?.lineSequence()?.firstOrNull()?.substringBefore(" [insert")
+                        problems += "${kind.label} \"$called\" was not copied: $said"
                     }
             }
             if (ids.isNotEmpty()) counts[kind.label] = carried
