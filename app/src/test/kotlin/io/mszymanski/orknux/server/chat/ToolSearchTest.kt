@@ -84,6 +84,25 @@ class ToolSearchTest(
     }
 
     /**
+     * The old name still works. Issue #535: a session older than the rename
+     * has find_tools in its recorded history, and a model reading it asks for
+     * find_tools again. It is answered as tool_load would be - only tool_load
+     * is offered - so replying in that session does not break.
+     */
+    @Test
+    fun `a call by the old name, find_tools, is still answered`() {
+        val found = mutableSetOf<String>()
+        val shed = searching.shed(granted, found, room = { 10 })
+        val old = ToolCall("1", ToolSearchTools.FORMERLY, """{"queries":["send a message in slack"]}""")
+
+        assertThat(shed.handles(ToolSearchTools.FORMERLY)).isTrue()
+        assertThat(shed.run(old)).contains("slack_postMessage")
+        assertThat(found).contains("slack_postMessage")
+        // And only the new name is offered.
+        assertThat(shed.specs().map { it.name }).containsExactly("tool_load")
+    }
+
+    /**
      * A name is worth more than a description.
      *
      * Somebody asking for "slack" means the tools called `slack_*`, not every

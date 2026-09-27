@@ -163,7 +163,7 @@ class InstallationSettingsAPI(
         auditRecorder.record(
             null,
             WorkspaceAuditCategory.WORKSPACE,
-            "find_tools names up to $count findable tools outright",
+            "tool_load names up to $count findable tools outright",
         )
         return installationSettings()
     }

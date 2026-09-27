@@ -121,8 +121,8 @@ class ToolSearchTools(
         override fun specs(): List<ToolSpec> = listOf(
             ToolSpec(
                 name = FIND,
-                description = "Finds the tools you have been given but are not carrying, and puts them " +
-                    "in your hands for the rest of this conversation. You hold ${searchable.size} of them" +
+                description = "Loads tools you have been given but are not carrying, so you can call them " +
+                    "for the rest of this conversation. You hold ${searchable.size} of them" +
                     (listed().takeIf { it.isNotEmpty() }?.let { ": $it. Ask for one by name, or " }
                         ?: " - too many to be listed at once - so ") +
                     "search for what the work needs before saying you cannot do it. Each query is a " +
@@ -142,7 +142,13 @@ class ToolSearchTools(
             ),
         )
 
-        override fun handles(name: String): Boolean = name == FIND
+        /*
+         * And the name it had, for a conversation that remembers it. Issue
+         * #535: a session older than the rename carries find_tools in its
+         * recorded history, and a model reading that asks for find_tools
+         * again - it is answered, not refused, though only tool_load is offered.
+         */
+        override fun handles(name: String): Boolean = name == FIND || name == FORMERLY
 
         override fun run(call: ToolCall): String {
             val searches = argument(call).take(MOST_SEARCHES)
@@ -212,7 +218,8 @@ class ToolSearchTools(
                     )
                     return@buildString
                 }
-                append("Found ${taken.size} of ${matches.size}. ")
+                // "Loaded", matching the name: the tools are now the agent's to call. Issue #535.
+                append("Loaded ${taken.size} of the ${matches.size} that matched. ")
                 append("You can call these from your next message onwards:\n")
                 taken.forEach { append("\n${it.name} - ${it.description.take(DESCRIPTION)}") }
                 /*
@@ -223,7 +230,7 @@ class ToolSearchTools(
                  */
                 if (dropped.isNotEmpty()) {
                     append("\n\nTo make room, these are no longer in your hands: ${dropped.joinToString(", ")}. ")
-                    append("Search for one again if you need it back.")
+                    append("Load one again with ").append(FIND).append(" if you need it back.")
                 }
                 /*
                  * And which of several searches found nothing, by name. A model
@@ -240,7 +247,7 @@ class ToolSearchTools(
                 if (taken.size < matches.size) {
                     append(
                         "\n\n${matches.size - taken.size} more matched and were left out. " +
-                            "Search again with narrower words if none of these is the one.",
+                            "Call " + FIND + " again with narrower words if none of these is the one.",
                     )
                 }
             }
@@ -351,7 +358,16 @@ class ToolSearchTools(
 
     companion object {
 
-        const val FIND = "find_tools"
+        /**
+         * `tool_load`, noun first like `skill_load` beside it. Issue #535: it
+         * was `find_tools`, which reads as a lookup, and a model that believed
+         * it already held a tool and only needed to find out about it tried to
+         * call the tool instead - session 510.
+         */
+        const val FIND = "tool_load"
+
+        /** What it used to be called, still answered. Issue #535. */
+        const val FORMERLY = "find_tools"
         /** What it takes now: a list. Issue #517. */
         const val QUERIES = "queries"
 
