@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional
 import java.time.Duration
 import java.time.OffsetDateTime
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 
 /**
@@ -60,9 +61,15 @@ class ScratchpadSweeper(
     private val properties: ScratchpadSweepProperties,
 ) : SmartLifecycle {
 
-    private val clock = Executors.newSingleThreadScheduledExecutor { runnable ->
-        Thread(runnable, "scratchpad-sweep").apply { isDaemon = true }
-    }
+    /**
+     * Built on each start rather than held as a field, because a stopped
+     * executor cannot be started again - `shutdownNow` is permanent, and
+     * scheduling on one afterwards throws. A context that is stopped and
+     * started again is not hypothetical: the test suite does it between
+     * classes, and so does anything that restarts the application context in
+     * place. Issue #504.
+     */
+    private var clock: ScheduledExecutorService? = null
 
     @Volatile
     private var running = false
@@ -72,20 +79,25 @@ class ScratchpadSweeper(
             log.info("Old scratchpads are not swept on a timer")
             return
         }
-        running = true
-        clock.scheduleAtFixedRate(
+        val executor = Executors.newSingleThreadScheduledExecutor { runnable ->
+            Thread(runnable, "scratchpad-sweep").apply { isDaemon = true }
+        }
+        executor.scheduleAtFixedRate(
             { runCatching { sweep() }.onFailure { log.warn("A scratchpad sweep did not finish: {}", it.message) } },
             properties.initialDelay.toSeconds(),
             properties.interval.toSeconds(),
             TimeUnit.SECONDS,
         )
+        clock = executor
+        running = true
         log.info("Looking for scratchpads nobody has touched, every {}", properties.interval)
     }
 
     override fun stop() {
         if (!running) return
         running = false
-        clock.shutdownNow()
+        clock?.shutdownNow()
+        clock = null
     }
 
     override fun isRunning(): Boolean = running

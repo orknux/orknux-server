@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional
 import java.time.Duration
 import java.time.OffsetDateTime
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 
 @ConfigurationProperties(prefix = "orknux.execution.retention")
@@ -70,9 +71,15 @@ class ExecutionSweeper(
     private val properties: ExecutionRetentionProperties,
 ) : SmartLifecycle {
 
-    private val sweeper = Executors.newSingleThreadScheduledExecutor { runnable ->
-        Thread(runnable, "execution-sweep").apply { isDaemon = true }
-    }
+    /**
+     * Built on each start rather than held as a field, because a stopped
+     * executor cannot be started again - `shutdownNow` is permanent, and
+     * scheduling on one afterwards throws. A context that is stopped and
+     * started again is not hypothetical: the test suite does it between
+     * classes, and so does anything that restarts the application context in
+     * place. Issue #504.
+     */
+    private var sweeper: ScheduledExecutorService? = null
     private var running = false
 
     /**
@@ -85,19 +92,24 @@ class ExecutionSweeper(
             log.info("Run history is not swept on a timer")
             return
         }
-        sweeper.scheduleWithFixedDelay(
+        val executor = Executors.newSingleThreadScheduledExecutor { runnable ->
+            Thread(runnable, "execution-sweep").apply { isDaemon = true }
+        }
+        executor.scheduleWithFixedDelay(
             { runCatching(::sweep).onFailure { log.warn("Could not sweep run history", it) } },
             properties.sweepInitialDelay.toSeconds(),
             properties.sweepInterval.toSeconds(),
             TimeUnit.SECONDS,
         )
+        sweeper = executor
         running = true
         log.info("Sweeping run history finished more than {} days ago every {}", retentionDays(), properties.sweepInterval)
     }
 
     override fun stop() {
         if (!running) return
-        sweeper.shutdownNow()
+        sweeper?.shutdownNow()
+        sweeper = null
         running = false
     }
 

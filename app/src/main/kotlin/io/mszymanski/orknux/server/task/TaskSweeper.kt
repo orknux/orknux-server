@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component
 import java.time.Duration
 import java.time.OffsetDateTime
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 
 /**
@@ -98,9 +99,15 @@ class TaskSweeper(
     private val properties: TaskSweepProperties,
 ) : SmartLifecycle {
 
-    private val clock = Executors.newSingleThreadScheduledExecutor { runnable ->
-        Thread(runnable, "task-sweep").apply { isDaemon = true }
-    }
+    /**
+     * Built on each start rather than held as a field, because a stopped
+     * executor cannot be started again - `shutdownNow` is permanent, and
+     * scheduling on one afterwards throws. A context that is stopped and
+     * started again is not hypothetical: the test suite does it between
+     * classes, and so does anything that restarts the application context in
+     * place. Issue #504.
+     */
+    private var clock: ScheduledExecutorService? = null
 
     @Volatile
     private var running = false
@@ -118,6 +125,9 @@ class TaskSweeper(
             log.info("Queued tasks are not swept on a timer")
             return
         }
+        clock = Executors.newSingleThreadScheduledExecutor { runnable ->
+            Thread(runnable, "task-sweep").apply { isDaemon = true }
+        }
         running = true
         arm(properties.initialDelay.toSeconds())
         log.info("Looking for tasks left queued longer than {} minutes, every {} minutes", minutes(), minutes())
@@ -126,7 +136,8 @@ class TaskSweeper(
     override fun stop() {
         if (!running) return
         running = false
-        clock.shutdownNow()
+        clock?.shutdownNow()
+        clock = null
     }
 
     override fun isRunning(): Boolean = running
@@ -172,7 +183,7 @@ class TaskSweeper(
      */
     private fun arm(afterSeconds: Long) {
         if (!running) return
-        runCatching { clock.schedule(Runnable { pass() }, afterSeconds, TimeUnit.SECONDS) }
+        runCatching { clock?.schedule(Runnable { pass() }, afterSeconds, TimeUnit.SECONDS) }
             .onFailure { log.warn("The task sweep could not be scheduled", it) }
     }
 

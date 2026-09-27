@@ -11,6 +11,7 @@ import org.springframework.transaction.event.TransactionPhase
 import org.springframework.transaction.event.TransactionalEventListener
 import java.time.Duration
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 
 /**
@@ -48,25 +49,36 @@ class ConnectionMonitor(
     private val properties: ConnectionCheckProperties,
 ) : SmartLifecycle {
 
-    private val sweeper = Executors.newSingleThreadScheduledExecutor { runnable ->
-        Thread(runnable, "connection-check").apply { isDaemon = true }
-    }
+    /**
+     * Built on each start rather than held as a field, because a stopped
+     * executor cannot be started again - `shutdownNow` is permanent, and
+     * scheduling on one afterwards throws. A context that is stopped and
+     * started again is not hypothetical: the test suite does it between
+     * classes, and so does anything that restarts the application context in
+     * place. Issue #504.
+     */
+    private var sweeper: ScheduledExecutorService? = null
     private var running = false
 
     override fun start() {
-        sweeper.scheduleWithFixedDelay(
+        val executor = Executors.newSingleThreadScheduledExecutor { runnable ->
+            Thread(runnable, "connection-check").apply { isDaemon = true }
+        }
+        executor.scheduleWithFixedDelay(
             { runCatching(::sweep).onFailure { log.warn("Could not check the workspace connections", it) } },
             properties.initialDelay.toSeconds(),
             properties.interval.toSeconds(),
             TimeUnit.SECONDS,
         )
+        sweeper = executor
         running = true
         log.info("Checking workspace connections every {}", properties.interval)
     }
 
     override fun stop() {
         if (!running) return
-        sweeper.shutdownNow()
+        sweeper?.shutdownNow()
+        sweeper = null
         running = false
     }
 
@@ -81,7 +93,7 @@ class ConnectionMonitor(
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     fun onConnectionSaved(event: WorkspaceConnectionSaved) {
         if (!running) return
-        sweeper.execute {
+        sweeper?.execute {
             runCatching { check(event.connectionId) }
                 .onFailure { log.warn("Could not check workspace connection {}", event.connectionId, it) }
         }

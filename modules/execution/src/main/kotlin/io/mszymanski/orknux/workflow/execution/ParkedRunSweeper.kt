@@ -9,7 +9,9 @@ import org.springframework.stereotype.Component
 import java.time.Duration
 import java.time.OffsetDateTime
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 
 /**
@@ -120,13 +122,17 @@ class ParkedRunSweeper(
     private val properties: ParkedRunSweepProperties,
 ) : SmartLifecycle {
 
-    private val clock = Executors.newSingleThreadScheduledExecutor { runnable ->
-        Thread(runnable, "parked-run-sweep").apply { isDaemon = true }
-    }
+    /**
+     * Built on each start rather than held as fields, because a stopped
+     * executor cannot be started again - `shutdownNow` is permanent, and
+     * scheduling on one afterwards throws. A context that is stopped and
+     * started again is not hypothetical: the test suite does it between
+     * classes, and so does anything that restarts the application context in
+     * place. Issue #504.
+     */
+    private var clock: ScheduledExecutorService? = null
 
-    private val carriers = Executors.newCachedThreadPool { runnable ->
-        Thread(runnable, "parked-run-resume").apply { isDaemon = true }
-    }
+    private var carriers: ExecutorService? = null
 
     /** Runs being carried on right now, so a pass does not hand one out twice. */
     private val inFlight = ConcurrentHashMap.newKeySet<Long>()
@@ -138,6 +144,12 @@ class ParkedRunSweeper(
         if (!properties.enabled) {
             log.info("Parked runs are not swept on a timer")
             return
+        }
+        clock = Executors.newSingleThreadScheduledExecutor { runnable ->
+            Thread(runnable, "parked-run-sweep").apply { isDaemon = true }
+        }
+        carriers = Executors.newCachedThreadPool { runnable ->
+            Thread(runnable, "parked-run-resume").apply { isDaemon = true }
         }
         running = true
         arm(properties.initialDelay.toSeconds())
@@ -151,8 +163,10 @@ class ParkedRunSweeper(
     override fun stop() {
         if (!running) return
         running = false
-        clock.shutdownNow()
-        carriers.shutdownNow()
+        clock?.shutdownNow()
+        clock = null
+        carriers?.shutdownNow()
+        carriers = null
     }
 
     override fun isRunning(): Boolean = running
@@ -182,7 +196,7 @@ class ParkedRunSweeper(
             // Already being carried, or picked up by a pass still running: leave
             // it be, or two threads would walk the same run at once.
             if (!inFlight.add(executionId)) return@count false
-            runCatching { carriers.execute { carry(executionId) } }
+            runCatching { carriers?.execute { carry(executionId) } }
                 .onFailure {
                     inFlight.remove(executionId)
                     log.warn("Stranded run {} could not be handed to a carrier", executionId, it)
@@ -213,7 +227,7 @@ class ParkedRunSweeper(
 
     private fun arm(afterSeconds: Long) {
         if (!running) return
-        runCatching { clock.schedule(Runnable { pass() }, afterSeconds, TimeUnit.SECONDS) }
+        runCatching { clock?.schedule(Runnable { pass() }, afterSeconds, TimeUnit.SECONDS) }
             .onFailure { log.warn("The parked-run sweep could not be scheduled", it) }
     }
 
