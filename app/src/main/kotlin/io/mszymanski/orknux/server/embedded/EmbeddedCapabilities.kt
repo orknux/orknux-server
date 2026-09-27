@@ -59,6 +59,15 @@ class EmbeddedCapabilities(
     /** Where a graph finds what these declare; see [register]. */
     private val functions: WorkflowFunctionRepository,
     private val mapper: ObjectMapper,
+    /**
+     * The capabilities written here rather than run in a sandbox. Issue #505.
+     *
+     * They answer first, and a bundle only ever answers a name none of them
+     * claims. That is what lets a bundle be replaced one at a time: the pdf,
+     * the diagrams and the charts are JVM code now, and while anything is left
+     * in `resources/embedded` it goes on working beside them.
+     */
+    private val native: List<EmbeddedCapability> = emptyList(),
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -97,7 +106,8 @@ class EmbeddedCapabilities(
                 null
             }
         }
-        held.forEach { log.info("Orknux brings {} {}", it.key, it.version.orEmpty()) }
+        native.forEach { log.info("Orknux brings {}", it.name) }
+        held.forEach { log.info("Orknux brings {} {}, out of a bundle", it.key, it.version.orEmpty()) }
         runCatching { register() }.onFailure { log.warn("Embedded functions were not registered: {}", it.message) }
     }
 
@@ -116,6 +126,30 @@ class EmbeddedCapabilities(
      */
     @Transactional
     fun register() {
+        /*
+         * The native ones first, and by the same rules: a row that already
+         * exists is re-pointed rather than replaced, so a graph holding one by
+         * id goes on working when a bundle becomes JVM code underneath it.
+         * That is the whole reason the migration re-pointed rather than deleted.
+         */
+        native.forEach { capability ->
+            capability.functions().forEach { declared ->
+                write(
+                    name = capability.key + "_" + declared.name,
+                    description = declared.description,
+                    returnType = declared.returnType,
+                    params = declared.params.map { param ->
+                        FunctionParam(
+                            param.name,
+                            param.type,
+                            required = param.required,
+                            defaultJson = param.defaultJson,
+                        )
+                    },
+                )
+            }
+        }
+
         held.forEach { one ->
             one.read.functions.forEach { declared ->
                 val name = one.key + "_" + declared.name
@@ -189,6 +223,42 @@ class EmbeddedCapabilities(
             else -> held
         }
 
+    /**
+     * One function row, written or re-pointed.
+     *
+     * The rules are the same whichever side declared it, which is the point of
+     * having one of these: an existing row keeps its id, an edited one is left
+     * alone, and OBJECT never survives with an object id it no longer has.
+     */
+    private fun write(name: String, description: String?, returnType: ValueType, params: List<FunctionParam>) {
+        val existing = functions.findByScopeAndName(FunctionScope.EMBEDDED, name)
+            ?: functions.findByScopeAndName(FunctionScope.PLUGIN, name)
+        val row = existing?.apply {
+            // An edited row runs from its own code and is left alone, the way
+            // an edited plugin function is.
+            if (editedAt != null) return
+            this.scope = FunctionScope.EMBEDDED
+            this.pluginId = null
+            this.description = description
+            this.returnType = returnType
+            this.returnObjectId = null
+            this.params = params.toMutableList()
+            this.lastModifiedAt = OffsetDateTime.now()
+            this.lastModifiedBy = "orknux"
+        } ?: WorkflowFunction(
+            workspaceId = null,
+            scope = FunctionScope.EMBEDDED,
+            name = name,
+            description = description,
+            source = "Brought by Orknux itself; there is no code here to read.",
+            returnType = returnType,
+            params = params.toMutableList(),
+            lastModifiedAt = OffsetDateTime.now(),
+            lastModifiedBy = "orknux",
+        )
+        functions.save(row)
+    }
+
     private fun one(manifest: Resource): Embedded {
         val said = mapper.readTree(manifest.inputStream.use { it.readBytes() })
         val key = said.path("key").stringValue().orEmpty().trim()
@@ -222,6 +292,11 @@ class EmbeddedCapabilities(
      * own bundle rather than a plugin row that has to exist.
      */
     fun callFunction(name: String, arguments: List<String>, workspaceId: Long, sessionId: Long?): ScriptResult? {
+        nativeFunctionFor(name)?.let { (capability, own) ->
+            return runCatching { capability.call(own, arguments, workspaceId, sessionId) }
+                .getOrElse { why -> ScriptResult.Failed(why.message ?: "it did not work", 0) }
+        }
+
         val one = held.firstOrNull { one -> one.read.functions.any { one.key + "_" + it.name == name } } ?: return null
         val declared = one.read.functions.first { one.key + "_" + it.name == name }
         return runner.call(
@@ -243,7 +318,9 @@ class EmbeddedCapabilities(
      * The tools, named `<key>_<tool>` the way this bundle's names have always
      * been written, so an agent that knew `pdf_fromHtml` knows it still.
      */
-    fun toolSpecs(): List<ToolSpec> = held.flatMap { one ->
+    fun toolSpecs(): List<ToolSpec> = native.flatMap { one ->
+        one.tools().map { it.spec(one.key) }
+    } + held.flatMap { one ->
         one.read.tools.map { tool ->
             ToolSpec(
                 name = one.key + "_" + tool.name,
@@ -265,9 +342,18 @@ class EmbeddedCapabilities(
         }
     }
 
-    fun handles(name: String): Boolean = held.any { one ->
-        one.read.tools.any { one.key + "_" + it.name == name }
+    fun handles(name: String): Boolean =
+        nativeFor(name) != null || held.any { one -> one.read.tools.any { one.key + "_" + it.name == name } }
+
+    /** The capability whose own name this is, where one of ours claims it. */
+    private fun nativeFor(name: String): Pair<EmbeddedCapability, String>? = native.firstNotNullOfOrNull { one ->
+        one.tools().firstOrNull { one.key + "_" + it.name == name }?.let { one to it.name }
     }
+
+    private fun nativeFunctionFor(name: String): Pair<EmbeddedCapability, String>? =
+        native.firstNotNullOfOrNull { one ->
+            one.functions().firstOrNull { one.key + "_" + it.name == name }?.let { one to it.name }
+        }
 
     /**
      * One tool call, in the bundle that declares it.
@@ -278,6 +364,14 @@ class EmbeddedCapabilities(
      * no way to be told and no reason to want.
      */
     fun run(name: String, arguments: String, workspaceId: Long, sessionId: Long?): String {
+        nativeFor(name)?.let { (capability, own) ->
+            return runCatching { capability.run(own, arguments, workspaceId, sessionId) }
+                .getOrElse { why ->
+                    log.warn("The embedded tool {} failed: {}", name, why.message)
+                    refusal(why.message ?: "it did not work")
+                }
+        }
+
         val one = held.firstOrNull { held -> held.read.tools.any { held.key + "_" + it.name == name } }
             ?: return refusal("There is no tool called " + name + ".")
         val tool = one.read.tools.first { one.key + "_" + it.name == name }

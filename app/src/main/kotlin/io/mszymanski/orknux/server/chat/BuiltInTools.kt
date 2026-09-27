@@ -141,6 +141,7 @@ class BuiltInTools(
             "pdf_read",
             "pdf_preview",
             "charts_render",
+            "diagram_render",
             ConnectionTools.FIND,
             AgentRunTools.ASK,
             AgentRunTools.ASKS,
