@@ -52,7 +52,9 @@ class PdfCapability(
                 "from a web address draws nothing. A picture goes in as <img src=\"name\"> naming a scratchpad in this " +
                 "session or a key something handed you. Where the page is already in a scratchpad, pass " +
                 "$PAD with its name and leave $HTML out - the page is read here rather than typed through " +
-                "you, which is what stops a long report being cut off at your output limit. The answer " +
+                "you, which is what stops a long report being cut off at your output limit. A stylesheet the " +
+                "page links by the name of a scratchpad - style.css - is read from that pad. A report " +
+                "already zipped with its pictures goes to $FROM_HTML_ZIP instead. The answer " +
                 "carries a $KEY, not the document: pass it to whatever uploads or saves a file.",
             params = listOf(
                 EmbeddedParam(HTML, ValueType.STRING, "The page itself. Leave out when passing $PAD or $KEY."),
@@ -166,7 +168,17 @@ class PdfCapability(
                     "one something handed you.",
             )
 
-        val made = writer.fromHtml(page, text(asked, TITLE)) { named -> picture(named, sessionId) }
+        /*
+         * And the stylesheet it links, where a scratchpad has that name. Issue
+         * #563: an agent builds a report as index.html and style.css in two pads,
+         * and handed the page alone the layout lost every style - so a model set
+         * about pasting the stylesheet in by hand, which is the retyping the
+         * pads exist to avoid.
+         */
+        val linked = if (sessionId == null) page else styled(page, "") { href ->
+            pads.find(sessionId, href)?.takeIf { it.contentType == null }?.content?.toByteArray()
+        }
+        val made = writer.fromHtml(linked, text(asked, TITLE)) { named -> picture(named, sessionId) }
         return documentAnswer(made, asked, sessionId)
     }
 
@@ -201,7 +213,7 @@ class PdfCapability(
             )
         val base = pageName.substringBeforeLast('/', "")
 
-        val made = writer.fromHtml(styled(page, base, entries), text(asked, TITLE)) { named ->
+        val made = writer.fromHtml(styled(page, base) { entries[it] }, text(asked, TITLE)) { named ->
             entries[resolved(base, named)]?.let { PageBlocks.Picture(it, null) } ?: picture(named, sessionId)
         }
         return documentAnswer(made, asked, sessionId)
@@ -250,14 +262,14 @@ class PdfCapability(
         return normalised(if (base.isEmpty() || bare.startsWith("/")) bare else "$base/$bare")
     }
 
-    /** The page with every stylesheet it links from the archive put inline. */
-    private fun styled(page: String, base: String, entries: Map<String, ByteArray>): String {
+    /** The page with every stylesheet it links put inline, from wherever [find] reads a path. */
+    private fun styled(page: String, base: String, find: (String) -> ByteArray?): String {
         val parsed = org.jsoup.Jsoup.parse(page)
         var changed = false
         parsed.select("link[rel~=(?i)stylesheet][href]").forEach { link ->
             val href = link.attr("href").trim()
             if (href.contains("://")) return@forEach
-            val css = entries[resolved(base, href)] ?: return@forEach
+            val css = find(resolved(base, href)) ?: return@forEach
             link.after("<style>" + css.toString(Charsets.UTF_8) + "</style>")
             link.remove()
             changed = true

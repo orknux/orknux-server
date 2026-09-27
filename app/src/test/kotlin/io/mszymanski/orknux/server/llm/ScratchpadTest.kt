@@ -243,6 +243,28 @@ class ScratchpadTest(
         assertThat(missing).contains("no about.html").contains("images/dot.png")
     }
 
+    /**
+     * A page's linked stylesheet read from the pad of that name. Issue #563:
+     * handed index.html alone, the PDF lost style.css and a model pasted it in
+     * by hand. Seen through what the PDF says: the stylesheet hides a line.
+     */
+    @Test
+    fun `pdf_fromHtml reads a linked stylesheet from the scratchpad of that name`() {
+        ok(pads.create(session, "look.css", "The styles", ".hidden { display: none; }"))
+        ok(
+            pads.create(
+                session, "look.html", "The page",
+                "<html><head><link rel=\"stylesheet\" href=\"look.css\"></head><body>" +
+                    "<p>Plainly visible</p><p class=\"hidden\">Zanzibarquux</p></body></html>",
+            ),
+        )
+
+        val made = embedded.run("pdf_fromHtml", """{"scratchpad":"look.html","title":"Looked"}""", workspaceId, session)
+        assertThat(made).contains("\"contentKey\":\"Looked.pdf\"")
+        val read = embedded.run("pdf_read", """{"contentKey":"Looked.pdf"}""", workspaceId, session)
+        assertThat(read).contains("Plainly visible").doesNotContain("Zanzibarquux")
+    }
+
     private fun ok(result: ScratchpadResult): ScratchpadResult.Ok {
         assertThat(result).isInstanceOf(ScratchpadResult.Ok::class.java)
         return result as ScratchpadResult.Ok
