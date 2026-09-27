@@ -110,6 +110,27 @@ class SlackFilesTest {
         assertThat(refusalFor("https://files.slack.com/a.png", on = 11)).contains("has been deleted")
     }
 
+    /**
+     * But a workspace with its own Slack connection reads through that one.
+     * Issue #562: two workspaces on one Slack app share its events, so a
+     * message arrived on the other workspace's connection and its screenshot
+     * was refused. What is used instead is this workspace's own, with its own
+     * token - never the other workspace's.
+     */
+    @Test
+    fun `a connection in another workspace falls back to this workspace's own`() {
+        held(slackConnection(workspaceId = 9))
+        val own = slackConnection(id = 5, workspaceId = 11)
+        `when`(connections.findByWorkspaceId(11L, org.springframework.data.domain.Sort.by("id")))
+            .thenReturn(listOf(own))
+        `when`(credentials.secretOf(own)).thenReturn(io.mszymanski.orknux.connector.security.HeldCredential.Held("xoxb-own"))
+
+        // Past the connection and on to the url check, which only a resolved connection reaches.
+        assertThat(refusalFor("http://files.slack.com/a.png", on = 11)).contains("Slack's own host")
+        org.mockito.Mockito.verify(credentials, org.mockito.Mockito.atLeastOnce()).secretOf(own)
+        org.mockito.Mockito.verify(credentials, org.mockito.Mockito.never()).secretOf(slackConnection(workspaceId = 9))
+    }
+
     @Test
     fun `a connection of another kind holds no files`() {
         held(

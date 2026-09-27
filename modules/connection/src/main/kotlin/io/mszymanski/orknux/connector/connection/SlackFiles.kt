@@ -61,6 +61,11 @@ class SlackFiles(
         .followRedirects(HttpClient.Redirect.NORMAL)
         .build()
 
+    /** The first Slack connection a workspace owns that has a token to read with. */
+    private fun ownSlackConnection(workspaceId: Long): WorkspaceConnection? =
+        connections.findByWorkspaceId(workspaceId, org.springframework.data.domain.Sort.by("id"))
+            .firstOrNull { it.type == ConnectionType.SLACK && credentials.secretOf(it).credential != null }
+
     /**
      * @param url the file's `url_private`, as an event or a thread reports it.
      * @param on the only workspace whose connections this may reach, or null for
@@ -68,13 +73,18 @@ class SlackFiles(
      *   [SlackThreads.read].
      */
     fun read(connectionId: Long, url: String, on: Long? = null): SlackFile {
-        val connection = connections.findByIdOrNull(connectionId)
+        val named = connections.findByIdOrNull(connectionId)?.takeIf { on == null || it.workspaceId == on }
+        /*
+         * Or this workspace's own Slack connection, where the one the event
+         * named is not this workspace's. Issue #562: two workspaces connected to
+         * one Slack app share its events - Socket Mode hands each to whichever
+         * socket it likes - so a message could arrive on another workspace's
+         * connection and start this workspace's workflow, and its screenshot was
+         * refused as "deleted". The boundary holds: what is used instead is a
+         * connection this workspace owns, with its own token.
+         */
+        val connection = named ?: on?.let { ownSlackConnection(it) }
             ?: return SlackFile.NotRead("the connection it would read through has been deleted")
-
-        // Said as though it were not there, which is what it is to this caller.
-        if (on != null && connection.workspaceId != on) {
-            return SlackFile.NotRead("the connection it would read through has been deleted")
-        }
         if (connection.type != ConnectionType.SLACK) {
             return SlackFile.NotRead("${connection.type} connections hold no files")
         }
