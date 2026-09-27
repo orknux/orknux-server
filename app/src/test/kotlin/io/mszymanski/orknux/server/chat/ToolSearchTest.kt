@@ -184,7 +184,7 @@ class ToolSearchTest(
 
         assertThat(spec.name).isEqualTo(ToolSearchTools.FIND)
         assertThat(spec.description).contains("You hold 6 of them")
-        assertThat(spec.parameters.map { it.name }).containsExactly(ToolSearchTools.QUERY)
+        assertThat(spec.parameters.map { it.name }).containsExactly(ToolSearchTools.QUERIES)
         assertThat(spec.parameters.single().required).isTrue()
     }
 

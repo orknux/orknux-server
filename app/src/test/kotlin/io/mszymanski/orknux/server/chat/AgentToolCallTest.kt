@@ -178,6 +178,55 @@ class AgentToolCallTest(
         }
     }
 
+    /**
+     * Session 501's shape: three calls, round and round, 279 in one message.
+     * Issue #518.
+     *
+     * Identical calls collapse before the cap, so three run and nothing is
+     * refused. Every repeat still gets an answer - a provider refuses a request
+     * with a call left unanswered - but the answer points at the call that ran
+     * rather than carrying its result again, which is what put the same skill
+     * page back into 501's context once per repeat.
+     */
+    @Test
+    fun `a message repeating three calls runs three, and the repeats point at them`() {
+        val endpoint = serve { body ->
+            if (body.contains("tool_call_id")) {
+                """{"choices":[{"message":{"role":"assistant","content":"Done."}}],
+                   "usage":{"prompt_tokens":9,"completion_tokens":1}}"""
+            } else {
+                val calls = (1..279).joinToString(",") { n ->
+                    val (name, args) = when (n % 3) {
+                        1 -> "skill_load" to "{\\\"name\\\":\\\"codeReview\\\"}"
+                        2 -> "skill_list" to "{}"
+                        else -> "current_time" to "{}"
+                    }
+                    """{"id":"call_$n","type":"function","function":{"name":"$name","arguments":"$args"}}"""
+                }
+                """{"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[$calls]}}],
+                   "usage":{"prompt_tokens":7,"completion_tokens":2}}"""
+            }
+        }
+        val catalogId = catalog("Reviews")
+        skill("codeReview", catalogId, "Read the diff twice before commenting.")
+        val agentId = agentGranted("Reviewer", model(endpoint), "Reviews")
+        val agent = requireNotNull(agents.findByIdOrNull(agentId))
+
+        val answer = conversation.answer(requireNotNull(agent.modelId), agent, listOf(ChatTurn("user", "hi")))
+
+        assertThat(answer).isInstanceOf(ChatCompletion.Answered::class.java)
+        val second = received[1]
+        // Every one of the 279 call ids is answered.
+        assertThat(Regex("\"tool_call_id\"").findAll(second).count()).isEqualTo(279)
+        // The skill page went back once, under the call that ran - not per repeat.
+        assertThat(Regex("Read the diff twice before commenting").findAll(second).count()).isEqualTo(1)
+        // The repeats point at a call rather than repeating a result.
+        assertThat(Regex("duplicateOfCall").findAll(second).count()).isEqualTo(276)
+        // And three distinct calls is under any cap: nothing refused.
+        assertThat(second).doesNotContain("This call was not run: it repeats")
+            .doesNotContain("different tool calls at once and the first")
+    }
+
     private fun serveAlwaysCallingTools(): String = serve {
         """
         {"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[

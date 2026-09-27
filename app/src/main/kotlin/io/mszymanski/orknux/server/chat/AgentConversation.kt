@@ -753,11 +753,6 @@ class AgentConversation(
                      */
                     val shown = mutableListOf<Pair<String, AgentTools.Companion.Picture>>()
 
-                    /*
-                     * What each distinct call in this round answered. Cleared
-                     * per round, deliberately: see the note on the lookup below.
-                     */
-                    val answeredInBatch = mutableMapOf<String, Pair<String, String>>()
 
                     /*
                      * The batch, cut to what one message is allowed to ask for.
@@ -778,21 +773,61 @@ class AgentConversation(
                      * answered with a refusal that says the cap, what it is,
                      * and what to do instead.
                      */
-                    val over = answer.calls.drop(callsAllowed)
+                    /*
+                     * Identical calls collapse first, before the cap and before
+                     * anything runs. Issue #518.
+                     *
+                     * It used to cap the raw batch and deduplicate inside what
+                     * was left, so session 501's 279 calls - three calls, round
+                     * and round - ran fifty, answered forty-seven of those as
+                     * duplicates carrying the whole result again, and refused
+                     * the other 229 one by one. Three distinct calls is three
+                     * calls: those run, and every repeat is pointed at the one
+                     * that did.
+                     */
+                    val firstOf = LinkedHashMap<String, ToolCall>()
+                    val echoes = mutableListOf<Pair<ToolCall, ToolCall>>()
+                    answer.calls.forEach { call ->
+                        val same = call.name + 0.toChar() + call.arguments
+                        val first = firstOf[same]
+                        if (first == null) firstOf[same] = call else echoes += call to first
+                    }
+                    val distinct = firstOf.values.toList()
+                    val over = distinct.drop(callsAllowed)
                     if (over.isNotEmpty()) {
                         log.warn(
-                            "Agent {} asked for {} tool calls in one message; {} allowed, {} refused",
-                            agent.name, answer.calls.size, callsAllowed, over.size,
+                            "Agent {} asked for {} distinct tool calls in one message; {} allowed, {} refused",
+                            agent.name, distinct.size, callsAllowed, over.size,
                         )
                         into?.let { session ->
                             sessions.note(
                                 session,
-                                "That message asked for " + answer.calls.size + " tool calls at once. " +
+                                "That message asked for " + distinct.size + " different tool calls at once. " +
                                     callsAllowed + " were run and " + over.size + " were refused.",
                             )
                         }
                     }
-                    answer.calls.take(callsAllowed).forEach { call ->
+                    if (echoes.isNotEmpty()) {
+                        log.warn(
+                            "Agent {} repeated {} tool calls inside one message; {} distinct",
+                            agent.name, echoes.size, distinct.size,
+                        )
+                        /*
+                         * One line for all of them rather than a row each. The
+                         * repeats never ran, and a transcript of 279 rows for
+                         * three calls is how this looked like it had not worked.
+                         */
+                        into?.let { session ->
+                            sessions.note(
+                                session,
+                                "That message repeated the same " + distinct.size +
+                                    (if (distinct.size == 1) " call" else " calls") + " " +
+                                    answer.calls.size + " times in all. Each ran once, and the " +
+                                    echoes.size + " repeats were answered by the one that ran.",
+                            )
+                        }
+                    }
+                    distinct.take(callsAllowed).forEach { call ->
                         log.debug("Agent {} called {}", agent.name, call.name)
                         val here = at++
                         /*
@@ -888,8 +923,6 @@ class AgentConversation(
                          * polling is - and telling those apart is the repeat
                          * guard's job, with its window.
                          */
-                        val asking = call.name + 0.toChar() + call.arguments
-                        val alreadyAnswered = answeredInBatch[asking]
                         /*
                          * And said, so a repeat that was meant is not mistaken
                          * for one that worked.
@@ -902,7 +935,7 @@ class AgentConversation(
                          * leaves the model able to ask again in the next round,
                          * where a fresh call is what it would get.
                          */
-                        val got = alreadyAnswered?.second ?: try {
+                        val got = try {
                             if (hunt != null && hunt.handles(call.name)) hunt.run(call) else tools.run(agent, call, into)
                         } catch (halted: AgentRoundHalted) {
                             // The lent tool ended the round. What it did is
@@ -960,13 +993,10 @@ class AgentConversation(
                          * alternative is a session holding every picture any
                          * tool ever made, twice.
                          */
-                        if (alreadyAnswered == null) answeredInBatch[asking] = call.id to got
 
                         val picture = AgentTools.pictureIn(got)
                         val whole = picture?.let { AgentTools.withoutPicture(got, it) } ?: got
-                        val said = alreadyAnswered
-                            ?.let { (ranAs, _) -> duplicateAnswer(call, ranAs, whole) }
-                            ?: whole
+                        val said = whole
                         picture?.let { shown.add(call.name to it) }
 
                         /*
@@ -1093,6 +1123,31 @@ class AgentConversation(
                     }
 
                     /*
+                     * The repeats, answered by pointing at the call that ran.
+                     *
+                     * Every call id still gets an answer, because a provider
+                     * refuses a request with a call left unanswered. But the
+                     * answer is the pointer and not the result again: the
+                     * result is already in the conversation under the first
+                     * call, and repeating it is what put the same skill page
+                     * back into session 501 forty-seven times.
+                     */
+                    val refusedIds = over.map { it.id }.toSet()
+                    echoes.forEach { (call, first) ->
+                        val pointer = if (first.id in refusedIds) {
+                            refusalAnswer(
+                                call,
+                                "This call was not run: it repeats one that was over the limit of " +
+                                    callsAllowed + " different calls in one message.",
+                                mapOf("callsAllowedAtOnce" to callsAllowed, "sameAsCall" to first.id),
+                            )
+                        } else {
+                            duplicateAnswer(call, first.id)
+                        }
+                        conversation += ChatTurn(role = "user", content = pointer, respondingTo = call.id)
+                    }
+
+                    /*
                      * And the refusals for what was over the cap, after the
                      * calls that ran and in the order they were asked.
                      *
@@ -1106,12 +1161,12 @@ class AgentConversation(
                     over.forEach { call ->
                         val refused = refusalAnswer(
                             call,
-                            "This call was not run. Your message asked for " + answer.calls.size +
-                                " tool calls at once and the first " + callsAllowed + " were run. " +
+                            "This call was not run. Your message asked for " + distinct.size +
+                                " different tool calls at once and the first " + callsAllowed + " were run. " +
                                 "Ask for fewer calls in one message: ask for what you need now, read the " +
                                 "answers, and then ask for the next thing.",
                             mapOf(
-                                "callsAsked" to answer.calls.size,
+                                "callsAsked" to distinct.size,
                                 "callsAllowedAtOnce" to callsAllowed,
                                 "callsRefused" to over.size,
                             ),
@@ -1318,28 +1373,19 @@ class AgentConversation(
     }
 
     /**
-     * What a duplicated call answers with. Issue #518.
+     * What a repeated call answers with. Issue #518.
      *
-     * Structured rather than a sentence stuck on the end, because this is a
-     * fact about the call and a model should be able to read it as one: which
-     * call actually ran, that this is its answer rather than a new one, and the
-     * answer itself under a name.
-     *
-     * The result is nested as it came where it was JSON and as text where it
-     * was not, so nothing is lost and nothing has to be unpicked from prose.
+     * Structured, and a pointer rather than a copy: which call ran and that
+     * this one did not. The result is already in the conversation under that
+     * call, and carrying it again made a repeated skill_load put the same page
+     * back into the context once per repeat.
      */
-    private fun duplicateAnswer(call: ToolCall, ranAs: String, result: String): String {
+    private fun duplicateAnswer(call: ToolCall, ranAs: String): String {
         val envelope = jackson.createObjectNode()
         envelope.put("duplicateOfCall", ranAs)
         envelope.put("tool", call.name)
-        envelope.put("ranOnce", true)
+        envelope.put("ran", false)
         envelope.put("note", DUPLICATE_NOTE)
-        val held = runCatching { jackson.readTree(result) }.getOrNull()
-        if (held != null && (held.isObject || held.isArray)) {
-            envelope.set("result", held)
-        } else {
-            envelope.put("result", result)
-        }
         return jackson.writeValueAsString(envelope)
     }
 
