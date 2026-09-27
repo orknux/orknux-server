@@ -1,0 +1,77 @@
+package io.mszymanski.orknux.server.embedded
+
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
+import tools.jackson.databind.json.JsonMapper
+import java.util.Base64
+
+/**
+ * The blocks a page asks for, drawn into the page. Issue #488.
+ *
+ * Separate from [PdfWriterTest] on purpose. That one asks whether a drawing
+ * reached the finished document, and when it does not there are two possible
+ * culprits - the block was never drawn into the HTML, or it was drawn and the
+ * layout engine ignored it. This half answers the first, so the other test's
+ * failures mean only one thing.
+ */
+class PageBlocksTest {
+
+    private val blocks = PageBlocks(DiagramRenderer(), ChartRenderer(), JsonMapper.builder().build())
+
+    private val n = 10.toChar().toString()
+
+    private val pixel = Base64.getDecoder().decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    )
+
+    @Test
+    fun `a mermaid block becomes an inline svg`() {
+        val drawn = blocks.draw("<pre class=\"mermaid\">flowchart LR" + n + "A[Webhook] --> B[Describe]" + n + "</pre>")
+        assertThat(drawn.problems).isEmpty()
+        assertThat(drawn.html).contains("<svg").contains("Webhook")
+        // And the block itself is gone, rather than sitting beside the drawing.
+        assertThat(drawn.html).doesNotContain("class=\"mermaid\"")
+    }
+
+    @Test
+    fun `a chart block becomes an inline svg`() {
+        val drawn = blocks.draw(
+            "<pre class=\"chart\">" + """{"kind":"pie","title":"Spend","values":{"Rent":45,"Food":30}}""" + "</pre>",
+        )
+        assertThat(drawn.problems).isEmpty()
+        assertThat(drawn.html).contains("<svg").contains("Rent")
+        assertThat(drawn.html).doesNotContain("class=\"chart\"")
+    }
+
+    @Test
+    fun `a picture this session holds becomes a data uri`() {
+        val drawn = blocks.draw("<img src=\"chart.png\">") { name ->
+            if (name == "chart.png") PageBlocks.Picture(pixel, "image/png") else null
+        }
+        assertThat(drawn.problems).isEmpty()
+        assertThat(drawn.html).contains("data:image/png;base64,iVBOR")
+    }
+
+    @Test
+    fun `a picture nothing holds leaves a note and says which name`() {
+        val drawn = blocks.draw("<img src=\"missing.png\">")
+        assertThat(drawn.problems).hasSize(1)
+        assertThat(drawn.problems.first()).contains("missing.png")
+        assertThat(drawn.html).contains("not drawn")
+    }
+
+    @Test
+    fun `a web address is refused rather than fetched`() {
+        val drawn = blocks.draw("<img src=\"https://example.test/logo.png\">")
+        assertThat(drawn.problems).hasSize(1)
+        assertThat(drawn.problems.first()).contains("web address")
+    }
+
+    /** A page with nothing to draw comes back as itself. */
+    @Test
+    fun `a page with no blocks is left alone`() {
+        val drawn = blocks.draw("<h1>Plain</h1><p>Nothing to draw.</p>")
+        assertThat(drawn.problems).isEmpty()
+        assertThat(drawn.html).contains("Plain").contains("Nothing to draw")
+    }
+}
