@@ -59,6 +59,10 @@ This is the part that goes wrong.
   in the archive under exactly that path. A page that points at a key, a
   session, or a file on this machine is a page whose images are broken for
   everyone but you.
+- **A diagram or chart you draw** goes in as SVG markup, not as a file: draw
+  it as SVG and add it to the page with `scratchpad_append` (`key`) or
+  `scratchpad_replace` (`newKey`). It needs no packing and draws offline. The
+  Diagrams and charts skill has the syntax.
 - **Do not paste a picture into the HTML as base64** unless it is tiny and there
   is one of them. It makes the page several times the size of the picture, and
   the model pays for every character of it.
