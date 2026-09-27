@@ -67,6 +67,17 @@ data class ToolSpec(
     val name: String,
     val description: String,
     val parameters: List<ToolParameterSpec> = emptyList(),
+    /**
+     * The phrase this tool gets where every tool is listed at once, rather than
+     * the description a model reads at the moment of calling. Issue #481.
+     *
+     * Never sent to a provider: the request carries [description], as it always
+     * has. This is for the agent's briefing, which names everything it holds so
+     * it knows what it has instead of guessing words for a search - a list that
+     * is only affordable if each line is a phrase. Null where nobody wrote one,
+     * and the description's own first words stand in.
+     */
+    val summary: String? = null,
 )
 
 data class ToolParameterSpec(val name: String, val description: String, val required: Boolean = false)
