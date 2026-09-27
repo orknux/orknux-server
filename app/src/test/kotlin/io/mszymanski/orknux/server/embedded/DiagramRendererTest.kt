@@ -164,6 +164,26 @@ class DiagramRendererTest {
         assertThat(renderer.svg(broken)).isInstanceOf(DiagramRenderer.Drawing.Refused::class.java)
     }
 
+    /**
+     * The wrapping a model writes a diagram in, in chat. Issue #543: the fence's
+     * language tag on the first line hid the header, the source went through
+     * as PlantUML, and the refusal was PlantUML's version banner.
+     */
+    @Test
+    fun `a diagram with its fence or its language tag left on still draws`() {
+        val flow = "graph TD" + n + "  A[Start] --> B[Finish]"
+        assertThat(drawn("mermaid" + n + flow)).contains("Start").contains("Finish")
+        assertThat(drawn("```mermaid" + n + flow + n + "```")).contains("Start").contains("Finish")
+    }
+
+    @Test
+    fun `a refusal says what failed, not how old plantuml is`() {
+        val broken = "@startuml" + n + "rectangle \"A\" as A" + n + "A -- -- --> ((" + n + "@enduml"
+        val answer = renderer.svg(broken) as DiagramRenderer.Drawing.Refused
+        assertThat(answer.reason).doesNotContain("days old").doesNotContain("&#160;")
+            .doesNotContainPattern("PlantUML [0-9]")
+    }
+
     /** And the refusals, which have to stay refusals rather than becoming a red box in somebody's report. */
     @Test
     fun `an empty diagram is refused rather than drawn as an error picture`() {

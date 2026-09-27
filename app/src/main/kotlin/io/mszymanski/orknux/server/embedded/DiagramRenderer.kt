@@ -182,8 +182,16 @@ class DiagramRenderer {
      */
     private fun reasonIn(svg: String): String? {
         val said = TEXT.findAll(svg)
-            .map { it.groupValues[1].trim() }
+            .map { it.groupValues[1].replace("&#160;", " ").trim() }
             .filter { it.isNotEmpty() }
+            /*
+             * Not PlantUML's own banner. Issue #543: the first lines on the
+             * canvas are its version and a nag to upgrade it, so that is what
+             * the refusal said - "this version of PlantUML is 456 days old" -
+             * and the model went looking for a PlantUML problem that was not
+             * there. The error itself comes after.
+             */
+            .filterNot { line -> BANNER.any { it.containsMatchIn(line) } }
             .take(MOST_REASON_LINES)
             .toList()
         return said.takeIf { it.isNotEmpty() }?.joinToString(" ")
@@ -200,5 +208,13 @@ class DiagramRenderer {
         const val PROFILE = "PLANTUML_SECURITY_PROFILE"
 
         val TEXT = Regex("<text[^>]*>([^<]*)</text>")
+
+        /** PlantUML's version line and its upgrade nag, which open every error canvas. */
+        val BANNER = listOf(
+            Regex("^PlantUML \\d"),
+            Regex("days old", RegexOption.IGNORE_CASE),
+            Regex("plantuml\\.com/download", RegexOption.IGNORE_CASE),
+            Regex("consider upgrading", RegexOption.IGNORE_CASE),
+        )
     }
 }

@@ -36,7 +36,7 @@ object Mermaid {
      * corrupting the one input that needed no help.
      */
     fun asPlantUml(source: String): String {
-        val written = source.trim()
+        val written = unwrapped(source.trim())
         if (written.startsWith("@start")) return written
 
         /*
@@ -231,6 +231,28 @@ object Mermaid {
 
     /** A newline, built rather than typed: a `\n` in a Kotlin string is fine, in a heredoc it is not. */
     private val LINE = 10.toChar().toString()
+
+    /**
+     * The source without the wrapping a model puts round it. Issue #543.
+     *
+     * A model writes a diagram the way it writes one in chat: inside a code
+     * fence, or with the fence's language tag left on the first line -
+     * "mermaid", then "graph TD". The tag hid the header, the source went
+     * through as PlantUML, and it failed. Both are taken off, and nothing else
+     * is touched.
+     */
+    private fun unwrapped(source: String): String {
+        var body = source
+        if (body.startsWith("```")) {
+            body = body.substringAfter(LINE, "").substringBeforeLast("```").trim()
+        }
+        val first = body.lineSequence().firstOrNull()?.trim()?.lowercase().orEmpty()
+        if (first in TAGS) body = body.substringAfter(LINE, "").trim()
+        return body
+    }
+
+    /** What a code fence's language tag says, where a model leaves it on the first line. */
+    private val TAGS = setOf("mermaid", "plantuml", "puml", "uml")
 
     private val FLOW = Regex("^(graph|flowchart)\\s+(TD|TB|LR|BT|RL)\\s*$", RegexOption.IGNORE_CASE)
     private val STATE = Regex("^stateDiagram(-v2)?\\s*$", RegexOption.IGNORE_CASE)
