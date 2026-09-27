@@ -133,7 +133,19 @@ class WorkspaceDuplicator(
                  * great deal of work to arrive at the same place.
                  */
                 runCatching {
-                    importer.apply(into, exporter.export(sourceId, kind, id, ExportDepth.SHALLOW))
+                    val envelope = exporter.export(sourceId, kind, id, ExportDepth.SHALLOW)
+                    /*
+                     * Planned before it is applied. Issue #570: apply refuses by
+                     * throwing, inside this method's one transaction, and a
+                     * refusal caught here had already marked that transaction
+                     * rollback-only - so one agent on a model the copy does not
+                     * have threw away the whole duplicate. The plan writes
+                     * nothing and joins no transaction, so a component that
+                     * cannot come is skipped with its reason and the rest land.
+                     */
+                    val plan = importer.plan(into, envelope)
+                    if (!plan.importable) throw ImportNotPossibleException(plan.problems)
+                    importer.apply(into, envelope)
                 }
                     .onSuccess { carried++ }
                     .onFailure { why ->
