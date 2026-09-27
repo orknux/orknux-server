@@ -352,6 +352,54 @@ class SessionScratchpadService(
         return hits
     }
 
+    /**
+     * Grep: a regular expression, one pad or all of them, with lines of context.
+     * Issue #560 - what scratchpad_search runs, a phrase being a pattern escaped.
+     *
+     * A phrase was all it found; a model editing a page of HTML needs a pattern -
+     * every `<img` with a src, every heading - and the lines around a hit, to
+     * give scratchpad_replace an old text that is exactly once in the file.
+     * Pads holding bytes are skipped: there are no lines in a PNG. Matched line
+     * by line, so a pattern cannot run away across a whole document.
+     *
+     * @return the hits, or a sentence saying why the pattern cannot be read
+     */
+    fun grep(
+        sessionId: Long,
+        pattern: String,
+        name: String?,
+        ignoreCase: Boolean,
+        context: Int,
+    ): Result<List<ScratchpadGrepHit>> {
+        val regex = runCatching {
+            if (ignoreCase) Regex(pattern, RegexOption.IGNORE_CASE) else Regex(pattern)
+        }.getOrElse { return Result.failure(IllegalArgumentException("that pattern is not a regular expression: ${it.message?.lineSequence()?.firstOrNull()}")) }
+        val within = if (name.isNullOrBlank()) {
+            list(sessionId)
+        } else {
+            listOf(find(sessionId, name) ?: return Result.failure(IllegalArgumentException("you have no scratchpad called \"$name\"")))
+        }
+        val around = context.coerceAtLeast(0)
+        val hits = mutableListOf<ScratchpadGrepHit>()
+        within.filter { it.contentType == null }.forEach { pad ->
+            val lines = pad.content.lines()
+            lines.forEachIndexed { index, line ->
+                if (regex.containsMatchIn(line)) {
+                    fun cut(from: Int, to: Int) = (from until to).map { lines[it].take(HIT_LENGTH) }
+                    hits += ScratchpadGrepHit(
+                        name = pad.name,
+                        line = index + 1,
+                        text = line.take(HIT_LENGTH),
+                        before = cut((index - around).coerceAtLeast(0), index),
+                        after = cut(index + 1, (index + 1 + around).coerceAtMost(lines.size)),
+                    )
+                    if (hits.size >= MOST_HITS) return Result.success(hits)
+                }
+            }
+        }
+        return Result.success(hits)
+    }
+
     private fun edit(sessionId: Long, name: String, change: (String) -> String): ScratchpadResult {
         val found = resolve(sessionId, name) ?: return missing(name)
         val pad = found.first
@@ -474,3 +522,12 @@ class SessionScratchpadService(
 
 /** Where a search found its text: which pad, which line, and the line itself. */
 data class ScratchpadHit(val name: String, val line: Int, val text: String)
+
+/** One line a grep matched, with the lines around it. Issue #560. */
+data class ScratchpadGrepHit(
+    val name: String,
+    val line: Int,
+    val text: String,
+    val before: List<String>,
+    val after: List<String>,
+)

@@ -177,6 +177,33 @@ class ScratchpadTest(
         assertThat(store.kindOf(session, "nobody-said")).isNull()
     }
 
+    /** A pattern, one pad, and the lines around each hit. Issue #560. */
+    @Test
+    fun `search with regex finds a pattern with its line numbers and context, and refuses a broken pattern`() {
+        ok(pads.create(session, "grep.html", "A page", listOf(
+            "<h1>Report</h1>",
+            "<p>intro</p>",
+            "<img src=\"images/orc.png\">",
+            "<p>middle</p>",
+            "<IMG src=\"images/nuts.png\">",
+        ).joinToString("\n")))
+        ok(pads.create(session, "other.txt", "Elsewhere", "<img src=\"x.png\">"))
+        val shed = requireNotNull(tools.shed(session))
+        fun grep(arguments: String) =
+            shed.run(io.mszymanski.orknux.connector.model.ToolCall("1", "scratchpad_search", arguments))
+
+        val cased = grep("""{"query":"<img src=\"images/[a-z]+[.]png\"","regex":"true","ignoreCase":"false","name":"grep.html","context":"1"}""")
+        assertThat(cased).contains("\"line\":3").contains("\"before\":[\"<p>intro</p>\"]")
+            .contains("\"after\":[\"<p>middle</p>\"]").doesNotContain("nuts").doesNotContain("other.txt")
+
+        val folded = grep("""{"query":"<img"}""")
+        assertThat(folded).contains("nuts").contains("other.txt")
+
+        assertThat(grep("""{"query":"(unclosed","regex":"true"}""")).contains("not a regular expression")
+        // Without regex the same text is a phrase, and a bracket is a bracket.
+        assertThat(grep("""{"query":"(unclosed"}""")).contains("\"hits\":[]")
+    }
+
     private fun ok(result: ScratchpadResult): ScratchpadResult.Ok {
         assertThat(result).isInstanceOf(ScratchpadResult.Ok::class.java)
         return result as ScratchpadResult.Ok

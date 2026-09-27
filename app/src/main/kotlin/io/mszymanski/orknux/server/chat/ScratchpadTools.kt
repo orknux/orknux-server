@@ -179,9 +179,16 @@ class ScratchpadTools(
             ToolSpec(
                 name = SEARCH,
                 description = "Finds where a piece of text appears across your scratchpads - which file and " +
-                    "which line - so you can go to a fragment without reading each file whole.",
+                    "which line - so you can go to a fragment without reading each file whole. With regex it " +
+                    "takes a regular expression instead - every <img, every heading - and context shows the " +
+                    "lines around each hit, enough to give $REPLACE an old text that appears exactly once.",
                 parameters = listOf(
-                    ToolParameterSpec(QUERY, "The text to look for; matched anywhere, ignoring case.", required = true),
+                    ToolParameterSpec(QUERY, "The text to look for, matched anywhere in a line.", required = true),
+                    // grep, folded in rather than a second tool. Issue #560.
+                    ToolParameterSpec(REGEX, "\"true\" to read the query as a regular expression.", required = false),
+                    ToolParameterSpec(NAME, "One scratchpad to look in. Left out, every one.", required = false),
+                    ToolParameterSpec(IGNORE_CASE, "\"false\" for case to count. Left out, it is ignored.", required = false),
+                    ToolParameterSpec(CONTEXT, "How many lines before and after each hit to show. Left out, none.", required = false),
                 ),
             ),
 /* scratchpad_share is gone: see NAMES. Issue #498. */
@@ -468,9 +475,30 @@ class ScratchpadTools(
         }
 
         private fun searched(args: JsonNode): String {
-            val query = text(args, QUERY) ?: return refusal("Say what to look for.")
-            val hits = pads.search(session, query).map { mapOf("name" to it.name, "line" to it.line, "text" to it.text) }
-            return mapper.writeValueAsString(mapOf("hits" to hits))
+            val query = text(args, QUERY)?.takeIf { it.isNotBlank() } ?: return refusal("Say what to look for.")
+            val regex = text(args, REGEX)?.trim()?.lowercase() == "true"
+            val context = text(args, CONTEXT)?.trim()?.toIntOrNull() ?: 0
+            val found = pads.grep(
+                session,
+                if (regex) query else Regex.escape(query.trim()),
+                text(args, NAME),
+                ignoreCase = text(args, IGNORE_CASE)?.trim()?.lowercase() != "false",
+                context = context,
+            )
+            return found.fold(
+                { hits ->
+                    // The lines around a hit only where they were asked for, so a plain search reads as it did.
+                    val shown = hits.map { hit ->
+                        if (context <= 0) {
+                            mapOf("name" to hit.name, "line" to hit.line, "text" to hit.text.trim())
+                        } else {
+                            mapOf("name" to hit.name, "line" to hit.line, "text" to hit.text, "before" to hit.before, "after" to hit.after)
+                        }
+                    }
+                    mapper.writeValueAsString(mapOf("hits" to shown))
+                },
+                { refusal(it.message ?: "that could not be searched") },
+            )
         }
 
         private fun shared(args: JsonNode): String {
@@ -530,6 +558,9 @@ class ScratchpadTools(
         const val APPEND = "scratchpad_append"
         const val REPLACE = "scratchpad_replace"
         const val SEARCH = "scratchpad_search"
+        const val REGEX = "regex"
+        const val IGNORE_CASE = "ignoreCase"
+        const val CONTEXT = "context"
         const val SHARE = "scratchpad_share"
         const val DELETE = "scratchpad_delete"
 
