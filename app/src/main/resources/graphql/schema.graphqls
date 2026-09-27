@@ -1426,6 +1426,15 @@ type Mutation {
     deleteRole(id: ID!): Boolean!
     createWorkspace(input: CreateWorkspaceInput!): Workspace!
     """
+    Copies a whole workspace into a new one. Issue #408.
+
+    Its components, in dependency order, and its own settings. Not its roles -
+    who may see a workspace is a decision about people rather than about the
+    setup - and not its runs, which are what it has done rather than how it is
+    arranged.
+    """
+    duplicateWorkspace(id: ID!, name: String!): WorkspaceCopy!
+    """
     Saves the workspace settings form. Name and description for anybody who
     administers this workspace; the two role lists for an installation
     administrator only, since whoever edits them decides who else gets in.
@@ -2205,6 +2214,28 @@ type Workspace {
     what every workspace was doing before this could be said.
     """
     voiceSpeechChunking: SpeechChunking!
+}
+
+"""
+What copying a workspace came to.
+
+Said in full rather than as a count, because a copy that quietly lost three
+agents would be worse than one that refused: what could not be carried is
+named, and so is every variable somebody has to go and set.
+"""
+type WorkspaceCopy {
+    workspace: Workspace!
+    "How many of each kind were carried, in the order they were carried."
+    carried: [CopiedKind!]!
+    "Variables the copy could not bring, by name."
+    variablesToSet: [String!]!
+    "Anything a component could not bring, said as the importer said it."
+    problems: [String!]!
+}
+
+type CopiedKind {
+    kind: String!
+    count: Int!
 }
 
 """

@@ -796,6 +796,13 @@ class AgentConversation(
                          * something was added to it - and it is the answer
                          * being identical as well that says nothing moved.
                          */
+                        /*
+                         * Nothing more from a batch that has already tripped:
+                         * the remaining calls are the same call, and running
+                         * them only buys more warnings nobody reads.
+                         */
+                        if (loopWarnings >= warningsAllowed) return@forEach
+
                         val signature = call.name + 0.toChar() + call.arguments + 0.toChar() + got
                         val now = System.currentTimeMillis()
                         if (signature == lastCall) repeats += now else { repeats.clear(); repeats += now }
@@ -847,6 +854,20 @@ class AgentConversation(
                             conversation += ChatTurn(role = "user", content = said, respondingTo = call.id)
                             conversation += ChatTurn(role = "user", content = note)
                             loopWarnings += 1
+                            /*
+                             * And the rest of this batch with it. Issue #515.
+                             *
+                             * A model can put a hundred identical calls in one
+                             * message, and it did: session 472 emitted enough
+                             * `skill_load` calls to trip this a hundred and
+                             * thirty times inside a single round, because
+                             * skipping one call carries on through the others
+                             * and the check that ends a turn sits at the top of
+                             * the *rounds* loop - which that round never
+                             * reached. Warning a hundred and thirty times and
+                             * escalating none of them is the guard working and
+                             * shouting into a void.
+                             */
                             return@forEach
                         }
 
@@ -866,6 +887,33 @@ class AgentConversation(
                             content = said,
                             respondingTo = call.id,
                         )
+                    }
+
+                    /*
+                     * A batch that went round in circles ends the turn here,
+                     * rather than at the top of the next round. Issue #515.
+                     *
+                     * The check used to sit up there, which is fine for a model
+                     * that loops one call per round and useless for one that
+                     * puts a hundred identical calls in a single message - and
+                     * that is what happens: 472 tripped the guard a hundred and
+                     * thirty times without ever reaching a next round.
+                     *
+                     * Every call is still answered before this, because a
+                     * provider requires it: leaving one unanswered is a request
+                     * some of them refuse outright, and the turn would fail
+                     * for the wrong reason.
+                     */
+                    if (loopWarnings >= warningsAllowed) {
+                        into?.let { session ->
+                            sessions.note(session, "The turn was ended: the same call was repeated after being told.")
+                        }
+                        return ChatCompletion.Failed(
+                            "it repeated the same tool call after being told the limit of " + repeatsAllowed +
+                                " identical calls within " + (repeatWindow / 1000) + " seconds, and the turn " +
+                                "was ended",
+                            permanent = false,
+                        ).also { record(into, agent, it) }
                     }
 
                     /*

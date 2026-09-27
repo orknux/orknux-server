@@ -55,6 +55,8 @@ class WorkspaceAPI(
     private val taskProperties: TaskProperties,
     /** Only to say how long a script may run where the workspace has not said. */
     private val scriptProperties: ScriptProperties,
+    /** Copying a whole workspace; see [duplicateWorkspace]. Issue #408. */
+    private val duplicator: io.mszymanski.orknux.server.transfer.WorkspaceDuplicator,
     /** Only to say how many agents one may ask where the workspace has not said. Issue #380. */
     private val installation: io.mszymanski.orknux.server.attachment.InstallationSettings,
 ) {
@@ -95,6 +97,37 @@ class WorkspaceAPI(
 
     @QueryMapping
     fun workspace(@Argument id: Long): Workspace? = repository.findByIdOrNull(id)?.takeIf(access::canSee)
+
+    /**
+     * A whole workspace copied into a new one. Issue #408.
+     *
+     * An administrator's, like creating one: it makes a workspace, and reads
+     * every component of the source to do it.
+     *
+     * What comes back says what happened rather than only that it did - how
+     * many of each kind were carried, which variables have to be set by hand,
+     * and anything a component could not bring. A copy that quietly lost three
+     * agents would be worse than one that refused.
+     */
+    @MutationMapping
+    fun duplicateWorkspace(@Argument id: Long, @Argument name: String): WorkspaceCopyView {
+        access.requireAdmin()
+        val by = org.springframework.security.core.context.SecurityContextHolder
+            .getContext().authentication?.name ?: "system"
+        val copied = duplicator.duplicate(id, name, by)
+        auditRecorder.record(
+            workspaceId = copied.workspaceId,
+            operationType = WorkspaceOperationType.ADD,
+            newWorkspaceName = copied.name,
+        )
+        return WorkspaceCopyView(
+            workspace = repository.findByIdOrNull(copied.workspaceId)
+                ?: throw WorkspaceNotFoundException(copied.workspaceId),
+            carried = copied.counts.map { (kind, count) -> CopiedKind(kind, count) },
+            variablesToSet = copied.secretsToSet,
+            problems = copied.problems,
+        )
+    }
 
     @MutationMapping
     @Transactional
@@ -954,6 +987,24 @@ data class WorkspacePage(
         totalPages = page.totalPages,
     )
 }
+
+/** What a duplicate came to, as a screen reads it. Issue #408. */
+data class WorkspaceCopyView(
+    val workspace: Workspace,
+    /** How many of each kind were carried, in the order they were carried. */
+    val carried: List<CopiedKind>,
+    /**
+     * Variables the copy could not bring, by name.
+     *
+     * Named rather than counted: each is something somebody has to go and set,
+     * and a number would leave them hunting for which.
+     */
+    val variablesToSet: List<String>,
+    /** Anything a component could not bring, said as the importer said it. */
+    val problems: List<String>,
+)
+
+data class CopiedKind(val kind: String, val count: Int)
 
 class WorkspaceNotFoundException(val id: Long) : RuntimeException("No workspace with id $id"), Refusal {
 
