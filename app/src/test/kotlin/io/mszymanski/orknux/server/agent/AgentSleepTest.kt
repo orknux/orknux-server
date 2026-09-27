@@ -139,6 +139,17 @@ class AgentSleepTest(
 
     /* ---------------------------------------------------- what the model gets */
 
+    /**
+     * The wake-up is offered as a timer as well as a wait. Issue #568: asked to
+     * say hi every five seconds, an agent said it could not run a timer, and
+     * then did it five times when asked for five.
+     */
+    @Test
+    fun `the wake-up says it repeats on a timer and that an open-ended ask is done as far as it goes`() {
+        val waiting = finishing.shed(sleeping = sleeping(left = 2))!!.specs().single()
+        assertThat(waiting.description).contains("on a timer").contains("rather than saying you cannot")
+    }
+
     @Test
     fun `an ending without a wake-up is the ending it always was`() {
         val shed = finishing.shed(sleeping = sleeping(left = 2))!!

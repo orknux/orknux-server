@@ -170,6 +170,11 @@ class FinishAnswerTools(private val mapper: ObjectMapper) {
             "started again when that time is up, with the note you left yourself. Wait when the " +
             "thing you need has not happened yet - a build is running, somebody has been asked, a " +
             "job lands later - rather than holding this turn open or answering as though it had. " +
+            // And to repeat, which it is just as much. Issue #568.
+            "It is also how you do something on a timer: act, wait, and act again when you are started - " +
+            "a message every few seconds, a check every minute. Keep the count in a note to yourself. " +
+            "Asked for something open-ended, like every five seconds, do it for as many waits as are left " +
+            "and say where it will stop, rather than saying you cannot. " +
             "This run has ${sleeping.left} of those left, and one may be up to " +
             "${sleeping.longest.toMillis()} ms.",
         parameters = FINISHING.parameters + ToolParameterSpec(
