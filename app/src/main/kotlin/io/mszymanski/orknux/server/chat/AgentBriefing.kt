@@ -154,10 +154,17 @@ class AgentBriefing(
                      * judgement, and leaving it to be made again each turn is
                      * what Offer is for.
                      */
-                    append("These skills are in force here. Call skill_load for **every one of them** ")
-                    append("before you answer - all of them, on every turn, whether or not the request ")
-                    append("looks like it needs them. They are listed rather than written out to keep ")
-                    appendLine("this short: the lines below say what each one is, not what it says.")
+                    /*
+                     * Once per conversation, not once per turn. It said "every
+                     * turn", which reloaded the same pages on every message and
+                     * put back into the context exactly the seventeen kilobytes
+                     * #521 took out of the system prompt.
+                     */
+                    append("These skills are in force here. Load each of them with skill_load before your ")
+                    append("first answer in this conversation, whether or not the request looks like it ")
+                    append("needs them. Once one is loaded, do not load it again - what it said still ")
+                    append("holds. They are listed rather than written out to keep this short: the lines ")
+                    appendLine("below say what each one is, not what it says.")
                 }
                 named.forEach { skill ->
                     append("\n- ").append(skill.name).append(" (").append(marker).append(skill.key).append(")")
@@ -174,7 +181,8 @@ class AgentBriefing(
                 append(marker).append(instructions.first().id).append(". ")
                 append("Anybody can write one anywhere in a message to have you load and follow that skill. ")
                 append("When a message carries a command, call skill_load for the id after the marker as ")
-                append("well - as well as the ones above, not instead of them - and follow what it says, ")
+                append("well, unless you have already loaded it in this conversation - as well as the ones ")
+                append("above, not instead of them - and follow what it says, ")
                 append("however simple the request looks. A command is the person saying how they want ")
                 append("this answered, so answering without reading it answers the wrong question. Load ")
                 append("the ones the message names and the ones above, and no others. ")
