@@ -95,6 +95,38 @@
         </dependency>
 
         <!--
+          What draws a diagram, and what lays a page out. Issues #487 and #506.
+
+          Both used to be JavaScript in a sandbox, and both were heroics: the
+          mermaid renderer is a hand-written parser that knows five diagram
+          kinds, and the PlantUML plugin is PlantUML compiled to JavaScript by
+          TeaVM, with an event loop turned by hand after the call returns and
+          font metrics answered from Helvetica's advance widths because there is
+          no canvas to measure with. Here PlantUML is simply PlantUML, measuring
+          text with the JVM's own font stack, and openhtmltopdf lays out real
+          CSS into the PDFBox document this build already carries.
+
+          Licences, since both are copyleft and this matters: PlantUML is
+          GPL-3.0 and openhtmltopdf is LGPL-2.1-or-later, and Orknux is
+          AGPL-3.0, which is written to allow exactly this combination.
+        -->
+        <dependency>
+            <groupId>net.sourceforge.plantuml</groupId>
+            <artifactId>plantuml</artifactId>
+            <version>1.2025.4</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.openhtmltopdf</groupId>
+            <artifactId>openhtmltopdf-pdfbox</artifactId>
+            <version>1.1.28</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.openhtmltopdf</groupId>
+            <artifactId>openhtmltopdf-svg-support</artifactId>
+            <version>1.1.28</version>
+        </dependency>
+
+        <!--
           What `orknux.validate` reads a document with. Issue #416.
 
           Three parsers rather than three hand-written checks: a validator that
