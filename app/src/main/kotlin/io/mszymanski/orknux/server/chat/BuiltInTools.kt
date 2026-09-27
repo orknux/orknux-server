@@ -141,6 +141,7 @@ class BuiltInTools(
             AgentTools.BASE64_ENCODE,
             AgentTools.BASE64_DECODE,
             ZipTools.ZIP_FILES,
+            ZipTools.ZIP_EXTRACT,
             AgentTools.VALIDATE,
 
             /*

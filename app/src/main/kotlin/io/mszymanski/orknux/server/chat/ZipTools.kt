@@ -41,9 +41,92 @@ class ZipTools(
     private val mapper: ObjectMapper,
 ) {
 
-    fun descriptors(): List<ToolDescriptor> = listOf(ZIP)
+    fun descriptors(): List<ToolDescriptor> = listOf(ZIP, EXTRACT)
 
-    fun handles(name: String): Boolean = name == ZIP_FILES
+    fun handles(name: String): Boolean = name == ZIP_FILES || name == ZIP_EXTRACT
+
+    /** The call, by which of the two it is. */
+    fun run(name: String, arguments: String, sessionId: Long?): String =
+        if (name == ZIP_EXTRACT) extract(arguments, sessionId) else run(arguments, sessionId)
+
+    /**
+     * An archive unpacked into scratchpads. Issue #566.
+     *
+     * A model handed a zip - an attachment, a report it made in an earlier
+     * turn - could not open it, and rebuilt the pages to change one line. Each
+     * file becomes a pad named by its path: text as text, so it can be read and
+     * edited, and everything else as a pad holding bytes, which zip_files and
+     * the upload tools take back as they are. A pad already there is left alone
+     * unless asked to be replaced, and says so.
+     */
+    private fun extract(arguments: String, sessionId: Long?): String {
+        if (sessionId == null) return refusal("There is no session here to keep scratchpads in.")
+        val asked = runCatching { mapper.readTree(arguments) }.getOrNull()
+            ?: return refusal("That is not valid JSON.")
+        val key = text(asked, KEY)?.trim()?.ifEmpty { null } ?: return refusal("Give the $KEY of the archive to open.")
+        val bytes = read(asked, sessionId) ?: return refusal("Nothing in this session is kept under \"$key\".")
+        val entries = unpacked(bytes)
+            ?: return refusal(
+                "\"$key\" is not a zip this can open: it is not an archive, or it holds more than $MOST_FILES " +
+                    "files or ${MOST_BYTES / (1024 * 1024)} MB.",
+            )
+        val folder = text(asked, FOLDER)?.trim()?.trim('/')?.ifEmpty { null }
+        val replace = text(asked, REPLACE)?.trim()?.lowercase() == "true"
+
+        val made = mutableListOf<Map<String, Any?>>()
+        val skipped = mutableListOf<String>()
+        entries.forEach { (path, content) ->
+            val name = if (folder == null) path else "$folder/$path"
+            val type = textTypeOf(path, content)
+            val (body, bytesType) = if (type != null) {
+                String(content, Charsets.UTF_8) to null
+            } else {
+                Base64.getEncoder().encodeToString(content) to binaryTypeOf(path)
+            }
+            val held = pads.find(sessionId, name)
+            val result = when {
+                held == null -> pads.create(sessionId, name, "From $key", body, bytesType)
+                replace && held.contentType == bytesType -> pads.write(sessionId, name, body)
+                else -> {
+                    skipped += name
+                    return@forEach
+                }
+            }
+            when (result) {
+                is io.mszymanski.orknux.server.llm.ScratchpadResult.Ok ->
+                    made += linkedMapOf("name" to name, "bytes" to content.size, "text" to (type != null))
+                is io.mszymanski.orknux.server.llm.ScratchpadResult.No -> skipped += "$name (${result.why})"
+            }
+        }
+        val answer = linkedMapOf<String, Any?>("extracted" to made)
+        if (skipped.isNotEmpty()) {
+            answer["notExtracted"] = skipped
+            answer["note"] = "A scratchpad already there is kept; pass $REPLACE \"true\" to overwrite it."
+        }
+        return mapper.writeValueAsString(answer)
+    }
+
+    /** The text type a file's name says it is, or null for bytes. */
+    private fun textTypeOf(path: String, content: ByteArray): String? {
+        val extension = path.substringAfterLast('.', "").lowercase()
+        if (extension in TEXT_EXTENSIONS) return extension
+        if (extension in BINARY_EXTENSIONS) return null
+        // A name that says nothing: text where the bytes are UTF-8 with no NUL in them.
+        if (content.any { it == 0.toByte() }) return null
+        return runCatching {
+            Charsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(content)); "txt"
+        }.getOrNull()
+    }
+
+    private fun binaryTypeOf(path: String): String = when (path.substringAfterLast('.', "").lowercase()) {
+        "png" -> "image/png"
+        "jpg", "jpeg" -> "image/jpeg"
+        "gif" -> "image/gif"
+        "webp" -> "image/webp"
+        "pdf" -> "application/pdf"
+        "zip" -> "application/zip"
+        else -> "application/octet-stream"
+    }
 
     /**
      * One archive from the files named, put in the session store.
@@ -157,6 +240,8 @@ class ZipTools(
         }
         text(one, KEY)?.trim()?.takeIf { it.isNotEmpty() }?.let { key ->
             val stored = scratch.get(sessionId, key) ?: return null
+            // What it is, where the store was told - no guessing. Issue #559.
+            val kind = scratch.kindOf(sessionId, key)
             /*
              * What the store holds is a JSON value, so it is parsed before it is
              * anything else. Issue #499: this read the raw row, and since the
@@ -179,6 +264,9 @@ class ZipTools(
              * base64 - "report" is not, "data" is - would otherwise land in the
              * archive as four mangled bytes.
              */
+            if (kind != null) {
+                return if (kind.binary) runCatching { Base64.getDecoder().decode(held) }.getOrNull() else held.toByteArray()
+            }
             return runCatching { Base64.getDecoder().decode(held) }
                 .getOrNull()
                 ?.takeIf { held.length >= SHORTEST_BASE64 }
@@ -194,6 +282,61 @@ class ZipTools(
 
     companion object {
         const val ZIP_FILES = "zip_files"
+
+        /** Unpacking one into scratchpads. Issue #566. */
+        const val ZIP_EXTRACT = "zip_extract"
+        const val FOLDER = "folder"
+        const val REPLACE = "replace"
+
+        private val TEXT_EXTENSIONS = setOf(
+            "html", "htm", "css", "js", "mjs", "ts", "json", "md", "markdown", "txt", "csv", "svg", "xml",
+            "yml", "yaml", "kt", "java", "py", "sh", "sql", "log",
+        )
+        private val BINARY_EXTENSIONS = setOf("png", "jpg", "jpeg", "gif", "webp", "pdf", "zip", "ico", "woff", "woff2")
+
+        /**
+         * Every file in an archive by its path, or null for one that is not a
+         * zip or holds more than [MOST_FILES] files or [MOST_BYTES] - the same
+         * bounds as what zip_files packs, so a key cannot unpack into more
+         * than an archive made here could hold. Paths lose ./, ../ and leading
+         * slashes. Shared with pdf_fromHtmlZip.
+         */
+        fun unpacked(bytes: ByteArray): Map<String, ByteArray>? = runCatching {
+            val held = linkedMapOf<String, ByteArray>()
+            var total = 0L
+            java.util.zip.ZipInputStream(bytes.inputStream()).use { zip ->
+                while (true) {
+                    val entry = zip.nextEntry ?: break
+                    if (entry.isDirectory) continue
+                    if (held.size >= MOST_FILES) return null
+                    val read = java.io.ByteArrayOutputStream()
+                    val buffer = ByteArray(8192)
+                    while (true) {
+                        val n = zip.read(buffer)
+                        if (n < 0) break
+                        total += n
+                        if (total > MOST_BYTES) return null
+                        read.write(buffer, 0, n)
+                    }
+                    val path = normalised(entry.name)
+                    if (path.isNotEmpty()) held[path] = read.toByteArray()
+                }
+            }
+            held.takeIf { it.isNotEmpty() }
+        }.getOrNull()
+
+        /** A path inside an archive, with ./, ../ and leading slashes taken out. */
+        fun normalised(path: String): String {
+            val parts = ArrayDeque<String>()
+            path.replace('\\', '/').split('/').forEach { part ->
+                when (part) {
+                    "", "." -> Unit
+                    ".." -> parts.removeLastOrNull()
+                    else -> parts.addLast(part)
+                }
+            }
+            return parts.joinToString("/")
+        }
         const val FILES = "files"
         const val NAME = "name"
         const val PAD = "scratchpad"
@@ -221,6 +364,27 @@ class ZipTools(
         const val SHAPE =
             """{"files":[{"name":"report.pdf","contentKey":"pdf.1lt2fm6"},""" +
                 """{"name":"notes.md","scratchpad":"notes.md"}],"name":"report.zip"}"""
+
+        val EXTRACT = ToolDescriptor(
+            name = ZIP_EXTRACT,
+            description = "Unpacks a zip into scratchpads, one per file, named by its path inside the archive " +
+                "(index.html, images/orc.png) - so an archive somebody sent, or one you made earlier, can be " +
+                "read and edited. Text files become text pads; pictures and other bytes become pads that hold " +
+                "bytes, which zip_files and the upload tools take back as they are. Answers the pads made.",
+            parameters = listOf(
+                ToolParameter(name = KEY, description = "The archive's key.", required = true),
+                ToolParameter(
+                    name = FOLDER,
+                    description = "A folder to put the pads under, like report/. Left out, the archive's own paths.",
+                    required = false,
+                ),
+                ToolParameter(
+                    name = REPLACE,
+                    description = "\"true\" to overwrite scratchpads already there. Left out, they are kept.",
+                    required = false,
+                ),
+            ),
+        )
 
         val ZIP = ToolDescriptor(
             name = ZIP_FILES,

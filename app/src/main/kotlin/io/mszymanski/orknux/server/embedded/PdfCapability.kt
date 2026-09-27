@@ -219,42 +219,11 @@ class PdfCapability(
         return documentAnswer(made, asked, sessionId)
     }
 
-    /** Every file in the archive by its path, or null for one that is not a zip or is too large. */
-    private fun unzipped(bytes: ByteArray): Map<String, ByteArray>? = runCatching {
-        val held = linkedMapOf<String, ByteArray>()
-        var total = 0L
-        java.util.zip.ZipInputStream(bytes.inputStream()).use { zip ->
-            while (true) {
-                val entry = zip.nextEntry ?: break
-                if (entry.isDirectory) continue
-                if (held.size >= io.mszymanski.orknux.server.chat.ZipTools.MOST_FILES) return null
-                val read = java.io.ByteArrayOutputStream()
-                val buffer = ByteArray(8192)
-                while (true) {
-                    val n = zip.read(buffer)
-                    if (n < 0) break
-                    total += n
-                    if (total > io.mszymanski.orknux.server.chat.ZipTools.MOST_BYTES) return null
-                    read.write(buffer, 0, n)
-                }
-                held[normalised(entry.name)] = read.toByteArray()
-            }
-        }
-        held.takeIf { it.isNotEmpty() }
-    }.getOrNull()
+    /** Every file in the archive by its path; see [io.mszymanski.orknux.server.chat.ZipTools.unpacked]. */
+    private fun unzipped(bytes: ByteArray): Map<String, ByteArray>? =
+        io.mszymanski.orknux.server.chat.ZipTools.unpacked(bytes)
 
-    /** A path inside the archive, with ./, ../ and leading slashes taken out. */
-    private fun normalised(path: String): String {
-        val parts = ArrayDeque<String>()
-        path.replace('\\', '/').split('/').forEach { part ->
-            when (part) {
-                "", "." -> Unit
-                ".." -> parts.removeLastOrNull()
-                else -> parts.addLast(part)
-            }
-        }
-        return parts.joinToString("/")
-    }
+    private fun normalised(path: String): String = io.mszymanski.orknux.server.chat.ZipTools.normalised(path)
 
     /** Where a relative src or href points, from the page's own folder. */
     private fun resolved(base: String, src: String): String {

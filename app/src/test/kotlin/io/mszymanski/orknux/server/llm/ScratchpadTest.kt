@@ -267,6 +267,39 @@ class ScratchpadTest(
         assertThat(read).contains("Plainly visible").doesNotContain("Zanzibarquux")
     }
 
+    /**
+     * An archive unpacked into pads: text as text, a picture as a pad holding
+     * bytes, and a pad already there kept unless asked. Issue #566.
+     */
+    @Test
+    fun `zip_extract unpacks an archive into scratchpads`() {
+        val dot = java.util.Base64.getDecoder().decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        )
+        val zipped = java.io.ByteArrayOutputStream()
+        java.util.zip.ZipOutputStream(zipped).use { zip ->
+            zip.putNextEntry(java.util.zip.ZipEntry("site/index.html")); zip.write("<h1>Unpacked</h1>".toByteArray()); zip.closeEntry()
+            zip.putNextEntry(java.util.zip.ZipEntry("site/images/dot.png")); zip.write(dot); zip.closeEntry()
+        }
+        store.put(
+            session, "site.zip", "\"" + java.util.Base64.getEncoder().encodeToString(zipped.toByteArray()) + "\"",
+            io.mszymanski.orknux.workflow.script.StoredKind("application/zip", true),
+        )
+        val shed = requireNotNull(tools.shed(session))
+        fun extract(arguments: String) =
+            shed.run(io.mszymanski.orknux.connector.model.ToolCall("1", "zip_extract", arguments))
+
+        val first = extract("""{"contentKey":"site.zip"}""")
+        assertThat(first).contains("site/index.html").contains("site/images/dot.png")
+        assertThat(requireNotNull(pads.find(session, "site/index.html")).content).isEqualTo("<h1>Unpacked</h1>")
+        val picture = requireNotNull(pads.find(session, "site/images/dot.png"))
+        assertThat(picture.contentType).isEqualTo("image/png")
+        assertThat(java.util.Base64.getDecoder().decode(picture.content)).isEqualTo(dot)
+
+        assertThat(extract("""{"contentKey":"site.zip"}""")).contains("notExtracted").contains("replace")
+        assertThat(extract("""{"contentKey":"site.zip","folder":"copy"}""")).contains("copy/site/index.html")
+    }
+
     /** How many pictures a stored PDF actually carries, counted by PDFBox. */
     private fun imagesIn(stored: String): Int {
         val pdf = java.util.Base64.getDecoder().decode(stored.trim('"'))

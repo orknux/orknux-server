@@ -238,7 +238,7 @@ class ScratchpadTools(
                 KEEP -> kept(args)
                 DELETE -> deleted(args)
                 else -> if (zips.handles(call.name)) {
-                    zips.run(call.arguments, session)
+                    zips.run(call.name, call.arguments, session)
                 } else {
                     refusal("There is no scratchpad tool called ${call.name}.")
                 }
