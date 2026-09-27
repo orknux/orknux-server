@@ -290,16 +290,34 @@ class ScratchpadTools(
         }
 
         private fun listed(): String {
-            val held = pads.list(session).map {
-                mapOf(
+            val all = pads.list(session)
+            val held = all.map {
+                linkedMapOf(
                     "name" to it.name,
                     "description" to it.description,
-                    "bytes" to it.bytes,
+                    /*
+                     * The file's own size where it holds one, not its base64's,
+                     * and what it is. Issue #569: a model sizing up a session to
+                     * see what would fit read a picture as a third larger than
+                     * it was, and could not tell a picture from a page.
+                     */
+                    "bytes" to if (it.contentType == null) it.bytes else it.content.length / 4 * 3,
+                    "contentType" to (it.contentType ?: "text"),
                     "shared" to it.shared,
                     "ownedHere" to (it.sessionId == session),
                 )
             }
-            return mapper.writeValueAsString(mapOf("scratchpads" to held))
+            // And how much is left of each budget, which is what decides whether the next one fits.
+            val own = all.filter { it.sessionId == session }
+            val textHeld = own.filter { it.contentType == null }.sumOf { it.bytes.toLong() }
+            val filesHeld = own.filter { it.contentType != null }.sumOf { it.content.length.toLong() }
+            return mapper.writeValueAsString(
+                linkedMapOf(
+                    "scratchpads" to held,
+                    "textBytesLeft" to (pads.textBudgetBytes() - textHeld).coerceAtLeast(0),
+                    "fileBytesLeft" to (pads.fileBudgetBytes() - filesHeld).coerceAtLeast(0) / 4 * 3,
+                ),
+            )
         }
 
         private fun read(args: JsonNode): String {

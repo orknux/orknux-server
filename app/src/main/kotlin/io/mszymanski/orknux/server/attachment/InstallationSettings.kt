@@ -1535,7 +1535,7 @@ class ScratchpadFileBudgetOutOfRangeException(val bytes: Long) : RuntimeExceptio
 
 const val MIN_SCRATCHPAD_BYTES = 1024
 const val MAX_SCRATCHPAD_BYTES = 64 * 1024 * 1024
-const val DEFAULT_SCRATCHPAD_BYTES = 1024 * 1024
+const val DEFAULT_SCRATCHPAD_BYTES = 10 * 1024 * 1024
 
 class ScratchpadBudgetOutOfRangeException(val bytes: Int) : RuntimeException(
     "$bytes is not a size a session's scratchpads can be held to. " +

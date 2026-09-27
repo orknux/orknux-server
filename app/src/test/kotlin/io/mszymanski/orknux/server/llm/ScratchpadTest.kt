@@ -405,6 +405,36 @@ class ScratchpadTest(
         }
     }
 
+    /**
+     * A file is held to the file budget, not the text one. Issue #569: a
+     * second picture unpacked from a zip was refused as over the text budget.
+     */
+    @Test
+    fun `a pad holding bytes does not count against the text budget, and text still does`() {
+        val was = settings.scratchpadBudgetBytes()
+        try {
+            settings.setScratchpadBudgetBytes(1024, "test")
+            ok(pads.create(session, "shot.png", null, "A".repeat(4000), contentType = "image/png"))
+            ok(pads.create(session, "shot2.png", null, "B".repeat(4000), contentType = "image/png"))
+            ok(pads.create(session, "notes.md", null, "a".repeat(1000)))
+            assertThat(no(pads.append(session, "notes.md", "b".repeat(100)))).contains("over the")
+        } finally {
+            settings.setScratchpadBudgetBytes(was, "test")
+        }
+    }
+
+    /** The list says a file's real size and what it is, and what is left of each budget. Issue #569. */
+    @Test
+    fun `scratchpad_list gives a file's real size, its type and what is left of each budget`() {
+        ok(pads.create(session, "list.md", null, "hello"))
+        ok(pads.create(session, "list.png", null, "AAAAAAAA", contentType = "image/png"))
+        val listed = requireNotNull(tools.shed(session))
+            .run(io.mszymanski.orknux.connector.model.ToolCall("1", "scratchpad_list", "{}"))
+
+        assertThat(listed).contains("\"name\":\"list.png\"").contains("\"bytes\":6").contains("\"contentType\":\"image/png\"")
+            .contains("\"contentType\":\"text\"").contains("textBytesLeft").contains("fileBytesLeft")
+    }
+
     /* --------------------------------------------------- sharing ----------- */
 
     @Test

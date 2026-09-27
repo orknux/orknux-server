@@ -70,6 +70,21 @@ class ZipTools(
                 "\"$key\" is not a zip this can open: it is not an archive, or it holds more than $MOST_FILES " +
                     "files or ${MOST_BYTES / (1024 * 1024)} MB.",
             )
+        /*
+         * Every file must fit the session's file budget together, checked before
+         * anything is written: the sweep would otherwise drop the first picture
+         * to make room for the last, leaving a site with a hole in it. Issue #569.
+         */
+        val filesSize = entries.filter { (path, content) -> textTypeOf(path, content) == null }
+            .values.sumOf { (it.size + 2) / 3 * 4L }
+        val fileBudget = pads.fileBudgetBytes()
+        if (filesSize > fileBudget) {
+            return refusal(
+                "The pictures and other files in \"$key\" come to ${filesSize / 1024} KB as scratchpads, over the " +
+                    "${fileBudget / 1024} KB a session keeps in files. Pass the archive's key where it is needed " +
+                    "instead, or ask for the file budget to be raised in Admin -> Settings -> Scratchpads.",
+            )
+        }
         val folder = text(asked, FOLDER)?.trim()?.trim('/')?.ifEmpty { null }
         val replace = text(asked, REPLACE)?.trim()?.lowercase() == "true"
 
@@ -98,7 +113,10 @@ class ZipTools(
                 is io.mszymanski.orknux.server.llm.ScratchpadResult.No -> skipped += "$name (${result.why})"
             }
         }
+        // The files are held to their own budget, and anything older that made way is said. Issue #569.
+        val swept = pads.sweepFiles(sessionId)
         val answer = linkedMapOf<String, Any?>("extracted" to made)
+        if (swept.isNotEmpty()) answer["removed"] = swept
         if (skipped.isNotEmpty()) {
             answer["notExtracted"] = skipped
             answer["note"] = "A scratchpad already there is kept; pass $REPLACE \"true\" to overwrite it."

@@ -116,11 +116,15 @@ interface SessionScratchpadRepository : JpaRepository<SessionScratchpad, Long> {
     /** Everything nobody has touched since then, for the sweeper. Issue #492. */
     fun findByUpdatedAtBefore(cutoff: java.time.OffsetDateTime): List<SessionScratchpad>
 
-    /** The bytes this session's own pads already occupy, for the budget. */
+    /**
+     * The characters this session's own text pads already occupy, for the text
+     * budget. Files are held to theirs instead - see [SessionScratchpadService.sweepFiles].
+     * Issue #569: counting them here held a picture to the 1 MB meant for text.
+     */
     @Query(
         """
         select coalesce(sum(length(p.content)), 0) from SessionScratchpad p
-        where p.sessionId = :sessionId
+        where p.sessionId = :sessionId and p.contentType is null
         """,
     )
     fun charsHeldBy(sessionId: Long): Long
@@ -199,8 +203,11 @@ class SessionScratchpadService(
         if (pads.countBySessionId(sessionId) >= MOST_PADS) {
             return ScratchpadResult.No("This session already holds $MOST_PADS scratchpads, which is as many as are kept.")
         }
-        overBudget(sessionId, added = content.toByteArray(Charsets.UTF_8).size, replacing = 0)?.let {
-            return ScratchpadResult.No(it)
+        // Text against the text budget; a file answers to the file budget, by the sweep. Issue #569.
+        if (contentType.isNullOrBlank()) {
+            overBudget(sessionId, added = content.toByteArray(Charsets.UTF_8).size, replacing = 0)?.let {
+                return ScratchpadResult.No(it)
+            }
         }
         descriptionProblem(description)?.let { return ScratchpadResult.No(it) }
         val saved = pads.save(
@@ -249,6 +256,12 @@ class SessionScratchpadService(
      * so - an agent that finds out later is one that packed an archive around a
      * file that is gone.
      */
+    /** How much a session may keep in files, for a caller that must check before writing. */
+    fun fileBudgetBytes(): Long = settings.scratchpadFileBudgetBytes()
+
+    /** How much a session may keep in text pads. */
+    fun textBudgetBytes(): Long = settings.scratchpadBudgetBytes().toLong()
+
     @Transactional
     fun sweepFiles(sessionId: Long): List<String> {
         val budget = settings.scratchpadFileBudgetBytes()
@@ -406,7 +419,9 @@ class SessionScratchpadService(
         val next = change(pad.content)
         val added = next.toByteArray(Charsets.UTF_8).size
         val was = pad.content.toByteArray(Charsets.UTF_8).size
-        overBudget(pad.sessionId, added = added, replacing = was)?.let { return ScratchpadResult.No(it) }
+        if (pad.contentType == null) {
+            overBudget(pad.sessionId, added = added, replacing = was)?.let { return ScratchpadResult.No(it) }
+        }
         pad.content = next
         pad.updatedAt = OffsetDateTime.now()
         return ScratchpadResult.Ok(pads.save(pad), found.second)
