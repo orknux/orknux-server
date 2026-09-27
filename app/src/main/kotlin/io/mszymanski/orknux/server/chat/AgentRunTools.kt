@@ -173,7 +173,8 @@ class AgentRunTools(
                 "which is what cuts a long file off. Where you want something long made - a page, a " +
                 "file, a list of a hundred things - say in the question that it should be written " +
                 "into a scratchpad, and the answer will name the pad: you then read and " +
-                "edit that pad yourself instead of it being typed back at you. You may ask: " +
+                "edit that pad yourself instead of it being typed back at you. To see what each " +
+                "of them can do - its tools, skills and connections - call " + LIST + " first. You may ask: " +
                 named.joinToString(", ") { "${it.name} (${it.description ?: "no description"})" },
             parameters = listOf(
                 ToolParameterSpec(
@@ -196,6 +197,44 @@ class AgentRunTools(
                 ),
             ),
         )
+    }
+
+    /** What `agent_list` is, to a model. Issue #552. */
+    fun listSpec(): ToolSpec = ToolSpec(
+        name = LIST,
+        description = "Lists the agents you may ask, with what each can do: its description, model, " +
+            "tools, skills, memories and connections. Call it before asking, to pick the agent that " +
+            "holds the tool the work needs, rather than asking one and hearing it cannot.",
+        parameters = emptyList(),
+    )
+
+    /**
+     * The agents this one may ask, each with its setup. Issue #552.
+     *
+     * The names and descriptions on ask_agent say what an agent is for, not
+     * what it holds: asked for commit statistics, an agent went to the one
+     * whose description sounded right, which had no GitHub tool, and heard
+     * back that it could not. The setup is read the way the session records
+     * it - [io.mszymanski.orknux.server.agent.AgentDetails] - for the agent as
+     * it would be asked, so with no agents of its own, and without its prompt,
+     * which is its instructions and not the asker's business.
+     */
+    fun listed(agent: Agent): String {
+        val described = granted(agent).map { asked ->
+            val setup = mapper.readTree(details.getObject().snapshot(without(asked), null, null))
+            val tools = (setup.path("tools").toList().map { it.stringValue() } + setup.path("findable").toList().map { it.stringValue() })
+                .distinct().sorted()
+            linkedMapOf(
+                "name" to asked.name,
+                "description" to asked.description,
+                "model" to setup.path("model").takeIf { it.isTextual }?.stringValue(),
+                "tools" to tools,
+                "skills" to setup.path("skills").toList().map { it.stringValue() },
+                "memory" to setup.path("memory").toList().map { it.stringValue() },
+                "connections" to setup.path("connections").toList().map { it.stringValue() },
+            )
+        }
+        return mapper.writeValueAsString(linkedMapOf("agents" to described))
     }
 
     /** What `agent_asks` is, to a model. Issue #477. */
@@ -226,7 +265,7 @@ class AgentRunTools(
         ),
     )
 
-    fun handles(name: String): Boolean = name == ASK || name == ASKS || name == WAIT
+    fun handles(name: String): Boolean = name == ASK || name == ASKS || name == WAIT || name == LIST
 
     /**
      * Waits for something asked to finish. Issue #462.
@@ -687,6 +726,9 @@ class AgentRunTools(
 
         /** What this conversation has asked, and how it is going. Issue #477. */
         const val ASKS = "agent_asks"
+
+        /** The agents this one may ask, with their setups. Issue #552. */
+        const val LIST = "agent_list"
 
         /** Waiting for one of them, now that asking does not wait. Issue #462. */
         const val WAIT = "agent_wait"

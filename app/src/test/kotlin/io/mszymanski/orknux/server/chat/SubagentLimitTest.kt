@@ -132,6 +132,29 @@ class SubagentLimitTest(
         ).execute().errors().verify()
     }
 
+    /* --------------------------------------------------- who it may ask --- */
+
+    /**
+     * What each agent it may ask can do, not only what it is for. Issue #552:
+     * asked for commit statistics, an agent asked the one whose description
+     * sounded right, which had no GitHub tool.
+     */
+    @Test
+    fun `agent_list names each agent it may ask with its model, tools and skills`() {
+        val planner = asker()
+        val librarian = requireNotNull(agents.findByWorkspaceIdAndName(workspaceId, "Librarian"))
+        librarian.description = "Finds things in the archive"
+        librarian.skillCatalogs = mutableListOf("Support playbooks")
+        agents.save(librarian)
+
+        val listed = asking.listed(planner)
+
+        assertThat(listed).contains("\"name\":\"Librarian\"").contains("Finds things in the archive")
+            .contains("\"model\":\"Stub\"").contains("Support playbooks").contains("save_artifact")
+        // Asked, it has no agents of its own, so nothing to ask with either.
+        assertThat(listed).doesNotContain("\"ask_agent\"").doesNotContain("Planner")
+    }
+
     /* ------------------------------------------------------- the count --- */
 
     @Test
