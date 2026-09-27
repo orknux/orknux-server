@@ -78,15 +78,8 @@ class DiagramCapability(
 
         return when (val picture = svgs.png(drawn.svg, null)) {
             is SvgRenderer.Drawing.Refused -> refusal(picture.reason)
-            is SvgRenderer.Drawing.Drawn -> mapper.writeValueAsString(
-                linkedMapOf(
-                    "picture" to Base64.getEncoder().encodeToString(picture.png),
-                    "pictureType" to "image/png",
-                    "width" to picture.width,
-                    "height" to picture.height,
-                    "kind" to drawn.kind,
-                ),
-            )
+            is SvgRenderer.Drawing.Drawn ->
+                drawing(mapper, scratch, sessionId, "diagram", picture.png, picture.width, picture.height, drawn.kind)
         }
     }
 
@@ -128,6 +121,7 @@ class DiagramCapability(
 class ChartCapability(
     private val charts: ChartRenderer,
     private val svgs: SvgRenderer,
+    private val scratch: LlmSessionStore,
     private val mapper: ObjectMapper,
 ) : EmbeddedCapability {
 
@@ -186,15 +180,8 @@ class ChartCapability(
 
         return when (val picture = svgs.png(drawn.svg, null)) {
             is SvgRenderer.Drawing.Refused -> refusal(picture.reason)
-            is SvgRenderer.Drawing.Drawn -> mapper.writeValueAsString(
-                linkedMapOf(
-                    "picture" to Base64.getEncoder().encodeToString(picture.png),
-                    "pictureType" to "image/png",
-                    "width" to picture.width,
-                    "height" to picture.height,
-                    "kind" to drawn.kind,
-                ),
-            )
+            is SvgRenderer.Drawing.Drawn ->
+                drawing(mapper, scratch, sessionId, "chart", picture.png, picture.width, picture.height, drawn.kind)
         }
     }
 
@@ -233,6 +220,55 @@ class ChartCapability(
         const val TITLE = "title"
         const val FORMAT = "format"
     }
+}
+
+/**
+ * A drawing, answered so it can be both seen and sent. Issue #513.
+ *
+ * The picture goes in the session store under a key and the key goes in the
+ * answer beside the bytes. Both, deliberately:
+ *
+ *  - the bytes are what the round lifts out and shows the model, and are then
+ *    taken back out of the answer, because base64 is the largest thing that can
+ *    land in a context window and no model can read it;
+ *  - the key is what survives that, and is what `slack_uploadBinary` and every
+ *    other sender takes.
+ *
+ * Without the key a picture could be seen and not used. A run hit exactly that:
+ * the answer came back `picture: ""` with `pictureBytes: 9051`, which reads as
+ * a drawing that exists somewhere out of reach, and the agent called the tool
+ * again looking for a key, reasoned about where one might be hiding, and gave
+ * up. It had drawn the diagram correctly three times.
+ *
+ * Where there is no session there is nowhere to keep it, so the bytes are the
+ * only copy and travel alone - which is the workflow case, and there is no
+ * model there to spend a context window on.
+ */
+private fun drawing(
+    mapper: ObjectMapper,
+    scratch: LlmSessionStore,
+    sessionId: Long?,
+    named: String,
+    png: ByteArray,
+    width: Int,
+    height: Int,
+    kind: String,
+): String {
+    val base64 = Base64.getEncoder().encodeToString(png)
+    val answer = linkedMapOf<String, Any?>(
+        "picture" to base64,
+        "pictureType" to "image/png",
+        "width" to width,
+        "height" to height,
+        "kind" to kind,
+    )
+    if (sessionId != null) {
+        val key = named + "." + java.lang.Long.toString(System.nanoTime(), 36)
+        scratch.put(sessionId, key, mapper.writeValueAsString(base64))
+        answer["contentKey"] = key
+        answer["note"] = "Pass contentKey to whatever sends, uploads or saves a file."
+    }
+    return mapper.writeValueAsString(answer)
 }
 
 /**

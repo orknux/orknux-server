@@ -152,6 +152,7 @@ class BuiltInTools(
             "pdf_fromHtml",
             "pdf_read",
             "pdf_preview",
+            "pdf_toPng",
             "charts_render",
             "diagram_render",
             "markdown_toText",
