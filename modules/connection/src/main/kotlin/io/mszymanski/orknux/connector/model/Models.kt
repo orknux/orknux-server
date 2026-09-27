@@ -393,6 +393,33 @@ class LlmModel(
     @Column(name = "parallel_tool_calls")
     var parallelToolCalls: Boolean? = null,
 
+    /*
+     * How the model picks its words. Issue #533.
+     *
+     * Each is null until somebody sets it, and null sends nothing, so the
+     * server's own default applies - which is what every model had until now,
+     * and how a local Gemma came to run at the temperature 1.0 stored in its
+     * model file without anybody choosing it. Temperature and top-p are part of
+     * the OpenAI shape and every provider takes them; top-k, min-p and the
+     * repeat penalty are what llama.cpp, Ollama and vLLM add, and a hosted
+     * OpenAI model refuses a request carrying them - which is why each is sent
+     * only when set.
+     */
+    @Column(name = "temperature")
+    var temperature: Double? = null,
+
+    @Column(name = "top_p")
+    var topP: Double? = null,
+
+    @Column(name = "top_k")
+    var topK: Int? = null,
+
+    @Column(name = "min_p")
+    var minP: Double? = null,
+
+    @Column(name = "repeat_penalty")
+    var repeatPenalty: Double? = null,
+
     @Column(nullable = false)
     var enabled: Boolean = true,
 

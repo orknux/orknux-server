@@ -347,6 +347,14 @@ class OpenAiChat(
         tools.forEach { tool -> builder.addTool(declared(tool)) }
         // Only beside tools: a provider refuses the field in a request that offers none. Issue #530.
         if (tools.isNotEmpty()) model.parallelToolCalls?.let { builder.parallelToolCalls(it) }
+        // Each only when set: null leaves the server's own default. Issue #533.
+        model.temperature?.let { builder.temperature(it) }
+        model.topP?.let { builder.topP(it) }
+        model.topK?.let { builder.putAdditionalBodyProperty("top_k", com.openai.core.JsonValue.from(it)) }
+        model.minP?.let { builder.putAdditionalBodyProperty("min_p", com.openai.core.JsonValue.from(it)) }
+        model.repeatPenalty?.let {
+            builder.putAdditionalBodyProperty("repeat_penalty", com.openai.core.JsonValue.from(it))
+        }
         return builder
     }
 

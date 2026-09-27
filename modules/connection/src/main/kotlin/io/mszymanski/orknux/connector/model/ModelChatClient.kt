@@ -1081,6 +1081,12 @@ class ModelChatClient(
             root.putObject("stream_options").put("include_usage", true)
         }
         model.maxOutput?.let { root.put("max_tokens", it) }
+        // Each only when set: null leaves the server's own default. Issue #533.
+        model.temperature?.let { root.put("temperature", it) }
+        model.topP?.let { root.put("top_p", it) }
+        model.topK?.let { root.put("top_k", it) }
+        model.minP?.let { root.put("min_p", it) }
+        model.repeatPenalty?.let { root.put("repeat_penalty", it) }
         val messages = root.putArray("messages")
         turns.forEach { turn ->
             val message = messages.addObject()
@@ -1204,6 +1210,10 @@ class ModelChatClient(
         val root = mapper.createObjectNode()
         root.put("model", model.modelId)
         root.put("max_tokens", model.maxOutput ?: DEFAULT_MAX_TOKENS)
+        // What Anthropic takes of them: it has no min-p and no repeat penalty. Issue #533.
+        model.temperature?.let { root.put("temperature", it.coerceAtMost(1.0)) }
+        model.topP?.let { root.put("top_p", it) }
+        model.topK?.let { root.put("top_k", it) }
         if (streaming) root.put("stream", true)
 
         val system = turns.filter { it.role == "system" }.joinToString("\n\n") { it.content }

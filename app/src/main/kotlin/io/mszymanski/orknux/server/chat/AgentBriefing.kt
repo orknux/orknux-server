@@ -378,11 +378,23 @@ class AgentBriefing(
                 val example = held.minByOrNull { it.name }?.name ?: "its_name"
                 append(ToolSearchTools.FIND).append(" with queries [\"").append(example)
                 append("\"], say - and it is yours ")
-                appendLine("from your next message. Do not guess at words, and do not call a tool before it is found.")
+                append("from your next message. The ones marked (find it first) are not in front of you until ")
+                appendLine("you do. Do not guess at words, and do not call a tool before it is found.")
+                /*
+                 * Which of them are behind the search, marked. Issue #534:
+                 * the list named every tool alike, so a model reading
+                 * slack_whoIs in it believed it held it and tried to call it -
+                 * and a server that holds the reply to the tools actually
+                 * offered turned each attempt into a call to one that was.
+                 * Session 510: "I'll call slack_whoIs", then todo_complete,
+                 * seven times, the model watching itself do it.
+                 */
+                val behind = tools.getObject().offeringFor(agent).searchable.map { it.name }.toSet()
                 held.sortedBy { it.name }.forEach { spec ->
                     val said = spec.summary?.trim()?.ifEmpty { null } ?: spec.description.trim()
                     appendLine()
                     append("- ").append(spec.name)
+                    if (spec.name in behind) append(" (find it first)")
                     said.take(kept).trim().takeIf { it.isNotEmpty() }?.let { append(": ").append(it) }
                 }
             }

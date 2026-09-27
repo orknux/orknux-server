@@ -167,6 +167,31 @@ class OpenAiChatTest {
         assertThat(bodies[2]).doesNotContain("parallel_tool_calls")
     }
 
+    /**
+     * What a model is set to pick its words by, and nothing where it is not.
+     * Issue #533: nothing was ever sent, so a local model ran on whatever its
+     * file said - temperature 1.0, no repeat penalty - without anybody choosing.
+     */
+    @Test
+    fun `a model's sampling is sent where it is set, and only there`() {
+        answer = words("ok")
+        val tuned = model().apply {
+            temperature = 0.2
+            topP = 0.9
+            topK = 40
+            minP = 0.05
+            repeatPenalty = 1.05
+        }
+
+        chat().complete(provider(), tuned, listOf(ChatTurn("user", "Hello")), emptyList())
+        chat().complete(provider(), model(), listOf(ChatTurn("user", "Hello")), emptyList())
+
+        assertThat(bodies[0]).contains(""""temperature":0.2""").contains(""""top_p":0.9""")
+            .contains(""""top_k":40""").contains(""""min_p":0.05""").contains(""""repeat_penalty":1.05""")
+        // Left alone, none of it: a hosted model refuses the ones it does not know.
+        assertThat(bodies[1]).doesNotContain("temperature").doesNotContain("top_k").doesNotContain("repeat_penalty")
+    }
+
     @Test
     fun `an answer to a call names the call it answers`() {
         val turns = listOf(

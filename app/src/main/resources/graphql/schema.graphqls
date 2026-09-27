@@ -5160,6 +5160,16 @@ type Model {
     calls in one reply until its output limit. Issue #530.
     """
     parallelToolCalls: Boolean
+    """
+    How the model picks its words; each null sends nothing and leaves the
+    server's own default. Top-k, min-p and the repeat penalty are for servers
+    that take them - llama.cpp, Ollama, vLLM. Issue #533.
+    """
+    temperature: Float
+    topP: Float
+    topK: Int
+    minP: Float
+    repeatPenalty: Float
     enabled: Boolean!
     "Null is no limit."
     tokenLimit: Float
@@ -5313,6 +5323,12 @@ input CreateModelInput {
     maxOutput: Int
     "Null lets the provider decide; false is one tool call per reply. Issue #530."
     parallelToolCalls: Boolean
+    "How the model picks its words; null sends nothing. Issue #533."
+    temperature: Float
+    topP: Float
+    topK: Int
+    minP: Float
+    repeatPenalty: Float
     tokenLimit: Float
     resetInterval: ResetInterval
     requestsPerMinute: Int
@@ -5334,6 +5350,12 @@ input UpdateModelInput {
     maxOutput: Int
     "Null lets the provider decide; false is one tool call per reply. Issue #530."
     parallelToolCalls: Boolean
+    "How the model picks its words; null sends nothing. Issue #533."
+    temperature: Float
+    topP: Float
+    topK: Int
+    minP: Float
+    repeatPenalty: Float
     inputCostPerMillion: Float
     outputCostPerMillion: Float
     "Which voice a SPEECH model reads in; the names are the provider's own."

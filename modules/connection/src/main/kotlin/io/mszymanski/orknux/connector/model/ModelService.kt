@@ -273,6 +273,11 @@ class ModelService(
                 contextWindow = input.contextWindow,
                 maxOutput = input.maxOutput,
                 parallelToolCalls = input.parallelToolCalls,
+                temperature = sampled(input.temperature, "temperature", 0.0, 2.0),
+                topP = sampled(input.topP, "top-p", 0.0, 1.0),
+                topK = input.topK?.also { require(it in 0..1000) { "Top-k has to be between 0 and 1000." } },
+                minP = sampled(input.minP, "min-p", 0.0, 1.0),
+                repeatPenalty = sampled(input.repeatPenalty, "repeat penalty", 0.0, 2.0),
                 tokenLimit = input.tokenLimit,
                 resetInterval = input.resetInterval ?: ResetInterval.MONTHLY,
                 requestsPerMinute = input.requestsPerMinute,
@@ -311,6 +316,11 @@ class ModelService(
         model.contextWindow = input.contextWindow
         model.maxOutput = input.maxOutput
         model.parallelToolCalls = input.parallelToolCalls
+        model.temperature = sampled(input.temperature, "temperature", 0.0, 2.0)
+        model.topP = sampled(input.topP, "top-p", 0.0, 1.0)
+        model.topK = input.topK?.also { require(it in 0..1000) { "Top-k has to be between 0 and 1000." } }
+        model.minP = sampled(input.minP, "min-p", 0.0, 1.0)
+        model.repeatPenalty = sampled(input.repeatPenalty, "repeat penalty", 0.0, 2.0)
         model.inputCostPerMillion = input.inputCostPerMillion?.toBigDecimal()
         model.outputCostPerMillion = input.outputCostPerMillion?.toBigDecimal()
         model.voice = input.voice?.trim()?.ifEmpty { null }
@@ -673,6 +683,12 @@ data class CreateModelInput(
     val maxOutput: Int? = null,
     /** Null lets the provider decide; false is one tool call per reply. Issue #530. */
     val parallelToolCalls: Boolean? = null,
+    /** How the model picks its words; null sends nothing. Issue #533. */
+    val temperature: Double? = null,
+    val topP: Double? = null,
+    val topK: Int? = null,
+    val minP: Double? = null,
+    val repeatPenalty: Double? = null,
     val tokenLimit: Long? = null,
     val resetInterval: ResetInterval? = null,
     val requestsPerMinute: Int? = null,
@@ -695,6 +711,12 @@ data class UpdateModelInput(
     val maxOutput: Int? = null,
     /** Null lets the provider decide; false is one tool call per reply. Issue #530. */
     val parallelToolCalls: Boolean? = null,
+    /** How the model picks its words; null sends nothing. Issue #533. */
+    val temperature: Double? = null,
+    val topP: Double? = null,
+    val topK: Int? = null,
+    val minP: Double? = null,
+    val repeatPenalty: Double? = null,
     val inputCostPerMillion: Double? = null,
     val outputCostPerMillion: Double? = null,
     /** Only meaningful for a SPEECH model; the names belong to the provider. */
@@ -808,6 +830,11 @@ data class LlmModelView(
     val contextWindow: Int?,
     val maxOutput: Int?,
     val parallelToolCalls: Boolean?,
+    val temperature: Double?,
+    val topP: Double?,
+    val topK: Int?,
+    val minP: Double?,
+    val repeatPenalty: Double?,
     val enabled: Boolean,
     val tokenLimit: Long?,
     val resetInterval: ResetInterval,
@@ -837,6 +864,11 @@ data class LlmModelView(
         contextWindow = model.contextWindow,
         maxOutput = model.maxOutput,
         parallelToolCalls = model.parallelToolCalls,
+        temperature = model.temperature,
+        topP = model.topP,
+        topK = model.topK,
+        minP = model.minP,
+        repeatPenalty = model.repeatPenalty,
         enabled = model.enabled,
         tokenLimit = model.tokenLimit,
         resetInterval = model.resetInterval,
@@ -899,3 +931,7 @@ data class ModelUsageView(
      */
     val empty: Boolean get() = requests == 0 && totalTokens == 0L
 }
+
+/** A sampling value inside its range, or refused in words. Issue #533. */
+internal fun sampled(value: Double?, called: String, lowest: Double, highest: Double): Double? =
+    value?.also { require(it in lowest..highest) { "The $called has to be between $lowest and $highest." } }
