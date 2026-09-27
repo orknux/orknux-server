@@ -58,6 +58,8 @@ class AgentTools(
     /** Whether a saved HTML page names pictures by key, which is said in the answer. Issue #545. */
     private val pictures: io.mszymanski.orknux.server.embedded.SessionPictures,
     private val blocks: io.mszymanski.orknux.server.embedded.PageBlocks,
+    /** An SVG drawn as a PNG for picture_view, since no model reads SVG. Issue #561. */
+    private val svgs: io.mszymanski.orknux.server.plugin.SvgRenderer,
     private val mapper: ObjectMapper,
 ) {
 
@@ -236,6 +238,9 @@ class AgentTools(
          * file bytes and offering them spends a turn teaching the model that.
          */
         if (savedArtifacts.offered()) addAll(ARTIFACT_TOOLS.filter { BuiltInTools.granted(agent, it.name) })
+
+        // Looking at a picture a key names. Issue #561.
+        if (BuiltInTools.granted(agent, VIEW)) add(VIEW_TOOL)
     }
 
     /**
@@ -487,6 +492,8 @@ class AgentTools(
                 mapOf("base64" to PluginCrypto.encoded(argument(call, "text").orEmpty().toByteArray(Charsets.UTF_8))),
             )
 
+            VIEW -> viewed(argument(call, KEY), sessionId)
+
             BASE64_DECODE -> {
                 val bytes = PluginCrypto.decoded(argument(call, "base64").orEmpty().trim())
                 /*
@@ -643,8 +650,76 @@ class AgentTools(
         parameters = descriptor.parameters.map { ToolParameterSpec(it.name, it.description, it.required) },
     )
 
+    /**
+     * The picture a key names, answered so the model is shown it. Issue #561.
+     *
+     * A person attached a screenshot of a broken page in Slack; the attachment
+     * reached the model as a key, and nothing turned a key back into a picture
+     * - so it said it could not see the screenshot, and guessed. The answer
+     * carries the bytes under `picture`, which the round takes out and shows the
+     * model the way it shows a PDF page. An SVG is drawn first, because no
+     * model reads one.
+     */
+    private fun viewed(key: String?, sessionId: Long?): String {
+        fun refused(said: String) = mapper.writeValueAsString(mapOf("error" to said))
+        val named = key?.trim()?.ifEmpty { null } ?: return refused("Give the $KEY of the picture to look at.")
+        if (sessionId == null) return refused("There is no session here to keep a picture in.")
+        val held = scratch.get(sessionId, named) ?: return refused("Nothing in this session is kept under \"$named\".")
+        val kind = scratch.kindOf(sessionId, named)
+        if (kind != null && !kind.binary) {
+            return refused("\"$named\" holds text (${kind.contentType ?: "untyped"}), not a picture: read it instead.")
+        }
+        val value = runCatching { mapper.readTree(held) }.getOrNull()?.takeIf { it.isTextual }?.stringValue() ?: held
+        val bytes = runCatching { java.util.Base64.getDecoder().decode(value.trim()) }.getOrNull()
+            ?: return refused("\"$named\" does not hold a picture.")
+        val type = kind?.contentType?.substringBefore(';')?.trim()?.lowercase() ?: sniffed(bytes)
+        val (shown, shownType) = when (type) {
+            "image/png", "image/jpeg", "image/gif", "image/webp" -> bytes to type
+            "image/svg+xml" -> when (val drawn = svgs.png(String(bytes, Charsets.UTF_8), null)) {
+                is io.mszymanski.orknux.server.plugin.SvgRenderer.Drawing.Drawn -> drawn.png to "image/png"
+                else -> return refused("\"$named\" is an SVG that could not be drawn.")
+            }
+            else -> return refused("\"$named\" holds ${type ?: "something"} rather than a picture.")
+        }
+        val base64 = java.util.Base64.getEncoder().encodeToString(shown)
+        if (base64.length > MOST_PICTURE_CHARS) return refused("\"$named\" is too large a picture to look at.")
+        return mapper.writeValueAsString(
+            mapOf(PICTURE to base64, PICTURE_TYPE to shownType, "note" to "The picture is shown to you with this answer."),
+        )
+    }
+
+    /** What picture the bytes say they are, where nothing recorded it. */
+    private fun sniffed(bytes: ByteArray): String? {
+        fun at(i: Int) = if (bytes.size > i) bytes[i].toInt() and 0xFF else -1
+        val start = String(bytes, 0, minOf(bytes.size, 200), Charsets.UTF_8).trimStart()
+        return when {
+            at(0) == 0x89 && at(1) == 'P'.code && at(2) == 'N'.code -> "image/png"
+            at(0) == 0xFF && at(1) == 0xD8 -> "image/jpeg"
+            at(0) == 'G'.code && at(1) == 'I'.code && at(2) == 'F'.code -> "image/gif"
+            at(0) == 'R'.code && at(8) == 'W'.code && at(9) == 'E'.code -> "image/webp"
+            start.startsWith("<svg") || (start.startsWith("<?xml") && start.contains("<svg")) -> "image/svg+xml"
+            else -> null
+        }
+    }
+
     companion object {
         private val log = LoggerFactory.getLogger(AgentTools::class.java)
+
+        /** Looking at the picture a key names. Issue #561. */
+        const val VIEW = "picture_view"
+        private const val KEY = "contentKey"
+
+        val VIEW_TOOL = ToolSpec(
+            name = VIEW,
+            description = "Shows you the picture a key names, so you can look at it: an image somebody attached " +
+                "(an attachment reader answers its key), a chart or diagram you drew, a page drawn as a picture. " +
+                "Use it before answering about a screenshot or checking a drawing - you cannot see a picture " +
+                "from its key alone.",
+            parameters = listOf(
+                ToolParameterSpec(KEY, "The key the picture is kept under.", required = true),
+            ),
+            summary = "Shows you the picture a key names.",
+        )
 
         const val SAVE_ARTIFACT = "save_artifact"
         const val BASE64_ENCODE = "base64_encode"

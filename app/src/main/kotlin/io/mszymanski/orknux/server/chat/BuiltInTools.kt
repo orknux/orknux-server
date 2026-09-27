@@ -137,6 +137,7 @@ class BuiltInTools(
             ScratchpadTools.SEARCH,
             ScratchpadTools.DELETE,
             AgentTools.SAVE_ARTIFACT,
+            AgentTools.VIEW,
             AgentTools.BASE64_ENCODE,
             AgentTools.BASE64_DECODE,
             ZipTools.ZIP_FILES,

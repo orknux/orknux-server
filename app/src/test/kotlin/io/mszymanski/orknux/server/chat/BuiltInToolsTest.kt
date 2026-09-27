@@ -40,6 +40,7 @@ class BuiltInToolsTest(
     @Autowired val notes: NoteTools,
     @Autowired val agents: AgentRepository,
     @Autowired val sessions: LlmSessionRecorder,
+    @Autowired val store: io.mszymanski.orknux.server.llm.LlmSessionStore,
     @Autowired val workspaces: WorkspaceRepository,
 ) {
 
@@ -237,6 +238,27 @@ class BuiltInToolsTest(
 
         val carried = agent(tools = BuiltInTools.GRANTED)
         assertThat(BuiltInTools.listed(briefing, carried, lent)).contains("- note_to_self (loaded)")
+    }
+
+    /**
+     * The picture behind a key, shown to the model. Issue #561: a screenshot
+     * reached a model as a key and nothing turned it back into a picture.
+     */
+    @Test
+    fun `picture_view shows a picture a key holds, and says so for text or nothing`() {
+        val session = sessions.open(workspaceId, "test", "view-${System.nanoTime()}")
+        val png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        store.put(session, "shot.png", "\"" + png + "\"", io.mszymanski.orknux.workflow.script.StoredKind("image/png", true))
+        store.put(session, "page.html", "\"<h1>x</h1>\"", io.mszymanski.orknux.workflow.script.StoredKind("text/html", false))
+        val agent = agent(tools = BuiltInTools.GRANTED)
+        assertThat(tools.specsFor(agent).map { it.name }).contains(AgentTools.VIEW)
+
+        fun view(key: String) = tools.run(agent, ToolCall("1", AgentTools.VIEW, """{"contentKey":"$key"}"""), session)
+        val seen = view("shot.png")
+        assertThat(AgentTools.pictureIn(seen)).isNotNull()
+        assertThat(seen).contains("\"pictureType\":\"image/png\"")
+        assertThat(view("page.html")).contains("holds text")
+        assertThat(view("nothing")).contains("Nothing in this session")
     }
 
     /** A shed's own names - `task_done`, the chat's drawing - are not the list's to switch. */
