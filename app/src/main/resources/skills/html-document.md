@@ -45,7 +45,9 @@ tables, SVG charts and diagrams only - it is one file, and needs no archive.
    which is all a folder is. Pass the scratchpad names and the content keys;
    never retype a file's content into the call.
 7. **Hand over the archive's key** to whatever sends, uploads or saves a file,
-   and say in one line what is in it.
+   and say in one line what is in it. Wanted as a PDF too? `pdf_fromHtmlZip`
+   takes the archive's key and lays the page out with its stylesheet and
+   pictures read from inside it.
 
 ## Pictures
 

@@ -62,6 +62,21 @@ class PdfCapability(
             ),
         ),
         EmbeddedTool(
+            name = FROM_HTML_ZIP,
+            summary = "Lays an HTML report zipped with its pictures out as a PDF.",
+            description = "Lays out as a PDF an HTML page kept in a zip with its stylesheet and pictures - " +
+                "the archive zip_files made for a report - and answers a key for it. Stylesheets the page " +
+                "links and pictures it names by a relative path are read from inside the zip, so nothing has " +
+                "to be rebuilt. Pass the zip's $KEY, and $FILE for the page when it is not index.html. The " +
+                "same rules as $FROM_HTML apply: no JavaScript runs, and <pre class=\"mermaid\"> and " +
+                "<pre class=\"chart\"> blocks are drawn.",
+            params = listOf(
+                EmbeddedParam(KEY, ValueType.STRING, "The zip's key.", required = true),
+                EmbeddedParam(FILE, ValueType.STRING, "The page inside it. Left out, index.html."),
+                EmbeddedParam(TITLE, ValueType.STRING, "What the document is called."),
+            ),
+        ),
+        EmbeddedTool(
             name = TO_PNG,
             summary = "Draws a page of HTML as a picture.",
             description = "Draws HTML as a picture you can look at or send - a chart, a table, a small " +
@@ -136,6 +151,7 @@ class PdfCapability(
             ?: return refusal("That is not valid JSON.")
         return when (name) {
             FROM_HTML -> fromHtml(asked, sessionId)
+            FROM_HTML_ZIP -> fromHtmlZip(asked, sessionId)
             TO_PNG -> toPng(asked, sessionId)
             READ -> read(asked, sessionId)
             PREVIEW -> preview(asked, sessionId)
@@ -151,6 +167,106 @@ class PdfCapability(
             )
 
         val made = writer.fromHtml(page, text(asked, TITLE)) { named -> picture(named, sessionId) }
+        return documentAnswer(made, asked, sessionId)
+    }
+
+    /**
+     * A report zipped with its pictures, as a PDF. Issue #563.
+     *
+     * An agent building an HTML report now delivers it as an archive - the
+     * page, its stylesheet, its pictures under images/ - and turning that into a
+     * PDF meant pulling it apart again, because [fromHtml] takes one page and
+     * finds pictures only by session key. Here the page's linked stylesheets
+     * are put inline and every relative src is read from the zip, falling back
+     * to the session's keys. Bounded the way [io.mszymanski.orknux.server.chat.ZipTools]
+     * bounds what it packs, so a key cannot unpack into more than a zip could hold.
+     */
+    private fun fromHtmlZip(asked: JsonNode, sessionId: Long?): String {
+        val zipKey = text(asked, KEY)
+        val bytes = bytesFor(zipKey, sessionId) ?: return refusal(keyRefusal(zipKey))
+        val entries = unzipped(bytes)
+            ?: return refusal(
+                "\"$zipKey\" is not a zip this can open: it is not an archive, or it holds more than " +
+                    "${io.mszymanski.orknux.server.chat.ZipTools.MOST_FILES} files or " +
+                    "${io.mszymanski.orknux.server.chat.ZipTools.MOST_BYTES / (1024 * 1024)} MB.",
+            )
+        val file = text(asked, FILE)?.trim()?.ifEmpty { null }
+        val pageName = file?.let { normalised(it) }
+            ?: entries.keys.firstOrNull { it.equals("index.html", ignoreCase = true) }
+            ?: entries.keys.firstOrNull { it.endsWith(".html", true) || it.endsWith(".htm", true) }
+            ?: return refusal("That archive holds no HTML page.")
+        val page = entries[pageName]?.toString(Charsets.UTF_8)
+            ?: return refusal(
+                "That archive has no $pageName. It holds: " + entries.keys.sorted().joinToString(", ") + ".",
+            )
+        val base = pageName.substringBeforeLast('/', "")
+
+        val made = writer.fromHtml(styled(page, base, entries), text(asked, TITLE)) { named ->
+            entries[resolved(base, named)]?.let { PageBlocks.Picture(it, null) } ?: picture(named, sessionId)
+        }
+        return documentAnswer(made, asked, sessionId)
+    }
+
+    /** Every file in the archive by its path, or null for one that is not a zip or is too large. */
+    private fun unzipped(bytes: ByteArray): Map<String, ByteArray>? = runCatching {
+        val held = linkedMapOf<String, ByteArray>()
+        var total = 0L
+        java.util.zip.ZipInputStream(bytes.inputStream()).use { zip ->
+            while (true) {
+                val entry = zip.nextEntry ?: break
+                if (entry.isDirectory) continue
+                if (held.size >= io.mszymanski.orknux.server.chat.ZipTools.MOST_FILES) return null
+                val read = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val n = zip.read(buffer)
+                    if (n < 0) break
+                    total += n
+                    if (total > io.mszymanski.orknux.server.chat.ZipTools.MOST_BYTES) return null
+                    read.write(buffer, 0, n)
+                }
+                held[normalised(entry.name)] = read.toByteArray()
+            }
+        }
+        held.takeIf { it.isNotEmpty() }
+    }.getOrNull()
+
+    /** A path inside the archive, with ./, ../ and leading slashes taken out. */
+    private fun normalised(path: String): String {
+        val parts = ArrayDeque<String>()
+        path.replace('\\', '/').split('/').forEach { part ->
+            when (part) {
+                "", "." -> Unit
+                ".." -> parts.removeLastOrNull()
+                else -> parts.addLast(part)
+            }
+        }
+        return parts.joinToString("/")
+    }
+
+    /** Where a relative src or href points, from the page's own folder. */
+    private fun resolved(base: String, src: String): String {
+        val bare = src.substringBefore('?').substringBefore('#')
+        return normalised(if (base.isEmpty() || bare.startsWith("/")) bare else "$base/$bare")
+    }
+
+    /** The page with every stylesheet it links from the archive put inline. */
+    private fun styled(page: String, base: String, entries: Map<String, ByteArray>): String {
+        val parsed = org.jsoup.Jsoup.parse(page)
+        var changed = false
+        parsed.select("link[rel~=(?i)stylesheet][href]").forEach { link ->
+            val href = link.attr("href").trim()
+            if (href.contains("://")) return@forEach
+            val css = entries[resolved(base, href)] ?: return@forEach
+            link.after("<style>" + css.toString(Charsets.UTF_8) + "</style>")
+            link.remove()
+            changed = true
+        }
+        return if (changed) parsed.outerHtml() else page
+    }
+
+    /** What a laid-out document is answered as: a key in a session, its bytes outside one. */
+    private fun documentAnswer(made: PdfWriter.Written, asked: JsonNode, sessionId: Long?): String {
         if (made is PdfWriter.Written.Refused) return refusal(made.reason)
         val document = made as PdfWriter.Written.Made
 
@@ -405,6 +521,8 @@ class PdfCapability(
 
     private companion object {
         const val FROM_HTML = "fromHtml"
+        const val FROM_HTML_ZIP = "fromHtmlZip"
+        const val FILE = "file"
         const val READ = "read"
         const val PREVIEW = "preview"
         const val TO_PNG = "toPng"

@@ -58,6 +58,10 @@ itself, to look at or to send.
 A web address in an `img` is refused: a page is not fetched while it is laid
 out. Put the file in a scratchpad first.
 
+**A report already zipped** with its stylesheet and pictures - the archive
+`zip_files` made - goes to `pdf_fromHtmlZip` with its key. Linked stylesheets
+and relative `img` paths are read from inside the zip.
+
 ## Do not retype the page through yourself
 
 If the report is already in a scratchpad, pass `scratchpad` with its name and

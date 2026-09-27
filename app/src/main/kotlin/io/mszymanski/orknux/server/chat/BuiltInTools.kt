@@ -151,6 +151,7 @@ class BuiltInTools(
              * which is what makes writing it down honest. Issue #501.
              */
             "pdf_fromHtml",
+            "pdf_fromHtmlZip",
             "pdf_read",
             "pdf_preview",
             "pdf_toPng",

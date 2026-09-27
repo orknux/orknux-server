@@ -26,6 +26,7 @@ class ScratchpadTest(
     @Autowired val tools: io.mszymanski.orknux.server.chat.ScratchpadTools,
     /** Where a kept pad lands, for the tool that hands one to a key. Issue #417. */
     @Autowired val store: LlmSessionStore,
+    @Autowired val embedded: io.mszymanski.orknux.server.embedded.EmbeddedCapabilities,
 ) {
 
     private var session: Long = 0
@@ -202,6 +203,44 @@ class ScratchpadTest(
         assertThat(grep("""{"query":"(unclosed","regex":"true"}""")).contains("not a regular expression")
         // Without regex the same text is a phrase, and a bracket is a bracket.
         assertThat(grep("""{"query":"(unclosed"}""")).contains("\"hits\":[]")
+    }
+
+    /**
+     * A report zipped with its stylesheet and pictures, laid out as a PDF.
+     * Issue #563: the picture is found inside the zip by its relative path, so
+     * nothing is reported as not drawn.
+     */
+    @Test
+    fun `pdf_fromHtmlZip lays out a zipped report, reading its picture from the zip`() {
+        val dot = java.util.Base64.getDecoder().decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        )
+        val zipped = java.io.ByteArrayOutputStream()
+        java.util.zip.ZipOutputStream(zipped).use { zip ->
+            fun entry(name: String, bytes: ByteArray) {
+                zip.putNextEntry(java.util.zip.ZipEntry(name)); zip.write(bytes); zip.closeEntry()
+            }
+            entry(
+                "index.html",
+                ("<html><head><link rel=\"stylesheet\" href=\"style.css\"></head><body><h1>Report</h1>" +
+                    "<img src=\"./images/dot.png\"></body></html>").toByteArray(),
+            )
+            entry("style.css", "h1 { color: #aa0000; }".toByteArray())
+            entry("images/dot.png", dot)
+        }
+        store.put(
+            session, "report.zip",
+            "\"" + java.util.Base64.getEncoder().encodeToString(zipped.toByteArray()) + "\"",
+            io.mszymanski.orknux.workflow.script.StoredKind("application/zip", true),
+        )
+
+        val said = embedded.run("pdf_fromHtmlZip", """{"contentKey":"report.zip","title":"Zipped"}""", workspaceId, session)
+        assertThat(said).contains("\"contentKey\":\"Zipped.pdf\"").doesNotContain("problems")
+        assertThat(store.kindOf(session, "Zipped.pdf"))
+            .isEqualTo(io.mszymanski.orknux.workflow.script.StoredKind("application/pdf", true))
+
+        val missing = embedded.run("pdf_fromHtmlZip", """{"contentKey":"report.zip","file":"about.html"}""", workspaceId, session)
+        assertThat(missing).contains("no about.html").contains("images/dot.png")
     }
 
     private fun ok(result: ScratchpadResult): ScratchpadResult.Ok {
