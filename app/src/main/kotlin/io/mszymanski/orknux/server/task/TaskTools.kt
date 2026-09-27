@@ -244,7 +244,10 @@ class TaskTools(
                 "tools sends or uploads a file, to put the picture in front of somebody; or pass it " +
                 "to task_picture_link, which answers with markdown for placing the picture at a " +
                 "point in what you write. The key is not an address. The picture is also shown with " +
-                "this task's outcome, so it does not have to be placed to be seen."
+                "this task's outcome, so it does not have to be placed to be seen." +
+                // Where the rest is written down, found by the word this answer carries. Issue #558.
+                " For anything else - an HTML page, a PDF, an archive - call skill_search with contentKey: " +
+                "the skills say how a key is used in each."
         } else {
             "The picture is drawn and shown with this task's outcome. Its bytes could not be left " +
                 "anywhere this session can reach, so nothing here can upload it - say where it is " +

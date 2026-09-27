@@ -280,7 +280,9 @@ private fun drawing(
         val key = named + "." + java.lang.Long.toString(System.nanoTime(), 36)
         scratch.put(sessionId, key, mapper.writeValueAsString(base64))
         answer["contentKey"] = key
-        answer["note"] = "Pass contentKey to whatever sends, uploads or saves a file."
+        // Where the rest is written down, found by the word this answer carries. Issue #558.
+        answer["note"] = "Pass contentKey to whatever sends, uploads or saves a file. For an HTML page, a PDF " +
+            "or an archive, call skill_search with contentKey: the skills say how a key is used in each."
     }
     return mapper.writeValueAsString(answer)
 }

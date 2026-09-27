@@ -105,7 +105,7 @@ class BuiltInToolsTest(
         assertThat(listed.filter { it.governance == BuiltInGovernance.GRANT }.map { it.name })
             .containsExactlyElementsOf(BuiltInTools.GRANTED)
         assertThat(listed.filter { it.governance == BuiltInGovernance.SKILL_CATALOGS }.map { it.name })
-            .containsExactlyInAnyOrder("skill_list", "skill_load")
+            .containsExactlyInAnyOrder("skill_list", "skill_load", "skill_search")
         assertThat(listed.filter { it.governance == BuiltInGovernance.MEMORY_CATALOGS }.map { it.name })
             .containsExactlyInAnyOrder("memory_search", "memory_save")
         assertThat(listed.filter { it.governance == BuiltInGovernance.ORKNUX_ACCESS }.map { it.name })

@@ -234,7 +234,10 @@ class StepPictureTools(
                 "tools sends or uploads a file, to put the picture in front of somebody; or pass " +
                 "it to picture_link, which answers with markdown for placing the picture at a " +
                 "point in your answer. The key is not an address. The picture is also filed " +
-                "against this run and shown under this node, so it is seen without being placed."
+                "against this run and shown under this node, so it is seen without being placed." +
+                // Where the rest is written down, found by the word this answer carries. Issue #558.
+                " For anything else - an HTML page, a PDF, an archive - call skill_search with contentKey: " +
+                "the skills say how a key is used in each."
         } else {
             "The picture is drawn and filed against this run, and is shown under this node. Its " +
                 "bytes could not be left anywhere this session can reach, so nothing here can " +

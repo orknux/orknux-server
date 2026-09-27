@@ -60,7 +60,7 @@ This is the part that goes wrong.
   in the archive under exactly that path. A page that points at a key, a
   session, or a file on this machine is a page whose images are broken for
   everyone but you.
-- **A picture you drew** - `draw_picture` answers a key for a PNG - goes into
+- **A picture you drew** - `draw_picture` answers a key (a contentKey) for a PNG - goes into
   the archive: `<img src="images/orc.png">` in the page, and the key passed to
   `zip_files` under exactly `images/orc.png`. That is the only way a drawn
   picture reaches somebody inside a page. Uploading the pictures separately
@@ -70,7 +70,7 @@ This is the part that goes wrong.
   answers to the page with `scratchpad_append` (`key`), or put a placeholder
   like `CHART_1` in the page and `scratchpad_replace` it (`newKey`). It needs no
   packing and draws offline. The Diagrams and charts skill has the syntax.
-- **Never a key on its own in a `src`.** A key means something only in this
+- **Never a contentKey on its own in a `src`.** A key means something only in this
   session; opened anywhere else, that picture is broken.
 - **Not a script that draws.** Chart.js or mermaid.js from a CDN needs the
   reader to be online and draws nothing in a PDF; the SVG above does neither.

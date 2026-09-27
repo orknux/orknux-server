@@ -29,7 +29,31 @@ class SkillTool(
     private val fromPlugins: PluginSkills,
 ) {
 
-    fun descriptors(): List<ToolDescriptor> = listOf(LIST, LOAD)
+    fun descriptors(): List<ToolDescriptor> = listOf(LIST, LOAD, SEARCH)
+
+    /**
+     * The skills whose pages mention every word asked for, with the lines that
+     * do. Issue #558.
+     *
+     * skill_list says what each skill is for, which is the question before a
+     * piece of work; it cannot answer the question in the middle of one - "I
+     * have a picture key, what do I do with it" - because the answer is a line
+     * inside a page whose title is about something else. Every word must
+     * appear, in the name, the description or the page, so two words narrow
+     * rather than widen; the lines shown are those holding any of them, so the
+     * model can tell which page to load without loading them all.
+     */
+    fun search(agent: Agent, query: String): List<SkillMatch> {
+        val words = query.lowercase().split(Regex("[ \t\r\n]+")).map { it.trim() }.filter { it.isNotEmpty() }
+        if (words.isEmpty()) return emptyList()
+        return granted(agent).distinctBy { it.catalog + "/" + it.key }.mapNotNull { skill ->
+            val whole = (skill.name + "\n" + skill.description.orEmpty() + "\n" + skill.content).lowercase()
+            if (!words.all { it in whole }) return@mapNotNull null
+            val lines = skill.content.lines().map { it.trim() }
+                .filter { line -> line.isNotEmpty() && words.any { it in line.lowercase() } }
+            SkillMatch(skill.name, skill.key, skill.description, skill.catalog, lines)
+        }.sortedByDescending { it.lines.size }
+    }
 
     /**
      * What this agent may draw on: one line each, enough to choose from.
@@ -249,6 +273,21 @@ class SkillTool(
             parameters = emptyList(),
         )
 
+        val SEARCH = ToolDescriptor(
+            name = "skill_search",
+            description =
+                "Finds the skills whose pages mention what you ask for - a word, a tool name, a key - and " +
+                    "shows the lines that do. Use it in the middle of a piece of work, when you hold something " +
+                    "and do not know what to do with it; then load the skill it points at with skill_load.",
+            parameters = listOf(
+                ToolParameter(
+                    name = "query",
+                    description = "Words to look for, like contentKey or html picture. A skill must mention every one.",
+                    required = true,
+                ),
+            ),
+        )
+
         val LOAD = ToolDescriptor(
             name = "skill_load",
             description =
@@ -265,6 +304,15 @@ class SkillTool(
         )
     }
 }
+
+/** A skill that mentions what was searched for, and where. Issue #558. */
+data class SkillMatch(
+    val name: String,
+    val id: String,
+    val description: String?,
+    val catalog: String,
+    val lines: List<String>,
+)
 
 /** One line about a skill: enough to decide whether to load it. */
 data class SkillSummary(

@@ -507,6 +507,23 @@ class AgentTools(
 
             "skill_list" -> mapper.writeValueAsString(mapOf("skills" to skills.list(agent)))
 
+            // Inside the pages, not only their titles. Issue #558.
+            "skill_search" -> {
+                val query = argument(call, "query").orEmpty()
+                if (query.isBlank()) {
+                    mapper.writeValueAsString(mapOf("error" to "Say what to look for."))
+                } else {
+                    val found = skills.search(agent, query)
+                    mapper.writeValueAsString(
+                        if (found.isEmpty()) {
+                            mapOf("skills" to found, "note" to "No skill mentions all of that. Try fewer words.")
+                        } else {
+                            mapOf("skills" to found)
+                        },
+                    )
+                }
+            }
+
             "skill_load" -> {
                 val name = argument(call, "name").orEmpty()
                 val found = skills.load(agent, name)

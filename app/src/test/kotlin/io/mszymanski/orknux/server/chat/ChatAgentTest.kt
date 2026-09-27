@@ -33,6 +33,7 @@ class ChatAgentTest(
     @Autowired val graphQlTester: ExecutionGraphQlServiceTester,
     @Autowired val briefing: AgentBriefing,
     @Autowired val builtIns: io.mszymanski.orknux.server.agent.BuiltInSkills,
+    @Autowired val skillTool: io.mszymanski.orknux.server.agent.SkillTool,
     @Autowired val agents: AgentRepository,
     @Autowired val sessions: ChatSessionRepository,
     @Autowired val catalogs: SkillCatalogRepository,
@@ -206,6 +207,25 @@ class ChatAgentTest(
         agents.save(bare)
         val plain = requireNotNull(briefing.of(requireNotNull(agents.findByIdOrNull(requireNotNull(bare.id)))))
         assertThat(plain).doesNotContain("Complex HTML")
+    }
+
+    /**
+     * Searching inside the pages. Issue #558: the picture answers say to search
+     * the skills for contentKey, so that search has to land on the pages that
+     * say what to do with one.
+     */
+    @Test
+    fun `skill_search finds the pages that say what to do with a contentKey`() {
+        val agentId = agent("Searcher", model("Gemma"))
+        val held = requireNotNull(agents.findByIdOrNull(agentId))
+        held.skillCatalogs = mutableListOf(io.mszymanski.orknux.server.agent.BuiltInSkills.CATALOG)
+        agents.save(held)
+
+        val found = skillTool.search(requireNotNull(agents.findByIdOrNull(agentId)), "contentKey")
+
+        assertThat(found.map { it.name }).contains("Complex HTML", "Diagrams and charts")
+        assertThat(found.first { it.name == "Complex HTML" }.lines).allMatch { it.contains("contentKey", ignoreCase = true) }
+        assertThat(skillTool.search(requireNotNull(agents.findByIdOrNull(agentId)), "contentKey zebra")).isEmpty()
     }
 
     /** Nothing to say is no system turn: an empty briefing costs tokens for nothing. */
