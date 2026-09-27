@@ -649,8 +649,12 @@ class ComponentImporter(
             // Nor is one the server brings itself - the note, the clock, saving a
             // file - which every agent holds by name since #444 and every
             // installation has: a file naming one is asking for nothing.
+            // All of the server's own, the ones that reach outside included:
+            // web_search is a built-in kept off until granted, not a tool of
+            // this workspace's, and asking the target for one refused every
+            // agent that could search. Issue #570.
             ComponentKind.AGENT -> node.names("toolRefs")
-                .filter { it !in pluginToolNames() && it !in BuiltInTools.GRANTED }
+                .filter { it !in pluginToolNames() && !BuiltInTools.switchable(it) }
                 .map { ComponentKind.TOOL to it }
 
             ComponentKind.WORKFLOW -> node.path("nodes").values().flatMap { drawn ->
@@ -979,7 +983,18 @@ class ComponentImporter(
             }
 
             ComponentKind.ACTION -> actions.save(
-                WorkflowAction(
+                /*
+                 * A function action with no function is refused in words. Issue
+                 * #570: an action whose function was deleted keeps the row with
+                 * no function in it, and copying one met the database's own
+                 * shape check as a raw SQL error.
+                 */
+                if (node.text("subtype") == "FUNCTION" && node.text("functionRef") == null) {
+                    throw EnvelopeInvalidException(
+                        "The action ${component.name} calls a function that no longer exists; " +
+                            "choose one for it in the original, then copy it again.",
+                    )
+                } else WorkflowAction(
                     workspaceId = workspaceId,
                     name = name,
                     type = node.enumOf<ActionType>("type", null, component),
@@ -1071,10 +1086,17 @@ class ComponentImporter(
                     // A plugin's tool and a built-in of the server's travel as
                     // the name itself: neither is a component of the file, and
                     // both mean the same thing here as where the file was made.
+                    /*
+                     * Keeping the built-ins that reach outside, which are held
+                     * the other way round from the rest: on only while named
+                     * here. Dropping them with the others took web search away
+                     * from every agent that crossed. Issue #570.
+                     */
                     tools = node.names("toolRefs")
-                        .filter { it !in dropped && !BuiltInTools.switchable(it) }
+                        .filter { it !in dropped && (!BuiltInTools.switchable(it) || BuiltInTools.reaches(it)) }
                         .map {
-                            if (it in pluginToolNames()) it else toolNameFor(workspaceId, it, resolved)
+                            if (it in pluginToolNames() || BuiltInTools.reaches(it)) it
+                            else toolNameFor(workspaceId, it, resolved)
                         }
                         .toMutableList(),
                     // And the built-ins among them the other way round: the file

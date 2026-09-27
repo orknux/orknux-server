@@ -157,10 +157,20 @@ class WorkspaceDuplicator(
         val externals = requireNotNull(inOwnTransaction.execute { copyExternals(sourceId, into, counts) })
         inOwnTransaction.executeWithoutResult { remapModels(into, externals.models) }
 
-        order.forEach { kind ->
-            val ids = idsOf(sourceId, kind)
-            var carried = 0
-            ids.forEach { id ->
+        /*
+         * Copied kind by kind, and then again for what did not come. Issue #570:
+         * inside a kind nothing is ordered - a function calling another comes
+         * before or after it by id - so one that needed a later one failed, and
+         * everything built on it after. Each pass retries what failed until a
+         * pass carries nothing new; what is left then is genuinely missing, and
+         * is reported with the reason from its last attempt.
+         */
+        val pending = order.flatMap { kind -> idsOf(sourceId, kind).map { kind to it } }.toMutableList()
+        order.forEach { kind -> if (pending.any { it.first == kind }) counts[kind.label] = 0 }
+        val lastWhy = mutableMapOf<Pair<ComponentKind, Long>, String?>()
+        while (pending.isNotEmpty()) {
+            val before = pending.size
+            pending.toList().forEach { (kind, id) ->
                 /*
                  * Shallow, because the order above has already put everything
                  * this points at in place. Deep would export each dependency
@@ -170,31 +180,32 @@ class WorkspaceDuplicator(
                  */
                 runCatching {
                     inOwnTransaction.executeWithoutResult {
-                    val envelope = exporter.export(sourceId, kind, id, ExportDepth.SHALLOW)
-                    /*
-                     * Planned before it is applied. Issue #570: apply refuses by
-                     * throwing, inside this method's one transaction, and a
-                     * refusal caught here had already marked that transaction
-                     * rollback-only - so one agent on a model the copy does not
-                     * have threw away the whole duplicate. The plan writes
-                     * nothing and joins no transaction, so a component that
-                     * cannot come is skipped with its reason and the rest land.
-                     */
-                    val plan = importer.plan(into, envelope)
-                    if (!plan.importable) throw ImportNotPossibleException(plan.problems)
-                    importer.apply(into, envelope)
+                        val envelope = exporter.export(sourceId, kind, id, ExportDepth.SHALLOW)
+                        /*
+                         * Planned before it is applied: the plan writes nothing
+                         * and joins no transaction, so a component that cannot
+                         * come is skipped with its reason.
+                         */
+                        val plan = importer.plan(into, envelope)
+                        if (!plan.importable) throw ImportNotPossibleException(plan.problems)
+                        importer.apply(into, envelope)
                     }
                 }
-                    .onSuccess { carried++ }
-                    .onFailure { why ->
-                        val called = runCatching { nameOf(sourceId, kind, id) }.getOrNull() ?: id.toString()
-                        log.warn("Copying {} {} into workspace {} failed: {}", kind.label, called, into, why.message)
-                        // The database's own words stop at the first line: the rest is SQL and binds.
-                        val said = why.message?.lineSequence()?.firstOrNull()?.substringBefore(" [insert")
-                        problems += "${kind.label} \"$called\" was not copied: $said"
+                    .onSuccess {
+                        pending.remove(kind to id)
+                        counts[kind.label] = (counts[kind.label] ?: 0) + 1
                     }
+                    .onFailure { why -> lastWhy[kind to id] = why.message }
             }
-            if (ids.isNotEmpty()) counts[kind.label] = carried
+            if (pending.size == before) break
+        }
+        pending.forEach { (kind, id) ->
+            val called = runCatching { nameOf(sourceId, kind, id) }.getOrNull() ?: id.toString()
+            val why = lastWhy[kind to id]
+            log.warn("Copying {} {} into workspace {} failed: {}", kind.label, called, into, why)
+            // The database's own words stop at the first line: the rest is SQL and binds.
+            val said = why?.lineSequence()?.firstOrNull()?.substringBefore(" [insert")
+            problems += "${kind.label} \"$called\" was not copied: $said"
         }
 
         val secrets = copyVariables(sourceId, into)
