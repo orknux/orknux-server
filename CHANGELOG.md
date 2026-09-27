@@ -130,6 +130,39 @@ have failed.
   taken is refused on the row rather than moved along, because somebody typed
   it. Templates take the same choices.
 
+- 🗒️ **Scratchpads.** An agent keeps working files for the whole session -
+  a page, a report, notes - and edits them in place instead of retyping them.
+  `scratchpad_search` takes a regular expression, one pad and lines of context.
+  Admin → Settings sets how much text and how much in files a session keeps.
+- 🎨 **The product draws.** `diagram_render` (mermaid with subgraphs, or
+  PlantUML) and `charts_render` (bar, column, line, area, pie, donut, scatter)
+  answer a PNG for a chat or an SVG for a page, as a key. `pdf_fromHtml` draws
+  diagram and chart blocks into a PDF, reads a linked stylesheet from its
+  scratchpad, and `pdf_fromHtmlZip` lays out a report zipped with its pictures.
+- 📦 **Archives both ways.** `zip_files` packs pads and keys into one archive;
+  `zip_extract` unpacks one into pads.
+- 👀 **An agent can look at a picture on demand.** `picture_view` shows the model
+  the picture behind a key - an attachment it read, a chart it drew.
+- 🧭 **Finding a tool is three tools.** `tool_find` searches by words,
+  `tool_describe` shows one in full with its parameters, `tool_load` takes exact
+  names; the briefing marks every tool *loaded* or *load it first*.
+- 🤝 **Asking another agent does not wait.** `ask_agent` returns at once;
+  `agent_wait`, `agent_asks` and `agent_list` - what each agent it may ask can
+  do - go with it. A built-in *Delegating* skill says how to write the question.
+- 🧠 **Memories can be corrected.** `memory_update` and `memory_delete` beside
+  `memory_search` and `memory_save`.
+- 📚 **Built-in skills for making things.** *Diagrams and charts*, *Complex HTML*
+  and *Making a PDF*, found by `skill_search`, which looks inside skills' pages.
+  And voices: *Niceman*, *Jokeman* and *Crazyman* beside *Angryman*.
+- 🎛️ **A model's page sets tool calls per reply and sampling** - temperature,
+  top-p, top-k, min-p, repeat penalty - each sent only when set.
+- 📜 **Long sessions are summarised.** Past a size (40,000 tokens by default) the
+  older turns become one summary the model reads instead; nothing is deleted.
+- 🔎 **An agent can read a conversation's log** with `orknux_session` and find
+  one with `orknux_sessions`, over MCP too.
+- 🗂️ **Admin → Settings is in sections** - Agents, Tool calls, Tool list,
+  Sessions, Scratchpads, Drawing, Commands - each reachable from Quick actions.
+
 ### 🔧 Changed
 
 - 🔒 **The directory connection trusts what Admin → Networking trusts.** The
@@ -160,6 +193,29 @@ have failed.
   workflow that calls one of them is unaffected: the function keeps its name
   and its id, so existing graphs go on running. There is no `built_in` flag on
   a plugin any more.
+
+- 🧩 **PDF, charts, dates and markdown-to-text are the server's own code.** The
+  plugins go; migrations V312–V316 re-point every workflow action that used
+  them, so they keep working with nothing to do.
+- 🪶 **Skills are no longer written into the system prompt.** An Always skill
+  is named and loaded once per conversation, offered skills are not listed, and
+  prompts are much shorter. An agent that relied on a page being inlined now
+  loads it.
+- 🔁 **`find_tools` is `tool_find` and `tool_load`.** Nothing stored names it,
+  and the old name is still answered for sessions that remember it.
+- 🖼️ **An SVG drawing answers a key, not its markup.** A workflow, which has no
+  session, still gets the markup.
+- 🧾 **The session store records what each key holds** - its type and whether it
+  is bytes - so an upload never guesses. The Slack plugin's upload for agents
+  takes only a key from Slack 1.28.0, which needs this release.
+- 💾 **A session keeps 10 MB of text in scratchpads by default,** up from 1 MB,
+  and files are held to their own budget. An installation that set its own
+  number keeps it.
+- 🧬 **Duplicating a workspace copies its connections, model providers and MCP
+  servers** without their credentials, and lists which need setting. Nothing to
+  do on upgrade.
+- 🗃️ **55 migrations run on first start** (V272–V327), none of them applied by
+  hand.
 
 ### 🐛 Fixed
 
@@ -199,6 +255,21 @@ have failed.
 - 🧯 **A group search that cannot run answers the sign-in instead of a 500.**
   An absolute DN in the group base, or a filter without `{0}`, used to escape
   as a stack trace; it is a refusal with the reason in the log now.
+
+- 🖼️ **Pictures reach a PDF.** The layout refused every image it was given, so
+  no picture was ever drawn into one, and nothing said so.
+- 🧬 **Duplicating a workspace keeps what can be copied.** One component that
+  could not come threw the whole copy away; now each is copied on its own, in an
+  order that retries what depends on something later, and what is left behind
+  is counted with a reason.
+- 🔁 **A local model no longer loops on tool calls.** Its own reasoning goes back
+  to it, repeated calls are answered with a pointer, a call cut off at the output
+  limit is sent back whole, and an empty answer is asked again.
+- 🗄️ **A fresh SQLite installation starts.** The baseline was missing a table.
+- 📎 **A screenshot on a Slack message reaches the agent** whichever workspace's
+  connection heard the event.
+- 🧜 **Mermaid subgraphs, database nodes and quoted labels draw,** and a fence or
+  a `mermaid` line on top is taken off.
 
 ## 0.9.8.3
 

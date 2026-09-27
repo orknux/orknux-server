@@ -396,6 +396,16 @@ is reported to the module rather than cascaded.
 - **An issue is addressed by its number.** `#4` is per workspace and is what a
   URL, a tool call and a person all say; the row id is an implementation detail
   that should not reach an API or a link.
+- **A value put in the session store says what it is.** Every writer passes a
+  `StoredKind` - its content type, and whether the value is base64 bytes -
+  and every reader asks `kindOf` before it guesses. Guessing from the value is
+  how a PDF reached Slack as a text file of base64. Text types hold the text
+  itself; everything else holds base64.
+- **A workspace copy decides every field.** `WorkspaceDuplicator` copies
+  connections, model providers, models and MCP servers field by field, and
+  leaves their credentials behind. `WorkspaceDuplicateTest` lists every field
+  of those entities as copied or left on purpose, so a field added to one fails
+  a test until somebody decides whether a copy carries it.
 - **There is one attachment store.** Chat attachments and issue attachments share
   `AttachmentStore`, `InstallationSettings` and the list of what may be served
   inline. A second copy of the inline rule is how one of them ends up serving

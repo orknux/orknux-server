@@ -388,6 +388,23 @@ Two counters, both in memory, both forgotten on a restart, and neither of them l
 
 `ORKNUX_REVISION_RETENTION_DAYS` (14), `ORKNUX_REVISION_SWEEP_ENABLED` (true) and `ORKNUX_REVISION_SWEEP_INTERVAL` (6h) govern how much of a component's history is kept. All three are on **Admin -> Settings** as well, and once set there that is what holds.
 
+### More settings
+
+Read on start, and each also a setting an administrator can change on the
+screen, where the screen's value wins; these are the defaults a fresh
+installation starts from.
+
+| Variable | What it sets | Default |
+|---|---|---|
+| `ORKNUX_CHAT_MAX_ROUNDS` | Tool rounds one chat answer may take. | `8` |
+| `ORKNUX_CHAT_MAX_SUBAGENTS` | Other agents one conversation may ask. | `10` |
+| `ORKNUX_CHAT_TOOLS_NAMED_IN_SEARCH` | Findable tools `tool_find` names outright. | `40` |
+| `ORKNUX_COMMAND_MARKER` | What marks a skill command in a message. | `!` |
+| `ORKNUX_LDAP_GROUP_SEARCH_SUBTREE` | Search for groups below the group base too. | `false` |
+| `ORKNUX_SESSIONS_ACTIVE_WINDOW_SECONDS` | How recent a session's last line is to count as active. | `60` |
+| `ORKNUX_TASK_SWEEP_ENABLED` | Whether stuck tasks are picked up again. | `true` |
+| `ORKNUX_TASK_SWEEP_INITIAL_DELAY` | How long after start the first sweep runs. | `1m` |
+
 ### Access
 
 **`ORKNUX_OIDC_AUDIENCES` is the setting that locks scripts out.** A bearer token
