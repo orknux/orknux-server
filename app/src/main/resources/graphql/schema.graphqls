@@ -2295,6 +2295,8 @@ type WorkspaceCopy {
     carried: [CopiedKind!]!
     "Variables the copy could not bring, by name."
     variablesToSet: [String!]!
+    "Connections, model providers and MCP servers that came without their credentials, by name."
+    credentialsToSet: [String!]!
     "Anything a component could not bring, said as the importer said it."
     problems: [String!]!
 }

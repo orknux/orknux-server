@@ -69,6 +69,11 @@ class WorkspaceDuplicator(
     private val workflows: WorkflowRepository,
     private val assignments: WorkspaceWorkflowRepository,
     private val variables: WorkspaceVariableRepository,
+    /** What the components point at by name, copied first so they resolve. Issue #570. */
+    private val connections: io.mszymanski.orknux.connector.connection.WorkspaceConnectionRepository,
+    private val mcpServers: io.mszymanski.orknux.connector.connection.McpServerRepository,
+    private val providers: io.mszymanski.orknux.connector.model.ModelProviderRepository,
+    private val models: io.mszymanski.orknux.connector.model.LlmModelRepository,
     /**
      * One transaction per piece rather than one for the whole copy. Issue #570:
      * a component that failed in the database left the one shared session
@@ -93,6 +98,11 @@ class WorkspaceDuplicator(
          * secret. Named rather than counted: somebody has to go and set each.
          */
         val secretsToSet: List<String>,
+        /**
+         * Connections, model providers and MCP servers that arrived without
+         * their credentials, by name. Issue #570.
+         */
+        val credentialsToSet: List<String> = emptyList(),
         /** Anything a component could not bring, said as the importer said it. */
         val problems: List<String>,
     )
@@ -134,6 +144,18 @@ class WorkspaceDuplicator(
 
         val counts = linkedMapOf<String, Int>()
         val problems = mutableListOf<String>()
+
+        /*
+         * What components point at by name, before any component. Issue #570:
+         * these were never copied, so every action that sends through a
+         * connection, every agent on a model and every workflow running those
+         * actions arrived as "no connection called Slack outbound here" - the
+         * copy of a Slack desk kept almost nothing. Copied under the same names
+         * with their credentials left behind, which is the stance on secrets
+         * below, so every reference resolves and the list says what to set.
+         */
+        val externals = requireNotNull(inOwnTransaction.execute { copyExternals(sourceId, into, counts) })
+        inOwnTransaction.executeWithoutResult { remapModels(into, externals.models) }
 
         order.forEach { kind ->
             val ids = idsOf(sourceId, kind)
@@ -183,8 +205,152 @@ class WorkspaceDuplicator(
             name = wanted,
             counts = counts,
             secretsToSet = secrets,
+            credentialsToSet = externals.credentialsToSet,
             problems = problems,
         )
+    }
+
+    /** What copying the externals came to: source model id to its copy, and what needs a credential. */
+    private data class Externals(val models: Map<Long, Long>, val credentialsToSet: List<String>)
+
+    /**
+     * Connections, model providers with their models, and MCP servers, copied
+     * without their credentials. Issue #570.
+     *
+     * Field by field rather than by reflection, for the reason the snapshot is:
+     * what is carried is a decision. What is left behind is named at each: the
+     * secret and the workspace variable it may be read from (variables are not
+     * copied), and the last check's result, which is about the original. An
+     * inherited connection keeps pointing at the installation's, whose
+     * credential it reads, so it works as it did and needs nothing set.
+     * WorkspaceDuplicateTest holds a list of every field, so a field added to
+     * one of these and not decided on here fails a test.
+     */
+    private fun copyExternals(from: Long, into: Long, counts: MutableMap<String, Int>): Externals {
+        val needs = mutableListOf<String>()
+        val byName = org.springframework.data.domain.Sort.by("name")
+
+        val heldConnections = connections.findByWorkspaceId(from, byName)
+        heldConnections.forEach { held ->
+            connections.save(
+                io.mszymanski.orknux.connector.connection.WorkspaceConnection(
+                    workspaceId = into,
+                    connectionId = held.connectionId,
+                    name = held.name,
+                    type = held.type,
+                    url = held.url,
+                    urlOverride = held.urlOverride,
+                    pluginType = held.pluginType,
+                    authType = held.authType,
+                    smtpPort = held.smtpPort,
+                    smtpUsername = held.smtpUsername,
+                    smtpFrom = held.smtpFrom,
+                    smtpSecurity = held.smtpSecurity,
+                    headers = held.headers.map {
+                        io.mszymanski.orknux.connector.connection.HttpHeader(it.name, it.value)
+                    }.toMutableList(),
+                ),
+            )
+            val hadCredential = held.secretVariableId != null || !held.secret.isNullOrBlank() ||
+                held.appTokenVariableId != null || !held.appToken.isNullOrBlank() ||
+                held.userTokenVariableId != null || !held.userToken.isNullOrBlank()
+            if (held.connectionId == null && hadCredential) needs += "connection ${held.name}"
+        }
+        if (heldConnections.isNotEmpty()) counts["connection"] = heldConnections.size
+
+        val heldServers = mcpServers.findByWorkspaceId(from, byName)
+        heldServers.forEach { held ->
+            mcpServers.save(
+                io.mszymanski.orknux.connector.connection.McpServer(
+                    workspaceId = into,
+                    name = held.name,
+                    address = held.address,
+                    authType = held.authType,
+                    headers = held.headers.map {
+                        io.mszymanski.orknux.connector.connection.HttpHeader(it.name, it.value)
+                    }.toMutableList(),
+                ),
+            )
+            if (held.secretVariableId != null || !held.secret.isNullOrBlank()) needs += "MCP server ${held.name}"
+        }
+        if (heldServers.isNotEmpty()) counts["mcp server"] = heldServers.size
+
+        val modelIds = mutableMapOf<Long, Long>()
+        val heldProviders = providers.findByWorkspaceId(from, byName)
+        heldProviders.forEach { held ->
+            val copy = providers.save(
+                io.mszymanski.orknux.connector.model.ModelProvider(
+                    workspaceId = into,
+                    name = held.name,
+                    type = held.type,
+                    endpoint = held.endpoint,
+                    authMethod = held.authMethod,
+                    apiVersion = held.apiVersion,
+                    deploymentName = held.deploymentName,
+                    region = held.region,
+                    tenantId = held.tenantId,
+                    clientId = held.clientId,
+                    scope = held.scope,
+                    checkEnabled = held.checkEnabled,
+                    throttleTokensPerSecond = held.throttleTokensPerSecond,
+                    throttleRequestsPerSecond = held.throttleRequestsPerSecond,
+                    acceptRetryAfter = held.acceptRetryAfter,
+                ),
+            )
+            if (held.secretVariableId != null || !held.secret.isNullOrBlank()) needs += "model provider ${held.name}"
+            models.findByProviderId(requireNotNull(held.id)).forEach { model ->
+                val made = models.save(
+                    io.mszymanski.orknux.connector.model.LlmModel(
+                        providerId = requireNotNull(copy.id),
+                        name = model.name,
+                        modelId = model.modelId,
+                        kind = model.kind,
+                        contextWindow = model.contextWindow,
+                        maxOutput = model.maxOutput,
+                        parallelToolCalls = model.parallelToolCalls,
+                        temperature = model.temperature,
+                        topP = model.topP,
+                        topK = model.topK,
+                        minP = model.minP,
+                        repeatPenalty = model.repeatPenalty,
+                        enabled = model.enabled,
+                        tokenLimit = model.tokenLimit,
+                        resetInterval = model.resetInterval,
+                        requestsPerMinute = model.requestsPerMinute,
+                        throttleTokensPerSecond = model.throttleTokensPerSecond,
+                        throttleRequestsPerSecond = model.throttleRequestsPerSecond,
+                        acceptRetryAfter = model.acceptRetryAfter,
+                        inputCostPerMillion = model.inputCostPerMillion,
+                        outputCostPerMillion = model.outputCostPerMillion,
+                        voice = model.voice,
+                        skipEmptyLines = model.skipEmptyLines,
+                        imageCostPerImage = model.imageCostPerImage,
+                    ),
+                )
+                modelIds[requireNotNull(model.id)] = requireNotNull(made.id)
+            }
+        }
+        if (heldProviders.isNotEmpty()) counts["model provider"] = heldProviders.size
+
+        return Externals(modelIds, needs)
+    }
+
+    /**
+     * The workspace's own model choices, pointed at the copies. Issue #570: the
+     * settings were carried as ids, which named the source workspace's models -
+     * a copy whose chat would think with another workspace's provider.
+     */
+    private fun remapModels(into: Long, copied: Map<Long, Long>) {
+        val copy = workspaces.findByIdOrNull(into) ?: return
+        fun mapped(id: Long?): Long? = id?.let { copied[it] }
+        copy.companionModelId = mapped(copy.companionModelId)
+        copy.transcriptionModelId = mapped(copy.transcriptionModelId)
+        copy.speechModelId = mapped(copy.speechModelId)
+        copy.compactionModelId = mapped(copy.compactionModelId)
+        copy.imageModelId = mapped(copy.imageModelId)
+        copy.quickChatModelId = mapped(copy.quickChatModelId)
+        copy.sessionCompactionModelId = mapped(copy.sessionCompactionModelId)
+        workspaces.save(copy)
     }
 
     /**

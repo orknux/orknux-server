@@ -135,6 +135,7 @@ class WorkspaceAPI(
                 ?: throw WorkspaceNotFoundException(copied.workspaceId),
             carried = copied.counts.map { (kind, count) -> CopiedKind(kind, count) },
             variablesToSet = copied.secretsToSet,
+            credentialsToSet = copied.credentialsToSet,
             problems = copied.problems,
         )
     }
@@ -1103,6 +1104,8 @@ data class WorkspacePage(
 /** What a duplicate came to, as a screen reads it. Issue #408. */
 data class WorkspaceCopyView(
     val workspace: Workspace,
+    /** Connections, providers and MCP servers that need their credentials set. Issue #570. */
+    val credentialsToSet: List<String> = emptyList(),
     /** How many of each kind were carried, in the order they were carried. */
     val carried: List<CopiedKind>,
     /**
