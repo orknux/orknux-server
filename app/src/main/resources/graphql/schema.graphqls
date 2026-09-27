@@ -1196,6 +1196,8 @@ type Mutation {
     setMaxRepeatedToolCalls(count: Int!): InstallationSettings!
     "How many tool calls one message may ask for at once. Issue #518."
     setMaxToolCallsAtOnce(count: Int!): InstallationSettings!
+    "How long one stored value is kept, in characters. Issue #519."
+    setLongestStoredValue(characters: Int!): InstallationSettings!
     "How close together they have to be to count as repetition."
     setRepeatedToolCallsWindowSeconds(seconds: Int!): InstallationSettings!
     "How many times a repeating turn is told before it ends."
@@ -6269,6 +6271,16 @@ type InstallationSettings {
     maxToolCallsAtOnce: Int!
     "Fifty, which no honest batch reaches."
     maxToolCallsAtOnceConfigured: Int!
+    """
+    How long one value may be before the transcript cuts it, in characters.
+
+    This bounds the record rather than the answer: a tool hands the model
+    whatever it hands it, and this decides how much is kept and can be recalled
+    into a later turn. Issue #519.
+    """
+    longestStoredValue: Int!
+    "A thousand, unless somebody has said otherwise."
+    longestStoredValueConfigured: Int!
     "How many bytes one session's scratchpads may hold in all. Issue #411."
     scratchpadBudgetBytes: Int!
     "What a fresh installation allows before anybody sets it."

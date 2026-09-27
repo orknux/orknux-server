@@ -57,8 +57,10 @@ class SessionValueTrimTest {
         assertThat(read.get("base64").stringValue()).startsWith("A".repeat(SessionValueTrim.LONGEST_VALUE))
         // And says how much there was, so nobody has to guess that it was cut.
         assertThat(read.get("base64").stringValue()).contains("5867")
+        // And that asking again is not how the rest is recovered. Issue #519.
+        assertThat(read.get("base64").stringValue()).contains("returns the same answer")
         assertThat(read.get("base64").stringValue().length)
-            .isLessThan(SessionValueTrim.LONGEST_VALUE + 60)
+            .isLessThan(SessionValueTrim.LONGEST_VALUE + 160)
 
         // Still JSON, which is the whole reason this works field by field
         // rather than cutting the text at a length.
@@ -91,13 +93,13 @@ class SessionValueTrimTest {
     @Test
     fun `a payload inside an array is found, and its short neighbours are not`() {
         val trimmed = SessionValueTrim.trim(
-            """{"blocks":[{"type":"section"},{"type":"image","url":"${"z".repeat(900)}"}]}""",
+            """{"blocks":[{"type":"section"},{"type":"image","url":"${"z".repeat(OVER)}"}]}""",
         )
 
         val blocks = reader.readTree(trimmed).get("blocks")
         assertThat(blocks.get(0).get("type").stringValue()).isEqualTo("section")
         assertThat(blocks.get(1).get("type").stringValue()).isEqualTo("image")
-        assertThat(blocks.get(1).get("url").stringValue()).contains("900 characters")
+        assertThat(blocks.get(1).get("url").stringValue()).contains("$OVER characters")
     }
 
     /** A bare array is a shape a tool answers in as readily as an object. */
@@ -156,14 +158,28 @@ class SessionValueTrimTest {
     /** What is not a string has no length to bound, and is left as it stands. */
     @Test
     fun `numbers, booleans and nulls are carried through unchanged`() {
-        val asked = """{"page":4,"open":true,"label":null,"note":"${"n".repeat(300)}"}"""
+        val asked = """{"page":4,"open":true,"label":null,"note":"${"n".repeat(OVER)}"}"""
 
         val read = reader.readTree(SessionValueTrim.trim(asked))
         assertThat(read.get("page").asInt()).isEqualTo(4)
         assertThat(read.get("open").asBoolean()).isTrue()
         assertThat(read.get("label").isNull).isTrue()
-        assertThat(read.get("note").stringValue()).contains("300 characters")
+        assertThat(read.get("note").stringValue()).contains("$OVER characters")
     }
 
     private val reader = ObjectMapper()
+
+    private companion object {
+
+        /**
+         * A value comfortably over the line, whatever the line is.
+         *
+         * Written this way because it was not: two of these tests used a number
+         * that happened to be over the old bound, and raising it to a thousand
+         * for issue #519 turned them into tests of a value that is now simply
+         * short. A test that stops testing anything when a default moves is one
+         * nobody notices has stopped.
+         */
+        const val OVER = SessionValueTrim.LONGEST_VALUE * 2
+    }
 }

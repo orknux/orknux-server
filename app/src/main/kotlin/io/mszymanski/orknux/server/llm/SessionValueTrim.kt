@@ -83,7 +83,7 @@ object SessionValueTrim {
      * second threshold, because a rule with two numbers in it is one nobody
      * reading a row can predict.
      */
-    const val LONGEST_VALUE = 250
+    const val LONGEST_VALUE = 1_000
 
     /**
      * The text as it should be stored: the same thing, with the payloads cut.
@@ -91,17 +91,17 @@ object SessionValueTrim {
      * @param text what was about to be written into `llm_session_event` -
      *   arguments or a result, JSON or not.
      */
-    fun trim(text: String): String {
+    fun trim(text: String, longest: Int = LONGEST_VALUE): String {
         // Nothing inside a short text can be over the line, and this is the
         // ordinary case: it costs a length check rather than a JSON parse.
-        if (text.length <= LONGEST_VALUE) return text
+        if (text.length <= longest) return text
 
-        val tree = runCatching { reader.readTree(text) }.getOrNull() ?: return shorten(text)
-        val cut = walk(tree) ?: return text
+        val tree = runCatching { reader.readTree(text) }.getOrNull() ?: return shorten(text, longest)
+        val cut = walk(tree, longest) ?: return text
         // A tree that could be read can be written, so the fallback here is for
         // the case nobody has seen rather than one anybody expects - and losing
         // a payload is still better than losing the line.
-        return runCatching { reader.writeValueAsString(cut) }.getOrElse { shorten(text) }
+        return runCatching { reader.writeValueAsString(cut) }.getOrElse { shorten(text, longest) }
     }
 
     /**
@@ -111,13 +111,13 @@ object SessionValueTrim {
      * was cut at all, and that answer is what decides between writing the tree
      * back out and keeping the text exactly as it arrived.
      */
-    private fun walk(node: JsonNode): JsonNode? = when {
+    private fun walk(node: JsonNode, longest: Int): JsonNode? = when {
         node.isString -> node.stringValue()
-            .takeIf { it.length > LONGEST_VALUE }
-            ?.let { NODES.stringNode(shorten(it)) }
+            .takeIf { it.length > longest }
+            ?.let { NODES.stringNode(shorten(it, longest)) }
 
-        node.isObject -> walkObject(node as ObjectNode)
-        node.isArray -> walkArray(node as ArrayNode)
+        node.isObject -> walkObject(node as ObjectNode, longest)
+        node.isArray -> walkArray(node as ArrayNode, longest)
 
         // A number, a boolean or a null has no length worth bounding, and the
         // names of an object's fields are not values: a payload arrives as a
@@ -125,14 +125,14 @@ object SessionValueTrim {
         else -> null
     }
 
-    private fun walkObject(node: ObjectNode): JsonNode? {
+    private fun walkObject(node: ObjectNode, longest: Int): JsonNode? {
         var cut = false
         // The names are taken first because replacing a value goes through the
         // same map `properties()` is a view of, and a walk that rewrote as it
         // read would be modifying what it is iterating.
         node.properties().map { it.key }.forEach { name ->
             val value = node.get(name) ?: return@forEach
-            walk(value)?.let {
+            walk(value, longest)?.let {
                 node.set(name, it)
                 cut = true
             }
@@ -140,10 +140,10 @@ object SessionValueTrim {
         return node.takeIf { cut }
     }
 
-    private fun walkArray(node: ArrayNode): JsonNode? {
+    private fun walkArray(node: ArrayNode, longest: Int): JsonNode? {
         var cut = false
         for (index in 0 until node.size()) {
-            walk(node.get(index))?.let {
+            walk(node.get(index), longest)?.let {
                 node.set(index, it)
                 cut = true
             }
@@ -151,9 +151,20 @@ object SessionValueTrim {
         return node.takeIf { cut }
     }
 
-    /** One over-long value, with the marker that says what it used to be. */
-    private fun shorten(value: String): String =
-        value.take(LONGEST_VALUE) + "… (trimmed from ${value.length} characters)"
+    /**
+     * The cut, and what it says about itself.
+     *
+     * It says calling again will not recover the rest, because the marker used
+     * to imply the opposite and a model believed it. What is missing is missing
+     * from the *record*: the tool would answer in full again, and this would
+     * keep the same first characters of it and drop the same tail. So a model
+     * reading this on a later turn and calling the tool to get the rest back
+     * arrives exactly where it started, which is a loop with a polite invitation
+     * at the top of it. Issue #519.
+     */
+    private fun shorten(value: String, longest: Int): String =
+        value.take(longest) + "… (trimmed from ${value.length} characters; " +
+            "calling the tool again returns the same answer and it is kept the same way)"
 
     /**
      * A reader of its own, built once.

@@ -58,6 +58,8 @@ class LlmSessionRecorder(
     private val notes: LlmSessionNoteRepository,
     /** For reading the agent's name out of its setup snapshot; see [describeAgent]. Issue #441. */
     private val mapper: tools.jackson.databind.ObjectMapper,
+    /** How long a stored value may be before it is cut; see [SessionValueTrim]. Issue #519. */
+    private val installation: io.mszymanski.orknux.server.attachment.InstallationSettings,
 ) {
 
     /**
@@ -261,7 +263,12 @@ class LlmSessionRecorder(
      *   not a reason to fail the work that was being transcribed.
      */
     fun toolCalled(session: Long, tool: String, arguments: String): Long? =
-        write(session, LlmSessionEventKind.TOOL, tool, SessionValueTrim.trim(AuditRedaction.redact(arguments)))
+        write(
+            session,
+            LlmSessionEventKind.TOOL,
+            tool,
+            SessionValueTrim.trim(AuditRedaction.redact(arguments), installation.longestStoredValue()),
+        )
 
     /**
      * And what that call gave back, onto the line the call was written on.
@@ -314,7 +321,8 @@ class LlmSessionRecorder(
         val line = event ?: return
         try {
             events.findByIdOrNull(line)?.let {
-                it.result = SessionValueTrim.trim(AuditRedaction.redactObvious(result))
+                it.result =
+                    SessionValueTrim.trim(AuditRedaction.redactObvious(result), installation.longestStoredValue())
                 events.save(it)
                 // The line was already handed to anybody watching, with nothing
                 // on it. This is what turns a lookup that is running into one
@@ -592,8 +600,9 @@ class LlmSessionRecorder(
             got
         } else {
             got.take(longest) +
-                "\n[${got.length - longest} more characters were not kept. " +
-                "Call ${event.actor} again if you need them.]"
+                "\n[${got.length - longest} more characters of this answer were not kept here. " +
+                "Calling ${event.actor} again returns the same answer and it is kept the same " +
+                "way, so it will not bring them back - work from what is above.]"
         }
         return "${event.actor} $asked\n$body"
     }
@@ -789,8 +798,10 @@ class LlmSessionRecorder(
         const val RECALL_HEADER =
             "What your tools returned earlier in this conversation, oldest first. " +
                 "This is the data itself rather than a summary of it: answer from it, " +
-                "not from anything said about it above, and call the tool again if what " +
-                "you need is not here.\n\n"
+                "not from anything said about it above. Where an answer says it was " +
+                "trimmed, calling that tool again gives the same answer and it is kept " +
+                "the same way, so repeat a call only to see something that may have " +
+                "changed - never to recover text that was cut.\n\n"
 
         /**
          * The role a recalled lookup is offered under.

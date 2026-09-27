@@ -67,6 +67,8 @@ class InstallationSettingsAPI(
         repeatedToolCallWarningsConfigured = settings.repeatedToolCallWarningsConfigured(),
         maxToolCallsAtOnce = settings.maxToolCallsAtOnce(),
         maxToolCallsAtOnceConfigured = settings.maxToolCallsAtOnceConfigured(),
+        longestStoredValue = settings.longestStoredValue(),
+        longestStoredValueConfigured = settings.longestStoredValueConfigured(),
         scratchpadBudgetBytes = settings.scratchpadBudgetBytes(),
         scratchpadBudgetBytesConfigured = settings.scratchpadBudgetBytesConfigured(),
         commandMarker = settings.commandMarker(),
@@ -448,6 +450,18 @@ class InstallationSettingsAPI(
     }
 
     @MutationMapping
+    fun setLongestStoredValue(@Argument characters: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setLongestStoredValue(characters, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "A stored value is kept to $characters characters",
+        )
+        return installationSettings()
+    }
+
+    @MutationMapping
     fun setMaxToolCallsAtOnce(@Argument count: Int): InstallationSettingsView {
         access.requireAdmin()
         settings.setMaxToolCallsAtOnce(count, currentUser())
@@ -657,6 +671,9 @@ data class InstallationSettingsView(
     /** How many tool calls one message may ask for at once. Issue #518. */
     val maxToolCallsAtOnce: Int,
     val maxToolCallsAtOnceConfigured: Int,
+    /** How long one stored value may be before the transcript cuts it. Issue #519. */
+    val longestStoredValue: Int,
+    val longestStoredValueConfigured: Int,
     /** How many bytes one session's scratchpads may hold in all. Issue #411. */
     val scratchpadBudgetBytes: Int,
     /** What a fresh installation allows before anybody sets it. */

@@ -78,6 +78,9 @@ object SettingNames {
     /** How many tool calls one message may ask for at once. Issue #518. */
     const val MAX_TOOL_CALLS_AT_ONCE = "agent.max.tool.calls.at.once"
 
+    /** How long a single stored value may be before the transcript cuts it. Issue #519. */
+    const val LONGEST_STORED_VALUE = "session.longest.stored.value"
+
     /** How many asks may be in flight at once. Issue #461. */
     const val AGENT_MAX_SUBAGENTS_AT_ONCE = "agent.max.subagents.at.once"
     const val COMMAND_MARKER = "command.marker"
@@ -519,6 +522,40 @@ class InstallationSettings(
     fun setMaxToolCallsAtOnce(count: Int, by: String) {
         if (count !in MIN_CALLS_AT_ONCE..MAX_CALLS_AT_ONCE) throw ToolCallsAtOnceOutOfRangeException(count)
         write(SettingNames.MAX_TOOL_CALLS_AT_ONCE, count.toString(), by)
+    }
+
+    /**
+     * How long a single value may be before the transcript shortens it.
+     * Issue #519.
+     *
+     * This bounds the *record*, not the answer: a tool hands the model whatever
+     * it hands it, and this decides how much of that is kept in
+     * `llm_session_event` and therefore how much can be recalled into a later
+     * turn. Two hundred and fifty was chosen for payloads - a base64 image on
+     * its way to Slack - and it is far too short for the thing that is most
+     * worth recalling. A skill is instructions the agent was handed; kept at two
+     * hundred and fifty characters, a seventeen-kilobyte skill comes back next
+     * turn as a sentence and a half and a note saying the rest is gone.
+     *
+     * A setting because what an installation can afford to keep is an
+     * installation's decision: a database sized for one is not sized for the
+     * other, and the number that is right at both ends is not one this code can
+     * know.
+     */
+    fun longestStoredValue(): Int {
+        val held = settings.findByIdOrNull(SettingNames.LONGEST_STORED_VALUE)
+            ?: return longestStoredValueConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_STORED_VALUE..MAX_STORED_VALUE }
+            ?: longestStoredValueConfigured()
+    }
+
+    /** A thousand: enough of a page of instructions to be worth having. */
+    fun longestStoredValueConfigured(): Int = DEFAULT_LONGEST_STORED_VALUE
+
+    @Transactional
+    fun setLongestStoredValue(characters: Int, by: String) {
+        if (characters !in MIN_STORED_VALUE..MAX_STORED_VALUE) throw StoredValueOutOfRangeException(characters)
+        write(SettingNames.LONGEST_STORED_VALUE, characters.toString(), by)
     }
 
     /**
@@ -1143,6 +1180,19 @@ const val MAX_WARNINGS = 10
 const val DEFAULT_LOOP_WARNINGS = 2
 
 /**
+ * A hundred characters and a hundred thousand, for what one stored value may
+ * come to.
+ *
+ * The floor is a hundred because below that the marker saying a value was cut
+ * is a good share of what is left. The ceiling is a hundred thousand because
+ * past that the transcript is storing payloads again, which is the thing this
+ * exists to stop.
+ */
+const val MIN_STORED_VALUE = 100
+const val MAX_STORED_VALUE = 100_000
+const val DEFAULT_LONGEST_STORED_VALUE = 1_000
+
+/**
  * One and five hundred, for how many tool calls one message may ask for.
  *
  * The floor is one because zero would be a model with no tools. The ceiling is
@@ -1179,6 +1229,15 @@ class RepeatedToolCallsOutOfRangeException(val count: Int) : RuntimeException(
 ), Refusal {
 
     override val arguments get() = mapOf("count" to count)
+}
+
+/** Issue #519. */
+class StoredValueOutOfRangeException(val characters: Int) : RuntimeException(
+    "$characters is not a length to keep a stored value at. " +
+        "Choose between $MIN_STORED_VALUE and $MAX_STORED_VALUE.",
+), Refusal {
+
+    override val arguments get() = mapOf("characters" to characters)
 }
 
 /** Issue #518. */
