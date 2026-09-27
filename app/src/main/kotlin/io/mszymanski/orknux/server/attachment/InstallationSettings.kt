@@ -75,6 +75,9 @@ object SettingNames {
     /** How many times a looping turn is told before it ends. Issue #516. */
     const val REPEATED_TOOL_CALL_WARNINGS = "agent.repeated.tool.call.warnings"
 
+    /** How many tool calls one message may ask for at once. Issue #518. */
+    const val MAX_TOOL_CALLS_AT_ONCE = "agent.max.tool.calls.at.once"
+
     /** How many asks may be in flight at once. Issue #461. */
     const val AGENT_MAX_SUBAGENTS_AT_ONCE = "agent.max.subagents.at.once"
     const val COMMAND_MARKER = "command.marker"
@@ -484,6 +487,38 @@ class InstallationSettings(
     fun setMaxRepeatedToolCalls(count: Int, by: String) {
         if (count !in MIN_REPEATS..MAX_REPEATS) throw RepeatedToolCallsOutOfRangeException(count)
         write(SettingNames.MAX_REPEATED_TOOL_CALLS, count.toString(), by)
+    }
+
+    /**
+     * How many tool calls one message may ask for at once. Issue #518.
+     *
+     * A different failure from the loop above and it needs its own bound. In
+     * session 474 a model emitted a hundred and forty-one `skill_load` calls in
+     * a *single* assistant message - one thinking event, then the same call over
+     * and over in one decode. The loop guard counts across rounds, so by the
+     * time it has anything to say the batch is already there and the work is
+     * already asked for.
+     *
+     * Fifty, because that is far past any real batch. A model reading a handful
+     * of files, or looking up several things at once before it answers, is doing
+     * something ordinary and must not be cut off; fifty identical-shaped calls
+     * in one message is a decode that has come off the rails. What is over the
+     * line is dropped and the model is told - see [AgentConversation].
+     */
+    fun maxToolCallsAtOnce(): Int {
+        val held = settings.findByIdOrNull(SettingNames.MAX_TOOL_CALLS_AT_ONCE)
+            ?: return maxToolCallsAtOnceConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_CALLS_AT_ONCE..MAX_CALLS_AT_ONCE }
+            ?: maxToolCallsAtOnceConfigured()
+    }
+
+    /** Fifty, which no honest batch reaches. */
+    fun maxToolCallsAtOnceConfigured(): Int = DEFAULT_TOOL_CALLS_AT_ONCE
+
+    @Transactional
+    fun setMaxToolCallsAtOnce(count: Int, by: String) {
+        if (count !in MIN_CALLS_AT_ONCE..MAX_CALLS_AT_ONCE) throw ToolCallsAtOnceOutOfRangeException(count)
+        write(SettingNames.MAX_TOOL_CALLS_AT_ONCE, count.toString(), by)
     }
 
     /**
@@ -1107,6 +1142,17 @@ const val MIN_WARNINGS = 1
 const val MAX_WARNINGS = 10
 const val DEFAULT_LOOP_WARNINGS = 2
 
+/**
+ * One and five hundred, for how many tool calls one message may ask for.
+ *
+ * The floor is one because zero would be a model with no tools. The ceiling is
+ * five hundred because past that the cap is not bounding a batch, it is only
+ * describing how far a broken decode got.
+ */
+const val MIN_CALLS_AT_ONCE = 1
+const val MAX_CALLS_AT_ONCE = 500
+const val DEFAULT_TOOL_CALLS_AT_ONCE = 50
+
 /** At least one at a time, or asking would do nothing at all. */
 const val MIN_AT_ONCE = 1
 
@@ -1130,6 +1176,15 @@ class SubagentsOutOfRangeException(val count: Int) : RuntimeException(
 class RepeatedToolCallsOutOfRangeException(val count: Int) : RuntimeException(
     "$count is not a number of identical calls to allow in a row. " +
         "Choose between $MIN_REPEATS and $MAX_REPEATS.",
+), Refusal {
+
+    override val arguments get() = mapOf("count" to count)
+}
+
+/** Issue #518. */
+class ToolCallsAtOnceOutOfRangeException(val count: Int) : RuntimeException(
+    "$count is not a number of tool calls to allow in one message. " +
+        "Choose between $MIN_CALLS_AT_ONCE and $MAX_CALLS_AT_ONCE.",
 ), Refusal {
 
     override val arguments get() = mapOf("count" to count)

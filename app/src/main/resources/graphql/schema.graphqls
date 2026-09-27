@@ -1194,6 +1194,8 @@ type Mutation {
     setAgentMaxSubagentsAtOnce(count: Int!): InstallationSettings!
     "How many identical calls in a row are allowed. Issue #516."
     setMaxRepeatedToolCalls(count: Int!): InstallationSettings!
+    "How many tool calls one message may ask for at once. Issue #518."
+    setMaxToolCallsAtOnce(count: Int!): InstallationSettings!
     "How close together they have to be to count as repetition."
     setRepeatedToolCallsWindowSeconds(seconds: Int!): InstallationSettings!
     "How many times a repeating turn is told before it ends."
@@ -1697,6 +1699,8 @@ type Mutation {
     number; zero takes the tool off the table here. Issue #380.
     """
     setWorkspaceAgentMaxSubagents(workspaceId: ID!, count: Int): Workspace!
+    "How many tool calls one message here may ask for; null takes the installation's. Issue #518."
+    setWorkspaceMaxToolCallsAtOnce(workspaceId: ID!, count: Int): Workspace!
     """
     Whether this workspace's agents may have a built-in tool hidden from them.
 
@@ -2113,6 +2117,16 @@ type Workspace {
     agentMaxSubagents: Int
     "What an agent here gets when `agentMaxSubagents` is null: the installation's number."
     agentMaxSubagentsDefault: Int!
+    """
+    How many tool calls one message from an agent here may ask for at once.
+
+    A different failure from repetition across rounds: this is a single decode
+    coming apart, one assistant message carrying the same call a hundred and
+    forty-one times. Null means the installation's number. Issue #518.
+    """
+    maxToolCallsAtOnce: Int
+    "What a message here gets when `maxToolCallsAtOnce` is null: the installation's number."
+    maxToolCallsAtOnceDefault: Int!
     """
     Whether an agent here may have a built-in tool hidden from it.
 
@@ -6245,6 +6259,16 @@ type InstallationSettings {
     "How many times a repeating turn is told before it is ended."
     repeatedToolCallWarnings: Int!
     repeatedToolCallWarningsConfigured: Int!
+    """
+    How many tool calls one message may ask for at once. Issue #518.
+
+    The guard above counts between rounds, so it cannot see a batch: this is
+    the one that does. What is over the line is refused out loud rather than
+    dropped, so the model is told the rule and every call still has an answer.
+    """
+    maxToolCallsAtOnce: Int!
+    "Fifty, which no honest batch reaches."
+    maxToolCallsAtOnceConfigured: Int!
     "How many bytes one session's scratchpads may hold in all. Issue #411."
     scratchpadBudgetBytes: Int!
     "What a fresh installation allows before anybody sets it."

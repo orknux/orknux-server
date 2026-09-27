@@ -3,6 +3,8 @@ package io.mszymanski.orknux.server.workspace
 import org.slf4j.LoggerFactory
 import io.mszymanski.orknux.server.attachment.MAX_SUBAGENTS
 import io.mszymanski.orknux.server.attachment.MIN_SUBAGENTS
+import io.mszymanski.orknux.server.attachment.MAX_CALLS_AT_ONCE
+import io.mszymanski.orknux.server.attachment.MIN_CALLS_AT_ONCE
 import io.mszymanski.orknux.server.workflow.ExecutionSweeper
 import io.mszymanski.orknux.connector.connection.WorkspaceLifecycleService
 import io.mszymanski.orknux.connector.model.ModelService
@@ -356,6 +358,10 @@ class WorkspaceAPI(
     /** What an agent here may ask when the workspace has said nothing: Admin -> Settings. Issue #380. */
     @SchemaMapping(typeName = "Workspace")
     fun agentMaxSubagentsDefault(workspace: Workspace): Int = installation.agentMaxSubagents()
+
+    /** How many calls one message may ask for when the workspace has said nothing. Issue #518. */
+    @SchemaMapping(typeName = "Workspace")
+    fun maxToolCallsAtOnceDefault(workspace: Workspace): Int = installation.maxToolCallsAtOnce()
 
     /**
      * The installation's script timeout, in seconds, for the same box: the
@@ -771,6 +777,33 @@ class WorkspaceAPI(
             WorkspaceAuditCategory.WORKSPACE,
             count?.let { "An agent may ask $it other agents in a conversation" }
                 ?: "How many agents one may ask is the installation's again",
+        )
+        return workspace
+    }
+
+    /**
+     * How many tool calls one message here may ask for at once. Issue #518.
+     *
+     * Null clears it, back onto the installation's number - the same shape as
+     * the asks above. Read per round, so this decides the next message and
+     * leaves one already in flight alone.
+     */
+    @MutationMapping
+    @Transactional
+    fun setWorkspaceMaxToolCallsAtOnce(@Argument workspaceId: Long, @Argument count: Int?): Workspace {
+        val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
+        access.requireVisible(workspace)
+
+        if (count != null && count !in MIN_CALLS_AT_ONCE..MAX_CALLS_AT_ONCE) {
+            throw io.mszymanski.orknux.server.attachment.ToolCallsAtOnceOutOfRangeException(count)
+        }
+
+        workspace.maxToolCallsAtOnce = count
+        auditRecorder.record(
+            workspaceId,
+            WorkspaceAuditCategory.WORKSPACE,
+            count?.let { "One message here may ask for $it tool calls" }
+                ?: "How many calls one message may ask for is the installation's again",
         )
         return workspace
     }

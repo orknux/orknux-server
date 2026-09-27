@@ -65,6 +65,8 @@ class InstallationSettingsAPI(
         repeatedToolCallsWindowSecondsConfigured = settings.repeatedToolCallsWindowSecondsConfigured(),
         repeatedToolCallWarnings = settings.repeatedToolCallWarnings(),
         repeatedToolCallWarningsConfigured = settings.repeatedToolCallWarningsConfigured(),
+        maxToolCallsAtOnce = settings.maxToolCallsAtOnce(),
+        maxToolCallsAtOnceConfigured = settings.maxToolCallsAtOnceConfigured(),
         scratchpadBudgetBytes = settings.scratchpadBudgetBytes(),
         scratchpadBudgetBytesConfigured = settings.scratchpadBudgetBytesConfigured(),
         commandMarker = settings.commandMarker(),
@@ -446,6 +448,14 @@ class InstallationSettingsAPI(
     }
 
     @MutationMapping
+    fun setMaxToolCallsAtOnce(@Argument count: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setMaxToolCallsAtOnce(count, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "Tool calls allowed in one message: $count")
+        return installationSettings()
+    }
+
+    @MutationMapping
     fun setRepeatedToolCallsWindowSeconds(@Argument seconds: Int): InstallationSettingsView {
         access.requireAdmin()
         settings.setRepeatedToolCallsWindowSeconds(seconds, currentUser())
@@ -644,6 +654,9 @@ data class InstallationSettingsView(
     val repeatedToolCallsWindowSecondsConfigured: Int,
     val repeatedToolCallWarnings: Int,
     val repeatedToolCallWarningsConfigured: Int,
+    /** How many tool calls one message may ask for at once. Issue #518. */
+    val maxToolCallsAtOnce: Int,
+    val maxToolCallsAtOnceConfigured: Int,
     /** How many bytes one session's scratchpads may hold in all. Issue #411. */
     val scratchpadBudgetBytes: Int,
     /** What a fresh installation allows before anybody sets it. */

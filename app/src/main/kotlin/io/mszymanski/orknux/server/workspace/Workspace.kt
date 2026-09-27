@@ -262,6 +262,18 @@ class Workspace(
     var maxRepeatedToolCalls: Int? = null,
 
     /**
+     * How many tool calls one message here may ask for at once. Issue #518.
+     *
+     * A different failure from the repetition above. That one is a turn going
+     * round across rounds; this is a single decode coming off the rails - one
+     * assistant message carrying the same call a hundred and forty-one times.
+     * The guard above cannot see it, because it counts between rounds and this
+     * all arrives inside one. Null takes the installation's number.
+     */
+    @Column(name = "max_tool_calls_at_once")
+    var maxToolCallsAtOnce: Int? = null,
+
+    /**
      * And how close together they have to be to count. Issue #516.
      *
      * Repetition on its own is not the fault: an agent watching something

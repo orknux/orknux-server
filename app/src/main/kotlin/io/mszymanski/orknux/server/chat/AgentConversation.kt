@@ -2,6 +2,8 @@ package io.mszymanski.orknux.server.chat
 
 import io.mszymanski.orknux.connector.model.ChatCompletion
 import io.mszymanski.orknux.connector.model.ChatTurn
+import io.mszymanski.orknux.connector.model.ToolCall
+import tools.jackson.databind.ObjectMapper
 import io.mszymanski.orknux.connector.model.Hangup
 import io.mszymanski.orknux.connector.model.ModelChatClient
 import io.mszymanski.orknux.connector.model.ToolSpec
@@ -204,6 +206,10 @@ class AgentConversation(
     private fun repeatWindowFor(agent: Agent): Int =
         workspaces.findByIdOrNull(agent.workspaceId)?.repeatedToolCallsWindowSeconds
             ?: settings.repeatedToolCallsWindowSeconds()
+
+    /** How many calls one message from this agent may ask for. Issue #518. */
+    private fun callsAtOnceFor(agent: Agent): Int =
+        workspaces.findByIdOrNull(agent.workspaceId)?.maxToolCallsAtOnce ?: settings.maxToolCallsAtOnce()
 
     /** And how often it is told before the turn ends. Issue #516. */
     private fun loopWarningsFor(agent: Agent): Int =
@@ -513,6 +519,7 @@ class AgentConversation(
         val warningsAllowed = loopWarningsFor(agent)
         val repeatsAllowed = repeatsFor(agent)
         val repeatWindow = repeatWindowFor(agent) * 1000L
+        val callsAllowed = callsAtOnceFor(agent)
         var warnedOfFailure = false
         repeat(rounds) {
             /*
@@ -660,8 +667,42 @@ class AgentConversation(
                      * What each distinct call in this round answered. Cleared
                      * per round, deliberately: see the note on the lookup below.
                      */
-                    val answeredInBatch = mutableMapOf<String, String>()
-                    answer.calls.forEach { call ->
+                    val answeredInBatch = mutableMapOf<String, Pair<String, String>>()
+
+                    /*
+                     * The batch, cut to what one message is allowed to ask for.
+                     * Issue #518.
+                     *
+                     * Session 474 arrived as a hundred and forty-one
+                     * `skill_load` calls in a single assistant message - one
+                     * thinking event, then the same call over and over, the
+                     * first of them with its arguments cut off mid-JSON. That
+                     * is a decode that has come apart, not a plan, and the loop
+                     * guard cannot help: it counts between rounds and this is
+                     * all inside one.
+                     *
+                     * The ones over the line are refused rather than dropped.
+                     * Every call a model makes has to come back with an answer
+                     * - a provider requires it, and a transcript that shows a
+                     * call with nothing under it is unreadable - so they are
+                     * answered with a refusal that says the cap, what it is,
+                     * and what to do instead.
+                     */
+                    val over = answer.calls.drop(callsAllowed)
+                    if (over.isNotEmpty()) {
+                        log.warn(
+                            "Agent {} asked for {} tool calls in one message; {} allowed, {} refused",
+                            agent.name, answer.calls.size, callsAllowed, over.size,
+                        )
+                        into?.let { session ->
+                            sessions.note(
+                                session,
+                                "That message asked for " + answer.calls.size + " tool calls at once. " +
+                                    callsAllowed + " were run and " + over.size + " were refused.",
+                            )
+                        }
+                    }
+                    answer.calls.take(callsAllowed).forEach { call ->
                         log.debug("Agent {} called {}", agent.name, call.name)
                         val here = at++
                         /*
@@ -771,7 +812,7 @@ class AgentConversation(
                          * leaves the model able to ask again in the next round,
                          * where a fresh call is what it would get.
                          */
-                        val got = alreadyAnswered ?: try {
+                        val got = alreadyAnswered?.second ?: try {
                             if (hunt != null && hunt.handles(call.name)) hunt.run(call) else tools.run(agent, call, into)
                         } catch (halted: AgentRoundHalted) {
                             // The lent tool ended the round. What it did is
@@ -829,11 +870,13 @@ class AgentConversation(
                          * alternative is a session holding every picture any
                          * tool ever made, twice.
                          */
-                        answeredInBatch[asking] = got
+                        if (alreadyAnswered == null) answeredInBatch[asking] = call.id to got
 
                         val picture = AgentTools.pictureIn(got)
                         val whole = picture?.let { AgentTools.withoutPicture(got, it) } ?: got
-                        val said = if (alreadyAnswered == null) whole else whole + PARAGRAPH + REPEATED_IN_BATCH
+                        val said = alreadyAnswered
+                            ?.let { (ranAs, _) -> duplicateAnswer(call, ranAs, whole) }
+                            ?: whole
                         picture?.let { shown.add(call.name to it) }
 
                         /*
@@ -848,7 +891,21 @@ class AgentConversation(
                          * the remaining calls are the same call, and running
                          * them only buys more warnings nobody reads.
                          */
-                        if (loopWarnings >= warningsAllowed) return@forEach
+                        if (loopWarnings >= warningsAllowed) {
+                            val refused = refusalAnswer(
+                                call,
+                                "This turn is ending because the same call was repeated after being told, " +
+                                    "so this call was not run.",
+                                mapOf(
+                                    "identicalCallsAllowed" to repeatsAllowed,
+                                    "withinSeconds" to (repeatWindow / 1000),
+                                ),
+                            )
+                            sessions.toolReturned(line, refused)
+                            watch?.returned(here, refused, failed = true)
+                            conversation += ChatTurn(role = "user", content = refused, respondingTo = call.id)
+                            return@forEach
+                        }
 
                         val signature = call.name + 0.toChar() + call.arguments + 0.toChar() + got
                         val now = System.currentTimeMillis()
@@ -898,6 +955,15 @@ class AgentConversation(
                                 "next turn check." + PARAGRAPH +
                                 "Use what you already have and finish your answer."
                             into?.let { session -> sessions.note(session, note) }
+                            /*
+                             * Recorded as well as sent. Without this the row
+                             * written before the call ran keeps a null result
+                             * for ever and the session page says "no answer was
+                             * recorded" under a call that was answered - which
+                             * is how this looked from the outside for a week.
+                             */
+                            sessions.toolReturned(line, AuditRedaction.redactObvious(said))
+                            watch?.returned(here, said, failed = false)
                             conversation += ChatTurn(role = "user", content = said, respondingTo = call.id)
                             conversation += ChatTurn(role = "user", content = note)
                             loopWarnings += 1
@@ -934,6 +1000,35 @@ class AgentConversation(
                             content = said,
                             respondingTo = call.id,
                         )
+                    }
+
+                    /*
+                     * And the refusals for what was over the cap, after the
+                     * calls that ran and in the order they were asked.
+                     *
+                     * Every one of them, because a request carrying a call with
+                     * no answer under it is one a provider refuses outright -
+                     * and because a model reading its own message back with
+                     * nothing where an answer should be has no way to tell that
+                     * from a tool that hung. That is how session 474 kept going:
+                     * calls were dropped in silence, and it asked again.
+                     */
+                    over.forEach { call ->
+                        val refused = refusalAnswer(
+                            call,
+                            "This call was not run. Your message asked for " + answer.calls.size +
+                                " tool calls at once and the first " + callsAllowed + " were run. " +
+                                "Ask for fewer calls in one message: ask for what you need now, read the " +
+                                "answers, and then ask for the next thing.",
+                            mapOf(
+                                "callsAsked" to answer.calls.size,
+                                "callsAllowedAtOnce" to callsAllowed,
+                                "callsRefused" to over.size,
+                            ),
+                        )
+                        val where = into?.let { sessions.toolCalled(it, call.name, AuditRedaction.redact(call.arguments)) }
+                        sessions.toolReturned(where, refused)
+                        conversation += ChatTurn(role = "user", content = refused, respondingTo = call.id)
                     }
 
                     /*
@@ -1097,6 +1192,67 @@ class AgentConversation(
      * lines for those calls or the transcript reads as though the agent spoke
      * after looking things up.
      */
+    /**
+     * The mapper these two build their answers with.
+     *
+     * Its own, and plain: what goes through it is three or four named fields
+     * around a result that is already a string, so nothing here depends on the
+     * application's configuration - and a structured answer to a model must not
+     * change shape because somebody adjusted serialization elsewhere.
+     */
+    private val jackson = ObjectMapper()
+
+    /**
+     * What a call that was not run answers with. Issue #518.
+     *
+     * Structured, and it has to be: this is the model being told about its own
+     * behaviour, and a sentence in the middle of what is otherwise a tool result
+     * reads as part of the result. Named fields say plainly that nothing ran,
+     * why, and what the rule was - so the model can act on the rule rather than
+     * guess at it from prose.
+     */
+    private fun refusalAnswer(call: ToolCall, why: String, policy: Map<String, Any>): String {
+        val envelope = jackson.createObjectNode()
+        envelope.put("ran", false)
+        envelope.put("tool", call.name)
+        envelope.put("refused", why)
+        val rule = envelope.putObject("policy")
+        policy.forEach { (name, value) ->
+            when (value) {
+                is Int -> rule.put(name, value)
+                is Long -> rule.put(name, value)
+                else -> rule.put(name, value.toString())
+            }
+        }
+        return jackson.writeValueAsString(envelope)
+    }
+
+    /**
+     * What a duplicated call answers with. Issue #518.
+     *
+     * Structured rather than a sentence stuck on the end, because this is a
+     * fact about the call and a model should be able to read it as one: which
+     * call actually ran, that this is its answer rather than a new one, and the
+     * answer itself under a name.
+     *
+     * The result is nested as it came where it was JSON and as text where it
+     * was not, so nothing is lost and nothing has to be unpicked from prose.
+     */
+    private fun duplicateAnswer(call: ToolCall, ranAs: String, result: String): String {
+        val envelope = jackson.createObjectNode()
+        envelope.put("duplicateOfCall", ranAs)
+        envelope.put("tool", call.name)
+        envelope.put("ranOnce", true)
+        envelope.put("note", DUPLICATE_NOTE)
+        val held = runCatching { jackson.readTree(result) }.getOrNull()
+        if (held != null && (held.isObject || held.isArray)) {
+            envelope.set("result", held)
+        } else {
+            envelope.put("result", result)
+        }
+        return jackson.writeValueAsString(envelope)
+    }
+
     private fun record(into: Long?, agent: Agent, answer: ChatCompletion) {
         val session = into ?: return
         when (answer) {
@@ -1120,18 +1276,11 @@ class AgentConversation(
         /** A blank line, built rather than typed: an escape does not survive every editor. */
         val PARAGRAPH = 10.toChar().toString() + 10.toChar().toString()
 
-        /**
-         * What a repeated call in one message is told. Issue #518.
-         *
-         * Said plainly, because the alternative is a model that asked twice on
-         * purpose reading two identical answers and concluding the world had
-         * not moved - when the second call was never made at all. This says
-         * which it was, and where to ask again for a real one.
-         */
-        const val REPEATED_IN_BATCH =
-            "(You asked for this exact call more than once in the same message, so it ran once and this is " +
-                "that same answer rather than a fresh one. If you meant to check again for a change, ask " +
-                "again in your next message and it will run for real.)"
+        /** What a duplicated call is told it was. Issue #518. */
+        const val DUPLICATE_NOTE =
+            "This exact call appeared more than once in your last message. It ran once and this is that " +
+                "same answer, not a fresh one. To check whether something has changed, ask again in your " +
+                "next message and it will run for real."
 
         val log = LoggerFactory.getLogger(AgentConversation::class.java)
     }

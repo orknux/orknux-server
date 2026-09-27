@@ -181,6 +181,7 @@ class WorkspaceDuplicator(
         defaultMemoryShare = source.defaultMemoryShare,
         taskMaxTurns = source.taskMaxTurns,
         agentMaxSubagents = source.agentMaxSubagents,
+        maxToolCallsAtOnce = source.maxToolCallsAtOnce,
         unsafeBuiltInTools = source.unsafeBuiltInTools,
         commandMarker = source.commandMarker,
     )
