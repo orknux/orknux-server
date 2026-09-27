@@ -396,7 +396,8 @@ class AgentBriefing(
                     val said = spec.summary?.trim()?.ifEmpty { null } ?: spec.description.trim()
                     appendLine()
                     append("- ").append(spec.name)
-                    if (spec.name in behind) append(" (load it first)")
+                    // And the ones in hand, said too, so a model does not try to load them. Issue #542.
+                    append(if (spec.name in behind) " (load it first)" else " (loaded)")
                     said.take(kept).trim().takeIf { it.isNotEmpty() }?.let { append(": ").append(it) }
                 }
             }

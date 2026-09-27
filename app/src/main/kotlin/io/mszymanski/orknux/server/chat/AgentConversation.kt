@@ -400,6 +400,7 @@ class AgentConversation(
                  * core alone fills it, which the search reads as no room at all.
                  */
                 room = { limit - holding.core.size - lent.size - 1 - found.size },
+                carried = (holding.core + lent).map { it.name }.toSet(),
                 /*
                  * And what to give up to make room. Issue #372: an agent that
                  * has filled its budget and needs something else should lose the

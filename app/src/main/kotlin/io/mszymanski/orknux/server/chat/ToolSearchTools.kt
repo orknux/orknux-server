@@ -81,8 +81,10 @@ class ToolSearchTools(
         searchable: List<ToolSpec>,
         found: MutableSet<String>,
         room: () -> Int,
+        /** The tools the agent already carries, so loading one is answered "already loaded". Issue #542. */
+        carried: Set<String> = emptySet(),
         forget: (Int) -> List<String> = { emptyList() },
-    ): ToolShed = Shed(searchable, found, room, forget)
+    ): ToolShed = Shed(searchable, found, room, forget, carried)
 
     private inner class Shed(
         private val searchable: List<ToolSpec>,
@@ -99,6 +101,7 @@ class ToolSearchTools(
          * now was found most recently and is the last thing to go.
          */
         private val forget: (Int) -> List<String>,
+        private val carried: Set<String> = emptySet(),
     ) : ToolShed {
 
         /**
@@ -215,8 +218,18 @@ class ToolSearchTools(
                     "Call $SEARCH first if you do not know them."
             }
             val byName = searchable.associateBy { it.name.lowercase() }
-            val present = asked.mapNotNull { byName[it.lowercase()] }.distinctBy { it.name }
-            val missing = asked.filter { it.lowercase() !in byName }
+            /*
+             * Already in hand: carried from the start, or loaded earlier. Issue
+             * #542: save_artifact is carried, so it is not among the tools to
+             * load, and asking for it was answered "you have no tool called
+             * save_artifact" - which is false, and sent the model looking for a
+             * way round a tool it had all along.
+             */
+            val inHand = (carried + found).map { it.lowercase() }.toSet()
+            val already = asked.filter { it.lowercase() in inHand }
+            val present = asked.filter { it.lowercase() !in inHand }.mapNotNull { byName[it.lowercase()] }
+                .distinctBy { it.name }
+            val missing = asked.filter { it.lowercase() !in inHand && it.lowercase() !in byName }
             val none = buildString {
                 missing.forEach { name ->
                     val near = matching(name).take(NEAREST).map { it.name }
@@ -225,11 +238,19 @@ class ToolSearchTools(
                     append("\n")
                 }
             }.trim()
+            val held = if (already.isEmpty()) {
+                ""
+            } else {
+                "Already loaded, so call " + (if (already.size == 1) "it" else "them") + " directly: " +
+                    already.joinToString(", ") + "."
+            }
             if (present.isEmpty()) {
-                return none + "\n\nNothing was loaded. Do not say you can do what these would have done."
+                return listOf(held, none.takeIf { it.isNotEmpty() }?.let {
+                    it + "\n\nNothing " + (if (held.isEmpty()) "" else "else ") + "was loaded. Do not say you can do what these would have done."
+                }.orEmpty()).filter { it.isNotEmpty() }.joinToString("\n\n")
             }
             val loaded = loadInto(present, present.map { it.name }, present.associate { it.name to listOf(it) })
-            return if (none.isEmpty()) loaded else loaded + "\n\n" + none
+            return listOf(loaded, held, none).filter { it.isNotEmpty() }.joinToString("\n\n")
         }
 
         private fun searchAndLoad(call: ToolCall): String {

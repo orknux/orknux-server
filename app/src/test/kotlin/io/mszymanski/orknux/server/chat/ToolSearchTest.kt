@@ -254,6 +254,26 @@ class ToolSearchTest(
         assertThat(said).contains("Nothing was loaded").contains("Do not say you can do")
     }
 
+    /**
+     * A tool the agent already carries is answered "already loaded", not "no
+     * such tool". Issue #542: save_artifact was carried from the start, so it was
+     * not among the tools to load, and a model asking for it was told it had no
+     * tool by that name.
+     */
+    @Test
+    fun `loading a tool already in hand says it is loaded, and to call it`() {
+        val found = mutableSetOf("slack_postMessage")
+        val shed = searching.shed(granted, found, room = { 10 }, carried = setOf("save_artifact"))
+
+        val said = shed.run(
+            ToolCall("1", ToolSearchTools.FIND, """{"names":["save_artifact","slack_postMessage"]}"""),
+        )
+
+        assertThat(said).contains("Already loaded, so call them directly: save_artifact, slack_postMessage")
+        assertThat(said).doesNotContain("You have no tool called").doesNotContain("Nothing")
+        assertThat(found).containsExactly("slack_postMessage")
+    }
+
     /** A list sent as the text of one - every parameter reaches the model typed as a string. */
     @Test
     fun `a list of names sent as text is read as the list`() {
