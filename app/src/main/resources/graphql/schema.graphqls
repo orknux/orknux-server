@@ -1186,6 +1186,19 @@ type Mutation {
     """
     setAgentMaxSubagents(count: Int!): InstallationSettings!
     """
+    How many asks may be working at once. Issue #461.
+
+    One past the ceiling waits its turn rather than being refused: a refusal
+    sends a model round again with the same ask in other words.
+    """
+    setAgentMaxSubagentsAtOnce(count: Int!): InstallationSettings!
+    "How many identical calls in a row are allowed. Issue #516."
+    setMaxRepeatedToolCalls(count: Int!): InstallationSettings!
+    "How close together they have to be to count as repetition."
+    setRepeatedToolCallsWindowSeconds(seconds: Int!): InstallationSettings!
+    "How many times a repeating turn is told before it ends."
+    setRepeatedToolCallWarnings(count: Int!): InstallationSettings!
+    """
     How many bytes one session's scratchpads may hold in all, between 1024 and
     67108864. Administrators only. Issue #411.
     """
@@ -6176,6 +6189,31 @@ type InstallationSettings {
     agentMaxSubagents: Int!
     "What a fresh installation allows - ORKNUX_CHAT_MAX_SUBAGENTS."
     agentMaxSubagentsConfigured: Int!
+    """
+    How many of those asks may be working at once. Issue #461.
+
+    A different number from the one above. It only started meaning anything
+    when asking stopped blocking: before that the asks ran one after another
+    whatever this said.
+    """
+    agentMaxSubagentsAtOnce: Int!
+    "Three, unless somebody has said otherwise."
+    agentMaxSubagentsAtOnceConfigured: Int!
+    """
+    The loop guard. Issue #516.
+
+    Repetition on its own is not the fault - an agent watching something calls
+    the same tool with the same arguments and is working. What makes it a loop
+    is how close together the calls are.
+    """
+    maxRepeatedToolCalls: Int!
+    maxRepeatedToolCallsConfigured: Int!
+    "They only count as repetition inside this many seconds."
+    repeatedToolCallsWindowSeconds: Int!
+    repeatedToolCallsWindowSecondsConfigured: Int!
+    "How many times a repeating turn is told before it is ended."
+    repeatedToolCallWarnings: Int!
+    repeatedToolCallWarningsConfigured: Int!
     "How many bytes one session's scratchpads may hold in all. Issue #411."
     scratchpadBudgetBytes: Int!
     "What a fresh installation allows before anybody sets it."

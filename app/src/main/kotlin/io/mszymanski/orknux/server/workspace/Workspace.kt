@@ -246,6 +246,43 @@ class Workspace(
     var agentMaxSubagents: Int? = null,
 
     /**
+     * How many identical tool calls in a row end the turn. Issue #516.
+     *
+     * A loop is not a long turn, and the rounds ceiling cannot tell them apart:
+     * it bounds total work, so three hundred rounds of progress and one round
+     * repeated three hundred times cost the same and are stopped at the same
+     * place - after the whole budget is gone.
+     *
+     * This is the other question. The same tool with the same arguments
+     * answering the same thing is a cycle with nothing in it that can change,
+     * and the only way out is from outside. Null takes the installation's
+     * number.
+     */
+    @Column(name = "max_repeated_tool_calls")
+    var maxRepeatedToolCalls: Int? = null,
+
+    /**
+     * And how close together they have to be to count. Issue #516.
+     *
+     * Repetition on its own is not the fault: an agent watching something
+     * checks it, waits, and checks it again, which is the same call with the
+     * same answer and entirely correct. The gap is what separates that from a
+     * cycle. Null takes the installation's number.
+     */
+    @Column(name = "repeated_tool_calls_window_seconds")
+    var repeatedToolCallsWindowSeconds: Int? = null,
+
+    /**
+     * How many times a looping turn is told before it is ended. Issue #516.
+     *
+     * Policy rather than mechanism: once is a warning worth giving, and how
+     * much patience to have with a model that ignores it is a judgement about
+     * how much a wasted turn costs here. Null takes the installation's number.
+     */
+    @Column(name = "repeated_tool_call_warnings")
+    var repeatedToolCallWarnings: Int? = null,
+
+    /**
      * Whether this workspace's agents may have built-in tools hidden from them.
      * Issue #482.
      *

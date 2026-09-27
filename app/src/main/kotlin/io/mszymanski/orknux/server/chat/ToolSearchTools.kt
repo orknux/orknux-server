@@ -125,20 +125,17 @@ class ToolSearchTools(
                     "in your hands for the rest of this conversation. You hold ${searchable.size} of them" +
                     (listed().takeIf { it.isNotEmpty() }?.let { ": $it. Ask for one by name, or " }
                         ?: " - too many to be listed at once - so ") +
-                    "search for what the work needs before saying you cannot do it. `query` is a tool's " +
-                    "name or words about the job: what you want to do, or the system you want to do it in. " +
-                    "Ask for everything the job needs in one call - put each search on its own line, or " +
-                    "separate them with a semicolon, and each is looked for on its own. " +
+                    "search for what the work needs before saying you cannot do it. Each query is a " +
+                    "tool's name or words about the job: what you want to do, or the system you want to " +
+                    "do it in. Ask for everything the job needs in one call by giving several. " +
                     "What comes back is usable from your next message onwards, not in this one.",
                 parameters = listOf(
                     ToolParameterSpec(
-                        name = QUERY,
-                        description = "What you are looking for, in words: \"send a message in Slack\", " +
-                            "\"jira issue\", \"read a page\". Matched against every tool's name and " +
-                            "what it says it does. Several at once are separated by a semicolon or a " +
-                            "new line - \"upload a file to slack; comment on a jira issue\" - and each " +
-                            "brings back its own tools, so a job that needs two systems takes one call " +
-                            "rather than two rounds.",
+                        name = QUERIES,
+                        description = "What you are looking for, as a list: [\"send a message in Slack\", " +
+                            "\"jira issue\"]. Each is matched against every tool's name and what it says " +
+                            "it does, and each brings back its own tools - so a job that needs two systems " +
+                            "takes one call rather than two rounds.",
                         required = true,
                     ),
                 ),
@@ -148,8 +145,11 @@ class ToolSearchTools(
         override fun handles(name: String): Boolean = name == FIND
 
         override fun run(call: ToolCall): String {
-            val asked = argument(call).orEmpty().trim()
-            if (asked.isEmpty()) return "Say what you are looking for: $QUERY is words about the job."
+            val searches = argument(call).take(MOST_SEARCHES)
+            if (searches.isEmpty()) {
+                return "Say what you are looking for: $QUERIES is a list of words about the job."
+            }
+            val asked = searches.joinToString(", ")
 
             /*
              * One call, as many searches as the job needs. Issue #464.
@@ -163,11 +163,6 @@ class ToolSearchTools(
              * in turn, so a broad search does not take the whole of the room
              * from a narrow one beside it.
              */
-            val searches = asked.split(SEARCH_SEPARATOR)
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
-                .distinct()
-                .take(MOST_SEARCHES)
             val byQuery = searches.associateWith { matching(it) }
             val matches = interleaved(searches.map { byQuery.getValue(it) })
             if (matches.isEmpty()) {
@@ -329,14 +324,38 @@ class ToolSearchTools(
         private fun carries(held: String, word: String): Boolean =
             held == word || (minOf(held.length, word.length) >= STEM && (held.startsWith(word) || word.startsWith(held)))
 
-        private fun argument(call: ToolCall): String? = runCatching {
-            mapper.readTree(call.arguments).path(QUERY).takeIf { it.isTextual }?.stringValue()
-        }.getOrNull()
+        /**
+         * The searches asked for. Issue #517.
+         *
+         * A list, because it used to be one string with the searches separated
+         * by a semicolon and a model writing structure inside a string is a
+         * model that can break the string. It did: `{"query":"diagram_render;`
+         * arrived truncated, llama.cpp refused the whole call with a 500, and
+         * the round was spent on nothing. An array cannot come apart that way -
+         * the separator is the format's own.
+         *
+         * A bare string is still read, because that is what a model trained on
+         * the old shape will send and refusing it would spend a round teaching
+         * it. Split on the old separators for the same reason.
+         */
+        private fun argument(call: ToolCall): List<String> = runCatching {
+            val given = mapper.readTree(call.arguments).let { it.path(QUERIES).takeIf { q -> !q.isMissingNode } ?: it.path(QUERY) }
+            val written = when {
+                given.isArray -> given.mapNotNull { one -> one.takeIf { it.isTextual }?.stringValue() }
+                given.isTextual -> given.stringValue().orEmpty().split(SEARCH_SEPARATOR)
+                else -> emptyList()
+            }
+            written.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        }.getOrDefault(emptyList())
     }
 
     companion object {
 
         const val FIND = "find_tools"
+        /** What it takes now: a list. Issue #517. */
+        const val QUERIES = "queries"
+
+        /** And what it used to take, still read so an older habit is not punished. */
         const val QUERY = "query"
 
         /** A word in the name is worth three in the description; see `score`. */

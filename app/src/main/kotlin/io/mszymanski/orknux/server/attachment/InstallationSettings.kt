@@ -65,6 +65,18 @@ object SettingNames {
     const val AGENT_SLEEP_SECONDS = "agent.sleep.seconds"
     const val AGENT_SLEEP_TIMES = "agent.sleep.times"
     const val AGENT_MAX_SUBAGENTS = "agent.max.subagents"
+
+    /** How many identical tool calls in a row end a turn. Issue #516. */
+    const val MAX_REPEATED_TOOL_CALLS = "agent.max.repeated.tool.calls"
+
+    /** How close together they must be to count as repetition. Issue #516. */
+    const val REPEATED_TOOL_CALLS_WINDOW = "agent.repeated.tool.calls.window.seconds"
+
+    /** How many times a looping turn is told before it ends. Issue #516. */
+    const val REPEATED_TOOL_CALL_WARNINGS = "agent.repeated.tool.call.warnings"
+
+    /** How many asks may be in flight at once. Issue #461. */
+    const val AGENT_MAX_SUBAGENTS_AT_ONCE = "agent.max.subagents.at.once"
     const val COMMAND_MARKER = "command.marker"
     const val SESSIONS_REMOVABLE = "sessions.removable"
     const val SCRATCHPAD_BUDGET_BYTES = "scratchpad.budget.bytes"
@@ -403,6 +415,139 @@ class InstallationSettings(
     fun setAgentMaxSubagents(count: Int, by: String) {
         if (count !in MIN_SUBAGENTS..MAX_SUBAGENTS) throw SubagentsOutOfRangeException(count)
         write(SettingNames.AGENT_MAX_SUBAGENTS, count.toString(), by)
+    }
+
+    /**
+     * How many of those asks may be *working at once*. Issue #461.
+     *
+     * A different question from the one above, and it only became a real one
+     * when asks stopped blocking (#462). Before that an asking agent waited for
+     * each answer in turn, so the number working at once was one whatever a
+     * setting said - which is why this was parked rather than built.
+     *
+     * Now three asks start three conversations, each with its own model calls
+     * and its own tools, and they all cost money and rate limit at the same
+     * time. This is the ceiling on that: an ask past it waits its turn rather
+     * than being refused, because refusing would make a model retry the same
+     * ask in other words, which is worse than a short wait.
+     *
+     * Counted per asking conversation rather than across the installation - a
+     * global number would have one busy conversation starve every other, and
+     * what somebody wants to bound is how wide one question fans out.
+     */
+    fun agentMaxSubagentsAtOnce(): Int {
+        val held = settings.findByIdOrNull(SettingNames.AGENT_MAX_SUBAGENTS_AT_ONCE)
+            ?: return agentMaxSubagentsAtOnceConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_AT_ONCE..MAX_AT_ONCE }
+            ?: agentMaxSubagentsAtOnceConfigured()
+    }
+
+    /** Three at once, which is enough to be worth doing and few enough to be affordable. */
+    fun agentMaxSubagentsAtOnceConfigured(): Int = DEFAULT_SUBAGENTS_AT_ONCE
+
+    /**
+     * How many identical tool calls in a row end a turn. Issue #516.
+     *
+     * Seen twice in one afternoon. An agent reasoned its way to the right
+     * answer - the tool, the chart kind, the data - then second-guessed itself
+     * with "Wait, I should check", called `todo_list` and `current_time`, and
+     * repeated that pair a hundred and fifty-four more times. Another called
+     * `find_tools` with the same query a hundred and sixty-nine times.
+     *
+     * Both cycles were made of pure reads. Identical arguments give identical
+     * results, so the context that produced the call is the context on the next
+     * turn, and nothing inside can break it at any model size.
+     *
+     * The rounds ceiling does not catch this: it bounds total work, so a loop
+     * spends the whole budget before anything notices. This counts repetition
+     * instead, which is the thing that is actually wrong.
+     */
+    fun maxRepeatedToolCalls(): Int {
+        val held = settings.findByIdOrNull(SettingNames.MAX_REPEATED_TOOL_CALLS)
+            ?: return maxRepeatedToolCallsConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_REPEATS..MAX_REPEATS } ?: maxRepeatedToolCallsConfigured()
+    }
+
+    /**
+     * Ten in ten seconds, which is unambiguous.
+     *
+     * A model retrying, or reading the clock twice running, or checking a list
+     * it has just added to, is doing something ordinary and must not be cut
+     * off - so the number is well clear of anything deliberate. Ten identical
+     * calls with identical answers inside ten seconds is not a slow decision;
+     * it is a model going round and round, and the sessions that prompted this
+     * managed a hundred and fifty of them.
+     */
+    fun maxRepeatedToolCallsConfigured(): Int = DEFAULT_REPEATED_TOOL_CALLS
+
+    @Transactional
+    fun setMaxRepeatedToolCalls(count: Int, by: String) {
+        if (count !in MIN_REPEATS..MAX_REPEATS) throw RepeatedToolCallsOutOfRangeException(count)
+        write(SettingNames.MAX_REPEATED_TOOL_CALLS, count.toString(), by)
+    }
+
+    /**
+     * How close together identical calls have to be to count as a loop.
+     * Issue #516.
+     *
+     * Repetition on its own is not the fault. An agent asked to watch something
+     * checks it, waits, checks it again - the same call, the same arguments,
+     * the same answer, and entirely correct. What separates that from a cycle
+     * is the gap: three identical calls in four seconds is a model going round
+     * and round, three across an hour is a model keeping an eye on something.
+     *
+     * So the count only trips inside this window, and a wait long enough to be
+     * deliberate clears it. An installation that wants an agent polling every
+     * half minute sets the window under that and the guard never sees it.
+     */
+    fun repeatedToolCallsWindowSeconds(): Int {
+        val held = settings.findByIdOrNull(SettingNames.REPEATED_TOOL_CALLS_WINDOW)
+            ?: return repeatedToolCallsWindowSecondsConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_REPEAT_WINDOW..MAX_REPEAT_WINDOW }
+            ?: repeatedToolCallsWindowSecondsConfigured()
+    }
+
+    /**
+     * Ten seconds. Anything a person would call polling is slower than this,
+     * and anything faster is not waiting for the world to change.
+     */
+    fun repeatedToolCallsWindowSecondsConfigured(): Int = DEFAULT_REPEAT_WINDOW_SECONDS
+
+    @Transactional
+    fun setRepeatedToolCallsWindowSeconds(seconds: Int, by: String) {
+        if (seconds !in MIN_REPEAT_WINDOW..MAX_REPEAT_WINDOW) throw RepeatWindowOutOfRangeException(seconds)
+        write(SettingNames.REPEATED_TOOL_CALLS_WINDOW, seconds.toString(), by)
+    }
+
+    /**
+     * How many times a looping turn is told before it is ended. Issue #516.
+     *
+     * Once is a warning worth giving: a turn has usually done real work before
+     * the cycle started, and what is wanted is for the model to finish with
+     * what it has - which it can only do if it is asked. How much patience to
+     * have after that is a judgement about what a wasted turn costs here, so it
+     * is a setting rather than a number in the code.
+     */
+    fun repeatedToolCallWarnings(): Int {
+        val held = settings.findByIdOrNull(SettingNames.REPEATED_TOOL_CALL_WARNINGS)
+            ?: return repeatedToolCallWarningsConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_WARNINGS..MAX_WARNINGS }
+            ?: repeatedToolCallWarningsConfigured()
+    }
+
+    /** Two: one to ask it to finish, and one more in case the first landed mid-thought. */
+    fun repeatedToolCallWarningsConfigured(): Int = DEFAULT_LOOP_WARNINGS
+
+    @Transactional
+    fun setRepeatedToolCallWarnings(count: Int, by: String) {
+        if (count !in MIN_WARNINGS..MAX_WARNINGS) throw LoopWarningsOutOfRangeException(count)
+        write(SettingNames.REPEATED_TOOL_CALL_WARNINGS, count.toString(), by)
+    }
+
+    @Transactional
+    fun setAgentMaxSubagentsAtOnce(count: Int, by: String) {
+        if (count !in MIN_AT_ONCE..MAX_AT_ONCE) throw SubagentsAtOnceOutOfRangeException(count)
+        write(SettingNames.AGENT_MAX_SUBAGENTS_AT_ONCE, count.toString(), by)
     }
 
     /**
@@ -927,12 +1072,91 @@ class SleepTimesOutOfRangeException(val times: Int) : RuntimeException(
  * conversation. A hundred is a bill rather than a brief; the ceiling exists to
  * catch a digit too many.
  */
+/**
+ * Two and fifty, for identical calls in a row. Issue #516.
+ *
+ * The floor is two because one is not a repetition; zero would be a guard that
+ * refuses the first call any model ever makes. The ceiling is fifty because
+ * past that the rounds budget has gone anyway and this has stopped being a
+ * guard.
+ */
+const val MIN_REPEATS = 2
+const val MAX_REPEATS = 50
+const val DEFAULT_REPEATED_TOOL_CALLS = 10
+
+/**
+ * A second and a day, for how close identical calls must be to be a loop.
+ *
+ * The floor is one second because below that the guard would only catch a
+ * model calling twice in the same instant, which is not the shape of the
+ * problem. The ceiling is a day because past that every repetition in a long
+ * conversation counts, which is the guard with no window at all.
+ */
+const val MIN_REPEAT_WINDOW = 1
+const val MAX_REPEAT_WINDOW = 86_400
+const val DEFAULT_REPEAT_WINDOW_SECONDS = 10
+
+/**
+ * One and ten, for how often a looping turn is told before it ends.
+ *
+ * The floor is one because zero would end a turn without ever asking it to
+ * finish, which throws away whatever it had already done. The ceiling is ten
+ * because past that the rounds budget has gone anyway.
+ */
+const val MIN_WARNINGS = 1
+const val MAX_WARNINGS = 10
+const val DEFAULT_LOOP_WARNINGS = 2
+
+/** At least one at a time, or asking would do nothing at all. */
+const val MIN_AT_ONCE = 1
+
+/** Past this it is not fan-out, it is a denial of service on somebody's model quota. */
+const val MAX_AT_ONCE = 20
+
+const val DEFAULT_SUBAGENTS_AT_ONCE = 3
+
 const val MIN_SUBAGENTS = 0
 const val MAX_SUBAGENTS = 100
 
 class SubagentsOutOfRangeException(val count: Int) : RuntimeException(
     "$count is not a number of agents an agent can be allowed to ask. " +
         "Choose between $MIN_SUBAGENTS and $MAX_SUBAGENTS.",
+), Refusal {
+
+    override val arguments get() = mapOf("count" to count)
+}
+
+/** Issue #516. */
+class RepeatedToolCallsOutOfRangeException(val count: Int) : RuntimeException(
+    "$count is not a number of identical calls to allow in a row. " +
+        "Choose between $MIN_REPEATS and $MAX_REPEATS.",
+), Refusal {
+
+    override val arguments get() = mapOf("count" to count)
+}
+
+/** Issue #516. */
+class LoopWarningsOutOfRangeException(val count: Int) : RuntimeException(
+    "$count is not a number of warnings to give a repeating turn. " +
+        "Choose between $MIN_WARNINGS and $MAX_WARNINGS.",
+), Refusal {
+
+    override val arguments get() = mapOf("count" to count)
+}
+
+/** Issue #516. */
+class RepeatWindowOutOfRangeException(val seconds: Int) : RuntimeException(
+    "$seconds is not a window for counting identical calls. " +
+        "Choose between $MIN_REPEAT_WINDOW and $MAX_REPEAT_WINDOW seconds.",
+), Refusal {
+
+    override val arguments get() = mapOf("seconds" to seconds)
+}
+
+/** Issue #461. */
+class SubagentsAtOnceOutOfRangeException(val count: Int) : RuntimeException(
+    "$count is not a number of agents that can be working at once. " +
+        "Choose between $MIN_AT_ONCE and $MAX_AT_ONCE.",
 ), Refusal {
 
     override val arguments get() = mapOf("count" to count)

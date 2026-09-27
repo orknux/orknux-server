@@ -57,6 +57,14 @@ class InstallationSettingsAPI(
         agentSleepTimesConfigured = settings.agentSleepTimesConfigured(),
         agentMaxSubagents = settings.agentMaxSubagents(),
         agentMaxSubagentsConfigured = settings.agentMaxSubagentsConfigured(),
+        agentMaxSubagentsAtOnce = settings.agentMaxSubagentsAtOnce(),
+        agentMaxSubagentsAtOnceConfigured = settings.agentMaxSubagentsAtOnceConfigured(),
+        maxRepeatedToolCalls = settings.maxRepeatedToolCalls(),
+        maxRepeatedToolCallsConfigured = settings.maxRepeatedToolCallsConfigured(),
+        repeatedToolCallsWindowSeconds = settings.repeatedToolCallsWindowSeconds(),
+        repeatedToolCallsWindowSecondsConfigured = settings.repeatedToolCallsWindowSecondsConfigured(),
+        repeatedToolCallWarnings = settings.repeatedToolCallWarnings(),
+        repeatedToolCallWarningsConfigured = settings.repeatedToolCallWarningsConfigured(),
         scratchpadBudgetBytes = settings.scratchpadBudgetBytes(),
         scratchpadBudgetBytesConfigured = settings.scratchpadBudgetBytesConfigured(),
         commandMarker = settings.commandMarker(),
@@ -400,6 +408,67 @@ class InstallationSettingsAPI(
         return installationSettings()
     }
 
+    /**
+     * How many asks may be working at once. Issue #461.
+     *
+     * An ask past the ceiling waits its turn rather than being refused: a
+     * refusal sends the model round again with the same ask in other words,
+     * and the wait is invisible to it anyway now that asking does not block.
+     */
+    @MutationMapping
+    fun setAgentMaxSubagentsAtOnce(@Argument count: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setAgentMaxSubagentsAtOnce(count, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "Agents allowed $count asks working at once",
+        )
+        return installationSettings()
+    }
+
+    /**
+     * The loop guard. Issue #516.
+     *
+     * Three numbers rather than one, because repetition on its own is not the
+     * fault: an agent watching something calls the same tool with the same
+     * arguments and is working. What makes it a loop is how close together the
+     * calls are, and what makes it worth ending is the model going on after
+     * being told.
+     */
+    @MutationMapping
+    fun setMaxRepeatedToolCalls(@Argument count: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setMaxRepeatedToolCalls(count, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "Identical tool calls allowed: $count")
+        return installationSettings()
+    }
+
+    @MutationMapping
+    fun setRepeatedToolCallsWindowSeconds(@Argument seconds: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setRepeatedToolCallsWindowSeconds(seconds, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "Identical tool calls counted within $seconds seconds",
+        )
+        return installationSettings()
+    }
+
+    @MutationMapping
+    fun setRepeatedToolCallWarnings(@Argument count: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setRepeatedToolCallWarnings(count, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "A repeating turn is told $count times before it ends",
+        )
+        return installationSettings()
+    }
+
     @MutationMapping
     fun setScratchpadBudgetBytes(@Argument bytes: Int): InstallationSettingsView {
         access.requireAdmin()
@@ -556,6 +625,25 @@ data class InstallationSettingsView(
     val agentMaxSubagents: Int,
     /** What a fresh installation allows - ORKNUX_CHAT_MAX_SUBAGENTS. */
     val agentMaxSubagentsConfigured: Int,
+    /**
+     * How many of those may be working at once. Issue #461.
+     *
+     * A different number from the one above, and one that only started meaning
+     * anything when asks stopped blocking: before that they ran one at a time
+     * whatever this said.
+     */
+    val agentMaxSubagentsAtOnce: Int,
+    val agentMaxSubagentsAtOnceConfigured: Int,
+    /**
+     * The loop guard. Issue #516: how many identical calls, how close together
+     * they have to be to count, and how often a turn is told before it ends.
+     */
+    val maxRepeatedToolCalls: Int,
+    val maxRepeatedToolCallsConfigured: Int,
+    val repeatedToolCallsWindowSeconds: Int,
+    val repeatedToolCallsWindowSecondsConfigured: Int,
+    val repeatedToolCallWarnings: Int,
+    val repeatedToolCallWarningsConfigured: Int,
     /** How many bytes one session's scratchpads may hold in all. Issue #411. */
     val scratchpadBudgetBytes: Int,
     /** What a fresh installation allows before anybody sets it. */

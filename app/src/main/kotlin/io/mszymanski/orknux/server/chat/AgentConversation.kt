@@ -178,6 +178,8 @@ class AgentConversation(
     private val sessions: LlmSessionRecorder,
     /** Where the installation's ceiling on tool rounds is kept and changed. */
     private val settings: InstallationSettings,
+    /** For a workspace's own ceiling on repeated calls; see [repeatsFor]. Issue #516. */
+    private val workspaces: io.mszymanski.orknux.server.workspace.WorkspaceRepository,
 ) {
 
     /**
@@ -190,6 +192,23 @@ class AgentConversation(
      * agent whose work is longer than the rest carries its own.
      */
     private fun roundsFor(agent: Agent): Int = agent.maxRounds ?: settings.chatMaxRounds()
+
+    /**
+     * How many identical calls in a row this agent's workspace allows.
+     * Issue #516.
+     */
+    private fun repeatsFor(agent: Agent): Int =
+        workspaces.findByIdOrNull(agent.workspaceId)?.maxRepeatedToolCalls ?: settings.maxRepeatedToolCalls()
+
+    /** And how close together they have to be to count. Issue #516. */
+    private fun repeatWindowFor(agent: Agent): Int =
+        workspaces.findByIdOrNull(agent.workspaceId)?.repeatedToolCallsWindowSeconds
+            ?: settings.repeatedToolCallsWindowSeconds()
+
+    /** And how often it is told before the turn ends. Issue #516. */
+    private fun loopWarningsFor(agent: Agent): Int =
+        workspaces.findByIdOrNull(agent.workspaceId)?.repeatedToolCallWarnings
+            ?: settings.repeatedToolCallWarnings()
 
     /**
      * The same thing, for a caller holding only an id — the streaming endpoint,
@@ -450,8 +469,68 @@ class AgentConversation(
          * the model has already been told not to end on it. Issue #494.
          */
         var failedLast: String? = null
+
+        /*
+         * The same call, over and over. Issue #516.
+         *
+         * Two sessions in one afternoon spent their whole round budget in a
+         * cycle: `todo_list {}` and `current_time {"timezone":"UTC"}` a hundred
+         * and fifty-four times each, and `find_tools` with one query a hundred
+         * and sixty-nine times. In the first the agent had already reasoned its
+         * way to the answer - it had the tool, the chart kind and the data -
+         * then second-guessed itself with "Wait, I should check" and never came
+         * back.
+         *
+         * What makes these cycles is that nothing in them changes anything. The
+         * same call with the same arguments answers the same thing, so the
+         * context that produced the call is the context on the next turn, and
+         * there is no way out from inside at any model size.
+         *
+         * The rounds ceiling does not help: it bounds total work, so it cannot
+         * tell three hundred rounds of progress from one round three hundred
+         * times, and a loop spends the whole budget before it stops. This
+         * counts repetition instead - the call and what it answered, because a
+         * clock read twice with two different answers is somebody working.
+         */
+        var lastCall: String? = null
+        /*
+         * When each of the identical calls in the current run happened, so the
+         * window can be applied. A list rather than a count because the
+         * question is how many fall *inside* the window, and the oldest fall
+         * out of it as time passes.
+         */
+        val repeats = mutableListOf<Long>()
+        /*
+         * How many times the loop guard has spoken up. Issue #516.
+         *
+         * Once is a warning: the turn has usually done real work before the
+         * cycle started, and what is wanted is for the model to finish with
+         * what it has - which it can only do if it is asked. Twice is the model
+         * not listening, and then the turn ends rather than spending the rest
+         * of the budget proving the point.
+         */
+        var loopWarnings = 0
+        val warningsAllowed = loopWarningsFor(agent)
+        val repeatsAllowed = repeatsFor(agent)
+        val repeatWindow = repeatWindowFor(agent) * 1000L
         var warnedOfFailure = false
         repeat(rounds) {
+            /*
+             * Told once and still going round, so the turn ends here. Issue
+             * #516: a model that ignores being told it is repeating itself will
+             * go on ignoring it, and the whole point of the guard is not to
+             * spend the budget finding that out.
+             */
+            if (loopWarnings >= warningsAllowed) {
+                into?.let { session ->
+                    sessions.note(session, "The turn was ended: the same call was repeated after being told.")
+                }
+                return ChatCompletion.Failed(
+                    "it repeated the same tool call after being told the limit of " + repeatsAllowed +
+                        " identical calls within " + (repeatWindow / 1000) + " seconds, and the turn was ended",
+                    permanent = false,
+                ).also { record(into, agent, it) }
+            }
             /*
              * Rebuilt every round, because a search changes what the next one
              * declares. That is the whole of how discovery works: a model can
@@ -710,6 +789,67 @@ class AgentConversation(
                         val said = picture?.let { AgentTools.withoutPicture(got, it) } ?: got
                         picture?.let { shown.add(call.name to it) }
 
+                        /*
+                         * The call, its arguments and its answer together.
+                         * Issue #516: all three, because two of them repeating
+                         * is ordinary - a clock read twice, a list read after
+                         * something was added to it - and it is the answer
+                         * being identical as well that says nothing moved.
+                         */
+                        val signature = call.name + 0.toChar() + call.arguments + 0.toChar() + got
+                        val now = System.currentTimeMillis()
+                        if (signature == lastCall) repeats += now else { repeats.clear(); repeats += now }
+                        lastCall = signature
+                        /*
+                         * Only the ones close enough together to be a cycle.
+                         * A model told to watch something calls the same tool
+                         * every minute for an hour and is working; the same
+                         * call four times in four seconds is not. Dropping the
+                         * old ones is what tells them apart, and is why a
+                         * deliberate wait clears the count.
+                         */
+                        repeats.removeAll { now - it > repeatWindow }
+
+                        /*
+                         * And stopped, with the reason put where the model
+                         * reads it. Issue #516.
+                         *
+                         * Told rather than cut off silently: the turn has
+                         * usually done real work before the cycle started - in
+                         * session 470 the agent had already chosen the chart
+                         * and its data - so what is wanted is for it to finish
+                         * with what it has, which it can only do if it knows
+                         * the loop is why it was interrupted.
+                         */
+                        if (repeats.size >= repeatsAllowed) {
+                            /*
+                             * What the rule is, not only that it was hit.
+                             *
+                             * A refusal that says "stop" leaves a model to work
+                             * out what it may do instead, and the usual guess
+                             * is the same call once more. Saying the policy -
+                             * how many, in how long - turns it into something
+                             * it can plan around: a model that genuinely needs
+                             * to watch something now knows to wait rather than
+                             * to keep asking.
+                             */
+                            val note = "You have called " + call.name + " with the same arguments " +
+                                repeats.size + " times within " + (repeatWindow / 1000) + " seconds and got " +
+                                "the same answer each time. Nothing will change by calling it again." +
+                                PARAGRAPH +
+                                "The limit here is " + repeatsAllowed + " identical calls within " +
+                                (repeatWindow / 1000) + " seconds - the same tool, the same arguments and " +
+                                "the same answer. Calls further apart than that do not count, so if you are " +
+                                "waiting for something to change, do other work first or finish and let the " +
+                                "next turn check." + PARAGRAPH +
+                                "Use what you already have and finish your answer."
+                            into?.let { session -> sessions.note(session, note) }
+                            conversation += ChatTurn(role = "user", content = said, respondingTo = call.id)
+                            conversation += ChatTurn(role = "user", content = note)
+                            loopWarnings += 1
+                            return@forEach
+                        }
+
                         // What the next call is judged against, where that call
                         // is the one that ends the turn. Issue #494.
                         failedLast = if (AgentTools.failed(got)) {
@@ -881,6 +1021,9 @@ class AgentConversation(
          * a paid call. Issue #465.
          */
         const val MOST_RETRIES = 2
+
+        /** A blank line, built rather than typed: an escape does not survive every editor. */
+        val PARAGRAPH = 10.toChar().toString() + 10.toChar().toString()
 
         val log = LoggerFactory.getLogger(AgentConversation::class.java)
     }
