@@ -127,6 +127,68 @@
         </dependency>
 
         <!--
+          What draws a chart. Issue #507.
+
+          lets-plot is MIT and pure Kotlin, and `PlotSvgExportCommon` turns a
+          plot specification straight into SVG - no AWT, no Batik, no display.
+          That matters twice: this runs in a server with no screen, and the
+          answer is vectors, which is what lets a chart go into a page and into
+          a PDF rather than being pasted on as a picture.
+
+          The `-jvm` artifacts rather than the multiplatform ones, because there
+          is one platform here and the common ones drag a Kotlin/JS tree behind
+          them.
+        -->
+        <dependency>
+            <groupId>org.jetbrains.lets-plot</groupId>
+            <artifactId>plot-stem-jvm</artifactId>
+            <version>4.5.2</version>
+        </dependency>
+        <!--
+          Everything lets-plot needs, named one by one, because its published
+          poms declare no dependencies at all - nothing arrives transitively.
+          commons carries the geometry and the encoder in the export signature,
+          datamodel the SVG tree the export walks, plot-base and plot-builder
+          the geometries and the font registry that lay a plot out, and
+          kotlin-logging is what its own classes log through.
+
+          Every one of them surfaced only when a test drew something, as a
+          NoClassDefFound naming a class nobody asked for - so they are listed
+          together rather than discovered one failure at a time. The refusal
+          tests passed throughout, because a refusal returns before the library
+          is touched, which is the shape that would have let this ship looking
+          fine.
+
+          `mu.KotlinLogging` is the microutils package, which is the 3.x line;
+          the 5.x releases under io.github.oshai moved it.
+        -->
+        <dependency>
+            <groupId>org.jetbrains.lets-plot</groupId>
+            <artifactId>commons-jvm</artifactId>
+            <version>4.5.2</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jetbrains.lets-plot</groupId>
+            <artifactId>datamodel-jvm</artifactId>
+            <version>4.5.2</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jetbrains.lets-plot</groupId>
+            <artifactId>plot-base-jvm</artifactId>
+            <version>4.5.2</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jetbrains.lets-plot</groupId>
+            <artifactId>plot-builder-jvm</artifactId>
+            <version>4.5.2</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.microutils</groupId>
+            <artifactId>kotlin-logging-jvm</artifactId>
+            <version>3.0.5</version>
+        </dependency>
+
+        <!--
           What `orknux.validate` reads a document with. Issue #416.
 
           Three parsers rather than three hand-written checks: a validator that
