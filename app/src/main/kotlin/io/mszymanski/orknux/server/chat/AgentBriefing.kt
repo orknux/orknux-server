@@ -407,7 +407,9 @@ class AgentBriefing(
             parts += buildString {
                 append("You may put a question to another agent with ").append(AgentRunTools.ASK)
                 append(", up to ").append(asks.limitFor(agent))
-                appendLine(" times in this conversation. Spend them on work you have no tool for.")
+                append(" times in this conversation. Spend them on work you have no tool for. ")
+                // Where the how is written down, loaded when it is needed rather than carried. Issue #541.
+                appendLine("Before you ask, load the delegating skill: it says how to write the question and use the answer.")
             }
         } else if (agent.agents.isNotEmpty()) {
             /*
