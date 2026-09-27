@@ -1567,6 +1567,18 @@ CREATE TABLE workspace_audit
     constraint ck_workspace_audit_operation_type CHECK (((operation_type) IN ('ADD', 'REMOVE', 'RENAME')))
 );
 
+-- Which index a workspace searches, and what it authenticates with (V315 on Postgres).
+CREATE TABLE workspace_search
+(
+    workspace_id                 integer not null primary key references workspace (id) on delete cascade,
+    engine                       varchar(16) not null default 'tavily',
+    api_key                      varchar(4000),
+    compose_answer               boolean not null default false,
+    last_modified_at             timestamp not null default CURRENT_TIMESTAMP,
+    last_modified_by             varchar(120) not null default 'orknux',
+    constraint ck_workspace_search_engine CHECK (engine IN ('tavily', 'brave'))
+);
+
 CREATE TABLE workspace_connection
 (
     id                           integer not null primary key autoincrement,
