@@ -102,8 +102,19 @@ class PdfWriter(private val blocks: PageBlocks) {
                  */
                 .useExternalResourceAccessControl(
                     { uri, kind ->
-                        log.warn("A document asked for {} ({}) while being laid out; it was not fetched", uri, kind)
-                        false
+                        /*
+                         * Except a data URI, which is no fetch at all: it is the
+                         * picture itself, and every picture is one by now. Issue
+                         * #565: refusing those too meant no picture ever reached a
+                         * PDF - the page laid out, the answer said nothing was
+                         * wrong, and the images were simply not in it.
+                         */
+                        if (uri.startsWith("data:", ignoreCase = true)) {
+                            true
+                        } else {
+                            log.warn("A document asked for {} ({}) while being laid out; it was not fetched", uri, kind)
+                            false
+                        }
                     },
                     /*
                      * Before the URI is resolved rather than after, so a

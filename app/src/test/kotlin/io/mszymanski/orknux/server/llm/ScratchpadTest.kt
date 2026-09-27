@@ -236,6 +236,8 @@ class ScratchpadTest(
 
         val said = embedded.run("pdf_fromHtmlZip", """{"contentKey":"report.zip","title":"Zipped"}""", workspaceId, session)
         assertThat(said).contains("\"contentKey\":\"Zipped.pdf\"").doesNotContain("problems")
+        // And the picture is in the document, which "no problems" never proved. Issue #565.
+        assertThat(imagesIn(store.get(session, "Zipped.pdf")!!)).isGreaterThanOrEqualTo(1)
         assertThat(store.kindOf(session, "Zipped.pdf"))
             .isEqualTo(io.mszymanski.orknux.workflow.script.StoredKind("application/pdf", true))
 
@@ -263,6 +265,14 @@ class ScratchpadTest(
         assertThat(made).contains("\"contentKey\":\"Looked.pdf\"")
         val read = embedded.run("pdf_read", """{"contentKey":"Looked.pdf"}""", workspaceId, session)
         assertThat(read).contains("Plainly visible").doesNotContain("Zanzibarquux")
+    }
+
+    /** How many pictures a stored PDF actually carries, counted by PDFBox. */
+    private fun imagesIn(stored: String): Int {
+        val pdf = java.util.Base64.getDecoder().decode(stored.trim('"'))
+        return org.apache.pdfbox.Loader.loadPDF(pdf).use { doc ->
+            doc.pages.sumOf { page -> page.resources.xObjectNames.count { page.resources.isImageXObject(it) } }
+        }
     }
 
     private fun ok(result: ScratchpadResult): ScratchpadResult.Ok {
