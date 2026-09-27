@@ -167,7 +167,17 @@ class ChartCapability(
         val asked = runCatching { mapper.readTree(arguments) }.getOrNull()
             ?: return refusal("That is not valid JSON.")
 
-        val points = pointsIn(asked.path(VALUES))
+        /*
+         * An object, or a string holding one. Issue #537: every tool parameter
+         * goes to the model typed as a string, so values arrived as the text
+         * {"Rent":45,"Food":30} - exactly the example the refusal gave - and
+         * was refused as not being an object. Session 513 sent the example back
+         * word for word and got the same refusal, seven minutes of it.
+         */
+        val given = asked.path(VALUES).let { node ->
+            if (node.isString) runCatching { mapper.readTree(node.stringValue()) }.getOrNull() ?: node else node
+        }
+        val points = pointsIn(given)
             ?: return refusal("Give $VALUES as a label and a number each, like {\"Rent\":45,\"Food\":30}.")
         val kind = asked.path(KIND).takeIf { it.isTextual }?.stringValue()?.trim().orEmpty()
         val title = asked.path(TITLE).takeIf { it.isTextual }?.stringValue()?.trim()?.ifEmpty { null }

@@ -356,6 +356,35 @@ class EmbeddedCapabilities(
         }
 
     /**
+     * The call's arguments with every map parameter that arrived as text turned
+     * back into the object it spells. Issue #537.
+     *
+     * Every parameter goes to the model typed as a string, so a model asked for
+     * `values` or `headers` writes them as the text of an object - and a tool
+     * reading an object found text and refused it, in words that told the model
+     * to send exactly what it had sent. Unwrapped once, here, rather than in each
+     * tool: the next map parameter somebody adds is then right the day it lands.
+     */
+    private fun unwrapped(arguments: String, params: List<EmbeddedParam>): String {
+        val maps = params.filter { it.type == ValueType.MAP }.map { it.name }
+        if (maps.isEmpty()) return arguments
+        val sent = runCatching { mapper.readTree(arguments) }.getOrNull() as? tools.jackson.databind.node.ObjectNode
+            ?: return arguments
+        var changed = false
+        maps.forEach { name ->
+            val held = sent.get(name)
+            if (held != null && held.isString) {
+                val read = runCatching { mapper.readTree(held.stringValue()) }.getOrNull()
+                if (read != null && read.isObject) {
+                    sent.set(name, read)
+                    changed = true
+                }
+            }
+        }
+        return if (changed) mapper.writeValueAsString(sent) else arguments
+    }
+
+    /**
      * One tool call, in the bundle that declares it.
      *
      * Positional and in the order the declaration lists them, which is how the
@@ -365,7 +394,8 @@ class EmbeddedCapabilities(
      */
     fun run(name: String, arguments: String, workspaceId: Long, sessionId: Long?): String {
         nativeFor(name)?.let { (capability, own) ->
-            return runCatching { capability.run(own, arguments, workspaceId, sessionId) }
+            val declared = capability.tools().firstOrNull { it.name == own }?.params.orEmpty()
+            return runCatching { capability.run(own, unwrapped(arguments, declared), workspaceId, sessionId) }
                 .getOrElse { why ->
                     log.warn("The embedded tool {} failed: {}", name, why.message)
                     refusal(why.message ?: "it did not work")
