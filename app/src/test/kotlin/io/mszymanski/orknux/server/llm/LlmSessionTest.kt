@@ -376,15 +376,21 @@ class LlmSessionTest(
      * marker names the tool to call.
      */
     @Test
-    fun `a result too long to keep is cut, and names the tool to ask again`() {
+    fun `a result too long to keep is cut, and says asking again will not bring it back`() {
         val session = recorder.open(workspaceId, "issue", "42")
         val whole = listing(40_864)
         recorder.toolReturned(recorder.toolCalled(session, "orknux_issues", "{}"), whole)
 
         val recalled = requireNotNull(recorder.recalled(session).single().content)
         assertThat(recalled.length).isLessThan(whole.length)
-        assertThat(recalled).contains("more characters were not kept")
-        assertThat(recalled).contains("Call orknux_issues again")
+        assertThat(recalled).contains("more characters of this answer were not kept")
+        /*
+         * It used to say "call orknux_issues again", which is false where the
+         * cut is this one's: the tool answers in full and the recall cuts it the
+         * same way, so a model that believed it asked for ever. Issue #519.
+         */
+        assertThat(recalled).contains("Calling orknux_issues again returns the same answer")
+        assertThat(recalled).doesNotContain("Call orknux_issues again")
 
         // The record keeps all of it. The bound is on what a prompt may hold,
         // not on what happened - and [SessionValueTrim] leaves a listing of
@@ -460,9 +466,9 @@ class LlmSessionTest(
         recorder.toolReturned(recorder.toolCalled(session, "orknux_issues", "{}"), listing(6_000))
 
         assertThat(requireNotNull(recorder.recalled(session).single().content))
-            .doesNotContain("more characters were not kept")
+            .doesNotContain("more characters of this answer were not kept")
         assertThat(requireNotNull(recorder.recalled(session, SessionMemoryBudget.of(10_000)).single().content))
-            .contains("more characters were not kept")
+            .contains("more characters of this answer were not kept")
     }
 
     /** The transcript's page shows what came back, beside what was asked. */

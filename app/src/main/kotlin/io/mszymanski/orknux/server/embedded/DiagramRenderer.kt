@@ -156,8 +156,18 @@ class DiagramRenderer {
          * like it worked. So the description is read, and a diagram it could
          * not parse is a refusal with the line in it.
          */
+        /*
+         * And not only when it says "syntax error". Issue #525: PlantUML also
+         * describes a failed drawing as `(Error)`, which this let through - so a
+         * mermaid flowchart it could not read came back as a successful picture,
+         * with a key to send, of a red box. The model uploaded it believing it
+         * had a diagram. The canvas is read as well as the description, because
+         * the drawn error is the one place the failure is certain to be.
+         */
         val said = described.description.orEmpty()
-        if (said.contains("syntax error", ignoreCase = true) || said.isEmpty()) {
+        if (said.isEmpty() || said.contains("error", ignoreCase = true) ||
+            svg.contains("Syntax Error", ignoreCase = true)
+        ) {
             return Drawing.Refused(reasonIn(svg) ?: "that is not a diagram this can read")
         }
         return Drawing.Drawn(svg, said)

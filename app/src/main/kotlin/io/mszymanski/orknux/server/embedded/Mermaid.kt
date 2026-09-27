@@ -157,7 +157,22 @@ object Mermaid {
              * it in place produced `B --> : yes C`, which is a syntax error,
              * and a syntax error here comes back as a picture of one.
              */
-            val arrows = bare.replace("-.->", "..>").replace("==>", "-->")
+            /*
+             * The other way mermaid labels an edge: the text inside the arrow
+             * itself, `B -- Yes --> C`, and its dotted and thick spellings. It
+             * is at least as common as the pipes, and it came through untouched
+             * - a line PlantUML cannot read, in a diagram that then drew as a
+             * picture of the error. Issue #525.
+             */
+            val inline = INLINE_LABEL.replace(bare) { found ->
+                val arrow = when (found.groupValues[2]) {
+                    "-." -> "..>"
+                    else -> "-->"
+                }
+                found.groupValues[1] + " " + arrow + " " + found.groupValues[4] +
+                    " : " + found.groupValues[3].trim()
+            }
+            val arrows = inline.replace("-.->", "..>").replace("==>", "-->")
             val edge = LABELLED_EDGE.replace(arrows) { found ->
                 found.groupValues[1] + " " + found.groupValues[2] + " " + found.groupValues[4] +
                     " : " + found.groupValues[3].trim()
@@ -219,6 +234,15 @@ object Mermaid {
 
     private val FLOW = Regex("^(graph|flowchart)\\s+(TD|TB|LR|BT|RL)\\s*$", RegexOption.IGNORE_CASE)
     private val STATE = Regex("^stateDiagram(-v2)?\\s*$", RegexOption.IGNORE_CASE)
+    /**
+     * `A -- yes --> B`, `A == yes ==> B` and `A -. yes .-> B`: the label written
+     * inside the arrow, which becomes `A --> B : yes`. The text may not hold an
+     * arrow's own characters, which is what stops this reading `A --> B` as a
+     * label of nothing.
+     */
+    private val INLINE_LABEL =
+        Regex("(\\w+)\\s*(--|==|-\\.)\\s+([^\\-=.>|][^>|]*?)\\s+(?:-->|==>|\\.->)\\s*(\\w+)")
+
     /** `A -->|yes| B`, whose four parts become `A --> B : yes`. */
     private val LABELLED_EDGE = Regex("(\\w+)\\s*(-->|->|\\.\\.>)\\s*\\|([^|]*)\\|\\s*(\\w+)")
     private val NODE = Regex("(\\w+)([\\[({])([^\\])}]*)[\\])}]")

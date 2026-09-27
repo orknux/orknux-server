@@ -102,8 +102,14 @@ class ForcedSkillsTest(
 
     /* ------------------------------------------------------- written on ---- */
 
+    /**
+     * Named, and the model told to read it - never the page itself. Issue #521:
+     * a command used to write every page it named into the system prompt, and a
+     * prompt that is mostly one document is what sent the model off loading
+     * skills until the context died.
+     */
     @Test
-    fun `a skill named on the node reaches the model before it starts`() {
+    fun `a skill named on the node is named to the model and never spelled out`() {
         skill("Code review", "review", REVIEW_SAYS)
         val agentId = agent(model(serve()))
         graph(agentId, """{ name: "skillIds", expression: "review", mode: VALUE }""")
@@ -112,9 +118,10 @@ class ForcedSkillsTest(
 
         assertThat(steps.findAll().single().status).isEqualTo(StepStatus.COMPLETED)
         assertThat(received.single())
-            .contains("These skills are loaded for this task")
-            .contains("Code review (review)")
-            .contains(REVIEW_SAYS)
+            .contains("This task names a skill")
+            .contains("Load each one with skill_load before anything else")
+            .contains("Code review (skill_load review)")
+            .doesNotContain(REVIEW_SAYS)
     }
 
     @Test
@@ -126,7 +133,12 @@ class ForcedSkillsTest(
 
         start()
 
-        assertThat(received.single()).contains(REVIEW_SAYS).contains(SECURITY_SAYS)
+        assertThat(received.single())
+            .contains("This task names these skills")
+            .contains("(skill_load review)")
+            .contains("(skill_load security)")
+            .doesNotContain(REVIEW_SAYS)
+            .doesNotContain(SECURITY_SAYS)
     }
 
     /* --------------------------------------------------- from the trigger --- */
@@ -140,7 +152,10 @@ class ForcedSkillsTest(
 
         start(input = """{"text":"!review please","commands":["review"]}""")
 
-        assertThat(received.single()).contains(REVIEW_SAYS).doesNotContain(SECURITY_SAYS)
+        assertThat(received.single())
+            .contains("(skill_load review)")
+            .doesNotContain("(skill_load security)")
+            .doesNotContain(REVIEW_SAYS)
     }
 
     @Test
@@ -151,7 +166,7 @@ class ForcedSkillsTest(
 
         start(input = """{"commands":["urgent","review"]}""")
 
-        assertThat(received.single()).contains(REVIEW_SAYS)
+        assertThat(received.single()).contains("(skill_load review)").doesNotContain("(skill_load urgent)")
         assertThat(logs.findAll().map { it.message })
             .anyMatch { it.contains("No skill in this workspace has the id urgent") }
         assertThat(steps.findAll().single().status).isEqualTo(StepStatus.COMPLETED)
@@ -165,7 +180,7 @@ class ForcedSkillsTest(
 
         start()
 
-        assertThat(received.single()).doesNotContain(REVIEW_SAYS).doesNotContain("These skills are loaded")
+        assertThat(received.single()).doesNotContain(REVIEW_SAYS).doesNotContain("This task names")
     }
 
     /* ------------------------------------------------------ advertised ---- */
@@ -183,11 +198,20 @@ class ForcedSkillsTest(
 
         start()
 
+        /*
+         * Offered rather than Always, so it is counted and not named - issue
+         * #521, the three states meaning for a skill what they mean for a tool.
+         * The command syntax is still spelled out, with its own id as the
+         * example, because a person in Slack cannot see the list.
+         */
         assertThat(received.single())
-            .contains("Code review (!review)")
+            .contains("You have 1 skill")
+            .contains("Call skill_list")
+            .contains("like !review")
             .contains("write one anywhere in a message")
             .contains("how to use")
             .contains("rather than saying there is none")
+            .doesNotContain(REVIEW_SAYS)
     }
 
     @Test
@@ -200,7 +224,7 @@ class ForcedSkillsTest(
 
         start()
 
-        assertThat(received.single()).contains("Code review (::review)").doesNotContain("(!review)")
+        assertThat(received.single()).contains("like ::review").doesNotContain("!review")
     }
 
     /* ------------------------------------------------------- at the save --- */

@@ -118,6 +118,52 @@ class DiagramRendererTest {
         assertThat(svg).contains("Alice")
     }
 
+    /**
+     * The flowchart a model actually wrote, verbatim. Issue #525.
+     *
+     * `graph TD`, a decision, and the label written inside the arrow - `B -- Yes
+     * --> C` - which this did not translate: the line went through as it was,
+     * PlantUML could not read it, and the drawing came back as a picture of the
+     * error that the model then uploaded.
+     */
+    @Test
+    fun `a label written inside the arrow draws, as a model writes it`() {
+        val svg = drawn(
+            listOf(
+                "graph TD",
+                "    A[User asks question] --> B{Known issue?}",
+                "    B -- Yes --> C[Provide solution]",
+                "    B -- No --> D[Investigate/Escalate]",
+                "    C --> E[Close ticket]",
+                "    D --> E",
+            ).joinToString(n),
+        )
+        assertThat(svg).contains("Known issue?").contains("Close ticket").contains("Yes").contains("No")
+    }
+
+    @Test
+    fun `the dotted and thick spellings of an inline label draw too`() {
+        val svg = drawn(
+            listOf(
+                "flowchart LR",
+                "    A[Start] -. maybe .-> B[Later]",
+                "    A == surely ==> C[Now]",
+            ).joinToString(n),
+        )
+        assertThat(svg).contains("maybe").contains("surely")
+    }
+
+    /**
+     * Whatever PlantUML calls its failure. Issue #525: it described one as
+     * `(Error)` rather than as a syntax error, and the check only knew the
+     * second - so a red box went out as a drawing with a key to send.
+     */
+    @Test
+    fun `plantuml it cannot read is refused, whatever it calls the failure`() {
+        val broken = "@startuml" + n + "rectangle \"A\" as A" + n + "A -- -- --> ((" + n + "@enduml"
+        assertThat(renderer.svg(broken)).isInstanceOf(DiagramRenderer.Drawing.Refused::class.java)
+    }
+
     /** And the refusals, which have to stay refusals rather than becoming a red box in somebody's report. */
     @Test
     fun `an empty diagram is refused rather than drawn as an error picture`() {

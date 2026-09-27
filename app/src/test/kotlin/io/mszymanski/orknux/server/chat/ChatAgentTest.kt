@@ -169,9 +169,12 @@ class ChatAgentTest(
 
         val said = requireNotNull(briefing.of(requireNotNull(agents.findByIdOrNull(agentId))))
         assertThat(said).contains("You review code carefully.")
-        // Listed by name, not spelled out: the agent loads the body with
-        // skill_load when it decides the skill applies.
-        assertThat(said).contains("codeReview")
+        /*
+         * Offered, so counted and reachable rather than named - issue #521, the
+         * three states meaning for a skill what they mean for a tool. And never
+         * spelled out, whatever its state: the body arrives through skill_load.
+         */
+        assertThat(said).contains("Call skill_list")
         assertThat(said).doesNotContain("Read the diff twice.")
         // Not granted, so not even named.
         assertThat(said).doesNotContain("handling").doesNotContain("hunter2")
@@ -198,7 +201,11 @@ class ChatAgentTest(
          * a bare agent knows its commands as well as its tools. What it has
          * none of is the workspace's, which is what having no grants means.
          */
-        assertThat(said).contains("You have been given these skills")
+        assertThat(said).containsPattern("""You have \d+ skills?""")
+        assertThat(said).contains("Call skill_list")
+        // Counted once. With nothing named it also said "there are N other
+        // skills", which is the same number twice and reads as two groups.
+        assertThat(said).doesNotContain("other skill")
         assertThat(said).doesNotContain("Reviews")
     }
 

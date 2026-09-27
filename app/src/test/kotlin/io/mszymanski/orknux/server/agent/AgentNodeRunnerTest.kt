@@ -511,7 +511,9 @@ class AgentNodeRunnerTest(
         val prompt = mapper.readTree(first.content).path("systemPrompt").stringValue()
         assertThat(prompt).describedAs("the agent's own prose first").startsWith("You summarise incidents.")
         assertThat(prompt).describedAs("then the grants briefing, which is what #454 found missing")
-            .contains("You have been given these skills").contains("Reviewing")
+            // Counted rather than named since #521: an Offered skill is reachable
+            // through skill_list, and only Always ones cost a line here.
+            .containsPattern("""You have \d+ skills?""").contains("Call skill_list")
         // And where to ask for that list again, hours into the conversation,
         // which is what an agent asked for its commands was guessing at. #471.
         assertThat(prompt).describedAs("the briefing names the tool that lists the skills")

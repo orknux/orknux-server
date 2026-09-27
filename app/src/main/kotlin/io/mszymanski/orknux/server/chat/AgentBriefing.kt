@@ -164,7 +164,8 @@ class AgentBriefing(
                     skill.description?.takeIf { it.isNotBlank() }?.let { append(": ").append(it) }
                 }
                 if (named.isNotEmpty()) appendLine()
-                if (rest > 0) {
+                // Only beside a list: with none named, the count above already said it.
+                if (named.isNotEmpty() && rest > 0) {
                     append("\nThere ").append(if (rest == 1) "is " else "are ").append(rest)
                     append(if (rest == 1) " other skill" else " other skills")
                     appendLine(" you have. They are not listed here - call skill_list for them.")

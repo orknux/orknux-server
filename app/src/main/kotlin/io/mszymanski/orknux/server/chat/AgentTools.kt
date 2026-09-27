@@ -65,7 +65,7 @@ class AgentTools(
      * granted this is for. The grant is the decision; there is no session here
      * to ask for a second one.
      */
-    private fun scopeFor(agent: Agent) = OrknuxScope(
+    private fun scopeFor(agent: Agent, session: Long? = null) = OrknuxScope(
         workspaceId = agent.workspaceId,
         mayWrite = true,
         /*
@@ -76,6 +76,8 @@ class AgentTools(
          * is the true answer to who commented.
          */
         actor = agent.name,
+        // So "read this conversation" means its own without it knowing the id. Issue #524.
+        session = session,
     )
 
     /**
@@ -381,7 +383,7 @@ class AgentTools(
              * rather than reaching the workspace through a name it made up.
              */
             if (agent.orknuxAccess) {
-                orknux.run(scopeFor(agent), call.name, call.arguments)
+                orknux.run(scopeFor(agent, sessionId), call.name, call.arguments)
             } else {
                 mapper.writeValueAsString(mapOf("error" to "This agent has not been given access to orknux"))
             }

@@ -82,6 +82,15 @@ data class OrknuxScope(
      * name to a change.
      */
     val actor: String? = null,
+    /**
+     * The conversation the caller is in, where it is in one. Issue #524.
+     *
+     * An agent asking to read "this conversation" means its own, and has no way
+     * of knowing its session's id - so `orknux_session` with no id reads this.
+     * Null through the MCP endpoint, where a client is not inside a session and
+     * has to name the one it wants.
+     */
+    val session: Long? = null,
 )
 
 /**
@@ -148,6 +157,9 @@ class OrknuxTools(
      */
     @param:Lazy private val runs: ExecutionService,
     private val agents: AgentRepository,
+    /** The conversations and their logs, for orknux_sessions and orknux_session. Issue #524. */
+    private val llmSessions: io.mszymanski.orknux.server.llm.LlmSessionRepository,
+    private val llmEvents: io.mszymanski.orknux.server.llm.LlmSessionEventRepository,
     /**
      * The workspace's own tools — the code an agent calls, not the tools in
      * this class. Read here for the same reason functions are: somebody at the
@@ -212,6 +224,8 @@ class OrknuxTools(
 
     private fun toolLink(workspaceId: Long, id: Long?) = link("/workspace/$workspaceId/tools/$id")
 
+    private fun sessionLink(workspaceId: Long, id: Long?) = link("/workspace/$workspaceId/sessions/$id")
+
     /** By number, because that is what the address carries and what people say. */
     private fun issueLink(workspaceId: Long, number: Int) = link("/workspace/$workspaceId/issues/$number")
 
@@ -250,6 +264,50 @@ class OrknuxTools(
                 name = "orknux_agents",
                 description = "The agents configured in this workspace.",
                 parameters = emptyList(),
+            ),
+        )
+
+        /*
+         * The conversations, and what was said in them. Issue #524.
+         *
+         * A run's steps were readable here and the conversation an agent had
+         * inside one was not - which is the half that says why it did what it
+         * did. An agent asked to pick up where another left off, or to explain
+         * what happened in a thread yesterday, was answering from nothing.
+         *
+         * Two tools, as for runs: the list to find one, and the log to read.
+         */
+        add(
+            ToolSpec(
+                name = "orknux_sessions",
+                description =
+                    "Conversations agents have had in this workspace - a Slack thread, a task, a chat - " +
+                        "newest first, with how many lines each holds. Find one here, then read it with " +
+                        "orknux_session.",
+                parameters = listOf(
+                    ToolParameterSpec(
+                        "search",
+                        "Only sessions whose key or prefix contains this, like a Slack thread's timestamp.",
+                        required = false,
+                    ),
+                    ToolParameterSpec("limit", "How many to return; 20 by default, 100 at most.", required = false),
+                ),
+            ),
+        )
+        add(
+            ToolSpec(
+                name = "orknux_session",
+                description =
+                    "What was said in one conversation, oldest first: each question, answer, tool call with " +
+                        "what it returned, and note. Leave id out to read the conversation you are in. A long " +
+                        "one comes in pages - pass after with the last line's id to read on. Long values were " +
+                        "shortened when they were recorded, so this is the account of what happened rather " +
+                        "than every byte of it.",
+                parameters = listOf(
+                    ToolParameterSpec("id", "The session's id. Left out, your own conversation.", required = false),
+                    ToolParameterSpec("after", "Only lines after this line id, to read on from a page.", required = false),
+                    ToolParameterSpec("limit", "How many lines to return; 50 by default, 200 at most.", required = false),
+                ),
             ),
         )
 
@@ -678,6 +736,8 @@ class OrknuxTools(
             "orknux_executions" -> executions(scope, arguments)
             "orknux_execution" -> execution(scope, arguments)
             "orknux_agents" -> agentList(scope)
+            "orknux_sessions" -> sessionList(scope, arguments)
+            "orknux_session" -> sessionLog(scope, arguments)
             "orknux_functions" -> functionList(scope)
             "orknux_function" -> function(scope, arguments)
             "orknux_tools" -> toolList(scope)
@@ -803,6 +863,87 @@ class OrknuxTools(
                         "error" to it.error?.take(FIELD),
                     )
                 },
+            ),
+        )
+    }
+
+    /**
+     * The workspace's conversations, newest first. Issue #524.
+     *
+     * The main ones only: a conversation an agent started by asking another is
+     * reached from the one it belongs to, and listing both side by side is a
+     * list in which every question appears twice.
+     */
+    private fun sessionList(scope: OrknuxScope, arguments: String): String {
+        val search = text(arguments, "search").orEmpty().trim()
+        val limit = (number(arguments, "limit")?.toInt() ?: SOME_SESSIONS).coerceIn(1, MANY)
+        val found = llmSessions.search(
+            scope.workspaceId,
+            search,
+            false,
+            PageRequest.of(0, limit, Sort.by(Sort.Order.desc("lastEventAt"), Sort.Order.desc("id"))),
+        )
+        return mapper.writeValueAsString(
+            mapOf(
+                "sessions" to found.content.map { held ->
+                    mapOf(
+                        "id" to held.id,
+                        "key" to held.sessionKey,
+                        "prefix" to held.keyPrefix,
+                        "title" to held.title,
+                        "openedAt" to held.createdAt,
+                        "lastSpokenAt" to held.lastEventAt,
+                        "url" to sessionLink(scope.workspaceId, held.id),
+                    )
+                },
+                "total" to found.totalElements,
+            ),
+        )
+    }
+
+    /**
+     * One conversation's log, oldest first and in pages. Issue #524.
+     *
+     * Everything the transcript page shows, including what a compaction
+     * superseded - marked, so a reader can tell what the agent was still
+     * carrying from what it had let go of. The values are what was recorded,
+     * which [io.mszymanski.orknux.server.llm.SessionValueTrim] has already
+     * shortened; nothing is cut a second time here, because a second cut is a
+     * second thing to be told about.
+     */
+    private fun sessionLog(scope: OrknuxScope, arguments: String): String {
+        val id = number(arguments, "id") ?: scope.session
+            ?: return refuse("Which conversation? Give its id - orknux_sessions lists them.")
+        // Another workspace's session is answered exactly as one that does not
+        // exist, for the reason runs are: "not yours" confirms it is somebody's.
+        val held = llmSessions.findByIdOrNull(id)?.takeIf { it.workspaceId == scope.workspaceId }
+            ?: return refuse("There is no conversation $id here")
+
+        val after = number(arguments, "after") ?: 0L
+        val limit = (number(arguments, "limit")?.toInt() ?: SOME_LINES).coerceIn(1, MOST_LINES)
+        // One more than asked, to know whether there is a next page without counting the rest.
+        val page = llmEvents.after(id, after, PageRequest.of(0, limit + 1))
+        val lines = page.take(limit)
+
+        return mapper.writeValueAsString(
+            mapOf(
+                "id" to held.id,
+                "key" to held.sessionKey,
+                "url" to sessionLink(scope.workspaceId, held.id),
+                "lines" to lines.map { line ->
+                    buildMap {
+                        put("id", line.id)
+                        put("kind", line.kind.name)
+                        put("who", line.actor)
+                        put("at", line.at)
+                        line.content?.let { put("said", it) }
+                        line.result?.let { put("returned", it) }
+                        line.millis?.let { put("millis", it) }
+                        if (line.superseded) put("superseded", true)
+                    }
+                },
+                "more" to (page.size > limit),
+                "next" to lines.lastOrNull()?.id?.takeIf { page.size > limit },
             ),
         )
     }
@@ -1310,6 +1451,17 @@ class OrknuxTools(
 
         /** One page, big enough that a workspace's whole catalogue fits in it. */
         const val MANY = 100
+
+        /** Sessions a list answers with when nobody said how many. Issue #524. */
+        const val SOME_SESSIONS = 20
+
+        /**
+         * Lines a page of a log answers with, and the most one may. Fifty is a
+         * turn or two with its tool calls; two hundred is where a page stops
+         * being something a model can read in one go.
+         */
+        const val SOME_LINES = 50
+        const val MOST_LINES = 200
         const val DEFAULT_RUNS = 20
 
         /** A step's output can be a megabyte; a model reading it needs the shape. */
