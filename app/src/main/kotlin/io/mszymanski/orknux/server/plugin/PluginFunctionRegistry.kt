@@ -250,8 +250,40 @@ class PluginFunctionInUseException(name: String, callers: List<String>) : Runtim
         "${callers.joinToString(", ")}. Change those first.",
 )
 
+/**
+ * What still calls this plugin, said so somebody can act on it. Issue #511.
+ *
+ * The first version printed every caller of every function, and the refusal for
+ * one real plugin ran to four lines reading "zzCustomActionSave step, Action,
+ * Action, Action, Action, Action, Action, zzCustomActionSave step, ..." - which
+ * is twenty-four callers and four distinct names. A list that repeats a name
+ * sixteen times is not more informative than one that says how many; it is
+ * harder to read, and it buries the part that identifies anything.
+ *
+ * So: the distinct names, a few of them, and a count for the rest.
+ */
 class PluginInUseException(used: Map<String, List<String>>) : RuntimeException(
     "This plugin provides functions that are still in use: " +
-        used.entries.joinToString("; ") { (name, callers) -> "$name (${callers.joinToString(", ")})" } +
+        used.entries.joinToString("; ") { (name, callers) -> "$name is called by " + phrase(callers) } +
         ". Change those first.",
-)
+) {
+    private companion object {
+
+        /** How many distinct names are worth printing before a count says it better. */
+        const val MOST_NAMED = 4
+
+        /**
+         * "the Nightly action and 3 others" - distinct, capped, counted.
+         *
+         * The total is the number of callers rather than of names, because that
+         * is what somebody has to go and change; the names are there to say
+         * where to start looking.
+         */
+        fun phrase(callers: List<String>): String {
+            val distinct = callers.distinct()
+            val named = distinct.take(MOST_NAMED).joinToString(", ")
+            val rest = callers.size - distinct.take(MOST_NAMED).size
+            return if (rest <= 0) named else "$named and $rest more"
+        }
+    }
+}
