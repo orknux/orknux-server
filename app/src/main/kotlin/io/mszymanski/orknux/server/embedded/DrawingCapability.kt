@@ -278,7 +278,7 @@ private fun drawing(
     )
     if (sessionId != null) {
         val key = named + "." + java.lang.Long.toString(System.nanoTime(), 36)
-        scratch.put(sessionId, key, mapper.writeValueAsString(base64))
+        scratch.put(sessionId, key, mapper.writeValueAsString(base64), io.mszymanski.orknux.workflow.script.StoredKind("image/png", true))
         answer["contentKey"] = key
         // Where the rest is written down, found by the word this answer carries. Issue #558.
         answer["note"] = "Pass contentKey to whatever sends, uploads or saves a file. For an HTML page, a PDF " +
@@ -308,7 +308,10 @@ private fun vectors(
 ): String {
     if (sessionId == null) return mapper.writeValueAsString(linkedMapOf("svg" to svg, "kind" to kind))
     val key = named + "." + java.lang.Long.toString(System.nanoTime(), 36) + ".svg"
-    scratch.put(sessionId, key, mapper.writeValueAsString(Base64.getEncoder().encodeToString(svg.toByteArray())))
+    scratch.put(
+        sessionId, key, mapper.writeValueAsString(Base64.getEncoder().encodeToString(svg.toByteArray())),
+        io.mszymanski.orknux.workflow.script.StoredKind("image/svg+xml", true),
+    )
     return mapper.writeValueAsString(
         linkedMapOf(
             "contentKey" to key,

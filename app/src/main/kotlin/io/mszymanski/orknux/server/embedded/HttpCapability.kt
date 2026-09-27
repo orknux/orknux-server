@@ -233,7 +233,10 @@ class HttpCapability(
             answer["base64"] = Base64.getEncoder().encodeToString(bytes)
         } else {
             val named = "http." + java.lang.Long.toString(System.nanoTime(), 36)
-            scratch.put(sessionId, named, mapper.writeValueAsString(Base64.getEncoder().encodeToString(bytes)))
+            scratch.put(
+                sessionId, named, mapper.writeValueAsString(Base64.getEncoder().encodeToString(bytes)),
+                io.mszymanski.orknux.workflow.script.StoredKind(answered.headers().firstValue("content-type").orElse(null)?.substringBefore(';')?.trim(), true),
+            )
             answer[KEY] = named
             answer["note"] = "Pass $KEY to whatever sends, uploads or saves a file."
         }

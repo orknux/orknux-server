@@ -20,6 +20,16 @@ package io.mszymanski.orknux.workflow.script
  *
  * Values cross as JSON text, like everything that crosses the sandbox.
  */
+/**
+ * What a stored value is. Issue #559.
+ *
+ * [binary] says how it is kept: true, the value is a JSON string of base64
+ * bytes; false, it is the thing itself. Said beside the type rather than read
+ * off it, because the same type is kept both ways - an http download of a page
+ * is base64, a page kept from a scratchpad is text.
+ */
+data class StoredKind(val contentType: String?, val binary: Boolean)
+
 interface SessionScratch {
 
     /**
@@ -28,6 +38,16 @@ interface SessionScratch {
      * @return null when it was stored, or a sentence about why it was not.
      */
     fun put(sessionId: Long, key: String, json: String): String?
+
+    /**
+     * The same, recording what the value is. Issue #559: a reader handed a key
+     * could only guess whether it held a page or a PDF, and guessed wrong - a
+     * PDF uploaded as a text file of base64.
+     */
+    fun put(sessionId: Long, key: String, json: String, kind: StoredKind?): String? = put(sessionId, key, json)
+
+    /** What [key] was recorded as holding, or null where nothing was said. Issue #559. */
+    fun kindOf(sessionId: Long, key: String): StoredKind? = null
 
     /** What [key] holds for this session, as JSON, or null where nothing does. */
     fun get(sessionId: Long, key: String): String?

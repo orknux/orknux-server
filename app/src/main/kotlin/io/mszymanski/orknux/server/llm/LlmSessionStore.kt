@@ -1,6 +1,7 @@
 package io.mszymanski.orknux.server.llm
 
 import io.mszymanski.orknux.workflow.script.SessionScratch
+import io.mszymanski.orknux.workflow.script.StoredKind
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.Id
@@ -31,6 +32,14 @@ class LlmSessionStoreEntry(
 
     @Column(name = "value", nullable = false, columnDefinition = "text")
     var value: String = "",
+
+    /** What the value is, where whoever put it said. Issue #559. */
+    @Column(name = "content_type")
+    var contentType: String? = null,
+
+    /** Whether the value is base64 bytes; null where nobody said. Issue #559. */
+    @Column(name = "is_binary")
+    var binary: Boolean? = null,
 )
 
 data class LlmSessionStoreKey(val sessionId: Long = 0, val name: String = "") : Serializable
@@ -56,7 +65,16 @@ interface LlmSessionStoreRepository : JpaRepository<LlmSessionStoreEntry, LlmSes
 class LlmSessionStore(private val entries: LlmSessionStoreRepository) : SessionScratch {
 
     @Transactional
-    override fun put(sessionId: Long, key: String, json: String): String? {
+    override fun put(sessionId: Long, key: String, json: String): String? = put(sessionId, key, json, null)
+
+    @Transactional(readOnly = true)
+    override fun kindOf(sessionId: Long, key: String): StoredKind? =
+        entries.findByIdOrNull(LlmSessionStoreKey(sessionId, key))?.let { held ->
+            held.binary?.let { StoredKind(held.contentType, it) }
+        }
+
+    @Transactional
+    override fun put(sessionId: Long, key: String, json: String, kind: StoredKind?): String? {
         if (key.isBlank()) return "a key has to be a non-empty string"
         if (key.length > MOST_KEY_CHARS) {
             return "a key is at most $MOST_KEY_CHARS characters, and that one is ${key.length}"
@@ -71,9 +89,11 @@ class LlmSessionStore(private val entries: LlmSessionStoreRepository) : SessionS
 
         return runCatching {
             if (held == null) {
-                entries.save(LlmSessionStoreEntry(sessionId, key, json))
+                entries.save(LlmSessionStoreEntry(sessionId, key, json, kind?.contentType, kind?.binary))
             } else {
                 held.value = json
+                held.contentType = kind?.contentType
+                held.binary = kind?.binary
                 entries.save(held)
             }
             null
@@ -115,7 +135,7 @@ class LlmSessionStore(private val entries: LlmSessionStoreRepository) : SessionS
         entries.findBySessionId(from).forEach { held ->
             if (room == 0L) return@forEach
             if (entries.findByIdOrNull(LlmSessionStoreKey(into, held.name)) != null) return@forEach
-            entries.save(LlmSessionStoreEntry(into, held.name, held.value))
+            entries.save(LlmSessionStoreEntry(into, held.name, held.value, held.contentType, held.binary))
             room -= 1
             copied += 1
         }

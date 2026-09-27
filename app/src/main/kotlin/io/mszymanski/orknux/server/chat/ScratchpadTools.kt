@@ -264,7 +264,9 @@ class ScratchpadTools(
              * expects: the sandbox parses what it reads, and an upload hands on
              * what comes out as the content itself.
              */
-            val refused = scratch.put(session, key, mapper.writeValueAsString(held.content))
+            // And what it is, so a reader does not guess. Issue #559.
+            val kind = held.contentType?.let { io.mszymanski.orknux.workflow.script.StoredKind(it, true) } ?: io.mszymanski.orknux.workflow.script.StoredKind(textTypeOf(name), false)
+            val refused = scratch.put(session, key, mapper.writeValueAsString(held.content), kind)
             if (refused != null) return refusal("That could not be kept: $refused.")
             val answer = linkedMapOf<String, Any>(
                 "kept" to true, "key" to key, "name" to name, "bytes" to held.content.length,
@@ -306,7 +308,7 @@ class ScratchpadTools(
                 val key = KEPT_PREFIX + pad.name
                 // JSON, as every other writer into this store does: what reads
                 // a key parses it. Issue #493.
-                scratch.put(session, key, mapper.writeValueAsString(pad.content))
+                scratch.put(session, key, mapper.writeValueAsString(pad.content), io.mszymanski.orknux.workflow.script.StoredKind(type, true))
                 return mapper.writeValueAsString(
                     mapOf(
                         "name" to pad.name,
@@ -440,6 +442,19 @@ class ScratchpadTools(
          * What a key holds, as text: plain text as it is, and base64 that
          * decodes to markup - a kept SVG - decoded. Null for anything binary.
          */
+        /** The type a text pad's name says it is. Issue #559. */
+        private fun textTypeOf(name: String): String = when (name.substringAfterLast('.', "").lowercase()) {
+            "html", "htm" -> "text/html"
+            "css" -> "text/css"
+            "csv" -> "text/csv"
+            "json" -> "application/json"
+            "md", "markdown" -> "text/markdown"
+            "svg" -> "image/svg+xml"
+            "xml" -> "application/xml"
+            "js", "mjs" -> "text/javascript"
+            else -> "text/plain"
+        }
+
         private fun keptText(held: String): String? {
             val value = runCatching { mapper.readTree(held) }.getOrNull()?.takeIf { it.isTextual }?.stringValue() ?: held
             val decoded = runCatching { java.util.Base64.getDecoder().decode(value.trim()) }.getOrNull()

@@ -157,6 +157,26 @@ class ScratchpadTest(
         assertThat(requireNotNull(pads.find(session, "page2.html")).content).endsWith("<circle r=\"3\"/></svg>")
     }
 
+    /** A kept pad says what it is, and a copy into another session keeps saying it. Issue #559. */
+    @Test
+    fun `a kept pad is recorded as text of its type, and the kind survives a copy`() {
+        ok(pads.create(session, "kinds.html", "A page", "<h1>Kinds</h1>"))
+        requireNotNull(tools.shed(session)).run(
+            io.mszymanski.orknux.connector.model.ToolCall("1", "scratchpad_keep", """{"name":"kinds.html"}"""),
+        )
+
+        assertThat(store.kindOf(session, "kinds.html"))
+            .isEqualTo(io.mszymanski.orknux.workflow.script.StoredKind("text/html", false))
+
+        store.put(session, "report.pdf", "\"JVBERi0x\"", io.mszymanski.orknux.workflow.script.StoredKind("application/pdf", true))
+        val other = recorder.open(workspaceId, "test", "kinds-${System.nanoTime()}")
+        store.copy(from = session, into = other)
+        assertThat(store.kindOf(other, "report.pdf"))
+            .isEqualTo(io.mszymanski.orknux.workflow.script.StoredKind("application/pdf", true))
+        store.put(session, "nobody-said", "\"x\"")
+        assertThat(store.kindOf(session, "nobody-said")).isNull()
+    }
+
     private fun ok(result: ScratchpadResult): ScratchpadResult.Ok {
         assertThat(result).isInstanceOf(ScratchpadResult.Ok::class.java)
         return result as ScratchpadResult.Ok

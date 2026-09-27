@@ -107,7 +107,7 @@ class ZipTools(
          * answered "Unexpected token U in JSON at position 0": UEsDBBQ is what
          * a zip looks like in base64.
          */
-        scratch.put(sessionId, key, mapper.writeValueAsString(Base64.getEncoder().encodeToString(packed)))
+        scratch.put(sessionId, key, mapper.writeValueAsString(Base64.getEncoder().encodeToString(packed)), io.mszymanski.orknux.workflow.script.StoredKind("application/zip", true))
 
         return mapper.writeValueAsString(
             linkedMapOf(

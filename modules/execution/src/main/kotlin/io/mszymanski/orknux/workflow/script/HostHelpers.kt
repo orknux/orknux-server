@@ -551,13 +551,31 @@ internal object HostHelpers {
              * makes the trip as JSON, so what comes back out is a copy - and
              * anything JSON cannot say (a function, undefined) does not survive.
              */
-            put(key, value) {
+            put(key, value, kind) {
               const door = globalThis.__orknuxStorePut;
               if (door === undefined) {
                 return { error: 'there is no session store here: only a call made inside an AI session carries one' };
               }
-              const refused = door(String(key), JSON.stringify(value === undefined ? null : value));
+              const type = kind && typeof kind.contentType === 'string' ? kind.contentType : '';
+              const binary = kind && typeof kind.binary === 'boolean' ? (kind.binary ? '1' : '0') : null;
+              const refused = door(String(key), JSON.stringify(value === undefined ? null : value), type, binary);
               return refused === null ? { ok: true } : { error: refused };
+            },
+
+            /**
+             * What the key was recorded as holding: { contentType, binary },
+             * where binary means the value is base64 bytes. Null where nothing
+             * was said, or nothing is kept - an older server says nothing at
+             * all. Issue #559.
+             */
+            kind(key) {
+              const door = globalThis.__orknuxStoreKind;
+              if (door === undefined) return null;
+              const said = door(String(key));
+              if (said === null || said === undefined) return null;
+              const at = String(said).lastIndexOf('\n');
+              const type = String(said).slice(0, at);
+              return { contentType: type === '' ? null : type, binary: String(said).slice(at + 1) === '1' };
             },
 
             /** What the key holds, parsed, or null where nothing does. */

@@ -641,7 +641,7 @@ class AgentRunTools(
         val key = "answer." + (child ?: System.nanoTime())
         // A JSON-encoded *string*: the sandbox parses what it reads, and an
         // upload door requires what comes out to be the text itself.
-        val refused = scratch.put(parent, key, mapper.writeValueAsString(answer))
+        val refused = scratch.put(parent, key, mapper.writeValueAsString(answer), io.mszymanski.orknux.workflow.script.StoredKind("text/markdown", false))
         return if (refused == null) key else null
     }
 

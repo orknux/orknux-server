@@ -1061,7 +1061,20 @@ class PluginRunner(
                         ?: return@ProxyExecutable "a key has to be a string"
                     val value = given.getOrNull(1)?.takeIf { it.isString }?.asString()
                         ?: return@ProxyExecutable "a value has to be given"
-                    store.put(sessionId, key, value)
+                    // What it is, where the caller said: "type", then "1" for base64 bytes. Issue #559.
+                    val type = given.getOrNull(2)?.takeIf { it.isString }?.asString()?.ifEmpty { null }
+                    val binary = given.getOrNull(3)?.takeIf { it.isString }?.asString()
+                    val kind = if (type == null && binary == null) null else StoredKind(type, binary == "1")
+                    store.put(sessionId, key, value, kind)
+                },
+            )
+            bindings.putMember(
+                STORE_KIND,
+                ProxyExecutable { given ->
+                    val key = given.getOrNull(0)?.takeIf { it.isString }?.asString()
+                        ?: return@ProxyExecutable null
+                    // Two lines, type and 0 or 1, rather than JSON across the door.
+                    store.kindOf(sessionId, key)?.let { (it.contentType ?: "") + "\n" + (if (it.binary) "1" else "0") }
                 },
             )
             bindings.putMember(
@@ -1230,6 +1243,7 @@ class PluginRunner(
         const val STORE_PUT = "__orknuxStorePut"
         const val STORE_GET = "__orknuxStoreGet"
         const val STORE_UNSET = "__orknuxStoreUnset"
+        const val STORE_KIND = "__orknuxStoreKind"
         const val SCRATCHPAD = "__orknuxScratchpad"
 
         /**

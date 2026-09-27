@@ -28,6 +28,50 @@ class SessionStoreTest {
         override fun remove(sessionId: Long, key: String) {
             held.remove(sessionId to key)
         }
+
+        val kinds = ConcurrentHashMap<Pair<Long, String>, StoredKind>()
+
+        override fun put(sessionId: Long, key: String, json: String, kind: StoredKind?): String? {
+            kind?.let { kinds[sessionId to key] = it }
+            return put(sessionId, key, json)
+        }
+
+        override fun kindOf(sessionId: Long, key: String): StoredKind? = kinds[sessionId to key]
+    }
+
+    /**
+     * What a value is, said on the way in and read on the way out. Issue #559:
+     * a reader guessed a PDF was text from its value, and uploaded base64.
+     */
+    @Test
+    fun `a value is kept with what it is, and a key nobody described has no kind`() {
+        val write = runner.call(
+            """
+            export default function keep() {
+              orknux.session.store.put('plain', 'hello');
+              return orknux.session.store.put('report', 'JVBERi0x', { contentType: 'application/pdf', binary: true });
+            }
+            """.trimIndent(),
+            "keep",
+            emptyList(),
+            on = 12,
+            sessionId = 41,
+        )
+        assertThat((write as ScriptResult.Returned).json).contains("\"ok\":true")
+        assertThat(scratch.kinds[41L to "report"]).isEqualTo(StoredKind("application/pdf", true))
+
+        val read = runner.call(
+            """
+            export default function look() {
+              return [orknux.session.store.kind('report'), orknux.session.store.kind('plain')];
+            }
+            """.trimIndent(),
+            "look",
+            emptyList(),
+            on = 12,
+            sessionId = 41,
+        )
+        assertThat((read as ScriptResult.Returned).json).isEqualTo("""[{"contentType":"application/pdf","binary":true},null]""")
     }
 
     private val scratch = Remembering()

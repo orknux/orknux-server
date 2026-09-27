@@ -558,6 +558,8 @@ CREATE TABLE llm_session_store
     session_id                   integer not null,
     name                         varchar(200) not null,
     value                        text not null,
+    content_type                 varchar(255),
+    is_binary                    boolean,
     primary key (session_id, name),
     constraint llm_session_store_session_id_fkey FOREIGN KEY (session_id) REFERENCES llm_session(id) ON DELETE CASCADE
 );

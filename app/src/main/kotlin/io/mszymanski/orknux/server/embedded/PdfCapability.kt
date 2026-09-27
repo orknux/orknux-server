@@ -164,7 +164,10 @@ class PdfCapability(
             answer["base64"] = Base64.getEncoder().encodeToString(document.pdf)
         } else {
             val named = (text(asked, TITLE)?.trim()?.ifEmpty { null } ?: "document") + ".pdf"
-            scratch.put(sessionId, named, mapper.writeValueAsString(Base64.getEncoder().encodeToString(document.pdf)))
+            scratch.put(
+                sessionId, named, mapper.writeValueAsString(Base64.getEncoder().encodeToString(document.pdf)),
+                io.mszymanski.orknux.workflow.script.StoredKind("application/pdf", true),
+            )
             answer[KEY] = named
             answer["note"] = "Pass $KEY to whatever uploads or saves a file. The bytes are not text."
         }
@@ -324,7 +327,7 @@ class PdfCapability(
         answer.putAll(also)
         if (sessionId != null) {
             val key = named + "." + java.lang.Long.toString(System.nanoTime(), 36)
-            scratch.put(sessionId, key, mapper.writeValueAsString(base64))
+            scratch.put(sessionId, key, mapper.writeValueAsString(base64), io.mszymanski.orknux.workflow.script.StoredKind("image/png", true))
             answer[KEY] = key
             answer["note"] = "Pass $KEY to whatever sends, uploads or saves a file."
         }

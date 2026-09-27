@@ -465,7 +465,11 @@ class AgentTools(
                              */
                             contentKey = sessionId?.let { session ->
                                 val key = "artifact." + requireNotNull(saving.artifact.id)
-                                val refused = scratch.put(session, key, mapper.writeValueAsString(argument(call, "content").orEmpty()))
+                                val refused = scratch.put(
+                                    session, key, mapper.writeValueAsString(argument(call, "content").orEmpty()),
+                                    // Bytes where it was sent as base64, text otherwise. Issue #559.
+                                    io.mszymanski.orknux.workflow.script.StoredKind(saving.artifact.contentType, base64),
+                                )
                                 if (refused == null) key else null
                             },
                         ).let { answer ->

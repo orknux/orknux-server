@@ -229,7 +229,7 @@ class TaskTools(
 
             // A JSON-encoded *string*: the sandbox parses what it reads, and the
             // upload doors require what comes out to be a string of base64.
-            val refused = scratch.put(session, key, mapper.writeValueAsString(drawn.base64))
+            val refused = scratch.put(session, key, mapper.writeValueAsString(drawn.base64), io.mszymanski.orknux.workflow.script.StoredKind(drawn.picture.contentType, true))
             if (refused != null) {
                 log.info("A task's picture was not put in session {}'s store: {}", session, refused)
                 return null
