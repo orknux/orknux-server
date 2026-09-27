@@ -383,7 +383,9 @@ class AgentBriefing(
                 append("\"], say - and it is yours ")
                 append("from your next message. The marked ones are not in front of you until you do. ")
                 append("If you do not know which tool a job needs, ").append(ToolSearchTools.SEARCH)
-                append(" finds them by words about it. A tool that is not in this list is not one you have: ")
+                append(" finds them by words about it, and ").append(ToolSearchTools.DESCRIBE)
+                // Its whole description and parameters, before loading it. Issue #564.
+                append(" shows one in full before you load it. A tool that is not in this list is not one you have: ")
                 appendLine("say so rather than claiming you can do what it would do.")
                 /*
                  * Which of them are behind the search, marked. Issue #534:

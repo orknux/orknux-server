@@ -406,7 +406,7 @@ class AgentConversation(
                  * find_tools itself have taken their places. Negative where the
                  * core alone fills it, which the search reads as no room at all.
                  */
-                room = { limit - holding.core.size - lent.size - 1 - found.size },
+                room = { limit - holding.core.size - lent.size - ToolSearchTools.OFFERED - found.size },
                 carried = (holding.core + lent).map { it.name }.toSet(),
                 /*
                  * And what to give up to make room. Issue #372: an agent that

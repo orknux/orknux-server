@@ -150,6 +150,19 @@ class ToolSearchTools(
                     ),
                 ),
             ),
+            ToolSpec(
+                name = DESCRIBE,
+                description = "Shows tools in full before you load them: the whole description and every " +
+                    "parameter, with what it takes and whether it is required. It loads nothing. Use it when " +
+                    "you are not sure how a tool is called, rather than guessing its arguments.",
+                parameters = listOf(
+                    ToolParameterSpec(
+                        name = NAMES,
+                        description = "The tools' exact names, as a list: [\"pdf_fromHtmlZip\"].",
+                        required = true,
+                    ),
+                ),
+            ),
         )
 
         /*
@@ -158,7 +171,8 @@ class ToolSearchTools(
          * recorded history, and a model reading that asks for find_tools
          * again - it is answered, not refused, though only tool_load is offered.
          */
-        override fun handles(name: String): Boolean = name == SEARCH || name == FIND || name == FORMERLY
+        override fun handles(name: String): Boolean =
+            name == SEARCH || name == FIND || name == DESCRIBE || name == FORMERLY
 
         /*
          * Two tools and the name the pair used to be. Issue #538.
@@ -175,7 +189,47 @@ class ToolSearchTools(
         override fun run(call: ToolCall): String = when (call.name) {
             SEARCH -> find(call)
             FIND -> load(call)
+            DESCRIBE -> described(call)
             else -> searchAndLoad(call)
+        }
+
+        /**
+         * Tools in full, loading none of them. Issue #564.
+         *
+         * tool_find shows the first two hundred characters of a description and
+         * no parameters, so a model about to use a tool it had found could only
+         * load it to learn how it is called - or guess, which is what it did:
+         * pdf_fromHtmlZip's arguments guessed, and a detour through save_artifact
+         * planned to make a key it already held.
+         */
+        private fun described(call: ToolCall): String {
+            val asked = argument(call, NAMES).take(MOST_SEARCHES)
+            if (asked.isEmpty()) return "Say which tools to describe: $NAMES is a list of their exact names."
+            val byName = searchable.associateBy { it.name.lowercase() }
+            val inHand = (carried + found).map { it.lowercase() }.toSet()
+            return asked.joinToString("\n\n") { name ->
+                val spec = byName[name.lowercase()]
+                when {
+                    spec != null -> buildString {
+                        append(spec.name)
+                        append(if (spec.name.lowercase() in inHand) " (loaded)" else " (not loaded - call $FIND to use it)")
+                        append("\n").append(spec.description.trim())
+                        if (spec.parameters.isEmpty()) {
+                            append("\nParameters: none.")
+                        } else {
+                            append("\nParameters:")
+                            spec.parameters.forEach { param ->
+                                append("\n- ").append(param.name)
+                                append(if (param.required) " (required)" else " (optional)")
+                                param.description.trim().takeIf { it.isNotEmpty() }?.let { append(": ").append(it) }
+                            }
+                        }
+                    }
+                    name.lowercase() in inHand -> "$name is already loaded: its description and parameters are " +
+                        "in your list of tools, so call it directly."
+                    else -> "You have no tool called $name."
+                }
+            }
         }
 
         /** What there is for the job, by words: names and what each does. Loads nothing. */
@@ -491,6 +545,12 @@ class ToolSearchTools(
 
         /** Finding by words, loading nothing. Issue #538. */
         const val SEARCH = "tool_find"
+
+        /** Tools in full, loading none. Issue #564. */
+        const val DESCRIBE = "tool_describe"
+
+        /** How many tools the finder itself takes of the array: find, load, describe. */
+        const val OFFERED = 3
 
         /** What tool_load takes: exact names. Issue #538. */
         const val NAMES = "names"

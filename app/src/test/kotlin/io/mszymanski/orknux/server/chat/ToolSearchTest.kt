@@ -100,7 +100,7 @@ class ToolSearchTest(
         assertThat(shed.run(old)).contains("slack_postMessage")
         assertThat(found).contains("slack_postMessage")
         // And only the new name is offered.
-        assertThat(shed.specs().map { it.name }).containsExactly("tool_find", "tool_load")
+        assertThat(shed.specs().map { it.name }).containsExactly("tool_find", "tool_load", "tool_describe")
     }
 
     /**
@@ -287,6 +287,33 @@ class ToolSearchTest(
 
         assertThat(unloadedBeside("jira_createIssue", granted, setOf("jira_createIssue", "jira_searchIssues"))).isNull()
         assertThat(unloadedBeside("current_time", granted, emptySet())).isNull()
+    }
+
+    /**
+     * A tool in full, loading nothing. Issue #564: a model could only load a
+     * found tool to learn how it is called, and guessed instead.
+     */
+    @Test
+    fun `tool_describe shows a tool's whole description and parameters and loads nothing`() {
+        val found = mutableSetOf<String>()
+        val described = ToolSpec(
+            "report_make",
+            "Makes a report. " + "Long description. ".repeat(20) + "THE END",
+            listOf(
+                io.mszymanski.orknux.connector.model.ToolParameterSpec("contentKey", "The zip's key.", required = true),
+                io.mszymanski.orknux.connector.model.ToolParameterSpec("title", "What it is called."),
+            ),
+        )
+        val shed = searching.shed(granted + described, found, room = { 10 }, carried = setOf("save_artifact"))
+
+        val said = shed.run(
+            ToolCall("1", ToolSearchTools.DESCRIBE, """{"names":["report_make","save_artifact","nope"]}"""),
+        )
+
+        assertThat(said).contains("report_make (not loaded").contains("THE END")
+            .contains("- contentKey (required): The zip's key.").contains("- title (optional): What it is called.")
+            .contains("save_artifact is already loaded").contains("You have no tool called nope")
+        assertThat(found).isEmpty()
     }
 
     /** A list sent as the text of one - every parameter reaches the model typed as a string. */
