@@ -32,6 +32,7 @@ import org.springframework.security.test.context.support.WithMockUser
 class ChatAgentTest(
     @Autowired val graphQlTester: ExecutionGraphQlServiceTester,
     @Autowired val briefing: AgentBriefing,
+    @Autowired val builtIns: io.mszymanski.orknux.server.agent.BuiltInSkills,
     @Autowired val agents: AgentRepository,
     @Autowired val sessions: ChatSessionRepository,
     @Autowired val catalogs: SkillCatalogRepository,
@@ -180,6 +181,31 @@ class ChatAgentTest(
         assertThat(said).doesNotContain("handling").doesNotContain("hunter2")
         // Granted but switched off.
         assertThat(said).doesNotContain("retired")
+    }
+
+    /**
+     * The HTML skill named where the built-in skills are granted, by an id
+     * that resolves. Issue #557: a model that never read it shipped an HTML
+     * report with none of its pictures in it.
+     */
+    @Test
+    fun `an agent with the built-in skills is pointed at the HTML skill by an id that exists`() {
+        val gemma = model("Gemma")
+        val agentId = agent("Reporter", gemma)
+        val held = requireNotNull(agents.findByIdOrNull(agentId))
+        held.skillCatalogs = mutableListOf(io.mszymanski.orknux.server.agent.BuiltInSkills.CATALOG)
+        agents.save(held)
+
+        val said = requireNotNull(briefing.of(requireNotNull(agents.findByIdOrNull(agentId))))
+        val id = Regex("load the Complex HTML skill [(][^a-z0-9]*([a-z0-9-]+)[)]").find(said)?.groupValues?.get(1)
+        assertThat(id).isNotNull()
+        assertThat(builtIns.catalogs().flatMap { it.skills }.map { it.key }).contains(id)
+
+        val bare = requireNotNull(agents.findByIdOrNull(agent("Bare", gemma)))
+        bare.skillCatalogs = mutableListOf()
+        agents.save(bare)
+        val plain = requireNotNull(briefing.of(requireNotNull(agents.findByIdOrNull(requireNotNull(bare.id)))))
+        assertThat(plain).doesNotContain("Complex HTML")
     }
 
     /** Nothing to say is no system turn: an empty briefing costs tokens for nothing. */

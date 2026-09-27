@@ -240,7 +240,7 @@ class TaskTools(
         /** What to say about a picture that can be handed over, and one that cannot. */
         private fun noteFor(key: String?): String = if (key != null) {
             "The picture is drawn and its bytes are in this task's session store under `key`. Two " +
-                "things to do with that key, and nothing else works: pass it to whichever of your " +
+                "things to do with that key: pass it to whichever of your " +
                 "tools sends or uploads a file, to put the picture in front of somebody; or pass it " +
                 "to task_picture_link, which answers with markdown for placing the picture at a " +
                 "point in what you write. The key is not an address. The picture is also shown with " +

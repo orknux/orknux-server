@@ -1,6 +1,6 @@
 ---
 name: Complex HTML
-description: Build an HTML document or site in scratchpads, and hand it over as one archive with its pictures inside.
+description: Any HTML page, report or site - build it in scratchpads, put its pictures, charts and diagrams in, and hand it over as one file or one archive.
 ---
 
 # Complex HTML
@@ -14,7 +14,8 @@ a scratchpad, keep them consistent, and deliver the whole thing as one archive
 somebody can open.
 
 A single-page report follows the same steps with fewer files: the page, its
-stylesheet where it has one, and its pictures.
+stylesheet where it has one, and its pictures. With no drawn pictures - text,
+tables, SVG charts and diagrams only - it is one file, and needs no archive.
 
 ## Steps
 
@@ -59,10 +60,20 @@ This is the part that goes wrong.
   in the archive under exactly that path. A page that points at a key, a
   session, or a file on this machine is a page whose images are broken for
   everyone but you.
-- **A diagram or chart you draw** goes in as SVG markup, not as a file: draw
-  it as SVG and add it to the page with `scratchpad_append` (`key`) or
-  `scratchpad_replace` (`newKey`). It needs no packing and draws offline. The
-  Diagrams and charts skill has the syntax.
+- **A picture you drew** - `draw_picture` answers a key for a PNG - goes into
+  the archive: `<img src="images/orc.png">` in the page, and the key passed to
+  `zip_files` under exactly `images/orc.png`. That is the only way a drawn
+  picture reaches somebody inside a page. Uploading the pictures separately
+  beside a page without them is not a report with pictures.
+- **A chart or a diagram** goes in as SVG markup, not as a file: call
+  `charts_render` or `diagram_render` with `format` `svg`, and add the key it
+  answers to the page with `scratchpad_append` (`key`), or put a placeholder
+  like `CHART_1` in the page and `scratchpad_replace` it (`newKey`). It needs no
+  packing and draws offline. The Diagrams and charts skill has the syntax.
+- **Never a key on its own in a `src`.** A key means something only in this
+  session; opened anywhere else, that picture is broken.
+- **Not a script that draws.** Chart.js or mermaid.js from a CDN needs the
+  reader to be online and draws nothing in a PDF; the SVG above does neither.
 - **Do not paste a picture into the HTML as base64** unless it is tiny and there
   is one of them. It makes the page several times the size of the picture, and
   the model pays for every character of it.

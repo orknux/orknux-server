@@ -16,6 +16,9 @@ import org.springframework.stereotype.Service
  */
 private const val SHORTEST_SUMMARY = 8
 
+/** The built-in skill on building an HTML page, named in the briefing. Issue #557. */
+private const val HTML_SKILL = "Complex HTML"
+
 /**
  * What an agent is told before anything is said to it.
  *
@@ -401,6 +404,19 @@ class AgentBriefing(
                     said.take(kept).trim().takeIf { it.isNotEmpty() }?.let { append(": ").append(it) }
                 }
             }
+        }
+
+        /*
+         * Where building a page is written down, named the way delegating is.
+         * Issue #557: asked for an HTML report with pictures and charts, a model
+         * that never read the skill shipped a page with none of them in it.
+         */
+        if (io.mszymanski.orknux.server.agent.BuiltInSkills.CATALOG in agent.skillCatalogs) {
+            val marker = workspaces.findById(agent.workspaceId).map { it.commandMarker }.orElse(null)
+                ?: installation.commandMarker()
+            parts += "Before you build an HTML page or report, load the " + HTML_SKILL + " skill (" + marker +
+                io.mszymanski.orknux.server.agent.SkillKeys.derive(HTML_SKILL) +
+                "): it says how its pictures, charts and diagrams go in and how it is handed over."
         }
 
         val asks = runTools.getObject()

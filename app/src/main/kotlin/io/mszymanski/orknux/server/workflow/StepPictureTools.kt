@@ -230,7 +230,7 @@ class StepPictureTools(
          */
         private fun noteFor(key: String?): String = if (key != null) {
             "The picture is drawn and its bytes are in this session's store under `key`. Two " +
-                "things to do with that key, and nothing else works: pass it to whichever of your " +
+                "things to do with that key: pass it to whichever of your " +
                 "tools sends or uploads a file, to put the picture in front of somebody; or pass " +
                 "it to picture_link, which answers with markdown for placing the picture at a " +
                 "point in your answer. The key is not an address. The picture is also filed " +
