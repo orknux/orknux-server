@@ -47,14 +47,6 @@ class OpenAiChat(
 ) {
 
     /**
-     * Whether a tool call's arguments are there but not valid JSON, which is
-     * what a call cut off at the model's output limit looks like. Blank is not
-     * broken - a tool that takes nothing is called with no arguments. Issue #392.
-     */
-    private fun argumentsBroken(arguments: String): Boolean =
-        arguments.isNotBlank() && runCatching { mapper.readTree(arguments) }.getOrNull() == null
-
-    /**
      * One answer, waited for.
      *
      * @param hangup somebody who may give up on the call while it is still
@@ -108,16 +100,18 @@ class OpenAiChat(
             .map { it.asFunction() }
             .map { ToolCall(it.id(), it.function().name(), it.function().arguments()) }
 
-        // A tool call the model did not finish - its arguments truncated JSON -
-        // is caught here so a clear cause reaches the caller, rather than a JSON
-        // parse error downstream that reads as the server's fault. Issue #392.
-        calls.firstOrNull { argumentsBroken(it.arguments) }?.let { unfinished ->
-            return Outcome.Failed(
-                "The model asked to call ${unfinished.name}, but the arguments it sent were not valid JSON - " +
-                    "usually because its answer was cut off at the output limit. Raise the model's maximum " +
-                    "output, or have it do less in one turn.",
-            )
-        }
+        /*
+         * A tool call the model did not finish is handed on, as the streaming
+         * path already hands it on. Issue #528.
+         *
+         * This used to fail the whole answer, permanently, over one cut-off
+         * call - so a message holding three good calls and one truncated one
+         * ended the turn, while the same message streamed went through. The
+         * agent loop now deals with it in one place: the good calls run, the
+         * cut one is answered as not run, and it goes back as `{}` so the next
+         * request is one the provider will take. #392's point - say the cause
+         * in words - is kept there, in what the model is told.
+         */
 
         val usage = answer.usage().orElse(null)
 

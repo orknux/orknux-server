@@ -118,12 +118,14 @@ class OpenAiChatTest {
     }
 
     /**
-     * A tool call cut off at the output limit arrives with truncated JSON for
-     * its arguments. That must come back as a cause somebody can act on - raise
-     * the limit - rather than a JSON parse error downstream. Issue #392.
+     * A tool call cut off at the output limit is handed on rather than failing
+     * the whole answer. Issue #528: it used to end the turn permanently over one
+     * truncated call, while the same answer streamed went through. The agent
+     * loop answers it as not run and sends it back as `{}` - AgentToolCallTest
+     * pins that half.
      */
     @Test
-    fun `a tool call with truncated arguments is a clear failure, not a parse error`() {
+    fun `a tool call with truncated arguments is handed on, not a failure of the answer`() {
         answer = """
             {"id":"c","object":"chat.completion","created":1,"model":"m","choices":[{"index":0,"message":
             {"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":
@@ -138,8 +140,8 @@ class OpenAiChatTest {
             listOf(ToolSpec("weather", "Look it up", listOf(ToolParameterSpec("city", "Which city", true)))),
         )
 
-        val failed = outcome as OpenAiChat.Outcome.Failed
-        assertThat(failed.reason).contains("weather").contains("cut off at the output limit")
+        val answered = outcome as OpenAiChat.Outcome.Answered
+        assertThat(answered.calls).containsExactly(ToolCall("call_1", "weather", """{"city":"War"""))
     }
 
     @Test

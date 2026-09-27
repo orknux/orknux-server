@@ -256,6 +256,40 @@ class AgentToolCallTest(
         assertThat(received[1]).isEqualTo(received[0])
     }
 
+    /**
+     * Session 503: the message ran out of room in the middle of its last call.
+     * Issue #528. That call was echoed back cut off, the provider refused every
+     * request after it, and the turn died. It goes back as `{}` now, is not run,
+     * and is answered as not run.
+     */
+    @Test
+    fun `a call cut off mid-arguments is sent back whole and not run`() {
+        val endpoint = serve { body ->
+            if (body.contains("tool_call_id")) {
+                """{"choices":[{"message":{"role":"assistant","content":"Done."}}],
+                   "usage":{"prompt_tokens":9,"completion_tokens":1}}"""
+            } else {
+                """{"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[
+                  {"id":"call_1","type":"function","function":{"name":"skill_list","arguments":"{}"}},
+                  {"id":"call_2","type":"function","function":{"name":"skill_load","arguments":"{\"name\":\"posting-to-sla"}}
+                ]}}],"usage":{"prompt_tokens":7,"completion_tokens":2}}"""
+            }
+        }
+        val agentId = agentGranted("Reviewer", model(endpoint), "Reviews")
+        catalog("Reviews")
+        val agent = requireNotNull(agents.findByIdOrNull(agentId))
+
+        val answer = conversation.answer(requireNotNull(agent.modelId), agent, listOf(ChatTurn("user", "hi")))
+
+        assertThat(answer).isInstanceOf(ChatCompletion.Answered::class.java)
+        val second = received[1]
+        // The broken text is not echoed back; the call goes back as an empty object.
+        assertThat(second).doesNotContain("posting-to-sla")
+        // Both calls are answered, and the cut one says it was not run.
+        assertThat(Regex("\"tool_call_id\"").findAll(second).count()).isEqualTo(2)
+        assertThat(second).contains("its arguments were cut off")
+    }
+
     private fun serveAlwaysCallingTools(): String = serve {
         """
         {"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[

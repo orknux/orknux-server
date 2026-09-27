@@ -759,7 +759,28 @@ class AgentConversation(
                     spent += answer.millis
                     input += answer.inputTokens
                     output += answer.outputTokens
-                    conversation += answer.turn
+                    /*
+                     * A call whose arguments are not JSON goes back as `{}`.
+                     * Issue #528.
+                     *
+                     * A model that runs out of tokens mid-call leaves the last
+                     * one cut off - `{"name":"posting-to-slack` - and this
+                     * echoed it back exactly as it came. llama.cpp then refused
+                     * the whole next request, "failed to parse tool call
+                     * arguments as JSON", and every retry carried the same
+                     * broken call, so the turn died of a mistake the model made
+                     * once and could not take back. That was the "column 27"
+                     * of sessions 474 to 503. The call keeps its id and name so
+                     * the answer below still lines up with it; it is not run.
+                     */
+                    val cut = answer.calls.filterNot { wholeArguments(it.arguments) }.map { it.id }.toSet()
+                    conversation += if (cut.isEmpty()) {
+                        answer.turn
+                    } else {
+                        answer.turn.copy(
+                            asked = answer.turn.asked.map { if (it.id in cut) it.copy(arguments = "{}") else it },
+                        )
+                    }
                     thought(answer.reasoning, answer.reasoningMillis, announce = watch == null)
                     /*
                      * Before the calls, because that is the order it happened
@@ -813,7 +834,7 @@ class AgentConversation(
                      */
                     val firstOf = LinkedHashMap<String, ToolCall>()
                     val echoes = mutableListOf<Pair<ToolCall, ToolCall>>()
-                    answer.calls.forEach { call ->
+                    answer.calls.filterNot { it.id in cut }.forEach { call ->
                         val same = call.name + 0.toChar() + call.arguments
                         val first = firstOf[same]
                         if (first == null) firstOf[same] = call else echoes += call to first
@@ -1149,6 +1170,31 @@ class AgentConversation(
                     }
 
                     /*
+                     * The calls that were cut off, answered as not run - after
+                     * the ones that were, so every id still has its answer.
+                     */
+                    if (cut.isNotEmpty()) {
+                        into?.let { session ->
+                            sessions.note(
+                                session,
+                                "That message ended in the middle of " +
+                                    (if (cut.size == 1) "a tool call" else cut.size.toString() + " tool calls") +
+                                    ", so " + (if (cut.size == 1) "it was" else "they were") + " not run.",
+                            )
+                        }
+                        answer.calls.filter { it.id in cut }.forEach { call ->
+                            val refused = refusalAnswer(
+                                call,
+                                "This call was not run: its arguments were cut off or were not JSON, most " +
+                                    "likely because your message ran out of room. If you still need it, ask " +
+                                    "again with the whole of its arguments.",
+                                emptyMap(),
+                            )
+                            conversation += ChatTurn(role = "user", content = refused, respondingTo = call.id)
+                        }
+                    }
+
+                    /*
                      * The repeats, answered by pointing at the call that ran.
                      *
                      * Every call id still gets an answer, because a provider
@@ -1396,6 +1442,16 @@ class AgentConversation(
             }
         }
         return jackson.writeValueAsString(envelope)
+    }
+
+    /**
+     * Whether a call's arguments are something a provider will take back.
+     * Nothing at all counts, as `{}` does; a JSON object counts; anything else -
+     * text cut off mid-way above all - does not. Issue #528.
+     */
+    private fun wholeArguments(arguments: String): Boolean {
+        if (arguments.isBlank()) return true
+        return runCatching { jackson.readTree(arguments).isObject }.getOrDefault(false)
     }
 
     /**
