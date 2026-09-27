@@ -41,9 +41,12 @@ class DiagramCapability(
                 "mermaid - flowchart, sequenceDiagram, classDiagram, erDiagram, stateDiagram-v2, mindmap - " +
                 "or PlantUML written out, which opens everything else: gantt, activity, component, " +
                 "deployment, wireframes, json trees. A pie or an xy plot is a chart, not a diagram: call " +
-                "charts_render for those. To put a diagram *inside* a report, do not call this - write the " +
-                "source into a <pre class=\"mermaid\"> block in the HTML and pdf_fromHtml draws it onto the " +
-                "page as vectors.",
+                "charts_render for those. Send the source alone: no code fence and no mermaid line on top. " +
+                // A PDF, not a report: said of any report, an HTML page got mermaid source. Issue #555.
+                "For a PDF, do not call this - write the source into a <pre class=\"mermaid\"> block and " +
+                "pdf_fromHtml draws it. For an HTML page, draw it as svg and add it with scratchpad_append " +
+                "(key) - a <pre class=\"mermaid\"> block draws only in a PDF. The Diagrams and charts skill " +
+                "has the syntax and the rest.",
             params = listOf(
                 EmbeddedParam(SOURCE, ValueType.STRING, "The diagram source.", required = true),
                 EmbeddedParam(FORMAT, ValueType.STRING, "\"png\" (the default) or \"svg\". Either way the answer is a contentKey, not the picture."),
@@ -136,9 +139,10 @@ class ChartCapability(
             summary = "Draws a bar, column, line, area, pie, donut or scatter chart.",
             description = "Draws a chart and answers it as a picture you can look at or send. $KIND is one " +
                 "of ${ChartRenderer.Kind.offered()}; $VALUES is a label and a number each, like " +
-                "{\"Rent\":45,\"Food\":30}. To put a chart *inside* a report, do not call this - write " +
+                "{\"Rent\":45,\"Food\":30}. For a PDF, do not call this - write " +
                 "<pre class=\"chart\">{\"kind\":\"pie\",\"values\":{…}}</pre> into the HTML and pdf_fromHtml " +
-                "draws it onto the page as vectors.",
+                "draws it. For an HTML page, draw it as svg and add it with scratchpad_append (key) - a " +
+                "<pre class=\"chart\"> block draws only in a PDF. The Diagrams and charts skill has the rest.",
             params = listOf(
                 EmbeddedParam(KIND, ValueType.STRING, "One of ${ChartRenderer.Kind.offered()}.", required = true),
                 EmbeddedParam(VALUES, ValueType.MAP, "A label and a number each.", required = true),
@@ -308,8 +312,16 @@ private fun vectors(
             "contentKey" to key,
             "pictureType" to "image/svg+xml",
             "kind" to kind,
-            "note" to "Pass contentKey to whatever sends, uploads or saves a file, or name it in an " +
-                "<img src> for pdf_fromHtml.",
+            /*
+             * And how it reaches a page, which the markup used to do by being
+             * pasted. Issue #555: handed a key instead, a model writing an HTML
+             * report put the mermaid source into the page, which draws nowhere
+             * but in pdf_fromHtml.
+             */
+            "note" to "Pass contentKey to whatever sends, uploads or saves a file. To put the drawing into " +
+                "an HTML page you are writing in a scratchpad, call scratchpad_append with this key as key, or " +
+                "scratchpad_replace with it as newKey - the SVG goes in as markup and draws in any browser. " +
+                "For pdf_fromHtml, <img src=\"" + key + "\"> works too.",
         ),
     )
 }

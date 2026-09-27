@@ -140,6 +140,23 @@ class ScratchpadTest(
         assertThat(requireNotNull(pads.find(session, "page.html")).content).contains("<rect width=\"4\"")
     }
 
+    /** A drawn SVG added to a page by its key. Issue #555. */
+    @Test
+    fun `an append can come from a key, and a kept svg goes in as its markup`() {
+        val svg = "<svg xmlns=\"http://www.w3.org/2000/svg\"><circle r=\"3\"/></svg>"
+        store.put(session, "diagram.1.svg", "\"" + java.util.Base64.getEncoder().encodeToString(svg.toByteArray()) + "\"")
+        ok(pads.create(session, "page2.html", "The page", "<h1>Report</h1>"))
+        val shed = requireNotNull(tools.shed(session))
+
+        shed.run(
+            io.mszymanski.orknux.connector.model.ToolCall(
+                "1", "scratchpad_append", """{"name":"page2.html","key":"diagram.1.svg"}""",
+            ),
+        )
+
+        assertThat(requireNotNull(pads.find(session, "page2.html")).content).endsWith("<circle r=\"3\"/></svg>")
+    }
+
     private fun ok(result: ScratchpadResult): ScratchpadResult.Ok {
         assertThat(result).isInstanceOf(ScratchpadResult.Ok::class.java)
         return result as ScratchpadResult.Ok

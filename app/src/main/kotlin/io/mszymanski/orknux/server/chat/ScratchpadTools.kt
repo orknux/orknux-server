@@ -151,7 +151,13 @@ class ScratchpadTools(
                     "The cheap way to grow a file a piece at a time.",
                 parameters = listOf(
                     ToolParameterSpec(NAME, "Which scratchpad to add to.", required = true),
-                    ToolParameterSpec(TEXT, "The text to add at the end.", required = true),
+                    ToolParameterSpec(TEXT, "The text to add at the end. Leave out when passing $KEY.", required = false),
+                    ToolParameterSpec(
+                        KEY,
+                        "A key something handed you - a drawn SVG, a kept pad, an answer - whose text is added " +
+                            "instead of $TEXT, so a drawing goes into a page without being typed through you.",
+                        required = false,
+                    ),
                 ),
             ),
             ToolSpec(
@@ -399,7 +405,9 @@ class ScratchpadTools(
 
         private fun appended(args: JsonNode): String {
             val name = text(args, NAME) ?: return refusal("Say which scratchpad to add to.")
-            val add = text(args, TEXT) ?: return refusal("Say what to add.")
+            // Or from a key, the way a drawing reaches an HTML page. Issue #555.
+            val add = text(args, KEY)?.trim()?.ifEmpty { null }?.let { key -> fromKey(key) ?: return keyRefusal(key) }
+                ?: text(args, TEXT) ?: return refusal("Say what to add, or the $KEY to add from.")
             return report(pads.append(session, name, add), "appended")
         }
 
@@ -411,15 +419,22 @@ class ScratchpadTools(
              * thousand characters, and putting it into a page meant typing all
              * of it back - which the output cap cuts off.
              */
-            val new = text(args, NEW_KEY)?.trim()?.ifEmpty { null }?.let { key ->
-                val held = scratch.get(session, key) ?: return refusal("Nothing in this session is kept under \"$key\".")
-                keptText(held) ?: return refusal(
+            val new = text(args, NEW_KEY)?.trim()?.ifEmpty { null }?.let { key -> fromKey(key) ?: return keyRefusal(key) }
+                ?: text(args, NEW) ?: ""
+            return report(pads.replace(session, name, old, new), "replaced")
+        }
+
+        private fun fromKey(key: String): String? = scratch.get(session, key)?.let(::keptText)
+
+        private fun keyRefusal(key: String): String =
+            if (scratch.get(session, key) == null) {
+                refusal("Nothing in this session is kept under \"$key\".")
+            } else {
+                refusal(
                     "\"$key\" holds a picture or a file that is not text, so it cannot go into a page as text. " +
                         "Name it in an <img src> for pdf_fromHtml, or send it beside the page.",
                 )
-            } ?: text(args, NEW) ?: ""
-            return report(pads.replace(session, name, old, new), "replaced")
-        }
+            }
 
         /**
          * What a key holds, as text: plain text as it is, and base64 that
