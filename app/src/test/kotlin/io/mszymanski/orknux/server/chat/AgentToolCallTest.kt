@@ -227,6 +227,35 @@ class AgentToolCallTest(
             .doesNotContain("different tool calls at once and the first")
     }
 
+    /**
+     * A provider that sends nothing back once is asked again, not given up on.
+     * Issue #527: the turn used to end with "could not answer" in the middle of
+     * work that had gone fine.
+     */
+    @Test
+    fun `an empty answer is asked for again`() {
+        var asked = 0
+        val endpoint = serve {
+            asked += 1
+            if (asked == 1) {
+                """{"choices":[],"usage":{"prompt_tokens":1,"completion_tokens":0}}"""
+            } else {
+                """{"choices":[{"message":{"role":"assistant","content":"Here now."}}],
+                   "usage":{"prompt_tokens":1,"completion_tokens":2}}"""
+            }
+        }
+        val agentId = agentGranted("Plain", model(endpoint))
+        val agent = requireNotNull(agents.findByIdOrNull(agentId))
+
+        val answer = conversation.answer(requireNotNull(agent.modelId), agent, listOf(ChatTurn("user", "hi")))
+
+        assertThat(answer).isInstanceOf(ChatCompletion.Answered::class.java)
+        assertThat((answer as ChatCompletion.Answered).content).isEqualTo("Here now.")
+        // Asked again as it was: the retry carries nothing the first did not.
+        assertThat(received).hasSize(2)
+        assertThat(received[1]).isEqualTo(received[0])
+    }
+
     private fun serveAlwaysCallingTools(): String = serve {
         """
         {"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[

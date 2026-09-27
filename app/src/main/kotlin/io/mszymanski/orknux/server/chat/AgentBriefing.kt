@@ -363,9 +363,22 @@ class AgentBriefing(
             val kept = (MOST_TOOL_SUMMARY_CHARS * (100 - blocks * step).coerceAtLeast(0) / 100)
                 .coerceAtLeast(SHORTEST_SUMMARY)
             parts += buildString {
+                /*
+                 * Which tool searches, by name. Issue #526: this said "search
+                 * for it by the name below" and never said with what. A skill
+                 * told the agent to post with a tool that is findable and not
+                 * offered; the agent held no such tool, had not been told
+                 * find_tools was the way to it, and looped on the tools it did
+                 * hold - no runaway session ever called find_tools.
+                 */
                 append("These are the tools you have, all of them, whether or not they are in front of you ")
-                append("this turn. Where one is not offered in this round, search for it by the name below ")
-                appendLine("rather than guessing at words.")
+                append("this turn. Where one you need is not offered in this round, call ")
+                append(ToolSearchTools.FIND).append(" with its name from the list below - ")
+                // An example from its own list: core does not name a plugin's tool.
+                val example = held.minByOrNull { it.name }?.name ?: "its_name"
+                append(ToolSearchTools.FIND).append(" with queries [\"").append(example)
+                append("\"], say - and it is yours ")
+                appendLine("from your next message. Do not guess at words, and do not call a tool before it is found.")
                 held.sortedBy { it.name }.forEach { spec ->
                     val said = spec.summary?.trim()?.ifEmpty { null } ?: spec.description.trim()
                     appendLine()

@@ -524,6 +524,13 @@ class AgentConversation(
         var compactions = 0
 
         /*
+         * How many times this turn has re-asked after an empty answer. Its own
+         * count, because it is neither the model's mistake nor a turn too big:
+         * the provider sent nothing back at all.
+         */
+        var emptied = 0
+
+        /*
          * What the last tool call answered with, where it failed, and whether
          * the model has already been told not to end on it. Issue #494.
          */
@@ -700,6 +707,25 @@ class AgentConversation(
                             conversation.addAll(smaller)
                             return@repeat
                         }
+                    }
+                    /*
+                     * An answer with nothing in it is asked for again, as it
+                     * was. Issue #527.
+                     *
+                     * The provider sent no message - a stream that closed
+                     * before anything arrived, a server that dropped the
+                     * connection mid-way - and the turn ended there with
+                     * "could not answer", in the middle of work that had gone
+                     * fine. Nothing was said, so there is nothing to tell the
+                     * model about: the same round goes back unchanged.
+                     */
+                    if (answer.reason == NO_MESSAGE && !answer.permanent && emptied < MOST_RETRIES) {
+                        emptied += 1
+                        log.warn("Agent {} got an empty answer; asking again ({} of {})", agent.name, emptied, MOST_RETRIES)
+                        into?.let { session ->
+                            sessions.note(session, "The model answered with nothing, so the same round was asked again.")
+                        }
+                        return@repeat
                     }
                     if (!answer.replyFault || answer.permanent || retried >= MOST_RETRIES) {
                         return answer.also { record(into, agent, it) }
@@ -1408,6 +1434,13 @@ class AgentConversation(
          * a paid call. Issue #465.
          */
         const val MOST_RETRIES = 2
+
+        /**
+         * What the client says when a provider sent back nothing. Matched here
+         * rather than flagged there because the client is shared and this is
+         * the one caller that re-asks. Issue #527.
+         */
+        const val NO_MESSAGE = "The provider answered with no message"
 
         /**
          * What a provider says when the request will not fit. Issue #522.
