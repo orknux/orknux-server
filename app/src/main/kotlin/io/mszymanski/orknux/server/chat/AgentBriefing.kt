@@ -372,14 +372,16 @@ class AgentBriefing(
                  * hold - no runaway session ever called find_tools.
                  */
                 append("These are the tools you have, all of them, whether or not they are in front of you ")
-                append("this turn. Where one you need is not offered in this round, call ")
+                append("this turn. Where one you need is marked (load it first), call ")
                 append(ToolSearchTools.FIND).append(" with its name from the list below - ")
                 // An example from its own list: core does not name a plugin's tool.
                 val example = held.minByOrNull { it.name }?.name ?: "its_name"
-                append(ToolSearchTools.FIND).append(" with queries [\"").append(example)
+                append(ToolSearchTools.FIND).append(" with names [\"").append(example)
                 append("\"], say - and it is yours ")
-                append("from your next message. The ones marked (find it first) are not in front of you until ")
-                appendLine("you do. Do not guess at words, and do not call a tool before it is found.")
+                append("from your next message. The marked ones are not in front of you until you do. ")
+                append("If you do not know which tool a job needs, ").append(ToolSearchTools.SEARCH)
+                append(" finds them by words about it. A tool that is not in this list is not one you have: ")
+                appendLine("say so rather than claiming you can do what it would do.")
                 /*
                  * Which of them are behind the search, marked. Issue #534:
                  * the list named every tool alike, so a model reading
@@ -394,7 +396,7 @@ class AgentBriefing(
                     val said = spec.summary?.trim()?.ifEmpty { null } ?: spec.description.trim()
                     appendLine()
                     append("- ").append(spec.name)
-                    if (spec.name in behind) append(" (find it first)")
+                    if (spec.name in behind) append(" (load it first)")
                     said.take(kept).trim().takeIf { it.isNotEmpty() }?.let { append(": ").append(it) }
                 }
             }

@@ -212,8 +212,16 @@ class FinishAnswerTools(private val mapper: ObjectMapper) {
             parameters = listOf(
                 ToolParameterSpec(
                     name = "answer",
-                    description = "What this step should answer with, for the steps after it. Leave it " +
-                        "out where nothing follows or nothing needs it.",
+                    /*
+                     * Public, and said so. Issue #539: an agent filed its
+                     * answer as a note to itself - "tool_load seemed to be
+                     * malfunctioning... the presence of the plugin indicates
+                     * this is a supported capability" - which is what the run
+                     * log and the transcript then showed people as its answer.
+                     */
+                    description = "What this step should answer with, for the steps after it. Depending " +
+                        "on the workflow it may also be read by a person, so word it for them. Leave it out " +
+                        "where nothing follows or nothing needs it.",
                     required = false,
                 ),
             ),

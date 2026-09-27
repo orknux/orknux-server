@@ -37,7 +37,8 @@ class ToolBudgetTest(@Autowired val searching: ToolSearchTools) {
         ToolSpec("confluence_writePage", "Writes a page into Confluence."),
     )
 
-    private fun call(query: String) = ToolCall("1", ToolSearchTools.FIND, """{"query":"$query"}""")
+    // Search-and-load by words is find_tools's path since the split; the room it spends is shared. Issue #538.
+    private fun call(query: String) = ToolCall("1", ToolSearchTools.FORMERLY, """{"query":"$query"}""")
 
     /**
      * A budget with the oldest given up first, which is what an insertion-ordered

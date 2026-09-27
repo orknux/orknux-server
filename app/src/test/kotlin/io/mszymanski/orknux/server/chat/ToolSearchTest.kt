@@ -64,7 +64,8 @@ class ToolSearchTest(
         ToolSpec("deploy_rollback", "Puts the previous release back, and tells the channel it did."),
     )
 
-    private fun call(query: String) = ToolCall("1", ToolSearchTools.FIND, """{"query":"$query"}""")
+    // Search-and-load by words is find_tools's path since the split. Issue #538.
+    private fun call(query: String) = ToolCall("1", ToolSearchTools.FORMERLY, """{"query":"$query"}""")
 
     /* --------------------------------------------------------- the searching */
 
@@ -99,7 +100,7 @@ class ToolSearchTest(
         assertThat(shed.run(old)).contains("slack_postMessage")
         assertThat(found).contains("slack_postMessage")
         // And only the new name is offered.
-        assertThat(shed.specs().map { it.name }).containsExactly("tool_load")
+        assertThat(shed.specs().map { it.name }).containsExactly("tool_find", "tool_load")
     }
 
     /**
@@ -198,13 +199,70 @@ class ToolSearchTest(
     }
 
     @Test
-    fun `the tool says how many are there and asks to be searched before giving up`() {
-        val spec = searching.shed(granted, mutableSetOf(), room = { 10 }).specs().single()
+    fun `finding takes words and loading takes names, and they are two tools`() {
+        val specs = searching.shed(granted, mutableSetOf(), room = { 10 }).specs()
+        val finding = specs.single { it.name == ToolSearchTools.SEARCH }
+        val loading = specs.single { it.name == ToolSearchTools.FIND }
 
-        assertThat(spec.name).isEqualTo(ToolSearchTools.FIND)
-        assertThat(spec.description).contains("You hold 6 of them")
-        assertThat(spec.parameters.map { it.name }).containsExactly(ToolSearchTools.QUERIES)
-        assertThat(spec.parameters.single().required).isTrue()
+        assertThat(finding.description).contains("You can load 6 tools").contains("It loads nothing")
+        assertThat(finding.parameters.map { it.name }).containsExactly(ToolSearchTools.QUERIES)
+        assertThat(loading.parameters.map { it.name }).containsExactly(ToolSearchTools.NAMES)
+        assertThat(loading.description).contains("never swapped for another tool")
+    }
+
+    /**
+     * Finding says what there is and loads nothing. Issue #538.
+     */
+    @Test
+    fun `tool_find names what matches and loads none of it`() {
+        val found = mutableSetOf<String>()
+        val shed = searching.shed(granted, found, room = { 10 })
+
+        val said = shed.run(ToolCall("1", ToolSearchTools.SEARCH, """{"queries":["send a message in slack"]}"""))
+
+        assertThat(said).contains("slack_postMessage").contains("None is loaded yet")
+        assertThat(found).isEmpty()
+    }
+
+    /**
+     * Loading takes exact names, and a name that is not a tool is said to be
+     * one - session 514 asked for github_openPull and was handed
+     * validate_format. Issue #538.
+     */
+    @Test
+    fun `tool_load loads the names given and says which are not tools`() {
+        val found = mutableSetOf<String>()
+        val shed = searching.shed(granted, found, room = { 10 })
+
+        val said = shed.run(
+            ToolCall("1", ToolSearchTools.FIND, """{"names":["slack_postMessage","github_openPull"]}"""),
+        )
+
+        assertThat(found).containsExactly("slack_postMessage")
+        assertThat(said).contains("You have no tool called github_openPull")
+        assertThat(found).doesNotContain("jira_createIssue", "confluence_readPage", "deploy_rollback")
+    }
+
+    @Test
+    fun `tool_load given only names that are not tools loads nothing, and says not to claim them`() {
+        val found = mutableSetOf<String>()
+        val shed = searching.shed(granted, found, room = { 10 })
+
+        val said = shed.run(ToolCall("1", ToolSearchTools.FIND, """{"names":["github_openPull"]}"""))
+
+        assertThat(found).isEmpty()
+        assertThat(said).contains("Nothing was loaded").contains("Do not say you can do")
+    }
+
+    /** A list sent as the text of one - every parameter reaches the model typed as a string. */
+    @Test
+    fun `a list of names sent as text is read as the list`() {
+        val found = mutableSetOf<String>()
+        val shed = searching.shed(granted, found, room = { 10 })
+
+        shed.run(ToolCall("1", ToolSearchTools.FIND, """{"names":"[\"slack_postMessage\"]"}"""))
+
+        assertThat(found).containsExactly("slack_postMessage")
     }
 
     /**
@@ -215,11 +273,9 @@ class ToolSearchTest(
     @Test
     fun `few enough tools are named in the description and in a miss, so the model asks by name`() {
         val shed = searching.shed(granted, mutableSetOf(), room = { 10 })
-        val description = shed.specs().single().description
+        val description = shed.specs().single { it.name == ToolSearchTools.SEARCH }.description
 
-        assertThat(description).contains("You hold 6 of them: confluence_readPage, deploy_rollback, jira_createIssue")
-        assertThat(description).contains("Ask for one by name")
-        assertThat(description).doesNotContain("too many to be listed")
+        assertThat(description).contains("You can load 6 tools: confluence_readPage, deploy_rollback, jira_createIssue")
 
         assertThat(shed.run(call("kubernetes"))).contains("They are: confluence_readPage, deploy_rollback")
     }
@@ -229,7 +285,8 @@ class ToolSearchTest(
         val many = (1..60).map { ToolSpec("tool_$it", "Tool number $it.") }
         val shed = searching.shed(many, mutableSetOf(), room = { 10 })
 
-        assertThat(shed.specs().single().description).contains("You hold 60 of them - too many to be listed at once")
+        assertThat(shed.specs().single { it.name == ToolSearchTools.SEARCH }.description)
+            .contains("You can load 60 tools.").doesNotContain("tool_1,")
         assertThat(shed.run(call("kubernetes"))).contains("Try the name of the system")
     }
 
@@ -243,12 +300,15 @@ class ToolSearchTest(
         assertThat(settings.toolsNamedInSearch()).isEqualTo(settings.toolsNamedInSearchConfigured())
         try {
             settings.setToolsNamedInSearch(0, "alice")
-            val description = searching.shed(granted, mutableSetOf(), room = { 10 }).specs().single().description
-            assertThat(description).contains("You hold 6 of them - too many to be listed at once")
+            val description = searching.shed(granted, mutableSetOf(), room = { 10 }).specs()
+                .single { it.name == ToolSearchTools.SEARCH }.description
+            assertThat(description).contains("You can load 6 tools.").doesNotContain("confluence_readPage")
 
             settings.setToolsNamedInSearch(6, "alice")
-            assertThat(searching.shed(granted, mutableSetOf(), room = { 10 }).specs().single().description)
-                .contains("You hold 6 of them: confluence_readPage")
+            assertThat(
+                searching.shed(granted, mutableSetOf(), room = { 10 }).specs()
+                    .single { it.name == ToolSearchTools.SEARCH }.description,
+            ).contains("You can load 6 tools: confluence_readPage")
 
             org.junit.jupiter.api.assertThrows<io.mszymanski.orknux.server.attachment.ToolsNamedOutOfRangeException> {
                 settings.setToolsNamedInSearch(501, "alice")

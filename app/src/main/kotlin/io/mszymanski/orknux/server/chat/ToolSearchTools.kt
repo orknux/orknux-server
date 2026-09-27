@@ -120,22 +120,29 @@ class ToolSearchTools(
 
         override fun specs(): List<ToolSpec> = listOf(
             ToolSpec(
-                name = FIND,
-                description = "Loads tools you have been given but are not carrying, so you can call them " +
-                    "for the rest of this conversation. You hold ${searchable.size} of them" +
-                    (listed().takeIf { it.isNotEmpty() }?.let { ": $it. Ask for one by name, or " }
-                        ?: " - too many to be listed at once - so ") +
-                    "search for what the work needs before saying you cannot do it. Each query is a " +
-                    "tool's name or words about the job: what you want to do, or the system you want to " +
-                    "do it in. Ask for everything the job needs in one call by giving several. " +
-                    "What comes back is usable from your next message onwards, not in this one.",
+                name = SEARCH,
+                description = "Finds which tools you could load for a job, by words about it, and says what " +
+                    "each does. It loads nothing: call " + FIND + " with the names you want. You can load " +
+                    "${searchable.size} tools" + (listed().takeIf { it.isNotEmpty() }?.let { ": $it." } ?: ".") +
+                    " If what you need is not among them, you cannot do it - say so rather than claiming you can.",
                 parameters = listOf(
                     ToolParameterSpec(
                         name = QUERIES,
-                        description = "What you are looking for, as a list: [\"send a message in Slack\", " +
-                            "\"jira issue\"]. Each is matched against every tool's name and what it says " +
-                            "it does, and each brings back its own tools - so a job that needs two systems " +
-                            "takes one call rather than two rounds.",
+                        description = "What the job needs, as a list: [\"send a message in Slack\", \"jira issue\"].",
+                        required = true,
+                    ),
+                ),
+            ),
+            ToolSpec(
+                name = FIND,
+                description = "Loads tools by their exact names so you can call them from your next " +
+                    "message onwards. A name you cannot load is said to be one, with the nearest real names - " +
+                    "it is never swapped for another tool. Load everything the job needs in one call.",
+                parameters = listOf(
+                    ToolParameterSpec(
+                        name = NAMES,
+                        description = "The tools' exact names, as a list: [\"slack_post\", \"slack_whoIs\"]. " +
+                            "Call " + SEARCH + " first if you do not know them.",
                         required = true,
                     ),
                 ),
@@ -148,9 +155,84 @@ class ToolSearchTools(
          * recorded history, and a model reading that asks for find_tools
          * again - it is answered, not refused, though only tool_load is offered.
          */
-        override fun handles(name: String): Boolean = name == FIND || name == FORMERLY
+        override fun handles(name: String): Boolean = name == SEARCH || name == FIND || name == FORMERLY
 
-        override fun run(call: ToolCall): String {
+        /*
+         * Two tools and the name the pair used to be. Issue #538.
+         *
+         * One tool searched by words and loaded whatever ranked highest, and
+         * that is two jobs with two different failures. Asked for an exact name
+         * the agent did not hold - github_openPull, in session 514 - it ranked
+         * everything else and loaded validate_format, and the model concluded
+         * the tool was broken and then that it could use GitHub after all. So
+         * finding says what there is and loads nothing, loading takes names and
+         * says plainly when one does not exist, and the old name keeps doing
+         * what it did for a conversation that remembers it.
+         */
+        override fun run(call: ToolCall): String = when (call.name) {
+            SEARCH -> find(call)
+            FIND -> load(call)
+            else -> searchAndLoad(call)
+        }
+
+        /** What there is for the job, by words: names and what each does. Loads nothing. */
+        private fun find(call: ToolCall): String {
+            val searches = argument(call).take(MOST_SEARCHES)
+            if (searches.isEmpty()) {
+                return "Say what you are looking for: $QUERIES is a list of words about the job."
+            }
+            val byQuery = searches.associateWith { matching(it) }
+            val matches = interleaved(searches.map { byQuery.getValue(it) })
+            if (matches.isEmpty()) {
+                return "Nothing among the ${searchable.size} tools you can load matches " +
+                    "\"${searches.joinToString(", ")}\". " +
+                    (listed().takeIf { it.isNotEmpty() }?.let { "They are: $it." }
+                        ?: "Try the name of the system rather than the action, or fewer words.")
+            }
+            return buildString {
+                append("These match. None is loaded yet: call ").append(FIND)
+                appendLine(" with the names you want.")
+                matches.take(LOADED_AT_ONCE).forEach { spec ->
+                    append("\n").append(spec.name)
+                    if (spec.name in found) append(" (already loaded)")
+                    append(" - ").append(spec.description.take(DESCRIPTION))
+                }
+                if (matches.size > LOADED_AT_ONCE) {
+                    append("\n\n").append(matches.size - LOADED_AT_ONCE).append(" more matched; narrower words find them.")
+                }
+            }
+        }
+
+        /**
+         * The tools named, loaded. A name that is not a tool the agent can load
+         * is said to be one, with the nearest real names - never swapped for
+         * whatever ranked highest.
+         */
+        private fun load(call: ToolCall): String {
+            val asked = argument(call, NAMES).take(MOST_SEARCHES)
+            if (asked.isEmpty()) {
+                return "Say which tools to load: $NAMES is a list of their exact names. " +
+                    "Call $SEARCH first if you do not know them."
+            }
+            val byName = searchable.associateBy { it.name.lowercase() }
+            val present = asked.mapNotNull { byName[it.lowercase()] }.distinctBy { it.name }
+            val missing = asked.filter { it.lowercase() !in byName }
+            val none = buildString {
+                missing.forEach { name ->
+                    val near = matching(name).take(NEAREST).map { it.name }
+                    append("You have no tool called ").append(name).append(".")
+                    if (near.isNotEmpty()) append(" Nearest: ").append(near.joinToString(", ")).append(".")
+                    append("\n")
+                }
+            }.trim()
+            if (present.isEmpty()) {
+                return none + "\n\nNothing was loaded. Do not say you can do what these would have done."
+            }
+            val loaded = loadInto(present, present.map { it.name }, present.associate { it.name to listOf(it) })
+            return if (none.isEmpty()) loaded else loaded + "\n\n" + none
+        }
+
+        private fun searchAndLoad(call: ToolCall): String {
             val searches = argument(call).take(MOST_SEARCHES)
             if (searches.isEmpty()) {
                 return "Say what you are looking for: $QUERIES is a list of words about the job."
@@ -179,6 +261,14 @@ class ToolSearchTools(
                         ?: "Try the name of the system rather than the action, or fewer words.")
             }
 
+            return loadInto(matches, searches, byQuery)
+        }
+
+        private fun loadInto(
+            matches: List<ToolSpec>,
+            searches: List<String>,
+            byQuery: Map<String, List<ToolSpec>>,
+        ): String {
             /*
              * Only as many as the next request has space for. The point of all
              * this is that the array fits, and a search that filled it past the
@@ -247,7 +337,7 @@ class ToolSearchTools(
                 if (taken.size < matches.size) {
                     append(
                         "\n\n${matches.size - taken.size} more matched and were left out. " +
-                            "Call " + FIND + " again with narrower words if none of these is the one.",
+                            "Call " + SEARCH + " with narrower words if none of these is the one.",
                     )
                 }
             }
@@ -345,11 +435,20 @@ class ToolSearchTools(
          * the old shape will send and refusing it would spend a round teaching
          * it. Split on the old separators for the same reason.
          */
-        private fun argument(call: ToolCall): List<String> = runCatching {
-            val given = mapper.readTree(call.arguments).let { it.path(QUERIES).takeIf { q -> !q.isMissingNode } ?: it.path(QUERY) }
+        private fun argument(call: ToolCall, key: String = QUERIES): List<String> = runCatching {
+            val sent = mapper.readTree(call.arguments)
+            // The key asked for, then the others, so a name sent as queries still loads. Issue #538.
+            val given = listOf(key, NAMES, QUERIES, QUERY).map { sent.path(it) }.firstOrNull { !it.isMissingNode }
+                ?: sent.path(key)
+            // A list sent as the text of one - every parameter reaches the model typed as a string. Issue #538.
+            val listed = if (given.isTextual) {
+                runCatching { mapper.readTree(given.stringValue()) }.getOrNull()?.takeIf { it.isArray } ?: given
+            } else {
+                given
+            }
             val written = when {
-                given.isArray -> given.mapNotNull { one -> one.takeIf { it.isTextual }?.stringValue() }
-                given.isTextual -> given.stringValue().orEmpty().split(SEARCH_SEPARATOR)
+                listed.isArray -> listed.mapNotNull { one -> one.takeIf { it.isTextual }?.stringValue() }
+                listed.isTextual -> listed.stringValue().orEmpty().split(SEARCH_SEPARATOR)
                 else -> emptyList()
             }
             written.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
@@ -366,8 +465,17 @@ class ToolSearchTools(
          */
         const val FIND = "tool_load"
 
-        /** What it used to be called, still answered. Issue #535. */
+        /** What it used to be called, still answered - searching and loading at once, as it did. Issue #535. */
         const val FORMERLY = "find_tools"
+
+        /** Finding by words, loading nothing. Issue #538. */
+        const val SEARCH = "tool_find"
+
+        /** What tool_load takes: exact names. Issue #538. */
+        const val NAMES = "names"
+
+        /** How many near names a missing one is answered with. */
+        private const val NEAREST = 3
         /** What it takes now: a list. Issue #517. */
         const val QUERIES = "queries"
 

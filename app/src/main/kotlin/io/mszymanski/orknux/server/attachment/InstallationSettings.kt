@@ -1554,7 +1554,7 @@ const val MIN_TOOLS_NAMED = 0
 const val MAX_TOOLS_NAMED = 500
 
 class ToolsNamedOutOfRangeException(val count: Int) : RuntimeException(
-    "$count is not a number of tools tool_load can be told to name. " +
+    "$count is not a number of tools tool_find can be told to name. " +
         "Choose between $MIN_TOOLS_NAMED and $MAX_TOOLS_NAMED.",
 ), Refusal {
 
