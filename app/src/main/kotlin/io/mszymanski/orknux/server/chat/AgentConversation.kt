@@ -759,6 +759,18 @@ class AgentConversation(
                          */
                         val asking = call.name + 0.toChar() + call.arguments
                         val alreadyAnswered = answeredInBatch[asking]
+                        /*
+                         * And said, so a repeat that was meant is not mistaken
+                         * for one that worked.
+                         *
+                         * A model asking twice on purpose - the same call, a
+                         * moment apart, to see whether something moved - would
+                         * otherwise read two identical answers and conclude
+                         * nothing had changed, when in truth the second was
+                         * never made. Saying which it was costs a sentence and
+                         * leaves the model able to ask again in the next round,
+                         * where a fresh call is what it would get.
+                         */
                         val got = alreadyAnswered ?: try {
                             if (hunt != null && hunt.handles(call.name)) hunt.run(call) else tools.run(agent, call, into)
                         } catch (halted: AgentRoundHalted) {
@@ -820,7 +832,8 @@ class AgentConversation(
                         answeredInBatch[asking] = got
 
                         val picture = AgentTools.pictureIn(got)
-                        val said = picture?.let { AgentTools.withoutPicture(got, it) } ?: got
+                        val whole = picture?.let { AgentTools.withoutPicture(got, it) } ?: got
+                        val said = if (alreadyAnswered == null) whole else whole + PARAGRAPH + REPEATED_IN_BATCH
                         picture?.let { shown.add(call.name to it) }
 
                         /*
@@ -1106,6 +1119,19 @@ class AgentConversation(
 
         /** A blank line, built rather than typed: an escape does not survive every editor. */
         val PARAGRAPH = 10.toChar().toString() + 10.toChar().toString()
+
+        /**
+         * What a repeated call in one message is told. Issue #518.
+         *
+         * Said plainly, because the alternative is a model that asked twice on
+         * purpose reading two identical answers and concluding the world had
+         * not moved - when the second call was never made at all. This says
+         * which it was, and where to ask again for a real one.
+         */
+        const val REPEATED_IN_BATCH =
+            "(You asked for this exact call more than once in the same message, so it ran once and this is " +
+                "that same answer rather than a fresh one. If you meant to check again for a change, ask " +
+                "again in your next message and it will run for real.)"
 
         val log = LoggerFactory.getLogger(AgentConversation::class.java)
     }
