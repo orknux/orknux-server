@@ -274,6 +274,32 @@ class Workspace(
     var maxToolCallsAtOnce: Int? = null,
 
     /**
+     * Compacting a turn that has already outgrown its model. Issue #522.
+     *
+     * Its own numbers rather than the chat compaction's above, because it is a
+     * different judgement. That one decides when a stored conversation has
+     * grown long enough to be worth shortening. These decide what to salvage
+     * from a turn that has already failed, where the choice is not between a
+     * summary and the full text but between a summary and nothing at all.
+     *
+     * How many of the turn's most recent steps survive word for word.
+     */
+    @Column(name = "session_compaction_keep_turns")
+    var sessionCompactionKeepTurns: Int? = null,
+
+    /** How long the summary that replaces the rest may be. */
+    @Column(name = "session_compaction_summary_tokens")
+    var sessionCompactionSummaryTokens: Int? = null,
+
+    /** How many times one turn may be compacted before it gives up. */
+    @Column(name = "session_compaction_attempts")
+    var sessionCompactionAttempts: Int? = null,
+
+    /** Which model writes that summary; null uses the turn's own. */
+    @Column(name = "session_compaction_model_id")
+    var sessionCompactionModelId: Long? = null,
+
+    /**
      * And how close together they have to be to count. Issue #516.
      *
      * Repetition on its own is not the fault: an agent watching something

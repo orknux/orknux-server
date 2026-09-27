@@ -5,6 +5,12 @@ import io.mszymanski.orknux.server.attachment.MAX_SUBAGENTS
 import io.mszymanski.orknux.server.attachment.MIN_SUBAGENTS
 import io.mszymanski.orknux.server.attachment.MAX_CALLS_AT_ONCE
 import io.mszymanski.orknux.server.attachment.MIN_CALLS_AT_ONCE
+import io.mszymanski.orknux.server.attachment.MAX_COMPACTIONS
+import io.mszymanski.orknux.server.attachment.MIN_COMPACTIONS
+import io.mszymanski.orknux.server.attachment.MAX_KEEP_TURNS
+import io.mszymanski.orknux.server.attachment.MIN_KEEP_TURNS
+import io.mszymanski.orknux.server.attachment.MAX_SUMMARY_TOKENS
+import io.mszymanski.orknux.server.attachment.MIN_SUMMARY_TOKENS
 import io.mszymanski.orknux.server.workflow.ExecutionSweeper
 import io.mszymanski.orknux.connector.connection.WorkspaceLifecycleService
 import io.mszymanski.orknux.connector.model.ModelService
@@ -362,6 +368,21 @@ class WorkspaceAPI(
     /** How many calls one message may ask for when the workspace has said nothing. Issue #518. */
     @SchemaMapping(typeName = "Workspace")
     fun maxToolCallsAtOnceDefault(workspace: Workspace): Int = installation.maxToolCallsAtOnce()
+
+    /** What a compacted turn keeps here when the workspace has said nothing. Issue #522. */
+    @SchemaMapping(typeName = "Workspace")
+    fun sessionCompactionKeepTurnsDefault(workspace: Workspace): Int =
+        installation.sessionCompactionKeepTurns()
+
+    /** And how long its summary may run. Issue #522. */
+    @SchemaMapping(typeName = "Workspace")
+    fun sessionCompactionSummaryTokensDefault(workspace: Workspace): Int =
+        installation.sessionCompactionSummaryTokens()
+
+    /** And how many times one turn may be compacted. Issue #522. */
+    @SchemaMapping(typeName = "Workspace")
+    fun sessionCompactionAttemptsDefault(workspace: Workspace): Int =
+        installation.sessionCompactionAttempts()
 
     /**
      * The installation's script timeout, in seconds, for the same box: the
@@ -804,6 +825,49 @@ class WorkspaceAPI(
             WorkspaceAuditCategory.WORKSPACE,
             count?.let { "One message here may ask for $it tool calls" }
                 ?: "How many calls one message may ask for is the installation's again",
+        )
+        return workspace
+    }
+
+    /**
+     * Compacting a turn here that has outgrown its model. Issue #522.
+     *
+     * Four numbers rather than one switch, because a compaction is a trade and
+     * the terms are the workspace's: how much of the recent end is worth keeping
+     * word for word, how long a summary of the rest may be, how many times to
+     * try before giving up, and which model writes it. Null on any of them takes
+     * the installation's - and null on the model means the turn's own.
+     */
+    @MutationMapping
+    @Transactional
+    fun setWorkspaceSessionCompaction(
+        @Argument workspaceId: Long,
+        @Argument keepTurns: Int?,
+        @Argument summaryTokens: Int?,
+        @Argument attempts: Int?,
+        @Argument modelId: Long?,
+    ): Workspace {
+        val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
+        access.requireVisible(workspace)
+
+        if (keepTurns != null && keepTurns !in MIN_KEEP_TURNS..MAX_KEEP_TURNS) {
+            throw io.mszymanski.orknux.server.attachment.CompactionKeepOutOfRangeException(keepTurns)
+        }
+        if (summaryTokens != null && summaryTokens !in MIN_SUMMARY_TOKENS..MAX_SUMMARY_TOKENS) {
+            throw io.mszymanski.orknux.server.attachment.CompactionSummaryOutOfRangeException(summaryTokens)
+        }
+        if (attempts != null && attempts !in MIN_COMPACTIONS..MAX_COMPACTIONS) {
+            throw io.mszymanski.orknux.server.attachment.CompactionAttemptsOutOfRangeException(attempts)
+        }
+
+        workspace.sessionCompactionKeepTurns = keepTurns
+        workspace.sessionCompactionSummaryTokens = summaryTokens
+        workspace.sessionCompactionAttempts = attempts
+        workspace.sessionCompactionModelId = modelId
+        auditRecorder.record(
+            workspaceId,
+            WorkspaceAuditCategory.WORKSPACE,
+            "How a turn here is compacted when it outgrows its model was changed",
         )
         return workspace
     }

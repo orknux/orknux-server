@@ -129,8 +129,67 @@ class ChatCompaction(
      * one that fails to send, but silently throwing the older half away because
      * the summariser was unreachable is worse than both.
      */
+    /**
+     * One turn's conversation, shrunk to fit, when the model has already said
+     * it does not. Issue #522.
+     *
+     * A different moment from [compactIfNeeded], which measures a stored thread
+     * before a turn is built. This is for a turn already in flight: an agent
+     * that has called forty tools inside one turn holds all forty answers in
+     * memory, was never measured against anything, and the provider refuses the
+     * next round outright - `request (69015 tokens) exceeds the available
+     * context size (65536 tokens)`. The turn then ended, having done all of that
+     * work, and whoever was waiting got nothing.
+     *
+     * So the middle goes and a summary of it stands in its place. The system
+     * turn stays because it is what the agent is; the first turn stays because
+     * it is what was asked; the last [keep] stay word for word because they are
+     * what the next round is about. Everything between them is a record of
+     * lookups, which is exactly the part a summary can carry.
+     *
+     * Null where there is nothing to gain - too short to have a middle, or a
+     * summariser that would not answer - and the caller then fails the way it
+     * used to, because a turn that goes on being too long is better than one
+     * quietly missing the half of itself that mattered.
+     *
+     * @param keep how many of the most recent turns are left untouched.
+     */
+    fun shrink(turns: List<ChatTurn>, modelId: Long, summaryTokens: Int, keep: Int): List<ChatTurn>? {
+        /*
+         * The system turn, the question, a summary, and the recent end. Anything
+         * shorter than that has no middle to lose, and shedding it would be
+         * throwing away the question instead of the lookups.
+         */
+        if (turns.size < keep + 3) return null
+        val head = turns.take(2)
+        val recent = turns.takeLast(keep)
+        val middle = turns.drop(2).dropLast(keep)
+        if (middle.isEmpty()) return null
+
+        val transcript = middle.joinToString("\n\n") { "${it.role}: ${it.content}" }
+        val summary = summariseText(modelId, transcript, summaryTokens) ?: return null
+
+        log.info("Shrank a turn in flight: {} turns became a summary, {} kept", middle.size, keep)
+        /*
+         * Offered as something said rather than as an instruction, the way
+         * [compactIfNeeded] does it and for the same reason: a model handed a
+         * summary as a system turn starts following it.
+         */
+        return head + ChatTurn(
+            role = "user",
+            content = "The middle of this turn was too long to carry, so " + middle.size +
+                " of its earlier steps were replaced by this summary of them. " +
+                "What follows it is the recent end, word for word.\n\n" + summary,
+        ) + recent
+    }
+
     private fun summarise(modelId: Long, older: List<Message>, budget: Int): String? {
         val transcript = older.joinToString("\n\n") { "${role(it)}: ${it.text.orEmpty()}" }
+        return summariseText(modelId, transcript, budget)
+    }
+
+    /** The same ask, for callers that already hold the text. */
+    private fun summariseText(modelId: Long, transcript: String, budget: Int): String? {
         val asked = listOf(
             ChatTurn("system", BRIEF.format(budget)),
             ChatTurn("user", transcript),

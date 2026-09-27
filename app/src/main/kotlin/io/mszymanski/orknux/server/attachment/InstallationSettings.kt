@@ -81,6 +81,11 @@ object SettingNames {
     /** How long a single stored value may be before the transcript cuts it. Issue #519. */
     const val LONGEST_STORED_VALUE = "session.longest.stored.value"
 
+    /** Compacting a turn that has outgrown its model. Issue #522. */
+    const val SESSION_COMPACTION_KEEP_TURNS = "session.compaction.keep.turns"
+    const val SESSION_COMPACTION_SUMMARY_TOKENS = "session.compaction.summary.tokens"
+    const val SESSION_COMPACTION_ATTEMPTS = "session.compaction.attempts"
+
     /** How many asks may be in flight at once. Issue #461. */
     const val AGENT_MAX_SUBAGENTS_AT_ONCE = "agent.max.subagents.at.once"
     const val COMMAND_MARKER = "command.marker"
@@ -551,6 +556,67 @@ class InstallationSettings(
 
     /** A thousand: enough of a page of instructions to be worth having. */
     fun longestStoredValueConfigured(): Int = DEFAULT_LONGEST_STORED_VALUE
+
+    /**
+     * How many of a turn's most recent steps survive a compaction. Issue #522.
+     *
+     * Six, because the recent end is what the next round is about, and
+     * summarising the question being asked is how an agent starts answering
+     * something adjacent to it. Enough to hold a call, its answer, and the
+     * exchange that led to them.
+     */
+    fun sessionCompactionKeepTurns(): Int {
+        val held = settings.findByIdOrNull(SettingNames.SESSION_COMPACTION_KEEP_TURNS)
+            ?: return sessionCompactionKeepTurnsConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_KEEP_TURNS..MAX_KEEP_TURNS }
+            ?: sessionCompactionKeepTurnsConfigured()
+    }
+
+    fun sessionCompactionKeepTurnsConfigured(): Int = DEFAULT_COMPACTION_KEEP_TURNS
+
+    @Transactional
+    fun setSessionCompactionKeepTurns(turns: Int, by: String) {
+        if (turns !in MIN_KEEP_TURNS..MAX_KEEP_TURNS) throw CompactionKeepOutOfRangeException(turns)
+        write(SettingNames.SESSION_COMPACTION_KEEP_TURNS, turns.toString(), by)
+    }
+
+    /** How long the summary that stands in for the rest may be. Issue #522. */
+    fun sessionCompactionSummaryTokens(): Int {
+        val held = settings.findByIdOrNull(SettingNames.SESSION_COMPACTION_SUMMARY_TOKENS)
+            ?: return sessionCompactionSummaryTokensConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_SUMMARY_TOKENS..MAX_SUMMARY_TOKENS }
+            ?: sessionCompactionSummaryTokensConfigured()
+    }
+
+    fun sessionCompactionSummaryTokensConfigured(): Int = DEFAULT_COMPACTION_SUMMARY_TOKENS
+
+    @Transactional
+    fun setSessionCompactionSummaryTokens(tokens: Int, by: String) {
+        if (tokens !in MIN_SUMMARY_TOKENS..MAX_SUMMARY_TOKENS) throw CompactionSummaryOutOfRangeException(tokens)
+        write(SettingNames.SESSION_COMPACTION_SUMMARY_TOKENS, tokens.toString(), by)
+    }
+
+    /**
+     * How many times one turn may be compacted before it gives up. Issue #522.
+     *
+     * Two, because a turn still too long after two summaries is not long, it is
+     * looping - and compacting a loop for ever is a way of never telling
+     * anybody something is wrong.
+     */
+    fun sessionCompactionAttempts(): Int {
+        val held = settings.findByIdOrNull(SettingNames.SESSION_COMPACTION_ATTEMPTS)
+            ?: return sessionCompactionAttemptsConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_COMPACTIONS..MAX_COMPACTIONS }
+            ?: sessionCompactionAttemptsConfigured()
+    }
+
+    fun sessionCompactionAttemptsConfigured(): Int = DEFAULT_COMPACTION_ATTEMPTS
+
+    @Transactional
+    fun setSessionCompactionAttempts(times: Int, by: String) {
+        if (times !in MIN_COMPACTIONS..MAX_COMPACTIONS) throw CompactionAttemptsOutOfRangeException(times)
+        write(SettingNames.SESSION_COMPACTION_ATTEMPTS, times.toString(), by)
+    }
 
     @Transactional
     fun setLongestStoredValue(characters: Int, by: String) {
@@ -1178,6 +1244,50 @@ const val DEFAULT_REPEAT_WINDOW_SECONDS = 10
 const val MIN_WARNINGS = 1
 const val MAX_WARNINGS = 10
 const val DEFAULT_LOOP_WARNINGS = 2
+
+/**
+ * What a turn's compaction may be set to. Issue #522.
+ *
+ * Two turns at the floor because one is a call with no answer under it. A
+ * hundred at the ceiling because past that the compaction is not compacting.
+ * The summary runs from a short paragraph to a long page; the attempts from one
+ * to ten, because a turn still too long after ten is not long, it is broken.
+ */
+const val MIN_KEEP_TURNS = 2
+const val MAX_KEEP_TURNS = 100
+const val DEFAULT_COMPACTION_KEEP_TURNS = 6
+
+const val MIN_SUMMARY_TOKENS = 100
+const val MAX_SUMMARY_TOKENS = 8_000
+const val DEFAULT_COMPACTION_SUMMARY_TOKENS = 500
+
+const val MIN_COMPACTIONS = 1
+const val MAX_COMPACTIONS = 10
+const val DEFAULT_COMPACTION_ATTEMPTS = 2
+
+/** Issue #522. */
+class CompactionKeepOutOfRangeException(val turns: Int) : RuntimeException(
+    "$turns is not a number of steps to keep. Choose between $MIN_KEEP_TURNS and $MAX_KEEP_TURNS.",
+), Refusal {
+
+    override val arguments get() = mapOf("turns" to turns)
+}
+
+/** Issue #522. */
+class CompactionSummaryOutOfRangeException(val tokens: Int) : RuntimeException(
+    "$tokens is not a length for a summary. Choose between $MIN_SUMMARY_TOKENS and $MAX_SUMMARY_TOKENS.",
+), Refusal {
+
+    override val arguments get() = mapOf("tokens" to tokens)
+}
+
+/** Issue #522. */
+class CompactionAttemptsOutOfRangeException(val times: Int) : RuntimeException(
+    "$times is not a number of compactions to allow. Choose between $MIN_COMPACTIONS and $MAX_COMPACTIONS.",
+), Refusal {
+
+    override val arguments get() = mapOf("times" to times)
+}
 
 /**
  * A hundred characters and a hundred thousand, for what one stored value may

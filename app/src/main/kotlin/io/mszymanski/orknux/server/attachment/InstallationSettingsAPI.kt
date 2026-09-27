@@ -69,6 +69,12 @@ class InstallationSettingsAPI(
         maxToolCallsAtOnceConfigured = settings.maxToolCallsAtOnceConfigured(),
         longestStoredValue = settings.longestStoredValue(),
         longestStoredValueConfigured = settings.longestStoredValueConfigured(),
+        sessionCompactionKeepTurns = settings.sessionCompactionKeepTurns(),
+        sessionCompactionKeepTurnsConfigured = settings.sessionCompactionKeepTurnsConfigured(),
+        sessionCompactionSummaryTokens = settings.sessionCompactionSummaryTokens(),
+        sessionCompactionSummaryTokensConfigured = settings.sessionCompactionSummaryTokensConfigured(),
+        sessionCompactionAttempts = settings.sessionCompactionAttempts(),
+        sessionCompactionAttemptsConfigured = settings.sessionCompactionAttemptsConfigured(),
         scratchpadBudgetBytes = settings.scratchpadBudgetBytes(),
         scratchpadBudgetBytesConfigured = settings.scratchpadBudgetBytesConfigured(),
         commandMarker = settings.commandMarker(),
@@ -450,6 +456,30 @@ class InstallationSettingsAPI(
     }
 
     @MutationMapping
+    fun setSessionCompactionKeepTurns(@Argument turns: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setSessionCompactionKeepTurns(turns, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "A compacted turn keeps $turns steps")
+        return installationSettings()
+    }
+
+    @MutationMapping
+    fun setSessionCompactionSummaryTokens(@Argument tokens: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setSessionCompactionSummaryTokens(tokens, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "A turn's summary may run to $tokens tokens")
+        return installationSettings()
+    }
+
+    @MutationMapping
+    fun setSessionCompactionAttempts(@Argument times: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setSessionCompactionAttempts(times, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "A turn may be compacted $times times")
+        return installationSettings()
+    }
+
+    @MutationMapping
     fun setLongestStoredValue(@Argument characters: Int): InstallationSettingsView {
         access.requireAdmin()
         settings.setLongestStoredValue(characters, currentUser())
@@ -674,6 +704,13 @@ data class InstallationSettingsView(
     /** How long one stored value may be before the transcript cuts it. Issue #519. */
     val longestStoredValue: Int,
     val longestStoredValueConfigured: Int,
+    /** Compacting a turn that has outgrown its model. Issue #522. */
+    val sessionCompactionKeepTurns: Int,
+    val sessionCompactionKeepTurnsConfigured: Int,
+    val sessionCompactionSummaryTokens: Int,
+    val sessionCompactionSummaryTokensConfigured: Int,
+    val sessionCompactionAttempts: Int,
+    val sessionCompactionAttemptsConfigured: Int,
     /** How many bytes one session's scratchpads may hold in all. Issue #411. */
     val scratchpadBudgetBytes: Int,
     /** What a fresh installation allows before anybody sets it. */

@@ -487,16 +487,29 @@ class AgentTools(
                 val name = argument(call, "name").orEmpty()
                 val found = skills.load(agent, name)
                 if (found == null) {
-                    // The ids with the refusal rather than a second call to
-                    // find them: a model that mistyped one is about to guess
-                    // again, and the list is what stops it. Issue #435.
-                    val ids = skills.list(agent).joinToString(", ") { it.id }
+                    /*
+                     * The name it missed on, and where the list lives - not the
+                     * list itself. Issue #435 put every id in here so a model
+                     * that mistyped one would not need a second call, and the
+                     * cost of that turned up in session 477: a call whose
+                     * arguments came apart in the decoder was answered with all
+                     * twenty-five ids, which reads to a model like a lookup that
+                     * succeeded, and it set about loading them.
+                     *
+                     * An error is a poor place to put a catalogue. `skill_list`
+                     * is the catalogue, asking for it is one deliberate call,
+                     * and a refusal that points at it costs that call in the one
+                     * case somebody genuinely mistyped rather than pushing the
+                     * whole menu in every case nobody did.
+                     */
+                    val any = skills.list(agent).isNotEmpty()
                     mapper.writeValueAsString(
                         mapOf(
-                            "error" to if (ids.isEmpty()) {
+                            "error" to if (!any) {
                                 "You have no skills."
                             } else {
-                                "You have no skill called $name. Yours are: $ids. Pass one of those ids exactly."
+                                "You have no skill called $name. Call skill_list for the ids you do have, " +
+                                    "and pass one of those exactly."
                             },
                         ),
                     )

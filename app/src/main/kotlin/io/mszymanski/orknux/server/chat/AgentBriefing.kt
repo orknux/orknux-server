@@ -116,19 +116,52 @@ class AgentBriefing(
              */
             val marker = workspaces.findById(agent.workspaceId).map { it.commandMarker }.orElse(null)
                 ?: installation.commandMarker()
+            /*
+             * The ones marked Always, and only those. Issue #521.
+             *
+             * Every granted skill used to be named here with its description,
+             * which is the same mistake the tool list made before `find_tools`:
+             * a menu of everything, in front of the model, every turn. With
+             * twenty-five of them it stopped being a list to choose from and
+             * became a list to work through - sessions 474 and 477 loaded the
+             * lot rather than answering "are you there?".
+             *
+             * So the three states mean for a skill what they mean for a tool.
+             * Always is in the briefing, because somebody said this one matters
+             * whatever the agent is doing. Offer is reachable and not named,
+             * through `skill_list` and `skill_load`, which is one deliberate
+             * call rather than a permanent cost. Hidden is neither, as before.
+             */
+            val named = skills.always(agent)
+            val rest = instructions.size - named.size
             parts += buildString {
-                append("You have been given these skills, each describing how this workspace goes about ")
-                append("something. Load the one that applies with skill_load before following it; ")
-                appendLine("what is listed here is only enough to choose from.")
-                instructions.forEach { skill ->
-                    append("\n- ").append(skill.name).append(" (").append(marker).append(skill.id).append(")")
+                if (named.isEmpty()) {
+                    append("You have ").append(instructions.size)
+                    append(if (instructions.size == 1) " skill" else " skills")
+                    append(" - pages describing how this workspace goes about things. ")
+                    appendLine("Call skill_list to see them, and skill_load to read one.")
+                } else {
+                    append("These skills matter here, whatever you are doing. Load the one that applies ")
+                    appendLine("with skill_load before following it; these lines are enough to choose from.")
+                }
+                named.forEach { skill ->
+                    append("\n- ").append(skill.name).append(" (").append(marker).append(skill.key).append(")")
                     skill.description?.takeIf { it.isNotBlank() }?.let { append(": ").append(it) }
                 }
-                appendLine()
-                append("\nEach of these skills has a command: the marker and its id, like ")
+                if (named.isNotEmpty()) appendLine()
+                if (rest > 0) {
+                    append("\nThere ").append(if (rest == 1) "is " else "are ").append(rest)
+                    append(if (rest == 1) " other skill" else " other skills")
+                    appendLine(" you have. They are not listed here - call skill_list for them.")
+                }
+                append("\nEvery skill has a command: the marker and its id, like ")
                 append(marker).append(instructions.first().id).append(". ")
-                append("Anybody can write one anywhere in a message to have you load and follow that skill, ")
-                append("and when a message carries one you load that skill first. This is the one special ")
+                append("Anybody can write one anywhere in a message to have you load and follow that skill. ")
+                append("When a message carries a command, call skill_load with the id after the marker ")
+                append("before anything else and follow what it says - whether or not that skill is named ")
+                append("above, and however simple the request looks. A command is the person saying how ")
+                append("they want this answered, so answering without reading it answers the wrong ")
+                append("question. Load the ones the message names, and no others. This is the one special ")
                 append("syntax people have with you - so when they ask what you can do, or how to use ")
                 append("commands, tell them these commands and this ").append(marker)
                 appendLine("id syntax rather than saying there is none.")
@@ -176,19 +209,27 @@ class AgentBriefing(
          * it is following. It is marked as already loaded so nothing spends a
          * call re-reading it.
          */
-        val forced = skills.always(agent)
-        if (forced.isNotEmpty()) {
-            parts += buildString {
-                append("These skills are in force for this conversation. Follow them; they are ")
-                appendLine("loaded already, so do not spend a call loading them again.")
-                forced.forEach { skill ->
-                    appendLine()
-                    append("--- ").append(skill.name).appendLine(" ---")
-                    appendLine(skill.content.trim())
-                }
-            }.trimEnd()
-        }
-
+        /*
+         * And never the page itself. Issue #521.
+         *
+         * A skill marked Always used to have its whole text written in here, on
+         * the reasoning that some instructions are "this is how you work" rather
+         * than "read this when it applies". The reasoning is sound and the
+         * implementation was not: one Slack skill came to 17,206 characters and
+         * 348 of the briefing's 467 lines - sixty-one per cent of the system
+         * prompt, on every turn, in every conversation.
+         *
+         * What that does to a model is measurable. With the page inlined, five
+         * of six runs answering "are you there?" went off loading skills until
+         * the context died; with it loaded on demand instead, six of six
+         * answered in one round. A prompt that is mostly one document produces
+         * a model that thinks its job is documents.
+         *
+         * So Always now means what it means for a tool: named in the list
+         * above, where a line costs a line. Its page arrives through skill_load
+         * like any other, which is one call and is bounded by what the turn
+         * needs.
+         */
         }
 
         /*

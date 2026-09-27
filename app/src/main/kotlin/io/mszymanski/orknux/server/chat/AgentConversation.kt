@@ -182,6 +182,8 @@ class AgentConversation(
     private val settings: InstallationSettings,
     /** For a workspace's own ceiling on repeated calls; see [repeatsFor]. Issue #516. */
     private val workspaces: io.mszymanski.orknux.server.workspace.WorkspaceRepository,
+    /** Summarises a turn that has outgrown its model, rather than losing it. Issue #522. */
+    private val compaction: ChatCompaction,
 ) {
 
     /**
@@ -206,6 +208,46 @@ class AgentConversation(
     private fun repeatWindowFor(agent: Agent): Int =
         workspaces.findByIdOrNull(agent.workspaceId)?.repeatedToolCallsWindowSeconds
             ?: settings.repeatedToolCallsWindowSeconds()
+
+    /** How many times a turn here may be compacted before it gives up. Issue #522. */
+    private fun compactionsFor(agent: Agent): Int =
+        workspaces.findByIdOrNull(agent.workspaceId)?.sessionCompactionAttempts
+            ?: settings.sessionCompactionAttempts()
+
+    /**
+     * Whether this is the window rather than the request.
+     *
+     * Matched on the words because that is all a provider gives: there is no
+     * code for it in the OpenAI shape and every server words it differently -
+     * llama.cpp says "exceeds the available context size", OpenAI says "maximum
+     * context length". Matched loosely and on purpose: the cost of reading one
+     * of these wrongly is one summary that was not needed, and the cost of
+     * missing one is the turn.
+     */
+    private fun tooLarge(why: String): Boolean {
+        val said = why.lowercase()
+        return OVERSIZED.any { it in said }
+    }
+
+    /**
+     * The same turn, with its middle summarised. Null where nothing can be done
+     * and the caller should fail as it used to.
+     */
+    private fun shrinkToFit(agent: Agent, modelId: Long, turns: List<ChatTurn>): List<ChatTurn>? {
+        val workspace = workspaces.findByIdOrNull(agent.workspaceId)
+        /*
+         * The turn's own model unless a workspace named another. A summary of
+         * what an agent has been doing is ordinary work, so the model that was
+         * already answering can write one; naming a cheaper one is a saving
+         * somebody may want and not a default worth assuming for them.
+         */
+        val summariser = workspace?.sessionCompactionModelId ?: modelId
+        val keep = workspace?.sessionCompactionKeepTurns ?: settings.sessionCompactionKeepTurns()
+        val budget = workspace?.sessionCompactionSummaryTokens ?: settings.sessionCompactionSummaryTokens()
+        return runCatching { compaction.shrink(turns, summariser, budget, keep) }
+            .onFailure { log.warn("A turn could not be shrunk to fit", it) }
+            .getOrNull()
+    }
 
     /** How many calls one message from this agent may ask for. Issue #518. */
     private fun callsAtOnceFor(agent: Agent): Int =
@@ -471,6 +513,17 @@ class AgentConversation(
         var retried = 0
 
         /*
+         * How many times this turn has already been shrunk to fit. Issue #522.
+         *
+         * Separate from [retried] because it is a different failure with a
+         * different remedy: a reply that could not be used is the model's
+         * mistake and is put back to it, while a request too large for the
+         * window is nobody's mistake and putting it back would send the same
+         * oversized request again.
+         */
+        var compactions = 0
+
+        /*
          * What the last tool call answered with, where it failed, and whether
          * the model has already been told not to end on it. Issue #494.
          */
@@ -611,6 +664,43 @@ class AgentConversation(
                  * broke.
                  */
                 is ChatCompletion.Failed -> {
+                    /*
+                     * A turn too big for the window is shrunk and asked again,
+                     * rather than thrown away. Issue #522.
+                     *
+                     * An agent that has called forty tools holds all forty
+                     * answers, was never measured against anything, and the
+                     * provider refuses the next round outright - `request
+                     * (69015 tokens) exceeds the available context size (65536
+                     * tokens)`. The turn ended there having done all of that
+                     * work, and whoever asked got nothing: the one outcome
+                     * where everything was available and none of it was used.
+                     *
+                     * The chat compaction cannot help. It measures a stored
+                     * thread before a turn is built, and this conversation is
+                     * in memory and already past the line. So the middle of it
+                     * is summarised in place and the same round is asked again.
+                     *
+                     * Bounded, because a turn still too large after two
+                     * summaries is not long, it is looping - and compacting a
+                     * loop for ever is a way of never saying anything is wrong.
+                     */
+                    if (tooLarge(answer.reason) && compactions < compactionsFor(agent)) {
+                        val smaller = shrinkToFit(agent, modelId, conversation)
+                        if (smaller != null) {
+                            compactions += 1
+                            into?.let { session ->
+                                sessions.note(
+                                    session,
+                                    "The turn outgrew the model's window, so its earlier steps were " +
+                                        "replaced by a summary and it carried on.",
+                                )
+                            }
+                            conversation.clear()
+                            conversation.addAll(smaller)
+                            return@repeat
+                        }
+                    }
                     if (!answer.replyFault || answer.permanent || retried >= MOST_RETRIES) {
                         return answer.also { record(into, agent, it) }
                     }
@@ -1272,6 +1362,20 @@ class AgentConversation(
          * a paid call. Issue #465.
          */
         const val MOST_RETRIES = 2
+
+        /**
+         * What a provider says when the request will not fit. Issue #522.
+         *
+         * Lowercased fragments rather than whole sentences: the numbers in them
+         * differ every time, and so does everything around them.
+         */
+        val OVERSIZED = listOf(
+            "exceeds the available context size",
+            "maximum context length",
+            "context length exceeded",
+            "too many tokens",
+            "reduce the length of the messages",
+        )
 
         /** A blank line, built rather than typed: an escape does not survive every editor. */
         val PARAGRAPH = 10.toChar().toString() + 10.toChar().toString()

@@ -1198,6 +1198,12 @@ type Mutation {
     setMaxToolCallsAtOnce(count: Int!): InstallationSettings!
     "How long one stored value is kept, in characters. Issue #519."
     setLongestStoredValue(characters: Int!): InstallationSettings!
+    "How many of a compacted turn's steps survive word for word. Issue #522."
+    setSessionCompactionKeepTurns(turns: Int!): InstallationSettings!
+    "How long the summary standing in for the rest may be. Issue #522."
+    setSessionCompactionSummaryTokens(tokens: Int!): InstallationSettings!
+    "How many times one turn may be compacted before it gives up. Issue #522."
+    setSessionCompactionAttempts(times: Int!): InstallationSettings!
     "How close together they have to be to count as repetition."
     setRepeatedToolCallsWindowSeconds(seconds: Int!): InstallationSettings!
     "How many times a repeating turn is told before it ends."
@@ -1703,6 +1709,14 @@ type Mutation {
     setWorkspaceAgentMaxSubagents(workspaceId: ID!, count: Int): Workspace!
     "How many tool calls one message here may ask for; null takes the installation's. Issue #518."
     setWorkspaceMaxToolCallsAtOnce(workspaceId: ID!, count: Int): Workspace!
+    "How a turn here is compacted when it outgrows its model; null on any takes the installation's. Issue #522."
+    setWorkspaceSessionCompaction(
+        workspaceId: ID!,
+        keepTurns: Int,
+        summaryTokens: Int,
+        attempts: Int,
+        modelId: ID,
+    ): Workspace!
     """
     Whether this workspace's agents may have a built-in tool hidden from them.
 
@@ -2129,6 +2143,26 @@ type Workspace {
     maxToolCallsAtOnce: Int
     "What a message here gets when `maxToolCallsAtOnce` is null: the installation's number."
     maxToolCallsAtOnceDefault: Int!
+    """
+    How many of a turn's most recent steps survive a compaction, word for word.
+
+    A turn that outgrows its model is summarised and carried on rather than
+    thrown away; this is how much of the recent end is kept as it stands. Null
+    takes the installation's number. Issue #522.
+    """
+    sessionCompactionKeepTurns: Int
+    "What a compacted turn here keeps when `sessionCompactionKeepTurns` is null."
+    sessionCompactionKeepTurnsDefault: Int!
+    "How long the summary standing in for the rest may be, in tokens. Issue #522."
+    sessionCompactionSummaryTokens: Int
+    "What it may run to when `sessionCompactionSummaryTokens` is null."
+    sessionCompactionSummaryTokensDefault: Int!
+    "How many times one turn may be compacted before it gives up. Issue #522."
+    sessionCompactionAttempts: Int
+    "What it gets when `sessionCompactionAttempts` is null."
+    sessionCompactionAttemptsDefault: Int!
+    "Which model writes that summary; null uses the turn's own. Issue #522."
+    sessionCompactionModelId: ID
     """
     Whether an agent here may have a built-in tool hidden from it.
 
@@ -6281,6 +6315,21 @@ type InstallationSettings {
     longestStoredValue: Int!
     "A thousand, unless somebody has said otherwise."
     longestStoredValueConfigured: Int!
+    """
+    Compacting a turn that has already outgrown its model. Issue #522.
+
+    A different moment from the chat compaction a workspace sets: that measures
+    a stored thread before a turn is built, and this is for a turn in flight
+    that the provider has already refused.
+    """
+    sessionCompactionKeepTurns: Int!
+    sessionCompactionKeepTurnsConfigured: Int!
+    "How long the summary standing in for the rest may be, in tokens."
+    sessionCompactionSummaryTokens: Int!
+    sessionCompactionSummaryTokensConfigured: Int!
+    "How many times one turn may be compacted before it gives up."
+    sessionCompactionAttempts: Int!
+    sessionCompactionAttemptsConfigured: Int!
     "How many bytes one session's scratchpads may hold in all. Issue #411."
     scratchpadBudgetBytes: Int!
     "What a fresh installation allows before anybody sets it."
