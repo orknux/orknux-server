@@ -345,6 +345,8 @@ class OpenAiChat(
         model.maxOutput?.let { builder.maxTokens(it.toLong()) }
         turns.forEach { turn -> add(builder, turn) }
         tools.forEach { tool -> builder.addTool(declared(tool)) }
+        // Only beside tools: a provider refuses the field in a request that offers none. Issue #530.
+        if (tools.isNotEmpty()) model.parallelToolCalls?.let { builder.parallelToolCalls(it) }
         return builder
     }
 

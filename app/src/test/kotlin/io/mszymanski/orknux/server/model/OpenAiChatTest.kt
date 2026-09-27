@@ -144,6 +144,29 @@ class OpenAiChatTest {
         assertThat(answered.calls).containsExactly(ToolCall("call_1", "weather", """{"city":"War"""))
     }
 
+    /**
+     * One call per reply, when the model says so - and only beside tools.
+     * Issue #530: nothing was ever sent, so a local server's grammar allowed
+     * unlimited calls per reply, and a looping model filled its whole output
+     * with the same few.
+     */
+    @Test
+    fun `a model limited to one call per reply says so beside its tools`() {
+        answer = words("ok")
+        val one = model().apply { parallelToolCalls = false }
+        val weather = listOf(ToolSpec("weather", "Look it up"))
+
+        chat().complete(provider(), one, listOf(ChatTurn("user", "Weather?")), weather)
+        chat().complete(provider(), one, listOf(ChatTurn("user", "Hello")), emptyList())
+        chat().complete(provider(), model(), listOf(ChatTurn("user", "Weather?")), weather)
+
+        assertThat(bodies[0]).contains(""""parallel_tool_calls":false""")
+        // Not in a request that offers no tools: a provider refuses it there.
+        assertThat(bodies[1]).doesNotContain("parallel_tool_calls")
+        // And not at all where the model left it to the provider.
+        assertThat(bodies[2]).doesNotContain("parallel_tool_calls")
+    }
+
     @Test
     fun `an answer to a call names the call it answers`() {
         val turns = listOf(

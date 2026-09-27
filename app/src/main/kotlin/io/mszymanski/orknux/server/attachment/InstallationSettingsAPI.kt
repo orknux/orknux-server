@@ -69,6 +69,8 @@ class InstallationSettingsAPI(
         maxToolCallsAtOnceConfigured = settings.maxToolCallsAtOnceConfigured(),
         longestStoredValue = settings.longestStoredValue(),
         longestStoredValueConfigured = settings.longestStoredValueConfigured(),
+        drawingScale = settings.drawingScale(),
+        drawingScaleConfigured = settings.drawingScaleConfigured(),
         sessionCompactAfterTokens = settings.sessionCompactAfterTokens(),
         sessionCompactAfterTokensConfigured = settings.sessionCompactAfterTokensConfigured(),
         sessionCompactionKeepTurns = settings.sessionCompactionKeepTurns(),
@@ -494,6 +496,14 @@ class InstallationSettingsAPI(
     }
 
     @MutationMapping
+    fun setDrawingScale(@Argument times: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setDrawingScale(times, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "Diagrams and charts are drawn at ${times}x")
+        return installationSettings()
+    }
+
+    @MutationMapping
     fun setLongestStoredValue(@Argument characters: Int): InstallationSettingsView {
         access.requireAdmin()
         settings.setLongestStoredValue(characters, currentUser())
@@ -718,6 +728,9 @@ data class InstallationSettingsView(
     /** How long one stored value may be before the transcript cuts it. Issue #519. */
     val longestStoredValue: Int,
     val longestStoredValueConfigured: Int,
+    /** How many times its own size a drawn picture is made. Issue #529. */
+    val drawingScale: Int,
+    val drawingScaleConfigured: Int,
     /** How long a session's log may grow before it is compacted. Issue #523. */
     val sessionCompactAfterTokens: Int,
     val sessionCompactAfterTokensConfigured: Int,

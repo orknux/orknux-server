@@ -375,6 +375,24 @@ class LlmModel(
     @Column(name = "max_output")
     var maxOutput: Int? = null,
 
+    /**
+     * Whether one reply may ask for several tools at once. Issue #530.
+     *
+     * Null sends nothing and the provider decides, which is what every model
+     * did until now. False is one call per reply: llama.cpp's Gemma grammar
+     * allows unlimited calls whenever the request does not say otherwise, and
+     * a model that has written A, B, C at temperature 1.0 finds repeating them
+     * the likeliest thing to write next - one reply held 151 copies of the same
+     * call before the output limit cut it off. With one call per reply that
+     * reply cannot be written. True asks for several explicitly.
+     *
+     * Per model rather than per installation because it is a fact about a
+     * model and the server running it: a hosted model that asks for three
+     * things at once and stops is doing something useful.
+     */
+    @Column(name = "parallel_tool_calls")
+    var parallelToolCalls: Boolean? = null,
+
     @Column(nullable = false)
     var enabled: Boolean = true,
 

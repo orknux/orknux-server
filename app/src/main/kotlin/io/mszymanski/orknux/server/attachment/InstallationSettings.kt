@@ -81,6 +81,9 @@ object SettingNames {
     /** How long a single stored value may be before the transcript cuts it. Issue #519. */
     const val LONGEST_STORED_VALUE = "session.longest.stored.value"
 
+    /** How many times its own size a drawn picture is made. Issue #529. */
+    const val DRAWING_SCALE = "drawing.scale"
+
     /** How long a session's log may grow before it is compacted. Issue #523. */
     const val SESSION_COMPACT_AFTER_TOKENS = "session.compact.after.tokens"
 
@@ -650,6 +653,29 @@ class InstallationSettings(
     fun setSessionCompactionAttempts(times: Int, by: String) {
         if (times !in MIN_COMPACTIONS..MAX_COMPACTIONS) throw CompactionAttemptsOutOfRangeException(times)
         write(SettingNames.SESSION_COMPACTION_ATTEMPTS, times.toString(), by)
+    }
+
+    /**
+     * How many times its declared size a diagram or chart is drawn as a
+     * picture. Issue #529.
+     *
+     * Two, because at its natural size a diagram is a few hundred pixels wide
+     * with one-pixel lines, and on a phone or a high-density screen those are
+     * barely there. Twice as many pixels is twice as thick a line, which is the
+     * whole of the complaint, for the cost of a picture four times the bytes.
+     */
+    fun drawingScale(): Int {
+        val held = settings.findByIdOrNull(SettingNames.DRAWING_SCALE) ?: return drawingScaleConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_DRAWING_SCALE..MAX_DRAWING_SCALE }
+            ?: drawingScaleConfigured()
+    }
+
+    fun drawingScaleConfigured(): Int = DEFAULT_DRAWING_SCALE
+
+    @Transactional
+    fun setDrawingScale(times: Int, by: String) {
+        if (times !in MIN_DRAWING_SCALE..MAX_DRAWING_SCALE) throw DrawingScaleOutOfRangeException(times)
+        write(SettingNames.DRAWING_SCALE, times.toString(), by)
     }
 
     @Transactional
@@ -1297,6 +1323,22 @@ class CompactAfterOutOfRangeException(val tokens: Int) : RuntimeException(
 ), Refusal {
 
     override val arguments get() = mapOf("tokens" to tokens)
+}
+
+/**
+ * One to four, for how large a picture is drawn. One is the document's own
+ * size; past four a diagram is a megabyte of picture for no gain anybody sees.
+ */
+const val MIN_DRAWING_SCALE = 1
+const val MAX_DRAWING_SCALE = 4
+const val DEFAULT_DRAWING_SCALE = 2
+
+/** Issue #529. */
+class DrawingScaleOutOfRangeException(val times: Int) : RuntimeException(
+    "$times is not a scale to draw at. Choose between $MIN_DRAWING_SCALE and $MAX_DRAWING_SCALE.",
+), Refusal {
+
+    override val arguments get() = mapOf("times" to times)
 }
 
 /**

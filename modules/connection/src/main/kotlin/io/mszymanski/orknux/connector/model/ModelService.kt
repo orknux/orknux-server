@@ -272,6 +272,7 @@ class ModelService(
                 kind = input.kind ?: ModelKind.CHAT,
                 contextWindow = input.contextWindow,
                 maxOutput = input.maxOutput,
+                parallelToolCalls = input.parallelToolCalls,
                 tokenLimit = input.tokenLimit,
                 resetInterval = input.resetInterval ?: ResetInterval.MONTHLY,
                 requestsPerMinute = input.requestsPerMinute,
@@ -309,6 +310,7 @@ class ModelService(
         model.kind = input.kind ?: model.kind
         model.contextWindow = input.contextWindow
         model.maxOutput = input.maxOutput
+        model.parallelToolCalls = input.parallelToolCalls
         model.inputCostPerMillion = input.inputCostPerMillion?.toBigDecimal()
         model.outputCostPerMillion = input.outputCostPerMillion?.toBigDecimal()
         model.voice = input.voice?.trim()?.ifEmpty { null }
@@ -669,6 +671,8 @@ data class CreateModelInput(
     val kind: ModelKind? = null,
     val contextWindow: Int? = null,
     val maxOutput: Int? = null,
+    /** Null lets the provider decide; false is one tool call per reply. Issue #530. */
+    val parallelToolCalls: Boolean? = null,
     val tokenLimit: Long? = null,
     val resetInterval: ResetInterval? = null,
     val requestsPerMinute: Int? = null,
@@ -689,6 +693,8 @@ data class UpdateModelInput(
     val kind: ModelKind? = null,
     val contextWindow: Int? = null,
     val maxOutput: Int? = null,
+    /** Null lets the provider decide; false is one tool call per reply. Issue #530. */
+    val parallelToolCalls: Boolean? = null,
     val inputCostPerMillion: Double? = null,
     val outputCostPerMillion: Double? = null,
     /** Only meaningful for a SPEECH model; the names belong to the provider. */
@@ -801,6 +807,7 @@ data class LlmModelView(
     val kind: ModelKind,
     val contextWindow: Int?,
     val maxOutput: Int?,
+    val parallelToolCalls: Boolean?,
     val enabled: Boolean,
     val tokenLimit: Long?,
     val resetInterval: ResetInterval,
@@ -829,6 +836,7 @@ data class LlmModelView(
         kind = model.kind,
         contextWindow = model.contextWindow,
         maxOutput = model.maxOutput,
+        parallelToolCalls = model.parallelToolCalls,
         enabled = model.enabled,
         tokenLimit = model.tokenLimit,
         resetInterval = model.resetInterval,

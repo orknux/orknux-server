@@ -1105,7 +1105,11 @@ class ModelChatClient(
             }
         }
 
-        if (tools.isNotEmpty()) declareOpenAiTools(root, tools)
+        if (tools.isNotEmpty()) {
+            declareOpenAiTools(root, tools)
+            // Beside the tools and only there: see LlmModel.parallelToolCalls. Issue #530.
+            model.parallelToolCalls?.let { root.put("parallel_tool_calls", it) }
+        }
         return mapper.writeValueAsString(root)
     }
 

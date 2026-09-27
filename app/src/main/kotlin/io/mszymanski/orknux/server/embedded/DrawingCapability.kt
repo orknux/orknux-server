@@ -26,6 +26,8 @@ class DiagramCapability(
     private val svgs: SvgRenderer,
     private val scratch: LlmSessionStore,
     private val mapper: ObjectMapper,
+    /** How large the picture is drawn. Issue #529. */
+    private val installation: io.mszymanski.orknux.server.attachment.InstallationSettings,
 ) : EmbeddedCapability {
 
     override val key = "diagram"
@@ -76,7 +78,7 @@ class DiagramCapability(
             return mapper.writeValueAsString(linkedMapOf("svg" to drawn.svg, "kind" to drawn.kind))
         }
 
-        return when (val picture = svgs.png(drawn.svg, null)) {
+        return when (val picture = svgs.png(drawn.svg, null, installation.drawingScale().toDouble())) {
             is SvgRenderer.Drawing.Refused -> refusal(picture.reason)
             is SvgRenderer.Drawing.Drawn ->
                 drawing(mapper, scratch, sessionId, "diagram", picture.png, picture.width, picture.height, drawn.kind)
@@ -123,6 +125,8 @@ class ChartCapability(
     private val svgs: SvgRenderer,
     private val scratch: LlmSessionStore,
     private val mapper: ObjectMapper,
+    /** How large the picture is drawn. Issue #529. */
+    private val installation: io.mszymanski.orknux.server.attachment.InstallationSettings,
 ) : EmbeddedCapability {
 
     override val key = "charts"
@@ -178,7 +182,7 @@ class ChartCapability(
             return mapper.writeValueAsString(linkedMapOf("svg" to drawn.svg, "kind" to drawn.kind))
         }
 
-        return when (val picture = svgs.png(drawn.svg, null)) {
+        return when (val picture = svgs.png(drawn.svg, null, installation.drawingScale().toDouble())) {
             is SvgRenderer.Drawing.Refused -> refusal(picture.reason)
             is SvgRenderer.Drawing.Drawn ->
                 drawing(mapper, scratch, sessionId, "chart", picture.png, picture.width, picture.height, drawn.kind)

@@ -6,6 +6,7 @@ import org.apache.batik.transcoder.TranscoderInput
 import org.apache.batik.transcoder.TranscoderOutput
 import org.apache.batik.transcoder.image.PNGTranscoder
 import org.slf4j.LoggerFactory
+import java.awt.Color
 import org.springframework.stereotype.Component
 import java.io.ByteArrayOutputStream
 import java.io.ByteArrayInputStream
@@ -45,8 +46,12 @@ class SvgRenderer {
      * @param svg the document, as text.
      * @param width how wide the picture should be in pixels, or null for the
      *   size the document itself declares.
+     * @param scale how many times the declared size to draw it at, where no
+     *   width was asked for. Issue #529: a diagram drawn at its natural 290
+     *   pixels has one-pixel lines, and on a phone or a dark theme they are
+     *   barely there.
      */
-    fun png(svg: String, width: Int?): Drawing {
+    fun png(svg: String, width: Int?, scale: Double = 1.0): Drawing {
         if (svg.isBlank()) return Drawing.Refused("there is nothing to draw: the svg is empty")
         if (svg.length > MOST_SOURCE) {
             return Drawing.Refused("that svg is ${svg.length} characters, and $MOST_SOURCE is the most this draws")
@@ -66,8 +71,20 @@ class SvgRenderer {
             return Drawing.Refused("a width has to be between 1 and $MOST_WIDTH pixels")
         }
 
+        // The declared width, scaled, where none was asked for - capped, like everything here.
+        val drawnWidth = width ?: declaredWidth(svg)
+            ?.takeIf { scale > 1.0 }
+            ?.let { (it * scale).toInt().coerceAtMost(MOST_WIDTH) }
+
         val out = ByteArrayOutputStream()
         val transcoder = PNGTranscoder().apply {
+            /*
+             * White behind it, always. Issue #529: left alone the picture is
+             * transparent, and a diagram's black lines and text on a
+             * transparent ground are drawn onto whatever the reader's theme is
+             * - in Slack's dark one, onto near-black, where they vanish.
+             */
+            addTranscodingHint(PNGTranscoder.KEY_BACKGROUND_COLOR, Color.WHITE)
             /*
              * No scripts, and nothing fetched.
              *
@@ -84,8 +101,8 @@ class SvgRenderer {
             // A ceiling on what comes out, not only on what goes in: a small
             // document can declare an enormous canvas, and the bytes for it are
             // this server's memory.
-            if (width != null) {
-                addTranscodingHint(SVGAbstractTranscoder.KEY_WIDTH, width.toFloat())
+            if (drawnWidth != null) {
+                addTranscodingHint(SVGAbstractTranscoder.KEY_WIDTH, drawnWidth.toFloat())
             }
             addTranscodingHint(SVGAbstractTranscoder.KEY_MAX_WIDTH, MOST_WIDTH.toFloat())
             addTranscodingHint(SVGAbstractTranscoder.KEY_MAX_HEIGHT, MOST_HEIGHT.toFloat())
@@ -153,7 +170,17 @@ class SvgRenderer {
         data class Refused(val reason: String) : Drawing
     }
 
+    /** The width the document declares for itself, in pixels, if it says. */
+    private fun declaredWidth(svg: String): Int? =
+        DECLARED_WIDTH.find(svg.take(HEADER))?.groupValues?.get(1)?.toDoubleOrNull()?.toInt()?.takeIf { it > 0 }
+
     private companion object {
+        /** `<svg ... width="290px"`: the root's width, read off its opening tag. */
+        val DECLARED_WIDTH = Regex("<svg[^>]*?\\swidth=\"([0-9.]+)(?:px)?\"")
+
+        /** Far enough in to be past the prolog and the root's attributes. */
+        const val HEADER = 4096
+
         /** As long a document as this draws. A diagram, not a map. */
         const val MOST_SOURCE = 2 * 1024 * 1024
 

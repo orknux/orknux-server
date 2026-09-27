@@ -30,6 +30,24 @@ class SvgRendererTest {
         assertThat(bytes.take(8)).containsExactly(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
     }
 
+    /**
+     * Drawn larger than it declares, and on white. Issue #529: at its natural
+     * size a diagram's lines were a pixel wide, and with no background the PNG
+     * was transparent, so on a dark theme the lines were drawn onto near-black.
+     */
+    @Test
+    fun `a scale draws it larger, and nothing in it is transparent`() {
+        // A small mark in the middle of an otherwise empty canvas.
+        val sparse = """<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">""" +
+            """<rect x="15" y="15" width="10" height="10" fill="#000000"/></svg>"""
+        val scaled = renderer.png(sparse, null, 2.0) as SvgRenderer.Drawing.Drawn
+        assertThat(scaled.width).isEqualTo(80)
+
+        val image = javax.imageio.ImageIO.read(java.io.ByteArrayInputStream(scaled.png))
+        // The empty corner is opaque white, not transparent.
+        assertThat(image.getRGB(0, 0)).isEqualTo(0xFFFFFFFF.toInt())
+    }
+
     @Test
     fun `a width is honoured`() {
         val wide = renderer.png(square, 200) as SvgRenderer.Drawing.Drawn

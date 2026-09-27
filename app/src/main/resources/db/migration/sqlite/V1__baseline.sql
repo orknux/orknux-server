@@ -479,6 +479,7 @@ CREATE TABLE llm_model
     kind                         varchar(16) not null default 'CHAT',
     context_window               integer,
     max_output                   integer,
+    parallel_tool_calls          boolean,
     enabled                      boolean not null default true,
     token_limit                  integer,
     reset_interval               varchar(16) not null default 'MONTHLY',

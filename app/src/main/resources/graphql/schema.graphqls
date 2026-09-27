@@ -1198,6 +1198,8 @@ type Mutation {
     setMaxToolCallsAtOnce(count: Int!): InstallationSettings!
     "How long one stored value is kept, in characters. Issue #519."
     setLongestStoredValue(characters: Int!): InstallationSettings!
+    "How many times its own size a drawn picture is made. Issue #529."
+    setDrawingScale(times: Int!): InstallationSettings!
     "How long a session's log may grow before it is compacted; zero never. Issue #523."
     setSessionCompactAfterTokens(tokens: Int!): InstallationSettings!
     "How many of a compacted turn's steps survive word for word. Issue #522."
@@ -5152,6 +5154,12 @@ type Model {
     kind: ModelKind!
     contextWindow: Int
     maxOutput: Int
+    """
+    Whether one reply may ask for several tools at once. Null lets the provider
+    decide; false is one call per reply, which stops a model repeating the same
+    calls in one reply until its output limit. Issue #530.
+    """
+    parallelToolCalls: Boolean
     enabled: Boolean!
     "Null is no limit."
     tokenLimit: Float
@@ -5303,6 +5311,8 @@ input CreateModelInput {
     kind: ModelKind
     contextWindow: Int
     maxOutput: Int
+    "Null lets the provider decide; false is one tool call per reply. Issue #530."
+    parallelToolCalls: Boolean
     tokenLimit: Float
     resetInterval: ResetInterval
     requestsPerMinute: Int
@@ -5322,6 +5332,8 @@ input UpdateModelInput {
     kind: ModelKind
     contextWindow: Int
     maxOutput: Int
+    "Null lets the provider decide; false is one tool call per reply. Issue #530."
+    parallelToolCalls: Boolean
     inputCostPerMillion: Float
     outputCostPerMillion: Float
     "Which voice a SPEECH model reads in; the names are the provider's own."
@@ -6329,6 +6341,15 @@ type InstallationSettings {
     longestStoredValue: Int!
     "A thousand, unless somebody has said otherwise."
     longestStoredValueConfigured: Int!
+    """
+    How many times its own size a diagram or chart is drawn as a picture.
+
+    At its natural size a diagram has one-pixel lines that barely show on a
+    phone. Issue #529.
+    """
+    drawingScale: Int!
+    "Two, unless somebody has said otherwise."
+    drawingScaleConfigured: Int!
     """
     How long a session's log may grow before it is compacted, in tokens.
 
