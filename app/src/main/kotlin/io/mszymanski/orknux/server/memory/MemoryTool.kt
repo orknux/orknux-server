@@ -34,6 +34,11 @@ class MemoryTool(
     /** The writing half, offered beside the reading one. */
     fun saveDescriptor(): ToolDescriptor = SAVE_DESCRIPTOR
 
+    /** Correcting and removing what was written down. Issue #571. */
+    fun updateDescriptor(): ToolDescriptor = UPDATE_DESCRIPTOR
+
+    fun deleteDescriptor(): ToolDescriptor = DELETE_DESCRIPTOR
+
     /**
      * The catalogs this agent may read, as the screen would name them.
      *
@@ -230,20 +235,7 @@ class MemoryTool(
      */
     @Transactional
     fun save(agent: Agent, catalog: String?, title: String?, content: String?): MemorySaved {
-        val allowed = catalogsFor(agent)
-        if (allowed.isEmpty()) throw MemorySaveRefusedException("This agent has no memory catalog to write to")
-
-        val into = when {
-            catalog != null -> allowed.firstOrNull { it.name.equals(catalog, ignoreCase = true) }
-                ?: throw MemorySaveRefusedException(
-                    "This agent has no catalog called $catalog. It holds: " + allowed.joinToString { it.name },
-                )
-
-            allowed.size == 1 -> allowed.single()
-            else -> throw MemorySaveRefusedException(
-                "Say which catalog to save into. This agent holds: " + allowed.joinToString { it.name },
-            )
-        }
+        val into = writableCatalog(agent, catalog)
 
         val said = title?.trim().orEmpty()
         val kept = content?.trim().orEmpty()
@@ -284,6 +276,91 @@ class MemoryTool(
             actor = agent.name,
         )
         return MemorySaved(catalog = into.name, title = said, updated = false)
+    }
+
+    /**
+     * Rewrites one memory: its content, its title, or both. Issue #571.
+     *
+     * memory_save updates a memory by writing its title again, but cannot
+     * rename one - so a memory filed under the wrong name could only be
+     * shadowed by a second, and the first stayed, found by search and wrong.
+     * Here the memory must exist, and a new title must not be taken: a rename
+     * onto another memory would silently lose it.
+     */
+    @Transactional
+    fun update(agent: Agent, catalog: String?, title: String?, content: String?, newTitle: String?): MemorySaved {
+        val into = writableCatalog(agent, catalog)
+        val said = title?.trim().orEmpty()
+        if (said.isEmpty()) throw MemorySaveRefusedException("Say which memory to update, by its title")
+        val held = memories.findByCatalogIdAndTitle(into.id, said)
+            ?: throw MemorySaveRefusedException(
+                "There is no memory called \"$said\" in ${into.name}. memory_search with that catalog lists them.",
+            )
+        val renamed = newTitle?.trim()?.takeIf { it.isNotEmpty() && it != said }
+        val kept = content?.trim()?.takeIf { it.isNotEmpty() }
+        if (renamed == null && kept == null) {
+            throw MemorySaveRefusedException("Give the new content, a new title, or both")
+        }
+        if (renamed != null) {
+            if (renamed.length > MAX_TITLE) throw MemorySaveRefusedException("A title fits in $MAX_TITLE characters")
+            if (memories.findByCatalogIdAndTitle(into.id, renamed) != null) {
+                throw MemorySaveRefusedException(
+                    "${into.name} already has a memory called \"$renamed\". Delete or rename that one first.",
+                )
+            }
+            held.title = renamed
+        }
+        if (kept != null) held.content = kept
+        held.lastModifiedAt = java.time.OffsetDateTime.now()
+        held.lastModifiedBy = agent.name
+        memories.save(held)
+        auditRecorder.recordAutomated(
+            into.workspaceId,
+            WorkspaceAuditCategory.MEMORY,
+            "Memory $said " + (renamed?.let { "renamed to $it" } ?: "updated") + " in ${into.name} by the agent ${agent.name}",
+            actor = agent.name,
+        )
+        return MemorySaved(catalog = into.name, title = renamed ?: said, updated = true)
+    }
+
+    /** Removes one memory by its title. Issue #571. */
+    @Transactional
+    fun delete(agent: Agent, catalog: String?, title: String?): MemoryDeleted {
+        val into = writableCatalog(agent, catalog)
+        val said = title?.trim().orEmpty()
+        if (said.isEmpty()) throw MemorySaveRefusedException("Say which memory to delete, by its title")
+        val held = memories.findByCatalogIdAndTitle(into.id, said)
+            ?: throw MemorySaveRefusedException(
+                "There is no memory called \"$said\" in ${into.name}. memory_search with that catalog lists them.",
+            )
+        memories.delete(held)
+        auditRecorder.recordAutomated(
+            into.workspaceId,
+            WorkspaceAuditCategory.MEMORY,
+            "Memory $said deleted from ${into.name} by the agent ${agent.name}",
+            actor = agent.name,
+        )
+        return MemoryDeleted(catalog = into.name, title = said)
+    }
+
+    /**
+     * The catalog a write goes to: the one named, which the agent must hold, or
+     * the only one it holds. Never a tie-break, so nothing is filed or removed
+     * somewhere the agent did not mean.
+     */
+    private fun writableCatalog(agent: Agent, catalog: String?): MemoryCatalogView {
+        val allowed = catalogsFor(agent)
+        if (allowed.isEmpty()) throw MemorySaveRefusedException("This agent has no memory catalog to write to")
+        return when {
+            catalog != null -> allowed.firstOrNull { it.name.equals(catalog, ignoreCase = true) }
+                ?: throw MemorySaveRefusedException(
+                    "This agent has no catalog called $catalog. It holds: " + allowed.joinToString { it.name },
+                )
+            allowed.size == 1 -> allowed.single()
+            else -> throw MemorySaveRefusedException(
+                "Say which catalog. This agent holds: " + allowed.joinToString { it.name },
+            )
+        }
     }
 
     private companion object {
@@ -348,8 +425,42 @@ class MemoryTool(
                 ),
             ),
         )
+
+        val UPDATE_DESCRIPTOR = ToolDescriptor(
+            name = "memory_update",
+            description = "Corrects something this workspace has written down: gives a memory new content, " +
+                "a new title, or both. The memory must exist - find it with memory_search. To add a new " +
+                "one, use memory_save.",
+            parameters = listOf(
+                ToolParameter("title", "The memory's title as it is now.", required = true),
+                ToolParameter("content", "What it should say instead. Left out, the content is kept.", required = false),
+                ToolParameter("newTitle", "What to file it under instead. Left out, the title is kept.", required = false),
+                ToolParameter(
+                    "catalog",
+                    "Which catalog it is in, by name. Optional while the agent holds exactly one.",
+                    required = false,
+                ),
+            ),
+        )
+
+        val DELETE_DESCRIPTOR = ToolDescriptor(
+            name = "memory_delete",
+            description = "Removes one memory this workspace has written down, by its title - for something " +
+                "wrong, out of date, or recorded twice. It cannot be undone.",
+            parameters = listOf(
+                ToolParameter("title", "The memory's title.", required = true),
+                ToolParameter(
+                    "catalog",
+                    "Which catalog it is in, by name. Optional while the agent holds exactly one.",
+                    required = false,
+                ),
+            ),
+        )
     }
 }
+
+/** What one deletion came to. Issue #571. */
+data class MemoryDeleted(val catalog: String, val title: String, val deleted: Boolean = true)
 
 /** What one save came to, in the shape an agent is handed back. */
 data class MemorySaved(

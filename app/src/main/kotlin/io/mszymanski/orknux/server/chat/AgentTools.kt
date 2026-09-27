@@ -157,6 +157,9 @@ class AgentTools(
             // The writing half of the same grant: an agent given a catalog can
             // add to what it holds, so a lesson outlives the conversation.
             add(spec(memories.saveDescriptor()))
+            // And correcting or removing what is there. Issue #571.
+            add(spec(memories.updateDescriptor()))
+            add(spec(memories.deleteDescriptor()))
         }
 
         // orknux itself, for an agent granted it. Scoped to the agent's own
@@ -605,6 +608,20 @@ class AgentTools(
                     title = argument(call, "title"),
                     content = argument(call, "content"),
                 ),
+            )
+
+            "memory_update" -> mapper.writeValueAsString(
+                memories.update(
+                    agent = agent,
+                    catalog = argument(call, "catalog"),
+                    title = argument(call, "title"),
+                    content = argument(call, "content"),
+                    newTitle = argument(call, "newTitle"),
+                ),
+            )
+
+            "memory_delete" -> mapper.writeValueAsString(
+                memories.delete(agent = agent, catalog = argument(call, "catalog"), title = argument(call, "title")),
             )
 
             // Anything else is the workspace's own, and only if granted: a name

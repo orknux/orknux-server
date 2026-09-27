@@ -108,7 +108,7 @@ class BuiltInToolsTest(
         assertThat(listed.filter { it.governance == BuiltInGovernance.SKILL_CATALOGS }.map { it.name })
             .containsExactlyInAnyOrder("skill_list", "skill_load", "skill_search")
         assertThat(listed.filter { it.governance == BuiltInGovernance.MEMORY_CATALOGS }.map { it.name })
-            .containsExactlyInAnyOrder("memory_search", "memory_save")
+            .containsExactlyInAnyOrder("memory_search", "memory_save", "memory_update", "memory_delete")
         assertThat(listed.filter { it.governance == BuiltInGovernance.ORKNUX_ACCESS }.map { it.name })
             .isNotEmpty
             .allMatch { it.startsWith("orknux_") }

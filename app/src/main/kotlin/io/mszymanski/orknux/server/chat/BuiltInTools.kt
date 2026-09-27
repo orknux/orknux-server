@@ -92,6 +92,8 @@ class BuiltInTools(
         skills.descriptors().forEach { add(BuiltInTool(it.name, BuiltInGovernance.SKILL_CATALOGS)) }
         add(BuiltInTool(memories.descriptor().name, BuiltInGovernance.MEMORY_CATALOGS))
         add(BuiltInTool(memories.saveDescriptor().name, BuiltInGovernance.MEMORY_CATALOGS))
+        add(BuiltInTool(memories.updateDescriptor().name, BuiltInGovernance.MEMORY_CATALOGS))
+        add(BuiltInTool(memories.deleteDescriptor().name, BuiltInGovernance.MEMORY_CATALOGS))
         /*
          * As an agent is offered them: an agent's scope may write, since starting
          * a workflow is most of what the grant is for, and has nobody at a screen

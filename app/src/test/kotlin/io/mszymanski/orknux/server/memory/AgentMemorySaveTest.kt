@@ -7,6 +7,7 @@ import io.mszymanski.orknux.server.workspace.Workspace
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRepository
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -134,5 +135,49 @@ class AgentMemorySaveTest(
             assertThat(it.content).isEqualTo("order-processing-service is OPS.")
             assertThat(it.lastModifiedBy).isEqualTo(agent.name)
         })
+    }
+
+    /* -------------------------------------------- correcting and removing -- */
+
+    private fun held() = memories.findByCatalogIdInOrderByLastModifiedAtDesc(setOf(requireNotNull(catalog.id)))
+
+    /** A memory renamed and rewritten in place, not shadowed by a second. Issue #571. */
+    @Test
+    fun `an agent can rename a memory and change what it says`() {
+        memoryTool.save(agent, catalog.name, "OPS abbrev", "OPS is the order service.")
+
+        val updated = memoryTool.update(agent, catalog.name, "OPS abbrev", "OPS is order-processing-service.", "OPS abbreviation")
+
+        assertThat(updated.title).isEqualTo("OPS abbreviation")
+        assertThat(held()).singleElement().satisfies({
+            assertThat(it.title).isEqualTo("OPS abbreviation")
+            assertThat(it.content).isEqualTo("OPS is order-processing-service.")
+            assertThat(it.lastModifiedBy).isEqualTo(agent.name)
+        })
+    }
+
+    @Test
+    fun `a rename onto another memory is refused, and a memory that is not there is said so`() {
+        memoryTool.save(agent, catalog.name, "First", "one")
+        memoryTool.save(agent, catalog.name, "Second", "two")
+
+        assertThatThrownBy { memoryTool.update(agent, catalog.name, "First", null, "Second") }
+            .hasMessageContaining("already has a memory called \"Second\"")
+        assertThatThrownBy { memoryTool.update(agent, catalog.name, "Nope", "x", null) }
+            .hasMessageContaining("no memory called \"Nope\"")
+        assertThat(held().map { it.title }).containsExactlyInAnyOrder("First", "Second")
+    }
+
+    @Test
+    fun `an agent can delete a memory, and the audit names it`() {
+        memoryTool.save(agent, catalog.name, "Stale fact", "Deploys are on Fridays.")
+
+        val deleted = memoryTool.delete(agent, catalog.name, "Stale fact")
+
+        assertThat(deleted.deleted).isTrue()
+        assertThat(held()).isEmpty()
+        assertThat(audit.findAll().map { it.message }).anyMatch { it.contains("Stale fact deleted") && it.contains(agent.name) }
+        assertThatThrownBy { memoryTool.delete(agent, catalog.name, "Stale fact") }
+            .hasMessageContaining("no memory called")
     }
 }
