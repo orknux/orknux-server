@@ -280,28 +280,40 @@ class BuiltInTools(
          * that knows when.
          */
         /**
-         * The lent tools, in the form of the briefing's list of tools. Issue #546.
+         * The briefing with the lent tools put into its list of tools. Issue #546.
          *
-         * That list is built from the agent's own tools and closes with "a tool
-         * that is not in this list is not one you have" - and a shed's tools
-         * are lent per session, so none of them was in it. Session 520: asked
-         * three times to zip a report, the model read its list, found no zip,
-         * and said it could not, while zip_files was one tool_load away.
+         * That list is built from the agent's own tools before there is a
+         * session, and closes with "a tool that is not in this list is not one
+         * you have" - and a shed's tools are lent per session, so none of them
+         * was in it. Session 520: asked three times to zip a report, the model
+         * found no zip in its list and said it could not, while zip_files was
+         * one tool_load away. Merged into the one list, in its order, rather
+         * than a second list after it: two lists of your tools is a question
+         * about which one counts.
          */
-        private fun inventory(agent: Agent, lent: List<ToolSpec>): String? {
-            if (lent.isEmpty()) return null
-            return buildString {
-                append("These are yours too, and belong to the list of your tools above:")
-                lent.sortedBy { it.name }.forEach { spec ->
-                    val said = spec.summary?.trim()?.ifEmpty { null }
-                        ?: spec.description.trim().substringBefore(". ").take(LENT_SUMMARY_CHARS)
-                    appendLine()
-                    append("- ").append(spec.name)
-                    append(if (carried(agent, spec.name)) " (loaded)" else " (load it first)")
-                    if (said.isNotEmpty()) append(": ").append(said)
-                }
+        fun listed(system: String?, agent: Agent, lent: List<ToolSpec>): String? {
+            if (system == null || lent.isEmpty()) return system
+            val lines = system.split(NL)
+            val listed = lines.indices.filter { ENTRY.containsMatchIn(lines[it]) }
+            if (listed.isEmpty()) return system
+            val first = listed.first()
+            val last = listed.last()
+            val present = listed.mapNotNull { ENTRY.find(lines[it])?.groupValues?.get(1) }.toSet()
+            val added = lent.filter { it.name !in present }.map { spec ->
+                val said = spec.summary?.trim()?.ifEmpty { null }
+                    ?: spec.description.trim().substringBefore(". ").take(LENT_SUMMARY_CHARS)
+                "- " + spec.name + (if (carried(agent, spec.name)) " (loaded)" else " (load it first)") +
+                    (if (said.isEmpty()) "" else ": " + said)
             }
+            val merged = (lines.subList(first, last + 1) + added)
+                .sortedBy { ENTRY.find(it)?.groupValues?.get(1) ?: it }
+            return (lines.subList(0, first) + merged + lines.subList(last + 1, lines.size)).joinToString(NL)
         }
+
+        /** A line of the briefing's list of tools: "- name (loaded): what it does". */
+        private val ENTRY = Regex("^- ([A-Za-z0-9_.:-]+) [(](loaded|load it first)[)]")
+
+        private val NL = 10.toChar().toString()
 
         /** How much of a lent tool's description stands in for a summary it does not have. */
         private const val LENT_SUMMARY_CHARS = 100
@@ -318,8 +330,7 @@ class BuiltInTools(
                  * wrapper that forgot to pass it on would take the paragraph
                  * away from every agent while leaving the tools in place.
                  */
-                override fun briefing(): String? =
-                    listOfNotNull(shed.briefing(), inventory(agent, specs())).joinToString("\n\n").ifEmpty { null }
+                override fun briefing(): String? = shed.briefing()
 
                 override fun handles(name: String): Boolean = granted(agent, name) && shed.handles(name)
 

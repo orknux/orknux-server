@@ -333,8 +333,14 @@ class AgentConversation(
          * says that the agent has them and when to reach for one, which is the
          * half a model acts on - see [ToolShed.briefing]. Issue #445.
          */
-        // Through the lending, which lists what it lends beside the agent's own tools. Issue #546.
-        val told = briefed(turns, lending?.briefing())
+        // And what it lends, put into the briefing's list of tools. Issue #546.
+        val told = briefed(turns, lending?.briefing()).map { turn ->
+            if (turn.role == "system") {
+                turn.copy(content = BuiltInTools.listed(turn.content, agent, lending?.specs().orEmpty()) ?: turn.content)
+            } else {
+                turn
+            }
+        }
 
         /*
          * Whether everything fits in one request.

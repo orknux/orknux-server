@@ -211,15 +211,32 @@ class BuiltInToolsTest(
      * with the scratchpads - was never in it.
      */
     @Test
-    fun `a lent tool is named in the briefing, marked loaded or load it first`() {
+    fun `a lent tool is merged into the one list of tools, marked loaded or load it first`() {
         val session = sessions.open(workspaceId, "test", "built-ins-${System.nanoTime()}")
         val shed = requireNotNull(notes.shed(session, "Responder"))
+        val nl = 10.toChar().toString()
+        val briefing = listOf(
+            "These are the tools you have.",
+            "- agent_asks (loaded): Lists the agents you asked",
+            "- web_search (load it first): Searches the web",
+            "",
+            "Something after the list.",
+        ).joinToString(nl)
 
         val found = agent(tools = BuiltInTools.GRANTED, required = emptyList(), ceiling = 10)
-        assertThat(BuiltInTools.lentTo(found, shed)?.briefing()).contains("- note_to_self (load it first)")
+        val lent = requireNotNull(BuiltInTools.lentTo(found, shed)).specs()
+        val merged = requireNotNull(BuiltInTools.listed(briefing, found, lent)).split(nl)
+        assertThat(merged).containsSubsequence(
+            "- agent_asks (loaded): Lists the agents you asked",
+            merged.first { it.startsWith("- note_to_self (load it first)") },
+            "- web_search (load it first): Searches the web",
+            "",
+            "Something after the list.",
+        )
+        assertThat(merged.joinToString(nl)).doesNotContain("These are yours too")
 
         val carried = agent(tools = BuiltInTools.GRANTED)
-        assertThat(BuiltInTools.lentTo(carried, shed)?.briefing()).contains("- note_to_self (loaded)")
+        assertThat(BuiltInTools.listed(briefing, carried, lent)).contains("- note_to_self (loaded)")
     }
 
     /** A shed's own names - `task_done`, the chat's drawing - are not the list's to switch. */
