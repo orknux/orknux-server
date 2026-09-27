@@ -80,6 +80,9 @@ object SettingNames {
     const val WORKING_DAY_OPENS = "working.day.opens"
     const val WORKING_DAY_CLOSES = "working.day.closes"
     const val WORKING_HOLIDAYS = "working.holidays"
+
+    /** The hosts the http capability may reach. Issue #509. */
+    const val HTTP_HOSTS = "http.hosts"
     const val TOOLS_NAMED_IN_SEARCH = "tools.named.in.search"
 
     /** How many tools fit in the briefing before their lines start being cut. Issue #481. */
@@ -671,6 +674,29 @@ class InstallationSettings(
         val wrong = written.firstOrNull { runCatching { java.time.LocalDate.parse(it) }.isFailure }
         require(wrong == null) { "\"$wrong\" is not a date; write them as 2026-12-25, separated by commas." }
         write(SettingNames.WORKING_HOLIDAYS, written.joinToString(","), by)
+    }
+
+    /**
+     * The hosts `http_get` and its siblings may reach. Issue #509.
+     *
+     * Empty refuses nothing, which is as wide as the installation's own proxy
+     * rules and no wider - and is a choice worth making deliberately rather
+     * than discovering. Named, everything else is refused before a request is
+     * made, which matters because an agent reads pages for a living and a model
+     * talked into fetching some other address by something it read is the shape
+     * of the problem.
+     *
+     * A bare name covers its subdomains: `example.com` reaches
+     * `api.example.com`.
+     */
+    fun httpHosts(): String = settings.findByIdOrNull(SettingNames.HTTP_HOSTS)?.value.orEmpty()
+
+    @Transactional
+    fun setHttpHosts(hosts: String, by: String) {
+        val written = hosts.split(',', ';', ' ', 10.toChar()).map { it.trim() }.filter { it.isNotEmpty() }
+        val wrong = written.firstOrNull { it.contains("/") || it.contains(":") }
+        require(wrong == null) { "\"$wrong\" is not a host; write the name alone, like api.example.com." }
+        write(SettingNames.HTTP_HOSTS, written.joinToString(","), by)
     }
 
     private fun write(name: String, value: String, by: String) {

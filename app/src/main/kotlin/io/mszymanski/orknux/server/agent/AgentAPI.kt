@@ -411,7 +411,16 @@ class AgentAPI(
              * old list-of-grants did and is what "these are its tools" means.
              */
             val given = input.tools.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
-            agent.tools = given.filterNot { BuiltInTools.switchable(it) }.toMutableList()
+            /*
+             * The ones that reach outside stay in `tools`, named to be had
+             * rather than named to be refused. Issues #509 and #510: an http
+             * call and a web search are off until somebody asks for them, so
+             * the grant has to be a positive list - the inverted one below
+             * would switch a new one on everywhere the day it shipped.
+             */
+            agent.tools = given
+                .filter { !BuiltInTools.switchable(it) || BuiltInTools.reaches(it) }
+                .toMutableList()
             /*
              * And the built-ins, which are only this agent's to hide where the
              * workspace has said so. Issue #482.
@@ -428,6 +437,14 @@ class AgentAPI(
              */
             val allowed = workspaces.findByIdOrNull(agent.workspaceId)?.unsafeBuiltInTools == true
             agent.hiddenTools = if (allowed) BuiltInTools.hiddenBy(given) else mutableListOf()
+            /*
+             * The reaching ones are not gated by that switch, deliberately. It
+             * exists to stop somebody quietly crippling an agent by hiding what
+             * it needs, and switching *off* something that makes requests to
+             * somewhere else is the cautious direction - making an
+             * administrator accept a scary workspace setting before they may do
+             * the careful thing teaches the wrong lesson about the setting.
+             */
         }
         /*
          * The three switches that were columns, kept as a way of saying the same

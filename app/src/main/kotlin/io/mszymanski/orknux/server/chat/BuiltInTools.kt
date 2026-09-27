@@ -36,6 +36,17 @@ enum class BuiltInGovernance {
     /** By its name in the agent's Tools list; carried or found per the Always mark. */
     GRANT,
 
+    /**
+     * The same, but off until somebody asks for it, and with no unsafe-
+     * visibility gate in front of the switch. Issues #509 and #510.
+     *
+     * For the built-ins that reach outside this installation. They are not
+     * what the product is built on - nothing breaks without them - and they
+     * cost money, make requests to addresses that a page may have suggested,
+     * and belong to an administrator's decision rather than to a default.
+     */
+    GRANT_REACHING,
+
     /** Offered while the agent holds any skill catalog. */
     SKILL_CATALOGS,
 
@@ -77,6 +88,7 @@ class BuiltInTools(
     /** Every built-in, the grant-governed first and in the order the form lists them. */
     fun all(): List<BuiltInTool> = buildList {
         GRANTED.forEach { add(BuiltInTool(it, BuiltInGovernance.GRANT)) }
+        REACHING.forEach { add(BuiltInTool(it, BuiltInGovernance.GRANT_REACHING)) }
         skills.descriptors().forEach { add(BuiltInTool(it.name, BuiltInGovernance.SKILL_CATALOGS)) }
         add(BuiltInTool(memories.descriptor().name, BuiltInGovernance.MEMORY_CATALOGS))
         add(BuiltInTool(memories.saveDescriptor().name, BuiltInGovernance.MEMORY_CATALOGS))
@@ -161,8 +173,44 @@ class BuiltInTools(
 
         private val GRANTED_SET = GRANTED.toSet()
 
+        /**
+         * The built-ins that reach outside this installation, off until somebody
+         * says otherwise. Issues #509 and #510.
+         *
+         * Everything in [GRANTED] is on by default and stays on, because the
+         * product cannot stand behind an agent missing its own tools - that is
+         * what the unsafe-visibility switch is about. These are the opposite
+         * case and want the opposite rule.
+         *
+         * **Off by default**, because they make requests to somewhere else.
+         * Fetching a URL and searching the web are not like drawing a chart:
+         * they cost somebody money, they can be pointed at an address a page
+         * suggested, and an agent that reads pages for a living is exactly the
+         * thing you would not hand an unattended fetch to. An administrator who
+         * wants one turns it on, having decided.
+         *
+         * **And freely switchable**, with no unsafe-visibility gate in front.
+         * That gate exists to stop somebody quietly crippling an agent by
+         * hiding what it needs; switching *off* a tool that reaches the network
+         * is the safe direction, and making somebody accept a scary workspace
+         * setting before they can do the cautious thing teaches the wrong
+         * lesson about the setting.
+         */
+        val REACHING: List<String> = listOf(
+            "http_get",
+            "http_request",
+            "http_download",
+            "web_search",
+            "web_searchImages",
+        )
+
+        private val REACHING_SET = REACHING.toSet()
+
         /** Whether this name is one of the built-ins switched on the Tools list. */
-        fun switchable(name: String): Boolean = name in GRANTED_SET
+        fun switchable(name: String): Boolean = name in GRANTED_SET || name in REACHING_SET
+
+        /** Whether this one reaches outside, and so is off until it is asked for. */
+        fun reaches(name: String): Boolean = name in REACHING_SET
 
         /**
          * Whether this agent may be offered a tool of this name.
@@ -180,10 +228,20 @@ class BuiltInTools(
          * "yes" to a name nobody has ever had an opinion about, which is what a
          * built-in ought to be.
          */
-        fun granted(agent: Agent, name: String): Boolean = name !in GRANTED_SET || name !in agent.hiddenTools
+        fun granted(agent: Agent, name: String): Boolean = when {
+            /*
+             * Named to be had, rather than named to be refused. The inverted
+             * list below is right for a tool the product wants every agent to
+             * hold; it is wrong for one that reaches the network, where a name
+             * nobody has had an opinion about must answer "no".
+             */
+            name in REACHING_SET -> name in agent.tools
+            else -> name !in GRANTED_SET || name !in agent.hiddenTools
+        }
 
         /** The built-ins this agent holds, in the order the list declares them. */
-        fun grantedTo(agent: Agent): List<String> = GRANTED.filter { it !in agent.hiddenTools }
+        fun grantedTo(agent: Agent): List<String> =
+            GRANTED.filter { it !in agent.hiddenTools } + REACHING.filter { it in agent.tools }
 
         /** The ones it does not, which is what the agent stores; anything else given is ignored. */
         fun hiddenBy(given: Collection<String>): MutableList<String> =
@@ -199,7 +257,9 @@ class BuiltInTools(
          * carried here, because whether *it* is found is somebody else's decision.
          */
         fun carried(agent: Agent, name: String): Boolean =
-            name !in GRANTED_SET || agent.maxTools == null || name in agent.requiredTools
+            (name !in GRANTED_SET && name !in REACHING_SET) ||
+                agent.maxTools == null ||
+                name in agent.requiredTools
 
         /**
          * The shed as this agent may use it: every tool it lends that the agent

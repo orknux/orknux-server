@@ -181,6 +181,13 @@ type Query {
     about the workspace it will run for.
     """
     workspacePlugins(workspaceId: ID!): [WorkspacePlugin!]!
+    """
+    What this workspace searches the web with. Issue #510.
+
+    A workspace's own rather than the installation's, because the key is billed
+    to whoever set it and two teams may reasonably answer differently.
+    """
+    workspaceSearch(workspaceId: ID!): WorkspaceSearch!
     "What was attached to one chat, oldest first."
     chatAttachments(chatId: ID!): [ChatAttachment!]!
     """
@@ -1022,6 +1029,18 @@ type Mutation {
     `POST /api/plugins` rather than described as a mutation.
     """
     unloadPlugin(id: ID!): Boolean!
+    """
+    Sets what a workspace searches with. Issue #510.
+
+    An empty apiKey clears it and a null leaves it alone, which is what lets a
+    form save the engine without sending back a secret it was never shown.
+    """
+    setWorkspaceSearch(
+        workspaceId: ID!,
+        engine: String,
+        apiKey: String,
+        composeAnswer: Boolean
+    ): WorkspaceSearch!
     """
     Switches a plugin off, or back on. Administrators only.
 
@@ -5897,6 +5916,15 @@ type BuiltInTool {
 enum BuiltInToolGovernance {
     "Its name in the agent's Tools list."
     GRANT
+    """
+    Its name in the agent's Tools list, but off until somebody asks for it, and
+    switchable without the workspace's unsafe-visibility setting.
+
+    For the built-ins that reach outside this installation: they cost money,
+    they make requests to addresses a page may have suggested, and nothing
+    breaks without them.
+    """
+    GRANT_REACHING
     "Any skill catalog granted."
     SKILL_CATALOGS
     "Any memory catalog granted."
@@ -5969,6 +5997,30 @@ type WorkspacePlugin {
     parameters below are marked on.
     """
     missing: [String!]!
+}
+
+"""
+What a workspace searches the web with.
+
+The key itself is never here. It is encrypted in its column and answered only
+as [keySet]: a screen that could read one back is a screen that puts a
+credential in somebody's browser history.
+"""
+type WorkspaceSearch {
+    "Which index: tavily or brave."
+    engine: String!
+    "Whether a key is set. Never the key."
+    keySet: Boolean!
+    "Whether tavily also composes a short answer over the results, which costs more."
+    composeAnswer: Boolean!
+    "The indexes this workspace may choose, and why it would."
+    engines: [SearchEngineChoice!]!
+}
+
+"One index a workspace may search, with the sentence a form shows beside it."
+type SearchEngineChoice {
+    name: String!
+    description: String!
 }
 
 "One of a plugin's parameters, and what this workspace set it to."
