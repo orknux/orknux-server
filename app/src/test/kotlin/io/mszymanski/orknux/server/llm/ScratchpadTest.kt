@@ -122,6 +122,24 @@ class ScratchpadTest(
         assertThat(store.get(session, "report.html")).contains("src=\\\"picture.30\\\"")
     }
 
+    /** A kept SVG put into a page by its key, not typed. Issue #550. */
+    @Test
+    fun `a replacement can come from a key, and a kept svg goes in as its markup`() {
+        val svg = "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"4\" height=\"4\"/></svg>"
+        store.put(session, "chart.1.svg", "\"" + java.util.Base64.getEncoder().encodeToString(svg.toByteArray()) + "\"")
+        ok(pads.create(session, "page.html", "The page", "<h1>Report</h1><p>CHART</p>"))
+        val shed = requireNotNull(tools.shed(session))
+
+        val said = shed.run(
+            io.mszymanski.orknux.connector.model.ToolCall(
+                "1", "scratchpad_replace", """{"name":"page.html","old":"CHART","newKey":"chart.1.svg"}""",
+            ),
+        )
+
+        assertThat(said).contains("\"replaced\"")
+        assertThat(requireNotNull(pads.find(session, "page.html")).content).contains("<rect width=\"4\"")
+    }
+
     private fun ok(result: ScratchpadResult): ScratchpadResult.Ok {
         assertThat(result).isInstanceOf(ScratchpadResult.Ok::class.java)
         return result as ScratchpadResult.Ok

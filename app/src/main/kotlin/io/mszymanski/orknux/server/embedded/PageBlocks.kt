@@ -170,8 +170,13 @@ class PageBlocks(
         val asked = runCatching { mapper.readTree(source) }.getOrNull()
             ?: return Result.failure(IllegalArgumentException("that chart block is not valid JSON"))
 
-        val kind = asked.path(KIND).stringValue()?.trim().orEmpty().ifEmpty { "bar" }
-        val title = asked.path(TITLE).stringValue()?.trim()?.ifEmpty { null }
+        /*
+         * Read only where they are text. Issue #547: Jackson 3's stringValue()
+         * throws on a missing node rather than answering null, so a chart block
+         * with no title - the usual kind - failed the whole document.
+         */
+        val kind = asked.path(KIND).takeIf { it.isTextual }?.stringValue()?.trim().orEmpty().ifEmpty { "bar" }
+        val title = asked.path(TITLE).takeIf { it.isTextual }?.stringValue()?.trim()?.ifEmpty { null }
         val values = asked.path(VALUES)
         if (values.isEmpty) {
             return Result.failure(
@@ -223,6 +228,11 @@ class PageBlocks(
             image.replaceWith(note("picture not drawn: $src"))
             return
         }
+        // An SVG goes in as vectors, the way a diagram block does. Issue #549.
+        if ((held.contentType ?: sniffed(held.bytes)) == "image/svg+xml") {
+            image.replaceWith(inline(String(held.bytes, Charsets.UTF_8)))
+            return
+        }
         image.attr("src", dataUri(held))
     }
 
@@ -248,7 +258,8 @@ class PageBlocks(
 
     /** One block drawn, or a note saying it was not, with the reason kept. */
     private fun replace(block: Element, problems: MutableList<String>, what: String, draw: () -> Result<String>) {
-        draw()
+        // A drawing that throws is one block not drawn, never the whole document. Issue #547.
+        runCatching(draw).getOrElse { Result.failure(it) }
             .onSuccess { svg -> block.replaceWith(inline(svg)) }
             .onFailure { why ->
                 val said = why.message ?: "it could not be drawn"

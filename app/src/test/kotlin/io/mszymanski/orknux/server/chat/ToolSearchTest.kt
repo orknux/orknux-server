@@ -274,6 +274,21 @@ class ToolSearchTest(
         assertThat(found).containsExactly("slack_postMessage")
     }
 
+    /**
+     * A repeat names what it may have meant. Issue #548: llama.cpp writes only
+     * offered tools, so a model reaching for an unloaded one called its loaded
+     * sibling six times over.
+     */
+    @Test
+    fun `a repeated call names the unloaded tools of its family`() {
+        val said = unloadedBeside("jira_createIssue", granted, setOf("jira_createIssue"))
+        assertThat(said).contains("jira_searchIssues").contains(ToolSearchTools.FIND)
+            .doesNotContain("slack_postMessage").doesNotContain("Not loaded yet: jira_createIssue")
+
+        assertThat(unloadedBeside("jira_createIssue", granted, setOf("jira_createIssue", "jira_searchIssues"))).isNull()
+        assertThat(unloadedBeside("current_time", granted, emptySet())).isNull()
+    }
+
     /** A list sent as the text of one - every parameter reaches the model typed as a string. */
     @Test
     fun `a list of names sent as text is read as the list`() {

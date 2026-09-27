@@ -46,7 +46,7 @@ class DiagramCapability(
                 "page as vectors.",
             params = listOf(
                 EmbeddedParam(SOURCE, ValueType.STRING, "The diagram source.", required = true),
-                EmbeddedParam(FORMAT, ValueType.STRING, "\"png\" to look at, or \"svg\" to put in a page."),
+                EmbeddedParam(FORMAT, ValueType.STRING, "\"png\" (the default) or \"svg\". Either way the answer is a contentKey, not the picture."),
             ),
         ),
     )
@@ -74,9 +74,7 @@ class DiagramCapability(
         }
 
         val wanted = text(asked, FORMAT)?.trim()?.lowercase()?.ifEmpty { null } ?: "png"
-        if (wanted == "svg") {
-            return mapper.writeValueAsString(linkedMapOf("svg" to drawn.svg, "kind" to drawn.kind))
-        }
+        if (wanted == "svg") return vectors(mapper, scratch, sessionId, "diagram", drawn.svg, drawn.kind)
 
         return when (val picture = svgs.png(drawn.svg, null, installation.drawingScale().toDouble())) {
             is SvgRenderer.Drawing.Refused -> refusal(picture.reason)
@@ -145,7 +143,7 @@ class ChartCapability(
                 EmbeddedParam(KIND, ValueType.STRING, "One of ${ChartRenderer.Kind.offered()}.", required = true),
                 EmbeddedParam(VALUES, ValueType.MAP, "A label and a number each.", required = true),
                 EmbeddedParam(TITLE, ValueType.STRING, "What the chart is called."),
-                EmbeddedParam(FORMAT, ValueType.STRING, "\"png\" to look at, or \"svg\" to put in a page."),
+                EmbeddedParam(FORMAT, ValueType.STRING, "\"png\" (the default) or \"svg\". Either way the answer is a contentKey, not the picture."),
             ),
         ),
     )
@@ -188,9 +186,7 @@ class ChartCapability(
         }
 
         val wanted = asked.path(FORMAT).takeIf { it.isTextual }?.stringValue()?.trim()?.lowercase()?.ifEmpty { null }
-        if (wanted == "svg") {
-            return mapper.writeValueAsString(linkedMapOf("svg" to drawn.svg, "kind" to drawn.kind))
-        }
+        if (wanted == "svg") return vectors(mapper, scratch, sessionId, "chart", drawn.svg, drawn.kind)
 
         return when (val picture = svgs.png(drawn.svg, null, installation.drawingScale().toDouble())) {
             is SvgRenderer.Drawing.Refused -> refusal(picture.reason)
@@ -283,6 +279,39 @@ private fun drawing(
         answer["note"] = "Pass contentKey to whatever sends, uploads or saves a file."
     }
     return mapper.writeValueAsString(answer)
+}
+
+/**
+ * An SVG drawing, kept under a key like a PNG. Issue #549.
+ *
+ * "svg" used to answer the SVG itself - fifteen thousand characters of markup
+ * in the model's context, trimmed in its history, and useful only if it typed
+ * all of it back into a page, which is what the output cap cuts off. What makes
+ * bytes answers a key: the SVG is kept as base64 like every picture, so it
+ * uploads, zips and goes into a PDF as <img src="key"> the same way. Where
+ * there is no session - a workflow - there is nowhere to keep it, and the
+ * markup is the answer as it was.
+ */
+private fun vectors(
+    mapper: ObjectMapper,
+    scratch: LlmSessionStore,
+    sessionId: Long?,
+    named: String,
+    svg: String,
+    kind: String,
+): String {
+    if (sessionId == null) return mapper.writeValueAsString(linkedMapOf("svg" to svg, "kind" to kind))
+    val key = named + "." + java.lang.Long.toString(System.nanoTime(), 36) + ".svg"
+    scratch.put(sessionId, key, mapper.writeValueAsString(Base64.getEncoder().encodeToString(svg.toByteArray())))
+    return mapper.writeValueAsString(
+        linkedMapOf(
+            "contentKey" to key,
+            "pictureType" to "image/svg+xml",
+            "kind" to kind,
+            "note" to "Pass contentKey to whatever sends, uploads or saves a file, or name it in an " +
+                "<img src> for pdf_fromHtml.",
+        ),
+    )
 }
 
 /**

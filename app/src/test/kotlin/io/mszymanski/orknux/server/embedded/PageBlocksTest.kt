@@ -66,6 +66,14 @@ class PageBlocksTest {
         assertThat(drawn.html).doesNotContain("class=\"chart\"")
     }
 
+    /** No title and no kind, as a model writes one. Issue #547: the missing title failed the document. */
+    @Test
+    fun `a chart block with nothing but values draws`() {
+        val drawn = blocks.draw("<pre class=\"chart\">" + """{"values":{"Server":871,"UI":912}}""" + "</pre>")
+        assertThat(drawn.problems).isEmpty()
+        assertThat(drawn.html).contains("<svg").contains("Server")
+    }
+
     @Test
     fun `a picture this session holds becomes a data uri`() {
         val drawn = blocks.draw("<img src=\"chart.png\">") { name ->

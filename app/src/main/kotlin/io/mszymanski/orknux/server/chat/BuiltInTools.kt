@@ -279,6 +279,33 @@ class BuiltInTools(
          * what it holds is asked again every round and the caller's is the one
          * that knows when.
          */
+        /**
+         * The lent tools, in the form of the briefing's list of tools. Issue #546.
+         *
+         * That list is built from the agent's own tools and closes with "a tool
+         * that is not in this list is not one you have" - and a shed's tools
+         * are lent per session, so none of them was in it. Session 520: asked
+         * three times to zip a report, the model read its list, found no zip,
+         * and said it could not, while zip_files was one tool_load away.
+         */
+        private fun inventory(agent: Agent, lent: List<ToolSpec>): String? {
+            if (lent.isEmpty()) return null
+            return buildString {
+                append("These are yours too, and belong to the list of your tools above:")
+                lent.sortedBy { it.name }.forEach { spec ->
+                    val said = spec.summary?.trim()?.ifEmpty { null }
+                        ?: spec.description.trim().substringBefore(". ").take(LENT_SUMMARY_CHARS)
+                    appendLine()
+                    append("- ").append(spec.name)
+                    append(if (carried(agent, spec.name)) " (loaded)" else " (load it first)")
+                    if (said.isNotEmpty()) append(": ").append(said)
+                }
+            }
+        }
+
+        /** How much of a lent tool's description stands in for a summary it does not have. */
+        private const val LENT_SUMMARY_CHARS = 100
+
         fun lentTo(agent: Agent, shed: ToolShed?): ToolShed? {
             if (shed == null) return null
             return object : ToolShed {
@@ -291,7 +318,8 @@ class BuiltInTools(
                  * wrapper that forgot to pass it on would take the paragraph
                  * away from every agent while leaving the tools in place.
                  */
-                override fun briefing(): String? = shed.briefing()
+                override fun briefing(): String? =
+                    listOfNotNull(shed.briefing(), inventory(agent, specs())).joinToString("\n\n").ifEmpty { null }
 
                 override fun handles(name: String): Boolean = granted(agent, name) && shed.handles(name)
 

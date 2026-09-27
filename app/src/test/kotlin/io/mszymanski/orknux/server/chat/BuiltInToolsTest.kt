@@ -205,6 +205,23 @@ class BuiltInToolsTest(
         assertThat(offered.run(ToolCall("1", NoteTools.NOTE, """{"note":"Steps 1-6 done."}"""))).contains("\"written\":true")
     }
 
+    /**
+     * What a shed lends is in the list of the agent's tools, marked. Issue #546:
+     * the list said a tool not in it is not one you have, and zip_files - lent
+     * with the scratchpads - was never in it.
+     */
+    @Test
+    fun `a lent tool is named in the briefing, marked loaded or load it first`() {
+        val session = sessions.open(workspaceId, "test", "built-ins-${System.nanoTime()}")
+        val shed = requireNotNull(notes.shed(session, "Responder"))
+
+        val found = agent(tools = BuiltInTools.GRANTED, required = emptyList(), ceiling = 10)
+        assertThat(BuiltInTools.lentTo(found, shed)?.briefing()).contains("- note_to_self (load it first)")
+
+        val carried = agent(tools = BuiltInTools.GRANTED)
+        assertThat(BuiltInTools.lentTo(carried, shed)?.briefing()).contains("- note_to_self (loaded)")
+    }
+
     /** A shed's own names - `task_done`, the chat's drawing - are not the list's to switch. */
     @Test
     fun `a name the list does not govern passes through`() {

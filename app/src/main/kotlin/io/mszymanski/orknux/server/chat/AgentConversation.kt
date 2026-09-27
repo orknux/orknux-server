@@ -333,7 +333,8 @@ class AgentConversation(
          * says that the agent has them and when to reach for one, which is the
          * half a model acts on - see [ToolShed.briefing]. Issue #445.
          */
-        val told = briefed(turns, shed?.briefing())
+        // Through the lending, which lists what it lends beside the agent's own tools. Issue #546.
+        val told = briefed(turns, lending?.briefing())
 
         /*
          * Whether everything fits in one request.
@@ -1126,6 +1127,20 @@ class AgentConversation(
                         repeats.removeAll { now - it > repeatWindow }
 
                         /*
+                         * What it may have meant instead. Issue #548.
+                         *
+                         * Session 521 wanted github_listFiles, which was still to
+                         * be loaded, and llama.cpp lets a model write only the
+                         * tools it was offered - so each attempt came out as the
+                         * nearest one that was, github_listRepos, six times, the
+                         * model saying in its thinking that it meant listFiles.
+                         * Nothing on our side ever sees the name it meant, so on
+                         * the first repeat the not-yet-loaded tools of the same
+                         * family are named, with the way to load them.
+                         */
+                        val meant = if (hunting && repeats.size >= 2) unloadedBeside(call.name, findable, found) else null
+
+                        /*
                          * And stopped, with the reason put where the model
                          * reads it. Issue #516.
                          *
@@ -1157,7 +1172,8 @@ class AgentConversation(
                                 "the same answer. Calls further apart than that do not count, so if you are " +
                                 "waiting for something to change, do other work first or finish and let the " +
                                 "next turn check." + PARAGRAPH +
-                                "Use what you already have and finish your answer."
+                                "Use what you already have and finish your answer." +
+                                meant.orEmpty().let { if (it.isEmpty()) "" else PARAGRAPH + it }
                             into?.let { session -> sessions.note(session, note) }
                             /*
                              * Recorded as well as sent. Without this the row
@@ -1185,6 +1201,16 @@ class AgentConversation(
                              * escalating none of them is the guard working and
                              * shouting into a void.
                              */
+                            return@forEach
+                        }
+
+                        // The first repeat, with a likelier meaning beside it. Issue #548.
+                        if (repeats.size == 2 && meant != null) {
+                            into?.let { session -> sessions.note(session, meant) }
+                            sessions.toolReturned(line, AuditRedaction.redactObvious(said))
+                            watch?.returned(here, said, failed = false)
+                            conversation += ChatTurn(role = "user", content = said, respondingTo = call.id)
+                            conversation += ChatTurn(role = "user", content = meant)
                             return@forEach
                         }
 
@@ -1581,4 +1607,20 @@ class AgentConversation(
 
         val log = LoggerFactory.getLogger(AgentConversation::class.java)
     }
+}
+
+/**
+ * The findable tools not yet loaded that share a family with [called] - the
+ * part of the name before its first underscore - said as a note, or null
+ * where there are none. Issue #548.
+ */
+internal fun unloadedBeside(called: String, findable: List<ToolSpec>, found: Set<String>): String? {
+    val family = called.substringBefore('_') + "_"
+    if (family == "_" || family.length > called.length) return null
+    val near = findable.map { it.name }.filter { it.startsWith(family) && it !in found && it != called }.sorted()
+    if (near.isEmpty()) return null
+    return "You called " + called + " again with the same arguments and got the same answer. If you " +
+        "meant a different tool, it may be one that is not loaded yet - a tool that is not loaded cannot " +
+        "be called, and the call comes out as one that is. Not loaded yet: " + near.joinToString(", ") +
+        ". Call " + ToolSearchTools.FIND + " with the name you need, then call it in your next message."
 }

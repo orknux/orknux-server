@@ -144,8 +144,8 @@ class SearchCapability(
         if (pictures) {
             val images = read.path("images").take(limit).map { one ->
                 linkedMapOf(
-                    "url" to (one.takeIf { it.isTextual }?.stringValue() ?: one.path("url").stringValue()),
-                    "title" to one.path("description").stringValue(),
+                    "url" to (one.takeIf { it.isTextual }?.stringValue() ?: one.path("url").takeIf { it.isTextual }?.stringValue()),
+                    "title" to one.path("description").takeIf { it.isTextual }?.stringValue(),
                     "source" to null,
                 )
             }
@@ -154,9 +154,9 @@ class SearchCapability(
 
         val results = read.path("results").take(limit).map { one ->
             linkedMapOf(
-                "title" to one.path("title").stringValue(),
-                "url" to one.path("url").stringValue(),
-                "snippet" to one.path("content").stringValue(),
+                "title" to one.path("title").takeIf { it.isTextual }?.stringValue(),
+                "url" to one.path("url").takeIf { it.isTextual }?.stringValue(),
+                "snippet" to one.path("content").takeIf { it.isTextual }?.stringValue(),
             )
         }
         val answer = read.path("answer").takeIf { it.isTextual }?.stringValue()?.ifEmpty { null }
@@ -178,8 +178,8 @@ class SearchCapability(
             val images = read.path("results").take(limit).map { one ->
                 linkedMapOf(
                     "url" to one.path("properties").path("url").stringValue(),
-                    "title" to one.path("title").stringValue(),
-                    "source" to one.path("url").stringValue(),
+                    "title" to one.path("title").takeIf { it.isTextual }?.stringValue(),
+                    "source" to one.path("url").takeIf { it.isTextual }?.stringValue(),
                     "thumbnail" to one.path("thumbnail").path("src").stringValue(),
                 )
             }
@@ -188,9 +188,9 @@ class SearchCapability(
 
         val results = read.path("web").path("results").take(limit).map { one ->
             linkedMapOf(
-                "title" to one.path("title").stringValue(),
-                "url" to one.path("url").stringValue(),
-                "snippet" to one.path("description").stringValue(),
+                "title" to one.path("title").takeIf { it.isTextual }?.stringValue(),
+                "url" to one.path("url").takeIf { it.isTextual }?.stringValue(),
+                "snippet" to one.path("description").takeIf { it.isTextual }?.stringValue(),
             )
         }
         return mapper.writeValueAsString(

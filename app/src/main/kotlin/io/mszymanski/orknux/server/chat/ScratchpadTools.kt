@@ -161,7 +161,13 @@ class ScratchpadTools(
                 parameters = listOf(
                     ToolParameterSpec(NAME, "Which scratchpad to edit.", required = true),
                     ToolParameterSpec(OLD, "The exact text to replace.", required = true),
-                    ToolParameterSpec(NEW, "What to put in its place.", required = true),
+                    ToolParameterSpec(NEW, "What to put in its place. Leave out when passing $NEW_KEY.", required = false),
+                    ToolParameterSpec(
+                        NEW_KEY,
+                        "A key something handed you - a drawn SVG, a kept pad, an answer - whose text goes in " +
+                            "its place instead of $NEW, so a long piece is not typed through you.",
+                        required = false,
+                    ),
                 ),
             ),
             ToolSpec(
@@ -400,8 +406,35 @@ class ScratchpadTools(
         private fun replaced(args: JsonNode): String {
             val name = text(args, NAME) ?: return refusal("Say which scratchpad to edit.")
             val old = text(args, OLD) ?: return refusal("Say the text to replace.")
-            val new = text(args, NEW) ?: ""
+            /*
+             * Or from a key. Issue #550: an SVG a drawing tool kept is fifteen
+             * thousand characters, and putting it into a page meant typing all
+             * of it back - which the output cap cuts off.
+             */
+            val new = text(args, NEW_KEY)?.trim()?.ifEmpty { null }?.let { key ->
+                val held = scratch.get(session, key) ?: return refusal("Nothing in this session is kept under \"$key\".")
+                keptText(held) ?: return refusal(
+                    "\"$key\" holds a picture or a file that is not text, so it cannot go into a page as text. " +
+                        "Name it in an <img src> for pdf_fromHtml, or send it beside the page.",
+                )
+            } ?: text(args, NEW) ?: ""
             return report(pads.replace(session, name, old, new), "replaced")
+        }
+
+        /**
+         * What a key holds, as text: plain text as it is, and base64 that
+         * decodes to markup - a kept SVG - decoded. Null for anything binary.
+         */
+        private fun keptText(held: String): String? {
+            val value = runCatching { mapper.readTree(held) }.getOrNull()?.takeIf { it.isTextual }?.stringValue() ?: held
+            val decoded = runCatching { java.util.Base64.getDecoder().decode(value.trim()) }.getOrNull()
+                ?: return value
+            val text = runCatching {
+                Charsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(decoded)).toString()
+            }.getOrNull()
+            if (text != null && text.trimStart().startsWith("<")) return text
+            // Binary only where it is long enough to be a file; a short word can happen to be valid base64.
+            return if (text == null && value.length >= BINARY_AT_LEAST) null else value
         }
 
         private fun searched(args: JsonNode): String {
@@ -497,6 +530,10 @@ class ScratchpadTools(
         const val LENGTH = "length"
         const val OLD = "old"
         const val NEW = "new"
+        const val NEW_KEY = "newKey"
+
+        /** Below this, base64-looking text is taken as the text it is. */
+        const val BINARY_AT_LEAST = 64
         const val QUERY = "query"
         const val SHARED = "shared"
         const val KEY = "key"
