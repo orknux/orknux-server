@@ -153,7 +153,7 @@ have failed.
   `memory_search` and `memory_save`.
 - 📚 **Built-in skills for making things.** *Diagrams and charts*, *Complex HTML*
   and *Making a PDF*, found by `skill_search`, which looks inside skills' pages.
-  And voices: *Niceman*, *Jokeman* and *Crazyman* beside *Angryman*.
+  And voices: *Niceman*, *Jokeman*, *Crazyman* and *Rimeman* beside *Angryman*.
 - 🎛️ **A model's page sets tool calls per reply and sampling** - temperature,
   top-p, top-k, min-p, repeat penalty - each sent only when set.
 - 📜 **Long sessions are summarised.** Past a size (40,000 tokens by default) the
