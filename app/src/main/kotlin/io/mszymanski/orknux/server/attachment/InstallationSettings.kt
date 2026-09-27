@@ -74,6 +74,12 @@ object SettingNames {
 
     /** How long a scratchpad nobody touches is kept. Issue #492. */
     const val SCRATCHPAD_KEEP_DAYS = "scratchpad.keep.days"
+
+    /* What counts as a working day, for the date tools. Issue #512. */
+    const val WORKING_TIMEZONE = "working.timezone"
+    const val WORKING_DAY_OPENS = "working.day.opens"
+    const val WORKING_DAY_CLOSES = "working.day.closes"
+    const val WORKING_HOLIDAYS = "working.holidays"
     const val TOOLS_NAMED_IN_SEARCH = "tools.named.in.search"
 
     /** How many tools fit in the briefing before their lines start being cut. Issue #481. */
@@ -606,6 +612,67 @@ class InstallationSettings(
     }
 
     /** Stores one number under its name, made or found, stamped with who. */
+    /* ------------------------------------------------- the working calendar */
+
+    /**
+     * The timezone a working day is measured in. Issue #512.
+     *
+     * The machine's own by default, which is right for an installation that
+     * serves one place and wrong for one that does not - so it is a setting,
+     * and every date tool also takes a timezone per call for the case where
+     * one answer will not do.
+     */
+    fun workingTimezone(): String =
+        settings.findByIdOrNull(SettingNames.WORKING_TIMEZONE)?.value?.trim()?.ifEmpty { null }
+            ?: workingTimezoneConfigured()
+
+    fun workingTimezoneConfigured(): String = java.time.ZoneId.systemDefault().id
+
+    @Transactional
+    fun setWorkingTimezone(zone: String, by: String) {
+        val wanted = zone.trim()
+        require(runCatching { java.time.ZoneId.of(wanted) }.isSuccess) {
+            "There is no timezone named \"$wanted\"; give an IANA name like \"Europe/Warsaw\"."
+        }
+        write(SettingNames.WORKING_TIMEZONE, wanted, by)
+    }
+
+    fun workingDayOpens(): String =
+        settings.findByIdOrNull(SettingNames.WORKING_DAY_OPENS)?.value?.trim()?.ifEmpty { null }
+            ?: DEFAULT_WORKING_DAY_OPENS
+
+    fun workingDayCloses(): String =
+        settings.findByIdOrNull(SettingNames.WORKING_DAY_CLOSES)?.value?.trim()?.ifEmpty { null }
+            ?: DEFAULT_WORKING_DAY_CLOSES
+
+    @Transactional
+    fun setWorkingHours(opens: String, closes: String, by: String) {
+        val from = runCatching { java.time.LocalTime.parse(opens.trim()) }.getOrNull()
+        val to = runCatching { java.time.LocalTime.parse(closes.trim()) }.getOrNull()
+        require(from != null && to != null) { "Give the hours as HH:MM, like 09:00 and 17:00." }
+        require(from.isBefore(to)) { "The working day has to open before it closes." }
+        write(SettingNames.WORKING_DAY_OPENS, opens.trim(), by)
+        write(SettingNames.WORKING_DAY_CLOSES, closes.trim(), by)
+    }
+
+    /**
+     * The days nobody works, as ISO dates.
+     *
+     * A list rather than a country: deriving a country's holidays means a
+     * library and a yearly argument about which regional variant was meant,
+     * and a list is the thing an administrator can be certain of and correct.
+     */
+    fun workingHolidays(): String =
+        settings.findByIdOrNull(SettingNames.WORKING_HOLIDAYS)?.value.orEmpty()
+
+    @Transactional
+    fun setWorkingHolidays(dates: String, by: String) {
+        val written = dates.split(',', ';', ' ', 10.toChar()).map { it.trim() }.filter { it.isNotEmpty() }
+        val wrong = written.firstOrNull { runCatching { java.time.LocalDate.parse(it) }.isFailure }
+        require(wrong == null) { "\"$wrong\" is not a date; write them as 2026-12-25, separated by commas." }
+        write(SettingNames.WORKING_HOLIDAYS, written.joinToString(","), by)
+    }
+
     private fun write(name: String, value: String, by: String) {
         val held = settings.findByIdOrNull(name) ?: InstallationSetting(name = name)
         held.value = value
@@ -869,6 +936,10 @@ class SubagentsOutOfRangeException(val count: Int) : RuntimeException(
  * number would be two controls for one decision.
  */
 const val DEFAULT_SCRATCHPAD_KEEP_DAYS = 30
+
+/** Nine to five, which is what "working hours" means where nobody has said otherwise. */
+const val DEFAULT_WORKING_DAY_OPENS = "09:00"
+const val DEFAULT_WORKING_DAY_CLOSES = "17:00"
 const val MIN_KEEP_DAYS = 0
 const val MAX_KEEP_DAYS = 1825
 
