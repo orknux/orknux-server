@@ -147,6 +147,8 @@ class SubagentSessionTest(
         val main = recorder.open(workspaceId, "chat", "planning")
 
         asking.run(asker, """{"agent":"Librarian","question":"What is the answer?"}""", parent = main)
+        // It works in the background now; the answer is written when it lands.
+        asking.waited(asker, main, """{"seconds":10}""")
 
         val child = sessions.findByParentSessionIdOrderByCreatedAtAscIdAsc(main).single()
         val lines = events.search(requireNotNull(child.id), "", org.springframework.data.domain.PageRequest.of(0, 20)).content
@@ -202,13 +204,24 @@ class SubagentSessionTest(
         val (asker, _) = pair()
         val main = recorder.open(workspaceId, "chat", "planning")
 
-        val said = asking.run(asker, """{"agent":"Librarian","question":"What is the answer?"}""", parent = main)
+        /*
+         * Asked, waited for, and read back - the way an agent does it since
+         * asks stopped blocking (#462). Issue #536: the answer used to be lost
+         * at the last step, agent_asks listing who was asked and never what
+         * they said.
+         */
+        val started = mapper.readTree(
+            asking.run(asker, """{"agent":"Librarian","question":"What is the answer?"}""", parent = main),
+        )
+        assertThat(started.path("working").asBoolean()).isTrue()
+        asking.waited(asker, main, """{"seconds":10}""")
 
-        val answered = mapper.readTree(said)
+        val answered = mapper.readTree(asking.asked(asker, main)).path("asks").single()
+        assertThat(answered.path("working").asBoolean()).isFalse()
+        assertThat(answered.path("answer").stringValue()).isEqualTo("Forty-two.")
         val key = answered.path("contentKey").stringValue()
         assertThat(key).startsWith("answer.")
         assertThat(scratch.get(main, key)).isEqualTo("\"Forty-two.\"")
-        assertThat(answered.path("answer").stringValue()).isEqualTo("Forty-two.")
     }
 
     /**

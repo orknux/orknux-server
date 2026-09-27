@@ -323,14 +323,32 @@ class AgentRunTools(
         val recently = java.time.OffsetDateTime.now().minusSeconds(window)
 
         val listed = children.map { session ->
-            val working = session.id in open || session.lastEventAt?.isAfter(recently) == true
+            val id = session.id
+            val future = id?.let { running[it] }
+            // Still going where its future says so; otherwise by the transcript, as before.
+            val working = if (future != null) {
+                !future.isDone
+            } else {
+                id in open || session.lastEventAt?.isAfter(recently) == true
+            }
             linkedMapOf<String, Any?>(
                 "asked" to (nameIn(session.agentDetails) ?: "an agent"),
                 "about" to session.title,
                 "working" to working,
                 "startedAt" to session.createdAt.toString(),
                 "lastAt" to session.lastEventAt?.toString(),
-            )
+            ).apply {
+                /*
+                 * And what came back, once it has. Issue #536.
+                 *
+                 * Since asks stopped blocking (#462) an ask answered "it has
+                 * started", agent_wait only waited, and this listed who and
+                 * what and whether it was working - never the answer. It sat in
+                 * a future nothing read, so the asking agent was told to read
+                 * what came back and nothing came back.
+                 */
+                if (!working && id != null) putAll(cameBack(id, future))
+            }
         }
         val allowed = limitFor(agent)
         return mapper.writeValueAsString(
@@ -343,6 +361,30 @@ class AgentRunTools(
     }
 
     /** The agent's name out of the details line the session opens with. Issue #456. */
+    /**
+     * A finished ask's answer, and the key it is kept under. From the future
+     * where this server started it, and from the asked agent's own transcript
+     * where it did not - after a restart, the future is gone and the answer is
+     * still written down.
+     */
+    private fun cameBack(child: Long, future: java.util.concurrent.Future<*>?): Map<String, Any?> {
+        val held = future?.let { runCatching { it.get() as? String }.getOrNull() }
+        if (held != null) {
+            val read = runCatching { mapper.readTree(held) }.getOrNull()
+            if (read != null) {
+                return buildMap {
+                    read.path("answer").takeIf { it.isString }?.let { put("answer", it.stringValue()) }
+                    read.path("contentKey").takeIf { it.isString }?.let { put("contentKey", it.stringValue()) }
+                    read.path("error").takeIf { it.isString }?.let { put("error", it.stringValue()) }
+                }
+            }
+        }
+        val said = lines.latest(child, listOf(io.mszymanski.orknux.server.llm.LlmSessionEventKind.AGENT), org.springframework.data.domain.PageRequest.of(0, 1)).firstOrNull()
+            ?.content?.takeIf { it.isNotBlank() }
+            ?: return emptyMap()
+        return mapOf("answer" to said)
+    }
+
     private fun nameIn(details: String?): String? = details?.let { held ->
         runCatching { mapper.readTree(held).path("name").stringValue() }.getOrNull()?.takeIf { it.isNotBlank() }
     }
@@ -484,7 +526,8 @@ class AgentRunTools(
         val permits = atOnce.computeIfAbsent(parent ?: into) {
             java.util.concurrent.Semaphore(installation.agentMaxSubagentsAtOnce())
         }
-        val started = asking?.submit {
+        // A Callable by name: a bare lambda resolves to submit(Runnable), whose future holds null. Issue #536.
+        val started = asking?.submit(java.util.concurrent.Callable {
             permits.acquire()
             runCatching {
                 val said = conversations.getObject().answer(modelId, sub, turns, into = into, shed = lent)
@@ -497,7 +540,9 @@ class AgentRunTools(
             }
                 .onFailure { why -> log.warn("An ask of {} did not finish: {}", wanted.name, why.message) }
                 .also { permits.release() }
-        }
+                // The answer itself, for agent_asks to hand back - not the Result around it. Issue #536.
+                .getOrNull()
+        })
         if (started == null) return refusal("Asks are not running just now; try again in a moment.")
         running[into] = started
 

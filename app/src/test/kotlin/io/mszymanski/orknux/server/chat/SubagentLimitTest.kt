@@ -140,8 +140,8 @@ class SubagentLimitTest(
         val agent = asker()
         val main = recorder.open(workspaceId, "chat", "planning")
 
-        assertThat(ask(agent, main, "One?")).contains("Forty-two")
-        assertThat(ask(agent, main, "Two?")).contains("Forty-two")
+        assertThat(ask(agent, main, "One?")).contains("\"working\":true")
+        assertThat(ask(agent, main, "Two?")).contains("\"working\":true")
         val third = ask(agent, main, "Three?")
 
         assertThat(third).contains("asked 2 other agents").contains("Answer with what you have")
@@ -155,7 +155,7 @@ class SubagentLimitTest(
         val agent = asker()
         val main = recorder.open(workspaceId, "chat", "planning")
 
-        assertThat(ask(agent, main, "One?")).contains("Forty-two")
+        assertThat(ask(agent, main, "One?")).contains("\"working\":true")
         assertThat(ask(agent, main, "Two?")).contains("asked 1 other agent")
     }
 
@@ -178,9 +178,9 @@ class SubagentLimitTest(
         val first = recorder.open(workspaceId, "chat", "one")
         val second = recorder.open(workspaceId, "chat", "two")
 
-        assertThat(ask(agent, first, "One?")).contains("Forty-two")
+        assertThat(ask(agent, first, "One?")).contains("\"working\":true")
         assertThat(ask(agent, first, "Again?")).contains("all this workspace allows")
-        assertThat(ask(agent, second, "One?")).contains("Forty-two")
+        assertThat(ask(agent, second, "One?")).contains("\"working\":true")
     }
 
     /* ---------------------------------------------------------- zero ----- */
