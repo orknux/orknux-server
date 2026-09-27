@@ -656,6 +656,11 @@ class AgentConversation(
                      */
                     val shown = mutableListOf<Pair<String, AgentTools.Companion.Picture>>()
 
+                    /*
+                     * What each distinct call in this round answered. Cleared
+                     * per round, deliberately: see the note on the lookup below.
+                     */
+                    val answeredInBatch = mutableMapOf<String, String>()
                     answer.calls.forEach { call ->
                         log.debug("Agent {} called {}", agent.name, call.name)
                         val here = at++
@@ -727,7 +732,34 @@ class AgentConversation(
                             conversation += ChatTurn(role = "user", content = said, respondingTo = call.id)
                             return@forEach
                         }
-                        val got = try {
+                        /*
+                         * The same call twice in one message is run once.
+                         * Issue #518.
+                         *
+                         * A model can ask for a hundred and forty-one identical
+                         * calls in a single assistant message, and one did:
+                         * session 474 emitted that many `skill_load` calls for
+                         * the same skill, having reasoned exactly once. That is
+                         * a decoding failure rather than a reasoning one - it
+                         * began emitting a call and did not stop - and nothing
+                         * about it wants the tool run a hundred and forty-one
+                         * times.
+                         *
+                         * So the answer is remembered by what was asked, and
+                         * every later copy in the same batch gets it back
+                         * without the tool running again. Each call is still
+                         * answered, because a provider requires a reply to
+                         * every one it asked for and leaving any unanswered
+                         * makes some refuse the whole request.
+                         *
+                         * Within one batch only. Across rounds the same call
+                         * may legitimately give a new answer - that is what
+                         * polling is - and telling those apart is the repeat
+                         * guard's job, with its window.
+                         */
+                        val asking = call.name + 0.toChar() + call.arguments
+                        val alreadyAnswered = answeredInBatch[asking]
+                        val got = alreadyAnswered ?: try {
                             if (hunt != null && hunt.handles(call.name)) hunt.run(call) else tools.run(agent, call, into)
                         } catch (halted: AgentRoundHalted) {
                             // The lent tool ended the round. What it did is
@@ -785,6 +817,8 @@ class AgentConversation(
                          * alternative is a session holding every picture any
                          * tool ever made, twice.
                          */
+                        answeredInBatch[asking] = got
+
                         val picture = AgentTools.pictureIn(got)
                         val said = picture?.let { AgentTools.withoutPicture(got, it) } ?: got
                         picture?.let { shown.add(call.name to it) }
