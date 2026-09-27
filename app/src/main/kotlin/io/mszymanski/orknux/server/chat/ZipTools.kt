@@ -58,8 +58,11 @@ class ZipTools(
 
         val asked = runCatching { mapper.readTree(arguments) }.getOrNull()
             ?: return refusal("That is not valid JSON.")
-        val wanted = asked.path(FILES).takeIf { it.isArray && !it.isEmpty }
-            ?: return refusal("Say which files to put in: $FILES is a list, each with a $NAME and where to read it.")
+        val wanted = list(asked.path(FILES))
+            ?: return refusal(
+                "Say which files to put in. $FILES is a list of objects, each with \"$NAME\" and one of " +
+                    "\"$PAD\", \"$KEY\" or \"$TEXT\", like this: $SHAPE",
+            )
         if (wanted.size() > MOST_FILES) {
             return refusal("That is ${wanted.size()} files, and at most $MOST_FILES go in one archive.")
         }
@@ -116,6 +119,25 @@ class ZipTools(
                 "note" to "Pass contentKey to whatever sends, uploads or saves a file. The bytes are not text.",
             ),
         )
+    }
+
+    /**
+     * The list of files, however it arrived. Issue #502.
+     *
+     * A provider hands arguments over as JSON, and a model writing a list into
+     * a field it is told is a list will sometimes write the list *as a string* -
+     * `"[{\"name\":...}]"` rather than `[{"name":...}]`. It happened often
+     * enough to be worth reading: the string is unambiguous, parsing it costs
+     * nothing, and the alternative was a refusal saying "files is a list" to a
+     * model that had just sent one and could see no difference.
+     */
+    private fun list(node: JsonNode): JsonNode? {
+        val given = if (node.isTextual) {
+            runCatching { mapper.readTree(node.stringValue()) }.getOrNull() ?: return null
+        } else {
+            node
+        }
+        return given.takeIf { it.isArray && !it.isEmpty }
     }
 
     /** One entry's content: a pad, a key this session holds, or text given outright. */
@@ -187,6 +209,19 @@ class ZipTools(
         /** Below this, a string that decodes as base64 is far likelier to be short text. */
         const val SHORTEST_BASE64 = 32
 
+        /**
+         * What one call looks like, written out. Issue #502.
+         *
+         * In the description and in the refusal both, because a shape described
+         * in a sentence is a shape somebody has to reconstruct, and the two
+         * mistakes made here - the whole list written as a string, and a file
+         * given its content instead of where to read it - are both the kind an
+         * example prevents and prose does not.
+         */
+        const val SHAPE =
+            """{"files":[{"name":"report.pdf","contentKey":"pdf.1lt2fm6"},""" +
+                """{"name":"notes.md","scratchpad":"notes.md"}],"name":"report.zip"}"""
+
         val ZIP = ToolDescriptor(
             name = ZIP_FILES,
             description = "Puts several files into one zip and answers with a key for it - for sending, " +
@@ -199,10 +234,11 @@ class ZipTools(
             parameters = listOf(
                 ToolParameter(
                     name = FILES,
-                    description = "The files, as a JSON list. Each is an object with \"$NAME\" - what it is " +
-                        "called inside the archive, like report.pdf - and one of \"$PAD\" (a scratchpad in " +
-                        "this session), \"$KEY\" (a key something handed you) or \"$TEXT\" (short text " +
-                        "written out here). At most $MOST_FILES files.",
+                    description = "The files, as a JSON list - a real list, not a list written out as a " +
+                        "string. Each is an object with \"$NAME\" - what it is called inside the archive, " +
+                        "like report.pdf - and one of \"$PAD\" (a scratchpad in this session), \"$KEY\" " +
+                        "(a key something handed you) or \"$TEXT\" (short text written out here). At most " +
+                        "$MOST_FILES files. A whole call looks like this: $SHAPE",
                     required = true,
                 ),
                 ToolParameter(

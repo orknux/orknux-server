@@ -89,6 +89,44 @@ class ZipToolsTest(
         assertThat(png).isEqualTo(Base64.getDecoder().decode(pixel))
     }
 
+    /**
+     * The list written out as a string, which is what a model sends. Issue #502.
+     *
+     * Seen in the wild: the argument arrived as `"[{\"name\":...}]"` - quotes,
+     * escapes and all - and was refused with "files is a list", which is the one
+     * thing the model believed it had sent. The escaping below is built rather
+     * than typed, because a Kotlin string of a JSON string of JSON is unreadable
+     * and the next person would change it by accident.
+     */
+    @Test
+    fun `a list sent as a string is read as the list`() {
+        scratch.put(session, "chart.png", mapper.writeValueAsString(pixel))
+        val files = mapper.writeValueAsString(
+            listOf(mapOf("name" to "images/chart.png", "contentKey" to "chart.png")),
+        )
+        val said = zips.run(
+            mapper.writeValueAsString(mapOf("files" to files, "name" to "one.zip")),
+            session,
+        )
+        assertThat(said).contains("\"zipped\":1")
+
+        val key = mapper.readTree(said).path("contentKey").stringValue()
+        val archive = Base64.getDecoder().decode(
+            mapper.readTree(requireNotNull(scratch.get(session, key))).stringValue(),
+        )
+        ZipInputStream(ByteArrayInputStream(archive)).use { zip ->
+            assertThat(requireNotNull(zip.nextEntry).name).isEqualTo("images/chart.png")
+            assertThat(zip.readBytes()).isEqualTo(Base64.getDecoder().decode(pixel))
+        }
+    }
+
+    /** And what is refused says what a call looks like, rather than naming the type again. */
+    @Test
+    fun `a call with no files is shown one that works`() {
+        val said = zips.run("""{"name":"report.zip"}""", session)
+        assertThat(mapper.readTree(said).path("error").stringValue()).contains(ZipTools.SHAPE)
+    }
+
     /** And a file that is text stays text, which is the other half of the guess. */
     @Test
     fun `text given outright is written as it stands`() {
