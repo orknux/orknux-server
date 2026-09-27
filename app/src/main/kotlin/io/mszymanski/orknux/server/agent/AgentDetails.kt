@@ -114,7 +114,8 @@ class AgentDetails(
                  */
                 "agentId" to agent.id,
                 "model" to modelName,
-                "systemPrompt" to briefedWith(prompt, lent?.briefing()),
+                // Through the lending, so the recorded briefing lists what it lends, as the round sends it. Issue #546.
+                "systemPrompt" to briefedWith(prompt, BuiltInTools.lentTo(agent, lent)?.briefing()),
                 "tools" to held.sorted(),
                 "findable" to found.sorted(),
                 "skills" to agent.skillCatalogs.sorted(),
