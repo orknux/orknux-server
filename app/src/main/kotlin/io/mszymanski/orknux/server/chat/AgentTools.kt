@@ -208,6 +208,9 @@ class AgentTools(
             // asking rather than on its own: a list of what you cannot do is
             // not worth a tool. Issue #477.
             if (BuiltInTools.granted(agent, AgentRunTools.ASKS)) add(agentTools.asksSpec())
+            // Only where it has somebody to ask: a wait with nothing to wait
+            // for is a sleep the model would eventually find a use for.
+            if (BuiltInTools.granted(agent, AgentRunTools.WAIT)) add(agentTools.waitSpec())
         }
 
         /*
@@ -397,6 +400,8 @@ class AgentTools(
             embedded.run(call.name, call.arguments, agent.workspaceId, sessionId)
         } else if (call.name == AgentRunTools.ASKS) {
             agentTools.asked(agent, sessionId)
+        } else if (call.name == AgentRunTools.WAIT) {
+            agentTools.waited(agent, sessionId, call.arguments)
         } else if (agentTools.handles(call.name)) {
             /*
              * Asking another agent, checked here as well as left off the menu -

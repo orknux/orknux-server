@@ -7,6 +7,8 @@ import io.mszymanski.orknux.connector.model.ToolSpec
 import io.mszymanski.orknux.server.agent.Agent
 import io.mszymanski.orknux.server.agent.AgentRepository
 import org.springframework.beans.factory.ObjectProvider
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
 import tools.jackson.databind.ObjectMapper
@@ -92,6 +94,55 @@ class AgentRunTools(
     private val mapper: ObjectMapper,
 ) {
 
+    private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
+
+    /**
+     * Where an ask actually runs. Issue #462.
+     *
+     * Built on each start rather than held, for the reason #504 wrote down: a
+     * stopped executor cannot be started again, and a context that is stopped
+     * and started - which the suite does between classes - would otherwise
+     * leave every ask throwing.
+     */
+    private var asking: ExecutorService? = null
+
+    @jakarta.annotation.PostConstruct
+    fun open() {
+        asking = Executors.newCachedThreadPool { runnable ->
+            Thread(runnable, "agent-ask").apply { isDaemon = true }
+        }
+    }
+
+    @jakarta.annotation.PreDestroy
+    fun close() {
+        asking?.shutdownNow()
+        asking = null
+    }
+
+    /**
+     * What each ask is doing, by the session it runs in.
+     *
+     * Only the ones still going and the ones that finished in this process:
+     * the durable account is the sessions themselves, which [asked] reads, and
+     * this is what lets a wait return the moment something lands rather than
+     * on the next poll.
+     */
+    private val running = java.util.concurrent.ConcurrentHashMap<Long, java.util.concurrent.Future<*>>()
+
+    /**
+     * How many of one conversation's asks may be working at once. Issue #461.
+     *
+     * A permit per asking conversation rather than a global pool: a global one
+     * would let a single busy conversation starve every other, and what anybody
+     * wants to bound is how wide *one* question fans out.
+     *
+     * An ask past the ceiling waits its turn rather than being refused. A
+     * refusal would send the model round again with the same ask in other
+     * words - the failure mode this whole feature keeps running into - and the
+     * wait is invisible to it anyway, because it was never going to block.
+     */
+    private val atOnce = java.util.concurrent.ConcurrentHashMap<Long, java.util.concurrent.Semaphore>()
+
     /**
      * Whether this agent has anybody to ask. A grant list of none offers
      * nothing, and so does a workspace - or an installation - that allows no
@@ -157,7 +208,91 @@ class AgentRunTools(
         parameters = emptyList(),
     )
 
-    fun handles(name: String): Boolean = name == ASK || name == ASKS
+    /** What `agent_wait` is, to a model. Issue #462. */
+    fun waitSpec(): ToolSpec = ToolSpec(
+        name = WAIT,
+        description = "Waits for the agents you have asked. Call it when you have nothing else to do and " +
+            "something you asked for has not come back yet. It returns as soon as one of them finishes, " +
+            "or after the seconds you gave, whichever is first - so waiting costs nothing when the work " +
+            "is already done. Then call " + ASKS + " to see what came back. Do not call this before you " +
+            "have run out of other work: an ask runs while you carry on.",
+        parameters = listOf(
+            ToolParameterSpec(
+                SECONDS,
+                "How long to wait at most, in seconds. Up to " + MOST_WAIT_SECONDS + "; left out, " +
+                    SOME_WAIT_SECONDS + ".",
+                required = false,
+            ),
+        ),
+    )
+
+    fun handles(name: String): Boolean = name == ASK || name == ASKS || name == WAIT
+
+    /**
+     * Waits for something asked to finish. Issue #462.
+     *
+     * A sleep that ends early, which is the whole of what an asking agent needs
+     * once asks stop blocking: it has started three things, done what it could,
+     * and has nothing to do but wait. Ending early matters more than the number
+     * - a wait that always ran its full time would make asking two agents cost
+     * the same as asking them one after another, which is the fault this is
+     * fixing.
+     *
+     * Bounded, because a model that may sleep for an hour will. What it gets
+     * back is what [asked] answers, so the same shape says both "here is what
+     * you asked" and "here is what happened while you waited".
+     */
+    fun waited(agent: Agent, parent: Long?, arguments: String): String {
+        if (parent == null) {
+            return mapper.writeValueAsString(
+                mapOf("waited" to 0, "note" to "This conversation is not one that can ask, so there is nothing to wait for."),
+            )
+        }
+
+        val asked = runCatching { mapper.readTree(arguments) }.getOrNull()
+        val wanted = asked?.path(SECONDS)?.takeIf { it.isNumber }?.intValue() ?: SOME_WAIT_SECONDS
+        val seconds = wanted.coerceIn(1, MOST_WAIT_SECONDS)
+
+        val children = held.findByParentSessionIdOrderByCreatedAtAscIdAsc(parent).mapNotNull { it.id }
+        val outstanding = children.mapNotNull { running[it] }.filterNot { it.isDone }
+        if (outstanding.isEmpty()) {
+            return mapper.writeValueAsString(
+                linkedMapOf(
+                    "waited" to 0,
+                    "note" to "Nothing is still working. Call " + ASKS + " to read what came back.",
+                ),
+            )
+        }
+
+        /*
+         * Waited on one at a time, longest-first by what is left: any of them
+         * finishing is the thing worth waking for, and the first to finish
+         * always leaves the others still running for the next call.
+         */
+        val until = System.nanoTime() + seconds * 1_000_000_000L
+        while (System.nanoTime() < until && outstanding.any { !it.isDone }) {
+            val left = until - System.nanoTime()
+            if (left <= 0) break
+            runCatching {
+                outstanding.first { !it.isDone }
+                    .get(minOf(left, POLL_NANOS), java.util.concurrent.TimeUnit.NANOSECONDS)
+            }
+        }
+
+        val slept = seconds - ((until - System.nanoTime()) / 1_000_000_000L).coerceAtLeast(0)
+        val stillWorking = outstanding.count { !it.isDone }
+        return mapper.writeValueAsString(
+            linkedMapOf(
+                "waited" to slept,
+                "working" to stillWorking,
+                "note" to if (stillWorking == 0) {
+                    "They have all finished. Call " + ASKS + " to read what came back."
+                } else {
+                    "$stillWorking still working. Call " + ASKS + " for what has landed, or wait again."
+                },
+            ),
+        )
+    }
 
     /**
      * What this conversation has handed out, and how each of them is going.
@@ -322,37 +457,87 @@ class AgentRunTools(
             sessions.userSaid(into, agent.name, question)
         }
 
-        return when (
-            val said = conversations.getObject().answer(modelId, sub, turns, into = into, shed = lent)
-        ) {
-            /*
-             * The answer, and a key it is kept under in the asker's session. A
-             * subagent that wrote a page answers with the page, and the only
-             * handle the asker had was the text - so it typed ten thousand
-             * characters back into an upload and the model's output cap cut
-             * them off. Kept the way a drawn picture is, so the key can go to
-             * whichever tool takes one and the text never leaves the server
-             * twice. Issue #393.
-             */
-            is ChatCompletion.Answered -> mapper.writeValueAsString(
-                buildMap {
-                    put("agent", wanted.name)
-                    put("answer", said.content)
-                    keyFor(parent, child = into, said.content)?.let { put("contentKey", it) }
-                },
-            )
-
-            is ChatCompletion.Failed -> refusal("${wanted.name} could not answer: ${said.reason}")
-
-            /*
-             * The loop runs tools to a conclusion, so nothing that comes back
-             * here is still asking for one. A round that ended this way ended on
-             * the specialist's own tools rather than on the moment.
-             */
-            is ChatCompletion.CalledTools -> refusal(
-                "${wanted.name} asked for a tool that could not be run.",
-            )
+        /*
+         * Started, not waited for. Issue #462.
+         *
+         * This used to run the whole conversation here and hand back what came
+         * of it, which meant an agent asking three specialists asked them one
+         * after another and waited out all three - and could do nothing in
+         * between, because its own turn was inside the first call. Two asks
+         * that have nothing to do with each other took as long as the sum of
+         * them.
+         *
+         * So the work goes onto a thread and the tool answers at once with the
+         * session it runs in. The asker carries on, and when it has nothing
+         * left it calls `agent_wait`, which is a sleep that ends early when
+         * something lands. Reading what came back is `agent_asks`, which
+         * already existed.
+         *
+         * Where there is no session there is nothing to hand back a handle to
+         * and nothing to poll, so that case is answered the old way - which is
+         * the workflow node, where there is no turn to carry on with either.
+         */
+        if (into == null) {
+            return answerOf(wanted, conversations.getObject().answer(modelId, sub, turns, into = null, shed = lent), parent, null)
         }
+
+        val permits = atOnce.computeIfAbsent(parent ?: into) {
+            java.util.concurrent.Semaphore(installation.agentMaxSubagentsAtOnce())
+        }
+        val started = asking?.submit {
+            permits.acquire()
+            runCatching {
+                val said = conversations.getObject().answer(modelId, sub, turns, into = into, shed = lent)
+                /*
+                 * The answer is put where the asker will look for it rather
+                 * than returned: nobody is waiting on this thread. `agent_asks`
+                 * reports it and the key is what carries the text.
+                 */
+                answerOf(wanted, said, parent, into)
+            }
+                .onFailure { why -> log.warn("An ask of {} did not finish: {}", wanted.name, why.message) }
+                .also { permits.release() }
+        }
+        if (started == null) return refusal("Asks are not running just now; try again in a moment.")
+        running[into] = started
+
+        return mapper.writeValueAsString(
+            linkedMapOf(
+                "agent" to wanted.name,
+                "about" to title,
+                "session" to into,
+                "working" to true,
+                "note" to "It has started. Carry on with anything else you have; call " + WAIT +
+                    " when you have nothing left, then " + ASKS + " to read what came back.",
+            ),
+        )
+    }
+
+    /**
+     * What an ask came to, written where the asker will find it.
+     *
+     * The same three cases as before, and the same key: a subagent that wrote a
+     * page answers with the page, and the only handle the asker had was the
+     * text - so it typed ten thousand characters into an upload and the output
+     * cap cut them off. Issue #393.
+     */
+    private fun answerOf(wanted: Agent, said: ChatCompletion, parent: Long?, into: Long?): String = when (said) {
+        is ChatCompletion.Answered -> mapper.writeValueAsString(
+            buildMap {
+                put("agent", wanted.name)
+                put("answer", said.content)
+                keyFor(parent, child = into, said.content)?.let { put("contentKey", it) }
+            },
+        )
+
+        is ChatCompletion.Failed -> refusal("${wanted.name} could not answer: ${said.reason}")
+
+        /*
+         * The loop runs tools to a conclusion, so nothing that comes back here
+         * is still asking for one. A round that ended this way ended on the
+         * specialist's own tools rather than on the moment.
+         */
+        is ChatCompletion.CalledTools -> refusal("${wanted.name} asked for a tool that could not be run.")
     }
 
     /**
@@ -457,6 +642,19 @@ class AgentRunTools(
 
         /** What this conversation has asked, and how it is going. Issue #477. */
         const val ASKS = "agent_asks"
+
+        /** Waiting for one of them, now that asking does not wait. Issue #462. */
+        const val WAIT = "agent_wait"
+        const val SECONDS = "seconds"
+
+        /** Long enough to be worth calling, short enough that a turn is not lost to it. */
+        const val SOME_WAIT_SECONDS = 30
+
+        /** A model that may sleep for an hour will. */
+        const val MOST_WAIT_SECONDS = 300
+
+        /** How often the wait looks up, so it notices the others finishing too. */
+        const val POLL_NANOS = 500_000_000L
         const val AGENT = "agent"
         const val QUESTION = "question"
         const val TITLE = "title"

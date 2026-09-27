@@ -167,6 +167,7 @@ class BuiltInTools(
             ConnectionTools.FIND,
             AgentRunTools.ASK,
             AgentRunTools.ASKS,
+            AgentRunTools.WAIT,
             FinishAnswerTools.FINISH,
             StepPictureTools.DRAW,
             StepPictureTools.LINK,
