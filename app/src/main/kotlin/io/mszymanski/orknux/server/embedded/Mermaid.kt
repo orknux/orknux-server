@@ -132,11 +132,40 @@ object Mermaid {
         val shaped = LinkedHashMap<String, String>()
         val edges = mutableListOf<String>()
 
+        /*
+         * Groups. Issue #554: a subgraph came through as a line PlantUML
+         * could not read, and every architecture diagram a model draws has
+         * one. A group is a PlantUML rectangle with its nodes declared inside
+         * it, so each node remembers the group it was first seen in, and the
+         * declarations are written out per group once every line is read.
+         */
+        val groups = mutableListOf<Group>()
+        val open = ArrayDeque<Group>()
+        val memberOf = LinkedHashMap<String, Group?>()
+        fun seen(alias: String) {
+            if (alias !in memberOf) memberOf[alias] = open.lastOrNull()
+        }
+
         lines.drop(1).forEach { line ->
+            SUBGRAPH.find(line)?.let { found ->
+                val id = found.groupValues[1].trim()
+                val said = (found.groupValues[2].ifEmpty { found.groupValues[3] }).trim().trim('"').ifEmpty { id }
+                val group = Group("g" + groups.size, said.ifEmpty { "Group" }, open.lastOrNull())
+                groups += group
+                open.addLast(group)
+                return@forEach
+            }
+            if (line == "end") {
+                open.removeLastOrNull()
+                return@forEach
+            }
+            // Styling says nothing a component diagram can use, and is not an edge.
+            if (STYLING.containsMatchIn(line)) return@forEach
             val bare = NODE.replace(line) { found ->
                 val alias = found.groupValues[1]
                 val opened = found.groupValues[2]
-                val said = found.groupValues[3].trim()
+                val said = found.groupValues[3].trim().trim('"')
+                seen(alias)
                 if (said.isNotEmpty()) {
                     labelled[alias] = said
                     /*
@@ -146,10 +175,20 @@ object Mermaid {
                      * complaint rather than as a failure. Hexagon is the shape
                      * it does have that reads as a branch.
                      */
-                    shaped[alias] = if (opened == "{") "hexagon" else "rectangle"
+                    shaped[alias] = SHAPES[opened] ?: "rectangle"
                 }
                 alias
             }
+            /*
+             * A line naming nodes and nothing else - how a subgraph lists its
+             * members - declares them and is not an edge. Written as an edge it
+             * was a line of bare words, which PlantUML refuses.
+             */
+            if (!ARROW.containsMatchIn(bare)) {
+                bare.split(Regex("[\\s&]+")).filter { WORD.matches(it) }.forEach(::seen)
+                return@forEach
+            }
+            ARROW_ENDS.findAll(bare).forEach { seen(it.value) }
             /*
              * Arrows first, then the label, and the order matters: mermaid
              * writes the label *inside* the arrow - `B -->|yes| C` - and
@@ -180,10 +219,15 @@ object Mermaid {
             if (edge.isNotEmpty()) edges += edge
         }
 
-        val declared = labelled.map { (alias, said) ->
-            (shaped[alias] ?: "rectangle") + " \"" + said + "\" as " + alias
-        }
-        return wrapped((listOf(laid) + declared + edges).joinToString(LINE))
+        fun declaration(alias: String) =
+            (shaped[alias] ?: "rectangle") + " \"" + (labelled[alias] ?: alias).replace("\"", "'") + "\" as " + alias
+        fun within(group: Group?): List<String> =
+            memberOf.filter { it.value == group && (group != null || it.key in labelled) }.keys.map(::declaration) +
+                groups.filter { it.parent == group }.flatMap { inner ->
+                    listOf("rectangle \"" + inner.label.replace("\"", "'") + "\" as " + inner.id + " {") +
+                        within(inner) + "}"
+                }
+        return wrapped((listOf(laid) + within(null) + edges).joinToString(LINE))
     }
 
     /**
@@ -267,6 +311,28 @@ object Mermaid {
 
     /** `A -->|yes| B`, whose four parts become `A --> B : yes`. */
     private val LABELLED_EDGE = Regex("(\\w+)\\s*(-->|->|\\.\\.>)\\s*\\|([^|]*)\\|\\s*(\\w+)")
-    private val NODE = Regex("(\\w+)([\\[({])([^\\])}]*)[\\])}]")
+    /*
+     * A node with its label, in every bracket mermaid has: `A[box]`,
+     * `DB[(store)]`, `C((circle))`, `D{decision}`, `E{{hexagon}}`, `F([stadium])`.
+     * Single brackets only, it matched `DB[(PostgreSQL)` and left a `]` behind
+     * that PlantUML refused. Issue #554.
+     */
+    private val NODE = Regex("(\\w+)(\\[\\(|\\(\\(|\\(\\[|\\[\\[|\\{\\{|\\[|\\(|\\{|>)(.*?)(\\)\\]|\\)\\)|\\]\\)|\\]\\]|\\}\\}|\\]|\\)|\\})")
+
+    /** What PlantUML draws for each of mermaid's brackets. */
+    private val SHAPES = mapOf("[(" to "database", "((" to "circle", "{" to "hexagon", "{{" to "hexagon")
+
+    /** `subgraph id [Label]`, `subgraph "Label"`, `subgraph Label`. */
+    private val SUBGRAPH = Regex("^subgraph\\s+([^\\[\\s\"]*)\\s*(?:\\[\\s*\"?([^\\]\"]*)\"?\\s*\\]|\"?([^\"]*)\"?)\\s*$")
+
+    /** `classDef`, `class`, `style`, `linkStyle` and `click`, which only colour or link. */
+    private val STYLING = Regex("^(classDef|class|style|linkStyle|click|direction)\\b")
+
+    private val ARROW = Regex("-->|==>|-\\.->|\\.\\.>|---|->|<--")
+    private val ARROW_ENDS = Regex("\\b\\w+\\b(?=\\s*(?:-->|==>|\\.\\.>|---|->|:|$))|(?<=(?:-->|==>|\\.\\.>|---|->)\\s{0,5})\\b\\w+\\b")
+    private val WORD = Regex("\\w+")
+
+    /** A subgraph, drawn as a rectangle holding its nodes. */
+    private class Group(val id: String, val label: String, val parent: Group?)
     private val SLICE = Regex("\"([^\"]+)\"\\s*:\\s*([0-9.]+)")
 }

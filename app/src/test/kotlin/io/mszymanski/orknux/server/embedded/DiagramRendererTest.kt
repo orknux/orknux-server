@@ -184,6 +184,34 @@ class DiagramRendererTest {
             .doesNotContainPattern("PlantUML [0-9]")
     }
 
+    /**
+     * An architecture diagram as a model writes one. Issue #554: a subgraph,
+     * a database node and a bare member list each came through as a line
+     * PlantUML could not read.
+     */
+    @Test
+    fun `a flowchart with subgraphs, a database and quoted labels draws`() {
+        val svg = drawn(
+            listOf(
+                "graph TD",
+                "    UI[orknux-ui] -- \"GraphQL / SSE\" --> Server[orknux-server]",
+                "    CLI[\"orknux-cli\"] --> Server",
+                "    Server -- SQL --> DB[(PostgreSQL)]",
+                "    Server --> Shell((orknux-shell))",
+                "    subgraph Core",
+                "        Server",
+                "        DB",
+                "    end",
+                "    subgraph clients [Clients]",
+                "        UI",
+                "        CLI",
+                "    end",
+                "    classDef big fill:#f9f",
+            ).joinToString(n),
+        )
+        assertThat(svg).contains("PostgreSQL").contains("Core").contains("Clients").contains("orknux-cli")
+    }
+
     /** And the refusals, which have to stay refusals rather than becoming a red box in somebody's report. */
     @Test
     fun `an empty diagram is refused rather than drawn as an error picture`() {
