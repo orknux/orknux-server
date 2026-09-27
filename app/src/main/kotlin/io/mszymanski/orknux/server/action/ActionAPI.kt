@@ -421,7 +421,9 @@ class ActionAPI(
                 val functionId = action.functionId ?: throw ActionSettingMissingException("a function")
                 val function = functions.findByIdOrNull(functionId)
                 if (function == null) throw ActionSettingMissingException("a function")
-                if (function.scope != FunctionScope.PLUGIN && function.workspaceId != action.workspaceId) {
+                // A workspace's own is the only kind tied to a workspace: a
+                // plugin's and an embedded one are available everywhere. #501.
+                if (function.scope == FunctionScope.WORKSPACE && function.workspaceId != action.workspaceId) {
                     throw ActionSettingMissingException("a function this workspace owns")
                 }
             }

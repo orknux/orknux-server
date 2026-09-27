@@ -235,23 +235,6 @@ class Plugin(
     @Column(nullable = false)
     var enabled: Boolean = true,
 
-    /**
-     * Whether the server brought this one itself. Issue #474.
-     *
-     * A built-in plugin is a bundle shipped inside the release rather than a
-     * file somebody uploaded: it is written at boot, its own declarations are
-     * accepted because the installation that runs Orknux is the party that
-     * would have been asked, and it cannot be removed - the next start would
-     * write it back, so offering Remove would be offering something that does
-     * not hold. Switching it off still works, and is the honest way to say no
-     * to one.
-     *
-     * A plugin somebody uploads under the same key stops being built in, which
-     * is the escape hatch: the row is then theirs, and the shipped bundle is
-     * not written over it again while the key is taken by a newer file.
-     */
-    @Column(name = "built_in", nullable = false)
-    var builtIn: Boolean = false,
 
     /**
      * The marketplace key this was installed from, and the version at that
@@ -374,8 +357,6 @@ data class PluginView(
     val summary: String? = null,
     val author: String? = null,
     val version: String? = null,
-    /** Whether the release brought this one: no Remove, and nobody was asked. Issue #474. */
-    val builtIn: Boolean = false,
 )
 
 /**
@@ -655,5 +636,4 @@ fun Plugin.view(
     summary = summary,
     author = author,
     version = version,
-    builtIn = builtIn,
 )

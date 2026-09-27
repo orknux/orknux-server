@@ -741,7 +741,6 @@ CREATE TABLE plugin
     permissions_accepted_at      timestamp,
     permissions_accepted_by      varchar(120),
     enabled                      boolean not null default true,
-    built_in                     boolean not null default false,
     marketplace_key              varchar(64),
     marketplace_version          varchar(32),
     icon                         text,
@@ -1269,10 +1268,10 @@ CREATE TABLE workflow_function
     typescript                   text,
     return_object_id             integer,
     constraint uk_workflow_function_name UNIQUE (workspace_id, name),
-    constraint ck_workflow_function_owner CHECK (((((scope) = 'WORKSPACE') AND (workspace_id IS NOT NULL) AND (plugin_id IS NULL)) OR (((scope) = 'PLUGIN') AND (workspace_id IS NULL) AND (plugin_id IS NOT NULL)))),
+    constraint ck_workflow_function_owner CHECK (((((scope) = 'WORKSPACE') AND (workspace_id IS NOT NULL) AND (plugin_id IS NULL)) OR (((scope) = 'PLUGIN') AND (workspace_id IS NULL) AND (plugin_id IS NOT NULL)) OR (((scope) = 'EMBEDDED') AND (workspace_id IS NULL) AND (plugin_id IS NULL)))),
     constraint ck_workflow_function_return CHECK (((return_type) IN ('STRING', 'NUMBER', 'BOOLEAN', 'OBJECT', 'MAP', 'ARRAY', 'NONE'))),
     constraint ck_workflow_function_return_object CHECK (((((return_type) = 'OBJECT') AND (return_object_id IS NOT NULL)) OR (((return_type) != 'OBJECT') AND (return_object_id IS NULL)))),
-    constraint ck_workflow_function_scope CHECK (((scope) IN ('WORKSPACE', 'PLUGIN'))),
+    constraint ck_workflow_function_scope CHECK (((scope) IN ('WORKSPACE', 'PLUGIN', 'EMBEDDED'))),
     constraint workflow_function_plugin_id_fkey FOREIGN KEY (plugin_id) REFERENCES plugin(id) ON DELETE CASCADE,
     constraint workflow_function_team_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspace(id) ON DELETE CASCADE
 );
@@ -1869,6 +1868,7 @@ CREATE INDEX idx_workflow_execution_workspace ON workflow_execution (workspace_i
 CREATE INDEX idx_workflow_function_plugin ON workflow_function (plugin_id);
 CREATE INDEX idx_workflow_function_workspace ON workflow_function (workspace_id);
 CREATE UNIQUE INDEX uk_workflow_function_plugin_name ON workflow_function (name) WHERE ((scope) = 'PLUGIN');
+CREATE UNIQUE INDEX uk_workflow_function_embedded_name ON workflow_function (name) WHERE ((scope) = 'EMBEDDED');
 CREATE INDEX idx_workflow_function_external_variable ON workflow_function_external (variable_id);
 CREATE INDEX idx_agent_tool_external_variable ON agent_tool_external (variable_id);
 CREATE INDEX idx_workflow_node_action ON workflow_node (action_id) WHERE (action_id IS NOT NULL);

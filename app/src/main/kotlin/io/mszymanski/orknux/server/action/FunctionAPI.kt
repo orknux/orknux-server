@@ -208,7 +208,9 @@ class FunctionAPI(
     @Transactional
     fun updateFunction(@Argument id: Long, @Argument input: UpdateFunctionInput): FunctionView {
         val function = functions.findByIdOrNull(id)?.takeIf(::readable) ?: throw FunctionNotFoundException(id)
-        val editedPlugin = function.scope == FunctionScope.PLUGIN
+        // An embedded function is not editable here for the reason a plugin's
+        // is not: the release declares it, and an edit would be lost. #501.
+        val editedPlugin = function.scope == FunctionScope.PLUGIN || function.scope == FunctionScope.EMBEDDED
         val workspaceId = if (editedPlugin) null else requireEditable(function)
 
         // What it is about to stop being, kept before anything overwrites it.
@@ -387,7 +389,12 @@ class FunctionAPI(
         // A plugin's function takes a timeout too - the setting is about the
         // sandbox, not the workspace - so only the workspace half is asked for
         // where there is one, which is what the audit needs.
-        val workspaceId = if (function.scope == FunctionScope.PLUGIN) null else requireEditable(function)
+        val workspaceId =
+            if (function.scope == FunctionScope.PLUGIN || function.scope == FunctionScope.EMBEDDED) {
+                null
+            } else {
+                requireEditable(function)
+            }
 
         if (seconds != null && seconds !in MIN_SCRIPT_TIMEOUT_SECONDS..MAX_SCRIPT_TIMEOUT_SECONDS) {
             throw ScriptTimeoutOutOfRangeException(seconds)

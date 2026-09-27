@@ -40,6 +40,8 @@ class AgentTools(
     private val skills: SkillTool,
     /** Whether a document is the thing it claims to be. Issue #416. */
     private val validator: FormatValidator,
+    /** What Orknux can do itself: making a document, drawing a chart. Issue #501. */
+    private val embedded: io.mszymanski.orknux.server.embedded.EmbeddedCapabilities,
     private val memories: MemoryTool,
     private val workspaceTools: WorkspaceToolCaller,
     private val pluginTools: PluginToolCaller,
@@ -189,6 +191,16 @@ class AgentTools(
         // Reading a document to find out whether it is one. Reaches nothing, so
         // it is offered wherever it is not hidden. Issue #416.
         if (BuiltInTools.granted(agent, VALIDATE)) add(VALIDATE_SPEC)
+
+        /*
+         * And what the release brings itself - making a document, drawing a
+         * chart. Offered like any other built-in and hidden the same way, since
+         * these are the product's own tools rather than an integration
+         * somebody installed. Issue #501.
+         */
+        embedded.toolSpecs().forEach { spec ->
+            if (BuiltInTools.granted(agent, spec.name)) add(spec)
+        }
 
         if (agentTools.offered(agent) && BuiltInTools.granted(agent, AgentRunTools.ASK)) {
             add(agentTools.specFor(agent))
@@ -381,6 +393,8 @@ class AgentTools(
             shells.run(agent, call.name, call.arguments)
         } else if (call.name == VALIDATE) {
             validator.check(call.arguments)
+        } else if (embedded.handles(call.name)) {
+            embedded.run(call.name, call.arguments, agent.workspaceId, sessionId)
         } else if (call.name == AgentRunTools.ASKS) {
             agentTools.asked(agent, sessionId)
         } else if (agentTools.handles(call.name)) {

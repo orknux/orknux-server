@@ -343,7 +343,8 @@ class ConditionAPI(
                  * it as "needs a function to call" describes a box somebody has
                  * already filled in.
                  */
-                if (function.scope != FunctionScope.PLUGIN && function.workspaceId != condition.workspaceId) {
+                // As in ActionAPI: only a workspace's own is tied to one. #501.
+                if (function.scope == FunctionScope.WORKSPACE && function.workspaceId != condition.workspaceId) {
                     throw ConditionFunctionElsewhereException(function.name)
                 }
                 // The whole point of a condition is a yes or a no.

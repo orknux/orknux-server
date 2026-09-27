@@ -129,6 +129,18 @@ class BuiltInTools(
             AgentTools.BASE64_DECODE,
             ZipTools.ZIP_FILES,
             AgentTools.VALIDATE,
+
+            /*
+             * And the tools the release embeds. Named here rather than read off
+             * the bundles, because this list is what the Tools screen draws and
+             * a screen that changed shape with a resource file would be a
+             * screen nobody could reason about. The set is fixed per release,
+             * which is what makes writing it down honest. Issue #501.
+             */
+            "pdf_fromHtml",
+            "pdf_read",
+            "pdf_preview",
+            "charts_render",
             ConnectionTools.FIND,
             AgentRunTools.ASK,
             AgentRunTools.ASKS,

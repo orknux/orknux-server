@@ -44,6 +44,16 @@ class FunctionCaller(
     private val pluginPermissions: PluginPermissions,
     private val pluginCapabilities: PluginCapabilities,
     private val pluginSources: PluginSources,
+    /**
+     * What the release brings itself, for a function with no plugin behind it.
+     *
+     * Through a provider: the embedded bundles are read at boot and this is
+     * built long before that, so asking for the object at call time is what
+     * keeps the two from having to be ordered. Issue #501.
+     */
+    private val embedded: org.springframework.beans.factory.ObjectProvider<
+        io.mszymanski.orknux.server.embedded.EmbeddedCapabilities,
+        >,
     private val externals: VariableArguments,
     private val timeouts: ScriptTimeouts,
 ) {
@@ -112,6 +122,20 @@ class FunctionCaller(
          */
         if (function.scope == FunctionScope.PLUGIN && function.editedAt == null) {
             return callPlugin(function, arguments, workspaceId, sessionId)
+        }
+
+        /*
+         * And the release's own bundles, which have no row behind them at all.
+         * Issue #501: what used to be the PDF and chart plugins is the product
+         * now, so a graph naming pdf_fromHtml is answered out of the bundle
+         * Orknux ships rather than out of something somebody installed.
+         */
+        if (function.scope == FunctionScope.EMBEDDED && function.editedAt == null) {
+            return embedded.getObject().callFunction(function.name, arguments, workspaceId, sessionId)
+                ?: ScriptResult.Failed(
+                    "cannot run: this release does not bring " + function.name + " any more.",
+                    0,
+                )
         }
 
         /*

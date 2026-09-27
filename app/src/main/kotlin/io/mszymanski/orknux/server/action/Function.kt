@@ -220,6 +220,20 @@ enum class FunctionScope {
      * somebody what it does and who to ask.
      */
     PLUGIN,
+
+    /**
+     * Brought by the release itself, out of a bundle Orknux embeds. Issue #501.
+     *
+     * The same shape as a plugin's - declared elsewhere, usable everywhere, not
+     * editable here - and a different origin: there is no plugin row behind it
+     * and nothing to install or remove, because the capability is the product's
+     * own. Making a document is not an integration with somebody else's system.
+     *
+     * Kept apart from PLUGIN rather than folded into it so that nothing has to
+     * ask whether the plugin a function names still exists: for these, none
+     * ever did.
+     */
+    EMBEDDED,
 }
 
 /**
