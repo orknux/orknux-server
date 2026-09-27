@@ -55,6 +55,9 @@ class AgentTools(
     private val savedArtifacts: SavedArtifacts,
     /** Where a saved artifact's content is kept as well, so it can be handed on by key. Issue #393. */
     private val scratch: io.mszymanski.orknux.server.llm.LlmSessionStore,
+    /** Whether a saved HTML page names pictures by key, which is said in the answer. Issue #545. */
+    private val pictures: io.mszymanski.orknux.server.embedded.SessionPictures,
+    private val blocks: io.mszymanski.orknux.server.embedded.PageBlocks,
     private val mapper: ObjectMapper,
 ) {
 
@@ -420,15 +423,24 @@ class AgentTools(
             connectionTools.run(agent, call.arguments)
         } else when (call.name) {
             SAVE_ARTIFACT -> {
+                val named = argument(call, "name").orEmpty()
+                // Anything but "true" is text: a model that sent the flag
+                // at all meant it, and a missing flag is the common case.
+                val base64 = argument(call, "base64")?.trim()?.lowercase() == "true"
+                val content = argument(call, "content").orEmpty()
+                // A page naming pictures by key opens with them broken, and the model is told. Issue #545.
+                val keyed = if (!base64 && io.mszymanski.orknux.server.embedded.SessionPictures.isHtml(named, content)) {
+                    blocks.keyedPictures(content) { pictures.find(it, sessionId) != null }
+                } else {
+                    emptyList()
+                }
                 val saving = savedArtifacts.save(
                     workspaceId = agent.workspaceId,
                     savedBy = agent.name,
-                    name = argument(call, "name").orEmpty(),
+                    name = named,
                     description = argument(call, "description").orEmpty(),
-                    content = argument(call, "content").orEmpty(),
-                    // Anything but "true" is text: a model that sent the flag
-                    // at all meant it, and a missing flag is the common case.
-                    base64 = argument(call, "base64")?.trim()?.lowercase() == "true",
+                    content = content,
+                    base64 = base64,
                 )
                 when (saving) {
                     is SavedArtifacts.Saving.Refused -> mapper.writeValueAsString(mapOf("error" to saving.reason))
@@ -452,7 +464,13 @@ class AgentTools(
                                 val refused = scratch.put(session, key, mapper.writeValueAsString(argument(call, "content").orEmpty()))
                                 if (refused == null) key else null
                             },
-                        ),
+                        ).let { answer ->
+                            if (keyed.isEmpty()) {
+                                answer
+                            } else {
+                                answer + ("warning" to io.mszymanski.orknux.server.embedded.SessionPictures.keyedWarning(keyed))
+                            }
+                        },
                     )
                 }
             }

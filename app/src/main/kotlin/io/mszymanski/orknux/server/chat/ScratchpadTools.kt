@@ -55,6 +55,9 @@ class ScratchpadTools(
      * nothing to zip.
      */
     private val zips: ZipTools,
+    /** Whether an HTML page names pictures by key, which is said when it is kept. Issue #545. */
+    private val pictures: io.mszymanski.orknux.server.embedded.SessionPictures,
+    private val blocks: io.mszymanski.orknux.server.embedded.PageBlocks,
     private val mapper: ObjectMapper,
 ) {
 
@@ -251,9 +254,18 @@ class ScratchpadTools(
              */
             val refused = scratch.put(session, key, mapper.writeValueAsString(held.content))
             if (refused != null) return refusal("That could not be kept: $refused.")
-            return mapper.writeValueAsString(
-                mapOf("kept" to true, "key" to key, "name" to name, "bytes" to held.content.length),
+            val answer = linkedMapOf<String, Any>(
+                "kept" to true, "key" to key, "name" to name, "bytes" to held.content.length,
             )
+            if (held.contentType == null &&
+                io.mszymanski.orknux.server.embedded.SessionPictures.isHtml(name, held.content)
+            ) {
+                val keyed = blocks.keyedPictures(held.content) { pictures.find(it, session) != null }
+                if (keyed.isNotEmpty()) {
+                    answer["warning"] = io.mszymanski.orknux.server.embedded.SessionPictures.keyedWarning(keyed)
+                }
+            }
+            return mapper.writeValueAsString(answer)
         }
 
         private fun listed(): String {

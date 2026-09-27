@@ -66,6 +66,24 @@ class PageBlocks(
     data class Drawn(val html: String, val problems: List<String>)
 
     /**
+     * The pictures a page names by what this session calls them. Issue #545.
+     *
+     * The PDF writer takes <img src="picture.30"> and puts the picture in, so a
+     * model writes an HTML report the same way and uploads the page itself -
+     * where that src is a relative address to nothing, and every picture opens
+     * broken. The page is not rewritten: what is wrong is where the picture
+     * lives, and the model is told so, to host it or send it beside the page.
+     * Web addresses and data URIs are not keys and are never named.
+     */
+    fun keyedPictures(html: String, held: (String) -> Boolean): List<String> =
+        Jsoup.parse(html).select("img[src]")
+            .map { it.attr("src").trim() }
+            .filter { it.isNotEmpty() && !it.startsWith("data:") && !it.contains("://") }
+            .distinct()
+            .filter(held)
+
+
+    /**
      * @param pictures answers the bytes behind a name a page used in an `img`
      *   src - a scratchpad in this session, or a key something handed over.
      *   Null where there is no session to look in, which is the workflow case.
@@ -74,7 +92,13 @@ class PageBlocks(
         val page = Jsoup.parse(html)
         val problems = mutableListOf<String>()
 
-        page.select("pre.mermaid, mermaid").forEach { block ->
+        /*
+         * Any element carrying the class, not only a <pre>. Issue #544: a model
+         * writes a page the way mermaid.js reads one, as <div class="mermaid">,
+         * and that went into the PDF as a paragraph of arrows. Only a block
+         * holding nothing but its source - a wrapper round other markup is left.
+         */
+        page.select(".mermaid, mermaid").filter { it.children().isEmpty() }.forEach { block ->
             replace(block, problems, "diagram") { diagram(block.wholeText()) }
         }
         page.select("pre.chart, chart").forEach { block ->
@@ -83,6 +107,7 @@ class PageBlocks(
         page.select("img[src]").forEach { image ->
             picture(image, problems, pictures)
         }
+        scripted(page, problems)
 
         return Drawn(page.outerHtml(), problems)
     }
@@ -107,6 +132,30 @@ class PageBlocks(
             is DiagramRenderer.Drawing.Drawn -> Result.success(drawn.svg)
             is DiagramRenderer.Drawing.Refused -> Result.failure(IllegalArgumentException(drawn.reason))
         }
+
+    /**
+     * What a script would have drawn. Issue #544: a report written for a browser
+     * loads Chart.js and mermaid.js and draws into a <canvas>, and the page opens
+     * beautifully in one. No script runs here, so each canvas came out as an
+     * empty box and the answer said nothing was wrong. Each is replaced by a
+     * note in the document and named in the answer, with the spelling that does
+     * draw.
+     */
+    private fun scripted(page: Document, problems: MutableList<String>) {
+        val canvases = page.select("canvas")
+        canvases.forEach { it.replaceWith(note("chart not drawn: a <canvas> is drawn by a script, and none runs here")) }
+        val scripts = page.select("script")
+        scripts.remove()
+        if (canvases.isNotEmpty()) {
+            problems += "${canvases.size} <canvas> ${if (canvases.size == 1) "was" else "were"} not drawn: no " +
+                "JavaScript runs when a PDF is laid out, so Chart.js and anything else a script draws is blank. " +
+                "Write each chart as <pre class=\"chart\">{\"kind\":\"bar\",\"values\":{\"A\":1}}</pre> instead."
+        } else if (scripts.isNotEmpty()) {
+            problems += "the page's scripts were not run: no JavaScript runs when a PDF is laid out, so anything " +
+                "they would have drawn or written is missing. Write diagrams as <pre class=\"mermaid\"> and " +
+                "charts as <pre class=\"chart\">."
+        }
+    }
 
     /* --------------------------------------------------------------- charts */
 
@@ -174,8 +223,25 @@ class PageBlocks(
             image.replaceWith(note("picture not drawn: $src"))
             return
         }
-        val type = held.contentType?.takeIf { it.startsWith("image/") } ?: "image/png"
-        image.attr("src", "data:" + type + ";base64," + Base64.getEncoder().encodeToString(held.bytes))
+        image.attr("src", dataUri(held))
+    }
+
+    private fun dataUri(held: Picture): String {
+        val type = held.contentType?.takeIf { it.startsWith("image/") } ?: sniffed(held.bytes)
+        return "data:" + type + ";base64," + Base64.getEncoder().encodeToString(held.bytes)
+    }
+
+    /** The type the bytes say they are, where nothing else did; PNG, which a drawn picture is, otherwise. */
+    private fun sniffed(bytes: ByteArray): String {
+        fun at(i: Int) = if (bytes.size > i) bytes[i].toInt() and 0xFF else -1
+        val start = String(bytes, 0, minOf(bytes.size, 200), Charsets.UTF_8).trimStart()
+        return when {
+            at(0) == 0xFF && at(1) == 0xD8 -> "image/jpeg"
+            at(0) == 'G'.code && at(1) == 'I'.code && at(2) == 'F'.code -> "image/gif"
+            at(0) == 'R'.code && at(8) == 'W'.code && at(9) == 'E'.code -> "image/webp"
+            start.startsWith("<svg") || (start.startsWith("<?xml") && start.contains("<svg")) -> "image/svg+xml"
+            else -> "image/png"
+        }
     }
 
     /* ---------------------------------------------------------------- shared */

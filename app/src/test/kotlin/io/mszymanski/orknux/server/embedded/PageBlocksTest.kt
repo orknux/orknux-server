@@ -33,6 +33,29 @@ class PageBlocksTest {
         assertThat(drawn.html).doesNotContain("class=\"mermaid\"")
     }
 
+    /** The way mermaid.js reads a page, as a div. Issue #544. */
+    @Test
+    fun `a mermaid div is drawn too, and a wrapper round other markup is left alone`() {
+        val drawn = blocks.draw(
+            "<div class=\"mermaid\">graph TD" + n + "UI[Console] --> S[Server]" + n + "</div>" +
+                "<div class=\"mermaid\"><p>kept</p></div>",
+        )
+        assertThat(drawn.problems).isEmpty()
+        assertThat(drawn.html).contains("<svg").contains("Console").contains("kept")
+    }
+
+    /** A report written for a browser: Chart.js into a canvas. Issue #544. */
+    @Test
+    fun `a canvas is named as not drawn, and the scripts are dropped`() {
+        val drawn = blocks.draw(
+            "<script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>" +
+                "<canvas id=\"projectChart\"></canvas><script>new Chart()</script>",
+        )
+        assertThat(drawn.problems).hasSize(1)
+        assertThat(drawn.problems.first()).contains("<canvas>").contains("pre class=\"chart\"")
+        assertThat(drawn.html).doesNotContain("<canvas").doesNotContain("<script").contains("not drawn")
+    }
+
     @Test
     fun `a chart block becomes an inline svg`() {
         val drawn = blocks.draw(

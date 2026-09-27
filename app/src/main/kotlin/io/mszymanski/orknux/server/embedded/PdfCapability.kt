@@ -32,6 +32,7 @@ class PdfCapability(
     private val renderer: PdfRenderer,
     private val pads: SessionScratchpadService,
     private val scratch: LlmSessionStore,
+    private val pictures: SessionPictures,
     private val mapper: ObjectMapper,
 ) : EmbeddedCapability {
 
@@ -47,7 +48,8 @@ class PdfCapability(
             description = "Lays a page of HTML out as a PDF on A4 and answers a key for it. Real CSS, tables, " +
                 "lists and page breaks all work. A diagram goes in as <pre class=\"mermaid\">…</pre> and a " +
                 "chart as <pre class=\"chart\">{\"kind\":\"pie\",\"values\":{\"Rent\":45}}</pre>; both are drawn " +
-                "onto the page as vectors. A picture goes in as <img src=\"name\"> naming a scratchpad in this " +
+                "onto the page as vectors. No JavaScript runs, so a <canvas>, Chart.js or mermaid.js loaded " +
+                "from a web address draws nothing. A picture goes in as <img src=\"name\"> naming a scratchpad in this " +
                 "session or a key something handed you. Where the page is already in a scratchpad, pass " +
                 "$PAD with its name and leave $HTML out - the page is read here rather than typed through " +
                 "you, which is what stops a long report being cut off at your output limit. The answer " +
@@ -352,20 +354,7 @@ class PdfCapability(
     }
 
     /** A picture the page named: a scratchpad first, then a key. */
-    private fun picture(named: String, sessionId: Long?): PageBlocks.Picture? {
-        if (sessionId == null) return null
-        pads.find(sessionId, named)?.let { pad ->
-            val bytes = if (pad.contentType == null) {
-                pad.content.toByteArray()
-            } else {
-                runCatching { Base64.getDecoder().decode(pad.content) }.getOrNull()
-            }
-            if (bytes != null) return PageBlocks.Picture(bytes, pad.contentType)
-        }
-        val held = scratch.get(sessionId, named) ?: return null
-        val bytes = runCatching { Base64.getDecoder().decode(parsed(held)) }.getOrNull() ?: return null
-        return PageBlocks.Picture(bytes, null)
-    }
+    private fun picture(named: String, sessionId: Long?): PageBlocks.Picture? = pictures.find(named, sessionId)
 
     /** The bytes a key holds, which is how a document reaches the next call. */
     private fun bytesFor(named: String?, sessionId: Long?): ByteArray? {

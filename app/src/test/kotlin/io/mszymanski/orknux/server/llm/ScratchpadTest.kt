@@ -102,6 +102,26 @@ class ScratchpadTest(
         assertThat(missed).contains("no scratchpad called")
     }
 
+    /**
+     * A page naming a picture by its key. Issue #545: uploaded as HTML the src
+     * points at nothing, and the model is told to host it or zip the two.
+     */
+    @Test
+    fun `keeping a page that names a picture by key warns, and leaves the page as it is`() {
+        store.put(session, "picture.30", "\"iVBORw0KGgo=\"")
+        val page = "<h1>Mascots</h1><img src=\"picture.30\"><img src=\"https://example.invalid/a.png\">"
+        ok(pads.create(session, "report.html", "The report", page))
+        val shed = requireNotNull(tools.shed(session))
+
+        val said = shed.run(
+            io.mszymanski.orknux.connector.model.ToolCall("1", "scratchpad_keep", """{"name":"report.html"}"""),
+        )
+
+        assertThat(said).contains("\"warning\"").contains("picture.30").contains("zip_files")
+            .doesNotContain("example.invalid")
+        assertThat(store.get(session, "report.html")).contains("src=\\\"picture.30\\\"")
+    }
+
     private fun ok(result: ScratchpadResult): ScratchpadResult.Ok {
         assertThat(result).isInstanceOf(ScratchpadResult.Ok::class.java)
         return result as ScratchpadResult.Ok
