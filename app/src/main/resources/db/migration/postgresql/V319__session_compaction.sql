@@ -1,4 +1,4 @@
--- Compacting a turn that is already too long. Issue #522.
+-- Compacting a turn that is already too long. Issue #521.
 --
 -- The compaction a workspace could already set measures a stored chat thread
 -- before a turn is built. It cannot see this one: an agent that calls forty
@@ -37,3 +37,9 @@ COMMENT ON COLUMN workspace.session_compaction_attempts IS
 
 COMMENT ON COLUMN workspace.session_compaction_model_id IS
     'Which model writes that summary; null uses the turn''s own model.';
+
+-- The issue number above is wrong and is left wrong on purpose: this file had
+-- already run when the tracker numbers came out the other way round, and Flyway
+-- checksums an applied migration. Editing it to say #522 is what this comment
+-- costs a restart to explain. The work is #522; the session-log compaction that
+-- follows it is #523.

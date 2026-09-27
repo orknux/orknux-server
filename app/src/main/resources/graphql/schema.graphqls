@@ -1198,6 +1198,8 @@ type Mutation {
     setMaxToolCallsAtOnce(count: Int!): InstallationSettings!
     "How long one stored value is kept, in characters. Issue #519."
     setLongestStoredValue(characters: Int!): InstallationSettings!
+    "How long a session's log may grow before it is compacted; zero never. Issue #523."
+    setSessionCompactAfterTokens(tokens: Int!): InstallationSettings!
     "How many of a compacted turn's steps survive word for word. Issue #522."
     setSessionCompactionKeepTurns(turns: Int!): InstallationSettings!
     "How long the summary standing in for the rest may be. Issue #522."
@@ -1712,6 +1714,7 @@ type Mutation {
     "How a turn here is compacted when it outgrows its model; null on any takes the installation's. Issue #522."
     setWorkspaceSessionCompaction(
         workspaceId: ID!,
+        afterTokens: Int,
         keepTurns: Int,
         summaryTokens: Int,
         attempts: Int,
@@ -2143,6 +2146,17 @@ type Workspace {
     maxToolCallsAtOnce: Int
     "What a message here gets when `maxToolCallsAtOnce` is null: the installation's number."
     maxToolCallsAtOnceDefault: Int!
+    """
+    How long this session's log may grow before it is compacted, in tokens.
+
+    Past this the older turns are read once, replaced by a summary of them, and
+    the conversation carries on - instead of falling past the recall budget and
+    being forgotten in silence. Null takes the installation's number; zero never
+    compacts. Issue #523.
+    """
+    sessionCompactAfterTokens: Int
+    "What a session here gets when `sessionCompactAfterTokens` is null."
+    sessionCompactAfterTokensDefault: Int!
     """
     How many of a turn's most recent steps survive a compaction, word for word.
 
@@ -6315,6 +6329,15 @@ type InstallationSettings {
     longestStoredValue: Int!
     "A thousand, unless somebody has said otherwise."
     longestStoredValueConfigured: Int!
+    """
+    How long a session's log may grow before it is compacted, in tokens.
+
+    Its own number rather than the chat's: a chat is a conversation a person is
+    having and a session is one an agent is having, which runs far longer and
+    carries tool results a chat never sees. Zero never compacts. Issue #523.
+    """
+    sessionCompactAfterTokens: Int!
+    sessionCompactAfterTokensConfigured: Int!
     """
     Compacting a turn that has already outgrown its model. Issue #522.
 

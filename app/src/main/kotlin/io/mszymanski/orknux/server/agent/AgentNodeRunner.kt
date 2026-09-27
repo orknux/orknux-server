@@ -94,6 +94,9 @@ class AgentNodeRunner(
     private val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
     /** The skills a node names by id, loaded before the model starts. Issue #381. */
     private val skills: SkillTool,
+    /** Shortens a session that has outgrown its model, rather than dropping its beginning. Issue #523. */
+    private val compaction: io.mszymanski.orknux.server.llm.SessionCompaction,
+    private val workspaces: io.mszymanski.orknux.server.workspace.WorkspaceRepository,
 ) : NodeRunner {
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
@@ -177,14 +180,32 @@ class AgentNodeRunner(
                     "the rest were loaded",
             )
         }
+        /*
+         * Named, never spelled out. Issue #521.
+         *
+         * A command used to put the whole of each skill it named into the
+         * system prompt, which is the same mistake the Always list made: one
+         * Slack skill came to seventeen thousand characters, and a prompt that
+         * is mostly one document produces a model that behaves like a filing
+         * clerk. Posted to the model directly, five of six runs went off
+         * loading skills until the context died; with the pages loaded on
+         * demand instead, six of six answered in one round.
+         *
+         * So the command says which skills and says to read them. That costs a
+         * round-trip the inlining did not, and buys a system prompt that stays
+         * the same size however many skills a message names - which is the
+         * trade the whole of #521 is about.
+         */
         val system = if (loaded == null || loaded.found.isEmpty()) {
             briefed
         } else {
             (briefed?.plus("\n\n") ?: "") + buildString {
-                appendLine("These skills are loaded for this task. Follow them:")
+                append("This task names ")
+                append(if (loaded.found.size == 1) "a skill" else "these skills")
+                appendLine(". Load each one with skill_load before anything else, and follow it:")
                 loaded.found.forEach { skill ->
-                    append("\n### ").append(skill.name).append(" (").append(skill.key).appendLine(")")
-                    appendLine(skill.content.trim())
+                    append("\n- ").append(skill.name).append(" (skill_load ").append(skill.key).append(")")
+                    skill.description?.takeIf { it.isNotBlank() }?.let { append(": ").append(it) }
                 }
             }.trimEnd()
         }
@@ -388,6 +409,33 @@ class AgentNodeRunner(
          * the question would come back as part of its own history and the model
          * would be shown it twice.
          */
+        /*
+         * Shortened first, if it has grown too long to carry. Issue #523.
+         *
+         * Before the tail is read rather than after, so this turn is the one
+         * that fits: the summary replaces the older turns in the table, and
+         * everything below reads what is carried rather than what was written.
+         *
+         * A session that outgrew its budget used to lose its beginning in
+         * silence - the oldest turns fell past the allowance and simply did not
+         * come, so an agent asked on Friday about something settled on Monday
+         * answered as though Monday had not happened. This reads them once and
+         * keeps a summary of them instead.
+         */
+        session?.let { held ->
+            runCatching {
+                compaction.compactIfNeeded(held, workspaces.findByIdOrNull(agent.workspaceId), modelId)
+            }.onFailure { log.warn("Session {} could not be compacted", held, it) }
+                .getOrNull()
+                ?.let { done ->
+                    sessions.note(
+                        held,
+                        "This conversation had grown too long to carry, so its first " + done.replaced +
+                            " turns were replaced by a summary of them.",
+                    )
+                }
+        }
+
         val remembered = session?.let { sessions.remembered(it, budget) }.orEmpty()
 
         /*

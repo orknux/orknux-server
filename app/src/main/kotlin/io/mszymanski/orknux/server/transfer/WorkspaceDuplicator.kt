@@ -182,6 +182,7 @@ class WorkspaceDuplicator(
         taskMaxTurns = source.taskMaxTurns,
         agentMaxSubagents = source.agentMaxSubagents,
         maxToolCallsAtOnce = source.maxToolCallsAtOnce,
+        sessionCompactAfterTokens = source.sessionCompactAfterTokens,
         sessionCompactionKeepTurns = source.sessionCompactionKeepTurns,
         sessionCompactionSummaryTokens = source.sessionCompactionSummaryTokens,
         sessionCompactionAttempts = source.sessionCompactionAttempts,

@@ -5,6 +5,8 @@ import io.mszymanski.orknux.server.attachment.MAX_SUBAGENTS
 import io.mszymanski.orknux.server.attachment.MIN_SUBAGENTS
 import io.mszymanski.orknux.server.attachment.MAX_CALLS_AT_ONCE
 import io.mszymanski.orknux.server.attachment.MIN_CALLS_AT_ONCE
+import io.mszymanski.orknux.server.attachment.MAX_COMPACT_AFTER
+import io.mszymanski.orknux.server.attachment.MIN_COMPACT_AFTER
 import io.mszymanski.orknux.server.attachment.MAX_COMPACTIONS
 import io.mszymanski.orknux.server.attachment.MIN_COMPACTIONS
 import io.mszymanski.orknux.server.attachment.MAX_KEEP_TURNS
@@ -368,6 +370,11 @@ class WorkspaceAPI(
     /** How many calls one message may ask for when the workspace has said nothing. Issue #518. */
     @SchemaMapping(typeName = "Workspace")
     fun maxToolCallsAtOnceDefault(workspace: Workspace): Int = installation.maxToolCallsAtOnce()
+
+    /** How long a session here may grow before it is compacted. Issue #523. */
+    @SchemaMapping(typeName = "Workspace")
+    fun sessionCompactAfterTokensDefault(workspace: Workspace): Int =
+        installation.sessionCompactAfterTokens()
 
     /** What a compacted turn keeps here when the workspace has said nothing. Issue #522. */
     @SchemaMapping(typeName = "Workspace")
@@ -842,6 +849,7 @@ class WorkspaceAPI(
     @Transactional
     fun setWorkspaceSessionCompaction(
         @Argument workspaceId: Long,
+        @Argument afterTokens: Int?,
         @Argument keepTurns: Int?,
         @Argument summaryTokens: Int?,
         @Argument attempts: Int?,
@@ -860,6 +868,13 @@ class WorkspaceAPI(
             throw io.mszymanski.orknux.server.attachment.CompactionAttemptsOutOfRangeException(attempts)
         }
 
+        if (afterTokens != null && afterTokens != 0 &&
+            afterTokens !in MIN_COMPACT_AFTER..MAX_COMPACT_AFTER
+        ) {
+            throw io.mszymanski.orknux.server.attachment.CompactAfterOutOfRangeException(afterTokens)
+        }
+
+        workspace.sessionCompactAfterTokens = afterTokens
         workspace.sessionCompactionKeepTurns = keepTurns
         workspace.sessionCompactionSummaryTokens = summaryTokens
         workspace.sessionCompactionAttempts = attempts

@@ -284,6 +284,16 @@ class Workspace(
      *
      * How many of the turn's most recent steps survive word for word.
      */
+    /**
+     * How long a session's log may grow before it is compacted. Issue #523.
+     *
+     * The chat threshold above is about a conversation a person is having; this
+     * is about one an agent is having, which runs far longer. Null takes the
+     * installation's, and zero anywhere turns it off.
+     */
+    @Column(name = "session_compact_after_tokens")
+    var sessionCompactAfterTokens: Int? = null,
+
     @Column(name = "session_compaction_keep_turns")
     var sessionCompactionKeepTurns: Int? = null,
 

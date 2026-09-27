@@ -141,8 +141,23 @@ class AgentBriefing(
                     append(" - pages describing how this workspace goes about things. ")
                     appendLine("Call skill_list to see them, and skill_load to read one.")
                 } else {
-                    append("These skills matter here, whatever you are doing. Load the one that applies ")
-                    appendLine("with skill_load before following it; these lines are enough to choose from.")
+                    /*
+                     * Every one of them, and said as an instruction rather than
+                     * an invitation. Issue #521.
+                     *
+                     * This first read "load the one that applies", which is a
+                     * judgement call, and a model asked "who are you?" decided
+                     * none applied and answered without its own workspace's
+                     * rules - then reasoned in as many words that loading was
+                     * something commands asked for. Always means always: the
+                     * person who marked a skill that way has already made the
+                     * judgement, and leaving it to be made again each turn is
+                     * what Offer is for.
+                     */
+                    append("These skills are in force here. Call skill_load for **every one of them** ")
+                    append("before you answer - all of them, on every turn, whether or not the request ")
+                    append("looks like it needs them. They are listed rather than written out to keep ")
+                    appendLine("this short: the lines below say what each one is, not what it says.")
                 }
                 named.forEach { skill ->
                     append("\n- ").append(skill.name).append(" (").append(marker).append(skill.key).append(")")
@@ -157,11 +172,12 @@ class AgentBriefing(
                 append("\nEvery skill has a command: the marker and its id, like ")
                 append(marker).append(instructions.first().id).append(". ")
                 append("Anybody can write one anywhere in a message to have you load and follow that skill. ")
-                append("When a message carries a command, call skill_load with the id after the marker ")
-                append("before anything else and follow what it says - whether or not that skill is named ")
-                append("above, and however simple the request looks. A command is the person saying how ")
-                append("they want this answered, so answering without reading it answers the wrong ")
-                append("question. Load the ones the message names, and no others. This is the one special ")
+                append("When a message carries a command, call skill_load for the id after the marker as ")
+                append("well - as well as the ones above, not instead of them - and follow what it says, ")
+                append("however simple the request looks. A command is the person saying how they want ")
+                append("this answered, so answering without reading it answers the wrong question. Load ")
+                append("the ones the message names and the ones above, and no others. ")
+                append("This is the one special ")
                 append("syntax people have with you - so when they ask what you can do, or how to use ")
                 append("commands, tell them these commands and this ").append(marker)
                 appendLine("id syntax rather than saying there is none.")

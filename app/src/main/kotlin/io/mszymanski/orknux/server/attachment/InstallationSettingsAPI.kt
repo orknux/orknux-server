@@ -69,6 +69,8 @@ class InstallationSettingsAPI(
         maxToolCallsAtOnceConfigured = settings.maxToolCallsAtOnceConfigured(),
         longestStoredValue = settings.longestStoredValue(),
         longestStoredValueConfigured = settings.longestStoredValueConfigured(),
+        sessionCompactAfterTokens = settings.sessionCompactAfterTokens(),
+        sessionCompactAfterTokensConfigured = settings.sessionCompactAfterTokensConfigured(),
         sessionCompactionKeepTurns = settings.sessionCompactionKeepTurns(),
         sessionCompactionKeepTurnsConfigured = settings.sessionCompactionKeepTurnsConfigured(),
         sessionCompactionSummaryTokens = settings.sessionCompactionSummaryTokens(),
@@ -456,6 +458,18 @@ class InstallationSettingsAPI(
     }
 
     @MutationMapping
+    fun setSessionCompactAfterTokens(@Argument tokens: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setSessionCompactAfterTokens(tokens, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            if (tokens == 0) "Sessions are no longer compacted" else "A session is compacted past $tokens tokens",
+        )
+        return installationSettings()
+    }
+
+    @MutationMapping
     fun setSessionCompactionKeepTurns(@Argument turns: Int): InstallationSettingsView {
         access.requireAdmin()
         settings.setSessionCompactionKeepTurns(turns, currentUser())
@@ -704,6 +718,9 @@ data class InstallationSettingsView(
     /** How long one stored value may be before the transcript cuts it. Issue #519. */
     val longestStoredValue: Int,
     val longestStoredValueConfigured: Int,
+    /** How long a session's log may grow before it is compacted. Issue #523. */
+    val sessionCompactAfterTokens: Int,
+    val sessionCompactAfterTokensConfigured: Int,
     /** Compacting a turn that has outgrown its model. Issue #522. */
     val sessionCompactionKeepTurns: Int,
     val sessionCompactionKeepTurnsConfigured: Int,

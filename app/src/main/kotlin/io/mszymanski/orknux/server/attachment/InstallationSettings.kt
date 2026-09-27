@@ -81,6 +81,9 @@ object SettingNames {
     /** How long a single stored value may be before the transcript cuts it. Issue #519. */
     const val LONGEST_STORED_VALUE = "session.longest.stored.value"
 
+    /** How long a session's log may grow before it is compacted. Issue #523. */
+    const val SESSION_COMPACT_AFTER_TOKENS = "session.compact.after.tokens"
+
     /** Compacting a turn that has outgrown its model. Issue #522. */
     const val SESSION_COMPACTION_KEEP_TURNS = "session.compaction.keep.turns"
     const val SESSION_COMPACTION_SUMMARY_TOKENS = "session.compaction.summary.tokens"
@@ -556,6 +559,37 @@ class InstallationSettings(
 
     /** A thousand: enough of a page of instructions to be worth having. */
     fun longestStoredValueConfigured(): Int = DEFAULT_LONGEST_STORED_VALUE
+
+    /**
+     * How long a session's log may grow before it is compacted. Issue #523.
+     *
+     * Its own number rather than the chat's, because they are different
+     * conversations: a chat's is one a person is having, a session's is one an
+     * agent is having, and the second runs for days and carries tool results the
+     * first never sees.
+     *
+     * Forty thousand, which is under every window this talks to and well over
+     * anything a short conversation reaches - so it costs nothing until a
+     * session is genuinely long. Zero turns it off, and an installation that
+     * would rather an agent forgot the beginning than pay for a summary can set
+     * that.
+     */
+    fun sessionCompactAfterTokens(): Int {
+        val held = settings.findByIdOrNull(SettingNames.SESSION_COMPACT_AFTER_TOKENS)
+            ?: return sessionCompactAfterTokensConfigured()
+        return held.value.toIntOrNull()?.takeIf { it == 0 || it in MIN_COMPACT_AFTER..MAX_COMPACT_AFTER }
+            ?: sessionCompactAfterTokensConfigured()
+    }
+
+    fun sessionCompactAfterTokensConfigured(): Int = DEFAULT_COMPACT_AFTER_TOKENS
+
+    @Transactional
+    fun setSessionCompactAfterTokens(tokens: Int, by: String) {
+        if (tokens != 0 && tokens !in MIN_COMPACT_AFTER..MAX_COMPACT_AFTER) {
+            throw CompactAfterOutOfRangeException(tokens)
+        }
+        write(SettingNames.SESSION_COMPACT_AFTER_TOKENS, tokens.toString(), by)
+    }
 
     /**
      * How many of a turn's most recent steps survive a compaction. Issue #522.
@@ -1244,6 +1278,26 @@ const val DEFAULT_REPEAT_WINDOW_SECONDS = 10
 const val MIN_WARNINGS = 1
 const val MAX_WARNINGS = 10
 const val DEFAULT_LOOP_WARNINGS = 2
+
+/**
+ * A thousand tokens and a million, for when a session is compacted.
+ *
+ * The floor is a thousand because below that a summary is longer than what it
+ * replaces. The ceiling is a million because past that no window this talks to
+ * would have accepted the request anyway. Zero is outside both and means off.
+ */
+const val MIN_COMPACT_AFTER = 1_000
+const val MAX_COMPACT_AFTER = 1_000_000
+const val DEFAULT_COMPACT_AFTER_TOKENS = 40_000
+
+/** Issue #523. */
+class CompactAfterOutOfRangeException(val tokens: Int) : RuntimeException(
+    "$tokens is not a length to compact a session at. " +
+        "Choose 0 for never, or between $MIN_COMPACT_AFTER and $MAX_COMPACT_AFTER.",
+), Refusal {
+
+    override val arguments get() = mapOf("tokens" to tokens)
+}
 
 /**
  * What a turn's compaction may be set to. Issue #522.

@@ -696,7 +696,18 @@ class LlmSessionRecorder(
             LlmSessionEventKind.TOOL -> RememberedTurn.CALL
             else -> "assistant"
         },
-        content = event.content.orEmpty(),
+        /*
+         * A summary says what it is. Issue #523: carried as an assistant turn
+         * like any other, a paragraph describing a conversation reads to a model
+         * as something it said, and an agent that believes it said all of that
+         * a moment ago answers as though the summary were its own last message.
+         * The line in front of it is what makes it a record instead.
+         */
+        content = if (event.kind == LlmSessionEventKind.SUMMARY) {
+            SUMMARY_HEADER + event.content.orEmpty()
+        } else {
+            event.content.orEmpty()
+        },
         actor = event.actor,
     )
 
@@ -822,8 +833,25 @@ class LlmSessionRecorder(
          */
         const val MEMORY_CALLS = 200
 
-        /** The kinds that were said by somebody, and so can be said again. */
-        val SAID = listOf(LlmSessionEventKind.USER, LlmSessionEventKind.AGENT)
+        /**
+         * The kinds that were said by somebody, and so can be said again.
+         *
+         * A summary is in here because it stands in for turns that were said.
+         * Leaving it out would compact a session and then carry nothing of what
+         * the compaction kept, which is the forgetting this was built to stop.
+         * Issue #523.
+         */
+        val SAID = listOf(
+            LlmSessionEventKind.USER,
+            LlmSessionEventKind.AGENT,
+            LlmSessionEventKind.SUMMARY,
+        )
+
+        /** What marks a compacted stretch where it is put back to a model. Issue #523. */
+        val SUMMARY_HEADER =
+            "[Earlier in this conversation, summarised because it grew too long to carry in full. " +
+                "This is a record of what happened, not something you said just now.]" +
+                10.toChar().toString() + 10.toChar().toString()
 
         /**
          * The order a session reads in: when a line was written, and then which

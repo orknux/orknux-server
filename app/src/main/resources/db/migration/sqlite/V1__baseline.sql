@@ -568,6 +568,10 @@ CREATE TABLE llm_session_event
     -- still going. See V209 for why one column says both.
     millis                       integer,
     at                           timestamp not null default CURRENT_TIMESTAMP,
+    -- Whether a summary has taken this turn's place in what is carried to the
+    -- model. The row is kept either way: the log records what happened, and
+    -- what a model is shown is a different question. Issue #523.
+    superseded                   boolean not null default false,
     constraint llm_session_event_session_id_fkey FOREIGN KEY (session_id) REFERENCES llm_session(id) ON DELETE CASCADE
 );
 
@@ -1509,6 +1513,7 @@ CREATE TABLE workspace
     repeated_tool_calls_window_seconds integer,
     repeated_tool_call_warnings  integer,
     max_tool_calls_at_once       integer,
+    session_compact_after_tokens integer,
     session_compaction_keep_turns integer,
     session_compaction_summary_tokens integer,
     session_compaction_attempts  integer,

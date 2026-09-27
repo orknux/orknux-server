@@ -50,6 +50,25 @@ enum class LlmSessionEventKind {
     USER,
 
     /**
+     * Older turns of this session, as one paragraph that stands in for them.
+     * Issue #523.
+     *
+     * A session that runs for days outgrows its model, and what used to happen
+     * was that the oldest turns fell off the end of the recall budget and were
+     * simply not carried - the agent forgot the beginning of the conversation
+     * and nobody was told. This is the alternative: they are read once,
+     * summarised, and the summary is carried in their place.
+     *
+     * Written as a turn of its own rather than folded into an answer, so a
+     * person reading the transcript can see where the conversation was
+     * shortened and what was kept of it. The turns it replaced stay in the
+     * table, marked [LlmSessionEvent.superseded]: the log is a record of what
+     * happened, and what is carried to a model is a different question from
+     * what is kept.
+     */
+    SUMMARY,
+
+    /**
      * A note from the machinery about the conversation itself.
      *
      * Not something anybody said. An agent that could not answer leaves one of
@@ -320,6 +339,18 @@ class LlmSessionEvent(
      */
     @Column(columnDefinition = "text")
     var content: String? = null,
+
+    /**
+     * Whether a summary has taken this turn's place. Issue #523.
+     *
+     * Set when the session is compacted, and it means "no longer carried to the
+     * model" rather than "deleted": the row stays, the transcript still shows
+     * it, and a person reading how an answer was arrived at still sees every
+     * step. Only what is put in front of the model is narrowed, which is the
+     * whole distinction the recall budget already draws and this makes durable.
+     */
+    @Column(name = "superseded", nullable = false)
+    var superseded: Boolean = false,
 
     /**
      * What a tool gave back, and null on every line that is not a call.
@@ -618,6 +649,7 @@ interface LlmSessionEventRepository : JpaRepository<LlmSessionEvent, Long> {
         select e from LlmSessionEvent e
         where e.sessionId = :sessionId
           and e.kind in :kinds
+          and e.superseded = false
         order by e.at desc, e.id desc
         """,
     )
@@ -641,6 +673,7 @@ interface LlmSessionEventRepository : JpaRepository<LlmSessionEvent, Long> {
         where e.sessionId = :sessionId
           and e.kind in :kinds
           and e.at < :before
+          and e.superseded = false
         order by e.at desc, e.id desc
         """,
     )
@@ -670,6 +703,7 @@ interface LlmSessionEventRepository : JpaRepository<LlmSessionEvent, Long> {
         where e.sessionId = :sessionId
           and e.kind = :kind
           and e.result is not null
+          and e.superseded = false
         order by e.at desc, e.id desc
         """,
     )
