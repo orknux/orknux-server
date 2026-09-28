@@ -42,6 +42,10 @@ have failed.
 
 ### 🐛 Fixed
 
+- A block of commands in a chat answer is highlighted: the command names and their flags are coloured, not only keywords and comments, and `shell`, `powershell` and `cmd` blocks are coloured too.
+
+- A link to a saved artifact in a task, a chat or an answer shows a miniature under it: a PDF's first page, a picture itself, and a tile for anything else or a file that will not open.
+
 - A task whose turn uses all its tool rounds takes its next turn instead of stopping as "could not answer"; the task's own turn limit is what ends one that never finishes.
 
 - An agent asked by another now has its thinking written into its session, as a task's and a workflow node's always were.
