@@ -680,7 +680,15 @@ class AgentTools(
             // Anything but "true" is text: a model that sent the flag
             // at all meant it, and a missing flag is the common case.
             // Or from a key another tool left it under, bytes or text as that tool said.
+            /*
+             * A content that is exactly a key this session holds is that key.
+             * Task 85 passed a PDF's key as the content and saved a 32-byte
+             * text file named .pdf: a model handed a key and a field called
+             * content puts one in the other, and no reader wants the key's name.
+             */
             val fromKey = argument(call, CONTENT_KEY)?.trim()?.takeIf { it.isNotEmpty() }
+                ?: argument(call, "content")?.trim()
+                    ?.takeIf { it.isNotEmpty() && it.length <= KEY_SIZED && sessionId != null && scratch.get(sessionId, it) != null }
             val held = fromKey?.let { key -> sessionId?.let { scratch.get(it, key) } }
             if (fromKey != null && held == null) {
                 return mapper.writeValueAsString(mapOf("error" to "Nothing is kept under $fromKey in this session."))
@@ -768,6 +776,9 @@ class AgentTools(
 
         /** What save_artifact takes a stored file by. */
         const val CONTENT_KEY = "contentKey"
+
+        /** Longer than any key a tool hands out; a content past it is content, and is not looked up. */
+        private const val KEY_SIZED = 200
         const val BASE64_ENCODE = "base64_encode"
         const val BASE64_DECODE = "base64_decode"
 

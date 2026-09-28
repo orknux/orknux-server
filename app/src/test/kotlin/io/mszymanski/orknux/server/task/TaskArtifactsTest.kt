@@ -66,6 +66,22 @@ class TaskArtifactsTest(
     }
 
     @Test
+    fun `a key passed as the content is read as the key`() {
+        val workspace = requireNotNull(workspaces.save(Workspace(name = "art-${System.nanoTime()}")).id)
+        val session = recorder.open(workspace, "task", "misplaced")
+        scratch.put(session, "Poem.pdf", mapper.writeValueAsString(Base64.getEncoder().encodeToString(pdf)), StoredKind("application/pdf", true))
+
+        tools.saveArtifact(
+            agentIn(workspace, BuiltInTools.GRANTED),
+            ToolCall("1", AgentTools.SAVE_ARTIFACT, """{"name":"Poem.pdf","description":"The poem","content":"Poem.pdf"}"""),
+            session,
+        )
+        assertThat(saved.findByWorkspaceId(workspace).single().sizeBytes)
+            .describedAs("task 85 saved the key's name, 32 bytes of text")
+            .isEqualTo(pdf.size.toLong())
+    }
+
+    @Test
     fun `a key nothing is under is said so`() {
         val workspace = requireNotNull(workspaces.save(Workspace(name = "art-${System.nanoTime()}")).id)
         val session = recorder.open(workspace, "task", "none")
