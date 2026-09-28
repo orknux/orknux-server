@@ -81,6 +81,21 @@ class BuiltInSkillsTest(
     }
 
     /** Offered where a plugin's are, which is what makes everything downstream work. */
+    /**
+     * Every voice says how it is switched off, by its own id: `!caveman=off`.
+     * The command parser reads that as the command `caveman`, so the page comes
+     * with the message and is what has to say what `=off` means.
+     */
+    @Test
+    fun `every voice skill says how to switch it off`() {
+        val voices = builtIn.catalogs().single().skills.filter { it.key.endsWith("man") }
+        assertThat(voices.map { it.key })
+            .contains("angryman", "caveman", "crazyman", "jokeman", "niceman", "rimeman")
+        voices.forEach { voice ->
+            assertThat(voice.content).describedAs(voice.key).contains("`!${voice.key}=off`")
+        }
+    }
+
     @Test
     fun `it is offered through the same door as a plugin's skills`() {
         assertThat(fromPlugins.catalogs().map { it.name }).contains(BuiltInSkills.CATALOG)
