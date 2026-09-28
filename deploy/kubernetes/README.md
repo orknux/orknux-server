@@ -388,8 +388,8 @@ ones this file adds:
 ## Upgrading
 
 ```
-kubectl -n orknux set image deploy/orknux-server orknux-server=orknux/orknux-server:0.9.9
-kubectl -n orknux set image deploy/orknux-ui orknux-ui=orknux/orknux-ui:0.9.9
+kubectl -n orknux set image deploy/orknux-server orknux-server=orknux/orknux-server:0.9.9.1
+kubectl -n orknux set image deploy/orknux-ui orknux-ui=orknux/orknux-ui:0.9.9.1
 ```
 
 or edit both tags in the file and apply it again, which is the one that leaves
