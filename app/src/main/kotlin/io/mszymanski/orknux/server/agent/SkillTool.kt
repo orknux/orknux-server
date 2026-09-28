@@ -205,8 +205,12 @@ class SkillTool(
      * merge, workspace first — see below.
      */
     private fun granted(agent: Agent): List<GrantedSkill> {
-        if (agent.skillCatalogs.isEmpty()) return emptyList()
-        val held = agent.skillCatalogs.toSet()
+        /*
+         * The server's own catalog always, whatever was ticked: its skills are
+         * the product's, the way the built-in tools are, and an agent with no
+         * catalog granted could otherwise not reach even `!caveman`.
+         */
+        val held = agent.skillCatalogs.toSet() + BuiltInSkills.CATALOG
 
         val own = catalogs.findByWorkspaceIdOrderByNameAsc(agent.workspaceId)
             .filter { it.name in held }
@@ -264,7 +268,7 @@ class SkillTool(
             .distinctBy { it.catalog + "/" + it.key }
     }
 
-    private companion object {
+    companion object {
         val LIST = ToolDescriptor(
             name = "skill_list",
             description =

@@ -134,7 +134,9 @@ class AgentToolCallTest(
          * The round count is not the assertion: this stub asks for a skill
          * whatever it is offered, so what matters is what it was offered.
          */
-        assertThat(received[0]).doesNotContain("skill_list").doesNotContain("memory_search")
+        // The skill tools are built-ins like the rest: every agent holds the
+        // server's own skills. Memory still comes with a catalog.
+        assertThat(received[0]).contains("skill_list").doesNotContain("memory_search")
         assertThat(received[0]).doesNotContain("scratchpad_write").doesNotContain("ask_agent")
         assertThat(received[0]).contains("validate_format")
     }

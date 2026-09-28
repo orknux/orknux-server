@@ -284,7 +284,9 @@ class ChatAgentTest(
         val grants = requireNotNull(briefing.grants(held))
         // The command advertisement is here: the skill, and the standing
         // instruction never to deny having commands.
-        assertThat(grants).contains("escalation")
+        // Counted with the server's own skills rather than named: Offered skills
+        // are reached through skill_list (#521).
+        assertThat(grants).contains("skills - pages describing")
         assertThat(grants).contains("has a command")
         assertThat(grants).contains("rather than saying there is none")
         // The persona is not - that is the half a node override replaces.

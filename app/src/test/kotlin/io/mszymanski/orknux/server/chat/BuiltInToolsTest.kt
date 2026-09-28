@@ -105,8 +105,10 @@ class BuiltInToolsTest(
 
         assertThat(listed.filter { it.governance == BuiltInGovernance.GRANT }.map { it.name })
             .containsExactlyElementsOf(BuiltInTools.GRANTED)
-        assertThat(listed.filter { it.governance == BuiltInGovernance.SKILL_CATALOGS }.map { it.name })
-            .containsExactlyInAnyOrder("skill_list", "skill_load", "skill_search")
+        // The skill tools are switched by name now, like the rest: the server's
+        // own skills reach every agent, whatever catalogs it was granted.
+        assertThat(listed.filter { it.governance == BuiltInGovernance.SKILL_CATALOGS }).isEmpty()
+        assertThat(BuiltInTools.GRANTED).contains("skill_list", "skill_load", "skill_search")
         assertThat(listed.filter { it.governance == BuiltInGovernance.MEMORY_CATALOGS }.map { it.name })
             .containsExactlyInAnyOrder("memory_search", "memory_save", "memory_update", "memory_delete")
         assertThat(listed.filter { it.governance == BuiltInGovernance.ORKNUX_ACCESS }.map { it.name })

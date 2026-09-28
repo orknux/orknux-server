@@ -31,6 +31,10 @@ have failed.
 
 ### 🐛 Fixed
 
+- 🧩 **Every agent reaches the built-in skills, whatever catalogs it was granted.**
+  `skill_list`, `skill_load` and `skill_search` followed the catalog ticks, so an
+  agent with none could not load even `!caveman`. They are built-ins like the
+  rest now, on unless hidden, and the built-in catalog is always held.
 - ☑️ **"Allow unsafe built-in tool visibility" opens as it was saved.** It was
   stored all along; the settings page read every setting back but that one.
 

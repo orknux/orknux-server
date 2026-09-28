@@ -227,6 +227,19 @@ class SkillIdTest(
      * loads - what changes is that the agent is told there was a decision, and
      * can name the catalog to reach the other.
      */
+    /**
+     * An agent with no catalog ticked still reaches the server's own skills.
+     * Reported: the skill tools followed the catalog grants, so an agent with
+     * none could not load even `!caveman`.
+     */
+    @Test
+    fun `an agent granted no catalog still reaches the built-in skills`() {
+        val bare = agents.save(Agent(workspaceId = workspaceId, name = "bare", type = AgentType.LLM))
+        assertThat(bare.skillCatalogs).isEmpty()
+        assertThat(skillTool.list(bare).map { it.id }).contains("caveman")
+        assertThat(skillTool.load(bare, "caveman")).isNotNull()
+    }
+
     @Test
     fun `where two skills answer to one id the list says so and the catalog reaches either`() {
         skill("Plan")
@@ -296,7 +309,9 @@ class SkillIdTest(
         )
         // Hidden by id, and out of reach of the loader as well as the list -
         // an agent that cannot see a skill cannot load it by guessing.
-        assertThat(skillTool.list(narrowed).map { it.id }).containsExactly("answering-in-a-thread")
+        // Of this catalog: the server's own skills are held by every agent as well.
+        assertThat(skillTool.list(narrowed).filter { it.catalog == catalog }.map { it.id })
+            .containsExactly("answering-in-a-thread")
         assertThat(skillTool.load(narrowed, "escalating")).isNull()
         // And the marked one is in force, with its page.
         assertThat(skillTool.always(narrowed).map { it.name }).containsExactly("Answering in a thread")

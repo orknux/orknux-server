@@ -89,7 +89,6 @@ class BuiltInTools(
     fun all(): List<BuiltInTool> = buildList {
         GRANTED.forEach { add(BuiltInTool(it, BuiltInGovernance.GRANT)) }
         REACHING.forEach { add(BuiltInTool(it, BuiltInGovernance.GRANT_REACHING)) }
-        skills.descriptors().forEach { add(BuiltInTool(it.name, BuiltInGovernance.SKILL_CATALOGS)) }
         add(BuiltInTool(memories.descriptor().name, BuiltInGovernance.MEMORY_CATALOGS))
         add(BuiltInTool(memories.saveDescriptor().name, BuiltInGovernance.MEMORY_CATALOGS))
         add(BuiltInTool(memories.updateDescriptor().name, BuiltInGovernance.MEMORY_CATALOGS))
@@ -132,6 +131,15 @@ class BuiltInTools(
             TodoTools.COMPLETE,
             DateTools.NOW,
             TimerTools.SET,
+            /*
+             * The skill tools are built-ins like the rest rather than a view of
+             * the catalog grants: the skills the server brings reach every agent
+             * whatever it was granted, and without these an agent with no catalog
+             * ticked could not reach even `!caveman`.
+             */
+            io.mszymanski.orknux.server.agent.SkillTool.LIST.name,
+            io.mszymanski.orknux.server.agent.SkillTool.LOAD.name,
+            io.mszymanski.orknux.server.agent.SkillTool.SEARCH.name,
             ScratchpadTools.LIST,
             ScratchpadTools.READ,
             ScratchpadTools.WRITE,

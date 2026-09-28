@@ -151,7 +151,8 @@ class AgentTools(
     }
 
     private fun coreFor(agent: Agent): List<ToolSpec> = buildList {
-        if (agent.skillCatalogs.isNotEmpty()) addAll(skills.descriptors().map(::spec))
+        // Built-ins by name, on unless hidden: the server's own skills reach every agent.
+        addAll(skills.descriptors().filter { BuiltInTools.granted(agent, it.name) }.map(::spec))
         if (agent.memoryCatalogs.isNotEmpty()) {
             add(spec(memories.descriptor()))
             // The writing half of the same grant: an agent given a catalog can
