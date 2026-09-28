@@ -138,7 +138,7 @@ class DiagramRenderer {
             )
         }
 
-        val uml = Mermaid.asPlantUml(written)
+        val uml = laidOutInJava(Mermaid.asPlantUml(written))
         val drawn = ByteArrayOutputStream()
         val described: DiagramDescription = try {
             SourceStringReader(uml).outputImage(drawn, FileFormatOption(FileFormat.SVG))
@@ -166,11 +166,27 @@ class DiagramRenderer {
          */
         val said = described.description.orEmpty()
         if (said.isEmpty() || said.contains("error", ignoreCase = true) ||
-            svg.contains("Syntax Error", ignoreCase = true)
+            svg.contains("Syntax Error", ignoreCase = true) ||
+            svg.contains("Cannot find Graphviz", ignoreCase = true)
         ) {
             return Drawing.Refused(reasonIn(svg) ?: "that is not a diagram this can read")
         }
         return Drawing.Drawn(svg, said)
+    }
+
+    /**
+     * Every diagram laid out by Smetana, PlantUML's own Java port of Graphviz.
+     *
+     * Without it a flowchart, a class or a state diagram asks for a `dot`
+     * binary, and neither image carries one - so on every installation those
+     * came back as a picture saying Graphviz could not be found, and they
+     * passed as drawn. It surfaced only on CI because the development machine
+     * happened to find one. A source that chose its own layout keeps it.
+     */
+    private fun laidOutInJava(uml: String): String {
+        if (uml.contains("!pragma layout", ignoreCase = true)) return uml
+        val opening = uml.substringBefore('\n')
+        return opening + "\n!pragma layout smetana" + uml.removePrefix(opening)
     }
 
     /**

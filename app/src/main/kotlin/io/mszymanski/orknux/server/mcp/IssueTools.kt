@@ -94,8 +94,14 @@ class IssueTools(
      * description, because the list is the workspace's and changes when an
      * administrator changes it - a description that said "OPEN or CLOSED" is
      * how a model was once told two of three values existed.
+     *
+     * Joins whatever transaction describes the tools rather than opening its
+     * own, unlike the tools themselves. The chat's briefing lists them inside
+     * the transaction that records the person's message, and on SQLite a
+     * second transaction there waits for the first one's lock until the busy
+     * timeout and fails - #171 again, from a read that needed no isolation.
      */
-    @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
+    @Transactional(propagation = Propagation.SUPPORTS, readOnly = true)
     fun statusKeys(scope: OrknuxScope): List<String> = statuses.of(scope.workspaceId).map { it.key }
 
     /** Where an issue can be opened, sent back with the issue itself. */
