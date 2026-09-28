@@ -19,7 +19,8 @@ have failed.
 
 ### ✨ Added
 
-- On an agent's page, a tool or skill's name links to its page, and hovering the row shows what it does - built-in tools included, which now say the first sentence of what the model is told.
+- On an agent's page, a tool or skill's name links to its page where it has one (a built-in does not), and hovering the row shows what it does - built-in tools included, which now say the first sentence of what the model is told.
+- In the chat box, a word starting with the workspace's command marker offers the skills the chat's agent can reach, and Tab or Enter completes it in place.
 
 - A model's provider is a select on its page, so a model can move to another of the workspace's providers and keep its id, settings and every agent pointed at it.
 - A model provider can be duplicated from its row, with a copy of each of its models; its own key stays behind, and a workspace secret it reads is kept.
