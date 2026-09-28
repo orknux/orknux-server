@@ -246,10 +246,19 @@ class InlineExecutionEngine(
         var left = pause
         while (left > Duration.ZERO) {
             if (steps.wasStopAsked(executionId)) throw StepStoppedException(nodeKey)
+            // Woken: the step is run again now. Looked at per chunk, like a stop.
+            if (woken.remove(executionId)) return
             val chunk = if (left < STOP_POLL) left else STOP_POLL
             Thread.sleep(chunk.toMillis())
             left -= chunk
         }
+    }
+
+    /** Runs asked to stop waiting; see [wake]. */
+    private val woken = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
+
+    override fun wake(executionId: Long) {
+        woken += executionId
     }
 
     private companion object {

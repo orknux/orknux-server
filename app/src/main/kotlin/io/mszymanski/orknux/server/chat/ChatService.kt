@@ -63,6 +63,8 @@ class ChatService(
     private val workspaces: WorkspaceRepository,
     /** The working files a chat's agent keeps in the chat's session; see [ScratchpadTools]. Issue #445. */
     private val scratchpads: ScratchpadTools,
+    /** A reminder the chat's agent sets and carries on; see [TimerTools]. */
+    private val timers: TimerTools,
     transactions: PlatformTransactionManager,
 ) {
 
@@ -732,7 +734,7 @@ class ChatService(
              * them. Lent here rather than by each door, so the two doors cannot
              * come to lend different things. Issue #445.
              */
-            val lent = sheds(shed, scratchpads.shed(start.llmSessionId))
+            val lent = sheds(shed, scratchpads.shed(start.llmSessionId), timers.shed(start.llmSessionId))
             conversation.answer(start.modelId, start.agentId, start.turns, start.llmSessionId, lent, watch, hangup)
         }
 
@@ -803,6 +805,30 @@ class ChatService(
                 recalled(session, into) +
                 ChatTurn("user", message, images),
             compacted = compacted,
+        )
+    }
+
+    /**
+     * The first half of a turn nobody typed: something arrived for the chat's
+     * agent - an answer it asked for, a reminder it set - after its turn ended.
+     *
+     * [beginSend] without the person's message. Nothing is added to the thread:
+     * what arrived is read out of the session's inbox by the conversation itself,
+     * and written there as said to the agent. Null for a chat with no agent, which
+     * has nothing that could have arrived, and for one whose model is gone.
+     */
+    fun beginWake(id: Long): ChatSendStart? = writing.execute {
+        val session = sessions.findByIdOrNull(id) ?: return@execute null
+        val modelId = session.modelId ?: return@execute null
+        if (session.agentId == null) return@execute null
+        val thread = history.findByConversationId(session.conversationId)
+        val into = recording(session)
+        ChatSendStart(
+            modelId = modelId,
+            agentId = session.agentId,
+            llmSessionId = into,
+            conversationId = session.conversationId,
+            turns = briefed(session) + thread.map { ChatTurn(role(it), it.text.orEmpty()) } + recalled(session, into),
         )
     }
 

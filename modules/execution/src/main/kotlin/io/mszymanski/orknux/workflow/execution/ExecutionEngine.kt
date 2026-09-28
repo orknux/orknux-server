@@ -45,4 +45,15 @@ interface ExecutionEngine {
          */
         firedTriggerId: Long? = null,
     ): WorkflowExecution
+
+    /**
+     * Cuts short the wait of a run parked on a step, so the step is run again
+     * now rather than when its time is up. For something arriving that the step
+     * was waiting on - an answer from an agent it asked - where waiting out the
+     * rest of the timer would leave it sitting on what it needed.
+     *
+     * A hint, not a promise: a run that is not parked has nothing to cut short,
+     * and a step woken with nothing new simply parks again.
+     */
+    fun wake(executionId: Long) {}
 }

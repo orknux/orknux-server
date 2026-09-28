@@ -390,8 +390,8 @@ Two counters, both in memory, both forgotten on a restart, and neither of them l
 
 ### More settings
 
-Read on start, and each also a setting an administrator can change on the
-screen, where the screen's value wins; these are the defaults a fresh
+Read on start. Most are also a setting an administrator can change on the
+screen, where the screen's value wins, and then these are the defaults a fresh
 installation starts from.
 
 | Variable | What it sets | Default |
@@ -402,6 +402,7 @@ installation starts from.
 | `ORKNUX_COMMAND_MARKER` | What marks a skill command in a message. | `!` |
 | `ORKNUX_LDAP_GROUP_SEARCH_SUBTREE` | Search for groups below the group base too. | `false` |
 | `ORKNUX_SESSIONS_ACTIVE_WINDOW_SECONDS` | How recent a session's last line is to count as active. | `60` |
+| `ORKNUX_SESSIONS_DUE_SWEEP` | How often a reminder that came due after its agent finished is delivered. | `5s` |
 | `ORKNUX_TASK_SWEEP_ENABLED` | Whether stuck tasks are picked up again. | `true` |
 | `ORKNUX_TASK_SWEEP_INITIAL_DELAY` | How long after start the first sweep runs. | `1m` |
 

@@ -35,6 +35,8 @@ class ChatAPI(
     private val chatTools: ChatTools,
     /** What can be typed instead of said; see [ChatCommands]. */
     private val commands: ChatCommands,
+    /** Which chats have a turn being answered; see [ChatWake]. */
+    private val generations: ChatGenerations,
 ) {
 
     /**
@@ -193,7 +195,17 @@ class ChatAPI(
         // The chat's own tools, lent for this round only. The same shed the
         // streaming door lends, so what an agent may do does not depend on
         // which of the two the browser happened to use.
-        val answer = when (val said = chats.ask(start, shed = chatTools.shed(session))) {
+        // Registered as being answered, like the streaming door's turn, so
+        // something arriving meanwhile is read by this turn rather than waking
+        // a second one beside it. See ChatWake.
+        val hangup = io.mszymanski.orknux.connector.model.Hangup()
+        generations.register(id, hangup)
+        val said = try {
+            chats.ask(start, shed = chatTools.shed(session), hangup = hangup)
+        } finally {
+            generations.release(id, hangup)
+        }
+        val answer = when (said) {
             is ChatCompletion.Failed -> throw ChatModelUnusableException(said.reason)
             // The loop runs tools to a conclusion, so nothing reaching here is
             // still asking for one.

@@ -9,6 +9,7 @@ import io.mszymanski.orknux.workflow.execution.GraphEdge
 import io.mszymanski.orknux.workflow.execution.StepStatus
 import io.temporal.failure.ActivityFailure
 import io.temporal.failure.ApplicationFailure
+import io.temporal.workflow.SignalMethod
 import io.temporal.workflow.Workflow
 import io.temporal.workflow.WorkflowInterface
 import io.temporal.workflow.WorkflowMethod
@@ -28,6 +29,10 @@ interface ExecutionWorkflow {
 
     @WorkflowMethod
     fun run(plan: RunPlan): ExecutionStatus
+
+    /** Cuts short the wait of a parked step; see [ExecutionEngine.wake]. */
+    @SignalMethod
+    fun wake()
 }
 
 /**
@@ -165,6 +170,13 @@ class ExecutionWorkflowImpl : ExecutionWorkflow {
     /** Options come from the worker's registration, so this stays free of configuration. */
     private val activities = Workflow.newActivityStub(ExecutionActivities::class.java)
 
+    /** Set by [wake], and read by a parked step's wait. */
+    private var woken = false
+
+    override fun wake() {
+        woken = true
+    }
+
     override fun run(plan: RunPlan): ExecutionStatus {
         /*
          * What still has a reason to run. Built from the edges the plan
@@ -257,7 +269,17 @@ class ExecutionWorkflowImpl : ExecutionWorkflow {
                     )
                     return ExecutionStatus.FAILED
                 }
-                Workflow.sleep(Duration.ofSeconds(pause))
+                /*
+                 * A wait that something arriving can cut short. Versioned, because
+                 * a run already in its sleep when this shipped replays a timer and
+                 * must go on seeing one.
+                 */
+                if (Workflow.getVersion(WAKE_ON_EVENT, Workflow.DEFAULT_VERSION, 1) == Workflow.DEFAULT_VERSION) {
+                    Workflow.sleep(Duration.ofSeconds(pause))
+                } else {
+                    Workflow.await(Duration.ofSeconds(pause)) { woken }
+                    woken = false
+                }
             }
 
             if (diverted) {
@@ -286,3 +308,6 @@ class ExecutionWorkflowImpl : ExecutionWorkflow {
     private fun ActivityFailure.reason(): String =
         (cause as? ApplicationFailure)?.originalMessage ?: cause?.message ?: message ?: "the step failed"
 }
+
+/** The change id for a step wait that a signal can cut short; see [ExecutionWorkflow.wake]. */
+private const val WAKE_ON_EVENT = "wake-on-event"

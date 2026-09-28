@@ -371,6 +371,68 @@ class ExecutionWorkflowTest(
         assertThat(recorded.getValue("ok-onwards").status).isEqualTo(StepStatus.PENDING)
     }
 
+    /**
+     * A parked step is woken early by a signal: something it was waiting on
+     * arrived - an answer from an agent it asked - and it runs again now rather
+     * than when its hour is up.
+     *
+     * An environment of its own, with the clock real: with time skipped, the
+     * hour would be jumped over before a signal could reach it, and the test
+     * would pass for the wrong reason.
+     */
+    @Test
+    fun `a parked step woken by a signal runs again at once`() {
+        val real = TestWorkflowEnvironment.newInstance(
+            io.temporal.testing.TestEnvironmentOptions.newBuilder().setUseTimeskipping(false).build(),
+        )
+        try {
+            val worker = real.newWorker(QUEUE)
+            worker.registerWorkflowImplementationTypes(
+                WorkflowImplementationOptions.newBuilder()
+                    .setDefaultActivityOptions(
+                        ActivityOptions.newBuilder().setStartToCloseTimeout(Duration.ofSeconds(30)).build(),
+                    )
+                    .build(),
+                ExecutionWorkflowImpl::class.java,
+            )
+            worker.registerActivitiesImplementations(activities)
+            real.start()
+
+            val plan = plan(
+                WorkflowGraph(
+                    workflowId = WORKFLOW,
+                    name = "Change Approval",
+                    nodes = listOf(node("wait-for-approval"), node("ok-2")),
+                    edges = listOf(GraphEdge("wait-for-approval", "ok-2")),
+                ),
+            )
+            val id = "woken-${plan.executionId}"
+            val stub = real.workflowClient.newWorkflowStub(
+                ExecutionWorkflow::class.java,
+                WorkflowOptions.newBuilder().setTaskQueue(QUEUE).setWorkflowId(id).build(),
+            )
+            WorkflowClient.start(stub::run, plan)
+
+            // Parked on its hour.
+            val until = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
+            while (System.nanoTime() < until &&
+                steps.findByExecutionIdOrderByOrderAsc(plan.executionId).none { it.status == StepStatus.WAITING }
+            ) {
+                Thread.sleep(100)
+            }
+
+            real.workflowClient.newUntypedWorkflowStub(id).signal("wake")
+            val status = real.workflowClient.newUntypedWorkflowStub(id)
+                .getResult(20, TimeUnit.SECONDS, ExecutionStatus::class.java)
+
+            assertThat(status).isEqualTo(ExecutionStatus.COMPLETED)
+            assertThat(steps.findByExecutionIdOrderByOrderAsc(plan.executionId).map { it.status })
+                .containsExactly(StepStatus.COMPLETED, StepStatus.COMPLETED)
+        } finally {
+            real.close()
+        }
+    }
+
     private fun workflow() = environment.workflowClient.newWorkflowStub(
         ExecutionWorkflow::class.java,
         WorkflowOptions.newBuilder().setTaskQueue(QUEUE).build(),

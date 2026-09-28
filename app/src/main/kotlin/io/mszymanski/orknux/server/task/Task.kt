@@ -369,6 +369,9 @@ class TaskMessage(
 
 interface TaskRepository : JpaRepository<Task, Long> {
 
+    /** The task whose conversation this is, for something arriving at it; see [TaskService.wake]. */
+    fun findFirstBySessionId(sessionId: Long): Task?
+
     /**
      * The workspace's tasks, newest first, optionally narrowed to a status.
      *

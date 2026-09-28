@@ -226,6 +226,33 @@ class TaskService(
     }
 
     /**
+     * Something arrived at the task's session - an agent it asked answering, a
+     * reminder it set. See [io.mszymanski.orknux.server.llm.SessionInbox].
+     *
+     * A task at work is nudged, and reads it between rounds. One that finished
+     * is set going again - but not the way [carryOn] does it: that resets the
+     * budget because a person asked, which is what bounds the bill, and here
+     * nobody did. So only a task that ended DONE with turns left is reopened,
+     * on what it has left; one stopped or failed stays that way, and one
+     * waiting for a person reads it when the person answers.
+     */
+    @Transactional
+    fun wake(sessionId: Long) {
+        val task = tasks.findFirstBySessionId(sessionId) ?: return
+        when {
+            task.status == TaskStatus.RUNNING || task.status == TaskStatus.QUEUED -> engine.nudge(requireNotNull(task.id))
+            task.status == TaskStatus.DONE && task.turnsSpent < task.turnsAllowed -> {
+                task.status = TaskStatus.RUNNING
+                task.finishedAt = null
+                task.endedBecause = null
+                tasks.save(task)
+                sessions.note(sessionId, "Something the task was waiting on arrived, so it carried on.")
+                engine.begin(requireNotNull(task.id))
+            }
+        }
+    }
+
+    /**
      * Sets a finished task working again on what was just said to it.
      *
      * Same task, same id, same session - which is the whole point. A task's

@@ -73,6 +73,8 @@ class TaskLoop(
     private val todos: io.mszymanski.orknux.server.chat.TodoTools,
     /** What lets an agent ask what the current time is; see [DateTools]. #407. */
     private val dates: io.mszymanski.orknux.server.chat.DateTools,
+    /** A reminder the agent sets for itself; see [io.mszymanski.orknux.server.chat.TimerTools]. */
+    private val timers: io.mszymanski.orknux.server.chat.TimerTools,
     /** The agent's setup, written into the log where it changes; see [AgentDetails]. #391, #441. */
     private val agentDetails: io.mszymanski.orknux.server.agent.AgentDetails,
     private val news: TaskNewsDesk,
@@ -196,6 +198,8 @@ class TaskLoop(
             // And the clock: a task runs for hours, so the time it began
             // is not the time now. Needs no session. #407.
             dates.shed(),
+            // A reminder it sets and carries on; delivered to the session.
+            timers.shed(session),
         )
 
         /*

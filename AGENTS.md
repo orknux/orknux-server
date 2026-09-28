@@ -414,6 +414,14 @@ is reported to the module rather than cascaded.
   `OrknuxTools` is the one place that knows the `orknux_*` surface, and the scope
   it is called with is what decides whether writing is offered. Adding a tool in
   one place and not the other is two products.
+- **What arrives at a session goes through its inbox.** `SessionInbox` is
+  where an answer an agent asked for, or a reminder it set, is left; a turn
+  reads it between rounds and at its start, and `SessionEventDue` is what wakes
+  a session that is not running - `SessionWake` for workflow steps and tasks,
+  `ChatWake` for chats. Something new that finishes after the turn that
+  started it posts there too, rather than growing a wake-up of its own. The
+  briefing's "How you run" is the other half: the model is told there is no
+  later unless it makes one, and the inbox is the backup when it forgets.
 - Comments say why, not what. KDoc on public types and anything with a rule
   behind it.
 

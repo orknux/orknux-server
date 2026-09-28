@@ -22,4 +22,12 @@ data class SessionProperties(
      * administrator can move. Issue #448.
      */
     val activeWindowSeconds: Int = 60,
+    /**
+     * How often something due at a session is looked for and delivered, where no
+     * turn is running to read it - a reminder that comes due after the agent
+     * finished. Also how late one may be, at worst.
+     */
+    val dueSweep: java.time.Duration = java.time.Duration.ofSeconds(5),
+    /** Off only in the test suite, where no clock may fire; a test calls the sweep itself. */
+    val dueSweepEnabled: Boolean = true,
 )

@@ -68,6 +68,15 @@ class TemporalExecutionEngine(
 
         return plan.execution
     }
+
+    /** A signal to the run's workflow, which cuts its step's wait short. Nothing to wake is not a fault. */
+    override fun wake(executionId: Long) {
+        runCatching {
+            client.newUntypedWorkflowStub(temporalWorkflowId(executionId)).signal("wake")
+        }.onFailure { log.debug("Execution {} had nothing to wake: {}", executionId, it.message) }
+    }
+
+    private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
 }
 
 /**

@@ -305,9 +305,9 @@ and it needs nothing else configured here.
 
 ORKNUX_CHAT_MAX_ROUNDS, ORKNUX_CHAT_MAX_SUBAGENTS, ORKNUX_CHAT_TOOLS_NAMED_IN_SEARCH,
 ORKNUX_COMMAND_MARKER, ORKNUX_LDAP_GROUP_SEARCH_SUBTREE,
-ORKNUX_SESSIONS_ACTIVE_WINDOW_SECONDS, ORKNUX_TASK_SWEEP_ENABLED and
-ORKNUX_TASK_SWEEP_INITIAL_DELAY are in
-[the README](https://github.com/michjak-szymanski/orknux-server/blob/main/README.md#more-settings).
+ORKNUX_SESSIONS_ACTIVE_WINDOW_SECONDS, ORKNUX_SESSIONS_DUE_SWEEP, ORKNUX_TASK_SWEEP_ENABLED
+and ORKNUX_TASK_SWEEP_INITIAL_DELAY are in
+[the README](https://github.com/orknux/orknux-server/blob/main/README.md#more-settings).
 
 ## Sessions, HTTP and logging
 

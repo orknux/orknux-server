@@ -15,6 +15,25 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- ⏰ **An agent can set itself a reminder.** `timer_set` returns at once and the
+  agent carries on; when the time is up it is told, with the note it left -
+  between two steps if it is still working, or by being woken if it finished.
+- 📬 **An answer an agent asked for reaches it, whether or not it waited.** An
+  agent that asked another and ended its turn is woken when the answer lands: a
+  workflow step waits instead of finishing, a chat answers again on its own, and
+  a finished task carries on with what it had left.
+- 🔇 **Every voice skill can be switched off**: `!caveman=off`, and the same for
+  Angryman, Niceman, Jokeman, Crazyman and Rimeman.
+
+### 🐛 Fixed
+
+- ☑️ **"Allow unsafe built-in tool visibility" opens as it was saved.** It was
+  stored all along; the settings page read every setting back but that one.
+
 ## 0.9.9.2
 
 ### 🔧 Changed

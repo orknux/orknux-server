@@ -92,6 +92,8 @@ class AgentRunTools(
     /** Where an answer, and whatever the asked agent's tools kept, is put for the asker. Issue #393. */
     private val scratch: io.mszymanski.orknux.server.llm.LlmSessionStore,
     private val mapper: ObjectMapper,
+    /** Where a finished ask is left for the asker, which wakes it if it is not running. */
+    private val inbox: io.mszymanski.orknux.server.llm.SessionInbox,
 ) {
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
@@ -428,6 +430,19 @@ class AgentRunTools(
         return mapOf("answer" to said)
     }
 
+    /**
+     * How many asks this conversation made that are still running, read off the
+     * futures this process holds - the one thing that knows for certain.
+     *
+     * For a turn ending with work out: a workflow step parks on it rather than
+     * finishing, and the answer landing wakes it. See [SessionInbox].
+     */
+    fun stillWorking(parent: Long?): Int {
+        if (parent == null) return 0
+        return held.findByParentSessionIdOrderByCreatedAtAscIdAsc(parent)
+            .count { session -> session.id?.let { running[it] }?.isDone == false }
+    }
+
     private fun nameIn(details: String?): String? = details?.let { held ->
         runCatching { mapper.readTree(held).path("name").stringValue() }.getOrNull()?.takeIf { it.isNotBlank() }
     }
@@ -579,9 +594,33 @@ class AgentRunTools(
                  * than returned: nobody is waiting on this thread. `agent_asks`
                  * reports it and the key is what carries the text.
                  */
-                answerOf(wanted, said, parent, into)
+                answerOf(wanted, said, parent, into).also { answered ->
+                    /*
+                     * And told to the asker, which is what wakes it if its turn
+                     * has ended. An agent that finished without waiting still
+                     * gets the answer it was owed.
+                     */
+                    parent?.let { asker ->
+                        inbox.post(
+                            asker,
+                            io.mszymanski.orknux.server.llm.SessionEventKind.ANSWER,
+                            "${wanted.name} has answered what you asked about \"$title\":\n$answered",
+                        )
+                    }
+                }
             }
-                .onFailure { why -> log.warn("An ask of {} did not finish: {}", wanted.name, why.message) }
+                .onFailure { why ->
+                    log.warn("An ask of {} did not finish: {}", wanted.name, why.message)
+                    parent?.let { asker ->
+                        runCatching {
+                            inbox.post(
+                                asker,
+                                io.mszymanski.orknux.server.llm.SessionEventKind.ANSWER,
+                                "${wanted.name} could not finish what you asked about \"$title\": ${why.message}",
+                            )
+                        }
+                    }
+                }
                 .also { permits.release() }
                 // The answer itself, for agent_asks to hand back - not the Result around it. Issue #536.
                 .getOrNull()

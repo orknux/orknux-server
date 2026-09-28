@@ -150,6 +150,9 @@ interface ChatSessionRepository : JpaRepository<ChatSession, Long> {
 
     fun findByConversationId(conversationId: String): ChatSession?
 
+    /** The chat recording into this LLM session, for something arriving at it; see `ChatWake`. */
+    fun findFirstByLlmSessionId(llmSessionId: Long): ChatSession?
+
     fun findByModelId(modelId: Long): List<ChatSession>
 }
 

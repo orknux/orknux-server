@@ -184,6 +184,8 @@ class AgentConversation(
     private val workspaces: io.mszymanski.orknux.server.workspace.WorkspaceRepository,
     /** Summarises a turn that has outgrown its model, rather than losing it. Issue #522. */
     private val compaction: ChatCompaction,
+    /** What arrived for the session while it worked: answers, timers; see [SessionInbox]. */
+    private val inbox: io.mszymanski.orknux.server.llm.SessionInbox,
 ) {
 
     /**
@@ -461,6 +463,11 @@ class AgentConversation(
         }
 
         val conversation = told.toMutableList()
+        // What arrived while the session was not running - the answer that woke
+        // it, a timer that came due - is the first thing the model reads.
+        into?.let { session ->
+            inbox.take(session).forEach { arrived -> conversation += ChatTurn(role = "user", content = arrived) }
+        }
         var spent = 0L
         /*
          * And what the rounds cost, added up the same way the time is.
@@ -760,6 +767,21 @@ class AgentConversation(
 
                 is ChatCompletion.Answered -> {
                     thought(answer.reasoning, answer.reasoningMillis, announce = watch == null)
+                    /*
+                     * Not over while something has just arrived for it. An
+                     * answer that landed, or a timer that came due, while the
+                     * model was writing this would otherwise wait for a turn
+                     * that may never come - which is the fault the inbox exists
+                     * for. What it wrote stands in the transcript, and it is
+                     * asked again with what arrived.
+                     */
+                    val arrived = into?.let { inbox.take(it) }.orEmpty()
+                    if (arrived.isNotEmpty()) {
+                        into?.let { sessions.agentSaid(it, agent.name, answer.content) }
+                        conversation += ChatTurn(role = "assistant", content = answer.content)
+                        arrived.forEach { conversation += ChatTurn(role = "user", content = it) }
+                        return@repeat
+                    }
                     return answer
                         .copy(
                             millis = spent + answer.millis,
@@ -1381,6 +1403,14 @@ class AgentConversation(
                      */
                     interjections?.waiting()?.forEach { said ->
                         conversation += ChatTurn(role = "user", content = said)
+                    }
+                    // And what arrived for the session meanwhile - an agent it
+                    // asked answering, a timer coming due - read at the same
+                    // point and for the same reason. See [SessionInbox].
+                    into?.let { session ->
+                        inbox.take(session).forEach { arrived ->
+                            conversation += ChatTurn(role = "user", content = arrived)
+                        }
                     }
                 }
             }

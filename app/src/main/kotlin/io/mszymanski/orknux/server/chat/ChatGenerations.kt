@@ -41,6 +41,9 @@ class ChatGenerations {
         }
     }
 
+    /** Whether a turn on this chat is being answered right now. */
+    fun answering(chatId: Long): Boolean = inFlight[chatId]?.isNotEmpty() == true
+
     /**
      * Stops whatever is being answered on this chat, if anything is.
      *

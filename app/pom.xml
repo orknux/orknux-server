@@ -473,6 +473,8 @@
                         <orknux.task.sweep.enabled>false</orknux.task.sweep.enabled>
                         <!-- The tick is called directly by the test that wants it. -->
                         <db-scheduler.enabled>false</db-scheduler.enabled>
+                        <!-- No reminder is announced on a clock; SessionDueSweeperTest calls the sweep itself. -->
+                        <orknux.sessions.due-sweep-enabled>false</orknux.sessions.due-sweep-enabled>
                         <!--
                             No test reaches the real npm registry. A host that can
                             never resolve rather than an empty value: empty would

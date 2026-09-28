@@ -1025,6 +1025,22 @@ CREATE TABLE task_message
     constraint task_message_task_id_fkey FOREIGN KEY (task_id) REFERENCES task(id) ON DELETE CASCADE
 );
 
+CREATE TABLE session_event
+(
+    id                           integer not null primary key autoincrement,
+    session_id                   integer not null,
+    kind                         varchar(16) not null,
+    body                         text not null,
+    due_at                       timestamp not null default CURRENT_TIMESTAMP,
+    delivered_at                 timestamp,
+    created_at                   timestamp not null default CURRENT_TIMESTAMP,
+    constraint session_event_session_id_fkey FOREIGN KEY (session_id) REFERENCES llm_session(id) ON DELETE CASCADE,
+    constraint ck_session_event_kind CHECK (kind IN ('ANSWER', 'TIMER'))
+);
+
+CREATE INDEX ix_session_event_waiting ON session_event (session_id, due_at) WHERE delivered_at IS NULL;
+CREATE INDEX ix_session_event_due ON session_event (due_at) WHERE delivered_at IS NULL;
+
 CREATE TABLE task_picture
 (
     id                           integer not null primary key autoincrement,

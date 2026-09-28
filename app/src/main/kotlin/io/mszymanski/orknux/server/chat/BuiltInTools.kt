@@ -131,6 +131,7 @@ class BuiltInTools(
             TodoTools.NOTE,
             TodoTools.COMPLETE,
             DateTools.NOW,
+            TimerTools.SET,
             ScratchpadTools.LIST,
             ScratchpadTools.READ,
             ScratchpadTools.WRITE,
