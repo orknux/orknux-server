@@ -309,25 +309,7 @@ class WorkspaceDuplicator(
         val modelIds = mutableMapOf<Long, Long>()
         val heldProviders = providers.findByWorkspaceId(from, byName)
         heldProviders.forEach { held ->
-            val copy = providers.save(
-                io.mszymanski.orknux.connector.model.ModelProvider(
-                    workspaceId = into,
-                    name = held.name,
-                    type = held.type,
-                    endpoint = held.endpoint,
-                    authMethod = held.authMethod,
-                    apiVersion = held.apiVersion,
-                    deploymentName = held.deploymentName,
-                    region = held.region,
-                    tenantId = held.tenantId,
-                    clientId = held.clientId,
-                    scope = held.scope,
-                    checkEnabled = held.checkEnabled,
-                    throttleTokensPerSecond = held.throttleTokensPerSecond,
-                    throttleRequestsPerSecond = held.throttleRequestsPerSecond,
-                    acceptRetryAfter = held.acceptRetryAfter,
-                ),
-            )
+            val copy = providers.save(held.copied(workspaceId = into, name = held.name))
             if (held.secretVariableId != null || !held.secret.isNullOrBlank()) needs += "model provider ${held.name}"
             models.findByProviderId(requireNotNull(held.id)).forEach { model ->
                 val made = models.save(model.copied(providerId = requireNotNull(copy.id), name = model.name))

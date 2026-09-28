@@ -8,6 +8,7 @@ import io.mszymanski.orknux.connector.model.ModelIdInvalidException
 import io.mszymanski.orknux.connector.model.ModelNameInvalidException
 import io.mszymanski.orknux.connector.model.ModelNameTakenException
 import io.mszymanski.orknux.connector.model.ModelProviderEndpointInvalidException
+import io.mszymanski.orknux.connector.model.ModelProviderInAnotherWorkspaceException
 import io.mszymanski.orknux.connector.model.ModelProviderNameInvalidException
 import io.mszymanski.orknux.connector.model.ModelProviderNameTakenException
 import org.springframework.graphql.execution.DataFetcherExceptionResolverAdapter
@@ -31,6 +32,7 @@ class ModelExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ModelNameTakenException,
             is ModelNameInvalidException,
             is ModelIdInvalidException,
+            is ModelProviderInAnotherWorkspaceException,
             -> ErrorType.BAD_REQUEST
 
             // The provider would not answer. Nothing the caller sent is wrong,

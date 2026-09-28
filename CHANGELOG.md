@@ -19,6 +19,8 @@ have failed.
 
 ### ✨ Added
 
+- A model's provider is a select on its page, so a model can move to another of the workspace's providers and keep its id, settings and every agent pointed at it.
+- A model provider can be duplicated from its row, with a copy of each of its models; its own key stays behind, and a workspace secret it reads is kept.
 - A task always has `save_artifact`, whatever the agent was granted, and is told to save a file it makes there and link it in its summary; `save_artifact` takes a `contentKey`, so a PDF another tool made is saved as it is rather than typed back.
 
 - ⏰ **An agent can set itself a reminder.** `timer_set` returns at once and the

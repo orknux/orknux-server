@@ -375,6 +375,31 @@ fun LlmModel.copied(providerId: Long, name: String): LlmModel = LlmModel(
 )
 
 /**
+ * A provider's settings under a new name in [workspaceId], and none of its
+ * credentials or what it has recorded. Shared by a workspace copy and a single
+ * provider's duplicate, so the two cannot come to carry different things; a
+ * copy within the same workspace may then point at the same variable, which is
+ * the caller's decision and not this one's.
+ */
+fun ModelProvider.copied(workspaceId: Long, name: String): ModelProvider = ModelProvider(
+        workspaceId = workspaceId,
+        name = name,
+        type = type,
+        endpoint = endpoint,
+        authMethod = authMethod,
+        apiVersion = apiVersion,
+        deploymentName = deploymentName,
+        region = region,
+        tenantId = tenantId,
+        clientId = clientId,
+        scope = scope,
+        checkEnabled = checkEnabled,
+        throttleTokensPerSecond = throttleTokensPerSecond,
+        throttleRequestsPerSecond = throttleRequestsPerSecond,
+        acceptRetryAfter = acceptRetryAfter,
+)
+
+/**
  * One model the workspace may use, and the quotas the workspace puts on it.
  *
  * [name] is what a person calls it and [modelId] is what the provider's API is
@@ -388,8 +413,9 @@ class LlmModel(
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     val id: Long? = null,
 
+    /** A var because a model can be moved to another provider in its workspace, from its own page. */
     @Column(name = "provider_id", nullable = false)
-    val providerId: Long,
+    var providerId: Long,
 
     @Column(nullable = false, length = 120)
     var name: String,
@@ -627,6 +653,16 @@ class ModelNameTakenException(name: String) :
 class ModelNameInvalidException : RuntimeException("A model name is required")
 
 class ModelIdInvalidException : RuntimeException("A model id is required")
+
+/**
+ * A model asked to move to a provider in another workspace.
+ *
+ * Refused rather than carried across: a model belongs to its workspace through
+ * its provider, and every agent and setting pointing at it is that workspace's,
+ * so a move across would hand one workspace's choices another's key.
+ */
+class ModelProviderInAnotherWorkspaceException(name: String) :
+    RuntimeException("A model can only move to a provider in its own workspace, and \"$name\" is in another")
 
 /**
  * Asking a provider what it offers did not get an answer.

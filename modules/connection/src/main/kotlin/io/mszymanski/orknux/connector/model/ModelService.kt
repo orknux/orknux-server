@@ -296,23 +296,37 @@ class ModelService(
 
     /**
      * Backs the model's own details: what it is called, what the API is given,
-     * and what it costs. The form sends all of them, so a null is a cleared
-     * field rather than one nobody mentioned.
+     * what it costs, and which provider it is reached through. The form sends
+     * all of them, so a null is a cleared field rather than one nobody
+     * mentioned - except the provider, where null is where it already is.
+     *
+     * A move keeps the model's id, so every agent and setting pointing at it
+     * follows; it stays inside the workspace, and its name has to be free on
+     * the provider it arrives at, as it would for one made there.
      */
     @Transactional
     fun updateModel(id: Long, input: UpdateModelInput): LlmModelView {
         val model = models.findByIdOrNull(id) ?: throw ModelNotFoundException(id)
-        val provider = providers.findByIdOrNull(model.providerId)
+        val current = providers.findByIdOrNull(model.providerId)
             ?: throw ModelProviderNotFoundException(model.providerId)
+        val provider = input.providerId?.takeIf { it != model.providerId }?.let { target ->
+            val moved = providers.findByIdOrNull(target) ?: throw ModelProviderNotFoundException(target)
+            if (moved.workspaceId != current.workspaceId) throw ModelProviderInAnotherWorkspaceException(moved.name)
+            moved
+        } ?: current
+        val providerId = requireNotNull(provider.id)
 
         val name = input.name.trim()
         val modelId = input.modelId.trim()
         if (name.isEmpty()) throw ModelNameInvalidException()
         if (modelId.isEmpty()) throw ModelIdInvalidException()
-        if (name != model.name && models.findByProviderIdAndName(model.providerId, name) != null) {
+        if ((name != model.name || providerId != model.providerId) &&
+            models.findByProviderIdAndName(providerId, name) != null
+        ) {
             throw ModelNameTakenException(name)
         }
 
+        model.providerId = providerId
         model.name = name
         model.modelId = modelId
         model.kind = input.kind ?: model.kind
@@ -395,6 +409,33 @@ class ModelService(
             .map { n -> if (n == 1) "${model.name} (copy)" else "${model.name} (copy $n)" }
             .first { models.findByProviderIdAndName(model.providerId, it) == null }
         return LlmModelView(models.save(model.copied(providerId = model.providerId, name = name)), provider)
+    }
+
+    /**
+     * A copy of a provider beside it, "Local (copy)" or the first number after
+     * it that is free, with a copy of every model it serves under the model's
+     * own name - a provider with nothing on it would be half a copy.
+     *
+     * Its own key stays behind, as it does in a workspace copy: a credential is
+     * kept in one place and a duplicate is not a reason to make a second. A
+     * workspace secret it reads is kept, because that is a pointer to the one
+     * copy in the same workspace rather than a second copy of anything.
+     */
+    @Transactional
+    fun duplicateProvider(id: Long): ModelProviderView {
+        val provider = providers.findByIdOrNull(id) ?: throw ModelProviderNotFoundException(id)
+        val name = generateSequence(1) { it + 1 }
+            .map { n -> if (n == 1) "${provider.name} (copy)" else "${provider.name} (copy $n)" }
+            .first { providers.findByWorkspaceIdAndName(provider.workspaceId, it) == null }
+
+        val copy = provider.copied(workspaceId = provider.workspaceId, name = name)
+        copy.secretVariableId = provider.secretVariableId
+        copy.forgetCheck()
+        val saved = providers.save(copy)
+        val savedId = requireNotNull(saved.id)
+        models.findByProviderId(id).forEach { models.save(it.copied(providerId = savedId, name = it.name)) }
+        events.publishEvent(ModelProviderSaved(savedId))
+        return view(saved)
     }
 
     @Transactional
@@ -748,6 +789,12 @@ data class UpdateModelInput(
     val skipEmptyLines: Boolean? = null,
     /** Only meaningful for an IMAGE model, which is billed per picture rather than per token. */
     val imageCostPerImage: Double? = null,
+    /**
+     * The provider it is reached through. Null leaves it where it is, unlike
+     * the fields above: a caller written before a model could move would
+     * otherwise have nowhere to put it.
+     */
+    val providerId: Long? = null,
 )
 
 /** The Quotas and Limits card, which saves its fields together. Null is no limit. */

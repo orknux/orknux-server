@@ -132,6 +132,23 @@ class ModelAPI(
         return updated
     }
 
+    /**
+     * A copy of a provider beside it, under "(copy)", with its models; see
+     * [ModelService.duplicateProvider] for what is left behind.
+     */
+    @MutationMapping
+    fun duplicateModelProvider(@Argument id: Long): ModelProviderView {
+        val provider = models.provider(id)?.takeIf { access.canSee(it.workspaceId) }
+            ?: throw ModelProviderNotFoundException(id)
+        val copy = models.duplicateProvider(id)
+        auditRecorder.record(
+            provider.workspaceId,
+            WorkspaceAuditCategory.MODEL,
+            "Provider ${provider.name} duplicated as ${copy.name}, with its models",
+        )
+        return copy
+    }
+
     @MutationMapping
     fun removeModelProvider(@Argument id: Long): Boolean {
         val provider = models.provider(id)?.takeIf { access.canSee(it.workspaceId) } ?: return false
@@ -199,14 +216,27 @@ class ModelAPI(
     @MutationMapping
     fun updateModel(@Argument id: Long, @Argument input: UpdateModelInput): LlmModelView {
         val model = models.model(id)?.takeIf { access.canSee(it.workspaceId) } ?: throw ModelNotFoundException(id)
+        // A provider the caller cannot see is one that does not exist, as it is everywhere else here.
+        input.providerId?.let { target ->
+            models.provider(target)?.takeIf { access.canSee(it.workspaceId) } ?: throw ModelProviderNotFoundException(target)
+        }
 
         val updated = models.updateModel(id, input)
-        val message = if (model.name == updated.name) {
-            "Model ${updated.name} updated"
-        } else {
-            "Model ${model.name} renamed to ${updated.name}"
+        val renamed = model.name != updated.name
+        val moved = model.providerId != updated.providerId
+        if (renamed) {
+            auditRecorder.record(model.workspaceId, WorkspaceAuditCategory.MODEL, "Model ${model.name} renamed to ${updated.name}")
         }
-        auditRecorder.record(model.workspaceId, WorkspaceAuditCategory.MODEL, message)
+        if (moved) {
+            auditRecorder.record(
+                model.workspaceId,
+                WorkspaceAuditCategory.MODEL,
+                "Model ${updated.name} moved to provider ${updated.providerName}",
+            )
+        }
+        if (!renamed && !moved) {
+            auditRecorder.record(model.workspaceId, WorkspaceAuditCategory.MODEL, "Model ${updated.name} updated")
+        }
         return updated
     }
 

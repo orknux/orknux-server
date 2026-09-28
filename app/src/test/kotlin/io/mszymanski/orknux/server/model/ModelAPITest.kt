@@ -667,6 +667,86 @@ class ModelAPITest(
         return "http://${server.address.hostString}:${server.address.port}"
     }
 
+    /** The Provider select on a model's page: the model keeps its id and follows to the provider chosen. */
+    @Test
+    fun `a model moves to another provider in its workspace`() {
+        val from = provider("Local", "https://local.example.invalid/v1")
+        val to = provider("Azure", "https://azure.example.invalid/v1")
+        val id = model(from, "Gemma", "gemma")
+
+        graphQlTester.document(
+            """mutation { updateModel(id: $id, input: { name: "Gemma", modelId: "gemma", providerId: $to }) {
+                 id providerId providerName } }""",
+        ).execute()
+            .path("updateModel.id").entity(Long::class.java).isEqualTo(id)
+            .path("updateModel.providerId").entity(Long::class.java).isEqualTo(to)
+            .path("updateModel.providerName").entity(String::class.java).isEqualTo("Azure")
+
+        assertThat(models.findById(id).get().providerId).isEqualTo(to)
+        assertThat(audit.findAll().map { it.message }).contains("Model Gemma moved to provider Azure")
+
+        // Left out, the provider stays where it is: a caller that predates the move is not a move.
+        graphQlTester.document("""mutation { updateModel(id: $id, input: { name: "Gemma", modelId: "gemma" }) { providerId } }""")
+            .execute().path("updateModel.providerId").entity(Long::class.java).isEqualTo(to)
+    }
+
+    @Test
+    fun `a model will not move to another workspace's provider, nor onto a name taken there`() {
+        val from = provider("Local", "https://local.example.invalid/v1")
+        val to = provider("Azure", "https://azure.example.invalid/v1")
+        val id = model(from, "Gemma", "gemma")
+        model(to, "Gemma", "gemma-other")
+
+        graphQlTester.document(
+            """mutation { updateModel(id: $id, input: { name: "Gemma", modelId: "gemma", providerId: $to }) { id } }""",
+        ).execute().errors().satisfy { errors ->
+            assertThat(errors.single().message).isEqualTo("A model named \"Gemma\" already exists on this provider")
+            assertThat(errors.single().extensions["code"]).isEqualTo("ModelNameTaken")
+        }
+
+        val elsewhere = requireNotNull(workspaces.save(Workspace(name = "elsewhere")).id)
+        val foreign = graphQlTester.document(
+            """mutation { createModelProvider(input: {
+                 workspaceId: $elsewhere, name: "Foreign", endpoint: "https://foreign.example.invalid/v1"
+               }) { id } }""",
+        ).execute().path("createModelProvider.id").entity(Long::class.java).get()
+        graphQlTester.document(
+            """mutation { updateModel(id: $id, input: { name: "Gemma", modelId: "gemma", providerId: $foreign }) { id } }""",
+        ).execute().errors().satisfy { errors ->
+            assertThat(errors.single().message).contains("only move to a provider in its own workspace")
+            assertThat(errors.single().extensions["code"]).isEqualTo("ModelProviderInAnotherWorkspace")
+        }
+
+        assertThat(models.findById(id).get().providerId).isEqualTo(from)
+        assertThat(audit.findAll().map { it.message }).noneMatch { it.contains("moved to provider") }
+    }
+
+    /** The Duplicate button on a provider's row: its settings and its models come, its key does not. */
+    @Test
+    fun `a provider is duplicated with its models and without its key`() {
+        val id = provider("Local", "https://local.example.invalid/v1")
+        model(id, "Gemma", "gemma")
+        model(id, "Qwen", "qwen")
+
+        val copy = graphQlTester.document("""mutation { duplicateModelProvider(id: $id) { id name endpoint secretSet status } }""")
+            .execute()
+        copy.path("duplicateModelProvider.name").entity(String::class.java).isEqualTo("Local (copy)")
+        copy.path("duplicateModelProvider.endpoint").entity(String::class.java).isEqualTo("https://local.example.invalid/v1")
+        copy.path("duplicateModelProvider.secretSet").entity(Boolean::class.java).isEqualTo(false)
+        copy.path("duplicateModelProvider.status").entity(String::class.java).isEqualTo("NOT_CONFIGURED")
+        val copyId = copy.path("duplicateModelProvider.id").entity(Long::class.java).get()
+
+        assertThat(models.findByProviderId(copyId).map { it.name to it.modelId })
+            .containsExactlyInAnyOrder("Gemma" to "gemma", "Qwen" to "qwen")
+        // The original is as it was, key and models both.
+        assertThat(providers.findById(id).get().secret).isEqualTo("sk-test")
+        assertThat(models.findByProviderId(id)).hasSize(2)
+        assertThat(audit.findAll().map { it.message }).contains("Provider Local duplicated as Local (copy), with its models")
+
+        graphQlTester.document("""mutation { duplicateModelProvider(id: $id) { name } }""").execute()
+            .path("duplicateModelProvider.name").entity(String::class.java).isEqualTo("Local (copy 2)")
+    }
+
     private fun provider(name: String, endpoint: String, key: String? = "sk-test"): Long {
         val secret = if (key == null) "" else """, secret: "$key""""
         return graphQlTester.document(

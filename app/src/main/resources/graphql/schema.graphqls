@@ -1967,6 +1967,8 @@ type Mutation {
     revealMcpServerSecret(id: ID!): String
     createModelProvider(input: CreateModelProviderInput!): ModelProvider!
     updateModelProvider(id: ID!, input: UpdateModelProviderInput!): ModelProvider!
+    "A copy of a provider beside it, under \"(copy)\", with a copy of each of its models. Its own key stays behind."
+    duplicateModelProvider(id: ID!): ModelProvider!
     "Takes the provider's models with it."
     removeModelProvider(id: ID!): Boolean!
     """
@@ -1983,6 +1985,7 @@ type Mutation {
     createModel(input: CreateModelInput!): Model!
     "A copy of a model beside it, on the same provider, under \"(copy)\"."
     duplicateModel(id: ID!): Model!
+    "The model's details, and the provider it is reached through: one in its own workspace, where its name is free."
     updateModel(id: ID!, input: UpdateModelInput!): Model!
     "The Quotas and Limits card, whose fields are saved together. Null is no limit."
     updateModelQuotas(id: ID!, input: ModelQuotasInput!): Model!
@@ -5391,6 +5394,8 @@ input UpdateModelInput {
     skipEmptyLines: Boolean
     "What one picture costs on an IMAGE model; null is not recorded, which is not free."
     imageCostPerImage: Float
+    "The provider to move it to, in the same workspace. Null leaves it where it is."
+    providerId: ID
 }
 
 "The Quotas and Limits card. Null is no limit, which is what an emptied box means."
