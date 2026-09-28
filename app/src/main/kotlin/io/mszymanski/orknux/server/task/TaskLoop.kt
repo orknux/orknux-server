@@ -304,6 +304,19 @@ class TaskLoop(
              * forty turns is the bill this feature exists to bound. The reason
              * is the model's own words, in the log, for whoever reads it.
              */
+            /*
+             * Out of rounds is a turn used up, not a failure. Reported: a task
+             * with forty turns stopped after one turn's eight rounds, halfway
+             * through making a PDF. What it did is in the session, so the next
+             * turn carries on from there; the task's own turn limit is what
+             * bounds a model that never finishes.
+             */
+            is ChatCompletion.Failed if answer.outOfRounds -> {
+                sessions.userSaid(session, TASK, OUT_OF_ROUNDS)
+                log.debug("Task {} used a turn's rounds on turn {}", taskId, task.turnsSpent)
+                TaskTurn.Working
+            }
+
             is ChatCompletion.Failed ->
                 end(task, TaskStatus.FAILED, "the model could not answer: ${answer.reason}", said = null)
 
@@ -522,6 +535,10 @@ class TaskLoop(
         const val TASK = "task"
 
         const val CARRY_ON = "Carry on with the task. Call task_done when it is finished."
+
+        /** Said when a turn ran out of tool rounds: the work so far stands, and this is a new turn. */
+        const val OUT_OF_ROUNDS = "That turn used all its tool rounds. What you did is above and still stands; " +
+            "this is a new turn, so carry on from where you stopped. Call task_done when it is finished."
 
         /**
          * Said after a task_done that arrived with something unread above it.

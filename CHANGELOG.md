@@ -40,6 +40,8 @@ have failed.
 
 ### 🐛 Fixed
 
+- A task whose turn uses all its tool rounds takes its next turn instead of stopping as "could not answer"; the task's own turn limit is what ends one that never finishes.
+
 - An agent asked by another now has its thinking written into its session, as a task's and a workflow node's always were.
 
 - 🧩 **Every agent reaches the built-in skills, whatever catalogs it was granted.**

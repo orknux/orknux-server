@@ -177,6 +177,13 @@ sealed interface ChatCompletion {
          * own retry policy is what answers those.
          */
         val replyFault: Boolean = false,
+        /**
+         * Whether the round ran out of rounds rather than failing. Nothing was
+         * wrong with the model or the provider: it used the turn's allowance
+         * working. A chat has nobody to carry on for it and reports it; a task
+         * has turns left and takes the next one.
+         */
+        val outOfRounds: Boolean = false,
     ) : ChatCompletion
 }
 

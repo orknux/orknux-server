@@ -1429,6 +1429,7 @@ class AgentConversation(
             // help is more rounds, and that is a setting now - on the agent, or
             // on the installation behind it.
             permanent = true,
+            outOfRounds = true,
         ).also { record(into, agent, it) }
     }
 

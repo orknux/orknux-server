@@ -274,6 +274,29 @@ class TaskLoopTest(
     }
 
     /**
+     * A turn that uses all its tool rounds is a turn, not the end of the task.
+     *
+     * Reported: a task with forty turns stopped after one turn's eight rounds,
+     * halfway through making a PDF, as "the model could not answer".
+     */
+    @Test
+    fun `a turn out of tool rounds is followed by the next turn`() {
+        val taskId = taskFor(
+            serve { body ->
+                if (body.contains("used all its tool rounds")) finishing("Made it.") else calling("current_time", "{}")
+            },
+        )
+
+        assertThat(loop.advance(taskId)).isEqualTo(TaskTurn.Working)
+        assertThat(requireNotNull(tasks.findByIdOrNull(taskId)).status).isNotEqualTo(TaskStatus.FAILED)
+        assertThat(loop.advance(taskId)).isEqualTo(TaskTurn.Over)
+
+        val task = requireNotNull(tasks.findByIdOrNull(taskId))
+        assertThat(task.status).isEqualTo(TaskStatus.DONE)
+        assertThat(task.turnsSpent).isEqualTo(2)
+    }
+
+    /**
      * What the model thought is written into the task's log, and settles.
      *
      * The complaint this answers was that a task's page does not move while the
