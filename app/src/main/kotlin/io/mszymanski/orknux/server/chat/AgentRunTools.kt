@@ -162,8 +162,12 @@ class AgentRunTools(
         val named = granted(agent)
         return ToolSpec(
             name = ASK,
-            description = "Puts a question to one of the other agents you have been given, and " +
-                "answers with what it said. Use it where the work needs something you have no tool " +
+            // Started, not answered, since #462 - and it said "answers with what it said" for a
+            // release after, so a model expected the answer to come back to it by itself.
+            description = "Puts a question to one of the other agents you have been given. It starts the " +
+                "agent and returns at once; the answer is not in this call's result. To get it you must " +
+                "wait for it yourself - " + WAIT + " now, or finish_answer with a wake-up to be started " +
+                "again later - and then read it with " + ASKS + ". Use it where the work needs something you have no tool " +
                 "for and one of them does - it will look things up in its own conversation, so ask " +
                 "for what you want to know rather than for the steps. It cannot see this " +
                 "conversation, so say everything it needs in the question. The answer comes back " +
@@ -591,8 +595,10 @@ class AgentRunTools(
                 "about" to title,
                 "session" to into,
                 "working" to true,
-                "note" to "It has started. Carry on with anything else you have; call " + WAIT +
-                    " when you have nothing left, then " + ASKS + " to read what came back.",
+                "note" to "It has started, and its answer is not here yet. Carry on with anything else " +
+                    "you have; call " + WAIT + " when you have nothing left, then " + ASKS + " to read " +
+                    "what came back. Do not end your turn before you have read it: nothing brings you " +
+                    "back to an answer you finished without.",
             ),
         )
     }

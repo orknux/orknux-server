@@ -242,6 +242,10 @@ class ChatAgentTest(
          */
         assertThat(said).isNotNull()
         assertThat(said).contains("These are the tools you have")
+        // And how its turn works, first: there is no later unless it makes one.
+        assertThat(said).contains(AgentBriefing.HOW_YOU_RUN)
+        assertThat(requireNotNull(said).indexOf(AgentBriefing.HOW_YOU_RUN))
+            .isLessThan(said.indexOf("These are the tools you have"))
         /*
          * And the server's own skills, which every agent holds since #471 - so
          * a bare agent knows its commands as well as its tools. What it has

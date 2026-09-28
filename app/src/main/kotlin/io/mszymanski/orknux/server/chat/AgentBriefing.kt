@@ -106,6 +106,21 @@ class AgentBriefing(
     fun grants(agent: Agent): String? {
         val parts = mutableListOf<String>()
 
+        /*
+         * How a turn works, said first and to every agent.
+         *
+         * Nothing told a model how it exists here, so it assumed what a person
+         * assumes: that it goes on after it stops talking. Seen in production -
+         * an agent delegated, said it would "check the status later", and ended
+         * its turn with nothing to bring it back, so the answer it asked for
+         * landed with nobody to read it. The same model waited correctly when
+         * told to act every five seconds; what it lacked was not the tool but
+         * the fact that there is no later unless it makes one. That is true of
+         * every agent in every context, which is why it is here and not in a
+         * tool's description.
+         */
+        parts += HOW_YOU_RUN
+
         val instructions = skills.list(agent)
 
         if (instructions.isNotEmpty()) {
@@ -472,5 +487,18 @@ class AgentBriefing(
         }
 
         return parts.takeIf { it.isNotEmpty() }?.joinToString("\n\n")
+    }
+
+    companion object {
+
+        /** How a turn works; see [grants]. */
+        const val HOW_YOU_RUN =
+            "How you run: you act only during a turn. A turn starts when somebody writes to you, or when " +
+                "a wake-up you set comes due. When it ends you stop completely - nothing carries on in the " +
+                "background and nothing reminds you. So never say you will do something later, check back " +
+                "or follow up unless you make it happen: do it now, in this turn, or, where you have to wait " +
+                "for something, wait before you finish - or end your turn with a wake-up, where one is " +
+                "offered, and say when you will be back. Where you can do neither, say so plainly rather " +
+                "than promising."
     }
 }

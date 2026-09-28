@@ -166,7 +166,8 @@ class FinishAnswerTools(private val mapper: ObjectMapper) {
      */
     private fun waking(sleeping: Sleeping): ToolSpec = FINISHING.copy(
         description = FINISHING.description +
-            " You can also use it to wait: pass `$WAKE` and this step stops here and is " +
+            " This is also how you come back later, and the only way: saying you will check back does " +
+            "nothing unless you pass `$WAKE`. You can use it to wait: pass `$WAKE` and this step stops here and is " +
             "started again when that time is up, with the note you left yourself. Wait when the " +
             "thing you need has not happened yet - a build is running, somebody has been asked, a " +
             "job lands later - rather than holding this turn open or answering as though it had. " +
@@ -213,7 +214,9 @@ class FinishAnswerTools(private val mapper: ObjectMapper) {
                 "and the result has already been delivered - a message you posted, a file you uploaded, " +
                 "a picture you sent - so there is nothing left to say here. Do not repeat what you have " +
                 "already sent; that is what this is for. `answer` is optional and is only for something " +
-                "a later step in this workflow needs to read.",
+                "a later step in this workflow needs to read. Ending your turn is final: you are not run " +
+                "again unless somebody writes to you. There is no \"later\" you can check back in - if " +
+                "something you need has not happened yet, wait for it before you finish.",
             parameters = listOf(
                 ToolParameterSpec(
                     name = "answer",

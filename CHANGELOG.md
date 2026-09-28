@@ -15,6 +15,24 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## 0.9.9.2
+
+### 🔧 Changed
+
+- 🕰️ **Every agent is told how its turn works.** The briefing now says, first,
+  that an agent acts only during a turn and stops completely when it ends -
+  so it does not promise to "check back later" with nothing to bring it back.
+  `ask_agent` no longer claims to answer with what the other agent said: it
+  starts the agent, and the answer has to be waited for.
+
+### 🐛 Fixed
+
+- 🗃️ **An upgrade to 0.9.9 no longer stops at V313** where the date plugin had
+  a function returning an object. The migration left the type as it was, the
+  database refused the row and the server did not start. Nothing to do: the
+  rows are retyped just before V313 runs, and installations already past it are
+  untouched. If you ran the manual fix, that is fine too.
+
 ## 0.9.9.1
 
 ### 🐛 Fixed
