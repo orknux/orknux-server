@@ -23,7 +23,9 @@ import org.springframework.data.domain.Sort
 import org.springframework.data.repository.findByIdOrNull
 import jakarta.persistence.EntityManager
 import org.springframework.stereotype.Service
+import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionTemplate
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.util.UUID
@@ -61,7 +63,11 @@ class ChatService(
     private val workspaces: WorkspaceRepository,
     /** The working files a chat's agent keeps in the chat's session; see [ScratchpadTools]. Issue #445. */
     private val scratchpads: ScratchpadTools,
+    transactions: PlatformTransactionManager,
 ) {
+
+    /** What [beginSend] writes, and only that; see there for why it is not the whole method. */
+    private val writing = TransactionTemplate(transactions)
 
     /**
      * How much of a session this chat is allowed to carry.
@@ -737,8 +743,12 @@ class ChatService(
      * model takes, and holding a database transaction open for a minute holds a
      * connection out of the pool for a minute. The user's turn is still written
      * before the call, for the same reason [send] writes it first.
+     *
+     * The compaction comes before the transaction, not inside it. Its summary
+     * is a model call, and the call records its usage in a transaction of its
+     * own - which on SQLite waited out the busy timeout for the lock this one
+     * held, failed, and left its connection unusable for the next caller.
      */
-    @Transactional
     /**
      * @param images pictures sent with this message, as `data:` URLs.
      *
@@ -768,6 +778,12 @@ class ChatService(
             compaction.compactIfNeeded(workspace, session.conversationId, modelId, beginning = compacting)
         }
 
+        return requireNotNull(writing.execute { recorded(id, message, images, compacted) })
+    }
+
+    private fun recorded(id: Long, message: String, images: List<String>, compacted: Compacted?): ChatSendStart {
+        val session = sessions.findByIdOrNull(id) ?: throw ChatSessionNotFoundException(id)
+        val modelId = session.modelId ?: throw ChatModelNotChosenException()
         val thread = history.findByConversationId(session.conversationId)
         history.saveAll(session.conversationId, thread + UserMessage(message))
         session.lastMessageAt = OffsetDateTime.now()

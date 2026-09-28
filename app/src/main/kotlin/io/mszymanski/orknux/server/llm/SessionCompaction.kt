@@ -8,7 +8,8 @@ import io.mszymanski.orknux.server.workspace.Workspace
 import org.slf4j.LoggerFactory
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.TransactionTemplate
 
 /**
  * Keeps a long session inside the window its model will accept. Issue #523.
@@ -46,7 +47,17 @@ class SessionCompaction(
     private val events: LlmSessionEventRepository,
     private val models: ModelChatClient,
     private val settings: InstallationSettings,
+    transactions: PlatformTransactionManager,
 ) {
+
+    /**
+     * Only the writes, and not the summary. The summariser is a model call, and
+     * a transaction held open across one holds a connection for as long as the
+     * model takes - and on SQLite the write lock with it, so the usage the call
+     * records in a transaction of its own waited out the busy timeout, failed,
+     * and left its connection unusable for whoever drew it next.
+     */
+    private val writing = TransactionTemplate(transactions)
 
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -67,7 +78,6 @@ class SessionCompaction(
      * @param fallbackModelId the model this turn is using, for the summary,
      *   where the workspace has not named one of its own.
      */
-    @Transactional
     fun compactIfNeeded(session: Long, workspace: Workspace?, fallbackModelId: Long?): Compacted? {
         val threshold = after(workspace)?.takeIf { it > 0 } ?: return null
         val keep = workspace?.sessionCompactionKeepTurns ?: settings.sessionCompactionKeepTurns()
@@ -103,17 +113,19 @@ class SessionCompaction(
          * front of and the conversation would read back to front.
          */
         val standsAt = older.first().at
-        events.save(
-            LlmSessionEvent(
-                sessionId = session,
-                kind = LlmSessionEventKind.SUMMARY,
-                actor = SUMMARISER,
-                content = summary,
-                at = standsAt,
-            ),
-        )
-        older.forEach { it.superseded = true }
-        events.saveAll(older)
+        writing.executeWithoutResult {
+            events.save(
+                LlmSessionEvent(
+                    sessionId = session,
+                    kind = LlmSessionEventKind.SUMMARY,
+                    actor = SUMMARISER,
+                    content = summary,
+                    at = standsAt,
+                ),
+            )
+            older.forEach { it.superseded = true }
+            events.saveAll(older)
+        }
 
         log.info(
             "Compacted session {}: {} turns ({} tokens) became a summary and the last {} were kept",

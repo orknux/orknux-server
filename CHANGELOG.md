@@ -266,6 +266,9 @@ have failed.
   to it, repeated calls are answered with a pointer, a call cut off at the output
   limit is sent back whole, and an empty answer is asked again.
 - 🗄️ **A fresh SQLite installation starts.** The baseline was missing a table.
+- 🔒 **A long chat is compacted on SQLite without stalling.** The summary was
+  asked for inside the transaction that records the message, so recording its
+  usage waited thirty seconds for the lock and failed.
 - 📎 **A screenshot on a Slack message reaches the agent** whichever workspace's
   connection heard the event.
 - 🧜 **Mermaid subgraphs, database nodes and quoted labels draw,** and a fence or
