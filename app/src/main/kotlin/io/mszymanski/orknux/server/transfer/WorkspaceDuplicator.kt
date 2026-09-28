@@ -3,6 +3,7 @@ package io.mszymanski.orknux.server.transfer
 import io.mszymanski.orknux.server.condition.WorkflowConditionRepository
 import io.mszymanski.orknux.server.action.WorkflowFunctionRepository
 import io.mszymanski.orknux.server.obj.WorkflowObjectRepository
+import io.mszymanski.orknux.connector.model.copied
 import io.mszymanski.orknux.server.agent.AgentRepository
 import io.mszymanski.orknux.server.agent.AgentSkillRepository
 import io.mszymanski.orknux.server.agent.AgentToolRepository
@@ -329,34 +330,7 @@ class WorkspaceDuplicator(
             )
             if (held.secretVariableId != null || !held.secret.isNullOrBlank()) needs += "model provider ${held.name}"
             models.findByProviderId(requireNotNull(held.id)).forEach { model ->
-                val made = models.save(
-                    io.mszymanski.orknux.connector.model.LlmModel(
-                        providerId = requireNotNull(copy.id),
-                        name = model.name,
-                        modelId = model.modelId,
-                        kind = model.kind,
-                        contextWindow = model.contextWindow,
-                        maxOutput = model.maxOutput,
-                        parallelToolCalls = model.parallelToolCalls,
-                        temperature = model.temperature,
-                        topP = model.topP,
-                        topK = model.topK,
-                        minP = model.minP,
-                        repeatPenalty = model.repeatPenalty,
-                        enabled = model.enabled,
-                        tokenLimit = model.tokenLimit,
-                        resetInterval = model.resetInterval,
-                        requestsPerMinute = model.requestsPerMinute,
-                        throttleTokensPerSecond = model.throttleTokensPerSecond,
-                        throttleRequestsPerSecond = model.throttleRequestsPerSecond,
-                        acceptRetryAfter = model.acceptRetryAfter,
-                        inputCostPerMillion = model.inputCostPerMillion,
-                        outputCostPerMillion = model.outputCostPerMillion,
-                        voice = model.voice,
-                        skipEmptyLines = model.skipEmptyLines,
-                        imageCostPerImage = model.imageCostPerImage,
-                    ),
-                )
+                val made = models.save(model.copied(providerId = requireNotNull(copy.id), name = model.name))
                 modelIds[requireNotNull(model.id)] = requireNotNull(made.id)
             }
         }

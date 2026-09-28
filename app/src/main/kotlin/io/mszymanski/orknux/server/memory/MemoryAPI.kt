@@ -271,6 +271,37 @@ class MemoryAPI(
         return describe(memory)
     }
 
+    /**
+     * A copy of a memory in the same catalog: "Deploy steps (copy)", or the first
+     * number after it that is free. Written by whoever pressed Duplicate, since
+     * they are the one who made this copy.
+     */
+    @MutationMapping
+    @Transactional
+    fun duplicateMemory(@Argument id: Long): MemoryView {
+        val memory = memories.findByIdOrNull(id) ?: throw MemoryNotFoundException(id)
+        val catalog = catalogs.findByIdOrNull(memory.catalogId)?.takeIf { access.canSee(it.workspaceId) }
+            ?: throw MemoryNotFoundException(id)
+        val title = generateSequence(1) { it + 1 }
+            .map { n -> if (n == 1) "${memory.title} (copy)" else "${memory.title} (copy $n)" }
+            .first { memories.findByCatalogIdAndTitle(memory.catalogId, it) == null }
+        val now = OffsetDateTime.now()
+        val who = currentUser()
+        val copy = memories.save(
+            Memory(
+                catalogId = memory.catalogId,
+                title = title,
+                content = memory.content,
+                createdAt = now,
+                createdBy = who,
+                lastModifiedAt = now,
+                lastModifiedBy = who,
+            ),
+        )
+        auditRecorder.record(catalog.workspaceId, WorkspaceAuditCategory.MEMORY, "Memory ${memory.title} duplicated as $title")
+        return describe(copy)
+    }
+
     @MutationMapping
     @Transactional
     fun deleteMemory(@Argument id: Long): Boolean {

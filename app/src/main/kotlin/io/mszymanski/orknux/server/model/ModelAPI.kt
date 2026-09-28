@@ -187,6 +187,15 @@ class ModelAPI(
         return created
     }
 
+    /** A copy of a model beside it, under "(copy)"; see [ModelService.duplicateModel]. */
+    @MutationMapping
+    fun duplicateModel(@Argument id: Long): LlmModelView {
+        val model = models.model(id)?.takeIf { access.canSee(it.workspaceId) } ?: throw ModelNotFoundException(id)
+        val copy = models.duplicateModel(id)
+        auditRecorder.record(model.workspaceId, WorkspaceAuditCategory.MODEL, "Model ${model.name} duplicated as ${copy.name}")
+        return copy
+    }
+
     @MutationMapping
     fun updateModel(@Argument id: Long, @Argument input: UpdateModelInput): LlmModelView {
         val model = models.model(id)?.takeIf { access.canSee(it.workspaceId) } ?: throw ModelNotFoundException(id)

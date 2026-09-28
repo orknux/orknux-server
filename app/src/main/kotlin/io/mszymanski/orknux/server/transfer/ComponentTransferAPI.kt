@@ -43,7 +43,35 @@ class ComponentTransferAPI(
     private val exporter: ComponentExporter,
     private val importer: ComponentImporter,
     private val access: WorkspaceAccess,
+    private val audit: io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder,
 ) {
+
+    /**
+     * A copy of one component in its own workspace, under the next free name -
+     * "Triage (2)", or `normalise_2` for a name code calls.
+     *
+     * Exported shallow and imported back: the copy is the component alone, and
+     * everything it points at - an action's function, an agent's model and
+     * tools - is the same one the original points at, because those are found
+     * here by name. The export and import already decide every field, so a
+     * duplicate carries exactly what moving it to another workspace would.
+     */
+    @MutationMapping
+    fun duplicateComponent(@Argument workspaceId: Long, @Argument kind: ComponentKind, @Argument id: Long): DuplicatedComponent {
+        access.requireVisible(workspaceId)
+        val from = exporter.fileNameFor(workspaceId, kind, id)
+        val envelope = exporter.export(workspaceId, kind, id, ExportDepth.SHALLOW)
+        val done = importer.apply(workspaceId, envelope)
+        val made = done.entries.first { it.carried && it.kind == kind }
+        audit.record(workspaceId, categoryOf(kind), "${kind.label.replaceFirstChar { it.uppercase() }} ${made.name} duplicated as ${made.targetName}")
+        return DuplicatedComponent(kind = kind, name = made.targetName)
+    }
+
+    private fun categoryOf(kind: ComponentKind) = when (kind) {
+        ComponentKind.AGENT, ComponentKind.SKILL, ComponentKind.TOOL -> io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory.AGENT
+        ComponentKind.OBJECT -> io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory.OBJECT
+        else -> io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory.WORKFLOW
+    }
 
     /** What the Export control downloads: a file name and the JSON to put in it. */
     @QueryMapping
@@ -100,6 +128,9 @@ class ComponentTransferAPI(
         return importer.apply(workspaceId, envelope, bindings.orEmpty(), exclude.orEmpty(), rename.orEmpty())
     }
 }
+
+/** What a duplicate came to: its kind and the name it arrived under. */
+data class DuplicatedComponent(val kind: ComponentKind, val name: String)
 
 /** The download: the suggested name, and the bytes. */
 data class ComponentExportView(val fileName: String, val json: String)

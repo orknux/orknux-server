@@ -29,6 +29,10 @@ have failed.
 - 📊 **Duplicating a workspace shows its progress** - the kind being copied,
   how many of how many, and a bar for the whole copy - so a long copy reads as
   working rather than stuck.
+- 🪞 **Duplicate one thing from its list**: agents, models, actions, triggers,
+  conditions, objects, skills, tools and memories each have a Duplicate button.
+  The copy arrives under the next free name and points at the same functions,
+  models and tools as the original.
 - 🔇 **Every voice skill can be switched off**: `!caveman=off`, and the same for
   Angryman, Niceman, Jokeman, Crazyman and Rimeman.
 
@@ -38,6 +42,8 @@ have failed.
   `skill_list`, `skill_load` and `skill_search` followed the catalog ticks, so an
   agent with none could not load even `!caveman`. They are built-ins like the
   rest now, on unless hidden, and the built-in catalog is always held.
+- ↔️ **A trigger's row actions are reachable at a laptop's width.** The table's
+  columns added up to more than the card, so Export was drawn past its edge.
 - ☑️ **"Allow unsafe built-in tool visibility" opens as it was saved.** It was
   stored all along; the settings page read every setting back but that one.
 

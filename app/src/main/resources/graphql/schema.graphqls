@@ -943,6 +943,11 @@ type Query {
 
 type Mutation {
     """
+    A copy of one component in its own workspace, under the next free name. It
+    points at the same function, model, tools and objects as the original.
+    """
+    duplicateComponent(workspaceId: ID!, kind: ComponentKind!, id: ID!): DuplicatedComponent!
+    """
     Creates everything an export holds, or nothing at all.
 
     One transaction. A name already taken here is renamed rather than replaced,
@@ -1805,6 +1810,8 @@ type Mutation {
     "Deletes the catalog and the memories in it."
     deleteMemoryCatalog(id: ID!): Boolean!
     createMemory(input: CreateMemoryInput!): Memory!
+    "A copy of a memory in the same catalog, under \"(copy)\"."
+    duplicateMemory(id: ID!): Memory!
     updateMemory(id: ID!, input: UpdateMemoryInput!): Memory!
     deleteMemory(id: ID!): Boolean!
 
@@ -1974,6 +1981,8 @@ type Mutation {
     testModelProvider(id: ID!): ModelProvider!
     "The model's own details. The form sends all of them, so a null is a cleared field."
     createModel(input: CreateModelInput!): Model!
+    "A copy of a model beside it, on the same provider, under \"(copy)\"."
+    duplicateModel(id: ID!): Model!
     updateModel(id: ID!, input: UpdateModelInput!): Model!
     "The Quotas and Limits card, whose fields are saved together. Null is no limit."
     updateModelQuotas(id: ID!, input: ModelQuotasInput!): Model!
@@ -8717,4 +8726,10 @@ type WorkspaceCopyProgress {
     total: Int!
     overallDone: Int!
     overallTotal: Int!
+}
+
+"What a duplicate came to: its kind, and the name it arrived under."
+type DuplicatedComponent {
+    kind: ComponentKind!
+    name: String!
 }

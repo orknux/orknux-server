@@ -343,6 +343,38 @@ class ModelProvider(
 }
 
 /**
+ * A copy of this model under a provider and a name: every setting it carries,
+ * nothing it has recorded. Shared by a workspace copy and a single model's
+ * duplicate, so the two cannot come to carry different things.
+ */
+fun LlmModel.copied(providerId: Long, name: String): LlmModel = LlmModel(
+        providerId = providerId,
+        name = name,
+        modelId = modelId,
+        kind = kind,
+        contextWindow = contextWindow,
+        maxOutput = maxOutput,
+        parallelToolCalls = parallelToolCalls,
+        temperature = temperature,
+        topP = topP,
+        topK = topK,
+        minP = minP,
+        repeatPenalty = repeatPenalty,
+        enabled = enabled,
+        tokenLimit = tokenLimit,
+        resetInterval = resetInterval,
+        requestsPerMinute = requestsPerMinute,
+        throttleTokensPerSecond = throttleTokensPerSecond,
+        throttleRequestsPerSecond = throttleRequestsPerSecond,
+        acceptRetryAfter = acceptRetryAfter,
+        inputCostPerMillion = inputCostPerMillion,
+        outputCostPerMillion = outputCostPerMillion,
+        voice = voice,
+        skipEmptyLines = skipEmptyLines,
+        imageCostPerImage = imageCostPerImage,
+)
+
+/**
  * One model the workspace may use, and the quotas the workspace puts on it.
  *
  * [name] is what a person calls it and [modelId] is what the provider's API is

@@ -382,6 +382,21 @@ class ModelService(
         return LlmModelView(model, provider)
     }
 
+    /**
+     * A copy of a model beside it, on the same provider: "GPT-4o (copy)", or the
+     * first number after it that is free. Every setting comes; what it has
+     * recorded - its checks, its usage - does not.
+     */
+    @Transactional
+    fun duplicateModel(id: Long): LlmModelView {
+        val model = models.findByIdOrNull(id) ?: throw ModelNotFoundException(id)
+        val provider = providers.findByIdOrNull(model.providerId) ?: throw ModelProviderNotFoundException(model.providerId)
+        val name = generateSequence(1) { it + 1 }
+            .map { n -> if (n == 1) "${model.name} (copy)" else "${model.name} (copy $n)" }
+            .first { models.findByProviderIdAndName(model.providerId, it) == null }
+        return LlmModelView(models.save(model.copied(providerId = model.providerId, name = name)), provider)
+    }
+
     @Transactional
     fun removeModel(id: Long): Boolean {
         val model = models.findByIdOrNull(id) ?: return false
