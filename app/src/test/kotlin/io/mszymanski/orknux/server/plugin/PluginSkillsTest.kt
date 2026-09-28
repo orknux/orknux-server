@@ -5,6 +5,7 @@ import io.mszymanski.orknux.server.agent.AgentRepository
 import io.mszymanski.orknux.server.agent.AgentSkill
 import io.mszymanski.orknux.server.agent.AgentSkillRepository
 import io.mszymanski.orknux.server.agent.AgentType
+import io.mszymanski.orknux.server.agent.BuiltInSkills
 import io.mszymanski.orknux.server.agent.PluginSkills
 import io.mszymanski.orknux.server.agent.SkillCatalog
 import io.mszymanski.orknux.server.agent.SkillCatalogRepository
@@ -135,7 +136,7 @@ class PluginSkillsTest(
         // Granted nothing: a catalog nobody gave it does not appear and cannot
         // be loaded by guessing the name.
         val ungranted = agent()
-        assertThat(skillTool.list(ungranted)).isEmpty()
+        assertThat(granted(ungranted)).isEmpty()
         assertThat(skillTool.load(ungranted, "Rolling back a deploy")).isNull()
     }
 
@@ -155,7 +156,7 @@ class PluginSkillsTest(
 
         val granted = agent("house style", "deploys_plugin")
 
-        assertThat(skillTool.list(granted).map { it.name })
+        assertThat(granted(granted).map { it.name })
             .containsExactlyInAnyOrder("Writing a changelog", "Rolling back a deploy", "Reading the deploy log")
         assertThat(skillTool.list(granted).single { it.name == "Rolling back a deploy" }.catalog)
             .isEqualTo("deploys_plugin")
@@ -174,22 +175,29 @@ class PluginSkillsTest(
     fun `a plugin switched off teaches nobody, and the grant survives it`() {
         load()
         val granted = agent("deploys_plugin")
-        assertThat(skillTool.list(granted)).hasSize(2)
+        assertThat(granted(granted)).hasSize(2)
 
         val plugin = plugins.findByKey("deploys")!!
         plugin.enabled = false
         plugins.save(plugin)
 
         assertThat(fromPlugins.catalogs().map { it.key }).doesNotContain("deploys")
-        assertThat(skillTool.list(granted)).isEmpty()
+        assertThat(granted(granted)).isEmpty()
         assertThat(agents.findById(requireNotNull(granted.id)).get().skillCatalogs)
             .describedAs("the grant is about the plugin, not about this moment")
             .containsExactly("deploys_plugin")
 
         plugin.enabled = true
         plugins.save(plugin)
-        assertThat(skillTool.list(granted)).hasSize(2)
+        assertThat(granted(granted)).hasSize(2)
     }
+
+    /**
+     * What an agent was granted, leaving out the server's own catalog: every
+     * agent holds that one whatever it was given, since built-in skills became
+     * the product's, so it says nothing about a grant.
+     */
+    private fun granted(agent: Agent) = skillTool.list(agent).filter { it.catalog != BuiltInSkills.CATALOG }
 
     /**
      * A plugin may name the id its skill is loaded by. Issue #469: it was
