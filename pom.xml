@@ -52,6 +52,19 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <!--
+                One commons-io for everything. The PDF writer's SVG support
+                brings 2.11 through xmlgraphics-commons, which is nearer than
+                the 2.20 commons-compress needs, so it won - and Testcontainers
+                could no longer copy a file into a container (FileTimes arrived
+                in 2.12), which left the suite's directory unseeded and every
+                sign-in test red.
+            -->
+            <dependency>
+                <groupId>commons-io</groupId>
+                <artifactId>commons-io</artifactId>
+                <version>2.20.0</version>
+            </dependency>
             <dependency>
                 <groupId>io.mszymanski</groupId>
                 <artifactId>orknux-connection</artifactId>

@@ -3,6 +3,7 @@ package io.mszymanski.orknux.connector.security
 import jakarta.persistence.Column
 import jakarta.persistence.Convert
 import jakarta.persistence.EntityManagerFactory
+import jakarta.persistence.Id
 import jakarta.persistence.Table
 import org.springframework.stereotype.Component
 import java.lang.reflect.Field
@@ -45,7 +46,7 @@ class SecretColumns(private val entityManagers: EntityManagerFactory) {
     val all: List<SecretColumn> by lazy {
         entityManagers.metamodel.entities
             .map { it.javaType }
-            .flatMap { entity -> secretFields(entity).map { SecretColumn(tableOf(entity), columnOf(it)) } }
+            .flatMap { entity -> secretFields(entity).map { SecretColumn(tableOf(entity), columnOf(it), idOf(entity)) } }
             .distinct()
             .sortedWith(compareBy({ it.table }, { it.column }))
     }
@@ -63,6 +64,18 @@ class SecretColumns(private val entityManagers: EntityManagerFactory) {
         .flatMap { it.declaredFields.asSequence() }
         .filter { it.getAnnotation(Convert::class.java)?.converter == SecretConverter::class }
         .toList()
+
+    /**
+     * The key a row is written back by. Not always `id`: `workspace_search` is
+     * keyed by its workspace, and assuming `id` there failed the read, so a key
+     * stored in the clear was never sealed and only a WARN said so.
+     */
+    private fun idOf(entity: Class<*>): String = generateSequence(entity) { it.superclass }
+        .takeWhile { it != Any::class.java }
+        .flatMap { it.declaredFields.asSequence() }
+        .firstOrNull { it.isAnnotationPresent(Id::class.java) }
+        ?.let { columnOf(it) }
+        ?: "id"
 
     private fun tableOf(entity: Class<*>): String =
         entity.getAnnotation(Table::class.java)?.name?.takeIf { it.isNotBlank() } ?: underscored(entity.simpleName)

@@ -82,14 +82,14 @@ class McpToolCallTest(
     /**
      * What this agent was offered that came from a server.
      *
-     * Not the whole list any more. Saving a file is offered to every agent
-     * without a grant - it only lets an agent keep its own output where
-     * somebody can find it - so "granted nothing" stopped meaning "offered
-     * nothing", and a test asserting the list is empty was asserting a fact
-     * about a default rather than about servers.
+     * Not the whole list any more. Every agent is offered the built-ins without
+     * a grant - saving a file, drawing, the scratchpads - so "granted nothing"
+     * stopped meaning "offered nothing", and a test asserting the list is empty
+     * was asserting a fact about a default rather than about servers. A
+     * server's tool is the one named under its server, `server__tool`.
      */
     private fun fromServers(agent: io.mszymanski.orknux.server.agent.Agent) =
-        tools.specsFor(agent).filterNot { it.name in AgentTools.ARTIFACT_TOOL_NAMES }
+        tools.specsFor(agent).filter { "__" in it.name }
 
     /** A server it was not granted is not listed and cannot be reached. */
     @Test

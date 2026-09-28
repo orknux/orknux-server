@@ -70,9 +70,11 @@ class ChatRegenerateTest(
 
         val again = chats.beginRegenerate(id)
 
-        // The question, and nothing the chat said after it.
-        assertThat(again.turns.map { it.role }).containsExactly("user")
-        assertThat(again.turns.single().content).isEqualTo("What does the execution module do?")
+        // The question, and nothing the chat said after it - under the
+        // briefing every request opens with, which is not part of the thread.
+        val said = again.turns.filterNot { it.role == "system" }
+        assertThat(said.map { it.role }).containsExactly("user")
+        assertThat(said.single().content).isEqualTo("What does the execution module do?")
         // And the thread it will be answered into ends on the question too.
         assertThat(history.findByConversationId(conversation(id))).hasSize(1)
     }

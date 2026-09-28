@@ -273,11 +273,13 @@ class SecretMigrationTest(
             "workspace_connection.secret",
             // The Slack user token search runs on, V247.
             "workspace_connection.user_token",
+            // A workspace's web search key, V315.
+            "workspace_search.api_key",
             "workspace_variable.value",
         )
 
         assertThat(columns.all)
-            .describedAs("an eleventh encrypted field anywhere on the classpath is an eleventh swept column")
+            .describedAs("another encrypted field anywhere on the classpath is another swept column")
             .hasSize(annotatedFieldsOnTheClasspath())
     }
 

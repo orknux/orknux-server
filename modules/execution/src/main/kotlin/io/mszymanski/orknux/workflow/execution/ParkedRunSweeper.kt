@@ -141,6 +141,13 @@ class ParkedRunSweeper(
     private var running = false
 
     override fun start() {
+        // The carriers whether or not the timer runs: a pass called by hand
+        // hands its runs to them too, and with none it counted a run as
+        // handed to nothing and nothing ever carried it.
+        carriers = Executors.newCachedThreadPool { runnable ->
+            Thread(runnable, "parked-run-resume").apply { isDaemon = true }
+        }
+        running = true
         if (!properties.enabled) {
             log.info("Parked runs are not swept on a timer")
             return
@@ -148,10 +155,6 @@ class ParkedRunSweeper(
         clock = Executors.newSingleThreadScheduledExecutor { runnable ->
             Thread(runnable, "parked-run-sweep").apply { isDaemon = true }
         }
-        carriers = Executors.newCachedThreadPool { runnable ->
-            Thread(runnable, "parked-run-resume").apply { isDaemon = true }
-        }
-        running = true
         arm(properties.initialDelay.toSeconds())
         log.info(
             "Looking for runs left stranded by a restart, first in {}s and then every {}s",
@@ -196,7 +199,7 @@ class ParkedRunSweeper(
             // Already being carried, or picked up by a pass still running: leave
             // it be, or two threads would walk the same run at once.
             if (!inFlight.add(executionId)) return@count false
-            runCatching { carriers?.execute { carry(executionId) } }
+            runCatching { checkNotNull(carriers) { "the sweeper is not started" }.execute { carry(executionId) } }
                 .onFailure {
                     inFlight.remove(executionId)
                     log.warn("Stranded run {} could not be handed to a carrier", executionId, it)

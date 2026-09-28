@@ -424,8 +424,12 @@ class IssueCommentRemovalTest(
         val offered = tools.specs(scope).map { it.name }
 
         assertThat(offered).contains("orknux_comment_on_issue")
-        assertThat(offered.filter { it.contains("remove") || it.contains("delete") }).isEmpty()
-        assertThat(offered).doesNotContain("orknux_remove_issue_comment", "orknux_delete_issue")
+        // Deleting a whole issue is a tool since #478 - an agent tidying up a
+        // duplicate it filed - and takes its comments with it. Taking one comment
+        // off an issue is still a person's to do.
+        assertThat(offered.filter { (it.contains("remove") || it.contains("delete")) && it != "orknux_delete_issue" })
+            .isEmpty()
+        assertThat(offered).doesNotContain("orknux_remove_issue_comment")
 
         // And a name invented by a model is refused rather than dispatched.
         assertThat(tools.run(scope, "orknux_remove_issue_comment", "{}")).contains("orknux_remove_issue_comment")

@@ -1,6 +1,5 @@
 package io.mszymanski.orknux.server
 
-import io.mszymanski.orknux.server.chat.BuiltInTools
 import org.assertj.core.api.Assertions.assertThat
 import org.flywaydb.core.Flyway
 import org.junit.jupiter.api.Test
@@ -26,6 +25,13 @@ class BuiltInGrantsMigrationTest {
     /** The last version with the three boolean columns. */
     private val beforeTheList = "301"
 
+    /**
+     * The version whose promise this is. V309 emptied every hidden list - every
+     * built-in is offered since - so past it there is nothing of V303's left to
+     * read, and `latest` is checked only for that.
+     */
+    private val theInversion = "303"
+
     @Test
     fun `an existing agent keeps exactly what it was being handed`() {
         PostgreSQLContainer("postgres:18")
@@ -40,7 +46,7 @@ class BuiltInGrantsMigrationTest {
                     writeTheOldRows(db)
                 }
 
-                migrate(postgres, target = "latest")
+                migrate(postgres, target = theInversion)
 
                 DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password).use { db ->
                     /*
@@ -85,28 +91,32 @@ class BuiltInGrantsMigrationTest {
                     // And the columns are gone: the list says what they said.
                     assertThat(columns(db)).doesNotContain("artifact_access", "finish_access", "picture_link_access")
                 }
+
+                migrate(postgres, target = "latest")
+
+                DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password).use { db ->
+                    // V309: every built-in is offered, whatever V303 kept hidden.
+                    assertThat(hidden(db, 900)).isEmpty()
+                    assertThat(hidden(db, 901)).isEmpty()
+                    assertThat(granted(db, 901)).containsExactly("jira_search")
+                }
             }
     }
 
-    /** The list the migration writes is the list the code declares, name for name. */
+    /**
+     * The list V303 turns round is V302's, draw_picture included - V302 only
+     * marked that one, since it was a grant already. Both were once compared
+     * with `BuiltInTools.GRANTED`; since V309 every built-in is offered, a new
+     * one needs no row, and the two files are history the list has moved past.
+     */
     @Test
-    fun `the migration names every grant-governed built-in the code knows`() {
-        val inThisFile = Regex("UNION ALL SELECT \\d+, '([a-z_0-9]+)'")
-            .findAll(javaClass.getResource("/db/migration/postgresql/V302__built_in_tool_grants.sql")!!.readText())
+    fun `the inversion turns round exactly what the grants migration wrote`() {
+        fun namesIn(migration: String) = Regex("""UNION ALL SELECT \d+, '([a-z_0-9]+)'""")
+            .findAll(javaClass.getResource("/db/migration/postgresql/$migration")!!.readText())
             .map { it.groupValues[1] }
-            .toList() + "note_to_self"
-        // draw_picture was a grant already and is not inserted, only marked.
-        assertThat(inThisFile).containsExactlyInAnyOrderElementsOf(BuiltInTools.GRANTED - "draw_picture")
-    }
-
-    /** And the list V303 turns round is the whole of it, draw_picture included. */
-    @Test
-    fun `the inversion names every grant-governed built-in the code knows`() {
-        val inThisFile = Regex("""UNION ALL SELECT \d+, '([a-z_0-9]+)'""")
-            .findAll(javaClass.getResource("/db/migration/postgresql/V303__built_ins_on_by_default.sql")!!.readText())
-            .map { it.groupValues[1] }
-            .toList() + "note_to_self"
-        assertThat(inThisFile).containsExactlyInAnyOrderElementsOf(BuiltInTools.GRANTED)
+            .toList()
+        assertThat(namesIn("V303__built_ins_on_by_default.sql"))
+            .containsExactlyInAnyOrderElementsOf(namesIn("V302__built_in_tool_grants.sql") + "draw_picture")
     }
 
     private fun migrate(postgres: PostgreSQLContainer<*>, target: String) {
