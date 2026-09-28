@@ -206,7 +206,7 @@ orknux:
     active-window-seconds: ${ORKNUX_SESSIONS_ACTIVE_WINDOW_SECONDS:60}
     # How often a reminder that came due after its agent finished is looked for
     # and delivered, waking the session. Also how late one may be, at worst.
-    due-sweep: ${ORKNUX_SESSIONS_DUE_SWEEP:5s}
+    due-sweep: ${ORKNUX_SESSIONS_DUE_SWEEP:1s}
   attachments:
     # Whether a chat may carry files at all. False here is final: an
     # administrator can turn attachments off from the screen, but not back on
