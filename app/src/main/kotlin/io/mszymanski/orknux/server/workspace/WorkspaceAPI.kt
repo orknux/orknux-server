@@ -67,6 +67,8 @@ class WorkspaceAPI(
     private val scriptProperties: ScriptProperties,
     /** Copying a whole workspace; see [duplicateWorkspace]. Issue #408. */
     private val duplicator: io.mszymanski.orknux.server.transfer.WorkspaceDuplicator,
+    /** How far a copy has got, for the page waiting on it. Issue #572. */
+    private val copyProgress: io.mszymanski.orknux.server.transfer.WorkspaceCopyProgress,
     /** Only to say how many agents one may ask where the workspace has not said. Issue #380. */
     private val installation: io.mszymanski.orknux.server.attachment.InstallationSettings,
 ) {
@@ -120,11 +122,16 @@ class WorkspaceAPI(
      * agents would be worse than one that refused.
      */
     @MutationMapping
-    fun duplicateWorkspace(@Argument id: Long, @Argument name: String): WorkspaceCopyView {
+    fun duplicateWorkspace(@Argument id: Long, @Argument name: String, @Argument progressKey: String?): WorkspaceCopyView {
         access.requireAdmin()
         val by = org.springframework.security.core.context.SecurityContextHolder
             .getContext().authentication?.name ?: "system"
-        val copied = duplicator.duplicate(id, name, by)
+        val key = progressKey?.trim()?.takeIf { it.isNotEmpty() }
+        val copied = try {
+            duplicator.duplicate(id, name, by) { step -> key?.let { copyProgress.report(it, step) } }
+        } finally {
+            key?.let { copyProgress.forget(it) }
+        }
         auditRecorder.record(
             workspaceId = copied.workspaceId,
             operationType = WorkspaceOperationType.ADD,
@@ -138,6 +145,16 @@ class WorkspaceAPI(
             credentialsToSet = copied.credentialsToSet,
             problems = copied.problems,
         )
+    }
+
+    /**
+     * How far a copy started with this key has got, or null where none is
+     * running under it - not started yet, or finished. Issue #572.
+     */
+    @QueryMapping
+    fun workspaceCopyProgress(@Argument key: String): io.mszymanski.orknux.server.transfer.WorkspaceCopyProgress.Step? {
+        access.requireAdmin()
+        return copyProgress.read(key)
     }
 
     @MutationMapping

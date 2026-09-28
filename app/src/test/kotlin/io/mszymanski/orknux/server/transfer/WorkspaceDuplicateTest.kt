@@ -35,7 +35,51 @@ class WorkspaceDuplicateTest(
     @Autowired val models: io.mszymanski.orknux.connector.model.LlmModelRepository,
     @Autowired val skillCatalogs: io.mszymanski.orknux.server.agent.SkillCatalogRepository,
     @Autowired val skills: io.mszymanski.orknux.server.agent.AgentSkillRepository,
+    @Autowired val duplicator: WorkspaceDuplicator,
 ) {
+
+    /**
+     * A copy says how far it has got as it goes. Issue #572: a large copy showed
+     * nothing until it ended. Told after each component, with the kind under way
+     * and how many of how many, ending at everything carried - and nothing is
+     * left behind under the key once the copy has answered.
+     */
+    @Test
+    fun `a copy reports its progress kind by kind, and forgets the key when it is done`() {
+        val stamp = System.nanoTime()
+        val source = requireNotNull(workspaces.save(Workspace(name = "dup-progress-$stamp")).id)
+        val folder = requireNotNull(skillCatalogs.save(
+            io.mszymanski.orknux.server.agent.SkillCatalog(workspaceId = source, name = "Playbooks $stamp"),
+        ).id)
+        listOf("One", "Two", "Three").forEach { name ->
+            skills.save(
+                io.mszymanski.orknux.server.agent.AgentSkill(
+                    workspaceId = source, catalogId = folder, name = name, key = name.lowercase(),
+                    content = "---\nname: $name\ndescription: How.\n---\n\n# $name\n\nDo it.\n",
+                ),
+            )
+        }
+
+        val steps = mutableListOf<WorkspaceCopyProgress.Step>()
+        duplicator.duplicate(source, "dup-progress-copy-$stamp", "alice") { steps += it }
+
+        assertThat(steps).isNotEmpty()
+        assertThat(steps.first().overallDone).isZero()
+        val last = steps.last()
+        assertThat(last.overallDone).isEqualTo(last.overallTotal)
+        val skillSteps = steps.filter { it.kind == "skill" }
+        assertThat(skillSteps.map { it.done }).containsSubsequence(1, 2, 3)
+        assertThat(skillSteps.all { it.total == 3 }).isTrue()
+
+        // Through the API: a key reads null when nothing runs under it, before and after.
+        graphQlTester.document("""{ workspaceCopyProgress(key: "dup-$stamp") { done } }""").execute()
+            .path("workspaceCopyProgress").valueIsNull()
+        graphQlTester.document(
+            """mutation { duplicateWorkspace(id: $source, name: "dup-progress-api-$stamp", progressKey: "dup-$stamp") { problems } }""",
+        ).execute().errors().verify()
+        graphQlTester.document("""{ workspaceCopyProgress(key: "dup-$stamp") { done } }""").execute()
+            .path("workspaceCopyProgress").valueIsNull()
+    }
 
     /**
      * Skills keep their commands. Issue #570, again: the importer never set a

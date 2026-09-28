@@ -26,6 +26,9 @@ have failed.
   agent that asked another and ended its turn is woken when the answer lands: a
   workflow step waits instead of finishing, a chat answers again on its own, and
   a finished task carries on with what it had left.
+- 📊 **Duplicating a workspace shows its progress** - the kind being copied,
+  how many of how many, and a bar for the whole copy - so a long copy reads as
+  working rather than stuck.
 - 🔇 **Every voice skill can be switched off**: `!caveman=off`, and the same for
   Angryman, Niceman, Jokeman, Crazyman and Rimeman.
 

@@ -86,6 +86,8 @@ type Query {
     """
     workspaces(page: Int = 0, size: Int = 20, order: String, ascending: Boolean): WorkspacePage!
     workspace(id: ID!): Workspace
+    "How far a copy started with this key has got; null where none is running under it. Issue #572."
+    workspaceCopyProgress(key: String!): WorkspaceCopyProgress
     "Audit entries, newest first. Without a workspaceId every visible workspace is included."
     workspaceAudit(
         workspaceId: ID,
@@ -1447,7 +1449,12 @@ type Mutation {
     setup - and not its runs, which are what it has done rather than how it is
     arranged.
     """
-    duplicateWorkspace(id: ID!, name: String!): WorkspaceCopy!
+    duplicateWorkspace(
+        id: ID!
+        name: String!
+        "A key the page makes up, to read how far the copy has got with workspaceCopyProgress. Issue #572."
+        progressKey: String
+    ): WorkspaceCopy!
     """
     Saves the workspace settings form. Name and description for anybody who
     administers this workspace; the two role lists for an installation
@@ -8698,4 +8705,16 @@ type DoctorCheck {
     verdict: DoctorVerdict!
     "One sentence: what is true, and what to do where something is not."
     detail: String!
+}
+
+"""
+One moment of a workspace copy: the kind under way, how far into it, and how
+far overall. Issue #572.
+"""
+type WorkspaceCopyProgress {
+    kind: String!
+    done: Int!
+    total: Int!
+    overallDone: Int!
+    overallTotal: Int!
 }

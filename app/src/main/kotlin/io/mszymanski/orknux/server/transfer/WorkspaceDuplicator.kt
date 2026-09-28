@@ -132,7 +132,13 @@ class WorkspaceDuplicator(
      * the answer and costs nothing else. What is copied is what the answer says
      * was copied. Issue #570.
      */
-    fun duplicate(sourceId: Long, name: String, by: String): Copied {
+    fun duplicate(
+        sourceId: Long,
+        name: String,
+        by: String,
+        /** Told after each step, for a page showing how far the copy has got. Issue #572. */
+        progress: (WorkspaceCopyProgress.Step) -> Unit = {},
+    ): Copied {
         val source = workspaces.findByIdOrNull(sourceId)
             ?: throw IllegalArgumentException("There is no workspace $sourceId.")
         val wanted = name.trim()
@@ -167,6 +173,13 @@ class WorkspaceDuplicator(
          */
         val pending = order.flatMap { kind -> idsOf(sourceId, kind).map { kind to it } }.toMutableList()
         order.forEach { kind -> if (pending.any { it.first == kind }) counts[kind.label] = 0 }
+        // How many of each kind there are, and of everything, for the progress
+        // the page draws. Counted before the first pass, so a retry does not
+        // move the goalposts. Issue #572.
+        val totals = pending.groupingBy { it.first.label }.eachCount()
+        val overall = pending.size
+        var carried = 0
+        pending.firstOrNull()?.let { (kind, _) -> progress(WorkspaceCopyProgress.Step(kind.label, 0, totals.getValue(kind.label), 0, overall)) }
         val lastWhy = mutableMapOf<Pair<ComponentKind, Long>, String?>()
         while (pending.isNotEmpty()) {
             val before = pending.size
@@ -194,6 +207,12 @@ class WorkspaceDuplicator(
                     .onSuccess {
                         pending.remove(kind to id)
                         counts[kind.label] = (counts[kind.label] ?: 0) + 1
+                        carried += 1
+                        progress(
+                            WorkspaceCopyProgress.Step(
+                                kind.label, counts.getValue(kind.label), totals.getValue(kind.label), carried, overall,
+                            ),
+                        )
                     }
                     .onFailure { why -> lastWhy[kind to id] = why.message }
             }
