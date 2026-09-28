@@ -435,62 +435,7 @@ class AgentTools(
              */
             connectionTools.run(agent, call.arguments)
         } else when (call.name) {
-            SAVE_ARTIFACT -> {
-                val named = argument(call, "name").orEmpty()
-                // Anything but "true" is text: a model that sent the flag
-                // at all meant it, and a missing flag is the common case.
-                val base64 = argument(call, "base64")?.trim()?.lowercase() == "true"
-                val content = argument(call, "content").orEmpty()
-                // A page naming pictures by key opens with them broken, and the model is told. Issue #545.
-                val keyed = if (!base64 && io.mszymanski.orknux.server.embedded.SessionPictures.isHtml(named, content)) {
-                    blocks.keyedPictures(content) { pictures.find(it, sessionId) != null }
-                } else {
-                    emptyList()
-                }
-                val saving = savedArtifacts.save(
-                    workspaceId = agent.workspaceId,
-                    savedBy = agent.name,
-                    name = named,
-                    description = argument(call, "description").orEmpty(),
-                    content = content,
-                    base64 = base64,
-                )
-                when (saving) {
-                    is SavedArtifacts.Saving.Refused -> mapper.writeValueAsString(mapOf("error" to saving.reason))
-                    is SavedArtifacts.Saving.Saved -> mapper.writeValueAsString(
-                        savedAnswer(
-                            saving.artifact.name,
-                            saving.artifact.sizeBytes,
-                            requireNotNull(saving.artifact.id),
-                            base(),
-                            /*
-                             * And the same content under a key in this session's
-                             * store, so a tool that uploads or sends a file can
-                             * take it by key - here, or in the conversation that
-                             * asked this agent, which gets the key copied up.
-                             * A file saved and then retyped into an upload was
-                             * how a page got cut off at the output cap. Issue
-                             * #393.
-                             */
-                            contentKey = sessionId?.let { session ->
-                                val key = "artifact." + requireNotNull(saving.artifact.id)
-                                val refused = scratch.put(
-                                    session, key, mapper.writeValueAsString(argument(call, "content").orEmpty()),
-                                    // Bytes where it was sent as base64, text otherwise. Issue #559.
-                                    io.mszymanski.orknux.workflow.script.StoredKind(saving.artifact.contentType, base64),
-                                )
-                                if (refused == null) key else null
-                            },
-                        ).let { answer ->
-                            if (keyed.isEmpty()) {
-                                answer
-                            } else {
-                                answer + ("warning" to io.mszymanski.orknux.server.embedded.SessionPictures.keyedWarning(keyed))
-                            }
-                        },
-                    )
-                }
-            }
+            SAVE_ARTIFACT -> saveArtifact(agent, call, sessionId)
 
             BASE64_ENCODE -> mapper.writeValueAsString(
                 mapOf("base64" to PluginCrypto.encoded(argument(call, "text").orEmpty().toByteArray(Charsets.UTF_8))),
@@ -720,6 +665,86 @@ class AgentTools(
         }
     }
 
+    /**
+     * What `save_artifact` does, callable by a caller that offers it whatever the
+     * agent's list says - task mode, where a finished file has to have somewhere
+     * to go. The grant check is [run]'s; this is the work.
+     *
+     * The content comes typed into the call, or from a key in the session's store
+     * where another tool left it - `pdf_fromHtml`, `zip_files`. Without the key a
+     * PDF could only be saved by retyping it as base64, which a model cannot do
+     * for a file of any size, so a task that made one had nowhere to put it.
+     */
+    fun saveArtifact(agent: Agent, call: ToolCall, sessionId: Long?): String {
+            val named = argument(call, "name").orEmpty()
+            // Anything but "true" is text: a model that sent the flag
+            // at all meant it, and a missing flag is the common case.
+            // Or from a key another tool left it under, bytes or text as that tool said.
+            val fromKey = argument(call, CONTENT_KEY)?.trim()?.takeIf { it.isNotEmpty() }
+            val held = fromKey?.let { key -> sessionId?.let { scratch.get(it, key) } }
+            if (fromKey != null && held == null) {
+                return mapper.writeValueAsString(mapOf("error" to "Nothing is kept under $fromKey in this session."))
+            }
+            val base64 = if (fromKey != null) {
+                sessionId?.let { scratch.kindOf(it, fromKey) }?.binary ?: false
+            } else {
+                argument(call, "base64")?.trim()?.lowercase() == "true"
+            }
+            val content = held?.let { json ->
+                runCatching { mapper.readTree(json) }.getOrNull()?.takeIf { it.isTextual }?.stringValue() ?: json
+            } ?: argument(call, "content").orEmpty()
+            // A page naming pictures by key opens with them broken, and the model is told. Issue #545.
+            val keyed = if (!base64 && io.mszymanski.orknux.server.embedded.SessionPictures.isHtml(named, content)) {
+                blocks.keyedPictures(content) { pictures.find(it, sessionId) != null }
+            } else {
+                emptyList()
+            }
+            val saving = savedArtifacts.save(
+                workspaceId = agent.workspaceId,
+                savedBy = agent.name,
+                name = named,
+                description = argument(call, "description").orEmpty(),
+                content = content,
+                base64 = base64,
+            )
+            return when (saving) {
+                is SavedArtifacts.Saving.Refused -> mapper.writeValueAsString(mapOf("error" to saving.reason))
+                is SavedArtifacts.Saving.Saved -> mapper.writeValueAsString(
+                    savedAnswer(
+                        saving.artifact.name,
+                        saving.artifact.sizeBytes,
+                        requireNotNull(saving.artifact.id),
+                        base(),
+                        /*
+                         * And the same content under a key in this session's
+                         * store, so a tool that uploads or sends a file can
+                         * take it by key - here, or in the conversation that
+                         * asked this agent, which gets the key copied up.
+                         * A file saved and then retyped into an upload was
+                         * how a page got cut off at the output cap. Issue
+                         * #393.
+                         */
+                        contentKey = sessionId?.let { session ->
+                            val key = "artifact." + requireNotNull(saving.artifact.id)
+                            val refused = scratch.put(
+                                session, key, mapper.writeValueAsString(content),
+                                // Bytes where it was sent as base64, text otherwise. Issue #559.
+                                io.mszymanski.orknux.workflow.script.StoredKind(saving.artifact.contentType, base64),
+                            )
+                            if (refused == null) key else null
+                        },
+                    ).let { answer ->
+                        if (keyed.isEmpty()) {
+                            answer
+                        } else {
+                            answer + ("warning" to io.mszymanski.orknux.server.embedded.SessionPictures.keyedWarning(keyed))
+                        }
+                    },
+                )
+            }
+    
+    }
+
     companion object {
         private val log = LoggerFactory.getLogger(AgentTools::class.java)
 
@@ -740,6 +765,9 @@ class AgentTools(
         )
 
         const val SAVE_ARTIFACT = "save_artifact"
+
+        /** What save_artifact takes a stored file by. */
+        const val CONTENT_KEY = "contentKey"
         const val BASE64_ENCODE = "base64_encode"
         const val BASE64_DECODE = "base64_decode"
 
@@ -946,8 +974,15 @@ class AgentTools(
                     ),
                     ToolParameterSpec(
                         name = "content",
-                        description = "The file itself: the text, or base64 when base64 is true.",
-                        required = true,
+                        description = "The file itself: the text, or base64 when base64 is true. Leave it out " +
+                            "when you pass contentKey.",
+                        required = false,
+                    ),
+                    ToolParameterSpec(
+                        name = CONTENT_KEY,
+                        description = "A key another tool gave you for a file it made - a PDF, a zip, a " +
+                            "picture - to save that file as it is, instead of typing it into content.",
+                        required = false,
                     ),
                     ToolParameterSpec(
                         name = "base64",

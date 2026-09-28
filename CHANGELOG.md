@@ -19,6 +19,8 @@ have failed.
 
 ### ✨ Added
 
+- A task always has `save_artifact`, whatever the agent was granted, and is told to save a file it makes there and link it in its summary; `save_artifact` takes a `contentKey`, so a PDF another tool made is saved as it is rather than typed back.
+
 - ⏰ **An agent can set itself a reminder.** `timer_set` returns at once and the
   agent carries on; when the time is up it is told, with the note it left -
   between two steps if it is still working, or by being woken if it finished.

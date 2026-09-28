@@ -75,6 +75,8 @@ class TaskLoop(
     private val dates: io.mszymanski.orknux.server.chat.DateTools,
     /** A reminder the agent sets for itself; see [io.mszymanski.orknux.server.chat.TimerTools]. */
     private val timers: io.mszymanski.orknux.server.chat.TimerTools,
+    /** save_artifact whatever the agent's list says; see [TaskArtifacts]. */
+    private val artifacts: TaskArtifacts,
     /** The agent's setup, written into the log where it changes; see [AgentDetails]. #391, #441. */
     private val agentDetails: io.mszymanski.orknux.server.agent.AgentDetails,
     private val news: TaskNewsDesk,
@@ -200,6 +202,8 @@ class TaskLoop(
             dates.shed(),
             // A reminder it sets and carries on; delivered to the session.
             timers.shed(session),
+            // Somewhere a finished file goes, whatever the agent's list says.
+            artifacts.shed(agent, session),
         )
 
         /*
@@ -408,6 +412,11 @@ class TaskLoop(
         appendLine(
             "When the work is finished, call task_done with a summary. Until you do, whatever you write is " +
                 "recorded as progress and you will be asked to carry on.",
+        )
+        appendLine(
+            "A file you make for somebody - a PDF, a page, a zip - is not delivered until it is saved: save it " +
+                "with save_artifact, passing the contentKey the tool that made it gave you, and put the link it " +
+                "answers in your task_done summary. A file left only in this session is one nobody can open.",
         )
         appendLine(
             "If you need something you have not been given, call task_request_permission. If you cannot sensibly " +
