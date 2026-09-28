@@ -131,6 +131,31 @@ class BuiltInToolsTest(
         assertThat(names).contains("skill_load", "memory_save", "shell_run_command")
     }
 
+    /**
+     * Each built-in carries a line for the form's hover card, read off what the
+     * model is told - so a person hovering a row reads what the agent reads.
+     */
+    @Test
+    fun `a built-in says what it does in one sentence`() {
+        val tools = graphQlTester.document("{ builtInTools { name summary } }")
+            .execute()
+            .path("builtInTools").entityList(Map::class.java).get()
+        val said = tools.associate { it["name"] as String to it["summary"] as String? }
+
+        for (name in listOf(ScratchpadTools.WRITE, TimerTools.SET, AgentTools.SAVE_ARTIFACT, DateTools.NOW, "skill_load", "memory_save")) {
+            assertThat(said[name]).describedAs(name).isNotBlank()
+        }
+        assertThat(said[AgentTools.SAVE_ARTIFACT]).describedAs("one sentence, not the model's whole page").doesNotContain(". ")
+    }
+
+    @Test
+    fun `the first sentence is where the first full stop and a space are`() {
+        assertThat(BuiltInToolSummaries.firstSentence("Saves a file.  Then more for the model."))
+            .isEqualTo("Saves a file.")
+        assertThat(BuiltInToolSummaries.firstSentence("No full stop at all")).isEqualTo("No full stop at all")
+        assertThat(BuiltInToolSummaries.firstSentence("Reads v1.2 files.\nMore.")).isEqualTo("Reads v1.2 files.")
+    }
+
     /* ------------------------------------------------------ a fresh agent -- */
 
     /**

@@ -6084,6 +6084,8 @@ type BuiltInTool {
     "The name the model calls it by, which is also the name the grant list stores."
     name: String!
     governance: BuiltInToolGovernance!
+    "The first sentence of what the model is told about it, for the agent form's hover card; null where none was found."
+    summary: String
 }
 
 "What decides whether an agent is offered a built-in tool."
