@@ -40,6 +40,8 @@ have failed.
 
 ### 🐛 Fixed
 
+- An agent asked by another now has its thinking written into its session, as a task's and a workflow node's always were.
+
 - 🧩 **Every agent reaches the built-in skills, whatever catalogs it was granted.**
   `skill_list`, `skill_load` and `skill_search` followed the catalog ticks, so an
   agent with none could not load even `!caveman`. They are built-ins like the

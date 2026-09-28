@@ -619,7 +619,18 @@ class AgentRunTools(
         val started = asking?.submit(java.util.concurrent.Callable {
             permits.acquire()
             runCatching {
-                val said = conversations.getObject().answer(modelId, sub, turns, into = into, shed = lent)
+                /*
+                 * Its reasoning written into its own session, as a task's and an
+                 * agent node's are. Without it the asked agent's session read as
+                 * a request, a lookup and an answer, with the half-minute it spent
+                 * thinking in between shown as nothing at all (session 569).
+                 */
+                val thinking = io.mszymanski.orknux.server.llm.SessionThinking(into, wanted.name, sessions)
+                val said = try {
+                    conversations.getObject().answer(modelId, sub, turns, into = into, shed = lent, watch = thinking)
+                } finally {
+                    thinking.settle()
+                }
                 /*
                  * The answer is put where the asker will look for it rather
                  * than returned: nobody is waiting on this thread. `agent_asks`

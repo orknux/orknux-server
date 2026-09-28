@@ -86,16 +86,25 @@ class AskAgentTest(
      * that lets a specialist actually answer needs it - the rest are about what
      * is offered and what is refused, and neither reaches a model.
      */
-    private fun model(): Long {
+    private fun model(thought: String? = null): Long {
         val started = com.sun.net.httpserver.HttpServer.create(
             java.net.InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), 0),
             0,
         )
         started.createContext("/chat/completions") { exchange ->
             exchange.requestBody.reader(java.nio.charset.StandardCharsets.UTF_8).use { it.readText() }
-            val bytes = """{"choices":[{"message":{"role":"assistant","content":"Twice a year."}}],
+            // With a thought, streamed the way a reasoning model answers: the reasoning, then the answer.
+            val bytes = if (thought != null) {
+                listOf(
+                    """{"choices":[{"delta":{"reasoning_content":"$thought"}}]}""",
+                    """{"choices":[{"delta":{"content":"Twice a year."}}]}""",
+                    """{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}""",
+                ).joinToString("") { "data: $it\n\n" }.plus("data: [DONE]\n\n").toByteArray(java.nio.charset.StandardCharsets.UTF_8)
+            } else {
+                """{"choices":[{"message":{"role":"assistant","content":"Twice a year."}}],
                "usage":{"prompt_tokens":3,"completion_tokens":1}}""".toByteArray(java.nio.charset.StandardCharsets.UTF_8)
-            exchange.responseHeaders.add("Content-Type", "application/json")
+            }
+            exchange.responseHeaders.add("Content-Type", if (thought != null) "text/event-stream" else "application/json")
             exchange.sendResponseHeaders(200, bytes.size.toLong())
             exchange.responseBody.use { it.write(bytes) }
             exchange.close()
@@ -295,6 +304,37 @@ class AskAgentTest(
         assertThat(handed)
             .describedAs("reached this way it is granted nobody, so the record says so too")
             .doesNotContain(AgentRunTools.ASK)
+    }
+
+    /**
+     * What the asked agent thought is in its session, as a task's and a node's is.
+     *
+     * Reported on session 569: a request, a lookup and an answer, with the
+     * half-minute the model spent reasoning between them recorded nowhere.
+     */
+    @Test
+    fun `a subagent's thinking is written into its session`() {
+        val modelId = model(thought = "Two policies mention a review cycle.")
+        val specialist = agent("Librarian", model = modelId)
+        val asker = agent("Support", asks = listOf(requireNotNull(specialist.id)), model = modelId)
+        val main = recorder.open(workspaceId, "chat", "thinking-${System.nanoTime()}")
+
+        asking.run(asker, """{"agent":"Librarian","question":"How often is it reviewed?"}""", parent = main)
+
+        val child = sessions.findByParentSessionIdOrderByCreatedAtAscIdAsc(main).single()
+        // The ask runs on its own thread; its answer is the last line it writes.
+        val deadline = System.currentTimeMillis() + 15_000
+        fun lines() = events.findAll().filter { it.sessionId == child.id }
+        while (lines().none { it.kind == io.mszymanski.orknux.server.llm.LlmSessionEventKind.AGENT } &&
+            System.currentTimeMillis() < deadline
+        ) {
+            Thread.sleep(100)
+        }
+        val thinking = lines().filter { it.kind == io.mszymanski.orknux.server.llm.LlmSessionEventKind.THINKING }
+        assertThat(thinking).hasSize(1)
+        assertThat(thinking.single().actor).isEqualTo("Librarian")
+        assertThat(thinking.single().content).isEqualTo("Two policies mention a review cycle.")
+        assertThat(thinking.single().millis).describedAs("settled, not left reading as still thinking").isNotNull()
     }
 
     /* --------------------------------------------------- setting the grant */
