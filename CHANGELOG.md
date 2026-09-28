@@ -42,6 +42,10 @@ have failed.
   `skill_list`, `skill_load` and `skill_search` followed the catalog ticks, so an
   agent with none could not load even `!caveman`. They are built-ins like the
   rest now, on unless hidden, and the built-in catalog is always held.
+- 🤝 **Asking other agents keeps better books.** `agent_wait` takes its seconds
+  written as `"300"` as well as `300` (it waited 30 instead), and `agent_asks`
+  names the agent it asked rather than "an agent" and, after a restart, reports
+  a failed ask as failed instead of showing its half-finished first line.
 - ↔️ **A trigger's row actions are reachable at a laptop's width.** The table's
   columns added up to more than the card, so Export was drawn past its edge.
 - ☑️ **"Allow unsafe built-in tool visibility" opens as it was saved.** It was

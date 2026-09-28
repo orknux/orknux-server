@@ -137,6 +137,20 @@ interface ExecutionStepRepository : JpaRepository<ExecutionStep, Long> {
     fun executionIdsForSession(sessionId: Long): List<Long>
 
     /**
+     * The runs parked on this session right now: a step writing into it that is
+     * WAITING. What something arriving at the session may wake - a run still
+     * mid-turn reads the session's inbox itself, and waking it as well left a
+     * wake pending that cut its next wait short.
+     */
+    @Query(
+        """
+        select distinct s.executionId from ExecutionStep s
+        where s.sessionId = :sessionId and s.status = io.mszymanski.orknux.workflow.execution.StepStatus.WAITING
+        """,
+    )
+    fun executionIdsWaitingOnSession(sessionId: Long): List<Long>
+
+    /**
      * Which of these sessions a run is still writing into: the sessions named
      * by a step of a run that is RUNNING. Issue #448.
      *

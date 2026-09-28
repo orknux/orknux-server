@@ -29,7 +29,10 @@ class SessionWake(
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     fun due(event: SessionEventDue) {
-        val ids = steps.executionIdsForSession(event.sessionId).distinct()
+        // Only a run parked on it. One mid-turn reads the inbox between its rounds;
+        // waking it too left a wake pending that cut its next wait short - a
+        // five-minute backoff that ended after twenty seconds.
+        val ids = steps.executionIdsWaitingOnSession(event.sessionId)
         executions.findAllById(ids)
             .filter { it.status == ExecutionStatus.RUNNING }
             .forEach { engine.wake(requireNotNull(it.id)) }

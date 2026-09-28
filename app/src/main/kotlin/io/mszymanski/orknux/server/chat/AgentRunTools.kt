@@ -294,8 +294,7 @@ class AgentRunTools(
             )
         }
 
-        val asked = runCatching { mapper.readTree(arguments) }.getOrNull()
-        val wanted = asked?.path(SECONDS)?.takeIf { it.isNumber }?.intValue() ?: SOME_WAIT_SECONDS
+        val wanted = waitSecondsIn(arguments)
         val seconds = wanted.coerceIn(1, MOST_WAIT_SECONDS)
 
         val children = held.findByParentSessionIdOrderByCreatedAtAscIdAsc(parent).mapNotNull { it.id }
@@ -424,9 +423,26 @@ class AgentRunTools(
                 }
             }
         }
-        val said = lines.latest(child, listOf(io.mszymanski.orknux.server.llm.LlmSessionEventKind.AGENT), org.springframework.data.domain.PageRequest.of(0, 1)).firstOrNull()
-            ?.content?.takeIf { it.isNotBlank() }
-            ?: return emptyMap()
+        /*
+         * No answer held - the ask ran before a restart. Read how it ended off its
+         * own conversation: the last line it said, or the note that it could not
+         * answer. Only the answer lines were read, so an ask that said "I'll start
+         * by gathering..." and then failed came back as though that were its answer.
+         */
+        val last = lines.latest(
+            child,
+            listOf(io.mszymanski.orknux.server.llm.LlmSessionEventKind.AGENT, io.mszymanski.orknux.server.llm.LlmSessionEventKind.SYSTEM),
+            org.springframework.data.domain.PageRequest.of(0, 1),
+        ).firstOrNull() ?: return emptyMap()
+        val said = last.content?.takeIf { it.isNotBlank() } ?: return emptyMap()
+        if (last.kind == io.mszymanski.orknux.server.llm.LlmSessionEventKind.SYSTEM) {
+            // The ending the conversation writes on a failure; any other note is about a round, not the ask.
+            if (said.contains(" could not answer: ")) return mapOf("error" to said)
+            val answered = lines.latest(
+                child, listOf(io.mszymanski.orknux.server.llm.LlmSessionEventKind.AGENT), org.springframework.data.domain.PageRequest.of(0, 1),
+            ).firstOrNull()?.content?.takeIf { it.isNotBlank() } ?: return emptyMap()
+            return mapOf("answer" to answered)
+        }
         return mapOf("answer" to said)
     }
 
@@ -437,14 +453,29 @@ class AgentRunTools(
      * For a turn ending with work out: a workflow step parks on it rather than
      * finishing, and the answer landing wakes it. See [SessionInbox].
      */
+    /** How long `agent_wait` was asked to wait, however the model wrote it: "300" arrives as often as 300. */
+    internal fun waitSecondsIn(arguments: String): Int {
+        val node = runCatching { mapper.readTree(arguments) }.getOrNull()?.path(SECONDS)
+        return when {
+            node == null -> null
+            node.isNumber -> node.intValue()
+            node.isTextual -> node.stringValue().trim().toIntOrNull()
+            else -> null
+        } ?: SOME_WAIT_SECONDS
+    }
+
     fun stillWorking(parent: Long?): Int {
         if (parent == null) return 0
         return held.findByParentSessionIdOrderByCreatedAtAscIdAsc(parent)
             .count { session -> session.id?.let { running[it] }?.isDone == false }
     }
 
+    /** The asked agent's name off its setup record, which says `agent` - `name` is read for older rows. */
     private fun nameIn(details: String?): String? = details?.let { held ->
-        runCatching { mapper.readTree(held).path("name").stringValue() }.getOrNull()?.takeIf { it.isNotBlank() }
+        runCatching {
+            val read = mapper.readTree(held)
+            (read.path("agent").takeIf { it.isTextual } ?: read.path("name")).stringValue()
+        }.getOrNull()?.takeIf { it.isNotBlank() }
     }
 
     /**
