@@ -101,6 +101,22 @@ class ModelAPITest(
         assertThat(audit.findAll().map { it.message }).contains("Provider Google AI updated")
     }
 
+    /** What the provider form sends when it creates one. The create input once refused it, so no provider could be made. */
+    @Test
+    fun `a provider is created with its default throttle, as the form sends it`() {
+        graphQlTester.document(
+            """mutation { createModelProvider(input: {
+                 workspaceId: $workspaceId, name: "Throttled", endpoint: "https://example.invalid/v1",
+                 throttleTokensPerSecond: 250, throttleRequestsPerSecond: 1.5, acceptRetryAfter: false
+               }) { id } }""",
+        ).execute().path("createModelProvider.id").hasValue()
+
+        val stored = providers.findAll().single { it.name == "Throttled" }
+        assertThat(stored.throttleTokensPerSecond).isEqualTo(250L)
+        assertThat(stored.throttleRequestsPerSecond).isEqualTo(1.5)
+        assertThat(stored.acceptRetryAfter).isFalse()
+    }
+
     @Test
     fun `an Azure provider keeps its own settings, and Entra ID its own credentials`() {
         val id = graphQlTester.document(

@@ -111,6 +111,9 @@ class ModelService(
             scope = input.scope?.trim()?.ifEmpty { null },
             checkEnabled = input.checkEnabled ?: true,
         )
+        provider.throttleTokensPerSecond = input.throttleTokensPerSecond?.toLong()
+        provider.throttleRequestsPerSecond = input.throttleRequestsPerSecond
+        input.acceptRetryAfter?.let { provider.acceptRetryAfter = it }
         provider.forgetCheck()
         val saved = providers.save(provider)
         // Checked as soon as the transaction lands, so a provider that was just
@@ -638,6 +641,11 @@ data class CreateProviderInput(
      * what a provider somebody has just configured wants.
      */
     val checkEnabled: Boolean? = null,
+    /** The default throttle, as on [UpdateProviderInput]. Issue #426. */
+    val throttleTokensPerSecond: Double? = null,
+    val throttleRequestsPerSecond: Double? = null,
+    /** Null is on, which is the column's own default. */
+    val acceptRetryAfter: Boolean? = null,
 )
 
 data class UpdateProviderInput(

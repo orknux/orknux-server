@@ -5279,6 +5279,15 @@ input CreateModelProviderInput {
     scope: String
     "Whether the timed sweep may call it. Null is true: a new provider is checked."
     checkEnabled: Boolean
+    """
+    Default throttle for this provider's models, as on update. The form offers
+    them on a new provider too, and a create that refused them refused every
+    provider the form made. Issue #426.
+    """
+    throttleTokensPerSecond: Float
+    throttleRequestsPerSecond: Float
+    "Whether a 429's Retry-After is obeyed by default. Null is true."
+    acceptRetryAfter: Boolean
 }
 
 input UpdateModelProviderInput {
