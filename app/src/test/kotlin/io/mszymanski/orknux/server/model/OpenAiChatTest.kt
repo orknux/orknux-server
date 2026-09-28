@@ -237,6 +237,33 @@ class OpenAiChatTest {
     }
 
     /**
+     * A choice with no delta in it, the way Azure OpenAI sends one.
+     *
+     * Its content filter reports on a choice of its own - `content_filter_results`
+     * and nothing said - and the SDK calls `delta` required, so reading it threw
+     * "`delta` is not set" and every streamed turn behind Azure failed with it.
+     */
+    @Test
+    fun `a streamed choice with no delta, as Azure's filter sends, is passed over`() {
+        streamed = listOf(
+            """data: {"id":"","object":"","created":0,"model":"","choices":[],""" +
+                """"prompt_filter_results":[{"prompt_index":0,"content_filter_results":{}}]}""",
+            piece("""{"content":"Hel"}"""),
+            """data: {"id":"c","object":"chat.completion.chunk","created":1,"model":"m",""" +
+                """"choices":[{"index":0,"finish_reason":null,"content_filter_results":{"hate":{"filtered":false,"severity":"safe"}}}]}""",
+            piece("""{"content":"lo."}"""),
+            "data: [DONE]",
+        )
+
+        val seen = mutableListOf<String>()
+        val outcome = chat().stream(provider(), model(), listOf(ChatTurn("user", "Hi")), emptyList(), {}) { seen += it }
+
+        val answered = outcome as OpenAiChat.Outcome.Answered
+        assertThat(seen).containsExactly("Hel", "lo.")
+        assertThat(answered.said).isEqualTo("Hello.")
+    }
+
+    /**
      * A provider that was asked to stream and answered with a whole body.
      *
      * `stream: true` is a request, not a guarantee: a local server, or a proxy

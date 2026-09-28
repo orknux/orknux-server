@@ -15,6 +15,15 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🐛 Fixed
+
+- ☁️ **A streamed answer from Azure OpenAI no longer fails with "`delta` is not
+  set".** Azure's content filter can send a piece of the stream that carries only
+  its verdict, and reading one failed the whole turn. It is passed over now.
+  Nothing to change on the Azure side.
+
 ## 0.9.9
 
 ### ✨ Added

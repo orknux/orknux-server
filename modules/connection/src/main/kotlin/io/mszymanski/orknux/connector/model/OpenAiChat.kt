@@ -232,7 +232,14 @@ class OpenAiChat(
                     input = it.promptTokens()
                     output = it.completionTokens()
                 }
-                val delta = chunk.choices().firstOrNull()?.delta() ?: return@forEach
+                /*
+                 * Read as optional, though the SDK calls it required. Azure
+                 * OpenAI sends choices that carry only their content-filter
+                 * results and no delta, and `delta()` on one throws "`delta` is
+                 * not set" - which failed every streamed turn behind Azure. A
+                 * choice with nothing said in it is skipped like an empty one.
+                 */
+                val delta = chunk.choices().firstOrNull()?._delta()?.asKnown()?.orElse(null) ?: return@forEach
                 // Thinking the provider named is thinking: it does not go
                 // through the tag splitter, which is only for the shape where
                 // nobody named it. Not part of the OpenAI shape either way, so
