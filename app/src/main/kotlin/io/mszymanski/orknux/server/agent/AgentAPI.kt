@@ -482,6 +482,18 @@ class AgentAPI(
         // And the same rule where the marks were not sent: a grant taken away
         // takes its Always mark with it, or the mark names a tool nothing resolves.
         agent.requiredTools.retainAll(held(agent))
+        /*
+         * And finish_answer carried, while the workspace keeps its built-ins
+         * fixed. It is the only way an agent that must come back later does, and
+         * an agent under a ceiling holding it at Offer promised to check back and
+         * could not: it was a tool to be found, not one in front of it. The form
+         * draws the row fixed at Always; this is what makes that true, from
+         * every door. V330 marked the agents that predate it.
+         */
+        val unsafe = workspaces.findByIdOrNull(agent.workspaceId)?.unsafeBuiltInTools == true
+        if (!unsafe && FinishAnswerTools.FINISH in held(agent) && FinishAnswerTools.FINISH !in agent.requiredTools) {
+            agent.requiredTools.add(FinishAnswerTools.FINISH)
+        }
         if (input.connectionIds != null) {
             // Another workspace's connection is not this agent's to be granted,
             // so the id is checked here rather than trusted into the briefing.

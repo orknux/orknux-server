@@ -25,6 +25,8 @@ have failed.
 
 ### 🔧 Changed
 
+- `finish_answer` is marked Always on every agent while the workspace keeps its built-ins fixed, and stays so whatever a save sends; only the unsafe built-in switch lets an agent hold it at Offer. Existing agents are marked on upgrade. An agent under a tool limit held it at Offer, so the one tool that brings it back was not in front of it.
+
 - Where an agent node may wait, `finish_answer` requires `wake_after_ms`: `-1` finishes for good, a number waits. Left out, the model is asked to choose and its turn goes on; an agent had promised build checks every 10 minutes and ended with the wake-up simply left out.
 
 ### 🐛 Fixed

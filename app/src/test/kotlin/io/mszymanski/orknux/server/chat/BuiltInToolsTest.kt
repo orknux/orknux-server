@@ -92,6 +92,42 @@ class BuiltInToolsTest(
         }
     }
 
+    /**
+     * finish_answer stays Always while the workspace keeps its built-ins fixed.
+     *
+     * Reported from production: an agent under a ceiling held it at Offer, so
+     * it was found rather than carried, and the agent promised to check back
+     * and ended without the one thing that brings it back. The form drew the
+     * row as Always all along. With the switch on, it is the agent's to demote.
+     */
+    @Test
+    fun `finish_answer stays marked Always unless the workspace allows it otherwise`() {
+        val workspace = requireNotNull(workspaces.findByName("built-ins"))
+        workspace.unsafeBuiltInTools = false
+        workspaces.save(workspace)
+        try {
+            val id = created("Always finishing")
+            graphQlTester.document(
+                """mutation { updateAgent(id: $id, input: { name: "Always finishing", maxTools: 10, requiredTools: [] }) { id } }""",
+            ).execute()
+            assertThat(requireNotNull(agents.findByIdOrNull(id)).requiredTools)
+                .describedAs("fixed built-ins: finish_answer is carried whatever the save said")
+                .contains(FinishAnswerTools.FINISH)
+
+            workspace.unsafeBuiltInTools = true
+            workspaces.save(workspace)
+            graphQlTester.document(
+                """mutation { updateAgent(id: $id, input: { name: "Always finishing", requiredTools: [] }) { id } }""",
+            ).execute()
+            assertThat(requireNotNull(agents.findByIdOrNull(id)).requiredTools)
+                .describedAs("allowed: the agent may hold it at Offer")
+                .doesNotContain(FinishAnswerTools.FINISH)
+        } finally {
+            workspace.unsafeBuiltInTools = true
+            workspaces.save(workspace)
+        }
+    }
+
     /* ------------------------------------------------------ the inventory -- */
 
     /**
