@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- A task's page lists the scratchpads it wrote into, opens one read-only, and keeps up as the task writes more; changing one is a link away, on its session.
+
 ## 0.9.9.3
 
 ### ✨ Added
