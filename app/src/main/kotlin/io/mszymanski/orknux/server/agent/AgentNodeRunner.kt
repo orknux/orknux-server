@@ -259,12 +259,7 @@ class AgentNodeRunner(
          * note exists for. Nothing reads it once the step has finished.
          */
         val question = step.agentSleepNote?.let { note ->
-            """
-            |$asked
-            |
-            |You stopped here earlier to wait, and left yourself this note:
-            |$note
-            """.trimMargin()
+            WakeNote.wokenQuestion(asked, note, step.agentSleeps, settings.agentSleepTimes())
         } ?: asked
 
         /*

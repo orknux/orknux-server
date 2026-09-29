@@ -174,6 +174,10 @@ class FinishAnswerTools(private val mapper: ObjectMapper) {
             // And to repeat, which it is just as much. Issue #568.
             "It is also how you do something on a timer: act, wait, and act again when you are started - " +
             "a message every few seconds, a check every minute. Keep the count in a note to yourself. " +
+            // The note is read by the agent that wakes, not by anybody else. A note saying what was
+            // done read, on waking, as a job finished; say what to do next instead.
+            "When you wait, `answer` is that note: you are the one who reads it when you are started " +
+            "again, so write what to do then - the next round, and when to stop - not what you have done. " +
             "Asked for something open-ended, like every five seconds, do it for as many waits as are left " +
             "and say where it will stop, rather than saying you cannot. " +
             "This run has ${sleeping.left} of those left, and one may be up to " +

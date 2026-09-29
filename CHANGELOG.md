@@ -25,6 +25,8 @@ have failed.
 
 ### 🐛 Fixed
 
+- An agent woken from a wait is told that nothing ran while it was stopped and that a repeating job goes round again now, and a wait's note is described as a note to its future self; one read its own "I have started pinging him" as work done.
+
 - On SQLite, and so in `orknux-one`, the workspace copy's progress bar now moves: a page waiting on a long run could not get a word in until it was over, because SQLite lets whoever asks at the right moment have the database rather than whoever asked first, and the server now queues for it in order.
 
 - An agent that asked another and ended its turn no longer sits out its whole wait when the answer lands in the moment before it parks; it is woken and reads the answer at once.

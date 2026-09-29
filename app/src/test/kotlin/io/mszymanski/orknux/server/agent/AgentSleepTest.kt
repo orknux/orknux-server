@@ -150,6 +150,35 @@ class AgentSleepTest(
         assertThat(waiting.description).contains("on a timer").contains("rather than saying you cannot")
     }
 
+    /**
+     * Reported from production: an agent pinging somebody every five minutes
+     * left itself "I have started pinging him", woke, read that as work done,
+     * and finished after one round. The note is for the agent that wakes, and
+     * waking is the next round.
+     */
+    @Test
+    fun `a wait's answer is a note to the agent that wakes, saying what to do next`() {
+        val waiting = finishing.shed(sleeping = sleeping(left = 2))!!.specs().single()
+        assertThat(waiting.description).contains("`answer` is that note").contains("not what you have done")
+    }
+
+    @Test
+    fun `waking says the wait is over, nothing ran meanwhile, and a repeating job goes round again`() {
+        val woken = WakeNote.wokenQuestion(
+            asked = "Ping Darek every 5 minutes until somebody confirms the fix is on UAT.",
+            note = "I have started pinging Darek every 5 minutes and will stop when somebody confirms.",
+            spent = 1,
+            allowed = 5,
+        )
+        assertThat(woken)
+            .startsWith("Ping Darek every 5 minutes")
+            .contains("I have started pinging Darek")
+            .contains("wait 1 of 5; 4 left")
+            .contains("Nothing happened on your behalf while you were stopped")
+            .contains("this is its next round")
+            .contains("wake_after_ms again")
+    }
+
     @Test
     fun `an ending without a wake-up is the ending it always was`() {
         val shed = finishing.shed(sleeping = sleeping(left = 2))!!
