@@ -528,7 +528,8 @@ class WorkflowGraphAPI(
      * Blank options are dropped and repeated ones kept once, a noul keeps only
      * the `true` and `false` it is keyed on, a threshold is held to 0..1, and
      * the branching question is kept only where it names one of the node's
-     * choices - an option is a name an edge can carry, a score is not. What a
+     * choices or yes-or-no questions - an option, or yes and no, is a name an
+     * edge can carry, and a score is not. What a
      * save refuses is what would make the answers unaddressable: a key a later
      * node could not name, two questions under one key, or an option too long
      * for the edge that has to carry it. Issue #577.
@@ -555,7 +556,7 @@ class WorkflowGraphAPI(
                 ?.let { throw DecisionQuestionKeyTakenException(it) }
         }
         val branching = node.decisionBranchQuestion?.trim()
-            ?.takeIf { key -> questions.any { it.key == key && it.kind == DecisionQuestionKind.CHOICE } }
+            ?.takeIf { key -> questions.any { it.key == key && DecisionSpec.branches(it.kind) } }
         return DecisionSpec.write(
             DecisionSpec(questions, branching, node.decisionThreshold?.coerceIn(0.0, 1.0)),
             mapper,

@@ -594,14 +594,14 @@ class GraphValidator(
             if (node.kind == NodeKind.DECISION) {
                 val spec = DecisionSpec.read(node.decisionSpec, mapper)
                 val leaving = known.filter { it.sourceKey == node.nodeKey }
-                spec.branching()?.let { question ->
-                    question.options
-                        .filter { option -> leaving.none { it.branch == EdgeBranch.OPTION && it.branchOption == option.name } }
-                        .forEach { option ->
+                spec.branching()?.let { _ ->
+                    spec.ways()
+                        .filter { way -> leaving.none { it.branch == EdgeBranch.OPTION && it.branchOption == way } }
+                        .forEach { way ->
                             problems += GraphProblem(
                                 severity = GraphProblemSeverity.WARNING,
                                 nodeKey = node.nodeKey,
-                                message = "${node.name} has no line for \"${option.name}\", so a run that picks it stops there.",
+                                message = "${node.name} has no line for \"$way\", so a run that picks it stops there.",
                             )
                         }
                     if (spec.threshold != null && leaving.none { it.branch == EdgeBranch.UNSURE }) {
@@ -697,14 +697,14 @@ class GraphValidator(
             ?.let { DecisionSpec.read(it.decisionSpec, mapper).branching() }
         return when (edge.branch) {
             EdgeBranch.OPTION -> when {
-                branching == null -> "${source.name} does not branch on a choice, so no option ever leaves it."
-                branching.options.none { it.name == edge.branchOption } ->
+                branching == null -> "${source.name} does not branch on a question, so no option ever leaves it."
+                DecisionSpec.read(source.decisionSpec, mapper).ways().none { it == edge.branchOption } ->
                     "${source.name} does not offer \"${edge.branchOption.orEmpty()}\", so nothing ever leaves it by that line."
                 else -> null
             }
 
             EdgeBranch.UNSURE ->
-                "${source.name} does not branch on a choice, so nothing ever leaves it unsure.".takeIf { branching == null }
+                "${source.name} does not branch on a question, so nothing ever leaves it unsure.".takeIf { branching == null }
 
             EdgeBranch.YES, EdgeBranch.NO ->
                 "${source.name} answers with options, not yes or no.".takeIf { source.kind == NodeKind.DECISION }

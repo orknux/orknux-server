@@ -94,10 +94,16 @@ class DecisionNodeRunner(
         /*
          * The option, where the model was sure enough; the unsure edge
          * otherwise. A choice that came back naming nothing - no answer under
-         * its key at all - is as unsure as an answer can be.
+         * its key at all - is as unsure as an answer can be. A yes-or-no picks
+         * `yes` or `no` by which side of a half its probability is on, and is
+         * sure by the same threshold rule as the rest.
          */
         val answer = answers.path(branching.key)
-        val picked = answer.path("choice").stringValueOpt().orElse(null)
+        val picked = if (branching.kind == DecisionQuestionKind.NOUL) {
+            answer.path("noul").takeIf { it.isNumber }?.let { if (it.asDouble() >= HALF) DecisionSpec.YES else DecisionSpec.NO }
+        } else {
+            answer.path("choice").stringValueOpt().orElse(null)
+        }
         return if (picked != null && answer.path("sure").asBoolean(false)) {
             StepResult(StepStatus.COMPLETED, output, branch = EdgeBranch.OPTION, option = picked)
         } else {

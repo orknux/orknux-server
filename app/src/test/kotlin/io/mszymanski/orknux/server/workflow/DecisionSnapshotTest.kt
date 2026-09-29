@@ -85,8 +85,16 @@ class DecisionSnapshotTest {
     }
 
     @Test
-    fun `only a choice can be the question that branches`() {
+    fun `a choice or a yes-or-no can be the question that branches, a score cannot`() {
         assertThat(spec.branching()?.key).isEqualTo("department")
+        assertThat(spec.ways()).containsExactly("billing", "returns")
         assertThat(spec.copy(branchQuestion = "severity").branching()).isNull()
+
+        val yesNo = spec.copy(
+            questions = spec.questions + DecisionQuestion("urgent", DecisionQuestionKind.NOUL, "Urgent?"),
+            branchQuestion = "urgent",
+        )
+        assertThat(yesNo.ways()).containsExactly("yes", "no")
+        assertThat(DecisionSpec.read(DecisionSpec.write(yesNo, mapper), mapper)).isEqualTo(yesNo)
     }
 }

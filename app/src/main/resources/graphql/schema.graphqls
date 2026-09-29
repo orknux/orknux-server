@@ -2484,7 +2484,7 @@ type WorkflowNode {
     decisionModelId: ID
     "What a DECISION node asks, in order; empty on every other kind."
     decisionQuestions: [DecisionQuestion!]!
-    "The key of the CHOICE question whose answer picks the edge the run leaves by; null only answers."
+    "The key of the CHOICE or NOUL question whose answer picks the edge the run leaves by (a NOUL leaves by the options yes and no); null only answers."
     decisionBranchQuestion: String
     "How sure an answer has to be to be taken, 0 to 1; null takes every answer."
     decisionThreshold: Float
@@ -2846,7 +2846,7 @@ input WorkflowNodeInput {
     decisionModelId: ID
     "What a DECISION node asks, in order. Ignored on any other kind."
     decisionQuestions: [DecisionQuestionInput!]
-    "The key of the CHOICE question whose answer picks the edge; anything else is dropped."
+    "The key of the CHOICE or NOUL question whose answer picks the edge; anything else is dropped."
     decisionBranchQuestion: String
     "How sure an answer has to be to be taken, held to 0..1; null takes every answer."
     decisionThreshold: Float
@@ -2956,7 +2956,7 @@ input WorkflowEdgeInput {
     Which way out of its source this edge leaves by. YES or NO out of a
     condition, FAILURE out of an action or agent with `fallbackEnabled`, and
     null for everything else — including the happy path, which stays unmarked.
-    OPTION or UNSURE out of a DECISION node that branches on a choice.
+    OPTION or UNSURE out of a DECISION node that branches on a choice or a yes-or-no.
     """
     branch: EdgeBranch
     "Which option an OPTION edge leaves by; ignored on every other edge."

@@ -57,6 +57,9 @@ class DecisionNodeTest(
 ) {
 
     private var workspaceId: Long = 0
+
+    /** How many workflows this test has made, so each has a name of its own. */
+    private var made = 0
     private lateinit var server: HttpServer
 
     /** Every decision request the stub was sent, and the headers it came with. */
@@ -232,7 +235,7 @@ class DecisionNodeTest(
                  nodes: [${objectNode("first")}, ${objectNode("billing")}],
                  edges: [{ source: "first", target: "billing", branch: UNSURE }]
                }) { nodes { key } } }""",
-        ).execute().errors().expect { it.message?.contains("does not branch on a choice") == true }.verify()
+        ).execute().errors().expect { it.message?.contains("does not branch on a question") == true }.verify()
     }
 
     @Test
@@ -422,6 +425,100 @@ class DecisionNodeTest(
         assertThat(run.error("decide")).contains("was asked for a JSON object")
     }
 
+    /* ------------------------------------------------------------ branching on a yes-or-no */
+
+    @Test
+    fun `a node may branch on a yes-or-no, leaving by yes, no or unsure`() {
+        val workflowId = workflow()
+
+        val problems = saveYesNo(workflowId, decisionModel(), threshold = 0.8, drawn = listOf("yes", "no"))
+            .path("saveWorkflowGraph.problems[*].message").entityList(String::class.java).get()
+
+        assertThat(problems).noneMatch { it.contains("no line for \"yes\"") }
+        assertThat(problems).anyMatch { it.contains("no line for an unsure answer") }
+        graphQlTester.document(
+            """query { workflowGraph(workspaceId: $workspaceId, workflowId: $workflowId) {
+                 nodes { key decisionBranchQuestion } edges { branch option } } }""",
+        ).execute()
+            .path("workflowGraph.nodes[?(@.key == 'decide')].decisionBranchQuestion").entityList(String::class.java)
+            .containsExactly("urgent")
+            .path("workflowGraph.edges[?(@.branch == 'OPTION')].option").entityList(String::class.java)
+            .containsExactly("yes", "no")
+    }
+
+    @Test
+    fun `a line a yes-or-no cannot leave by is refused, and a missing one is advice`() {
+        val workflowId = workflow()
+
+        graphQlTester.document(
+            """mutation { saveWorkflowGraph(workspaceId: $workspaceId, workflowId: $workflowId, input: {
+                 nodes: [${yesNoNode(null, 0.8)}, ${objectNode("yes")}],
+                 edges: [{ source: "decide", target: "yes", branch: OPTION, option: "maybe" }]
+               }) { nodes { key } } }""",
+        ).execute().errors().expect { it.message?.contains("does not offer \"maybe\"") == true }.verify()
+
+        val problems = saveYesNo(workflowId, decisionModel(), threshold = null, drawn = listOf("yes"))
+            .path("saveWorkflowGraph.problems[*].message").entityList(String::class.java).get()
+        assertThat(problems).anyMatch { it.contains("no line for \"no\"") }
+    }
+
+    @Test
+    fun `a decision model's yes-or-no leaves by yes, no or unsure`() {
+        val modelId = decisionModel()
+        assertThat(yesNoRun(modelId, 0.93) { answer = noul(it) }).isEqualTo("yes")
+        assertThat(yesNoRun(modelId, 0.04) { answer = noul(it) }).isEqualTo("no")
+        assertThat(yesNoRun(modelId, 0.6) { answer = noul(it) }).isEqualTo("unsure")
+    }
+
+    @Test
+    fun `a chat model's yes-or-no leaves by yes, no or unsure`() {
+        val modelId = chatModel()
+        val said = { p: Double -> """{"department": {"probabilities": {"billing": 1}}, "urgent": {"noul": $p}}""" }
+        assertThat(yesNoRun(modelId, 0.93) { chatReply = said(it) }).isEqualTo("yes")
+        assertThat(yesNoRun(modelId, 0.04) { chatReply = said(it) }).isEqualTo("no")
+        assertThat(yesNoRun(modelId, 0.6) { chatReply = said(it) }).isEqualTo("unsure")
+    }
+
+    /**
+     * One run of a node branching on `urgent` at a threshold of 0.8, the model
+     * answering [p], and which of the three lines ran - after checking that
+     * the other two did not.
+     */
+    private fun yesNoRun(modelId: Long, p: Double, answering: (Double) -> Unit): String {
+        val workflowId = workflow()
+        saveYesNo(workflowId, modelId, threshold = 0.8, drawn = listOf("yes", "no", "unsure"))
+        answering(p)
+        val run = run(workflowId)
+        val ran = listOf("yes", "no", "unsure").filter { run.status(it) == "COMPLETED" }
+        assertThat(ran).describedAs("the lines that ran for $p").hasSize(1)
+        val branch = run.branch("decide")
+        assertThat(branch).isEqualTo(if (ran.single() == "unsure") "UNSURE" to null else "OPTION" to ran.single())
+        return ran.single()
+    }
+
+    /** TypeSafe's documented answer, with the yes-or-no at [p]. */
+    private fun noul(p: Double) = """
+        {"model":"jev-1.13.0",
+         "answers":{
+           "department":{"type":"choice","choice":"billing","confidence":0.9,"probabilities":{"billing":0.9,"returns":0.1}},
+           "urgent":{"type":"noul","noul":$p}},
+         "usage":{"input_tokens":42,"output_tokens":0}}
+    """.trimIndent()
+
+    private fun yesNoNode(modelId: Long?, threshold: Double?) =
+        decisionNode(modelId, threshold).replace("decisionBranchQuestion: \"department\"", "decisionBranchQuestion: \"urgent\"")
+
+    /** A node branching on `urgent`, with a line for each of [drawn]: `yes`, `no` or `unsure`. */
+    private fun saveYesNo(workflowId: Long, modelId: Long, threshold: Double?, drawn: List<String>) = graphQlTester.document(
+        """mutation { saveWorkflowGraph(workspaceId: $workspaceId, workflowId: $workflowId, input: {
+             nodes: [${yesNoNode(modelId, threshold)}, ${objectNode("yes")}, ${objectNode("no")}, ${objectNode("unsure")}],
+             edges: [${drawn.joinToString { way ->
+                 if (way == "unsure") """{ source: "decide", target: "unsure", branch: UNSURE }"""
+                 else """{ source: "decide", target: "$way", branch: OPTION, option: "$way" }"""
+             }}]
+           }) { problems { severity message } } }""",
+    ).execute()
+
     /* ------------------------------------------------------------ the fixture */
 
     /** An OpenAI-shaped provider in front of the stub, and a model of this kind on it. */
@@ -505,7 +602,7 @@ class DecisionNodeTest(
     ).execute()
 
     private fun workflow(): Long = graphQlTester.document(
-        """mutation { createWorkflow(input: { workspaceId: $workspaceId, name: "Triage" }) { workflowId } }""",
+        """mutation { createWorkflow(input: { workspaceId: $workspaceId, name: "Triage ${++made}" }) { workflowId } }""",
     ).execute().path("createWorkflow.workflowId").entity(String::class.java).get().toLong()
 
     /** A run of the draft, as Run in the editor starts one, read back when it is over. */

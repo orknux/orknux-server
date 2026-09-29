@@ -19,9 +19,10 @@ import tools.jackson.databind.ObjectMapper
 data class DecisionSpec(
     val questions: List<DecisionQuestion> = emptyList(),
     /**
-     * The key of the choice question whose answer picks the edge the run
-     * leaves by, or null for a node that only answers. Only a choice can: an
-     * option is a name an edge can carry, and a score or a probability is not.
+     * The key of the question whose answer picks the edge the run leaves by,
+     * or null for a node that only answers. A choice leaves by the option it
+     * picked; a yes-or-no by `yes` or `no`. A score cannot: a place on a
+     * scale is not a name an edge can carry.
      */
     val branchQuestion: String? = null,
     /**
@@ -33,14 +34,32 @@ data class DecisionSpec(
     val threshold: Double? = null,
 ) {
 
-    /** The question that branches, where there is one and it is a choice. */
+    /** The question that branches, where there is one and it is a choice or a yes-or-no. */
     fun branching(): DecisionQuestion? =
-        branchQuestion?.let { key -> questions.firstOrNull { it.key == key && it.kind == DecisionQuestionKind.CHOICE } }
+        branchQuestion?.let { key -> questions.firstOrNull { it.key == key && branches(it.kind) } }
+
+    /**
+     * The options the node leaves by, one OPTION edge each: a choice's option
+     * names, or a yes-or-no's `yes` and `no`. The unsure edge is beside these,
+     * never one of them. Empty for a node that does not branch.
+     */
+    fun ways(): List<String> {
+        val question = branching() ?: return emptyList()
+        return if (question.kind == DecisionQuestionKind.NOUL) listOf(YES, NO) else question.options.map { it.name }
+    }
 
     companion object {
 
         /** A node that asks nothing yet. */
         val EMPTY = DecisionSpec()
+
+        /** The two options a yes-or-no question leaves by, as its OPTION edges carry them. */
+        const val YES = "yes"
+        const val NO = "no"
+
+        /** Whether a question of this kind can pick the edge a run leaves by. */
+        fun branches(kind: DecisionQuestionKind): Boolean =
+            kind == DecisionQuestionKind.CHOICE || kind == DecisionQuestionKind.NOUL
 
         fun write(spec: DecisionSpec, mapper: ObjectMapper): String = mapper.writeValueAsString(
             mapOf(
