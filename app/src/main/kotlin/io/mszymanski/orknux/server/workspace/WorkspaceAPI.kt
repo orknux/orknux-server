@@ -122,8 +122,16 @@ class WorkspaceAPI(
      * agents would be worse than one that refused.
      */
     @MutationMapping
-    fun duplicateWorkspace(@Argument id: Long, @Argument name: String, @Argument progressKey: String?): WorkspaceCopyView {
+    fun duplicateWorkspace(@Argument id: Long, @Argument name: String?, @Argument progressKey: String?): WorkspaceCopyView {
         access.requireAdmin()
+        /*
+         * Named by the server when the caller names nothing. Reported: the page
+         * always asked for "<name> copy", so a second copy was refused as taken.
+         * The first free of "<name> copy", "<name> copy 2", ... - and a copy of a
+         * copy counts on from its original rather than growing "copy copy".
+         */
+        val source = repository.findByIdOrNull(id) ?: throw WorkspaceNotFoundException(id)
+        val name = name?.trim()?.takeIf { it.isNotEmpty() } ?: nextCopyName(source.name)
         val by = org.springframework.security.core.context.SecurityContextHolder
             .getContext().authentication?.name ?: "system"
         val key = progressKey?.trim()?.takeIf { it.isNotEmpty() }
@@ -145,6 +153,13 @@ class WorkspaceAPI(
             credentialsToSet = copied.credentialsToSet,
             problems = copied.problems,
         )
+    }
+
+    private fun nextCopyName(original: String): String {
+        val base = original.replace(Regex(""" copy(?: \d+)?$"""), "")
+        return generateSequence(1) { it + 1 }
+            .map { if (it == 1) "$base copy" else "$base copy $it" }
+            .first { repository.findByName(it) == null }
     }
 
     /**

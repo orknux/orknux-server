@@ -22,7 +22,7 @@ have failed.
 - Each `orknux_*` tool can be switched off on its own while an agent has Orknux access, so an agent can read runs without being able to start one. A hidden one is neither offered nor run, in chats, workflows and tasks; turning the grant off still takes them all.
 
 - A task's page lists the scratchpads it wrote into, opens one read-only, and keeps up as the task writes more; changing one is a link away, on its session.
-- A decision model node for workflows: it asks Jev, TypeSafe's hosted decision model, or a Laya running on your own hardware typed questions - a choice, a score, a yes or no - about what the run carries, hands on the answers with their probabilities, and can send the run down one line per option, with its own line for an answer under the node's threshold. Both are added under Models as a Decision model provider, whose key is optional because a self-hosted Laya may need none.
+- A Decision node for workflows: it asks typed questions - a choice, a score, a yes or no - about what the run carries, hands on the answers with their probabilities, and can send the run down one line per option, with its own line for an answer under the node's threshold. It runs on a decision model - Jev, TypeSafe's hosted one, or a Laya on your own hardware, added under Models as a Decision model provider whose key is optional - or on any chat model, which answers in the same shape with its own estimate of the probabilities.
 - The manual shows drawing: a picture drawn in a chat, a task that drew two, and an image node with the run where it drew, on pages photographed from a demonstration that really draws - the screenshot installation now runs a stand-in drawing model for it.
 
 ### 🔧 Changed
@@ -32,6 +32,8 @@ have failed.
 - Where an agent node may wait, `finish_answer` requires `wake_after_ms`: `-1` finishes for good, a number waits. Left out, the model is asked to choose and its turn goes on; an agent had promised build checks every 10 minutes and ended with the wake-up simply left out.
 
 ### 🐛 Fixed
+
+- Duplicating a workspace that already has a copy works: the copy takes the first free of "<name> copy", "<name> copy 2" and so on, and a copy of a copy counts on from the original. It used to be refused because "<name> copy" was taken. `duplicateWorkspace` takes its name as optional to match.
 
 - An agent woken from a wait is told that nothing ran while it was stopped and that a repeating job goes round again now, and a wait's note is described as a note to its future self; one read its own "I have started pinging him" as work done.
 

@@ -150,6 +150,29 @@ class WorkspaceDuplicateTest(
      * skill's key, so the second skill in the copy broke the unique index, and
      * the failed insert left the shared session unusable for everything after.
      */
+    /**
+     * A copy named by nobody takes the first free name. Reported: the page always
+     * asked for "<name> copy", so a second copy was refused as taken.
+     */
+    @Test
+    fun `an unnamed copy takes the next free copy name, counting on from the original`() {
+        val stamp = System.nanoTime()
+        val source = requireNotNull(workspaces.save(Workspace(name = "dup-name-$stamp")).id)
+        fun copyOf(id: Long): Pair<Long, String> {
+            val made = graphQlTester.document(
+                """mutation { duplicateWorkspace(id: $id) { workspace { id name } } }""",
+            ).execute()
+            return made.path("duplicateWorkspace.workspace.id").entity(Long::class.java).get() to
+                made.path("duplicateWorkspace.workspace.name").entity(String::class.java).get()
+        }
+
+        val (firstId, first) = copyOf(source)
+        assertThat(first).isEqualTo("dup-name-$stamp copy")
+        assertThat(copyOf(source).second).isEqualTo("dup-name-$stamp copy 2")
+        // A copy of a copy counts on from the original, not "copy copy".
+        assertThat(copyOf(firstId).second).isEqualTo("dup-name-$stamp copy 3")
+    }
+
     @Test
     fun `skills are copied with their commands, however many there are`() {
         val stamp = System.nanoTime()

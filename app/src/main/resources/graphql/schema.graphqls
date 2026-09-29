@@ -1456,7 +1456,8 @@ type Mutation {
     """
     duplicateWorkspace(
         id: ID!
-        name: String!
+        "The copy's name. Left out, the first free one of <name> copy, <name> copy 2, and so on; a name given and taken is refused."
+        name: String
         "A key the page makes up, to read how far the copy has got with workspaceCopyProgress. Issue #572."
         progressKey: String
     ): WorkspaceCopy!
