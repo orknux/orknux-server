@@ -58,6 +58,8 @@ class OutboundClientSeamTest {
             to "Slack's SDK brings its own OkHttp and Tyrus stacks; both are given proxySelector()",
         "app/src/main/kotlin/io/mszymanski/orknux/server/security/OidcTransport.kt"
             to "Spring Security's own clients, each built on a request factory that wraps the routed client",
+        "modules/connection/src/main/kotlin/io/mszymanski/orknux/connector/model/DecisionModelClient.kt"
+            to "a RestClient on a JdkClientHttpRequestFactory over ProxyRouter.builder()'s own HttpClient",
     )
 
     @Test

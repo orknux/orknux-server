@@ -432,6 +432,10 @@ class ToolSearchTest(
         // is a ceiling the product keeps rather than one it is given - a model
         // handed three hundred tools chooses badly long before a provider minds.
         assertThat(ProviderType.ANTHROPIC.toolLimit).isGreaterThan(ProviderType.OPENAI.toolLimit)
-        assertThat(ProviderType.entries.map { it.toolLimit }).allSatisfy { assertThat(it).isGreaterThan(0) }
+        // Every provider that holds chat models has a ceiling; a decision provider
+        // holds none and is offered no tools, so it has nothing to cap.
+        assertThat(ProviderType.entries.filter { it != ProviderType.SYSTEM_ONE }.map { it.toolLimit })
+            .allSatisfy { assertThat(it).isGreaterThan(0) }
+        assertThat(ProviderType.SYSTEM_ONE.toolLimit).isZero()
     }
 }
