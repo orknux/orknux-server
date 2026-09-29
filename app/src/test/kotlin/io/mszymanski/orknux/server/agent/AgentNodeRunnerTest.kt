@@ -922,7 +922,8 @@ class AgentNodeRunnerTest(
      */
     private fun serveFinishing(answer: String? = null): String {
         val calls = AtomicInteger()
-        val arguments = if (answer == null) "{}" else """{"answer":"$answer"}"""
+        // -1: where waiting is offered the wake-up is required, and this is the ending.
+        val arguments = if (answer == null) """{"wake_after_ms":-1}""" else """{"answer":"$answer","wake_after_ms":-1}"""
         val escaped = arguments.replace("\"", "\\\"")
         server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
         server.createContext("/chat/completions") { exchange ->

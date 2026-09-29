@@ -179,15 +179,39 @@ class AgentSleepTest(
             .contains("wake_after_ms again")
     }
 
+    /**
+     * Reported from production: an agent posted "after the PR is up I will check
+     * the build every 10 minutes" and ended with finish_answer {}. Where waiting
+     * is offered the model has to say which, every time: -1 is never.
+     */
     @Test
-    fun `an ending without a wake-up is the ending it always was`() {
+    fun `where waiting is offered, leaving the wake-up out is refused and the turn goes on`() {
+        val shed = finishing.shed(sleeping = sleeping(left = 2))!!
+        val said = shed.run(call("""{"answer":"done"}"""))
+        assertThat(said).contains("wake_after_ms is required").contains("-1")
+
+        val spec = shed.specs().single().parameters.single { it.name == FinishAnswerTools.WAKE }
+        assertThat(spec.required).isTrue()
+    }
+
+    @Test
+    fun `minus one is the ending it always was`() {
         val shed = finishing.shed(sleeping = sleeping(left = 2))!!
 
+        for (never in listOf("-1", "\"-1\"")) {
+            assertThatThrownBy { shed.run(call("""{"answer":"done","wake_after_ms":$never}""")) }
+                .isInstanceOfSatisfying(AnswerFinished::class.java) {
+                    assertThat(it.answer).isEqualTo("done")
+                    assertThat(it.wake).isNull()
+                }
+        }
+    }
+
+    @Test
+    fun `with no waiting on offer, finishing needs no wake-up`() {
+        val shed = finishing.shed(sleeping = sleeping(left = 0, spent = 4))!!
         assertThatThrownBy { shed.run(call("""{"answer":"done"}""")) }
-            .isInstanceOfSatisfying(AnswerFinished::class.java) {
-                assertThat(it.answer).isEqualTo("done")
-                assertThat(it.wake).isNull()
-            }
+            .isInstanceOfSatisfying(AnswerFinished::class.java) { assertThat(it.wake).isNull() }
     }
 
     @Test

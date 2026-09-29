@@ -118,7 +118,22 @@ class FinishAnswerTools(private val mapper: ObjectMapper) {
          */
         override fun run(call: ToolCall): String {
             val answer = text(call, "answer").orEmpty().trim()
-            val asked = number(call, WAKE) ?: throw AnswerFinished(answer)
+            val asked = number(call, WAKE)
+
+            /*
+             * Where waiting is offered, the model says whether it waits - every
+             * time. Reported from production: an agent posted "after the PR is
+             * up I will check the build every 10 minutes" and ended with
+             * finish_answer {}, the wake-up simply left out. Leaving a field out
+             * is the easiest thing a model does; a required number is a question
+             * it has to answer, and -1 is how it says never.
+             */
+            if (mayWait && asked == null) {
+                return "$WAKE is required: pass $NEVER to finish for good, or how many milliseconds until you " +
+                    "are started again. If you said you would check, follow up or do something later, that later " +
+                    "only happens with a number here."
+            }
+            if (asked == null || asked == NEVER) throw AnswerFinished(answer)
 
             if (!mayWait) {
                 return "This run has no waiting left in it" +
@@ -126,8 +141,8 @@ class FinishAnswerTools(private val mapper: ObjectMapper) {
                     ". Finish now, or carry on and answer."
             }
             if (asked <= 0) {
-                return "$WAKE must be a number of milliseconds greater than zero. " +
-                    "Leave it out to finish here instead of waiting."
+                return "$WAKE must be a number of milliseconds greater than zero, or $NEVER to finish here " +
+                    "instead of waiting."
             }
 
             val longest = sleeping!!.longest
@@ -181,13 +196,15 @@ class FinishAnswerTools(private val mapper: ObjectMapper) {
             "Asked for something open-ended, like every five seconds, do it for as many waits as are left " +
             "and say where it will stop, rather than saying you cannot. " +
             "This run has ${sleeping.left} of those left, and one may be up to " +
-            "${sleeping.longest.toMillis()} ms.",
+            "${sleeping.longest.toMillis()} ms. " +
+            "Every call says which: `$WAKE` is $NEVER when the work is over, and a number whenever anything " +
+            "you said you would do - a check, a follow-up, the next round - is still to come.",
         parameters = FINISHING.parameters + ToolParameterSpec(
             name = WAKE,
-            description = "How long to wait before this step is started again, in milliseconds. " +
-                "Leave it out to finish rather than wait. Anything longer than " +
-                "${sleeping.longest.toMillis()} ms is shortened to that.",
-            required = false,
+            description = "Required. $NEVER to finish for good - nothing more will happen after this turn. " +
+                "Otherwise how long to wait, in milliseconds, before you are started again to carry on. " +
+                "Anything longer than ${sleeping.longest.toMillis()} ms is shortened to that.",
+            required = true,
         ),
     )
 
@@ -211,6 +228,9 @@ class FinishAnswerTools(private val mapper: ObjectMapper) {
 
         /** What the wake-up is called in the tool call, in the model's own units. */
         const val WAKE = "wake_after_ms"
+
+        /** What the wake-up is when the agent is finishing for good. */
+        const val NEVER = -1L
 
         val FINISHING = ToolSpec(
             name = FINISH,

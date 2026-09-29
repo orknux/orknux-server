@@ -23,6 +23,10 @@ have failed.
 - A decision model node for workflows: it asks Jev, TypeSafe's hosted decision model, or a Laya running on your own hardware typed questions - a choice, a score, a yes or no - about what the run carries, hands on the answers with their probabilities, and can send the run down one line per option, with its own line for an answer under the node's threshold. Both are added under Models as a Decision model provider, whose key is optional because a self-hosted Laya may need none.
 - The manual shows drawing: a picture drawn in a chat, a task that drew two, and an image node with the run where it drew, on pages photographed from a demonstration that really draws - the screenshot installation now runs a stand-in drawing model for it.
 
+### 🔧 Changed
+
+- Where an agent node may wait, `finish_answer` requires `wake_after_ms`: `-1` finishes for good, a number waits. Left out, the model is asked to choose and its turn goes on; an agent had promised build checks every 10 minutes and ended with the wake-up simply left out.
+
 ### 🐛 Fixed
 
 - An agent woken from a wait is told that nothing ran while it was stopped and that a repeating job goes round again now, and a wait's note is described as a note to its future self; one read its own "I have started pinging him" as work done.
