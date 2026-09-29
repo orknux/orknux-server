@@ -23,7 +23,7 @@ have failed.
 
 - A task's page lists the scratchpads it wrote into, opens one read-only, and keeps up as the task writes more; changing one is a link away, on its session.
 - A Decision node for workflows: it asks typed questions - a choice, a score, a yes or no - about what the run carries, hands on the answers with their probabilities, and can send the run down one line per option, with its own line for an answer under the node's threshold. It runs on a decision model - Jev, TypeSafe's hosted one, or a Laya on your own hardware, added under Models as a Decision model provider whose key is optional - or on any chat model, which answers in the same shape with its own estimate of the probabilities.
-- The manual shows drawing: a picture drawn in a chat, a task that drew two, and an image node with the run where it drew, on pages photographed from a demonstration that really draws - the screenshot installation now runs a stand-in drawing model for it.
+- The manual shows drawing: pictures drawn in a chat and opened in the viewer, a task that drew two, one that laid its pictures out as a saved PDF, an image node and an agent that drew in a run, and the Artifacts page holding them all - photographed from a demonstration that really draws, as the screenshot installation now runs a stand-in drawing model.
 
 ### 🔧 Changed
 

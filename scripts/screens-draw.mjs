@@ -88,10 +88,20 @@ const MOODS = {
 };
 
 function moodOf(words) {
-  if (/night|midnight|star|moon/.test(words)) return MOODS.night;
-  if (/dusk|sunset|evening|twilight/.test(words)) return MOODS.dusk;
-  if (/dawn|sunrise|morning|daybreak/.test(words)) return MOODS.dawn;
-  return MOODS.day;
+  const mood = /night|midnight|star|moon/.test(words)
+    ? MOODS.night
+    : /dusk|sunset|evening|twilight/.test(words)
+      ? MOODS.dusk
+      : /dawn|sunrise|morning|daybreak/.test(words)
+        ? MOODS.dawn
+        : MOODS.day;
+  // Snow lightens the land whatever the hour, and cools the sky a little.
+  if (!/snow|winter|frost|ice/.test(words)) return mood;
+  return {
+    ...mood,
+    land: [mix(mood.land[0], [236, 240, 248], 0.7), mix(mood.land[1], [168, 182, 206], 0.6)],
+    sky: [mood.sky[0], mix(mood.sky[1], [226, 234, 246], 0.35)],
+  };
 }
 
 /**
@@ -148,6 +158,51 @@ function paint(description, width, height) {
     }
     ridges.push(row);
   }
+
+  /*
+   * What stands on the land is part of its outline: a forest raises the near
+   * ridges in pine-shaped points, a town raises one in roofs. Folding them into
+   * the ridge is what lets them take the same haze, reflection and edges.
+   */
+  const forest = /forest|pine|tree|wood/.test(words);
+  const town = /town|city|skyline|roof|village/.test(words);
+  const lit = [];
+  if (forest) {
+    for (const layer of [LAYERS - 2, LAYERS - 1]) {
+      const row = ridges[layer];
+      const spacing = W / (layer === LAYERS - 1 ? 34 : 60);
+      for (let cx = random() * spacing; cx < W; cx += spacing * (0.6 + random() * 0.8)) {
+        const height = H * (layer === LAYERS - 1 ? 0.09 : 0.05) * (0.6 + random() * 0.7);
+        const half = height * 0.32;
+        const foot = row[Math.min(W - 1, Math.max(0, Math.round(cx)))] + height * 0.08;
+        for (let x = Math.max(0, Math.floor(cx - half)); x <= Math.min(W - 1, Math.ceil(cx + half)); x += 1) {
+          row[x] = Math.min(row[x], foot - height * (1 - Math.abs(x - cx) / half));
+        }
+      }
+    }
+  }
+  if (town) {
+    const layer = LAYERS - 2;
+    const row = ridges[layer];
+    for (let x0 = W * (0.1 + random() * 0.15); x0 < W * 0.9; ) {
+      const width = W * (0.02 + random() * 0.035);
+      const height = H * (0.05 + random() * 0.12);
+      const ground = row[Math.min(W - 1, Math.round(x0 + width / 2))];
+      for (let x = Math.floor(x0); x < Math.min(W, x0 + width); x += 1) row[x] = Math.min(row[x], ground - height);
+      lit.push({ from: x0, to: x0 + width, top: ground - height, ground });
+      x0 += width + W * random() * 0.01;
+    }
+  }
+  // Lit windows, where the light is low enough to see them.
+  const windows = town && (mood === MOODS.dusk || mood === MOODS.night || /dusk|night|evening/.test(words));
+  const inWindow = (x, y) =>
+    windows &&
+    lit.some(
+      (house) =>
+        x > house.from + 3 && x < house.to - 3 && y > house.top + 6 && y < house.ground - 4 &&
+        (x - Math.floor(house.from)) % 12 < 5 && (y - Math.floor(house.top)) % 16 < 7 &&
+        ((Math.floor(x / 12) * 7 + Math.floor(y / 16) * 13) % 5) < 3,
+    );
 
   /*
    * A low sun sits on the farthest ridge, half set behind it: placed before the
@@ -211,6 +266,7 @@ function paint(description, width, height) {
         let cover = clamp(y - ridges[layer][x] + 0.5);
         if (water) cover *= clamp(horizon - y + 0.5);
         if (cover > 0) colour = mix(colour, landColour(layer, y, x), cover);
+        if (layer === LAYERS - 2 && cover > 0.5 && inWindow(x, y)) colour = mix(colour, [255, 214, 140], 0.85);
       }
 
       /* The water, with the land and the light in it. */
@@ -306,8 +362,11 @@ export function draw(description, size) {
  *
  * What it does: every sentence of the request with a colon in it names a
  * picture, the words after the colon being the scene. It draws each one with
- * whichever drawing tool it was offered, one call per turn, then says what it
- * drew - or, in a task, calls `task_done` with that.
+ * whichever drawing tool it was offered, one call per turn. Asked for a PDF,
+ * it lays the pictures out with `pdf_fromHtml` by their keys, saves that with
+ * `save_artifact` and links it; offered `picture_link`, as in a run, it places
+ * the first picture in its answer. Then it says what it drew - or, in a task,
+ * calls `task_done` with that.
  */
 const textOf = (content) =>
   typeof content === 'string'
@@ -325,36 +384,118 @@ function scenesIn(request) {
     .filter((one) => one.scene.length > 8);
 }
 
+/** What a tool answered, as an object, or an empty one where it was not JSON. */
+function parsed(text) {
+  try {
+    const value = JSON.parse(textOf(text));
+    return value && typeof value === 'object' ? value : {};
+  } catch {
+    return {};
+  }
+}
+
+/** The file a request names, like "the October newsletter" - october-newsletter.pdf. */
+function fileFor(request) {
+  const named = /\b(?:the\s+)?(\w+\s+newsletter)\b/i.exec(request)?.[1] ?? 'pictures';
+  return `${named.toLowerCase().replace(/\s+/g, '-')}.pdf`;
+}
+
 function write(asked) {
   const messages = Array.isArray(asked.messages) ? asked.messages : [];
   const tools = (asked.tools ?? []).map((tool) => tool.function?.name ?? tool.name).filter(Boolean);
+  const offered = (name) => tools.includes(name);
   const drawTool = tools.find((name) => name.endsWith('draw_picture'));
-  const finishTool = tools.find((name) => name === 'task_done');
+  // Only a run's: a task shows every picture it drew under its outcome already.
+  const linkTool = tools.find((name) => name === 'picture_link');
+  const finishTool = offered('task_done') ? 'task_done' : undefined;
 
-  const requests = messages.filter((message) => message.role === 'user').map((message) => textOf(message.content));
-  const scenes = requests.map(scenesIn).find((found) => found.length > 0) ?? [];
-
-  const drawn = new Set();
-  for (const message of messages) {
-    for (const call of message.tool_calls ?? []) {
-      if (!call.function?.name?.endsWith('draw_picture')) continue;
-      try {
-        drawn.add(JSON.parse(call.function.arguments).description);
-      } catch {
-        // Not one of ours; it names nothing to skip.
-      }
+  /*
+   * The request is the newest message from a person with a picture named in
+   * it, so a second request in the same chat is a second round rather than a
+   * repeat of the first. Only what was called after it counts as done.
+   */
+  let asking = -1;
+  let scenes = [];
+  messages.forEach((message, at) => {
+    if (message.role !== 'user') return;
+    const found = scenesIn(textOf(message.content));
+    if (found.length > 0) {
+      asking = at;
+      scenes = found;
     }
+  });
+  const request = asking >= 0 ? textOf(messages[asking].content) : '';
+
+  // Every call since the request, with what came back for it.
+  const calls = [];
+  const byId = new Map();
+  messages.slice(asking + 1).forEach((message) => {
+    for (const call of message.tool_calls ?? []) {
+      const one = { name: call.function?.name ?? '', arguments: parsed(call.function?.arguments), answer: {} };
+      calls.push(one);
+      byId.set(call.id, one);
+    }
+    if (message.role === 'tool' && byId.has(message.tool_call_id)) {
+      byId.get(message.tool_call_id).answer = parsed(message.content);
+    }
+  });
+  const made = (name) => calls.filter((call) => call.name === name || call.name.endsWith(name));
+
+  const drawings = made('draw_picture');
+  const next = drawTool ? scenes.find((one) => !drawings.some((call) => call.arguments.description === one.scene)) : undefined;
+  if (next) return { call: { name: drawTool, arguments: { description: next.scene } } };
+
+  const keys = drawings.map((call) => call.answer.key).filter(Boolean);
+  let closing = '';
+
+  /*
+   * A document, where one was asked for: the pictures laid out as a PDF by
+   * their keys, which is how a page takes a picture already drawn, then saved
+   * to the Artifacts, and linked in what is said - which is what draws the
+   * PDF's first page under the answer.
+   */
+  if (/\bpdf\b/i.test(request) && offered('pdf_fromHtml') && keys.length > 0) {
+    const pdf = made('pdf_fromHtml')[0];
+    const title = fileFor(request).replace(/\.pdf$/, '').replace(/-/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+    if (!pdf) {
+      const html = [
+        '<html><body style="font-family: sans-serif; margin: 32px;">',
+        `<h1>${title}</h1>`,
+        ...scenes.map(
+          (one, at) =>
+            `<h2>${one.label || `Picture ${at + 1}`}</h2><img src="${keys[at] ?? keys[0]}" style="width: 100%;"/>` +
+            `<p>${one.scene}</p>`,
+        ),
+        '</body></html>',
+      ].join('\n');
+      return { call: { name: 'pdf_fromHtml', arguments: { title, html } } };
+    }
+    const pdfKey = pdf.answer.contentKey ?? pdf.answer.key;
+    const saved = made('save_artifact')[0];
+    if (!saved && pdfKey && offered('save_artifact')) {
+      return {
+        call: {
+          name: 'save_artifact',
+          arguments: { name: fileFor(request), description: `${title}, with its pictures`, contentKey: pdfKey },
+        },
+      };
+    }
+    if (saved?.answer.url) closing = ` The newsletter is laid out as [${fileFor(request)}](${saved.answer.url}).`;
   }
 
-  const next = drawTool ? scenes.find((one) => !drawn.has(one.scene)) : undefined;
-  if (next) return { call: { name: drawTool, arguments: { description: next.scene } } };
+  /* A picture placed in the answer, where the caller offers an address for one. */
+  if (linkTool && keys.length > 0) {
+    const linked = made('picture_link')[0];
+    if (!linked) return { call: { name: linkTool, arguments: { key: keys[0] } } };
+    if (linked.answer.markdown) closing = `\n\n${linked.answer.markdown}`;
+  }
 
   const said =
     scenes.length === 0
       ? 'There is nothing here I can draw - say what the picture should be of, after a colon.'
       : scenes.length === 1
-        ? `Here it is: ${scenes[0].scene}`
-        : `Drew ${scenes.length} pictures. ${scenes.map((one) => `${one.label}: ${one.scene}`).join(' ')}`;
+        ? `Here it is: ${scenes[0].scene}${closing}`
+        : `Drew ${scenes.length} pictures. ${scenes.map((one) => `${one.label}: ${one.scene}`).join(' ')}${closing}`;
   if (finishTool) return { call: { name: finishTool, arguments: { summary: said } } };
   return { text: said };
 }
