@@ -243,15 +243,15 @@ class ModelProviderProbe(
     }
 
     /**
-     * What a `/v1/systemone` endpoint can answer with.
+     * What an endpoint speaking the Jev format can answer with.
      *
-     * TypeSafe documents `GET /v1/models` - "the names your account can send
-     * in the model field" - and Laya's `laya-serve` has no such route, but its
-     * `GET /health` answers `{"status": "ok", "loaded": [...]}` naming the
-     * checkpoints it holds. So the documented listing first, and Laya's health
-     * only where that is not there: between them they prove the same three
-     * things a chat provider's listing does - reachable, key accepted, and the
-     * thing at the other end is what it was said to be.
+     * The format documents `GET /v1/models` - the names the model field takes -
+     * and that is asked first. A server with no listing is not thereby a wrong
+     * address: the format's one required route is `POST /v1/systemone`, and a
+     * GET on it answers 405 where the route exists and 404 where it does not.
+     * So no listing and a 405 is a server speaking the format whose model names
+     * are typed by hand. Nothing here knows one server from another - asked for:
+     * the integration is the format, not any product implementing it.
      */
     private fun listedDecisionModels(provider: ModelProvider): Listing {
         val header = when (val resolved = systemOneCredential(provider)) {
@@ -276,12 +276,12 @@ class ModelProviderProbe(
                 in 200..299 -> Listing.Models(names(models.body()))
                 401, 403 -> Listing.Failed("The provider rejected the credentials ($status)" + said(models.body()))
                 404, 405 -> {
-                    val health = requireNotNull(ask("$base/health"))
-                    if (health.statusCode() !in 200..299) {
-                        Listing.Failed("No decision API at $base - neither /v1/models nor /health answered")
-                    } else {
-                        val loaded = runCatching { mapper.readTree(health.body()).path("loaded") }.getOrNull()
-                        Listing.Models(loaded?.values()?.mapNotNull { it.stringValueOpt().orElse(null) }.orEmpty())
+                    val route = requireNotNull(ask("$base/v1/systemone"))
+                    when (route.statusCode()) {
+                        // There, and asked the wrong way: a server with no listing. Names are typed.
+                        405, in 200..299 -> Listing.Models(emptyList())
+                        401, 403 -> Listing.Failed("The provider rejected the credentials (${route.statusCode()})" + said(route.body()))
+                        else -> Listing.Failed("No decision API at $base - it has neither /v1/models nor /v1/systemone")
                     }
                 }
 
@@ -296,8 +296,7 @@ class ModelProviderProbe(
 
     /**
      * The header a `/v1/systemone` call carries, or null where the provider
-     * keeps no key - which a self-hosted Laya started without `LAYA_API_KEY`
-     * is entitled to. A key that is configured and cannot be read is still a
+     * keeps no key - which a self-hosted server may well not ask for. A key that is configured and cannot be read is still a
      * failure, in the same words as every other provider's.
      */
     fun systemOneCredential(provider: ModelProvider): Credential? {

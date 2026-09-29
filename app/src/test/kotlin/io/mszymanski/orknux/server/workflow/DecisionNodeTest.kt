@@ -30,9 +30,9 @@ import java.util.concurrent.CopyOnWriteArrayList
  *
  * Everything goes through the doors the editor and the Models screen use - the
  * provider and model mutations, `saveWorkflowGraph`, `startExecution` - against
- * a stub on the loopback answering the API Jev and Laya share: `POST
- * /v1/systemone` with TypeSafe's documented answer shapes, Jev's `GET
- * /v1/models`, or Laya's `GET /health` where that is missing. So what is pinned
+ * a stub on the loopback answering the Jev format: `POST /v1/systemone` with
+ * its documented answer shapes, and `GET /v1/models` - or no listing at all, as
+ * some servers speaking the format have. So what is pinned
  * is the wire in both directions and the run's path through the branches: the
  * option the model picked is the edge the run left by, an answer under the
  * threshold leaves by the unsure edge, and the others are skipped.
@@ -77,9 +77,9 @@ class DecisionNodeTest(
     /** Every chat request the stub was sent. */
     private val chatted = CopyOnWriteArrayList<String>()
 
-    /** Whether the stub is Jev (lists models) or Laya (answers only /health). */
+    /** Whether the stub lists its models, or speaks the format with no listing. */
     @Volatile
-    private var laya = false
+    private var unlisted = false
 
     @BeforeEach
     fun reset() {
@@ -98,7 +98,7 @@ class DecisionNodeTest(
         workspaceId = requireNotNull(workspaces.save(Workspace(name = "support")).id)
         sent.clear()
         authorizations.clear()
-        laya = false
+        unlisted = false
 
         server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
         server.createContext("/v1/systemone") { exchange ->
@@ -107,7 +107,7 @@ class DecisionNodeTest(
             reply(exchange, 200, answer)
         }
         server.createContext("/v1/models") { exchange ->
-            if (laya) {
+            if (unlisted) {
                 reply(exchange, 404, """{"detail":"Not Found"}""")
             } else {
                 reply(exchange, 200, """{"data":[{"id":"jev-1.13.0"},{"id":"jev-latest"}]}""")
@@ -124,9 +124,6 @@ class DecisionNodeTest(
                    "choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"$content"}}],
                    "usage":{"prompt_tokens":20,"completion_tokens":9,"total_tokens":29}}""",
             )
-        }
-        server.createContext("/health") { exchange ->
-            reply(exchange, 200, """{"status":"ok","loaded":["laya-base","laya-multilingual"],"device":"cpu"}""")
         }
         server.start()
     }
@@ -146,15 +143,23 @@ class DecisionNodeTest(
             .path("testModelProvider.lastCheckMessage").entity(String::class.java).isEqualTo("Connected; 2 models listed")
     }
 
+    /**
+     * A server speaking the format with no model list is still one: its
+     * /v1/systemone answers, and names are typed. Nothing product-specific is
+     * asked - it used to read one server's /health, and the integration is the
+     * format, not any product implementing it.
+     */
     @Test
-    fun `a Laya with no model list is checked by its health`() {
-        laya = true
+    fun `a server with no model list is connected when it answers the format's route`() {
+        unlisted = true
         val providerId = provider(secret = null)
 
+        graphQlTester.document("""mutation { testModelProvider(id: $providerId) { status } }""")
+            .execute()
+            .path("testModelProvider.status").entity(String::class.java).isEqualTo("CONNECTED")
         graphQlTester.document("""query { discoveredModels(providerId: $providerId) { modelId } }""")
             .execute()
-            .path("discoveredModels[*].modelId").entityList(String::class.java)
-            .containsExactly("laya-base", "laya-multilingual")
+            .path("discoveredModels[*].modelId").entityList(String::class.java).hasSize(0)
     }
 
     @Test

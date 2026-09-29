@@ -85,12 +85,13 @@ sealed interface Decision {
 /**
  * Asks a decision model a set of typed questions about a state.
  *
- * Jev and Laya speak one API, which TypeSafe documents at
- * https://docs.typesafe.ai/api and Laya's `laya/serve.py` implements:
+ * The Jev format, and nothing narrower: any server speaking it is a decision
+ * model here, whoever built it. It is documented at https://docs.typesafe.ai/api
+ * and implemented by more than one server:
  *
  * ```
  * POST {base}/v1/systemone
- * Authorization: Bearer <key>                       (optional for Laya)
+ * Authorization: Bearer <key>                       (where the server asks for one)
  * {"state": "..." | {...}, "model": "jev-latest",
  *  "questions": {"<key>": {"type": "choice", "instructions": "...",
  *                          "criteria": {"<option>": "<what it means>"}}}}
@@ -197,8 +198,8 @@ class DecisionModelClient(
     private fun request(model: LlmModel, state: JsonNode, questions: List<DecisionQuestion>): ObjectNode {
         val body = mapper.createObjectNode()
         body.set("state", if (state.isObject || state.isArray) state else mapper.stringNode(textOf(state)))
-        // Laya routes to a checkpoint of its own choosing when this is absent;
-        // Jev wants a name. The model row always has one.
+        // Some servers choose a model of their own when this is absent and some
+        // insist on one; the model row always has a name, so it is always sent.
         model.modelId.trim().takeIf { it.isNotEmpty() }?.let { body.put("model", it) }
 
         val asked = body.putObject("questions")

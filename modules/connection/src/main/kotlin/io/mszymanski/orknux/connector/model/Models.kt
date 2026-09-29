@@ -43,8 +43,8 @@ enum class ModelKind {
     IMAGE,
 
     /**
-     * A state and typed questions in, calibrated probabilities out: Jev, or a
-     * Laya served on the installation's own hardware. Not a language model at
+     * A state and typed questions in, calibrated probabilities out: any server
+     * speaking the Jev format, hosted or on the installation's own hardware. Not a language model at
      * all - it writes nothing - which is why it lives only under a
      * [ProviderType.SYSTEM_ONE] provider and is asked by [DecisionModelClient]
      * and by nothing else. Issue #577.
