@@ -1,13 +1,22 @@
 package io.mszymanski.orknux.server.database
 
 import com.zaxxer.hikari.HikariDataSource
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.config.BeanPostProcessor
 import org.springframework.boot.hibernate.autoconfigure.HibernatePropertiesCustomizer
+import org.springframework.boot.transaction.autoconfigure.TransactionManagerCustomizers
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.transaction.PlatformTransactionManager
 import java.nio.file.Files
 import java.nio.file.Path
 import javax.sql.DataSource
+
+/**
+ * How long anything waits for SQLite's one writer before giving up: the
+ * connection's busy timeout, and the queue in [OneWriterTransactionManager].
+ */
+const val SQLITE_BUSY_TIMEOUT_MS: Long = 30_000
 
 /** What tells the rest of the application which database is underneath. */
 fun isSqlite(url: String?): Boolean = url != null && url.startsWith("jdbc:sqlite:")
@@ -94,11 +103,25 @@ class SqliteConfig {
                 requireDirectoryExists(bean.jdbcUrl)
                 bean.addDataSourceProperty("foreign_keys", "true")
                 bean.addDataSourceProperty("journal_mode", "WAL")
-                bean.addDataSourceProperty("busy_timeout", "30000")
+                bean.addDataSourceProperty("busy_timeout", SQLITE_BUSY_TIMEOUT_MS.toString())
                 bean.addDataSourceProperty("transaction_mode", "IMMEDIATE")
             }
             return bean
         }
+    }
+
+    /**
+     * The transaction manager Boot would have made, except that on SQLite it
+     * queues for the write lock fairly - see [OneWriterTransactionManager] for
+     * why SQLite's own waiting starves a page behind a long run. Declared here,
+     * so Boot's backs off; its customizers are applied as Boot would have.
+     */
+    @Bean
+    fun transactionManager(
+        dataSource: DataSource,
+        customizers: ObjectProvider<TransactionManagerCustomizers>,
+    ): PlatformTransactionManager = OneWriterTransactionManager(isSqlite(jdbcUrlOf(dataSource))).also { manager ->
+        customizers.ifAvailable { it.customize(manager) }
     }
 
     /**

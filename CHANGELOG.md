@@ -23,6 +23,12 @@ have failed.
 - A decision model node for workflows: it asks Jev, TypeSafe's hosted decision model, or a Laya running on your own hardware typed questions - a choice, a score, a yes or no - about what the run carries, hands on the answers with their probabilities, and can send the run down one line per option, with its own line for an answer under the node's threshold. Both are added under Models as a Decision model provider, whose key is optional because a self-hosted Laya may need none.
 - The manual shows drawing: a picture drawn in a chat, a task that drew two, and an image node with the run where it drew, on pages photographed from a demonstration that really draws - the screenshot installation now runs a stand-in drawing model for it.
 
+### 🐛 Fixed
+
+- On SQLite, and so in `orknux-one`, the workspace copy's progress bar now moves: a page waiting on a long run could not get a word in until it was over, because SQLite lets whoever asks at the right moment have the database rather than whoever asked first, and the server now queues for it in order.
+
+- An agent that asked another and ended its turn no longer sits out its whole wait when the answer lands in the moment before it parks; it is woken and reads the answer at once.
+
 ## 0.9.9.3
 
 ### ✨ Added

@@ -23,6 +23,8 @@ class SessionWake(
     private val steps: ExecutionStepRepository,
     private val executions: WorkflowExecutionRepository,
     private val engine: ExecutionEngine,
+    /** What has arrived at a session and not been read; see [parked]. */
+    private val inbox: SessionInbox,
     /** Through a provider: the task service reaches the conversation, which reaches the inbox. */
     private val tasks: org.springframework.beans.factory.ObjectProvider<io.mszymanski.orknux.server.task.TaskService>,
 ) {
@@ -38,5 +40,24 @@ class SessionWake(
             .forEach { engine.wake(requireNotNull(it.id)) }
         // And a task whose conversation it is: nudged, or reopened; see TaskService.wake.
         tasks.getObject().wake(event.sessionId)
+    }
+
+    /**
+     * The other order: what was due landed before the step it was for had
+     * parked. [due] looked for a WAITING step then and found none, so the step
+     * would sleep out its whole wait with the answer sitting unread in its
+     * inbox. Looked at again once the park is written - something due and
+     * undelivered means the turn that parked never read it, so wake the run
+     * and the turn it runs next reads it first.
+     *
+     * Seen on SQLite once a copy's transactions stopped starving everything
+     * else (#572): the answer to an ask_agent committed a few milliseconds
+     * before the asker's park, and the run took its full minute.
+     */
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    fun parked(event: io.mszymanski.orknux.workflow.execution.StepParked) {
+        val session = event.sessionId ?: return
+        val next = inbox.nextDue(session) ?: return
+        if (!next.isAfter(java.time.OffsetDateTime.now())) engine.wake(event.executionId)
     }
 }

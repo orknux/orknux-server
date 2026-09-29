@@ -36,6 +36,7 @@ class WorkspaceDuplicateTest(
     @Autowired val skillCatalogs: io.mszymanski.orknux.server.agent.SkillCatalogRepository,
     @Autowired val skills: io.mszymanski.orknux.server.agent.AgentSkillRepository,
     @Autowired val duplicator: WorkspaceDuplicator,
+    @Autowired val transactions: org.springframework.transaction.PlatformTransactionManager,
 ) {
 
     /**
@@ -79,6 +80,69 @@ class WorkspaceDuplicateTest(
         ).execute().errors().verify()
         graphQlTester.document("""{ workspaceCopyProgress(key: "dup-$stamp") { done } }""").execute()
             .path("workspaceCopyProgress").valueIsNull()
+    }
+
+    /**
+     * Somebody else gets a transaction while a copy runs. Issue #572, on SQLite:
+     * the copy commits a component and begins the next at once, and SQLite's
+     * busy wait - sleep, look again - never looked in the gap, so the page
+     * asking how far the copy had got could not even load its session until
+     * the copy was over, and the bar never moved. On Postgres nothing queues.
+     *
+     * A transaction on another thread, asked for while the copy is under way,
+     * has to be answered within a few components of asking.
+     */
+    @Test
+    fun `a transaction asked for during a copy is answered during it`() {
+        val stamp = System.nanoTime()
+        val source = requireNotNull(workspaces.save(Workspace(name = "dup-fair-$stamp")).id)
+        val folder = requireNotNull(skillCatalogs.save(
+            io.mszymanski.orknux.server.agent.SkillCatalog(workspaceId = source, name = "Playbooks $stamp"),
+        ).id)
+        val many = 150
+        skills.saveAll((1..many).map { at ->
+            val name = "Skill ${at.toString().map { 'a' + (it - '0') }.joinToString("")}"
+            io.mszymanski.orknux.server.agent.AgentSkill(
+                workspaceId = source, catalogId = folder, name = name,
+                key = io.mszymanski.orknux.server.agent.SkillKeys.derive(name),
+                content = "---\nname: $name\ndescription: How.\n---\n\n# $name\n\nDo it.\n",
+            )
+        })
+
+        /*
+         * Asked five times, at even points through the copy, one question at a
+         * time: a single answer could be luck, since SQLite does look now and
+         * again and the gap between two components is not always missed.
+         */
+        val carried = java.util.concurrent.atomic.AtomicInteger()
+        val askAt = (1..5).map { it * many / 7 }
+        val answers = java.util.concurrent.ConcurrentHashMap<Int, Int>()
+        val observer = java.util.concurrent.Executors.newSingleThreadExecutor()
+        try {
+            duplicator.duplicate(source, "dup-fair-copy-$stamp", "alice") { step ->
+                carried.set(step.overallDone)
+                if (step.overallDone in askAt) {
+                    observer.execute {
+                        runCatching {
+                            org.springframework.transaction.support.TransactionTemplate(transactions)
+                                .execute { workspaces.count() }
+                        }
+                        answers[step.overallDone] = carried.get()
+                    }
+                }
+            }
+            observer.shutdown()
+            observer.awaitTermination(60, java.util.concurrent.TimeUnit.SECONDS)
+            // Within a few components of asking, where a fair queue puts it;
+            // starved, it is answered only once the copy is over.
+            val late = askAt.filter { asked -> (answers[asked] ?: many) >= asked + 10 }
+                .map { it to answers[it] }
+            assertThat(late)
+                .describedAs("asked at, and carried when answered, of $many; all were ${askAt.map { it to answers[it] }}")
+                .isEmpty()
+        } finally {
+            observer.shutdownNow()
+        }
     }
 
     /**
