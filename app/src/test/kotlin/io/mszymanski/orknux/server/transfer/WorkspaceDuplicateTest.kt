@@ -277,7 +277,7 @@ class WorkspaceDuplicateTest(
                 "acceptRetryAfter",
             ),
             io.mszymanski.orknux.connector.model.LlmModel::class.java to setOf(
-                "name", "modelId", "kind", "contextWindow", "maxOutput", "parallelToolCalls", "temperature", "topP",
+                "name", "modelId", "kind", "contextWindow", "maxOutput", "parallelToolCalls", "reasoningEffort", "temperature", "topP",
                 "topK", "minP", "repeatPenalty", "enabled", "tokenLimit", "resetInterval", "requestsPerMinute",
                 "throttleTokensPerSecond", "throttleRequestsPerSecond", "acceptRetryAfter", "inputCostPerMillion",
                 "outputCostPerMillion", "voice", "skipEmptyLines", "imageCostPerImage",

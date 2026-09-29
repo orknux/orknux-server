@@ -354,6 +354,8 @@ class OpenAiChat(
         tools.forEach { tool -> builder.addTool(declared(tool)) }
         // Only beside tools: a provider refuses the field in a request that offers none. Issue #530.
         if (tools.isNotEmpty()) model.parallelToolCalls?.let { builder.parallelToolCalls(it) }
+        // Only when set, and only a provider that declares it can hold one: see ChatParameters.
+        model.reasoningEffort?.let { builder.reasoningEffort(com.openai.models.ReasoningEffort.of(it)) }
         // Each only when set: null leaves the server's own default. Issue #533.
         model.temperature?.let { builder.temperature(it) }
         model.topP?.let { builder.topP(it) }

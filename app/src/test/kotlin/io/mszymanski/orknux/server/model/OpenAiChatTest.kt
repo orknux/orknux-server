@@ -192,6 +192,30 @@ class OpenAiChatTest {
         assertThat(bodies[1]).doesNotContain("temperature").doesNotContain("top_k").doesNotContain("repeat_penalty")
     }
 
+    /**
+     * How hard an Azure reasoning deployment thinks, on both paths, and nothing
+     * where the model leaves it to the deployment: a model that is not a
+     * reasoning one refuses a request carrying the field.
+     */
+    @Test
+    fun `a reasoning effort is sent where it is set, streamed or not, and only there`() {
+        answer = words("ok")
+        val azure = azureProvider()
+        val thoughtful = model().apply { reasoningEffort = "high" }
+
+        chat().complete(azure, thoughtful, listOf(ChatTurn("user", "Hello")), emptyList())
+        chat().complete(azure, model(), listOf(ChatTurn("user", "Hello")), emptyList())
+        streamed = listOf(piece("""{"content":"ok"}"""), "data: [DONE]")
+        chat().stream(azure, thoughtful, listOf(ChatTurn("user", "Hello")), emptyList(), {}) {}
+        chat().stream(azure, model(), listOf(ChatTurn("user", "Hello")), emptyList(), {}) {}
+
+        assertThat(bodies).hasSize(4)
+        assertThat(bodies[0]).contains(""""reasoning_effort":"high"""")
+        assertThat(bodies[1]).doesNotContain("reasoning_effort")
+        assertThat(bodies[2]).contains(""""reasoning_effort":"high"""").contains("\"stream\":true")
+        assertThat(bodies[3]).doesNotContain("reasoning_effort")
+    }
+
     @Test
     fun `an answer to a call names the call it answers`() {
         val turns = listOf(
@@ -327,6 +351,16 @@ class OpenAiChatTest {
         type = ProviderType.OPENAI,
         endpoint = "http://${server.address.hostString}:${server.address.port}",
         secret = "sk-test",
+    )
+
+    private fun azureProvider() = ModelProvider(
+        workspaceId = 1,
+        name = "Azure",
+        type = ProviderType.AZURE_OPENAI,
+        endpoint = "http://${server.address.hostString}:${server.address.port}",
+        apiVersion = "2024-10-21",
+        deploymentName = "o4-mini",
+        secret = "azure-test",
     )
 
     private fun model() = LlmModel(providerId = 1, name = "Model", modelId = "gpt-4o", kind = ModelKind.CHAT)

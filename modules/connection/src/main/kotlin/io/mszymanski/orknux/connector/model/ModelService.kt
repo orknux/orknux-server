@@ -277,6 +277,12 @@ class ModelService(
                 contextWindow = input.contextWindow,
                 maxOutput = input.maxOutput,
                 parallelToolCalls = input.parallelToolCalls,
+                reasoningEffort = ChatParameters.held(
+                    provider.type,
+                    input.kind ?: ModelKind.CHAT,
+                    ChatParameters.REASONING_EFFORT,
+                    input.reasoningEffort,
+                ),
                 temperature = sampled(input.temperature, "temperature", 0.0, 2.0),
                 topP = sampled(input.topP, "top-p", 0.0, 1.0),
                 topK = input.topK?.also { require(it in 0..1000) { "Top-k has to be between 0 and 1000." } },
@@ -335,6 +341,14 @@ class ModelService(
         model.contextWindow = input.contextWindow
         model.maxOutput = input.maxOutput
         model.parallelToolCalls = input.parallelToolCalls
+        // Held to the provider it is arriving at: a move to one that does not
+        // take it is refused rather than carried silently.
+        model.reasoningEffort = ChatParameters.held(
+            provider.type,
+            model.kind,
+            ChatParameters.REASONING_EFFORT,
+            input.reasoningEffort,
+        )
         model.temperature = sampled(input.temperature, "temperature", 0.0, 2.0)
         model.topP = sampled(input.topP, "top-p", 0.0, 1.0)
         model.topK = input.topK?.also { require(it in 0..1000) { "Top-k has to be between 0 and 1000." } }
@@ -749,6 +763,8 @@ data class CreateModelInput(
     val maxOutput: Int? = null,
     /** Null lets the provider decide; false is one tool call per reply. Issue #530. */
     val parallelToolCalls: Boolean? = null,
+    /** How hard a reasoning model thinks; null sends nothing. Only where [ChatParameters] declares it. */
+    val reasoningEffort: String? = null,
     /** How the model picks its words; null sends nothing. Issue #533. */
     val temperature: Double? = null,
     val topP: Double? = null,
@@ -777,6 +793,8 @@ data class UpdateModelInput(
     val maxOutput: Int? = null,
     /** Null lets the provider decide; false is one tool call per reply. Issue #530. */
     val parallelToolCalls: Boolean? = null,
+    /** How hard a reasoning model thinks; null sends nothing. Only where [ChatParameters] declares it. */
+    val reasoningEffort: String? = null,
     /** How the model picks its words; null sends nothing. Issue #533. */
     val temperature: Double? = null,
     val topP: Double? = null,
@@ -902,6 +920,8 @@ data class LlmModelView(
     val contextWindow: Int?,
     val maxOutput: Int?,
     val parallelToolCalls: Boolean?,
+    /** How hard a reasoning model thinks; null sends nothing. */
+    val reasoningEffort: String?,
     val temperature: Double?,
     val topP: Double?,
     val topK: Int?,
@@ -936,6 +956,7 @@ data class LlmModelView(
         contextWindow = model.contextWindow,
         maxOutput = model.maxOutput,
         parallelToolCalls = model.parallelToolCalls,
+        reasoningEffort = model.reasoningEffort,
         temperature = model.temperature,
         topP = model.topP,
         topK = model.topK,

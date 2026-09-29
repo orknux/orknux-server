@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.model
 
+import io.mszymanski.orknux.connector.model.ChatParameterSpec
+import io.mszymanski.orknux.connector.model.ChatParameters
 import io.mszymanski.orknux.connector.model.CreateModelInput
 import io.mszymanski.orknux.connector.model.CreateProviderInput
 import io.mszymanski.orknux.connector.model.DiscoveredModelView
@@ -9,6 +11,7 @@ import io.mszymanski.orknux.connector.model.ModelQuotasInput
 import io.mszymanski.orknux.connector.model.ModelService
 import io.mszymanski.orknux.connector.model.ModelThrottleInput
 import io.mszymanski.orknux.connector.model.ModelUsageView
+import io.mszymanski.orknux.connector.model.ProviderType
 import io.mszymanski.orknux.connector.model.ResetInterval
 import io.mszymanski.orknux.connector.model.UpdateModelInput
 import io.mszymanski.orknux.connector.model.UpdateProviderInput
@@ -71,6 +74,15 @@ class ModelAPI(
             ?: throw ModelProviderNotFoundException(providerId)
         return models.discoverModels(providerId)
     }
+
+    /**
+     * What a chat model on this provider type takes beyond the shared settings.
+     * A fact about the type rather than about anything in a workspace, so there
+     * is nothing to authorise beyond being signed in.
+     */
+    @QueryMapping
+    fun chatModelParameters(@Argument providerType: ProviderType): List<ChatParameterSpec> =
+        ChatParameters.forProvider(providerType)
 
     /**
      * What a model was used for, over the last `days` or over a range.
@@ -234,7 +246,12 @@ class ModelAPI(
                 "Model ${updated.name} moved to provider ${updated.providerName}",
             )
         }
-        if (!renamed && !moved) {
+        val rethought = model.reasoningEffort != updated.reasoningEffort
+        if (rethought) {
+            val what = updated.reasoningEffort?.let { "set to $it" } ?: "cleared"
+            auditRecorder.record(model.workspaceId, WorkspaceAuditCategory.MODEL, "Model ${updated.name} reasoning effort $what")
+        }
+        if (!renamed && !moved && !rethought) {
             auditRecorder.record(model.workspaceId, WorkspaceAuditCategory.MODEL, "Model ${updated.name} updated")
         }
         return updated

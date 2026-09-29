@@ -8,6 +8,8 @@ import io.mszymanski.orknux.connector.model.ModelIdInvalidException
 import io.mszymanski.orknux.connector.model.ModelKindNotOfferedException
 import io.mszymanski.orknux.connector.model.ModelNameInvalidException
 import io.mszymanski.orknux.connector.model.ModelNameTakenException
+import io.mszymanski.orknux.connector.model.ModelParameterNotTakenException
+import io.mszymanski.orknux.connector.model.ModelParameterValueInvalidException
 import io.mszymanski.orknux.connector.model.ModelProviderEndpointInvalidException
 import io.mszymanski.orknux.connector.model.ModelProviderInAnotherWorkspaceException
 import io.mszymanski.orknux.connector.model.ModelProviderNameInvalidException
@@ -35,6 +37,8 @@ class ModelExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ModelIdInvalidException,
             is ModelProviderInAnotherWorkspaceException,
             is ModelKindNotOfferedException,
+            is ModelParameterNotTakenException,
+            is ModelParameterValueInvalidException,
             -> ErrorType.BAD_REQUEST
 
             // The provider would not answer. Nothing the caller sent is wrong,

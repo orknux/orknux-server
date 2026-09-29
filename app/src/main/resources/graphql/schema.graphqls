@@ -372,6 +372,13 @@ type Query {
     the node to the same list. Authorised like reading the model.
     """
     imageModelParameters(modelId: ID!): [ImageParameterSpec!]!
+    """
+    What a chat model on this provider type takes beyond the settings every
+    provider shares - Azure OpenAI's reasoning effort - and the words each may
+    be. A type that takes none answers an empty list, and the model page draws
+    nothing; a save refuses a setting the type does not take.
+    """
+    chatModelParameters(providerType: ProviderType!): [ChatParameterSpec!]!
     "Workflows assigned to a workspace, by name unless another order is asked for."
     workspaceWorkflows(
         workspaceId: ID!,
@@ -5265,6 +5272,8 @@ type Model {
     calls in one reply until its output limit. Issue #530.
     """
     parallelToolCalls: Boolean
+    "How hard a reasoning model thinks: minimal, low, medium or high. Null sends nothing. Only where chatModelParameters lists it."
+    reasoningEffort: String
     """
     How the model picks its words; each null sends nothing and leaves the
     server's own default. Top-k, min-p and the repeat penalty are for servers
@@ -5437,6 +5446,8 @@ input CreateModelInput {
     maxOutput: Int
     "Null lets the provider decide; false is one tool call per reply. Issue #530."
     parallelToolCalls: Boolean
+    "How hard a reasoning model thinks; null sends nothing. Refused where chatModelParameters does not list it."
+    reasoningEffort: String
     "How the model picks its words; null sends nothing. Issue #533."
     temperature: Float
     topP: Float
@@ -5464,6 +5475,8 @@ input UpdateModelInput {
     maxOutput: Int
     "Null lets the provider decide; false is one tool call per reply. Issue #530."
     parallelToolCalls: Boolean
+    "How hard a reasoning model thinks; null sends nothing. Refused where chatModelParameters does not list it."
+    reasoningEffort: String
     "How the model picks its words; null sends nothing. Issue #533."
     temperature: Float
     topP: Float
@@ -8394,6 +8407,17 @@ type IssueType {
     name: String!
     "How many issues here carry it. What the settings page shows, and what deleting it is refused with."
     issues: Int!
+}
+
+"""
+One setting a chat model takes that not every provider does, and the words it
+may be set to. Unset is always allowed and sends nothing.
+"""
+type ChatParameterSpec {
+    "The model's field it is saved under, e.g. reasoningEffort."
+    name: String!
+    "What it may be, as the endpoint spells it."
+    choices: [String!]!
 }
 
 "How an image parameter is asked for: one word off a list, or a width and a height."

@@ -399,6 +399,7 @@ fun LlmModel.copied(providerId: Long, name: String): LlmModel = LlmModel(
         contextWindow = contextWindow,
         maxOutput = maxOutput,
         parallelToolCalls = parallelToolCalls,
+        reasoningEffort = reasoningEffort,
         temperature = temperature,
         topP = topP,
         topK = topK,
@@ -494,6 +495,16 @@ class LlmModel(
      */
     @Column(name = "parallel_tool_calls")
     var parallelToolCalls: Boolean? = null,
+
+    /**
+     * How hard a reasoning model thinks before it answers: `minimal`, `low`,
+     * `medium` or `high`, sent as `reasoning_effort`. Null sends nothing and the
+     * deployment's default applies. Only a provider type that declares it in
+     * [ChatParameters] may hold one - Azure OpenAI - and the save refuses it
+     * anywhere else.
+     */
+    @Column(name = "reasoning_effort", length = 16)
+    var reasoningEffort: String? = null,
 
     /*
      * How the model picks its words. Issue #533.
