@@ -21,6 +21,7 @@ have failed.
 
 - A task's page lists the scratchpads it wrote into, opens one read-only, and keeps up as the task writes more; changing one is a link away, on its session.
 - A decision model node for workflows: it asks Jev, TypeSafe's hosted decision model, or a Laya running on your own hardware typed questions - a choice, a score, a yes or no - about what the run carries, hands on the answers with their probabilities, and can send the run down one line per option, with its own line for an answer under the node's threshold. Both are added under Models as a Decision model provider, whose key is optional because a self-hosted Laya may need none.
+- The manual shows drawing: a picture drawn in a chat, a task that drew two, and an image node with the run where it drew, on pages photographed from a demonstration that really draws - the screenshot installation now runs a stand-in drawing model for it.
 
 ## 0.9.9.3
 

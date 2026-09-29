@@ -84,6 +84,11 @@
 .PARAMETER UiPort
     Where the interface is served, inside the container and out - they have to be
     the same number, because it is the origin the server is told to allow.
+
+.PARAMETER DrawPort
+    Where the stand-in drawing model listens, as the server on this machine
+    reaches it. See screens-draw.mjs: the manual's chapters about drawing are
+    photographed off pictures the product really drew, with this as its model.
 #>
 #Requires -Version 5.1
 [CmdletBinding()]
@@ -99,7 +104,8 @@ param(
     # it, and what that cost was a Maven build followed by a JVM refusing to bind
     # into a log file nobody was reading.
     [int] $ServerPort = 8181,
-    [int] $UiPort = 5199
+    [int] $UiPort = 5199,
+    [int] $DrawPort = 8299
 )
 
 $ErrorActionPreference = 'Stop'
@@ -112,6 +118,7 @@ $compose = Join-Path $PSScriptRoot 'screens-compose.yaml'
 # same two. Nothing may invent a third number.
 $env:ORKNUX_SCREENS_SERVER_PORT = "$ServerPort"
 $env:ORKNUX_SCREENS_UI_PORT = "$UiPort"
+$env:ORKNUX_SCREENS_DRAW_PORT = "$DrawPort"
 $UI_ORIGIN = "http://localhost:$UiPort"
 
 function Step($message) {
@@ -174,6 +181,7 @@ if ($version -ne $uiVersion) {
 }
 Assert-PortFree -Port $ServerPort -What 'the server' -Parameter '-ServerPort'
 Assert-PortFree -Port $UiPort -What 'the interface' -Parameter '-UiPort'
+Assert-PortFree -Port $DrawPort -What 'the drawing model' -Parameter '-DrawPort'
 
 Step "Photographing $version."
 
@@ -183,7 +191,7 @@ Step "Photographing $version."
 # every start and the interface container installs its dependencies and a
 # browser; that is a few minutes which may as well be the same few minutes Maven
 # is using. Waited for further down.
-Step 'Starting the directory, Temporal and the interface.'
+Step 'Starting the directory, Temporal, the drawing model and the interface.'
 Invoke-Checked 'docker compose up' { docker compose -f $compose up -d }
 
 # ------------------------------------------------------------------------ the jar
@@ -244,6 +252,7 @@ try {
     Invoke-Checked 'The seed' {
         docker compose -f $compose exec -T `
             -e "ORKNUX_DEMO_ENDPOINT=$Endpoint" -e "ORKNUX_DEMO_MODEL=$Model" `
+            -e "ORKNUX_DEMO_IMAGE_ENDPOINT=http://localhost:$DrawPort" `
             ui node scripts/seed-demo.mjs
     }
 

@@ -92,6 +92,31 @@ services:
       timeout: 5s
       retries: 30
 
+  # What the installation draws with.
+  #
+  # The manual describes drawing - in a chat, in a task, as an image node - and
+  # the installation has no image model: a real one is the network, and a
+  # documentation run must not depend on it. So this answers OpenAI's image API
+  # with a landscape painted from the words asked for, and the product reaches it
+  # down its own paths and files what comes back as it would any picture. It
+  # also answers as the scripted chat model of the one agent that asks for
+  # pictures, because the local model would not. The seed points both models at
+  # it; see screens-draw.mjs. Issue #576.
+  #
+  # Published, because the server that calls it is the jar on the host.
+  draw:
+    image: node:22-bookworm-slim
+    command: [ "node", "/scripts/screens-draw.mjs", "${ORKNUX_SCREENS_DRAW_PORT:-8299}" ]
+    ports:
+      - "${ORKNUX_SCREENS_DRAW_PORT:-8299}:${ORKNUX_SCREENS_DRAW_PORT:-8299}"
+    volumes:
+      - ./screens-draw.mjs:/scripts/screens-draw.mjs:ro
+    healthcheck:
+      test: [ "CMD", "node", "-e", "fetch('http://localhost:${ORKNUX_SCREENS_DRAW_PORT:-8299}/models').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))" ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   # The interface, the seed and the camera - one container, because there is no
   # Node on this machine and because a browser reaching the dev server by any
   # name but the one vite is listening on is refused by `server.allowedHosts`,
