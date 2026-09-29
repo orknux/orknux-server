@@ -67,6 +67,13 @@ class DecisionNodeTest(
     @Volatile
     private var answer: String = choice("billing", 0.94)
 
+    /** What the stub's chat model says, for a node running on one; each test sets its own. */
+    @Volatile
+    private var chatReply: String = ""
+
+    /** Every chat request the stub was sent. */
+    private val chatted = CopyOnWriteArrayList<String>()
+
     /** Whether the stub is Jev (lists models) or Laya (answers only /health). */
     @Volatile
     private var laya = false
@@ -102,6 +109,18 @@ class DecisionNodeTest(
             } else {
                 reply(exchange, 200, """{"data":[{"id":"jev-1.13.0"},{"id":"jev-latest"}]}""")
             }
+        }
+        chatted.clear()
+        server.createContext("/chat/completions") { exchange ->
+            chatted += exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
+            val content = chatReply.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+            reply(
+                exchange,
+                200,
+                """{"id":"c1","object":"chat.completion","created":1,"model":"stub",
+                   "choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"$content"}}],
+                   "usage":{"prompt_tokens":20,"completion_tokens":9,"total_tokens":29}}""",
+            )
         }
         server.createContext("/health") { exchange ->
             reply(exchange, 200, """{"status":"ok","loaded":["laya-base","laya-multilingual"],"device":"cpu"}""")
@@ -321,7 +340,103 @@ class DecisionNodeTest(
         assertThat(run.error("decide")).contains("refused the questions (422)").contains("at least 2 options")
     }
 
+    /* ------------------------------------------------------------ on a chat model */
+
+    @Test
+    fun `a node may ask a chat model, and not a model that can answer neither way`() {
+        val workflowId = workflow()
+        saveBranching(workflowId, chatModel(), threshold = 0.7).path("saveWorkflowGraph.problems").hasValue()
+
+        graphQlTester.document(
+            """mutation { saveWorkflowGraph(workspaceId: $workspaceId, workflowId: $workflowId, input: {
+                 nodes: [${decisionNode(chatModel(kind = "IMAGE", name = "Drawer"), 0.5)}], edges: []
+               }) { nodes { key } } }""",
+        ).execute().errors().satisfy { errors ->
+            assertThat(errors.first().extensions["code"]).isEqualTo("DecisionModelNotInWorkspace")
+        }
+    }
+
+    @Test
+    fun `a chat model's probabilities are normalised, and a sure option leaves by its line`() {
+        val workflowId = workflow()
+        saveBranching(workflowId, chatModel(), threshold = 0.7)
+        chatReply = """```json
+            {"department": {"probabilities": {"billing": 6, "returns": 2}}, "urgent": {"noul": 0.9}}
+            ```""".trimIndent()
+
+        val run = run(workflowId)
+
+        assertThat(run.branch("decide")).isEqualTo("OPTION" to "billing")
+        assertThat(run.status("billing")).isEqualTo("COMPLETED")
+        assertThat(run.status("returns")).isEqualTo("SKIPPED")
+        assertThat(run.status("unsure")).isEqualTo("SKIPPED")
+        // The same shape a decision model answers in: the chosen option, its
+        // probability as the confidence, and the distribution summing to one.
+        val department = JsonMapper.builder().build().readTree(run.output("decide")).path("verdict").path("department")
+        assertThat(department.path("choice").stringValue()).isEqualTo("billing")
+        assertThat(department.path("confidence").asDouble()).isEqualTo(0.75)
+        assertThat(department.path("probabilities").path("returns").asDouble()).isEqualTo(0.25)
+        assertThat(department.path("sure").asBoolean()).isTrue()
+        // The questions went to the model with their keys, options and state.
+        assertThat(chatted.single()).contains("department").contains("billing").contains("I was charged twice for one order")
+        assertThat(sent).isEmpty()
+    }
+
+    @Test
+    fun `a chat model's answer under the threshold leaves by the unsure line`() {
+        val workflowId = workflow()
+        saveBranching(workflowId, chatModel(), threshold = 0.8)
+        chatReply = """{"department": {"probabilities": {"billing": 0.55, "returns": 0.45}}, "urgent": {"noul": 0.2}}"""
+
+        val run = run(workflowId)
+
+        assertThat(run.branch("decide")).isEqualTo("UNSURE" to null)
+        assertThat(run.status("unsure")).isEqualTo("COMPLETED")
+        assertThat(run.status("billing")).isEqualTo("SKIPPED")
+    }
+
+    @Test
+    fun `an option the chat model was not offered is an unanswered question, said in the run`() {
+        val workflowId = workflow()
+        saveBranching(workflowId, chatModel(), threshold = 0.5)
+        chatReply = """{"department": {"probabilities": {"shipping": 1}}, "urgent": {"noul": 0.9}}"""
+
+        val run = run(workflowId)
+
+        assertThat(run.status("decide")).isEqualTo("COMPLETED")
+        assertThat(run.branch("decide")).isEqualTo("UNSURE" to null)
+        assertThat(run.status("unsure")).isEqualTo("COMPLETED")
+        assertThat(run.logs).anyMatch { it.contains("\"shipping\", which it was not offered") }
+        assertThat(run.logs).anyMatch { it.contains("left unanswered") }
+    }
+
+    @Test
+    fun `a chat model that answers prose fails the step unsettled`() {
+        val workflowId = workflow()
+        saveBranching(workflowId, chatModel(), threshold = null)
+        chatReply = "I think this one is for billing."
+
+        val run = run(workflowId)
+
+        assertThat(run.status("decide")).isEqualTo("FAILED")
+        assertThat(run.error("decide")).contains("was asked for a JSON object")
+    }
+
     /* ------------------------------------------------------------ the fixture */
+
+    /** An OpenAI-shaped provider in front of the stub, and a model of this kind on it. */
+    private fun chatModel(kind: String = "CHAT", name: String = "Chatty"): Long {
+        val endpoint = "http://${server.address.hostString}:${server.address.port}"
+        val providerId = graphQlTester.document(
+            """mutation { createModelProvider(input: {
+                 workspaceId: $workspaceId, name: "$name provider", endpoint: "$endpoint", type: OPENAI, secret: "sk-test"
+               }) { id } }""",
+        ).execute().path("createModelProvider.id").entity(Long::class.java).get()
+        return graphQlTester.document(
+            """mutation { createModel(input: { providerId: $providerId, name: "$name", modelId: "gpt-stub", kind: $kind }) { id } }""",
+        ).execute().path("createModel.id").entity(Long::class.java).get()
+    }
+
 
     private fun reply(exchange: HttpExchange, status: Int, body: String) {
         val bytes = body.toByteArray(StandardCharsets.UTF_8)
@@ -401,10 +516,12 @@ class DecisionNodeTest(
         val steps = graphQlTester.document(
             """query { execution(id: $id) { steps { key status branch branchOption output error } } }""",
         ).execute().path("execution.steps").entityList(Map::class.java).get()
-        return Ran(steps.associateBy { it["key"] as String })
+        val logs = graphQlTester.document("""query { execution(id: $id) { logs { message } } }""")
+            .execute().path("execution.logs[*].message").entityList(String::class.java).get()
+        return Ran(steps.associateBy { it["key"] as String }, logs)
     }
 
-    private class Ran(val steps: Map<String, Map<*, *>>) {
+    private class Ran(val steps: Map<String, Map<*, *>>, val logs: List<String>) {
         fun status(key: String) = steps.getValue(key)["status"]
         fun branch(key: String) = steps.getValue(key)["branch"] to steps.getValue(key)["branchOption"]
         fun output(key: String) = steps.getValue(key)["output"] as String

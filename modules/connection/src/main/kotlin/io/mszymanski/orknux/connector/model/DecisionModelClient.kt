@@ -65,6 +65,12 @@ sealed interface Decision {
         val inputTokens: Long,
         val outputTokens: Long,
         val millis: Long,
+        /**
+         * What could not be read out of the answer, one sentence per question
+         * left unanswered - an option the model was not offered, a probability
+         * it did not give. Only a chat model produces any; see [ChatDecisions].
+         */
+        val notes: List<String> = emptyList(),
     ) : Decision
 
     /**
@@ -111,6 +117,8 @@ class DecisionModelClient(
     private val properties: ConnectionProperties,
     private val usage: ModelUsageRecorder,
     private val mapper: ObjectMapper,
+    /** The same questions asked of a chat model, for a node that runs on one. */
+    private val chats: ChatDecisions,
     proxies: ProxyRouter,
 ) {
 
@@ -125,18 +133,21 @@ class DecisionModelClient(
         .build()
 
     /**
-     * @param modelId one of the workspace's [ModelKind.DECISION] models.
+     * @param modelId one of the workspace's [ModelKind.DECISION] models, or a
+     *   [ModelKind.CHAT] one, which is asked the same questions in words and
+     *   answers in the same shape - see [ChatDecisions].
      * @param state what the questions are about: text, or an object whose
      *   fields the model reads. Anything else is sent as its text.
      */
     fun decide(modelId: Long, state: JsonNode, questions: List<DecisionQuestion>): Decision {
         val model = models.findByIdOrNull(modelId)
             ?: return Decision.Failed("That decision model no longer exists", permanent = true)
-        if (model.kind != ModelKind.DECISION) {
-            return Decision.Failed("${model.name} is not a decision model", permanent = true)
+        if (model.kind != ModelKind.DECISION && model.kind != ModelKind.CHAT) {
+            return Decision.Failed("${model.name} is neither a decision model nor a chat model", permanent = true)
         }
         if (!model.enabled) return Decision.Failed("${model.name} is turned off", permanent = true)
         if (questions.isEmpty()) return Decision.Failed("There is nothing to ask", permanent = true)
+        if (model.kind == ModelKind.CHAT) return chats.decide(model, state, questions)
 
         val provider = providers.findByIdOrNull(model.providerId)
             ?: return Decision.Failed("The provider ${model.name} belongs to has been removed", permanent = true)

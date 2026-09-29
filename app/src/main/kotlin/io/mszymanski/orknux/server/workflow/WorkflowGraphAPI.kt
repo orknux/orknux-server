@@ -839,15 +839,17 @@ class WorkflowGraphAPI(
     }
 
     /**
-     * A decision node asks one of the workspace's decision models, and only its
-     * own workspace's: the model's provider holds the key it is asked with.
-     * Refused as not being in the workspace whether it is another's or not a
-     * decision model at all - both are a model this node cannot ask. Issue #577.
+     * A decision node asks one of the workspace's decision models or chat
+     * models, and only its own workspace's: the model's provider holds the key
+     * it is asked with. Refused whether it is another's or a kind that can
+     * answer neither way - an image or a speech model - since both are a model
+     * this node cannot ask. Issue #577.
      */
     private fun requireDecisionModelBelongsToWorkspace(workspaceId: Long, node: WorkflowNodeInput) {
         val modelId = node.decisionModelId ?: return
         if (node.kind != NodeKind.DECISION) return
-        val model = models.findByIdOrNull(modelId)?.takeIf { it.kind == ModelKind.DECISION }
+        val model = models.findByIdOrNull(modelId)
+            ?.takeIf { it.kind == ModelKind.DECISION || it.kind == ModelKind.CHAT }
             ?: throw DecisionModelNotInWorkspaceException(modelId)
         val provider = providers.findByIdOrNull(model.providerId)
         if (provider?.workspaceId != workspaceId) throw DecisionModelNotInWorkspaceException(modelId)
@@ -1308,7 +1310,7 @@ class DecisionOptionTooLongException(val option: String, val limit: Int) :
 }
 
 class DecisionModelNotInWorkspaceException(val id: Long) :
-    RuntimeException("Decision model $id is not one of this workspace's decision models"), Refusal {
+    RuntimeException("Model $id is not one of this workspace's decision or chat models, so a decision node cannot ask it"), Refusal {
     override val arguments get() = mapOf("id" to id)
 }
 

@@ -2480,7 +2480,7 @@ type WorkflowNode {
     imageQuality: String
     "The style an IMAGE node asks for, in the word its model's endpoint takes; null is the model's default."
     imageStyle: String
-    "The decision model a DECISION node asks; null on every other kind."
+    "The model a DECISION node asks, a DECISION model or a CHAT one; null on every other kind."
     decisionModelId: ID
     "What a DECISION node asks, in order; empty on every other kind."
     decisionQuestions: [DecisionQuestion!]!
@@ -2842,7 +2842,7 @@ input WorkflowNodeInput {
     imageQuality: String
     "The style an IMAGE node asks for; held at save to the node's model's choices, and refused on a model that takes none. Null is the model's default. Ignored on any other kind."
     imageStyle: String
-    "The decision model a DECISION node asks; one of this workspace's DECISION models. Ignored on any other kind."
+    "The model a DECISION node asks: one of this workspace's DECISION models, or a CHAT model, which answers in the same shape. Ignored on any other kind."
     decisionModelId: ID
     "What a DECISION node asks, in order. Ignored on any other kind."
     decisionQuestions: [DecisionQuestionInput!]

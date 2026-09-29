@@ -6,6 +6,8 @@ import io.mszymanski.orknux.connector.model.DecisionQuestionKind
 import io.mszymanski.orknux.workflow.execution.EdgeBranch
 import io.mszymanski.orknux.workflow.execution.ExecutionStep
 import io.mszymanski.orknux.workflow.execution.KIND_RUNNER_ORDER
+import io.mszymanski.orknux.workflow.execution.LogLevel
+import io.mszymanski.orknux.workflow.execution.RunLogger
 import io.mszymanski.orknux.workflow.execution.NodeKind
 import io.mszymanski.orknux.workflow.execution.NodeRunner
 import io.mszymanski.orknux.workflow.execution.StepFailedException
@@ -19,8 +21,8 @@ import tools.jackson.databind.node.ObjectNode
 import kotlin.math.max
 
 /**
- * Runs a decision node: asks a decision model its questions about the run, and
- * says which way the answer goes.
+ * Runs a decision node: asks a decision model - or a chat model, in the same
+ * shape - its questions about the run, and says which way the answer goes.
  *
  * The state is the node's `state` parameter - wording of its own, or a field
  * the run carries, which may be a whole object - and where it is left empty,
@@ -46,6 +48,8 @@ class DecisionNodeRunner(
     private val client: DecisionModelClient,
     private val expressions: NodeExpressions,
     private val mapper: ObjectMapper,
+    /** For what a chat model's answer could not be read for, so the run says why a question is unanswered. */
+    private val runLog: RunLogger,
 ) : NodeRunner {
 
     override fun supports(kind: NodeKind): Boolean = kind == NodeKind.DECISION
@@ -65,7 +69,15 @@ class DecisionNodeRunner(
                 "${step.name} could not decide: ${decided.reason}",
                 permanent = decided.permanent,
             )
-            is Decision.Answered -> decided.answers
+            is Decision.Answered -> {
+                // Each question the answer could not be read for is left
+                // unanswered - which a branching question reads as unsure -
+                // and said here, so the run shows why.
+                decided.notes.forEach { note ->
+                    runLog.write(step.executionId, step.nodeKey, LogLevel.INFO, "${step.name}: $note")
+                }
+                decided.answers
+            }
         }
 
         spec.questions.forEach { question ->
