@@ -21,13 +21,14 @@ have failed.
 
 - Each `orknux_*` tool can be switched off on its own while an agent has Orknux access, so an agent can read runs without being able to start one. A hidden one is neither offered nor run, in chats, workflows and tasks; turning the grant off still takes them all.
 
-- An Azure OpenAI chat model's page offers a Reasoning effort - default, minimal, low, medium or high - sent as `reasoning_effort` to its o-series or GPT-5 deployment; default sends nothing, and a provider type that takes none shows nothing and refuses one.
+- An Azure OpenAI chat model's page offers a Reasoning effort - default, minimal, low, medium or high - sent as `reasoning_effort` to its o-series or GPT-5 deployment; default sends nothing.
 - A task's page lists the scratchpads it wrote into, opens one read-only, and keeps up as the task writes more; changing one is a link away, on its session.
 - A Decision node for workflows: it asks typed questions - a choice, a score, a yes or no - about what the run carries, hands on the answers with their probabilities, and can send the run down one line per option of a choice, or down Yes or No on a yes-or-no question, with an Unsure line for an answer under the node's threshold. It runs on a decision model - Jev, TypeSafe's hosted one, or a Laya on your own hardware, added under Models as a Decision model provider whose key is optional - or on any chat model, which answers in the same shape with its own estimate of the probabilities.
 - The manual shows drawing: pictures drawn in a chat and opened in the viewer, a task that drew two, one that laid its pictures out as a saved PDF, an image node and an agent that drew in a run, and the Artifacts page holding them all - photographed from a demonstration that really draws, as the screenshot installation now runs a stand-in drawing model.
 
 ### 🔧 Changed
 
+- A chat model's page shows only the sampling settings its provider reads: Azure OpenAI and OpenAI's own API temperature and top-p, Ollama the same, Anthropic those and top-k, and a llama.cpp-style server under the OpenAI type all five. A setting the provider does not read is refused on save and no longer sent; a value already stored stays in the database until the model is next saved from its page, which clears it; an API client sending one is now refused rather than ignored.
 - `finish_answer` is marked Always on every agent while the workspace keeps its built-ins fixed, and stays so whatever a save sends; only the unsafe built-in switch lets an agent hold it at Offer. Existing agents are marked on upgrade. An agent under a tool limit held it at Offer, so the one tool that brings it back was not in front of it.
 
 - Where an agent node may wait, `finish_answer` requires `wake_after_ms`: `-1` finishes for good, a number waits. Left out, the model is asked to choose and its turn goes on; an agent had promised build checks every 10 minutes and ended with the wake-up simply left out.

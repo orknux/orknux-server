@@ -11,7 +11,6 @@ import io.mszymanski.orknux.connector.model.ModelQuotasInput
 import io.mszymanski.orknux.connector.model.ModelService
 import io.mszymanski.orknux.connector.model.ModelThrottleInput
 import io.mszymanski.orknux.connector.model.ModelUsageView
-import io.mszymanski.orknux.connector.model.ProviderType
 import io.mszymanski.orknux.connector.model.ResetInterval
 import io.mszymanski.orknux.connector.model.UpdateModelInput
 import io.mszymanski.orknux.connector.model.UpdateProviderInput
@@ -76,13 +75,18 @@ class ModelAPI(
     }
 
     /**
-     * What a chat model on this provider type takes beyond the shared settings.
-     * A fact about the type rather than about anything in a workspace, so there
-     * is nothing to authorise beyond being signed in.
+     * The sampling and reasoning settings a chat model on this provider takes.
+     * By provider rather than by type, because an OPENAI provider on OpenAI's
+     * own host takes less than a llama.cpp server registered under the same
+     * type. Another workspace's provider is one that does not exist, as in
+     * [discoveredModels].
      */
     @QueryMapping
-    fun chatModelParameters(@Argument providerType: ProviderType): List<ChatParameterSpec> =
-        ChatParameters.forProvider(providerType)
+    fun chatModelParameters(@Argument providerId: Long): List<ChatParameterSpec> {
+        val provider = models.provider(providerId)?.takeIf { access.canSee(it.workspaceId) }
+            ?: throw ModelProviderNotFoundException(providerId)
+        return ChatParameters.forProvider(provider.type, provider.endpoint)
+    }
 
     /**
      * What a model was used for, over the last `days` or over a range.

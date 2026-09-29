@@ -1010,9 +1010,9 @@ class ModelChatClient(
 
         val body = try {
             if (anthropic) {
-                anthropicBody(model, turns, streaming, tools)
+                anthropicBody(provider, model, turns, streaming, tools)
             } else {
-                openAiBody(model, turns, streaming, tools)
+                openAiBody(provider, model, turns, streaming, tools)
             }
         } catch (refused: UnusableImage) {
             // A picture that cannot be carried is said out loud. Dropping it and
@@ -1062,6 +1062,7 @@ class ModelChatClient(
     }
 
     private fun openAiBody(
+        provider: ModelProvider,
         model: LlmModel,
         turns: List<ChatTurn>,
         streaming: Boolean,
@@ -1088,12 +1089,13 @@ class ModelChatClient(
             root.putObject("stream_options").put("include_usage", true)
         }
         model.maxOutput?.let { root.put("max_tokens", it) }
-        // Each only when set: null leaves the server's own default. Issue #533.
-        model.temperature?.let { root.put("temperature", it) }
-        model.topP?.let { root.put("top_p", it) }
-        model.topK?.let { root.put("top_k", it) }
-        model.minP?.let { root.put("min_p", it) }
-        model.repeatPenalty?.let { root.put("repeat_penalty", it) }
+        // Each only when set - null leaves the server's own default, issue #533 - and only where the provider takes it.
+        fun takes(parameter: String) = ChatParameters.takes(provider, parameter)
+        model.temperature?.takeIf { takes(ChatParameters.TEMPERATURE) }?.let { root.put("temperature", it) }
+        model.topP?.takeIf { takes(ChatParameters.TOP_P) }?.let { root.put("top_p", it) }
+        model.topK?.takeIf { takes(ChatParameters.TOP_K) }?.let { root.put("top_k", it) }
+        model.minP?.takeIf { takes(ChatParameters.MIN_P) }?.let { root.put("min_p", it) }
+        model.repeatPenalty?.takeIf { takes(ChatParameters.REPEAT_PENALTY) }?.let { root.put("repeat_penalty", it) }
         val messages = root.putArray("messages")
         turns.forEach { turn ->
             val message = messages.addObject()
@@ -1209,6 +1211,7 @@ class ModelChatClient(
      * sentence that was never spoken.
      */
     private fun anthropicBody(
+        provider: ModelProvider,
         model: LlmModel,
         turns: List<ChatTurn>,
         streaming: Boolean,
@@ -1217,10 +1220,11 @@ class ModelChatClient(
         val root = mapper.createObjectNode()
         root.put("model", model.modelId)
         root.put("max_tokens", model.maxOutput ?: DEFAULT_MAX_TOKENS)
-        // What Anthropic takes of them: it has no min-p and no repeat penalty. Issue #533.
-        model.temperature?.let { root.put("temperature", it.coerceAtMost(1.0)) }
-        model.topP?.let { root.put("top_p", it) }
-        model.topK?.let { root.put("top_k", it) }
+        // What Anthropic takes of them - no min-p, no repeat penalty, issue #533 - as ChatParameters declares.
+        fun takes(parameter: String) = ChatParameters.takes(provider, parameter)
+        model.temperature?.takeIf { takes(ChatParameters.TEMPERATURE) }?.let { root.put("temperature", it.coerceAtMost(1.0)) }
+        model.topP?.takeIf { takes(ChatParameters.TOP_P) }?.let { root.put("top_p", it) }
+        model.topK?.takeIf { takes(ChatParameters.TOP_K) }?.let { root.put("top_k", it) }
         if (streaming) root.put("stream", true)
 
         val system = turns.filter { it.role == "system" }.joinToString("\n\n") { it.content }

@@ -71,7 +71,7 @@ class OpenAiChat(
             is Ready.Yes -> ready.client
         }
 
-        val params = params(model, turns, tools).build()
+        val params = params(provider, model, turns, tools).build()
         val answer = try {
             clients.again {
                 val asked = client.async().chat().completions().create(params)
@@ -199,7 +199,7 @@ class OpenAiChat(
             }
         }
 
-        val params = params(model, turns, tools)
+        val params = params(provider, model, turns, tools)
             .streamOptions(ChatCompletionStreamOptions.builder().includeUsage(true).build())
             .build()
 
@@ -344,6 +344,7 @@ class OpenAiChat(
         }
 
     private fun params(
+        provider: ModelProvider,
         model: LlmModel,
         turns: List<ChatTurn>,
         tools: List<ToolSpec>,
@@ -354,14 +355,26 @@ class OpenAiChat(
         tools.forEach { tool -> builder.addTool(declared(tool)) }
         // Only beside tools: a provider refuses the field in a request that offers none. Issue #530.
         if (tools.isNotEmpty()) model.parallelToolCalls?.let { builder.parallelToolCalls(it) }
-        // Only when set, and only a provider that declares it can hold one: see ChatParameters.
-        model.reasoningEffort?.let { builder.reasoningEffort(com.openai.models.ReasoningEffort.of(it)) }
-        // Each only when set: null leaves the server's own default. Issue #533.
-        model.temperature?.let { builder.temperature(it) }
-        model.topP?.let { builder.topP(it) }
-        model.topK?.let { builder.putAdditionalBodyProperty("top_k", com.openai.core.JsonValue.from(it)) }
-        model.minP?.let { builder.putAdditionalBodyProperty("min_p", com.openai.core.JsonValue.from(it)) }
-        model.repeatPenalty?.let {
+        /*
+         * Each only when set - null leaves the server's own default, issue #533 -
+         * and only where the provider takes it. A model moved from a llama.cpp
+         * server to Azure may still hold a top-k; Azure refuses a request
+         * carrying one, so a stored value the provider does not take is left
+         * where it is rather than sent. See ChatParameters.
+         */
+        fun takes(parameter: String) = ChatParameters.takes(provider, parameter)
+        model.reasoningEffort?.takeIf { takes(ChatParameters.REASONING_EFFORT) }?.let {
+            builder.reasoningEffort(com.openai.models.ReasoningEffort.of(it))
+        }
+        model.temperature?.takeIf { takes(ChatParameters.TEMPERATURE) }?.let { builder.temperature(it) }
+        model.topP?.takeIf { takes(ChatParameters.TOP_P) }?.let { builder.topP(it) }
+        model.topK?.takeIf { takes(ChatParameters.TOP_K) }?.let {
+            builder.putAdditionalBodyProperty("top_k", com.openai.core.JsonValue.from(it))
+        }
+        model.minP?.takeIf { takes(ChatParameters.MIN_P) }?.let {
+            builder.putAdditionalBodyProperty("min_p", com.openai.core.JsonValue.from(it))
+        }
+        model.repeatPenalty?.takeIf { takes(ChatParameters.REPEAT_PENALTY) }?.let {
             builder.putAdditionalBodyProperty("repeat_penalty", com.openai.core.JsonValue.from(it))
         }
         return builder

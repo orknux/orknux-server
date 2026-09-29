@@ -373,12 +373,13 @@ type Query {
     """
     imageModelParameters(modelId: ID!): [ImageParameterSpec!]!
     """
-    What a chat model on this provider type takes beyond the settings every
-    provider shares - Azure OpenAI's reasoning effort - and the words each may
-    be. A type that takes none answers an empty list, and the model page draws
-    nothing; a save refuses a setting the type does not take.
+    The sampling and reasoning settings a chat model on this provider takes -
+    temperature, topP, topK, minP, repeatPenalty, reasoningEffort - as far as
+    its API reads them. The model page draws only these, a save refuses any
+    other, and a request never carries one the provider does not take.
+    Authorised like reading the provider.
     """
-    chatModelParameters(providerType: ProviderType!): [ChatParameterSpec!]!
+    chatModelParameters(providerId: ID!): [ChatParameterSpec!]!
     "Workflows assigned to a workspace, by name unless another order is asked for."
     workspaceWorkflows(
         workspaceId: ID!,
@@ -8414,10 +8415,19 @@ One setting a chat model takes that not every provider does, and the words it
 may be set to. Unset is always allowed and sends nothing.
 """
 type ChatParameterSpec {
-    "The model's field it is saved under, e.g. reasoningEffort."
+    "The model's field it is saved under, e.g. topK or reasoningEffort."
     name: String!
-    "What it may be, as the endpoint spells it."
+    kind: ChatParameterKind!
+    "What a CHOICE may be, as the endpoint spells it; empty for a NUMBER."
     choices: [String!]!
+}
+
+"How a chat setting is asked for."
+enum ChatParameterKind {
+    "A number, whose range is checked on save."
+    NUMBER
+    "One of the spec's choices."
+    CHOICE
 }
 
 "How an image parameter is asked for: one word off a list, or a width and a height."

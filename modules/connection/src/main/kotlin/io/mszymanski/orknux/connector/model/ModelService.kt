@@ -267,6 +267,7 @@ class ModelService(
             throw ModelNameTakenException(name)
         }
         requireKindOffered(provider, input.kind ?: ModelKind.CHAT)
+        val kind = input.kind ?: ModelKind.CHAT
 
         val model = models.save(
             LlmModel(
@@ -277,17 +278,20 @@ class ModelService(
                 contextWindow = input.contextWindow,
                 maxOutput = input.maxOutput,
                 parallelToolCalls = input.parallelToolCalls,
-                reasoningEffort = ChatParameters.held(
-                    provider.type,
-                    input.kind ?: ModelKind.CHAT,
-                    ChatParameters.REASONING_EFFORT,
-                    input.reasoningEffort,
+                // Each held to what the provider takes: see ChatParameters.
+                reasoningEffort = ChatParameters.held(provider, kind, ChatParameters.REASONING_EFFORT, input.reasoningEffort),
+                temperature = ChatParameters.held(
+                    provider, kind, ChatParameters.TEMPERATURE, sampled(input.temperature, "temperature", 0.0, 2.0),
                 ),
-                temperature = sampled(input.temperature, "temperature", 0.0, 2.0),
-                topP = sampled(input.topP, "top-p", 0.0, 1.0),
-                topK = input.topK?.also { require(it in 0..1000) { "Top-k has to be between 0 and 1000." } },
-                minP = sampled(input.minP, "min-p", 0.0, 1.0),
-                repeatPenalty = sampled(input.repeatPenalty, "repeat penalty", 0.0, 2.0),
+                topP = ChatParameters.held(provider, kind, ChatParameters.TOP_P, sampled(input.topP, "top-p", 0.0, 1.0)),
+                topK = ChatParameters.held(
+                    provider, kind, ChatParameters.TOP_K,
+                    input.topK?.also { require(it in 0..1000) { "Top-k has to be between 0 and 1000." } },
+                ),
+                minP = ChatParameters.held(provider, kind, ChatParameters.MIN_P, sampled(input.minP, "min-p", 0.0, 1.0)),
+                repeatPenalty = ChatParameters.held(
+                    provider, kind, ChatParameters.REPEAT_PENALTY, sampled(input.repeatPenalty, "repeat penalty", 0.0, 2.0),
+                ),
                 tokenLimit = input.tokenLimit,
                 resetInterval = input.resetInterval ?: ResetInterval.MONTHLY,
                 requestsPerMinute = input.requestsPerMinute,
@@ -341,19 +345,22 @@ class ModelService(
         model.contextWindow = input.contextWindow
         model.maxOutput = input.maxOutput
         model.parallelToolCalls = input.parallelToolCalls
-        // Held to the provider it is arriving at: a move to one that does not
-        // take it is refused rather than carried silently.
-        model.reasoningEffort = ChatParameters.held(
-            provider.type,
-            model.kind,
-            ChatParameters.REASONING_EFFORT,
-            input.reasoningEffort,
+        // Each held to the provider it is arriving at: a move to one that does
+        // not take a setting is refused rather than carried silently.
+        val kind = model.kind
+        model.reasoningEffort = ChatParameters.held(provider, kind, ChatParameters.REASONING_EFFORT, input.reasoningEffort)
+        model.temperature = ChatParameters.held(
+            provider, kind, ChatParameters.TEMPERATURE, sampled(input.temperature, "temperature", 0.0, 2.0),
         )
-        model.temperature = sampled(input.temperature, "temperature", 0.0, 2.0)
-        model.topP = sampled(input.topP, "top-p", 0.0, 1.0)
-        model.topK = input.topK?.also { require(it in 0..1000) { "Top-k has to be between 0 and 1000." } }
-        model.minP = sampled(input.minP, "min-p", 0.0, 1.0)
-        model.repeatPenalty = sampled(input.repeatPenalty, "repeat penalty", 0.0, 2.0)
+        model.topP = ChatParameters.held(provider, kind, ChatParameters.TOP_P, sampled(input.topP, "top-p", 0.0, 1.0))
+        model.topK = ChatParameters.held(
+            provider, kind, ChatParameters.TOP_K,
+            input.topK?.also { require(it in 0..1000) { "Top-k has to be between 0 and 1000." } },
+        )
+        model.minP = ChatParameters.held(provider, kind, ChatParameters.MIN_P, sampled(input.minP, "min-p", 0.0, 1.0))
+        model.repeatPenalty = ChatParameters.held(
+            provider, kind, ChatParameters.REPEAT_PENALTY, sampled(input.repeatPenalty, "repeat penalty", 0.0, 2.0),
+        )
         model.inputCostPerMillion = input.inputCostPerMillion?.toBigDecimal()
         model.outputCostPerMillion = input.outputCostPerMillion?.toBigDecimal()
         model.voice = input.voice?.trim()?.ifEmpty { null }

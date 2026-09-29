@@ -216,6 +216,40 @@ class OpenAiChatTest {
         assertThat(bodies[3]).doesNotContain("reasoning_effort")
     }
 
+    /**
+     * A stored setting the provider does not read stays stored and is not sent.
+     * A model moved from a llama.cpp server to Azure keeps its top-k, min-p and
+     * repeat penalty; Azure refuses a request carrying them, and Ollama's `/v1`
+     * silently drops them. See ChatParameters.
+     */
+    @Test
+    fun `a setting the provider does not take is not sent, even where it is stored`() {
+        answer = words("ok")
+        val carried = model().apply {
+            temperature = 0.2
+            topP = 0.9
+            topK = 40
+            minP = 0.05
+            repeatPenalty = 1.05
+            reasoningEffort = "low"
+        }
+
+        chat().complete(azureProvider(), carried, listOf(ChatTurn("user", "Hello")), emptyList())
+        streamed = listOf(piece("""{"content":"ok"}"""), "data: [DONE]")
+        chat().stream(azureProvider(), carried, listOf(ChatTurn("user", "Hello")), emptyList(), {}) {}
+        streamed = null
+        chat().complete(ollamaProvider(), carried, listOf(ChatTurn("user", "Hello")), emptyList())
+
+        bodies.forEach { body ->
+            assertThat(body).contains(""""temperature":0.2""").contains(""""top_p":0.9""")
+                .doesNotContain("top_k").doesNotContain("min_p").doesNotContain("repeat_penalty")
+        }
+        assertThat(bodies[0]).contains(""""reasoning_effort":"low"""")
+        assertThat(bodies[1]).contains(""""reasoning_effort":"low"""")
+        // Ollama takes no reasoning effort from this product either.
+        assertThat(bodies[2]).doesNotContain("reasoning_effort")
+    }
+
     @Test
     fun `an answer to a call names the call it answers`() {
         val turns = listOf(
@@ -361,6 +395,14 @@ class OpenAiChatTest {
         apiVersion = "2024-10-21",
         deploymentName = "o4-mini",
         secret = "azure-test",
+    )
+
+    private fun ollamaProvider() = ModelProvider(
+        workspaceId = 1,
+        name = "Ollama",
+        type = ProviderType.OLLAMA,
+        endpoint = "http://${server.address.hostString}:${server.address.port}",
+        secret = "ollama",
     )
 
     private fun model() = LlmModel(providerId = 1, name = "Model", modelId = "gpt-4o", kind = ModelKind.CHAT)
