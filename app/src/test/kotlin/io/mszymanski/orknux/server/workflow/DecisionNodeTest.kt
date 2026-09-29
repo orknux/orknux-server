@@ -403,6 +403,33 @@ class DecisionNodeTest(
         assertThat(run.status("unsure")).isEqualTo("SKIPPED")
     }
 
+    /** The third shape DeepSeek used: the numbers straight under the key, no "probabilities". */
+    @Test
+    fun `an answer without its probabilities wrapper is still read`() {
+        val workflowId = workflow()
+        saveBranching(workflowId, chatModel(), threshold = null)
+        chatReply = """{"department": {"billing": 0.1, "returns": 0.9}, "urgent": {"noul": 0.2}}"""
+
+        val run = run(workflowId)
+
+        assertThat(run.branch("decide")).isEqualTo("OPTION" to "returns")
+    }
+
+    /** The prompt ends with the reply written out for these questions, so the model has a shape to copy. */
+    @Test
+    fun `a chat model is shown the exact reply to give`() {
+        val workflowId = workflow()
+        saveBranching(workflowId, chatModel(), threshold = null)
+        chatReply = """{"department": {"probabilities": {"billing": 1, "returns": 0}}, "urgent": {"noul": 0.5}}"""
+
+        run(workflowId)
+
+        assertThat(chatted.single())
+            .contains("Reply in exactly this shape")
+            // Inside the request's JSON, so its quotes arrive escaped.
+            .contains("""{\"department\":{\"probabilities\":{\"billing\":0.0,\"returns\":0.0}},\"urgent\":{\"noul\":0.0}}""")
+    }
+
     @Test
     fun `a chat model's answer under the threshold leaves by the unsure line`() {
         val workflowId = workflow()

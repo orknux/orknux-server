@@ -58,7 +58,7 @@ class ChatDecisions(
          * bare answer can be about.
          */
         val bare = questions.size == 1 && !tree.has(questions.single().key) &&
-            (tree.has("probabilities") || tree.has("noul"))
+            (tree.has("probabilities") || tree.has("noul") || questions.single().options.any { tree.has(it.name) })
         questions.forEach { question ->
             val given = if (bare) tree else tree.path(question.key)
             val answer = when (question.kind) {
@@ -98,11 +98,38 @@ class ChatDecisions(
                 }
             }
         }
+        /*
+         * And the reply written out, with these keys and these options, the
+         * numbers left to the model. Told only a template, DeepSeek answered the
+         * same question in three shapes across three calls - with the key and
+         * "probabilities", without the key, without "probabilities" - and two
+         * were read as no answer. An example to copy is what it keeps to.
+         */
+        append("\nReply in exactly this shape, with your own numbers:\n")
+        append(example(questions))
+    }
+
+    /** The reply these questions want, with placeholder numbers, as one line of JSON. */
+    private fun example(questions: List<DecisionQuestion>): String {
+        val root = mapper.createObjectNode()
+        questions.forEach { question ->
+            val entry = root.putObject(question.key)
+            when (question.kind) {
+                DecisionQuestionKind.CHOICE -> entry.putObject("probabilities").also { held ->
+                    question.options.forEach { held.put(it.name, 0.0) }
+                }
+                DecisionQuestionKind.SCORE -> entry.putObject("probabilities").also { held ->
+                    question.options.indices.forEach { held.put(it.toString(), 0.0) }
+                }
+                DecisionQuestionKind.NOUL -> entry.put("noul", 0.0)
+            }
+        }
+        return root.toString()
     }
 
     private fun choice(question: DecisionQuestion, given: JsonNode, notes: MutableList<String>): ObjectNode? {
         val names = question.options.map { it.name }
-        val offered = probabilities(given.path("probabilities"))
+        val offered = offeredIn(given)
         val stray = offered.keys - names.toSet()
         if (stray.isNotEmpty()) notes += "\"${question.key}\": the model named ${stray.joinToString { "\"$it\"" }}, which it was not offered"
         val kept = names.associateWith { offered[it] ?: 0.0 }
@@ -121,7 +148,7 @@ class ChatDecisions(
 
     private fun score(question: DecisionQuestion, given: JsonNode, notes: MutableList<String>): ObjectNode? {
         val levels = question.options.indices.map { it.toString() }
-        val offered = probabilities(given.path("probabilities"))
+        val offered = offeredIn(given)
         val stray = offered.keys - levels.toSet()
         if (stray.isNotEmpty()) notes += "\"${question.key}\": the model named level ${stray.joinToString()}, which the scale does not have"
         val normal = normalised(levels.associateWith { offered[it] ?: 0.0 }) ?: run {
@@ -166,6 +193,14 @@ class ChatDecisions(
         if (!node.isObject) emptyMap() else node.properties()
             .filter { (_, value) -> value.isNumber }
             .associate { (name, value) -> name to value.asDouble().coerceAtLeast(0.0) }
+
+    /**
+     * A choice's or score's numbers wherever the model put them: under
+     * "probabilities", as asked, or straight under the question's key - which
+     * DeepSeek did on one call in three. A backup to the example in the prompt.
+     */
+    private fun offeredIn(given: JsonNode): Map<String, Double> =
+        if (given.path("probabilities").isObject) probabilities(given.path("probabilities")) else probabilities(given)
 
     /** Scaled to sum to one; null where they sum to nothing, which is no answer at all. */
     private fun normalised(probabilities: Map<String, Double>): Map<String, Double>? {
