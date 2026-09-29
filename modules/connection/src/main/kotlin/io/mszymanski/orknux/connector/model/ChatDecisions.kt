@@ -50,8 +50,17 @@ class ChatDecisions(
 
         val notes = mutableListOf<String>()
         val answers = mapper.createObjectNode()
+        /*
+         * One question answered without its key around it. Seen from DeepSeek:
+         * asked the same thing twice, it answered {"q": {"probabilities": ...}}
+         * once and {"probabilities": ...} the next time, and the second was read
+         * as no answer at all. With one question there is only one thing the
+         * bare answer can be about.
+         */
+        val bare = questions.size == 1 && !tree.has(questions.single().key) &&
+            (tree.has("probabilities") || tree.has("noul"))
         questions.forEach { question ->
-            val given = tree.path(question.key)
+            val given = if (bare) tree else tree.path(question.key)
             val answer = when (question.kind) {
                 DecisionQuestionKind.CHOICE -> choice(question, given, notes)
                 DecisionQuestionKind.SCORE -> score(question, given, notes)

@@ -385,6 +385,24 @@ class DecisionNodeTest(
         assertThat(sent).isEmpty()
     }
 
+    /**
+     * Seen from DeepSeek: asked one question, it answered once with the
+     * question's key around the answer and once without, and the bare answer
+     * was read as none. With one question it can only be about that one.
+     */
+    @Test
+    fun `one question answered without its key is still read`() {
+        val workflowId = workflow()
+        saveBranching(workflowId, chatModel(), threshold = null, single = true)
+        chatReply = """{"probabilities": {"billing": 0.0, "returns": 1.0}}"""
+
+        val run = run(workflowId)
+
+        assertThat(run.branch("decide")).isEqualTo("OPTION" to "returns")
+        assertThat(run.status("returns")).isEqualTo("COMPLETED")
+        assertThat(run.status("unsure")).isEqualTo("SKIPPED")
+    }
+
     @Test
     fun `a chat model's answer under the threshold leaves by the unsure line`() {
         val workflowId = workflow()
@@ -573,16 +591,16 @@ class DecisionNodeTest(
         ).execute().path("createModel.id").entity(Long::class.java).get()
     }
 
-    private fun decisionNode(modelId: Long?, threshold: Double?) = """
+    private fun decisionNode(modelId: Long?, threshold: Double?, single: Boolean = false) = """
         { key: "decide", kind: DECISION, name: "Route", x: 0, y: 0, outputName: "verdict",
           ${modelId?.let { "decisionModelId: $it," } ?: ""}
           decisionBranchQuestion: "department",
           ${threshold?.let { "decisionThreshold: $it," } ?: ""}
           decisionQuestions: [
             { key: "department", kind: CHOICE, instructions: "Which team should handle this?",
-              options: [{ name: "billing", description: "Charges and refunds" }, { name: "returns" }] },
-            { key: "urgent", kind: NOUL, instructions: "Is it urgent?",
-              options: [{ name: "true", description: "Needs an answer today" }, { name: "maybe", description: "dropped" }] }
+              options: [{ name: "billing", description: "Charges and refunds" }, { name: "returns" }] }${if (single) "" else ","}
+            ${if (single) "" else """{ key: "urgent", kind: NOUL, instructions: "Is it urgent?",
+              options: [{ name: "true", description: "Needs an answer today" }, { name: "maybe", description: "dropped" }] }"""}
           ],
           mappings: [{ name: "state", expression: "I was charged twice for one order", mode: VALUE }] }
     """.trimIndent()
@@ -590,9 +608,9 @@ class DecisionNodeTest(
     private fun objectNode(key: String) =
         """{ key: "$key", kind: OBJECT, name: "$key", x: 300, y: 0, mappings: [{ name: "route", expression: "$key", mode: VALUE }] }"""
 
-    private fun saveBranching(workflowId: Long, modelId: Long, threshold: Double?) = graphQlTester.document(
+    private fun saveBranching(workflowId: Long, modelId: Long, threshold: Double?, single: Boolean = false) = graphQlTester.document(
         """mutation { saveWorkflowGraph(workspaceId: $workspaceId, workflowId: $workflowId, input: {
-             nodes: [${decisionNode(modelId, threshold)}, ${objectNode("billing")}, ${objectNode("returns")}, ${objectNode("unsure")}],
+             nodes: [${decisionNode(modelId, threshold, single)}, ${objectNode("billing")}, ${objectNode("returns")}, ${objectNode("unsure")}],
              edges: [
                { source: "decide", target: "billing", branch: OPTION, option: "billing" },
                { source: "decide", target: "returns", branch: OPTION, option: "returns" },
