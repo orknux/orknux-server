@@ -46,10 +46,12 @@ class AgentAPI(
     private val revisions: ComponentRevisionRecorder,
     private val budgets: SessionMemoryBudgets,
     private val connections: WorkspaceConnectionService,
+    private val builtIns: io.mszymanski.orknux.server.chat.BuiltInTools,
 ) {
 
     /** The agent, with what its model is called: the screen shows the name. */
-    private fun describe(agent: Agent) = AgentView(agent, agent.modelId?.let { models.model(it)?.name })
+    private fun describe(agent: Agent) =
+        AgentView(agent, agent.modelId?.let { models.model(it)?.name }, builtIns.orknuxNames())
 
     /**
      * What this agent's memory share works out to against the model it uses.
@@ -418,8 +420,9 @@ class AgentAPI(
              * the grant has to be a positive list - the inverted one below
              * would switch a new one on everywhere the day it shipped.
              */
+            val orknuxNames = builtIns.orknuxNames()
             agent.tools = given
-                .filter { !BuiltInTools.switchable(it) || BuiltInTools.reaches(it) }
+                .filter { (!BuiltInTools.switchable(it) || BuiltInTools.reaches(it)) && it !in orknuxNames }
                 .toMutableList()
             /*
              * And the built-ins, which are only this agent's to hide where the
@@ -436,7 +439,19 @@ class AgentAPI(
              * handle.
              */
             val allowed = workspaces.findByIdOrNull(agent.workspaceId)?.unsafeBuiltInTools == true
+            val orknuxHidden = agent.hiddenTools.filter { it in orknuxNames }
             agent.hiddenTools = if (allowed) BuiltInTools.hiddenBy(given) else mutableListOf()
+            /*
+             * And the orknux_* tools, one by one: a name absent from what arrived
+             * is hidden, as a built-in is. Not behind the unsafe switch - hiding
+             * one narrows what an agent may do to the workspace, which is the
+             * careful direction. Only while the grant is on, when the form draws
+             * those rows; with it off nothing arrives for them, and what the
+             * agent had hidden is kept rather than read as "hide them all".
+             */
+            agent.hiddenTools.addAll(
+                if (agent.orknuxAccess) orknuxNames.filter { it !in given } else orknuxHidden,
+            )
             /*
              * The reaching ones are not gated by that switch, deliberately. It
              * exists to stop somebody quietly crippling an agent by hiding what
@@ -894,7 +909,7 @@ data class AgentView(
     /** Its own ceiling on tool rounds; null follows the installation's. */
     val maxRounds: Int?,
 ) {
-    constructor(agent: Agent, modelName: String? = null) : this(
+    constructor(agent: Agent, modelName: String? = null, orknuxNames: List<String> = emptyList()) : this(
         id = requireNotNull(agent.id),
         workspaceId = agent.workspaceId,
         name = agent.name,
@@ -916,7 +931,11 @@ data class AgentView(
         requiredSkills = agent.requiredSkills.toList(),
         // Its grants and the built-ins it has not hidden, as one list: what the
         // form draws its rows from, and what it sends back. Issue #455.
-        tools = (agent.tools + BuiltInTools.grantedTo(agent)).distinct(),
+        // And the orknux_* tools it has not hidden, while the grant is on.
+        tools = (
+            agent.tools + BuiltInTools.grantedTo(agent) +
+                (if (agent.orknuxAccess) orknuxNames.filter { it !in agent.hiddenTools } else emptyList())
+            ).distinct(),
         connectionIds = agent.connections.toList(),
         agentIds = agent.agents.toList(),
         maxTools = agent.maxTools,

@@ -128,6 +128,39 @@ class BuiltInToolsTest(
         }
     }
 
+    /**
+     * The orknux_* tools are switched one by one, inside the Orknux access grant.
+     *
+     * Asked for: the grant was all or nothing. A name left out of the save is
+     * hidden - not offered, refused if called, and absent from what the form
+     * reads back - and the rest are still offered. No unsafe switch needed:
+     * hiding one narrows what an agent may do.
+     */
+    @Test
+    fun `one orknux tool can be switched off while the rest stay`() {
+        val workspace = requireNotNull(workspaces.findByName("built-ins"))
+        workspace.unsafeBuiltInTools = false
+        workspaces.save(workspace)
+        try {
+            val id = created("Reads runs only")
+            val names = builtIns.orknuxNames()
+            val kept = names - "orknux_run_workflow"
+            val list = (BuiltInTools.GRANTED + kept).joinToString(",") { "\"$it\"" }
+            val back = graphQlTester.document(
+                """mutation { updateAgent(id: $id, input: { name: "Reads runs only", orknuxAccess: true, tools: [$list] }) { tools } }""",
+            ).execute().path("updateAgent.tools").entityList(String::class.java).get()
+            assertThat(back).contains("orknux_workflows").doesNotContain("orknux_run_workflow")
+
+            val agent = requireNotNull(agents.findByIdOrNull(id))
+            val offered = tools.specsFor(agent).map { it.name }
+            assertThat(offered).contains("orknux_workflows").doesNotContain("orknux_run_workflow")
+            assertThat(agent.hiddenTools).describedAs("the unsafe switch does not gate it").contains("orknux_run_workflow")
+        } finally {
+            workspace.unsafeBuiltInTools = true
+            workspaces.save(workspace)
+        }
+    }
+
     /* ------------------------------------------------------ the inventory -- */
 
     /**

@@ -166,7 +166,8 @@ class AgentTools(
         // orknux itself, for an agent granted it. Scoped to the agent's own
         // workspace: the grant is the authorisation, and the workspace is the
         // boundary — there is no session here to ask about anything wider.
-        if (agent.orknuxAccess) addAll(orknux.specs(scopeFor(agent)))
+        // Less the ones this agent has hidden: the grant is the set, the agent picks from it.
+        if (agent.orknuxAccess) addAll(orknux.specs(scopeFor(agent)).filter { it.name !in agent.hiddenTools })
 
         // The machines, for an agent granted them. Unnamed and plural, which is
         // the design: an agent asks for a shell, not for a particular host, and
@@ -396,7 +397,9 @@ class AgentTools(
              * that guessed the name of a tool it was never offered is refused here
              * rather than reaching the workspace through a name it made up.
              */
-            if (agent.orknuxAccess) {
+            if (agent.orknuxAccess && call.name in agent.hiddenTools) {
+                mapper.writeValueAsString(mapOf("error" to "${call.name} is switched off for this agent"))
+            } else if (agent.orknuxAccess) {
                 orknux.run(scopeFor(agent, sessionId), call.name, call.arguments)
             } else {
                 mapper.writeValueAsString(mapOf("error" to "This agent has not been given access to orknux"))

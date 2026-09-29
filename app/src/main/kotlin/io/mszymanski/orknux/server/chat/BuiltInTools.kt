@@ -85,6 +85,16 @@ class BuiltInTools(
     private val shells: ShellTools,
 ) {
 
+    /**
+     * The orknux_* tools, each of which an agent granted Orknux access may hide.
+     *
+     * Asked for: the grant was all or nothing, so an agent that should read
+     * runs but not start one could not be given that. Hiding one is the careful
+     * direction, like a tool that reaches the network, so the workspace's unsafe
+     * switch does not gate it.
+     */
+    fun orknuxNames(): List<String> = orknux.specs(OrknuxScope(workspaceId = 0, mayWrite = true)).map { it.name }
+
     /** Every built-in, the grant-governed first and in the order the form lists them. */
     fun all(): List<BuiltInTool> = buildList {
         GRANTED.forEach { add(BuiltInTool(it, BuiltInGovernance.GRANT)) }

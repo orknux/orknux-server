@@ -101,6 +101,8 @@ class TaskWorker(
             memoryCatalogs = merged(agent?.memoryCatalogs, named(TaskCapability.MEMORY_CATALOG)),
             skillCatalogs = merged(agent?.skillCatalogs, named(TaskCapability.SKILL_CATALOG)),
             tools = merged(agent?.tools, named(TaskCapability.TOOL)),
+            // What the agent switched off stays off in a task - built-ins and orknux_* tools alike.
+            hiddenTools = agent?.hiddenTools?.toMutableList() ?: mutableListOf(),
         )
     }
 
