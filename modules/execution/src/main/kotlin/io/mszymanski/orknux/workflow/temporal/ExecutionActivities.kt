@@ -85,6 +85,7 @@ class ExecutionActivitiesImpl(private val steps: StepRunner) : ExecutionActiviti
             output = outcome.output,
             halt = outcome.halt,
             branch = outcome.branch,
+            option = outcome.option,
             // A timer is the granularity Temporal deals in, so anything under a
             // second becomes one: sleeping for none of it would only spin.
             resumeAfterSeconds = outcome.resumeAfter?.toSeconds()?.coerceAtLeast(1),

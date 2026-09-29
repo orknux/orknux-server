@@ -126,7 +126,7 @@ class InlineExecutionEngine(
         // A run that begins partway down starts with the exits an earlier run
         // took already open, or the first step it walks would have nothing
         // leading to it and be skipped as unreachable.
-        plan.carried.forEach { gate.follow(it.nodeKey, it.branch) }
+        plan.carried.forEach { gate.follow(it.nodeKey, it.branch, it.option) }
 
         for ((index, step) in plan.steps.withIndex()) {
             // Asked to stop between steps: end the run where it stands rather
@@ -172,7 +172,7 @@ class InlineExecutionEngine(
                 )
             }
 
-            gate.follow(step.nodeKey, outcome.branch)
+            gate.follow(step.nodeKey, outcome.branch, outcome.option)
 
             /*
              * A condition that did not hold ends the run - unless it has

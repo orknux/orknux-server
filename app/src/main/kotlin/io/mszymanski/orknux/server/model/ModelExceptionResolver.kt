@@ -5,6 +5,7 @@ import graphql.schema.DataFetchingEnvironment
 import io.mszymanski.orknux.server.graphql.refused
 import io.mszymanski.orknux.connector.model.ModelDiscoveryFailedException
 import io.mszymanski.orknux.connector.model.ModelIdInvalidException
+import io.mszymanski.orknux.connector.model.ModelKindNotOfferedException
 import io.mszymanski.orknux.connector.model.ModelNameInvalidException
 import io.mszymanski.orknux.connector.model.ModelNameTakenException
 import io.mszymanski.orknux.connector.model.ModelProviderEndpointInvalidException
@@ -33,6 +34,7 @@ class ModelExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ModelNameInvalidException,
             is ModelIdInvalidException,
             is ModelProviderInAnotherWorkspaceException,
+            is ModelKindNotOfferedException,
             -> ErrorType.BAD_REQUEST
 
             // The provider would not answer. Nothing the caller sent is wrong,

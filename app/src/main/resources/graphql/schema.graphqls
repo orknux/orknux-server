@@ -2429,6 +2429,13 @@ enum NodeKind {
     writes into that conversation.
     """
     SESSION
+    """
+    Asks a decision model typed questions about what the run carries, and hands
+    on the answers with their probabilities. Its choice question may branch the
+    graph, one OPTION edge per option and an UNSURE edge for an answer under its
+    threshold.
+    """
+    DECISION
 }
 
 type WorkflowNode {
@@ -2472,6 +2479,14 @@ type WorkflowNode {
     imageQuality: String
     "The style an IMAGE node asks for, in the word its model's endpoint takes; null is the model's default."
     imageStyle: String
+    "The decision model a DECISION node asks; null on every other kind."
+    decisionModelId: ID
+    "What a DECISION node asks, in order; empty on every other kind."
+    decisionQuestions: [DecisionQuestion!]!
+    "The key of the CHOICE question whose answer picks the edge the run leaves by; null only answers."
+    decisionBranchQuestion: String
+    "How sure an answer has to be to be taken, 0 to 1; null takes every answer."
+    decisionThreshold: Float
     """
     What this node calls what it produces, so a later node can point a
     reference at it. Null hands the output on unchanged.
@@ -2571,6 +2586,10 @@ enum EdgeBranch {
     the one already drawn.
     """
     FAILURE
+    "One option of a decision's choice; the edge's `option` says which."
+    OPTION
+    "The way out of a decision whose answer did not clear its threshold."
+    UNSURE
 }
 
 type WorkflowEdge {
@@ -2578,6 +2597,51 @@ type WorkflowEdge {
     target: String!
     "The answer this edge carries; null for every edge that is not leaving a condition or handling a failure."
     branch: EdgeBranch
+    "Which option an OPTION edge leaves by; null on every other edge."
+    option: String
+}
+
+"The kinds of question a decision model answers."
+enum DecisionQuestionKind {
+    "Picks one of the options, and says how likely each was."
+    CHOICE
+    "Places the state on ordered levels, lowest first."
+    SCORE
+    "The probability that a yes-or-no statement holds."
+    NOUL
+}
+
+"One question a DECISION node asks."
+type DecisionQuestion {
+    "What its answer comes back under, and what a later node reads it by."
+    key: String!
+    kind: DecisionQuestionKind!
+    "What is being asked."
+    instructions: String!
+    "A choice's options, a score's levels lowest first, or a noul's `true` and `false`."
+    options: [DecisionOption!]!
+}
+
+"One option, level or side of a decision question."
+type DecisionOption {
+    name: String!
+    "What the model reads to tell it apart; empty uses the name."
+    description: String!
+}
+
+input DecisionQuestionInput {
+    "Letters, digits and underscores, starting with a letter; unique on the node."
+    key: String!
+    kind: DecisionQuestionKind!
+    instructions: String!
+    "A choice's options, a score's levels lowest first, or a noul's `true` and `false`; blank names are dropped."
+    options: [DecisionOptionInput!]
+}
+
+input DecisionOptionInput {
+    "At most 64 characters, which is what an OPTION edge can carry."
+    name: String!
+    description: String
 }
 
 """
@@ -2777,6 +2841,14 @@ input WorkflowNodeInput {
     imageQuality: String
     "The style an IMAGE node asks for; held at save to the node's model's choices, and refused on a model that takes none. Null is the model's default. Ignored on any other kind."
     imageStyle: String
+    "The decision model a DECISION node asks; one of this workspace's DECISION models. Ignored on any other kind."
+    decisionModelId: ID
+    "What a DECISION node asks, in order. Ignored on any other kind."
+    decisionQuestions: [DecisionQuestionInput!]
+    "The key of the CHOICE question whose answer picks the edge; anything else is dropped."
+    decisionBranchQuestion: String
+    "How sure an answer has to be to be taken, held to 0..1; null takes every answer."
+    decisionThreshold: Float
     "What this node calls what it produces; a later node points a reference at it."
     outputName: String
     "Which icon the canvas draws on this node; a name from the interface's own set."
@@ -2883,8 +2955,11 @@ input WorkflowEdgeInput {
     Which way out of its source this edge leaves by. YES or NO out of a
     condition, FAILURE out of an action or agent with `fallbackEnabled`, and
     null for everything else — including the happy path, which stays unmarked.
+    OPTION or UNSURE out of a DECISION node that branches on a choice.
     """
     branch: EdgeBranch
+    "Which option an OPTION edge leaves by; ignored on every other edge."
+    option: String
 }
 
 input WorkflowGraphInput {
@@ -5056,6 +5131,12 @@ enum ProviderType {
     nobody has to know it. An endpoint already written `.../v1` still works.
     """
     OLLAMA
+    """
+    A decision model speaking `POST /v1/systemone`: TypeSafe's Jev at
+    `https://api.typesafe.ai` with a key, or a self-hosted Laya, whose key is
+    optional. Its models are DECISION models.
+    """
+    SYSTEM_ONE
 }
 
 "How a provider is authenticated. ENTRA_ID is Azure OpenAI only."
@@ -5080,6 +5161,8 @@ enum ModelKind {
     why a provider that has none is refused in a sentence rather than called.
     """
     IMAGE
+    "A state and typed questions in, calibrated probabilities out; only under a SYSTEM_ONE provider."
+    DECISION
 }
 
 "How often a token quota starts again; NEVER makes it a total rather than a rate."
@@ -5465,6 +5548,8 @@ type ExecutionStep {
     than stopping there.
     """
     branch: EdgeBranch
+    "Which option of a decision the run went by, on an OPTION branch."
+    branchOption: String
     "How many attempts the step spent; more than one only where its node was given a retry policy and needed it."
     attempts: Int!
     "Copied from an earlier run rather than performed here, which is what every step ahead of a re-run's starting point is."

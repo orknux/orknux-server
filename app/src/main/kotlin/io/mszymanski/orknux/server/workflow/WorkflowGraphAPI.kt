@@ -1,6 +1,12 @@
 package io.mszymanski.orknux.server.workflow
 
+import io.mszymanski.orknux.connector.model.DecisionOption
+import io.mszymanski.orknux.connector.model.DecisionQuestion
+import io.mszymanski.orknux.connector.model.DecisionQuestionKind
 import io.mszymanski.orknux.connector.model.ImageOptions
+import io.mszymanski.orknux.connector.model.LlmModelRepository
+import io.mszymanski.orknux.connector.model.ModelKind
+import io.mszymanski.orknux.connector.model.ModelProviderRepository
 import io.mszymanski.orknux.server.action.WorkflowFunctionRepository
 import io.mszymanski.orknux.server.action.ActionParameters
 import io.mszymanski.orknux.server.agent.AgentRepository
@@ -57,6 +63,9 @@ class WorkflowGraphAPI(
     private val mapper: ObjectMapper,
     /** What an image node's model takes beyond a prompt, which its size, quality and style are held to. Issue #431. */
     private val imageModels: ImageModelCapabilities,
+    /** Which workspace a decision node's model belongs to, through its provider. Issue #577. */
+    private val models: LlmModelRepository,
+    private val providers: ModelProviderRepository,
 ) {
 
     @QueryMapping
@@ -106,7 +115,7 @@ class WorkflowGraphAPI(
         // has; the validator is given the graph, not an argument about it.
         val drawn = input.edges
             .filter { it.source in known && it.target in known }
-            .map { WorkflowEdge(workflowId = workflowId, sourceKey = it.source, targetKey = it.target, branch = it.branch) }
+            .map { edgeOf(workflowId, it) }
 
         return WorkflowGraphView(
             workflowId = workflowId,
@@ -148,6 +157,7 @@ class WorkflowGraphAPI(
         input.nodes.forEach { requireAgentBelongsToWorkspace(workspaceId, it) }
         input.nodes.forEach { requireObjectBelongsToWorkspace(workspaceId, it) }
         input.nodes.forEach { requireOutputShapeBelongsToWorkspace(workspaceId, it) }
+        input.nodes.forEach { requireDecisionModelBelongsToWorkspace(workspaceId, it) }
 
         // A graph is drawn before it is finished, so only the shapes that could
         // never run are refused; everything else comes back as advice.
@@ -180,11 +190,13 @@ class WorkflowGraphAPI(
                     .filter { it.name == SKILL_IDS && it.mode == MappingMode.VALUE }
                     .map { NodeMapping(name = it.name, expression = it.expression, mode = it.mode) }
                     .toMutableList(),
+                // Carried into the check because an option edge naming an
+                // option the node does not offer is a shape a save refuses, and
+                // it can only be judged against the questions. Issue #577.
+                decisionSpec = decisionSpecOf(node, refusing = true),
             )
         }
-        val proposedEdges = input.edges.map {
-            WorkflowEdge(workflowId = workflowId, sourceKey = it.source, targetKey = it.target, branch = it.branch)
-        }
+        val proposedEdges = input.edges.map { edgeOf(workflowId, it) }
         val refusals = validator.problems(proposed, proposedEdges, hardOnly = true, workspaceId = workspaceId)
         if (refusals.isNotEmpty()) throw GraphInvalidException(refusals)
 
@@ -194,11 +206,7 @@ class WorkflowGraphAPI(
         edges.flush()
 
         nodes.saveAll(shapedByTargets(input.nodes.map { nodeOf(workflowId, it) }, refusing = true))
-        edges.saveAll(
-            input.edges.map { edge ->
-                WorkflowEdge(workflowId = workflowId, sourceKey = edge.source, targetKey = edge.target, branch = edge.branch)
-            },
-        )
+        edges.saveAll(input.edges.map { edgeOf(workflowId, it) })
 
         // Editing puts a published workflow back into draft.
         val workflow = workflows.findByIdOrNull(workflowId) ?: throw WorkflowNotFoundException(workflowId)
@@ -359,6 +367,21 @@ class WorkflowGraphAPI(
         return held
     }
 
+    /**
+     * The edge a save writes, which is also the edge a preview checks.
+     *
+     * The option is kept only on an option edge: an edge that is a condition's
+     * YES carrying the name of somebody's option would be a line that says two
+     * things. Issue #577.
+     */
+    private fun edgeOf(workflowId: Long, edge: WorkflowEdgeInput) = WorkflowEdge(
+        workflowId = workflowId,
+        sourceKey = edge.source,
+        targetKey = edge.target,
+        branch = edge.branch,
+        branchOption = edge.option?.trim()?.ifEmpty { null }?.takeIf { edge.branch == EdgeBranch.OPTION },
+    )
+
     /** Whoever is asking, for the record of who made a graph live. */
     private fun currentUser(): String =
         SecurityContextHolder.getContext().authentication?.name ?: "system"
@@ -397,6 +420,13 @@ class WorkflowGraphAPI(
      * looks for `prompt`, and a node without one is a node it skips.
      */
     private val IMAGE_PARAMETERS = listOf("prompt")
+
+    /**
+     * What a decision node holds: the state its questions are about, and the
+     * name is the runner's - [DecisionNodeRunner] reads `state`, and a node
+     * that leaves it empty is asked about whatever reached it. Issue #577.
+     */
+    private val DECISION_PARAMETERS = listOf(DECISION_STATE)
 
     /**
      * The node a save would write, which is also the node a preview describes.
@@ -441,12 +471,15 @@ class WorkflowGraphAPI(
             imageSize = drawing.size,
             imageQuality = drawing.quality,
             imageStyle = drawing.style,
+            decisionModelId = node.decisionModelId.takeIf { node.kind == NodeKind.DECISION },
+            decisionSpec = decisionSpecOf(node, refusing),
             outputName = node.outputName?.trim()?.ifEmpty { null }
                 // Only a node that produces something can name it; a trigger names
                 // its own fields and a condition passes through what it was given.
                 ?.takeIf {
                     node.kind == NodeKind.AGENT || node.kind == NodeKind.ACTION ||
-                        node.kind == NodeKind.OBJECT || node.kind == NodeKind.IMAGE
+                        node.kind == NodeKind.OBJECT || node.kind == NodeKind.IMAGE ||
+                        node.kind == NodeKind.DECISION
                 }
                 ?.also { if (refusing) requireReferenceable(it) },
             icon = node.icon?.trim()?.ifEmpty { null },
@@ -485,6 +518,47 @@ class WorkflowGraphAPI(
             // disabled trigger never gets this far: the validator refuses it.
             enabled = node.enabled ?: true,
             mappings = mappingsFor(node, refusing),
+        )
+    }
+
+    /**
+     * What a decision node asks, tidied into the document it is kept as, or
+     * null on every other kind.
+     *
+     * Blank options are dropped and repeated ones kept once, a noul keeps only
+     * the `true` and `false` it is keyed on, a threshold is held to 0..1, and
+     * the branching question is kept only where it names one of the node's
+     * choices - an option is a name an edge can carry, a score is not. What a
+     * save refuses is what would make the answers unaddressable: a key a later
+     * node could not name, two questions under one key, or an option too long
+     * for the edge that has to carry it. Issue #577.
+     */
+    private fun decisionSpecOf(node: WorkflowNodeInput, refusing: Boolean): String? {
+        if (node.kind != NodeKind.DECISION) return null
+        val questions = node.decisionQuestions.orEmpty().mapNotNull { asked ->
+            val key = asked.key.trim()
+            if (key.isEmpty()) return@mapNotNull null
+            if (refusing && !REFERENCEABLE.matches(key)) throw DecisionQuestionKeyInvalidException(key)
+            val options = asked.options.orEmpty()
+                .map { DecisionOption(it.name.trim(), it.description?.trim().orEmpty()) }
+                .filter { it.name.isNotEmpty() }
+                .distinctBy { it.name }
+                .filter { asked.kind != DecisionQuestionKind.NOUL || it.name == NOUL_TRUE || it.name == NOUL_FALSE }
+            if (refusing) {
+                options.firstOrNull { it.name.length > MAX_OPTION_LENGTH }
+                    ?.let { throw DecisionOptionTooLongException(it.name, MAX_OPTION_LENGTH) }
+            }
+            DecisionQuestion(key = key, kind = asked.kind, instructions = asked.instructions.trim(), options = options)
+        }
+        if (refusing) {
+            questions.groupBy { it.key }.filterValues { it.size > 1 }.keys.firstOrNull()
+                ?.let { throw DecisionQuestionKeyTakenException(it) }
+        }
+        val branching = node.decisionBranchQuestion?.trim()
+            ?.takeIf { key -> questions.any { it.key == key && it.kind == DecisionQuestionKind.CHOICE } }
+        return DecisionSpec.write(
+            DecisionSpec(questions, branching, node.decisionThreshold?.coerceIn(0.0, 1.0)),
+            mapper,
         )
     }
 
@@ -577,6 +651,18 @@ class WorkflowGraphAPI(
          */
         if (node.kind == NodeKind.IMAGE) {
             return IMAGE_PARAMETERS
+                .map { name -> sent[name]?.let { mappingOf(it, refusing) } ?: NodeMapping(name = name) }
+                .toMutableList()
+        }
+
+        /*
+         * A decision node has exactly one parameter too: the state its
+         * questions are about. Fixed for the same reason the image node's
+         * prompt is - without a branch here it would fall through to the
+         * action one and keep nothing.
+         */
+        if (node.kind == NodeKind.DECISION) {
+            return DECISION_PARAMETERS
                 .map { name -> sent[name]?.let { mappingOf(it, refusing) } ?: NodeMapping(name = name) }
                 .toMutableList()
         }
@@ -752,6 +838,21 @@ class WorkflowGraphAPI(
         if (shape.workspaceId != workspaceId) throw ObjectNotInCatalogueException(objectId)
     }
 
+    /**
+     * A decision node asks one of the workspace's decision models, and only its
+     * own workspace's: the model's provider holds the key it is asked with.
+     * Refused as not being in the workspace whether it is another's or not a
+     * decision model at all - both are a model this node cannot ask. Issue #577.
+     */
+    private fun requireDecisionModelBelongsToWorkspace(workspaceId: Long, node: WorkflowNodeInput) {
+        val modelId = node.decisionModelId ?: return
+        if (node.kind != NodeKind.DECISION) return
+        val model = models.findByIdOrNull(modelId)?.takeIf { it.kind == ModelKind.DECISION }
+            ?: throw DecisionModelNotInWorkspaceException(modelId)
+        val provider = providers.findByIdOrNull(model.providerId)
+        if (provider?.workspaceId != workspaceId) throw DecisionModelNotInWorkspaceException(modelId)
+    }
+
     /** An agent node runs one of the workspace's agents, and only its own workspace's. */
     private fun requireAgentBelongsToWorkspace(workspaceId: Long, node: WorkflowNodeInput) {
         val agentId = node.agentId ?: return
@@ -824,6 +925,14 @@ data class WorkflowNodeInput(
     val imageSize: String? = null,
     val imageQuality: String? = null,
     val imageStyle: String? = null,
+    /** The decision model a decision node asks; ignored on any other kind. Issue #577. */
+    val decisionModelId: Long? = null,
+    /** What a decision node asks, in order; ignored on any other kind. */
+    val decisionQuestions: List<DecisionQuestionInput>? = null,
+    /** The key of the choice question whose answer picks the edge; null only answers. */
+    val decisionBranchQuestion: String? = null,
+    /** How sure an answer has to be to be taken, 0 to 1; null takes every answer. */
+    val decisionThreshold: Double? = null,
     val outputName: String? = null,
     val icon: String? = null,
     val orientation: NodeOrientation? = null,
@@ -888,7 +997,30 @@ data class WorkflowEdgeInput(
     val target: String,
     /** Which way out of a condition it leaves by; absent for every other edge. */
     val branch: EdgeBranch? = null,
+    /** Which option of a decision an OPTION edge leaves by; ignored on every other edge. */
+    val option: String? = null,
 )
+
+/** One question a decision node asks. Issue #577. */
+data class DecisionQuestionInput(
+    val key: String,
+    val kind: DecisionQuestionKind,
+    val instructions: String,
+    /** A choice's options, a score's levels lowest first, or a noul's `true` and `false`. */
+    val options: List<DecisionOptionInput>? = null,
+)
+
+data class DecisionOptionInput(val name: String, val description: String? = null)
+
+/** One question a decision node asks, as it is kept. */
+data class DecisionQuestionView(
+    val key: String,
+    val kind: DecisionQuestionKind,
+    val instructions: String,
+    val options: List<DecisionOptionView>,
+)
+
+data class DecisionOptionView(val name: String, val description: String)
 
 data class WorkflowGraphInput(
     val nodes: List<WorkflowNodeInput>,
@@ -917,6 +1049,14 @@ data class WorkflowNodeView(
     val imageSize: String?,
     val imageQuality: String?,
     val imageStyle: String?,
+    /** The decision model a decision node asks. */
+    val decisionModelId: Long?,
+    /** What a decision node asks; empty on every other kind. */
+    val decisionQuestions: List<DecisionQuestionView>,
+    /** The choice question whose answer picks the edge; null only answers. */
+    val decisionBranchQuestion: String?,
+    /** How sure an answer has to be to be taken; null takes every answer. */
+    val decisionThreshold: Double?,
     val outputName: String?,
     val icon: String?,
     /** Which way round it faces on the canvas; null is left to right. */
@@ -968,6 +1108,17 @@ data class WorkflowNodeView(
         imageSize = node.imageSize,
         imageQuality = node.imageQuality,
         imageStyle = node.imageStyle,
+        decisionModelId = node.decisionModelId,
+        decisionQuestions = DecisionSpec.read(node.decisionSpec).questions.map { question ->
+            DecisionQuestionView(
+                question.key,
+                question.kind,
+                question.instructions,
+                question.options.map { DecisionOptionView(it.name, it.description) },
+            )
+        },
+        decisionBranchQuestion = DecisionSpec.read(node.decisionSpec).branchQuestion,
+        decisionThreshold = DecisionSpec.read(node.decisionSpec).threshold,
         outputName = node.outputName,
         icon = node.icon,
         orientation = node.orientation,
@@ -1014,11 +1165,14 @@ data class WorkflowEdgeView(
     val source: String,
     val target: String,
     val branch: EdgeBranch? = null,
+    /** Which option of a decision an OPTION edge leaves by. */
+    val option: String? = null,
 ) {
     constructor(edge: WorkflowEdge) : this(
         source = edge.sourceKey,
         target = edge.targetKey,
         branch = edge.branch,
+        option = edge.branchOption,
     )
 }
 
@@ -1125,6 +1279,38 @@ private const val MAX_MULTIPLIER = 10.0
 private const val NO_JITTER = 0.0
 private const val FULL_JITTER = 1.0
 private const val MAX_BUDGET_SECONDS = 86_400
+
+/** The widest option name an edge can carry: `workflow_edge.branch_option`. */
+private const val MAX_OPTION_LENGTH = 64
+
+/** The two sides of a noul, which its criteria object is keyed on. */
+private const val NOUL_TRUE = "true"
+private const val NOUL_FALSE = "false"
+
+/** The one parameter a decision node holds; `DecisionNodeRunner` reads the same. */
+const val DECISION_STATE = "state"
+
+class DecisionQuestionKeyInvalidException(val key: String) : RuntimeException(
+    "\"$key\" cannot name a question. A question key is letters, digits and underscores, " +
+        "starting with a letter - its answer is read under it",
+), Refusal {
+    override val arguments get() = mapOf("key" to key)
+}
+
+class DecisionQuestionKeyTakenException(val key: String) :
+    RuntimeException("Two questions are called \"$key\"; each answer comes back under its own key"), Refusal {
+    override val arguments get() = mapOf("key" to key)
+}
+
+class DecisionOptionTooLongException(val option: String, val limit: Int) :
+    RuntimeException("The option \"$option\" is longer than $limit characters, which an edge cannot carry"), Refusal {
+    override val arguments get() = mapOf("option" to option, "limit" to limit)
+}
+
+class DecisionModelNotInWorkspaceException(val id: Long) :
+    RuntimeException("Decision model $id is not one of this workspace's decision models"), Refusal {
+    override val arguments get() = mapOf("id" to id)
+}
 
 class ValueHoldsPlaceholderException(parameter: String) : RuntimeException(
     "\"$parameter\" is a value holding {{...}}, which is sent as those characters. " +

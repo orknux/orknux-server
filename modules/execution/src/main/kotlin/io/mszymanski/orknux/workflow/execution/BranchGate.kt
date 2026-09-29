@@ -88,18 +88,27 @@ class BranchGate(
      * would open the path drawn for the case where it could not, which is the
      * one reading of an unmarked edge nobody means.
      */
-    fun follow(nodeKey: String, branch: EdgeBranch?) {
+    fun follow(nodeKey: String, branch: EdgeBranch?, option: String? = null) {
         val out = outgoing[nodeKey] ?: return
         taken += when (branch) {
             EdgeBranch.FAILURE -> out.filter { it.branch == EdgeBranch.FAILURE }
             null -> out.filterNot { it.branch == EdgeBranch.FAILURE }
+            /*
+             * A decision's option: the edge carrying that option, and the
+             * unmarked ones - never another option's, and never the unsure
+             * edge, which is for the answer that was not taken.
+             */
+            EdgeBranch.OPTION -> out.filter { it.branch == null || (it.branch == EdgeBranch.OPTION && it.option == option) }
             else -> out.filter { it.branch == null || it.branch == branch }
         }
     }
 
-    /** Whether this node's answer decides anything: a condition with branch edges. */
+    /**
+     * Whether this node's answer decides anything: a condition with branch
+     * edges, or a decision with an edge for an option or for being unsure.
+     */
     fun branches(nodeKey: String): Boolean =
-        outgoing[nodeKey].orEmpty().any { it.branch == EdgeBranch.YES || it.branch == EdgeBranch.NO }
+        outgoing[nodeKey].orEmpty().any { it.branch != null && it.branch != EdgeBranch.FAILURE }
 
     /**
      * Whether a failure here is something the graph has an answer for.

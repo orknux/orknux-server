@@ -44,6 +44,20 @@
             <artifactId>openai-java</artifactId>
             <version>${openai.version}</version>
         </dependency>
+        <!--
+            Talking to a decision model (issue #577).
+
+            TypeSafe publishes SDKs for Python and JavaScript only, and Laya's
+            own client is Python, so there is no library to hand the protocol
+            to. Spring's RestClient over the documented POST /v1/systemone is
+            the next best thing: the request and the status handling are the
+            framework's, and the transport is ProxyRouter's own client, so the
+            call goes where an administrator allowed it like every other one.
+        -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-web</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>

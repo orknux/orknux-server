@@ -14,6 +14,8 @@ data class StepOutcome(
     val halt: Boolean = false,
     /** Which way out of a condition the run went; null for every other node. */
     val branch: EdgeBranch? = null,
+    /** Which option of a decision the run went by, on an [EdgeBranch.OPTION] branch. */
+    val option: String? = null,
     /**
      * Set on [StepStatus.WAITING]: how long to leave the step alone before
      * running it again. Whatever is carrying the run spends it.
@@ -30,6 +32,18 @@ data class StepOutcome(
  * the waits it is checking - and so the interface can draw the same sentence
  * about it that the engine will act on.
  */
+/**
+ * A step has parked, and its WAITING is written.
+ *
+ * Whatever wakes a parked step looks for WAITING, so something that arrived
+ * while the step was still deciding to park found nothing to wake - the turn
+ * had read its inbox, the answer landed, and then the step parked for the
+ * whole of its wait. Told after the fact, whoever owns [sessionId] can look
+ * again. Published rather than called, because this module knows nothing of
+ * sessions.
+ */
+data class StepParked(val executionId: Long, val nodeKey: String, val sessionId: Long?)
+
 data class RetryPolicy(
     val attempts: Int,
     /** The wait before the second attempt, and the whole of it at [NO_GROWTH]. */
@@ -193,6 +207,8 @@ class StepRunner(
     private val metrics: WorkflowRunMetrics,
     /** Where a running step is registered, so a stop can reach it mid-call. Issue #440. */
     private val interrupts: StepInterrupts,
+    /** Told when a step has parked; see [StepParked]. */
+    private val published: org.springframework.context.ApplicationEventPublisher,
 ) {
 
     /**
@@ -282,6 +298,7 @@ class StepRunner(
         if (result.status == StepStatus.WAITING) {
             step.status = StepStatus.WAITING
             steps.save(step)
+            published.publishEvent(StepParked(executionId, nodeKey, step.sessionId))
 
             // Once, on the way in: a wait that asks the same question every
             // thirty seconds should not fill the log with what it is still doing.
@@ -300,6 +317,7 @@ class StepRunner(
         // know which edges this one took, and the answer is not recoverable
         // from the statuses alone - a node with no runtime is skipped too.
         step.branch = result.branch
+        step.branchOption = result.option.takeIf { result.branch == EdgeBranch.OPTION }
         step.finishedAt = OffsetDateTime.now()
         steps.save(step)
 
@@ -317,7 +335,7 @@ class StepRunner(
             if (result.status == StepStatus.COMPLETED) LogLevel.SUCCESS else LogLevel.INFO,
             result.output ?: "${step.name} ${result.status.name.lowercase()}",
         )
-        return StepOutcome(result.status, result.output, result.halt, result.branch)
+        return StepOutcome(result.status, result.output, result.halt, result.branch, result.option)
     }
 
     /**
@@ -424,7 +442,14 @@ class StepRunner(
     private fun skippedAsDisabled(step: ExecutionStep): StepResult = StepResult(
         StepStatus.SKIPPED,
         DISABLED_REASON,
-        branch = EdgeBranch.YES.takeIf { step.kind == NodeKind.CONDITION },
+        branch = when (step.kind) {
+            NodeKind.CONDITION -> EdgeBranch.YES
+            // A decision nobody asked has no answer to go by, which is exactly
+            // what its unsure edge is drawn for; following every option instead
+            // would run the branches it exists to choose between. Issue #577.
+            NodeKind.DECISION -> EdgeBranch.UNSURE
+            else -> null
+        },
     )
 
     /**

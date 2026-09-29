@@ -1176,6 +1176,8 @@ class ComponentImporter(
                     imageSize = drawn.text("imageSize"),
                     imageQuality = drawn.text("imageQuality"),
                     imageStyle = drawn.text("imageStyle"),
+                    // Absent from every envelope written before decision nodes.
+                    decisionSpec = drawn.text("decisionSpec"),
                     outputName = drawn.text("outputName"),
                     orientation = drawn.enumOrNull<NodeOrientation>("orientation", component),
                     icon = drawn.text("icon"),
@@ -1245,6 +1247,7 @@ class ComponentImporter(
                     sourceKey = source,
                     targetKey = target,
                     branch = edge.enumOrNull<EdgeBranch>("branch", component),
+                    branchOption = edge.text("option"),
                 )
             },
         )

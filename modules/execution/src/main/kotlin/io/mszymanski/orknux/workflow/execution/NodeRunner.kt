@@ -44,6 +44,11 @@ data class StepResult(
      * Null everywhere else, which is every node that asks nothing.
      */
     val branch: EdgeBranch? = null,
+    /**
+     * Which option, where [branch] is [EdgeBranch.OPTION]: the one a decision
+     * node's choice picked. Null everywhere else.
+     */
+    val option: String? = null,
 ) {
     init {
         require(status == StepStatus.COMPLETED || status == StepStatus.SKIPPED || status == StepStatus.WAITING) {

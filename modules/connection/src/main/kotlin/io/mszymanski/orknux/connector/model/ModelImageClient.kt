@@ -210,6 +210,9 @@ class ModelImageClient(
             "${provider.name} runs Ollama, which has no image generation. " +
                 "Run an image server beside it and add that as an OpenAI provider."
 
+        ProviderType.SYSTEM_ONE ->
+            "${provider.name} is a decision model: it answers questions with probabilities and draws nothing."
+
         ProviderType.OPENAI, ProviderType.AZURE_OPENAI -> null
     }
 

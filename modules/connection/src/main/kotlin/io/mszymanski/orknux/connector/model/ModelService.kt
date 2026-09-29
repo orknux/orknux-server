@@ -266,6 +266,7 @@ class ModelService(
         if (models.findByProviderIdAndName(input.providerId, name) != null) {
             throw ModelNameTakenException(name)
         }
+        requireKindOffered(provider, input.kind ?: ModelKind.CHAT)
 
         val model = models.save(
             LlmModel(
@@ -326,6 +327,7 @@ class ModelService(
             throw ModelNameTakenException(name)
         }
 
+        requireKindOffered(provider, input.kind ?: model.kind)
         model.providerId = providerId
         model.name = name
         model.modelId = modelId

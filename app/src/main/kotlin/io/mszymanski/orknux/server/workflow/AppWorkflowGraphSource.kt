@@ -148,6 +148,8 @@ class AppWorkflowGraphSource(
                     imageSize = node.imageSize,
                     imageQuality = node.imageQuality,
                     imageStyle = node.imageStyle,
+                    decisionModelId = node.decisionModelId,
+                    decisionSpec = node.decisionSpec,
                     outputObjectId = node.outputObjectId,
                     // Which trigger this node stands for, so a run started by
                     // one of two triggers can tell which half of the graph is
@@ -179,7 +181,12 @@ class AppWorkflowGraphSource(
                 drawn.filterNot { it.sourceKey in declared || it.targetKey in declared },
                 savedInto,
             ).map {
-                GraphEdge(it.sourceKey, it.targetKey, it.branch?.let { branch -> EdgeBranch.valueOf(branch.name) })
+                GraphEdge(
+                    it.sourceKey,
+                    it.targetKey,
+                    it.branch?.let { branch -> EdgeBranch.valueOf(branch.name) },
+                    it.branchOption,
+                )
             },
         )
     }
@@ -201,6 +208,7 @@ class AppWorkflowGraphSource(
                         sourceKey = arriving.sourceKey,
                         targetKey = leaving.targetKey,
                         branch = arriving.branch,
+                        branchOption = arriving.branchOption,
                     )
                 }
             }

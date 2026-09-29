@@ -66,6 +66,14 @@ enum class NodeKind {
      * read off what the run is carrying still reads what that agent was handed.
      */
     SESSION,
+
+    /**
+     * Asks a decision model typed questions about what the run carries - Jev,
+     * or a self-hosted Laya - and hands on the answers with their probabilities.
+     * Its choice question may branch the graph, one edge per option, with an
+     * edge of its own for an answer too unsure to take. Issue #577.
+     */
+    DECISION,
 }
 
 /**
@@ -278,6 +286,22 @@ class WorkflowNode(
     var imageStyle: String? = null,
 
     /**
+     * The decision model a [NodeKind.DECISION] node asks; only that kind has
+     * one. Picked on the node, the way an image node picks its model, rather
+     * than taken from a workspace default. Issue #577.
+     */
+    @Column(name = "decision_model_id")
+    var decisionModelId: Long? = null,
+
+    /**
+     * What a [NodeKind.DECISION] node asks: its questions, which one branches,
+     * and the threshold an answer has to clear - see [DecisionSpec]. Null asks
+     * nothing. Only that kind has one.
+     */
+    @Column(name = "decision_spec", columnDefinition = "text")
+    var decisionSpec: String? = null,
+
+    /**
      * The shape an object node makes, when it uses one the workspace has saved.
      *
      * Null is a shape of the node's own: its fields are whatever it holds. A
@@ -463,6 +487,8 @@ class WorkflowNode(
         imageSize = imageSize,
         imageQuality = imageQuality,
         imageStyle = imageStyle,
+        decisionModelId = decisionModelId,
+        decisionSpec = decisionSpec,
         positionX = positionX,
         positionY = positionY,
         yesLabel = yesLabel,
@@ -505,11 +531,24 @@ class WorkflowEdge(
     @Enumerated(EnumType.STRING)
     @Column(length = 8)
     val branch: EdgeBranch? = null,
+
+    /**
+     * Which option an [EdgeBranch.OPTION] edge leaves by: one of the names the
+     * decision node's branching question offers. Null on every other edge.
+     * Issue #577.
+     */
+    @Column(name = "branch_option", length = 64)
+    val branchOption: String? = null,
 ) {
 
     /** The same edge, drawn in another workflow. See [WorkflowNode.copyInto]. */
-    fun copyInto(workflowId: Long) =
-        WorkflowEdge(workflowId = workflowId, sourceKey = sourceKey, targetKey = targetKey, branch = branch)
+    fun copyInto(workflowId: Long) = WorkflowEdge(
+        workflowId = workflowId,
+        sourceKey = sourceKey,
+        targetKey = targetKey,
+        branch = branch,
+        branchOption = branchOption,
+    )
 }
 
 /** The ways out of a node, as the edges leaving it are labelled. */
@@ -527,6 +566,16 @@ enum class EdgeBranch {
      * untouched by it.
      */
     FAILURE,
+
+    /**
+     * One option of a decision node's choice, named by [WorkflowEdge.branchOption].
+     * The options are the node's to name, so the branch says only that the
+     * edge is one of them. Issue #577.
+     */
+    OPTION,
+
+    /** The way out of a decision node whose answer did not clear its threshold. */
+    UNSURE,
 }
 
 interface WorkflowNodeRepository : JpaRepository<WorkflowNode, Long> {

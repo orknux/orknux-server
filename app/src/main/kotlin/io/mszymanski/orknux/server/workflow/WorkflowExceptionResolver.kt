@@ -224,6 +224,11 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ImportCycleException,
             is ConditionNotInCatalogueException,
             is AgentOutputNodeInvalidException,
+            /* A decision node's question keys, options and model, refused at save. Issue #577. */
+            is DecisionQuestionKeyInvalidException,
+            is DecisionQuestionKeyTakenException,
+            is DecisionOptionTooLongException,
+            is DecisionModelNotInWorkspaceException,
             /* A size, quality or style the node's model does not take, refused at save. Issues #423, #431. */
             is ImageParameterInvalidException,
             /* A preset with no name, a side off the pixel range, or an order that misses one. Issue #431. */

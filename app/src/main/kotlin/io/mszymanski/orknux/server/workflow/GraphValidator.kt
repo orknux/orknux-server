@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.workflow
 
+import io.mszymanski.orknux.connector.model.DecisionQuestionKind
 import io.mszymanski.orknux.server.action.ActionParamView
 import io.mszymanski.orknux.server.action.ActionSubtype
 import io.mszymanski.orknux.server.action.WorkflowAction
@@ -249,6 +250,52 @@ class GraphValidator(
         }
 
         NodeKind.SESSION -> Ports(unresolved = "no session key".takeIf { keyOf(node).isEmpty() })
+
+        /*
+         * A decision node reads a state and answers its questions.
+         *
+         * Each answer is an object under its question's key, and the fields
+         * worth pointing at are offered as dotted paths under it: the option a
+         * choice picked, the value a score came to, the probability a noul
+         * holds, how confident the model was, and whether the answer cleared
+         * the node's threshold. Named, all of it stands one level further down
+         * and beside what reached the node, the way an image node's picture
+         * does; unnamed, the answers are what goes on. Issue #577.
+         */
+        NodeKind.DECISION -> {
+            val named = node.outputName?.trim().orEmpty()
+            val spec = DecisionSpec.read(node.decisionSpec, mapper)
+            val prefix = if (named.isEmpty()) "" else "$named."
+            val answers = spec.questions.flatMap { question ->
+                val at = "$prefix${question.key}"
+                listOf(ActionParamView(at, ValueType.OBJECT)) + when (question.kind) {
+                    DecisionQuestionKind.CHOICE -> listOf(
+                        ActionParamView("$at.choice", ValueType.STRING),
+                        ActionParamView("$at.confidence", ValueType.NUMBER),
+                    )
+
+                    DecisionQuestionKind.SCORE -> listOf(
+                        ActionParamView("$at.score", ValueType.NUMBER),
+                        ActionParamView("$at.confidence", ValueType.NUMBER),
+                    )
+
+                    DecisionQuestionKind.NOUL -> listOf(
+                        ActionParamView("$at.noul", ValueType.NUMBER),
+                        ActionParamView("$at.holds", ValueType.BOOLEAN),
+                    )
+                } + ActionParamView("$at.sure", ValueType.BOOLEAN)
+            }
+            Ports(
+                inputs = reads(node.mappings),
+                outputs = if (named.isEmpty()) answers else listOf(ActionParamView(named, ValueType.OBJECT)) + answers,
+                passThrough = named.isNotEmpty(),
+                unresolved = when {
+                    node.decisionModelId == null -> "no decision model"
+                    spec.questions.isEmpty() -> "no questions to ask"
+                    else -> null
+                },
+            )
+        }
     }
 
     /** What a session node's key is set to, written or referenced; blank if neither. */
@@ -458,6 +505,9 @@ class GraphValidator(
                     message = "${source.name} does not handle failure, so nothing ever leaves it for ${target.name}.",
                 )
             }
+            decisionEdgeProblem(source, edge)?.let {
+                problems += GraphProblem(severity = GraphProblemSeverity.ERROR, nodeKey = target.nodeKey, message = it)
+            }
         }
 
         /*
@@ -535,6 +585,47 @@ class GraphValidator(
                 )
             }
 
+            /*
+             * The ways out a decision offers and nothing is drawn from. Advice,
+             * like an unwired fallback: the handle is there to be drawn from,
+             * and there is a moment between the two - but an option with no
+             * edge is a run that picks it and stops there.
+             */
+            if (node.kind == NodeKind.DECISION) {
+                val spec = DecisionSpec.read(node.decisionSpec, mapper)
+                val leaving = known.filter { it.sourceKey == node.nodeKey }
+                spec.branching()?.let { question ->
+                    question.options
+                        .filter { option -> leaving.none { it.branch == EdgeBranch.OPTION && it.branchOption == option.name } }
+                        .forEach { option ->
+                            problems += GraphProblem(
+                                severity = GraphProblemSeverity.WARNING,
+                                nodeKey = node.nodeKey,
+                                message = "${node.name} has no line for \"${option.name}\", so a run that picks it stops there.",
+                            )
+                        }
+                    if (spec.threshold != null && leaving.none { it.branch == EdgeBranch.UNSURE }) {
+                        problems += GraphProblem(
+                            severity = GraphProblemSeverity.WARNING,
+                            nodeKey = node.nodeKey,
+                            message = "${node.name} has no line for an unsure answer, so a run under its threshold stops there.",
+                        )
+                    }
+                }
+                spec.questions.forEach { question ->
+                    val fewest = if (question.kind == DecisionQuestionKind.NOUL) 0 else 2
+                    if (question.options.size < fewest) {
+                        problems += GraphProblem(
+                            severity = GraphProblemSeverity.WARNING,
+                            nodeKey = node.nodeKey,
+                            message = "${node.name} asks \"${question.key}\" with fewer than two " +
+                                (if (question.kind == DecisionQuestionKind.SCORE) "levels" else "options") +
+                                ", so the model has nothing to choose between.",
+                        )
+                    }
+                }
+            }
+
             // A session nothing is wired to is a conversation nobody joins.
             if (node.kind == NodeKind.SESSION && known.none { it.sourceKey == node.nodeKey }) {
                 problems += GraphProblem(
@@ -587,6 +678,39 @@ class GraphValidator(
         }
 
         return problems.distinct().sortedBy { it.severity.ordinal }
+    }
+
+    /**
+     * Why an edge out of this node could never be taken, where it is one of a
+     * decision's ways out - or null where it is sound.
+     *
+     * The gate follows an option edge only where the node picked that option,
+     * so an option the node does not offer, or an option or unsure edge out of
+     * a node that decides nothing, is a line no run can reach. Refused rather
+     * than warned about, for the reason an impossible failure edge is: the
+     * graph looks exactly like one that works. And a condition's YES or NO out
+     * of a decision would never be taken either, since a decision answers with
+     * options. Issue #577.
+     */
+    private fun decisionEdgeProblem(source: WorkflowNode, edge: WorkflowEdge): String? {
+        val branching = source.takeIf { it.kind == NodeKind.DECISION }
+            ?.let { DecisionSpec.read(it.decisionSpec, mapper).branching() }
+        return when (edge.branch) {
+            EdgeBranch.OPTION -> when {
+                branching == null -> "${source.name} does not branch on a choice, so no option ever leaves it."
+                branching.options.none { it.name == edge.branchOption } ->
+                    "${source.name} does not offer \"${edge.branchOption.orEmpty()}\", so nothing ever leaves it by that line."
+                else -> null
+            }
+
+            EdgeBranch.UNSURE ->
+                "${source.name} does not branch on a choice, so nothing ever leaves it unsure.".takeIf { branching == null }
+
+            EdgeBranch.YES, EdgeBranch.NO ->
+                "${source.name} answers with options, not yes or no.".takeIf { source.kind == NodeKind.DECISION }
+
+            else -> null
+        }
     }
 
     /** What has reached each node, following the edges from the ones that start. */

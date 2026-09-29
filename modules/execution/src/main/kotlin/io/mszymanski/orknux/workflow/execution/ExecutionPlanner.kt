@@ -47,7 +47,7 @@ data class ExecutionPlan(
  * a condition, and means the same here as it does live: every edge out of the
  * node leads somewhere.
  */
-data class CarriedExit(val nodeKey: String, val branch: EdgeBranch? = null)
+data class CarriedExit(val nodeKey: String, val branch: EdgeBranch? = null, val option: String? = null)
 
 /**
  * Where a re-run picks up: the run to read what happened from, and the node to
@@ -173,6 +173,8 @@ class ExecutionPlanner(
                     imageSize = node.imageSize,
                     imageQuality = node.imageQuality,
                     imageStyle = node.imageStyle,
+                    decisionModelId = node.decisionModelId,
+                    decisionSpec = node.decisionSpec,
                     outputObjectId = node.outputObjectId,
                     outputName = node.outputName,
                     // The run's own copy of what to pass; see ExecutionStep.
@@ -201,6 +203,7 @@ class ExecutionPlanner(
                     status = before?.status ?: StepStatus.PENDING,
                     carriedOver = before != null,
                     branch = before?.branch,
+                    branchOption = before?.branchOption,
                     startedAt = before?.startedAt,
                     finishedAt = before?.finishedAt,
                     input = before?.input,
@@ -308,7 +311,7 @@ class ExecutionPlanner(
          */
         val carried = inOrder
             .filter { it.status == StepStatus.COMPLETED || it.status == StepStatus.FAILED }
-            .map { CarriedExit(it.nodeKey, it.branch) }
+            .map { CarriedExit(it.nodeKey, it.branch, it.branchOption) }
 
         // The open step, in the state it was left in, and everything the run had
         // not reached. A run walks one step at a time, so this is at most one
@@ -403,8 +406,8 @@ class ExecutionPlanner(
                  */
                 throw BranchNotRecordedException(node.key)
             }
-            gate.follow(node.key, step.branch)
-            exits += CarriedExit(node.key, step.branch)
+            gate.follow(node.key, step.branch, step.branchOption)
+            exits += CarriedExit(node.key, step.branch, step.branchOption)
         }
 
         // The chosen node is inside a branch the earlier run did not take.

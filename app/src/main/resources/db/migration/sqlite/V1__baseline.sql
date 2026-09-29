@@ -403,9 +403,12 @@ CREATE TABLE execution_step
     image_size                   varchar(16),
     image_quality                varchar(16),
     image_style                  varchar(16),
+    decision_model_id            integer,
+    decision_spec                text,
     output_object_id             integer,
     output_name                  varchar(60),
     branch                       varchar(8),
+    branch_option                varchar(64),
     carried_over                 boolean not null default false,
     retry_attempts               integer,
     retry_backoff_seconds        integer,
@@ -420,8 +423,8 @@ CREATE TABLE execution_step
     session_id                   integer,
     enabled                      boolean not null default true,
     constraint uk_execution_step UNIQUE (execution_id, node_key),
-    constraint ck_execution_step_branch CHECK (((branch IS NULL) OR ((branch) IN ('YES', 'NO', 'FAILURE')))),
-    constraint ck_execution_step_kind CHECK (((kind) IN ('TRIGGER', 'AGENT', 'ACTION', 'CONDITION', 'OBJECT', 'IMAGE'))),
+    constraint ck_execution_step_branch CHECK (((branch IS NULL) OR ((branch) IN ('YES', 'NO', 'FAILURE', 'OPTION', 'UNSURE')))),
+    constraint ck_execution_step_kind CHECK (((kind) IN ('TRIGGER', 'AGENT', 'ACTION', 'CONDITION', 'OBJECT', 'IMAGE', 'DECISION'))),
     constraint ck_execution_step_status CHECK (((status) IN ('PENDING', 'RUNNING', 'WAITING', 'COMPLETED', 'FAILED', 'SKIPPED'))),
     constraint execution_step_execution_id_fkey FOREIGN KEY (execution_id) REFERENCES workflow_execution(id) ON DELETE CASCADE
 );
@@ -501,7 +504,7 @@ CREATE TABLE llm_model
     speech_skip_empty_lines      boolean not null default false,
     image_cost_per_image         numeric(12,4),
     constraint uk_llm_model_name UNIQUE (provider_id, name),
-    constraint ck_llm_model_kind CHECK (((kind) IN ('CHAT', 'EMBEDDING', 'COMPLETION', 'TRANSCRIPTION', 'SPEECH', 'IMAGE'))),
+    constraint ck_llm_model_kind CHECK (((kind) IN ('CHAT', 'EMBEDDING', 'COMPLETION', 'TRANSCRIPTION', 'SPEECH', 'IMAGE', 'DECISION'))),
     constraint ck_llm_model_reset CHECK (((reset_interval) IN ('DAILY', 'WEEKLY', 'MONTHLY', 'NEVER'))),
     constraint llm_model_provider_id_fkey FOREIGN KEY (provider_id) REFERENCES model_provider(id) ON DELETE CASCADE
 );
@@ -681,7 +684,7 @@ CREATE TABLE model_provider
     -- this is the connection module's.
     constraint ck_model_provider_credential CHECK (secret_variable_id IS NULL OR secret IS NULL),
     constraint ck_model_provider_status CHECK (((status) IN ('NOT_CONFIGURED', 'NOT_CHECKED', 'CONNECTED', 'FAILED'))),
-    constraint ck_model_provider_type CHECK (((type) IN ('OPENAI', 'ANTHROPIC', 'AZURE_OPENAI', 'OLLAMA')))
+    constraint ck_model_provider_type CHECK (((type) IN ('OPENAI', 'ANTHROPIC', 'AZURE_OPENAI', 'OLLAMA', 'SYSTEM_ONE')))
 );
 
 CREATE TABLE model_usage_day
@@ -1251,6 +1254,7 @@ CREATE TABLE workflow_edge
     source_key                   varchar(64) not null,
     target_key                   varchar(64) not null,
     branch                       varchar(8),
+    branch_option                varchar(64),
     constraint uk_workflow_edge UNIQUE (workflow_id, source_key, target_key),
     constraint workflow_edge_workflow_id_fkey FOREIGN KEY (workflow_id) REFERENCES workflow(id) ON DELETE CASCADE
 );
@@ -1375,6 +1379,8 @@ CREATE TABLE workflow_node
     image_size                   varchar(16),
     image_quality                varchar(16),
     image_style                  varchar(16),
+    decision_model_id            integer,
+    decision_spec                text,
     output_object_id             integer,
     output_node_key              varchar(64),
     yes_label                    varchar(40),
@@ -1393,7 +1399,7 @@ CREATE TABLE workflow_node
     constraint ck_workflow_node_retry_max_wait CHECK (((retry_max_wait_seconds IS NULL) OR ((retry_max_wait_seconds >= 1) AND (retry_max_wait_seconds <= 3600)))),
     constraint ck_workflow_node_retry_jitter CHECK (((retry_jitter IS NULL) OR ((retry_jitter >= 0) AND (retry_jitter <= 1)))),
     constraint ck_workflow_node_retry_budget CHECK (((retry_budget_seconds IS NULL) OR ((retry_budget_seconds >= 1) AND (retry_budget_seconds <= 86400)))),
-    constraint ck_workflow_node_kind CHECK (((kind) IN ('TRIGGER', 'AGENT', 'ACTION', 'CONDITION', 'OBJECT', 'SESSION', 'IMAGE'))),
+    constraint ck_workflow_node_kind CHECK (((kind) IN ('TRIGGER', 'AGENT', 'ACTION', 'CONDITION', 'OBJECT', 'SESSION', 'IMAGE', 'DECISION'))),
     constraint workflow_node_action_id_fkey FOREIGN KEY (action_id) REFERENCES workflow_action(id) ON DELETE SET NULL,
     constraint workflow_node_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES agent(id) ON DELETE SET NULL,
     constraint workflow_node_condition_id_fkey FOREIGN KEY (condition_id) REFERENCES workflow_condition(id) ON DELETE SET NULL,

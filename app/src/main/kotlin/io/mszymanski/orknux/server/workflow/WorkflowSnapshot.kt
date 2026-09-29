@@ -42,6 +42,8 @@ object WorkflowSnapshot {
                     "imageSize" to node.imageSize,
                     "imageQuality" to node.imageQuality,
                     "imageStyle" to node.imageStyle,
+                    "decisionModelId" to node.decisionModelId,
+                    "decisionSpec" to node.decisionSpec,
                     "outputObjectId" to node.outputObjectId,
                     "triggerId" to node.triggerId,
                     "outputName" to node.outputName,
@@ -65,7 +67,12 @@ object WorkflowSnapshot {
                 )
             },
             "edges" to graph.edges.map { edge ->
-                mapOf("source" to edge.source, "target" to edge.target, "branch" to edge.branch?.name)
+                mapOf(
+                    "source" to edge.source,
+                    "target" to edge.target,
+                    "branch" to edge.branch?.name,
+                    "option" to edge.option,
+                )
             },
         ),
     )
@@ -93,6 +100,10 @@ object WorkflowSnapshot {
                     imageSize = text(node, "imageSize"),
                     imageQuality = text(node, "imageQuality"),
                     imageStyle = text(node, "imageStyle"),
+                    // Absent from every snapshot published before decision
+                    // nodes, which is every node that is not one. Issue #577.
+                    decisionModelId = number(node, "decisionModelId"),
+                    decisionSpec = text(node, "decisionSpec"),
                     // Absent from every snapshot published before answers had
                     // shapes, and read as prose - which is what it was.
                     outputObjectId = number(node, "outputObjectId"),
@@ -148,6 +159,7 @@ object WorkflowSnapshot {
                     source = text(edge, "source").orEmpty(),
                     target = text(edge, "target").orEmpty(),
                     branch = text(edge, "branch")?.let { EdgeBranch.valueOf(it) },
+                    option = text(edge, "option"),
                 )
             },
         )

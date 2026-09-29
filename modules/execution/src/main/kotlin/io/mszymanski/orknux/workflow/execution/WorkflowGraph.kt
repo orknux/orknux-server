@@ -16,6 +16,12 @@ enum class NodeKind {
 
     /** Draws a picture from a prompt, with one of the workspace's image models. */
     IMAGE,
+
+    /**
+     * Asks a decision model typed questions about what the run carries, and
+     * may send the run down the edge of the option it picked. Issue #577.
+     */
+    DECISION,
 }
 
 /**
@@ -71,6 +77,16 @@ data class GraphNode(
     val imageSize: String? = null,
     val imageQuality: String? = null,
     val imageStyle: String? = null,
+    /** The decision model a [NodeKind.DECISION] node asks; null on every other kind. */
+    val decisionModelId: Long? = null,
+    /**
+     * What a [NodeKind.DECISION] node asks: its questions, which of them
+     * branches and the threshold an answer has to clear, as the JSON document
+     * the node keeps. Text rather than a class here, because what a question is
+     * made of is the app's to say and a run only has to carry it to the runner
+     * that reads it.
+     */
+    val decisionSpec: String? = null,
     /** The shape an [NodeKind.AGENT] node's answer is held to; null is prose. */
     val outputObjectId: Long? = null,
     /**
@@ -173,15 +189,33 @@ enum class EdgeBranch {
      * rather than rewriting one.
      */
     FAILURE,
+
+    /**
+     * One option of a decision node's choice, named by the edge's [GraphEdge.option].
+     *
+     * A decision's ways out are the options somebody wrote, not a fixed pair,
+     * so the branch says only that this edge is one of them and the option says
+     * which. Issue #577.
+     */
+    OPTION,
+
+    /** The way out of a decision node whose answer did not clear its threshold. */
+    UNSURE,
 }
 
 /**
  * One edge, and which answer it carries.
  *
  * Null for everything that is not answering, which is most edges and every edge
- * drawn before branches existed.
+ * drawn before branches existed. [option] is set on an [EdgeBranch.OPTION] edge
+ * and on nothing else.
  */
-data class GraphEdge(val source: String, val target: String, val branch: EdgeBranch? = null)
+data class GraphEdge(
+    val source: String,
+    val target: String,
+    val branch: EdgeBranch? = null,
+    val option: String? = null,
+)
 
 /** A workflow as it stood when a run picked it up. */
 data class WorkflowGraph(

@@ -80,6 +80,8 @@ data class RunPlan @JsonCreator constructor(
 data class PlanExit @JsonCreator constructor(
     @JsonProperty("nodeKey") val nodeKey: String,
     @JsonProperty("branch") val branch: EdgeBranch? = null,
+    /** Which option, on an OPTION branch; absent from any history written before decisions. */
+    @JsonProperty("option") val option: String? = null,
 )
 
 /** One edge as the plan carries it, with the answer it leaves by. */
@@ -87,6 +89,8 @@ data class PlanEdge @JsonCreator constructor(
     @JsonProperty("source") val source: String,
     @JsonProperty("target") val target: String,
     @JsonProperty("branch") val branch: EdgeBranch? = null,
+    /** Which option an OPTION edge carries; absent from any history written before decisions. */
+    @JsonProperty("option") val option: String? = null,
 )
 
 /** A step that failed, and whose failure edge is the way the run went on. */
@@ -122,6 +126,8 @@ data class StepReport @JsonCreator constructor(
     @JsonProperty("halt") val halt: Boolean = false,
     /** Which way out of a condition the run went; null for every other node. */
     @JsonProperty("branch") val branch: EdgeBranch? = null,
+    /** Which option of a decision the run went by, on an OPTION branch. */
+    @JsonProperty("option") val option: String? = null,
     /**
      * Set when the step parked: how long before it is asked again.
      *
@@ -184,12 +190,12 @@ class ExecutionWorkflowImpl : ExecutionWorkflow {
          * does - a run that took different paths depending on which engine
          * carried it would be the worst kind of difference.
          */
-        val gate = BranchGate(plan.edges.map { GraphEdge(it.source, it.target, it.branch) }, plan.blocked.toSet())
+        val gate = BranchGate(plan.edges.map { GraphEdge(it.source, it.target, it.branch, it.option) }, plan.blocked.toSet())
 
         // A run that begins partway down starts with the exits an earlier run
         // took already open, or the first step it walks would have nothing
         // leading to it and be skipped as unreachable.
-        plan.carried.forEach { gate.follow(it.nodeKey, it.branch) }
+        plan.carried.forEach { gate.follow(it.nodeKey, it.branch, it.option) }
 
         for ((index, nodeKey) in plan.steps.withIndex()) {
             val unreached = plan.steps.size - index - 1
@@ -288,7 +294,7 @@ class ExecutionWorkflowImpl : ExecutionWorkflow {
             }
 
             val outcome = requireNotNull(report)
-            gate.follow(nodeKey, outcome.branch)
+            gate.follow(nodeKey, outcome.branch, outcome.option)
 
             /*
              * A condition that did not hold ends the run - unless it has

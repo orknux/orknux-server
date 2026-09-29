@@ -236,6 +236,8 @@ class ComponentExporter(
                 // brings nothing with it and the workspace it lands in supplies
                 // its own.
                 NodeKind.IMAGE -> emptyList()
+                // A decision node likewise: its model stays behind. Issue #577.
+                NodeKind.DECISION -> emptyList()
             }
         }.distinct()
     }
@@ -590,6 +592,7 @@ class ComponentExporter(
                         put("source", edge.sourceKey)
                         put("target", edge.targetKey)
                         put("branch", edge.branch?.name)
+                        put("option", edge.branchOption)
                     }
                 }
         }
@@ -640,6 +643,10 @@ class ComponentExporter(
         put("imageSize", held.imageSize.takeIf { held.kind == NodeKind.IMAGE })
         put("imageQuality", held.imageQuality.takeIf { held.kind == NodeKind.IMAGE })
         put("imageStyle", held.imageStyle.takeIf { held.kind == NodeKind.IMAGE })
+        // What a decision node asks, as the document it keeps: questions are
+        // words and options, and mean the same in every workspace. The model
+        // is left behind like an image node's. Issue #577.
+        put("decisionSpec", held.decisionSpec.takeIf { held.kind == NodeKind.DECISION })
         val mappings = putArray("mappings")
         held.mappings.forEach { mapping ->
             mappings.addObject().apply {

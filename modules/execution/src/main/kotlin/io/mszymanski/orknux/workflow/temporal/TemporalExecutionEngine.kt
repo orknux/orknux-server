@@ -61,8 +61,8 @@ class TemporalExecutionEngine(
             workflowName = plan.execution.workflowName,
             steps = plan.steps.map { it.nodeKey },
             input = input,
-            edges = plan.edges.map { PlanEdge(it.source, it.target, it.branch) },
-            carried = plan.carried.map { PlanExit(it.nodeKey, it.branch) },
+            edges = plan.edges.map { PlanEdge(it.source, it.target, it.branch, it.option) },
+            carried = plan.carried.map { PlanExit(it.nodeKey, it.branch, it.option) },
             blocked = plan.blocked.toList(),
         ))
 

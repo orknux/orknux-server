@@ -145,4 +145,44 @@ class BranchGateTest {
         assertThat(gate.mayRun("andThen")).isFalse()
         assertThat(gate.mayRun("later")).isFalse()
     }
+    /** decide -> (billing) bill, (returns) refund, (unsure) ask a person, and a log after it. Issue #577. */
+    private fun decision() = listOf(
+        GraphEdge("decide", "bill", EdgeBranch.OPTION, "billing"),
+        GraphEdge("decide", "refund", EdgeBranch.OPTION, "returns"),
+        GraphEdge("decide", "person", EdgeBranch.UNSURE),
+        GraphEdge("decide", "log"),
+    )
+
+    @Test
+    fun `a decision's option runs its own edge, and no other option's or the unsure one`() {
+        val gate = BranchGate(decision())
+        gate.follow("decide", EdgeBranch.OPTION, "returns")
+
+        assertThat(gate.mayRun("refund")).isTrue()
+        assertThat(gate.mayRun("bill")).isFalse()
+        assertThat(gate.mayRun("person")).isFalse()
+        // An unmarked edge is not part of the question, and is taken either way.
+        assertThat(gate.mayRun("log")).isTrue()
+        assertThat(gate.branches("decide")).isTrue()
+    }
+
+    @Test
+    fun `an unsure decision runs only the unsure edge`() {
+        val gate = BranchGate(decision())
+        gate.follow("decide", EdgeBranch.UNSURE)
+
+        assertThat(gate.mayRun("person")).isTrue()
+        assertThat(gate.mayRun("bill")).isFalse()
+        assertThat(gate.mayRun("refund")).isFalse()
+    }
+
+    @Test
+    fun `an option with no edge of its own opens none of the others`() {
+        val gate = BranchGate(decision())
+        gate.follow("decide", EdgeBranch.OPTION, "shipping")
+
+        assertThat(gate.mayRun("bill")).isFalse()
+        assertThat(gate.mayRun("refund")).isFalse()
+        assertThat(gate.mayRun("person")).isFalse()
+    }
 }

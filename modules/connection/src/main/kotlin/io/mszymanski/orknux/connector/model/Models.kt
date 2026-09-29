@@ -41,6 +41,15 @@ enum class ModelKind {
      * answer 404.
      */
     IMAGE,
+
+    /**
+     * A state and typed questions in, calibrated probabilities out: Jev, or a
+     * Laya served on the installation's own hardware. Not a language model at
+     * all - it writes nothing - which is why it lives only under a
+     * [ProviderType.SYSTEM_ONE] provider and is asked by [DecisionModelClient]
+     * and by nothing else. Issue #577.
+     */
+    DECISION,
 }
 
 /** How often a token quota starts again. */
@@ -87,6 +96,15 @@ enum class ProviderType {
     ANTHROPIC,
     AZURE_OPENAI,
     OLLAMA,
+
+    /**
+     * An endpoint speaking TypeSafe's `POST /v1/systemone`: its hosted Jev with
+     * a key, or a self-hosted Laya, whose `laya-serve` exposes the same API,
+     * with or without one. It answers questions rather than writing, so the
+     * only models under it are [ModelKind.DECISION] ones and nothing that
+     * talks to a chat model is ever pointed at it. Issue #577.
+     */
+    SYSTEM_ONE,
     ;
 
     /**
@@ -110,6 +128,8 @@ enum class ProviderType {
             OPENAI, AZURE_OPENAI -> 128
             OLLAMA -> 128
             ANTHROPIC -> 256
+            // Takes no tools at all; nothing offers it any.
+            SYSTEM_ONE -> 0
         }
 }
 
@@ -294,7 +314,10 @@ class ModelProvider(
      * setting up, which is not what happened.
      */
     fun configured(): Boolean = when (authMethod) {
-        ProviderAuthMethod.API_KEY -> credentialSet()
+        // A self-hosted Laya runs without a key unless its operator set
+        // LAYA_API_KEY, so for this type the key is optional and the endpoint
+        // is enough to be worth asking.
+        ProviderAuthMethod.API_KEY -> credentialSet() || type == ProviderType.SYSTEM_ONE
         ProviderAuthMethod.ENTRA_ID -> credentialSet() && !tenantId.isNullOrBlank() && !clientId.isNullOrBlank()
     }
 
@@ -329,6 +352,23 @@ class ModelProvider(
         return if (base.endsWith(OLLAMA_OPENAI_PATH)) base else "$base$OLLAMA_OPENAI_PATH"
     }
 
+    /**
+     * Where a [ProviderType.SYSTEM_ONE] provider's API begins: the host, with
+     * no `/v1` after it.
+     *
+     * TypeSafe documents `https://api.typesafe.ai/v1/systemone` and Laya serves
+     * the same path, so what somebody pastes may be the host, the host and
+     * `/v1`, or the whole call. All three mean the same provider, and the
+     * paths are put back on by whoever calls it - `/v1/systemone`,
+     * `/v1/models`, Laya's `/health` - rather than doubled.
+     */
+    fun systemOneBase(): String {
+        var base = endpoint.trim().trimEnd('/')
+        if (base.endsWith(SYSTEM_ONE_CALL)) base = base.removeSuffix(SYSTEM_ONE_CALL)
+        if (base.endsWith(SYSTEM_ONE_VERSION)) base = base.removeSuffix(SYSTEM_ONE_VERSION)
+        return base.trimEnd('/')
+    }
+
     /** Called after anything that could change whether it is worth checking. */
     fun forgetCheck() {
         status = if (configured()) ProviderStatus.NOT_CHECKED else ProviderStatus.NOT_CONFIGURED
@@ -339,6 +379,10 @@ class ModelProvider(
     private companion object {
         /** Ollama's OpenAI-compatible surface, which is not where it listens. */
         const val OLLAMA_OPENAI_PATH = "/v1"
+
+        /** The decision call, and the version segment in front of it. */
+        const val SYSTEM_ONE_CALL = "/systemone"
+        const val SYSTEM_ONE_VERSION = "/v1"
     }
 }
 
@@ -651,6 +695,27 @@ class ModelNameTakenException(name: String) :
     RuntimeException("A model named \"$name\" already exists on this provider")
 
 class ModelNameInvalidException : RuntimeException("A model name is required")
+
+/**
+ * A decision model under a provider that is not one, or anything else under a
+ * provider that is. The two speak different APIs entirely - a chat model sent
+ * `/v1/systemone` answers 404, and a decision model handed a conversation has
+ * nothing to say - so the pairing is refused where it is made. Issue #577.
+ */
+class ModelKindNotOfferedException(provider: String, kind: ModelKind) : RuntimeException(
+    if (kind == ModelKind.DECISION) {
+        "$provider is not a decision model provider, so it has no decision models"
+    } else {
+        "$provider is a decision model provider, so its models are decision models"
+    },
+)
+
+/** The one pairing of provider and model kind that can be called: see [ModelKindNotOfferedException]. */
+fun requireKindOffered(provider: ModelProvider, kind: ModelKind) {
+    if ((provider.type == ProviderType.SYSTEM_ONE) != (kind == ModelKind.DECISION)) {
+        throw ModelKindNotOfferedException(provider.name, kind)
+    }
+}
 
 class ModelIdInvalidException : RuntimeException("A model id is required")
 

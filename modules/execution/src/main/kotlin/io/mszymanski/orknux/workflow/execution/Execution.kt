@@ -239,6 +239,19 @@ class ExecutionStep(
     @Column(name = "image_style", length = 16)
     val imageStyle: String? = null,
 
+    /** The decision model this step asks, when the node is one; by id. Issue #577. */
+    @Column(name = "decision_model_id")
+    val decisionModelId: Long? = null,
+
+    /**
+     * What this step asks the decision model, copied when the run started: the
+     * questions, which one branches and the threshold. The run's own copy, like
+     * the mappings - a node re-worded while this waits asks what it was
+     * started with.
+     */
+    @Column(name = "decision_spec", columnDefinition = "text")
+    val decisionSpec: String? = null,
+
     /** The shape an agent step's answer is held to, copied when the run started. */
     @Column(name = "output_object_id")
     val outputObjectId: Long? = null,
@@ -340,6 +353,13 @@ class ExecutionStep(
     @Enumerated(EnumType.STRING)
     @Column(length = 8)
     var branch: EdgeBranch? = null,
+
+    /**
+     * Which option, where [branch] is [EdgeBranch.OPTION]: the one a decision
+     * node picked, which a re-run has to open the same way. Issue #577.
+     */
+    @Column(name = "branch_option", length = 64)
+    var branchOption: String? = null,
 
     /**
      * Copied from an earlier run rather than performed by this one.

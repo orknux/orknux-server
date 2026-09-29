@@ -103,6 +103,9 @@ class ModelProviderProbe(
         if (!provider.configured()) {
             return Listing.Failed("There are no credentials to call this provider with")
         }
+        // A decision model speaks no OpenAI shape and may keep no key at all,
+        // so it is asked its own way. Issue #577.
+        if (provider.type == ProviderType.SYSTEM_ONE) return listedDecisionModels(provider)
         (key(provider) as? Key.Failed)?.let { return Listing.Failed(it.reason) }
 
         /*
@@ -236,6 +239,73 @@ class ModelProviderProbe(
             log.warn("Asking {} for its models through the SDK failed: {}", base, failure.toString())
             log.debug("Asking {} for its models through the SDK failed", base, failure)
             Listing.Failed(failure.message ?: "The provider could not be reached", refused = false)
+        }
+    }
+
+    /**
+     * What a `/v1/systemone` endpoint can answer with.
+     *
+     * TypeSafe documents `GET /v1/models` - "the names your account can send
+     * in the model field" - and Laya's `laya-serve` has no such route, but its
+     * `GET /health` answers `{"status": "ok", "loaded": [...]}` naming the
+     * checkpoints it holds. So the documented listing first, and Laya's health
+     * only where that is not there: between them they prove the same three
+     * things a chat provider's listing does - reachable, key accepted, and the
+     * thing at the other end is what it was said to be.
+     */
+    private fun listedDecisionModels(provider: ModelProvider): Listing {
+        val header = when (val resolved = systemOneCredential(provider)) {
+            null -> null
+            is Credential.Failed -> return Listing.Failed(resolved.reason)
+            is Credential.Header -> resolved.header
+        }
+        val base = provider.systemOneBase()
+
+        fun ask(url: String): HttpResponse<String>? {
+            probe.vet(url)?.let { throw IllegalStateException(it) }
+            val request = HttpRequest.newBuilder(URI(url))
+                .timeout(Duration.ofSeconds(properties.probeTimeoutSeconds))
+                .GET()
+            header?.let { request.header(it.name, it.value) }
+            return client.send(request.build(), HttpResponse.BodyHandlers.ofString())
+        }
+
+        return try {
+            val models = requireNotNull(ask("$base/v1/models"))
+            when (val status = models.statusCode()) {
+                in 200..299 -> Listing.Models(names(models.body()))
+                401, 403 -> Listing.Failed("The provider rejected the credentials ($status)" + said(models.body()))
+                404, 405 -> {
+                    val health = requireNotNull(ask("$base/health"))
+                    if (health.statusCode() !in 200..299) {
+                        Listing.Failed("No decision API at $base - neither /v1/models nor /health answered")
+                    } else {
+                        val loaded = runCatching { mapper.readTree(health.body()).path("loaded") }.getOrNull()
+                        Listing.Models(loaded?.values()?.mapNotNull { it.stringValueOpt().orElse(null) }.orEmpty())
+                    }
+                }
+
+                else -> Listing.Failed("The provider answered $status" + said(models.body()))
+            }
+        } catch (failure: Exception) {
+            log.warn("Asking {} what it can decide with failed: {}", base, failure.toString())
+            log.debug("Asking {} what it can decide with failed", base, failure)
+            Listing.Failed(failure.message ?: "The provider could not be reached")
+        }
+    }
+
+    /**
+     * The header a `/v1/systemone` call carries, or null where the provider
+     * keeps no key - which a self-hosted Laya started without `LAYA_API_KEY`
+     * is entitled to. A key that is configured and cannot be read is still a
+     * failure, in the same words as every other provider's.
+     */
+    fun systemOneCredential(provider: ModelProvider): Credential? {
+        val held = references.read(provider.workspaceId, provider.secret, provider.secretVariableId)
+        if (held == HeldCredential.Absent) return null
+        return when (val resolved = key(provider)) {
+            is Key.Failed -> Credential.Failed(resolved.reason)
+            is Key.Held -> Credential.Header(HttpHeader("Authorization", "Bearer ${resolved.value}"))
         }
     }
 

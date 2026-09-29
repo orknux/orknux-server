@@ -339,6 +339,8 @@ data class ExecutionStepView(
     val sessionId: Long?,
     /** Which way out of a condition this step sent the run; null for the rest. */
     val branch: EdgeBranch?,
+    /** Which option of a decision it went by, on an OPTION branch. Issue #577. */
+    val branchOption: String? = null,
     /**
      * How many attempts the step spent. One for almost everything; more only
      * where the node was given a retry policy and needed it.
@@ -369,6 +371,7 @@ data class ExecutionStepView(
         agentId = step.agentId,
         sessionId = step.sessionId,
         branch = step.branch,
+        branchOption = step.branchOption,
         attempts = step.attempts,
         carriedOver = step.carriedOver,
         x = step.x,
