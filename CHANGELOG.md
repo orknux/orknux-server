@@ -15,7 +15,7 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
-## Unreleased
+## 0.9.9.5
 
 ### ✨ Added
 
@@ -24,6 +24,7 @@ have failed.
 ### 🔧 Changed
 
 - Azure OpenAI providers send their chats through the Responses API, and every existing one is moved onto it on upgrade. A model with a reasoning effort shows its thinking there, from the summary the model writes. To go back, open the provider under Models and set API to Chat completions (legacy); nothing else needs changing.
+- A model page's optional choices - Tool Calls Per Reply and Reasoning effort - name their empty state the same way, Unset: nothing set, nothing sent.
 
 ### 🐛 Fixed
 
