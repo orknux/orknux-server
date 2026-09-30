@@ -34,9 +34,11 @@ data class ChatParameterSpec(
  * What each entry rests on - the request each client actually builds, and the
  * API that request goes to:
  *
- * - **AZURE_OPENAI** - [OpenAiChat] through openai-java, to Azure's chat
- *   completions: `temperature`, `top_p`, `reasoning_effort` (o-series and
- *   GPT-5 deployments). Azure has no `top_k`, `min_p` or `repeat_penalty`.
+ * - **AZURE_OPENAI** - [OpenAiChat] through openai-java, to Azure's Responses
+ *   API by default or its chat completions where the provider says so (see
+ *   [ChatApi]): `temperature`, `top_p`, and a reasoning effort (o-series and
+ *   GPT-5 deployments) - `reasoning.effort` on one, `reasoning_effort` on the
+ *   other. Azure has no `top_k`, `min_p` or `repeat_penalty`.
  * - **OPENAI on OpenAI's own host** - the same SDK call to api.openai.com:
  *   `temperature` and `top_p`, and none of the three llama.cpp additions.
  * - **OPENAI anywhere else** - a llama.cpp server, a gateway, vLLM behind the

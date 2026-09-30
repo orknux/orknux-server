@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import io.mszymanski.orknux.connector.connection.ConnectionProbe
 import io.mszymanski.orknux.connector.connection.ConnectionProperties
+import io.mszymanski.orknux.connector.model.ChatApi
 import io.mszymanski.orknux.connector.model.ChatTurn
 import io.mszymanski.orknux.connector.model.LlmModel
 import io.mszymanski.orknux.connector.model.ModelClients
@@ -395,6 +396,8 @@ class OpenAiChatTest {
         apiVersion = "2024-10-21",
         deploymentName = "o4-mini",
         secret = "azure-test",
+        // These pin the chat completions body; the Responses one is OpenAiResponsesTest's.
+        chatApi = ChatApi.CHAT_COMPLETIONS,
     )
 
     private fun ollamaProvider() = ModelProvider(

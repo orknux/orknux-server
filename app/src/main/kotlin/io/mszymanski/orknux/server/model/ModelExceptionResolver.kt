@@ -14,6 +14,7 @@ import io.mszymanski.orknux.connector.model.ModelProviderEndpointInvalidExceptio
 import io.mszymanski.orknux.connector.model.ModelProviderInAnotherWorkspaceException
 import io.mszymanski.orknux.connector.model.ModelProviderNameInvalidException
 import io.mszymanski.orknux.connector.model.ModelProviderNameTakenException
+import io.mszymanski.orknux.connector.model.ProviderChatApiNotTakenException
 import org.springframework.graphql.execution.DataFetcherExceptionResolverAdapter
 import org.springframework.graphql.execution.ErrorType
 import org.springframework.stereotype.Component
@@ -39,6 +40,7 @@ class ModelExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ModelKindNotOfferedException,
             is ModelParameterNotTakenException,
             is ModelParameterValueInvalidException,
+            is ProviderChatApiNotTakenException,
             -> ErrorType.BAD_REQUEST
 
             // The provider would not answer. Nothing the caller sent is wrong,

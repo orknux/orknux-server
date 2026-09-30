@@ -64,6 +64,17 @@ data class ChatTurn(
      * reasoning, so what they are sent does not change.
      */
     val reasoning: String? = null,
+    /**
+     * The provider's own record of the thinking behind this turn's calls,
+     * handed back verbatim on the next round - as JSON, and opaque here.
+     *
+     * The Responses API only (see [OpenAiResponses]). Asked statelessly, a
+     * reasoning model's thinking before a call is an encrypted item of the
+     * response, and the next round reasons from it only if it is sent back in
+     * front of the call it led to. Empty on every other road, and for every
+     * model that is not asked to reason.
+     */
+    val reasoningItems: List<String> = emptyList(),
 )
 
 /** A model asking for a tool, with the arguments it chose, as JSON. */
@@ -935,7 +946,7 @@ class ModelChatClient(
                 modelId,
                 ChatCompletion.CalledTools(
                     calls = outcome.calls,
-                    turn = ChatTurn("assistant", split.said, asked = outcome.calls),
+                    turn = ChatTurn("assistant", split.said, asked = outcome.calls, reasoningItems = outcome.reasoningItems),
                     millis = millis,
                     inputTokens = outcome.inputTokens,
                     outputTokens = outcome.outputTokens,

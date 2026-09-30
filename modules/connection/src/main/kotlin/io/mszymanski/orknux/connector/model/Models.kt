@@ -134,6 +134,24 @@ enum class ProviderType {
 }
 
 /** How a provider is authenticated. */
+/**
+ * Which of the two OpenAI chat APIs an Azure OpenAI provider's chats are asked
+ * through. See [OpenAiResponses].
+ *
+ * Responses is the default because it is the one that takes a reasoning model
+ * with its tools: chat completions refuse that combination outright. Chat
+ * completions stays so an installation can go back to the road it was on,
+ * from the provider's page, the day the new one misbehaves.
+ */
+enum class ChatApi {
+    RESPONSES,
+    CHAT_COMPLETIONS,
+}
+
+class ProviderChatApiNotTakenException(type: ProviderType) : RuntimeException(
+    "A $type provider speaks chat completions only; the chat API is chosen on Azure OpenAI providers. Leave it unset",
+)
+
 enum class ProviderAuthMethod {
     /** A key sent on every request, in whichever header the type wants it. */
     API_KEY,
@@ -289,6 +307,15 @@ class ModelProvider(
     @Column(name = "accept_retry_after", nullable = false)
     var acceptRetryAfter: Boolean = true,
 
+    /**
+     * Which API an Azure OpenAI provider's chats go through; null on every
+     * other type, which speaks chat completions. Null on an Azure provider is
+     * read as Responses, the default - see [OpenAiResponses.speaks].
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "chat_api", length = 24)
+    var chatApi: ChatApi? = null,
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     var status: ProviderStatus = ProviderStatus.NOT_CONFIGURED,
@@ -442,6 +469,7 @@ fun ModelProvider.copied(workspaceId: Long, name: String): ModelProvider = Model
         throttleTokensPerSecond = throttleTokensPerSecond,
         throttleRequestsPerSecond = throttleRequestsPerSecond,
         acceptRetryAfter = acceptRetryAfter,
+        chatApi = chatApi,
 )
 
 /**

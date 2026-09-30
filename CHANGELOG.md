@@ -15,6 +15,20 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- An Azure OpenAI provider's page has an API select: Responses, or Chat completions (legacy). Every chat through the provider is sent through the one it names.
+
+### 🔧 Changed
+
+- Azure OpenAI providers send their chats through the Responses API, and every existing one is moved onto it on upgrade. A model with a reasoning effort shows its thinking there, from the summary the model writes. To go back, open the provider under Models and set API to Chat completions (legacy); nothing else needs changing.
+
+### 🐛 Fixed
+
+- An Azure OpenAI model with a reasoning effort and tools failed on chat completions ("Function tools with reasoning_effort are not supported"); it is asked through the Responses API, and a tool loop carries the model's reasoning from one round to the next.
+
 ## 0.9.9.4
 
 ### ✨ Added

@@ -274,7 +274,7 @@ class WorkspaceDuplicateTest(
             io.mszymanski.orknux.connector.model.ModelProvider::class.java to setOf(
                 "name", "type", "endpoint", "authMethod", "apiVersion", "deploymentName", "region", "tenantId",
                 "clientId", "scope", "checkEnabled", "throttleTokensPerSecond", "throttleRequestsPerSecond",
-                "acceptRetryAfter",
+                "acceptRetryAfter", "chatApi",
             ),
             io.mszymanski.orknux.connector.model.LlmModel::class.java to setOf(
                 "name", "modelId", "kind", "contextWindow", "maxOutput", "parallelToolCalls", "reasoningEffort", "temperature", "topP",

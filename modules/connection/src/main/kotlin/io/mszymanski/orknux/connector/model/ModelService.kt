@@ -114,6 +114,7 @@ class ModelService(
         provider.throttleTokensPerSecond = input.throttleTokensPerSecond?.toLong()
         provider.throttleRequestsPerSecond = input.throttleRequestsPerSecond
         input.acceptRetryAfter?.let { provider.acceptRetryAfter = it }
+        provider.chatApi = chatApiFor(provider.type, input.chatApi, null)
         provider.forgetCheck()
         val saved = providers.save(provider)
         // Checked as soon as the transaction lands, so a provider that was just
@@ -183,10 +184,25 @@ class ModelService(
         provider.throttleTokensPerSecond = input.throttleTokensPerSecond?.toLong()
         provider.throttleRequestsPerSecond = input.throttleRequestsPerSecond
         input.acceptRetryAfter?.let { provider.acceptRetryAfter = it }
+        provider.chatApi = chatApiFor(provider.type, input.chatApi, provider.chatApi)
 
         provider.forgetCheck()
         events.publishEvent(ModelProviderSaved(id))
         return view(provider)
+    }
+
+    /**
+     * The chat API a provider of [type] holds, given what was asked and what it
+     * held. Only Azure OpenAI chooses: it keeps what it held where nothing was
+     * asked, and starts on Responses. Any other type holds none, and asking one
+     * for a choice it does not have is refused rather than stored unread.
+     */
+    private fun chatApiFor(type: ProviderType, asked: ChatApi?, held: ChatApi?): ChatApi? {
+        if (type != ProviderType.AZURE_OPENAI) {
+            if (asked != null) throw ProviderChatApiNotTakenException(type)
+            return null
+        }
+        return asked ?: held ?: ChatApi.RESPONSES
     }
 
     /**
@@ -725,6 +741,8 @@ data class CreateProviderInput(
     val throttleRequestsPerSecond: Double? = null,
     /** Null is on, which is the column's own default. */
     val acceptRetryAfter: Boolean? = null,
+    /** Azure OpenAI only; null is Responses. Refused on any other type. */
+    val chatApi: ChatApi? = null,
 )
 
 data class UpdateProviderInput(
@@ -759,6 +777,8 @@ data class UpdateProviderInput(
     val throttleRequestsPerSecond: Double? = null,
     /** Null leaves it as it is, like [checkEnabled]. Issue #426. */
     val acceptRetryAfter: Boolean? = null,
+    /** Azure OpenAI only; null leaves it as it is. Refused on any other type. */
+    val chatApi: ChatApi? = null,
 )
 
 data class CreateModelInput(
@@ -866,6 +886,8 @@ data class ModelProviderView(
     val throttleRequestsPerSecond: Double?,
     /** Whether a 429's Retry-After is obeyed by default. Issue #426. */
     val acceptRetryAfter: Boolean,
+    /** Which API an Azure OpenAI provider's chats go through; null on every other type. */
+    val chatApi: ChatApi?,
     val status: ProviderStatus,
     val lastCheckMessage: String?,
     /** ISO-8601, as `WorkspaceConnectionView` reports its own. */
@@ -905,6 +927,7 @@ data class ModelProviderView(
         throttleTokensPerSecond = provider.throttleTokensPerSecond,
         throttleRequestsPerSecond = provider.throttleRequestsPerSecond,
         acceptRetryAfter = provider.acceptRetryAfter,
+        chatApi = if (provider.type == ProviderType.AZURE_OPENAI) provider.chatApi ?: ChatApi.RESPONSES else null,
         status = provider.status,
         lastCheckMessage = provider.lastCheckMessage,
         lastCheckedAt = provider.lastCheckedAt?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),

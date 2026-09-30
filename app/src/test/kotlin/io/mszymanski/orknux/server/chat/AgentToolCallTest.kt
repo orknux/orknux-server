@@ -181,6 +181,73 @@ class AgentToolCallTest(
     }
 
     /**
+     * The production failure this path exists for: an Azure reasoning model
+     * with an effort and tools, which chat completions refuse outright.
+     *
+     * Asked through the Responses API, a tool loop has to carry itself: nothing
+     * is stored at the provider, so the second round must hand back the
+     * model's encrypted reasoning, the call it made and the call's output -
+     * paired by `call_id` - or the model starts over without knowing it asked.
+     */
+    @Test
+    fun `an Azure reasoning agent loops through the Responses API, carrying its reasoning and calls back`() {
+        val endpoint = serve("/openai/v1/responses") { body ->
+            if (body.contains("function_call_output")) {
+                """{"id":"resp_2","object":"response","created_at":1,"model":"gpt-6-sol","status":"completed",
+                   "output":[{"type":"message","id":"msg_1","role":"assistant","status":"completed",
+                     "content":[{"type":"output_text","text":"Read the diff twice.","annotations":[]}]}],
+                   "usage":{"input_tokens":9,"output_tokens":4,"total_tokens":13}}"""
+            } else {
+                """{"id":"resp_1","object":"response","created_at":1,"model":"gpt-6-sol","status":"completed",
+                   "output":[
+                     {"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"The skill will say."}],
+                      "encrypted_content":"sealed-thought"},
+                     {"type":"function_call","id":"fc_1","call_id":"call_1","name":"skill_load",
+                      "arguments":"{\"name\":\"codeReview\"}","status":"completed"}],
+                   "usage":{"input_tokens":7,"output_tokens":2,"total_tokens":9}}"""
+            }
+        }
+        val catalogId = catalog("Reviews")
+        skill("codeReview", catalogId, "Read the diff twice before commenting.")
+        val agentId = agentGranted("Reviewer", azureReasoningModel(endpoint), "Reviews")
+
+        val agent = requireNotNull(agents.findByIdOrNull(agentId))
+        val answer = conversation.answer(
+            requireNotNull(agent.modelId),
+            agent,
+            listOf(ChatTurn("user", "How should I review this?")),
+        )
+
+        assertThat(answer).isInstanceOf(ChatCompletion.Answered::class.java)
+        assertThat((answer as ChatCompletion.Answered).content).isEqualTo("Read the diff twice.")
+        assertThat(received).hasSize(2)
+
+        val mapper = tools.jackson.databind.ObjectMapper()
+        val first = mapper.readTree(received[0])
+        // Its effort, a summary to show as thinking, and the reasoning sealed for the next round.
+        assertThat(first.path("reasoning").path("effort").asString()).isEqualTo("high")
+        assertThat(first.path("reasoning").path("summary").asString()).isEqualTo("auto")
+        assertThat(first.path("include").toList().map { it.asString() }).contains("reasoning.encrypted_content")
+        assertThat(first.path("store").asBoolean(true)).isFalse()
+        assertThat(first.path("tools").toList().map { it.path("name").asString() }).contains("skill_load")
+
+        val input = mapper.readTree(received[1]).path("input").toList()
+        val types = input.map { it.path("type").asString("message") }
+        // The reasoning in front of the call it led to, then the call's output.
+        assertThat(types.takeLast(3)).containsExactly("reasoning", "function_call", "function_call_output")
+        val reasoning = input.single { it.path("type").asString() == "reasoning" }
+        assertThat(reasoning.path("encrypted_content").asString()).isEqualTo("sealed-thought")
+        val call = input.single { it.path("type").asString() == "function_call" }
+        val output = input.single { it.path("type").asString() == "function_call_output" }
+        assertThat(call.path("call_id").asString()).isEqualTo("call_1")
+        assertThat(call.path("name").asString()).isEqualTo("skill_load")
+        // Sent back without its item id: that id is what ties a call to its reasoning item.
+        assertThat(call.has("id")).isFalse()
+        assertThat(output.path("call_id").asString()).isEqualTo("call_1")
+        assertThat(output.path("output").asString()).contains("Read the diff twice before commenting.")
+    }
+
+    /**
      * Session 501's shape: three calls, round and round, 279 in one message.
      * Issue #518.
      *
@@ -362,9 +429,9 @@ class AgentToolCallTest(
         """.trimIndent()
     }
 
-    private fun serve(answer: (String) -> String): String {
+    private fun serve(path: String = "/chat/completions", answer: (String) -> String): String {
         server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
-        server.createContext("/chat/completions") { exchange ->
+        server.createContext(path) { exchange ->
             val body = exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
             received += body
             val bytes = answer(body).toByteArray(StandardCharsets.UTF_8)
@@ -416,6 +483,21 @@ class AgentToolCallTest(
         return graphQlTester.document(
             """mutation { createModel(input: { providerId: $providerId, name: "Stub", modelId: "stub", kind: CHAT })
                { id } }""",
+        ).execute().path("createModel.id").entity(Long::class.java).get()
+    }
+
+    /** A reasoning deployment behind an Azure OpenAI provider, which speaks Responses by default. */
+    private fun azureReasoningModel(endpoint: String): Long {
+        val providerId = graphQlTester.document(
+            """mutation { createModelProvider(input: {
+                 workspaceId: $workspaceId, name: "Azure", type: AZURE_OPENAI, endpoint: "$endpoint", secret: "azure-test"
+               }) { id } }""",
+        ).execute().path("createModelProvider.id").entity(Long::class.java).get()
+
+        return graphQlTester.document(
+            """mutation { createModel(input: {
+                 providerId: $providerId, name: "Sol", modelId: "gpt-6-sol", kind: CHAT, reasoningEffort: "high"
+               }) { id } }""",
         ).execute().path("createModel.id").entity(Long::class.java).get()
     }
 

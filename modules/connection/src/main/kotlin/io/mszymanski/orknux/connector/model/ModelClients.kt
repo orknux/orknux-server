@@ -68,6 +68,26 @@ class ModelClients(private val proxies: ProxyRouter) {
     }
 
     /**
+     * The client a provider's Responses API calls go through.
+     *
+     * The same client as [clientFor] wherever the base is already right, and
+     * that is every base but one: an Azure resource given as its bare host. The
+     * SDK reads a bare Azure host as the older layout and would put the
+     * deployment and an API version in the path -
+     * `/openai/deployments/{name}/responses?api-version=…` - where Azure serves
+     * no Responses at all. Its Responses live on the v1 surface of the same
+     * resource, `/openai/v1/responses`, with the model in the body. So the base
+     * handed over is that surface, and the SDK recognises it as the unified
+     * layout and builds the path itself. See [responsesBase].
+     */
+    fun responsesClientFor(provider: ModelProvider, credential: Credential): OpenAIClient {
+        val base = responsesBase(provider)
+        return cache.computeIfAbsent(ClientKey(base, provider.type, identity(credential))) {
+            build(base, provider, credential)
+        }
+    }
+
+    /**
      * The same call again when the connection died before it was answered.
      *
      * **Why this and not the SDK's own retry.** A self-hosted server keeps an
@@ -178,6 +198,24 @@ class ModelClients(private val proxies: ProxyRouter) {
          */
         private const val MAX_IDLE_CONNECTIONS = 5
         private const val KEEP_ALIVE_SECONDS = 2L
+
+        /** Azure's unified surface, which is where its Responses API is served. */
+        private const val AZURE_V1 = "/openai/v1"
+
+        /**
+         * Where a provider's Responses API begins: its OpenAI base, except that
+         * an Azure resource is taken to its `/openai/v1` surface - after any path
+         * a gateway put in front of it, and without doubling one already there.
+         */
+        fun responsesBase(provider: ModelProvider): String {
+            val base = provider.openAiBase()
+            if (provider.type != ProviderType.AZURE_OPENAI) return base
+            return when {
+                base.endsWith(AZURE_V1) -> base
+                base.endsWith("/openai") -> "$base/v1"
+                else -> "$base$AZURE_V1"
+            }
+        }
 
         /** A token read afresh on every call, so a rotated one is picked up. */
         fun bearer(token: Supplier<String>): Credential = BearerTokenCredential.create(token)

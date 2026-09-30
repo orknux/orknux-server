@@ -5154,6 +5154,16 @@ enum ProviderAuthMethod {
     ENTRA_ID
 }
 
+"""
+Which OpenAI API an Azure OpenAI provider's chats are sent through. RESPONSES
+is the default: chat completions refuse a reasoning model its tools.
+CHAT_COMPLETIONS is the old road, kept so an installation can go back to it.
+"""
+enum ChatApi {
+    RESPONSES
+    CHAT_COMPLETIONS
+}
+
 "What a model is for."
 enum ModelKind {
     CHAT
@@ -5215,6 +5225,8 @@ type ModelProvider {
     throttleRequestsPerSecond: Float
     "Whether a 429's Retry-After is obeyed, ahead of a node's own retry. On by default. Issue #426."
     acceptRetryAfter: Boolean!
+    "Which API an Azure OpenAI provider's chats go through; null on every other type."
+    chatApi: ChatApi
     status: ProviderStatus!
     "What the last check found, and when it ran."
     lastCheckMessage: String
@@ -5401,6 +5413,8 @@ input CreateModelProviderInput {
     throttleRequestsPerSecond: Float
     "Whether a 429's Retry-After is obeyed by default. Null is true."
     acceptRetryAfter: Boolean
+    "Azure OpenAI only, refused on any other type. Null is RESPONSES."
+    chatApi: ChatApi
 }
 
 input UpdateModelProviderInput {
@@ -5434,6 +5448,8 @@ input UpdateModelProviderInput {
     throttleRequestsPerSecond: Float
     "Whether a 429's Retry-After is obeyed by default. Null leaves it as it is. Issue #426."
     acceptRetryAfter: Boolean
+    "Azure OpenAI only, refused on any other type. Null leaves it as it is."
+    chatApi: ChatApi
 }
 
 

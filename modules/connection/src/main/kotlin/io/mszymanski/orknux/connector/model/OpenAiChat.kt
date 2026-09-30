@@ -34,6 +34,12 @@ import java.util.concurrent.ExecutionException
  * rather than speaking one. [ModelChatClient] keeps that fork and sends
  * everything else here.
  *
+ * **Two APIs behind one door.** An Azure OpenAI provider is asked through the
+ * Responses API unless it has been set back to chat completions, because chat
+ * completions refuse a reasoning model its tools; [OpenAiResponses] carries
+ * that shape and [OpenAiResponses.speaks] says which road a provider takes.
+ * Both hand back the same [Outcome], so nothing above knows which was spoken.
+ *
  * What this returns is the application's own [Outcome] rather than the SDK's
  * types: what a caller gets back does not change because of what is underneath,
  * which is the only reason this can replace the hand-built path without every
@@ -70,28 +76,13 @@ class OpenAiChat(
             is Ready.No -> return Outcome.Failed(ready.reason)
             is Ready.Yes -> ready.client
         }
+        if (OpenAiResponses.speaks(provider)) return responses.complete(client, provider, model, turns, tools, hangup)
 
         val params = params(provider, model, turns, tools).build()
-        val answer = try {
-            clients.again {
-                val asked = client.async().chat().completions().create(params)
-                hangup?.holding { asked.cancel(true) }
-                try {
-                    asked.get()
-                } catch (failed: ExecutionException) {
-                    // What the call threw, not the future's wrapper around it:
-                    // `again` reads the SDK's own exception to decide whether
-                    // a closed connection is worth one more go.
-                    throw failed.cause ?: failed
-                } finally {
-                    hangup?.letGo()
-                }
-            }
-        } catch (cancelled: CancellationException) {
-            // Hung up on: the wait was cancelled and the request with it. Not
-            // an answer, and said in the words every hung-up call uses.
-            return Outcome.Failed(HUNG_UP)
-        }
+        // Hung up on: the wait was cancelled and the request with it. Not an
+        // answer, and said in the words every hung-up call uses.
+        val answer = awaited(clients, hangup) { client.async().chat().completions().create(params) }
+            ?: return Outcome.Failed(HUNG_UP)
         if (hangup?.hungUp == true) return Outcome.Failed(HUNG_UP)
 
         val said = answer.choices().firstOrNull()?.message()
@@ -158,6 +149,9 @@ class OpenAiChat(
         val client = when (val ready = ready(provider)) {
             is Ready.No -> return Outcome.Failed(ready.reason)
             is Ready.Yes -> ready.client
+        }
+        if (OpenAiResponses.speaks(provider)) {
+            return responses.stream(client, provider, model, turns, tools, onThinking, hangup, onChunk)
         }
 
         val whole = StringBuilder()
@@ -327,6 +321,8 @@ class OpenAiChat(
             val thoughtMillis: Long = 0,
             val inputTokens: Long = 0,
             val outputTokens: Long = 0,
+            /** What the Responses API asked to be handed back next round; see [ChatTurn.reasoningItems]. */
+            val reasoningItems: List<String> = emptyList(),
         ) : Outcome
 
         data class Failed(val reason: String) : Outcome
@@ -337,10 +333,19 @@ class OpenAiChat(
         data class No(val reason: String) : Ready
     }
 
+    /** The Responses path, for the providers set to it; see [OpenAiResponses.speaks]. */
+    private val responses = OpenAiResponses(clients)
+
     private fun ready(provider: ModelProvider): Ready =
         when (val credential = probe.sdkCredential(provider)) {
             is ModelProviderProbe.SdkCredential.Failed -> Ready.No(credential.reason)
-            is ModelProviderProbe.SdkCredential.Ready -> Ready.Yes(clients.clientFor(provider, credential.credential))
+            is ModelProviderProbe.SdkCredential.Ready -> Ready.Yes(
+                if (OpenAiResponses.speaks(provider)) {
+                    clients.responsesClientFor(provider, credential.credential)
+                } else {
+                    clients.clientFor(provider, credential.credential)
+                },
+            )
         }
 
     private fun params(
@@ -487,9 +492,9 @@ class OpenAiChat(
             .orEmpty()
     }
 
-    private companion object {
+    internal companion object {
         /** Three spellings, because three vendors chose three. */
-        val REASONING_FIELDS = listOf("reasoning", "reasoning_content", "thinking")
+        private val REASONING_FIELDS = listOf("reasoning", "reasoning_content", "thinking")
 
         /**
          * What a call that was given up on says.
@@ -501,3 +506,33 @@ class OpenAiChat(
         const val HUNG_UP = "Nobody was left to read the answer"
     }
 }
+
+/**
+ * A request made through the SDK's asynchronous client, waited for, and torn
+ * down if [hangup] gives up on it. Null when it was given up on.
+ *
+ * There is no stream to close on a waited-for call, so what is torn down is the
+ * request: cancelling the future is what the SDK turns into cancelling the HTTP
+ * call underneath - a blocking `create` offers nothing to cancel, and a socket
+ * read does not wake on an interrupt. Issue #440. Shared by both APIs, so a
+ * hangup means the same thing on either.
+ */
+internal fun <T> awaited(clients: ModelClients, hangup: Hangup?, ask: () -> java.util.concurrent.CompletableFuture<T>): T? =
+    try {
+        clients.again {
+            val asked = ask()
+            hangup?.holding { asked.cancel(true) }
+            try {
+                asked.get()
+            } catch (failed: ExecutionException) {
+                // What the call threw, not the future's wrapper around it:
+                // `again` reads the SDK's own exception to decide whether a
+                // closed connection is worth one more go.
+                throw failed.cause ?: failed
+            } finally {
+                hangup?.letGo()
+            }
+        }
+    } catch (cancelled: CancellationException) {
+        null
+    }

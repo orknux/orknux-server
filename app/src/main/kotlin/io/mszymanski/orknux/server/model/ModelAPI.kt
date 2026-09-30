@@ -3,6 +3,7 @@ package io.mszymanski.orknux.server.model
 import io.mszymanski.orknux.connector.model.ChatParameterSpec
 import io.mszymanski.orknux.connector.model.ChatParameters
 import io.mszymanski.orknux.connector.model.CreateModelInput
+import io.mszymanski.orknux.connector.model.ChatApi
 import io.mszymanski.orknux.connector.model.CreateProviderInput
 import io.mszymanski.orknux.connector.model.DiscoveredModelView
 import io.mszymanski.orknux.connector.model.LlmModelView
@@ -145,7 +146,24 @@ class ModelAPI(
             "Provider ${provider.name} renamed to ${updated.name}"
         }
         auditRecorder.record(provider.workspaceId, WorkspaceAuditCategory.MODEL, message)
+        // Said on its own, because it changes which API every chat through the
+        // provider is sent to - the first thing to look for when chats start
+        // failing after somebody saved the provider.
+        val api = updated.chatApi
+        if (api != null && provider.chatApi != api) {
+            auditRecorder.record(
+                provider.workspaceId,
+                WorkspaceAuditCategory.MODEL,
+                "Provider ${updated.name} chat API set to ${spoken(api)}",
+            )
+        }
         return updated
+    }
+
+    /** A chat API as the provider page names it. */
+    private fun spoken(api: ChatApi): String = when (api) {
+        ChatApi.RESPONSES -> "Responses"
+        ChatApi.CHAT_COMPLETIONS -> "Chat completions"
     }
 
     /**
