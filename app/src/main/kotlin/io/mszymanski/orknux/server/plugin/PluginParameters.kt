@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.plugin
 
+import io.mszymanski.orknux.connector.connection.ConnectionCredentials
+import io.mszymanski.orknux.connector.connection.WorkspaceConnectionRepository
 import io.mszymanski.orknux.connector.connection.WorkspaceConnectionService
 import io.mszymanski.orknux.server.variable.WorkspaceVariableRepository
 import org.slf4j.LoggerFactory
@@ -29,6 +31,10 @@ class PluginParameters(
     private val declarations: PluginDeclarations,
     /** Where a connection parameter's handle is checked against a real row. */
     private val connections: WorkspaceConnectionService,
+    /** The row itself, for the one case a connection's address and credential cross. Issue #363. */
+    private val connectionRows: WorkspaceConnectionRepository,
+    /** The one place a stored credential is read; see [ConnectionCredentials]. */
+    private val credentials: ConnectionCredentials,
     private val mapper: ObjectMapper,
 ) {
 
@@ -45,9 +51,13 @@ class PluginParameters(
         val stored = byName(plugin, workspaceId)
         val json: ObjectNode = mapper.createObjectNode()
 
+        val ownKinds = declarations.readConnectionTypes(plugin.declaredConnectionTypes, plugin.key, plugin.name)
+            .map { it.id }
+            .toSet()
+
         declarations.readParameters(plugin.declaredParameters).forEach { parameter ->
             val setting = stored[parameter.name] ?: return@forEach
-            val value = resolved(parameter, setting) ?: return@forEach
+            val value = resolved(parameter, setting, Opened(workspaceId, ownKinds)) ?: return@forEach
             json.set(parameter.name, mapper.readTree(value))
         }
         return mapper.writeValueAsString(json)
@@ -241,14 +251,24 @@ class PluginParameters(
         return if (pluginKey != null) pluginType == "$pluginKey/$wanted" else pluginType.substringAfter('/') == wanted
     }
 
-    private fun resolved(parameter: PluginParameterView, setting: PluginParameterSetting?): String? {
+    /**
+     * Which connections may cross with their address and credential, and for
+     * which workspace. Only [settingsFor] builds one: it is the path into the
+     * sandbox, and every other reader of a parameter only wants to know whether
+     * it is answered. Issue #363.
+     */
+    private class Opened(val workspaceId: Long, val ownKinds: Set<String>)
+
+    private fun resolved(parameter: PluginParameterView, setting: PluginParameterSetting?, opened: Opened? = null): String? {
         if (setting == null) return null
 
         /*
          * A connection parameter names a row rather than holding a value, and
-         * what crosses into the sandbox is a handle: the id and the kind, and
-         * nothing else. Never the credential - the plugin has no network to use
-         * it on, and the server is what makes the call.
+         * what crosses into the sandbox is a handle: the id and the kind. Never
+         * the credential of a connection the server speaks to on the plugin's
+         * behalf - the plugin has no network to use it on, and the server is
+         * what makes the call. A host of the plugin's own kind is the one
+         * exception, below.
          *
          * Checked against the connections this workspace actually has, so a
          * connection deleted after somebody pointed at it reads as unanswered
@@ -263,6 +283,37 @@ class PluginParameters(
             handle.put("type", connection.type.name)
             // Which of the plugin's own kinds of host this is, where it is one. Issue #363.
             connection.pluginType?.let { handle.put("pluginType", it) }
+            /*
+             * A host of the plugin's own kind crosses with what reaching it
+             * takes: the address, the auth kind, the credential and every
+             * header to send. Issue #363.
+             *
+             * The rule above - never the credential - is about connections the
+             * plugin did not define. A Slack connection is the server's to
+             * speak to, through doors that keep the token on this side. A kind
+             * the plugin declared has no such door and is not meant to have
+             * one: the plugin is the only thing that knows how to talk to a
+             * Prometheus, and it does so over `orknux.http` under the
+             * NETWORK_REQUEST somebody already accepted for it. So the
+             * connection is where its credential lives - encrypted, kept off
+             * the plugin's settings page, chosen per workspace - and this is
+             * the one place it is handed over.
+             *
+             * Strictly the plugin's own: the id a connection stores is matched
+             * against this plugin's key and declared names, so a connection
+             * wearing another plugin's kind - or one this plugin stopped
+             * declaring - stays a handle. And only a connection of the
+             * workspace the plugin runs for, whatever a stale row points at.
+             */
+            if (opened != null && connection.pluginType in opened.ownKinds && connection.workspaceId == opened.workspaceId) {
+                val row = connectionRows.findByIdOrNull(id) ?: return null
+                val target = credentials.target(row)
+                handle.put("url", target.url)
+                handle.put("authType", target.authType.name)
+                target.secret?.let { handle.put("secret", it) }
+                val headers = handle.putObject("headers")
+                target.requestHeaders().forEach { (name, value) -> headers.put(name, value) }
+            }
             return mapper.writeValueAsString(handle)
         }
 

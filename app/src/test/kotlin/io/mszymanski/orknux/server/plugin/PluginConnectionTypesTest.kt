@@ -4,6 +4,7 @@ import io.mszymanski.orknux.connector.connection.WorkspaceConnectionRepository
 import io.mszymanski.orknux.server.workspace.Workspace
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import org.assertj.core.api.Assertions.assertThat
+import tools.jackson.databind.ObjectMapper
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -33,8 +34,10 @@ class PluginConnectionTypesTest(
     @Autowired val plugins: PluginRepository,
     @Autowired val declarations: PluginDeclarations,
     @Autowired val kinds: PluginConnectionTypes,
+    @Autowired val parameters: PluginParameters,
     @Autowired val workspaceConnections: WorkspaceConnectionRepository,
     @Autowired val workspaces: WorkspaceRepository,
+    @Autowired val mapper: ObjectMapper,
 ) {
 
     private var workspaceId: Long = 0
@@ -116,6 +119,56 @@ class PluginConnectionTypesTest(
             .path("pluginConnectionTypes[0].label").entity(String::class.java).isEqualTo("Prometheus")
             .path("pluginConnectionTypes[0].urlPlaceholder").entity(String::class.java)
             .isEqualTo("https://prometheus.example.com")
+    }
+
+    /* ------------------------------------------------- what the plugin is handed */
+
+    private fun connect(name: String, pluginType: String?, auth: String = "BEARER_TOKEN", secret: String = "tok"): Long =
+        graphQlTester.document(
+            """mutation { createWorkspaceConnection(input: {
+                 workspaceId: $workspaceId, name: "$name", type: HTTP,
+                 ${pluginType?.let { "pluginType: \"$it\"," } ?: ""}
+                 url: "https://prom.example.com", authType: $auth, secret: "$secret",
+                 headers: [{ name: "X-Scope-OrgID", value: "tenant-1" }]
+               }) { id } }""",
+        ).execute().path("createWorkspaceConnection.id").entity(Long::class.java).get()
+
+    @Test
+    fun `a host of the plugin's own kind crosses with its address and credential`() {
+        load()
+        val plugin = plugins.findByKey("monitors")!!
+        val id = connect("Prod Prometheus", "monitors/prometheus")
+        parameters.set(plugin, workspaceId, "server", id.toString(), null, "alice")
+
+        val handed = mapper.readTree(parameters.settingsFor(plugin, workspaceId)).get("server")
+        assertThat(handed.get("id").asLong()).isEqualTo(id)
+        assertThat(handed.get("pluginType").asString()).isEqualTo("monitors/prometheus")
+        assertThat(handed.get("url").asString()).isEqualTo("https://prom.example.com")
+        assertThat(handed.get("authType").asString()).isEqualTo("BEARER_TOKEN")
+        assertThat(handed.get("secret").asString()).isEqualTo("tok")
+        // Everything to send, so a plugin need not know how each auth kind is spelled.
+        assertThat(handed.get("headers").get("Authorization").asString()).isEqualTo("Bearer tok")
+        assertThat(handed.get("headers").get("X-Scope-OrgID").asString()).isEqualTo("tenant-1")
+    }
+
+    @Test
+    fun `a connection the plugin did not define stays a handle`() {
+        load(
+            source.replace(
+                "connectionType: 'prometheus',",
+                "connectionType: 'HTTP',",
+            ),
+        )
+        val plugin = plugins.findByKey("monitors")!!
+        // A plain HTTP endpoint: the server speaks to it, so the plugin gets the name and no more.
+        val plain = connect("Wiki", null)
+        parameters.set(plugin, workspaceId, "server", plain.toString(), null, "alice")
+
+        val handed = mapper.readTree(parameters.settingsFor(plugin, workspaceId)).get("server")
+        assertThat(handed.get("id").asLong()).isEqualTo(plain)
+        assertThat(handed.has("url")).isFalse()
+        assertThat(handed.has("secret")).isFalse()
+        assertThat(handed.has("headers")).isFalse()
     }
 
     /* ------------------------------------------------- what a connection wears */

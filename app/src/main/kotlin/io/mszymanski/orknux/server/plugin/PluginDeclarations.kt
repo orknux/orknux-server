@@ -811,8 +811,9 @@ class PluginDeclarations(private val mapper: ObjectMapper) {
                     /*
                      * Refused rather than ignored. A connection parameter holds
                      * no secret - it names a row, and the credential on that row
-                     * is decrypted on the far side of the sandbox and never
-                     * crosses it - so a plugin marking one secret has
+                     * is kept and encrypted with the connection, crossing only
+                     * for a host of the plugin's own kind - so a plugin marking
+                     * one secret has
                      * misunderstood what it is being given, and letting that
                      * through would leave the screen promising a protection that
                      * means nothing here.

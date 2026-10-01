@@ -1372,6 +1372,20 @@ class PluginUploadAPI(
             declare class OrknuxConnection<T extends ConnectionType> {
               readonly id: number;
               readonly type: T;
+              /** Which of a plugin's declared kinds this is, as `key/name`. */
+              readonly pluginType?: string;
+              /**
+               * A host of this plugin's own kind - one `connectionTypes()`
+               * declares - crosses with what reaching it takes, because nothing
+               * but the plugin knows how to talk to it. Absent on every other
+               * connection, which the server speaks to on the plugin's behalf.
+               */
+              readonly url?: string;
+              readonly authType?: 'NONE' | 'API_KEY' | 'BEARER_TOKEN' | 'BASIC';
+              /** The credential as stored; absent where there is none. */
+              readonly secret?: string;
+              /** Every header to send, the credential's Authorization among them. */
+              readonly headers?: Readonly<Record<string, string>>;
             }
 
             /** A Slack connection, which is what the Slack helpers take. */
