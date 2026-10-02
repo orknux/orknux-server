@@ -362,10 +362,20 @@ class ServerRestart(
         follower?.interrupt()
     }
 
+    /**
+     * Closes the context and leaves with 75, on a thread of its own that is not
+     * a daemon. Not on the caller's: both callers are virtual threads, which
+     * are daemons, and once the context has stopped Tomcat nothing else keeps
+     * the JVM alive - it ended with 0 before `exitProcess` was reached, and the
+     * start loop took 0 for "stop". 75 whatever closing answered, because a
+     * server that asked to be restarted should be, even if its shutdown threw.
+     */
     private fun exit(why: String) {
-        log.info("Restarting: {}", why)
-        val code = SpringApplication.exit(context, ExitCodeGenerator { RESTART_EXIT_CODE })
-        exitProcess(code)
+        Thread.ofPlatform().name("orknux-exit").daemon(false).start {
+            log.info("Restarting: {}", why)
+            runCatching { SpringApplication.exit(context, ExitCodeGenerator { RESTART_EXIT_CODE }) }
+            exitProcess(RESTART_EXIT_CODE)
+        }
     }
 }
 
