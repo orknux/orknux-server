@@ -354,6 +354,23 @@ to pin to if you want to be certain what is running. An installation still
 running the old `orknux-ui` Deployment can drop it whenever convenient; see
 **Moving off the orknux-ui Deployment** above.
 
+### Updating in place, and turning it off
+
+An administrator can also update from **Admin -> Updates** without touching the
+manifest: a release from orknux.ai or an uploaded jar is checked against the
+release key the image carries, kept in the database, and the server restarts on
+it - every replica follows within the check interval on Admin -> Settings. It
+can roll back to any release still kept. A newer image always wins over a
+release chosen under an older one, so `set image` still upgrades.
+
+This is **on by default**. Where a platform team approves every version that
+runs - the bytes their registry scanned, and nothing else - set
+`ORKNUX_SELF_UPDATE` to `"false"` on `orknux-server`; the image's own jar then
+always runs and the page says updates are off. With
+`readOnlyRootFilesystem: true`, mount an `emptyDir` at `/tmp/orknux-release`
+(or wherever `ORKNUX_RELEASE_DIR` points): that is where the chosen jar is
+written before it runs.
+
 The Orknux image is published for **linux/amd64 only**. On a mixed cluster,
 that is a `nodeSelector` on `kubernetes.io/arch: amd64` away from being a pod
 that schedules onto an arm64 node and does not start. Postgres, Temporal and

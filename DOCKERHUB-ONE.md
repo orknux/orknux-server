@@ -175,3 +175,11 @@ the way up. Take a copy of `/var/lib/orknux` first, with the container stopped: 
 directory copy is the whole of the backup story here, there is no `pg_dump` to
 fall back on, and downgrading is restoring that copy rather than running an
 older tag.
+
+Or update in place: **Admin -> Updates** installs a release from the
+marketplace, or a jar you upload, into the database, restarts on it, and can roll
+back to any release it still keeps. Every jar must be signed with the Orknux
+release key this image carries; one that is not, or that changed after it was
+stored, is refused and the image's own jar runs. **On by default**;
+`ORKNUX_SELF_UPDATE=false` turns it off. A newer image always wins over a release
+chosen under an older one, so pulling a new tag still upgrades.

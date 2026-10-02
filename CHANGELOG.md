@@ -23,8 +23,11 @@ have failed.
 - An agent's MCP server can be left out of an import, like one of its tools, and the agent arrives without it; a server the file names and this workspace lacks no longer blocks the import.
 - Admin Settings has a Workspace copies heading with how long a copy may wait for a lock (default 60 seconds). A copy that waits longer stops and says which step it stopped at, rather than waiting for ever.
 - The field picker for references and variables works from the keyboard: the arrow keys, Home and End move through the list, Enter picks and Escape closes.
+- Admin -> Updates updates the server in place: Update on a release orknux.ai lists, with its changelog, or upload a jar. Every jar must be signed with the Orknux release key the image carries and is checked again on every start; the database keeps the last few (Admin Settings, default 3) and any of them can be rolled back to, as can the image's own jar, unless the schema has moved past what it can run on. Every server restarts on the chosen release, a release that will not start is given up on after three starts, and each update and rollback is in the audit log.
 
 ### 🔧 Changed
+
+- In-place updates are **on by default**: an administrator can run a signed release other than the image's own, without a change to the image tag. Where every version that runs must be approved, set `ORKNUX_SELF_UPDATE=false` before upgrading and the image's jar always runs. Both images now start through a small loop that chooses the jar, so PID 1 is a shell that hands `docker stop` on to the JVM; on a read-only root filesystem, mount an `emptyDir` or tmpfs at `/tmp/orknux-release` (`ORKNUX_RELEASE_DIR`).
 
 - A node that is not a condition or a decision, drawn with lines to several nodes, now runs those paths at the same time rather than one after another. A failure on one path no longer stops the others: they finish, and the run ends FAILED. A node where paths meet still waits for all of them. A graph with no such fan-out runs exactly as before.
 

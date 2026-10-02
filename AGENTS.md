@@ -175,6 +175,31 @@ moment the baseline is edited, which is precisely when somebody is editing it.
 Module tables carry no foreign keys across a module boundary, so a deleted workspace
 is reported to the module rather than cascaded.
 
+**A patch release migrates additively, and `rollback-floor` says when one did
+not.** Since #584 an administrator can roll a server back to an older jar the
+database keeps, which then starts on a schema newer than it was built for. That
+works only while every migration since was additive - a new table, a nullable
+column, a wider `CHECK` - because `validate` tolerates what it does not know and
+Flyway ignores future migrations. A rename, a drop, a `NOT NULL` without a
+default or a narrower `CHECK` breaks every older jar, so it waits for a minor
+release, and the migration that does it raises
+`app/src/main/resources/db/migration/rollback-floor` to its own number in the
+same commit. Each jar records that file as its floor; the database's floor is the
+highest floor of anything that has started on it, and a jar built for a schema
+below it is refused with the reason shown. Forgetting to raise it is how a
+rollback reaches a schema it cannot run on - the launcher then falls back, but
+only after the restarts it is allowed.
+
+**The start-up path is tested in a container, not in the suite.**
+`docker/orknux-run.sh` (PID 1 in both images), the launcher in
+`update/ReleaseLauncher.kt` and the signal forwarding between them are driven by
+`scripts/self-update/lib.sh`, which both verify scripts run: a second jar signed
+with a key made there, uploaded, activated, rolled back, and tampered with in the
+database. The container trusts that key through `ORKNUX_RELEASE_TEST=true` plus
+`ORKNUX_RELEASE_TRUST_EXTRA` (a PEM path) - **test only**, read from the process
+environment and never from the database or `application.yml`, and announced on
+every start it is in effect. Never set them in a deployment.
+
 ## Conventions
 
 - **Never hand-roll what a library already does.** Before writing a line of

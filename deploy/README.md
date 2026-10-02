@@ -471,6 +471,17 @@ Flyway migrates on the way up, so the schema follows the server. JPA runs with
 changes the database and a mismatch is a startup failure rather than a strange
 query. Take the Postgres volume first if you would mind going back.
 
+### Updating in place, and turning it off
+
+An administrator can also update from **Admin -> Updates**: a release from
+orknux.ai or an uploaded jar, checked against the release key the image carries,
+kept in the database and restarted into - and rolled back the same way. A newer
+image always wins over a release chosen under an older one, so the two commands
+above still upgrade. It is **on by default**; set `ORKNUX_SELF_UPDATE: "false"`
+on `orknux-server` where every version that runs has to be approved, and the
+image's own jar always runs. On a read-only root filesystem, give
+`/tmp/orknux-release` (`ORKNUX_RELEASE_DIR`) a tmpfs.
+
 ### From an installation that still runs orknux-ui
 
 Until #585 the interface was a second image, `orknux/orknux-ui`: nginx serving

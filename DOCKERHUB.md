@@ -213,11 +213,7 @@ has the rest.
 | `ORKNUX_EXECUTION_RETENTION_DAYS` | How long a finished run is kept, with its steps. Admin -> Settings is the switch; this is the floor. | `90` | No |
 | `ORKNUX_EXECUTION_SWEEP_ENABLED` | `false` sweeps nothing on a timer. | `true` | No |
 | `ORKNUX_REVISION_RETENTION_DAYS` | How long a replaced version of a function, tool, skill or agent is kept, from when it stopped being current. Admin -> Settings is the switch. | `14` | No |
-| `ORKNUX_REVISION_SWEEP_ENABLED` | `false` keeps every version forever. | `true` | No |
-| `ORKNUX_REVISION_SWEEP_INTERVAL` | How often that sweep runs. | `6h` | No |
 | `ORKNUX_SCHEDULER_ENABLED` | The clock behind scheduled triggers. Its state is in the database, so one instance fires a schedule however many are running. | `true` | No |
-| `ORKNUX_SCHEDULER_POLLING_INTERVAL` | How often it looks for due work. | `10s` | No |
-| `ORKNUX_SCHEDULER_THREADS` | How many due schedules it may start at once. | `4` | No |
 | `ORKNUX_SCHEDULER_TICK_INTERVAL` | How often scheduled triggers are looked at: the finest schedule this installation keeps. A cron of seconds still fires only on a tick. | `10s` | No |
 
 ## What a workspace's code may do
@@ -259,6 +255,18 @@ before anything is loaded.
 | `ORKNUX_MARKETPLACE_URL` | Where the catalog is asked. Point it at your own; empty offers the upload alone. | `https://orknux.ai/graphql` | No |
 | `ORKNUX_INSTALL_KEY` | What this installation says to be answered at all. The shipped key is a shared one; an installation that wants its own asks for one. | a shared key | No |
 
+## Updates
+
+An administrator can update this server in place on **Admin -> Updates**, from
+the marketplace or an uploaded jar signed with the release key this image
+carries, and roll back. **On by default**: where every version must be approved,
+set `ORKNUX_SELF_UPDATE=false`.
+
+| Variable | What it does | Default | Required |
+| --- | --- | --- | --- |
+| `ORKNUX_SELF_UPDATE` | `false` refuses updates and runs the image's jar. | `true` | No |
+| `ORKNUX_RELEASE_DIR` | Where the chosen jar is written to run. On a read-only root filesystem, mount an `emptyDir` here. | `/tmp/orknux-release` | No |
+
 ## Models and connections
 
 | Variable | What it does | Default | Required |
@@ -266,10 +274,8 @@ before anything is loaded.
 | `ORKNUX_MODEL_TIMEOUT` | How long a model has to answer. Generous: a large local model on a laptop is slow. | `2m` | No |
 | `ORKNUX_MODEL_CHECK_ENABLED` | Periodically asks each provider whether it still answers, so the status on the screen is recent. | `true` | No |
 | `ORKNUX_MODEL_CHECK_INTERVAL` | How often that sweep runs. | `5m` | No |
-| `ORKNUX_MODEL_CHECK_INITIAL_DELAY` | How long after start the first sweep waits. | `30s` | No |
 | `ORKNUX_CONNECTION_CHECK_ENABLED` | The same, for connections. | `true` | No |
 | `ORKNUX_CONNECTION_CHECK_INTERVAL` | How often connections are checked. | `5m` | No |
-| `ORKNUX_CONNECTION_CHECK_INITIAL_DELAY` | How long the first check waits. | `30s` | No |
 | `ORKNUX_CONNECTION_PROBE_TIMEOUT_SECONDS` | How long a check may take to find out whether anything is listening. | `5` | No |
 | `ORKNUX_CONNECTION_ALLOW_LINK_LOCAL` | Link-local addresses reach cloud instance metadata, so they are refused; turning this on lets a workspace's connection reach them. Private and loopback stay reachable either way. | `false` | No |
 | `ORKNUX_CONNECTION_ENTRA_AUTHORITY` | Where an Entra ID token is asked for. The worldwide cloud - a tenant in a sovereign cloud has an address of its own. | `https://login.microsoftonline.com` | No |
@@ -303,7 +309,9 @@ One switch and one directory for both: the tracker's attachments are the chat's,
 and it needs nothing else configured here.
 
 ORKNUX_CHAT_MAX_ROUNDS, ORKNUX_CHAT_MAX_SUBAGENTS, ORKNUX_CHAT_TOOLS_NAMED_IN_SEARCH,
-ORKNUX_COMMAND_MARKER, ORKNUX_LDAP_GROUP_SEARCH_SUBTREE,
+ORKNUX_COMMAND_MARKER, ORKNUX_LDAP_GROUP_SEARCH_SUBTREE, ORKNUX_MODEL_CHECK_INITIAL_DELAY,
+ORKNUX_CONNECTION_CHECK_INITIAL_DELAY, ORKNUX_SCHEDULER_THREADS, ORKNUX_SCHEDULER_POLLING_INTERVAL,
+ORKNUX_REVISION_SWEEP_ENABLED, ORKNUX_REVISION_SWEEP_INTERVAL,
 ORKNUX_SESSIONS_ACTIVE_WINDOW_SECONDS, ORKNUX_SESSIONS_DUE_SWEEP, ORKNUX_TASK_SWEEP_ENABLED
 and ORKNUX_TASK_SWEEP_INITIAL_DELAY are in
 [the README](https://github.com/orknux/orknux-server/blob/main/README.md#more-settings).

@@ -408,6 +408,12 @@ installation starts from.
 | `ORKNUX_CHAT_TOOLS_NAMED_IN_SEARCH` | Findable tools `tool_find` names outright. | `40` |
 | `ORKNUX_COMMAND_MARKER` | What marks a skill command in a message. | `!` |
 | `ORKNUX_LDAP_GROUP_SEARCH_SUBTREE` | Search for groups below the group base too. | `false` |
+| `ORKNUX_MODEL_CHECK_INITIAL_DELAY` | How long after start the first provider check waits. | `30s` |
+| `ORKNUX_CONNECTION_CHECK_INITIAL_DELAY` | How long after start the first connection check waits. | `30s` |
+| `ORKNUX_SCHEDULER_THREADS` | How many due schedules may be started at once. | `4` |
+| `ORKNUX_REVISION_SWEEP_INTERVAL` | How often replaced versions past their retention are swept. | `6h` |
+| `ORKNUX_REVISION_SWEEP_ENABLED` | `false` keeps every replaced version for ever. | `true` |
+| `ORKNUX_SCHEDULER_POLLING_INTERVAL` | How often the scheduler looks for due work. | `10s` |
 | `ORKNUX_SESSIONS_ACTIVE_WINDOW_SECONDS` | How recent a session's last line is to count as active. | `60` |
 | `ORKNUX_SESSIONS_DUE_SWEEP` | How often a reminder that came due after its agent finished is delivered. | `1s` |
 | `ORKNUX_TASK_SWEEP_ENABLED` | Whether stuck tasks are picked up again. | `true` |

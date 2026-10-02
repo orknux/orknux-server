@@ -710,6 +710,15 @@ spec:
             - name: ORKNUX_ATTACHMENTS_LOCATION
               value: /home/orknux/attachments
 
+            # In-place updates from Admin -> Updates (#584): a signed release
+            # kept in the database and started by the image's launcher. On by
+            # default; a platform that approves every version that runs sets
+            # this to "false", and the image's own jar always runs. With
+            # readOnlyRootFilesystem, mount an emptyDir at /tmp/orknux-release
+            # (ORKNUX_RELEASE_DIR), where the chosen jar is written to run.
+            - name: ORKNUX_SELF_UPDATE
+              value: "true"
+
             # Everything else the server understands is one more ORKNUX_
             # variable here; DOCKERHUB.md lists every one of them with what it
             # does and what happens if you say nothing.
