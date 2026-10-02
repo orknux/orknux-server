@@ -22,6 +22,7 @@ have failed.
 - A kept server release can be removed from Admin -> Updates, its jar with it; the release running, the one chosen and the one it falls back to cannot.
 - Every node in the workflow editor and on a run's page shows an icon: the one it was given, or else its kind's own (the picture the Add menu uses, and a speaker for text to speech). The node's Icon field shows that default greyed as Default.
 - An image or decision node's model opens in the drawer beside the graph, the way an agent node opens its agent: the model page's own settings, saved in place, following the node's model picker. A ctrl-click still opens the model's page.
+- An image or decision node has New beside its model, as an agent node has beside its agent: the drawer makes a model of the kind the node needs on one of the workspace's providers, the node points at it, and the drawer stays open on its settings.
 - A run's page and a session's log refresh every second until somebody chooses another interval; lists still start at Off.
 - Admin Settings has a Workflow runs heading with Steps running at once (default 4, 1 to 32), the most steps of one run that work at the same time.
 - An agent's MCP server can be left out of an import, like one of its tools, and the agent arrives without it; a server the file names and this workspace lacks no longer blocks the import.
