@@ -74,6 +74,57 @@ class InterfaceResourcesTest(@LocalServerPort private val port: Int) {
         }
     }
 
+    /**
+     * What nginx's mime.types used to say for each kind of file the bundle holds.
+     * A font served as octet-stream still loads in most browsers and is refused
+     * by the strict ones; a stylesheet served as text/plain is ignored outright.
+     */
+    @Test
+    fun `every kind of file in the bundle is served as what it is`() {
+        fun type(path: String) = get(path).headers.contentType?.let { "${it.type}/${it.subtype}" }
+
+        assertThat(type("/")).isEqualTo("text/html")
+        assertThat(type("/assets/app-3f2a.js")).isEqualTo("text/javascript")
+        assertThat(type("/assets/index-77aa.css")).isEqualTo("text/css")
+        assertThat(type("/assets/font-9c1d.woff2")).isEqualTo("font/woff2")
+        assertThat(type("/assets/font-9c1d.woff")).isEqualTo("font/woff")
+        assertThat(type("/screens/chat.png")).isEqualTo("image/png")
+        assertThat(type("/favicon.svg")).isEqualTo("image/svg+xml")
+    }
+
+    /** What an uptime monitor or a load balancer asks with. */
+    @Test
+    fun `a HEAD for the page is answered like its GET, without a body`() {
+        val head = client.head().uri("/").retrieve().toBodilessEntity()
+
+        assertThat(head.statusCode).isEqualTo(HttpStatus.OK)
+        assertThat(head.headers.contentType.toString()).startsWith("text/html")
+    }
+
+    @Test
+    fun `routes the page draws with odd shapes are still the page`() {
+        listOf(
+            "/workspace/9/",
+            "/workspace/9/files/report.v2.pdf",
+            "/apiary",
+            "/graphqlish/thing",
+            "/workspace/9/issues?status=OPEN#comments",
+            "/index.html",
+        ).forEach { path ->
+            val answer = get(path)
+            assertThat(answer.statusCode).describedAs(path).isEqualTo(HttpStatus.OK)
+            assertThat(answer.body).describedAs(path).contains("Orknux test bundle")
+        }
+    }
+
+    @Test
+    fun `a path climbing out of the bundle is refused`() {
+        listOf("/assets/../application.yml", "/%2e%2e/application.yml", "/assets/%2e%2e/%2e%2e/application.yml").forEach { path ->
+            val answer = client.get().uri(java.net.URI.create("http://localhost:$port$path")).retrieve().toEntity(String::class.java)
+            assertThat(answer.body.orEmpty()).describedAs(path).doesNotContain("spring:").doesNotContain("datasource")
+        }
+    }
+
     @Test
     fun `only a GET is answered with the page`() {
         val posted = client.post().uri("/workspace/9").retrieve().toEntity(String::class.java)

@@ -70,11 +70,14 @@ class InterfaceResources : WebMvcConfigurer {
 
         /**
          * What anybody may fetch without signing in: the sign-in page has to load
-         * before anybody has. A GET outside the server's own paths reaches nothing
+         * before anybody has. A read outside the server's own paths reaches nothing
          * but the bundle - see [servedByServer].
          */
         val PAGES = RequestMatcher { request: HttpServletRequest ->
-            request.method == "GET" && !servedByServer(request.requestURI.removePrefix(request.contextPath))
+            request.method in READ && !servedByServer(request.requestURI.removePrefix(request.contextPath))
         }
+
+        /** HEAD too: it is what an uptime monitor or a load balancer asks with. */
+        private val READ = setOf("GET", "HEAD")
     }
 }
