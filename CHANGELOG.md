@@ -21,6 +21,7 @@ have failed.
 
 - Admin Settings has a Workflow runs heading with Steps running at once (default 4, 1 to 32), the most steps of one run that work at the same time.
 - An agent's MCP server can be left out of an import, like one of its tools, and the agent arrives without it; a server the file names and this workspace lacks no longer blocks the import.
+- Admin Settings has a Workspace copies heading with how long a copy may wait for a lock (default 60 seconds). A copy that waits longer stops and says which step it stopped at, rather than waiting for ever.
 - The field picker for references and variables works from the keyboard: the arrow keys, Home and End move through the list, Enter picks and Escape closes.
 
 ### 🔧 Changed
@@ -32,6 +33,7 @@ have failed.
 ### 🐛 Fixed
 
 - Talking over a spoken answer in voice mode stops it again. The hold restarted at every gap between syllables, so ordinary speech never held long enough; a short noise such as a cough still does not interrupt.
+- Duplicating a workspace shows its progress from the first connection on, says when progress cannot be read instead of sitting on the first line, and logs every step, so a copy that stops can be found from the log.
 
 ## 0.9.9.7
 
