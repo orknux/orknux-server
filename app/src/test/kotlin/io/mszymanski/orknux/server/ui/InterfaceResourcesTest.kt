@@ -53,7 +53,8 @@ class InterfaceResourcesTest(@LocalServerPort private val port: Int) {
         assertThat(asset.statusCode).isEqualTo(HttpStatus.OK)
         assertThat(asset.body).contains("bundle")
         assertThat(asset.headers.getFirst(HttpHeaders.CACHE_CONTROL)).contains("max-age=31536000").contains("immutable")
-        assertThat(icon.body).isEqualTo("icon\n")
+        // Starts with, because a Windows checkout ends the line differently.
+        assertThat(icon.body).startsWith("icon")
     }
 
     @Test
