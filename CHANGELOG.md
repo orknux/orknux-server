@@ -15,7 +15,7 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
-## Unreleased
+## 0.9.9.8
 
 ### ✨ Added
 
@@ -28,9 +28,7 @@ have failed.
 ### 🔧 Changed
 
 - In-place updates are **on by default**: an administrator can run a signed release other than the image's own, without a change to the image tag. Where every version that runs must be approved, set `ORKNUX_SELF_UPDATE=false` before upgrading and the image's jar always runs. Both images now start through a small loop that chooses the jar, so PID 1 is a shell that hands `docker stop` on to the JVM; on a read-only root filesystem, mount an `emptyDir` or tmpfs at `/tmp/orknux-release` (`ORKNUX_RELEASE_DIR`).
-
 - A node that is not a condition or a decision, drawn with lines to several nodes, now runs those paths at the same time rather than one after another. A failure on one path no longer stops the others: they finish, and the run ends FAILED. A node where paths meet still waits for all of them. A graph with no such fan-out runs exactly as before.
-
 - The `orknux/orknux-server` image now serves the interface itself, on its own port 8080, so it is the whole product and `orknux/orknux-ui` is no longer needed; `orknux-one` has no nginx either. An installation still running `orknux-ui` keeps working, since the server answers every path it forwarded, but to move off it point the browser, published port, reverse proxy or Ingress at `orknux-server` on 8080 and remove the `orknux-ui` container (and `ORKNUX_UI_TAG`) - `deploy/README.md` and `deploy/kubernetes/README.md` have the steps.
 
 ### 🐛 Fixed
