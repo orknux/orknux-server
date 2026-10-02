@@ -66,6 +66,13 @@ WORKDIR /app
 
 COPY --from=build --chown=orknux:orknux /build/app/target/orknux-app-*.jar app.jar
 
+# The start loop: the launcher chooses a jar - an update an administrator
+# installed (#584), or this image's own - and the loop starts it again when it
+# asks. CRLF stripped and the mode set for the same reason as orknux-one's
+# entrypoint: this repository is worked on from Windows too.
+COPY docker/orknux-run.sh /usr/local/bin/orknux-run
+RUN sed -i 's/\r$//' /usr/local/bin/orknux-run && chmod +x /usr/local/bin/orknux-run
+
 USER orknux
 
 EXPOSE 8080
@@ -75,7 +82,11 @@ EXPOSE 8080
 # number.
 ENV JAVA_OPTS="-XX:MaxRAMPercentage=75"
 
-# Shell form, so JAVA_OPTS is expanded rather than passed as one literal
-# argument. `exec` keeps the JVM as PID 1, which is what makes `docker stop`
-# reach it and the graceful shutdown in application.yml mean anything.
-ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]
+# The image's own jar, which the launcher falls back to whenever a stored
+# release is not right.
+ENV ORKNUX_IMAGE_JAR=/app/app.jar
+
+# The loop is PID 1 and hands SIGTERM and SIGINT on to the JVM, so `docker stop`
+# still reaches it and the graceful shutdown in application.yml still means
+# something. With ORKNUX_SELF_UPDATE=false it execs the JVM instead, as before.
+ENTRYPOINT ["/usr/local/bin/orknux-run"]

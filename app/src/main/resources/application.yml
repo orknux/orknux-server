@@ -153,6 +153,18 @@ db-scheduler:
 orknux:
   # Filled in from the build, and reported on the monitoring screen.
   version: "@project.version@"
+  update:
+    # Whether an administrator may update this server in place, from the Admin
+    # Updates page: a release orknux.ai offers, or a jar they upload, stored in
+    # the database and started by the image's launcher - and rolled back the
+    # same way. Every jar must be signed with the Orknux release key the image
+    # carries. On by default; false refuses all of it and the image runs its own
+    # jar, for a platform that approves every version that runs. #584.
+    enabled: ${ORKNUX_SELF_UPDATE:true}
+    # Where the launcher writes the chosen jar before running it. Read by the
+    # launcher, not the server; it is here so the two are documented together.
+    # On a read-only root filesystem, mount an emptyDir (or tmpfs) here.
+    release-dir: ${ORKNUX_RELEASE_DIR:/tmp/orknux-release}
   marketplace:
     # Where the plugin catalog is read from. This server holds no catalog of
     # its own: it asks, and installs from the URL the answer carries. Blank

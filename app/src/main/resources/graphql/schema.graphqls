@@ -108,6 +108,11 @@ type Query {
     components: [Component!]!
     "The switches that belong to the installation rather than to a workspace."
     installationSettings: InstallationSettings!
+    """
+    What this server runs, what orknux.ai offers newer than it, and the jars the
+    database keeps to roll back to. Administrators only. Issue #584.
+    """
+    serverUpdates: ServerUpdates!
     "The plugins loaded into this installation, by name. Administrators only."
     plugins: [Plugin!]!
     """
@@ -1266,6 +1271,34 @@ type Mutation {
     setSessionsActiveWindowSeconds(seconds: Int!): InstallationSettings!
     "How long a step of a workspace copy may wait for a lock, 1 to 3600 seconds. Administrators only. Issue #581."
     setWorkspaceCopyLockWaitSeconds(seconds: Int!): InstallationSettings!
+    """
+    Downloads a server release orknux.ai offers, checks it against the listing
+    and the release key, stores it and restarts into it. Administrators only.
+    Issue #584.
+    """
+    installServerRelease(version: String!): ServerUpdateStarted!
+    """
+    Restarts into a server release the database holds - a rollback, or forward
+    again. Refused where the schema has moved past what that jar can run on.
+    Administrators only.
+    """
+    activateServerRelease(id: ID!): ServerUpdateStarted!
+    """
+    Restarts every server into the image's own jar - the version the image was
+    built with - choosing nothing from the database. Refused where the schema has
+    moved past what it can run on. Administrators only.
+    """
+    activateImageRelease: ServerUpdateStarted!
+    "How many server jars are kept for rolling back to, between 1 and 20. Administrators only. Issue #584."
+    setReleasesKept(count: Int!): InstallationSettings!
+    "How many starts a newly activated server release gets before it is given up on, between 1 and 20. Administrators only."
+    setReleaseBootAttempts(count: Int!): InstallationSettings!
+    "How often every server checks it runs the chosen release, between 5 and 3600 seconds. Administrators only."
+    setReleaseFollowSeconds(seconds: Int!): InstallationSettings!
+    "The largest server jar taken, uploaded or downloaded, between 64 and 1000 MB. Administrators only."
+    setReleaseMaxMb(mb: Int!): InstallationSettings!
+    "How long a server waits after an update before restarting, between 0 and 60 seconds. Administrators only."
+    setReleaseRestartDelaySeconds(seconds: Int!): InstallationSettings!
     """
     Whether a conversation may be thrown away. Administrators only.
 
@@ -6647,6 +6680,110 @@ type InstallationSettings {
     that carries tasks in this process.
     """
     taskSweepConfigurable: Boolean!
+    "How many server jars are kept for rolling back to. Issue #584."
+    releasesKept: Int!
+    releasesKeptConfigured: Int!
+    "How many starts a newly activated server release gets before it is given up on."
+    releaseBootAttempts: Int!
+    releaseBootAttemptsConfigured: Int!
+    "How often every server checks it runs the chosen release, in seconds."
+    releaseFollowSeconds: Int!
+    releaseFollowSecondsConfigured: Int!
+    "The largest server jar taken, uploaded or downloaded, in megabytes."
+    releaseMaxMb: Int!
+    releaseMaxMbConfigured: Int!
+    "How long a server waits after an update before restarting, in seconds."
+    releaseRestartDelaySeconds: Int!
+    releaseRestartDelaySecondsConfigured: Int!
+}
+
+"Server updates as an administrator sees them. Issue #584."
+type ServerUpdates {
+    "ORKNUX_SELF_UPDATE. False, and every list is empty and every change refused."
+    enabled: Boolean!
+    runningVersion: String!
+    "The stored release this server runs; null for the image's own jar."
+    runningRelease: StoredServerRelease
+    "Whether this server can restart itself; false outside the image's start loop."
+    restartable: Boolean!
+    "Whether orknux.ai answered with server releases at all; false before it offers any."
+    offered: Boolean!
+    "Why orknux.ai could not be asked, where it could not."
+    offeredError: String
+    "What orknux.ai offers newer than what runs, newest first."
+    available: [OfferedServerRelease!]!
+    "What the database holds, newest first."
+    stored: [StoredServerRelease!]!
+    "How many are kept; an Admin Settings value."
+    kept: Int!
+    "The newest migration this database cannot be rolled back past."
+    schemaFloor: Int!
+    "The version of the jar the image was built with."
+    imageVersion: String!
+    "Whether every server may go back to the image's own jar; see imageRefusal where not."
+    imageActivatable: Boolean!
+    imageRefusal: String
+}
+
+"A server release orknux.ai offers."
+type OfferedServerRelease {
+    version: String!
+    publishedAt: String!
+    "What changed, in markdown."
+    changelog: String!
+    size: Float!
+    "Already in the database, so Update only starts it."
+    stored: Boolean!
+}
+
+"Where a stored server jar came from."
+enum ServerReleaseSource {
+    ORKNUX_AI
+    UPLOAD
+}
+
+"Where a stored server release stands."
+enum ServerReleaseState {
+    "Kept, and not chosen."
+    STORED
+    "Chosen, and not yet seen to start."
+    ACTIVATING
+    "Chosen, and started."
+    ACTIVE
+    "Refused at start-up, or never started; see failure."
+    FAILED
+}
+
+"A server jar the database holds."
+type StoredServerRelease {
+    id: ID!
+    version: String!
+    source: ServerReleaseSource!
+    size: Float!
+    sha256: String!
+    "The newest migration it carries."
+    schemaVersion: Int!
+    "The newest migration a database that ran it cannot be rolled back past."
+    schemaFloor: Int!
+    storedAt: String!
+    storedBy: String!
+    state: ServerReleaseState!
+    bootAttempts: Int!
+    "Why it is FAILED."
+    failure: String
+    "Whether this server runs it."
+    running: Boolean!
+    "Whether it may be started; see refusal where not."
+    activatable: Boolean!
+    refusal: String
+}
+
+"An update or rollback, accepted."
+type ServerUpdateStarted {
+    "The release started; null when going back to the image's own jar."
+    release: StoredServerRelease
+    "False where nothing can restart this server, and somebody has to."
+    restarting: Boolean!
 }
 
 "What a component reports about itself."

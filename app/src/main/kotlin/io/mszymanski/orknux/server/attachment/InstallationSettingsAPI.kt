@@ -100,7 +100,62 @@ class InstallationSettingsAPI(
         sessionsActiveWindowSecondsConfigured = settings.sessionsActiveWindowSecondsConfigured(),
         workspaceCopyLockWaitSeconds = settings.workspaceCopyLockWaitSeconds(),
         workspaceCopyLockWaitSecondsConfigured = settings.workspaceCopyLockWaitSecondsConfigured(),
+        releasesKept = settings.releasesKept(),
+        releasesKeptConfigured = settings.releasesKeptConfigured(),
+        releaseBootAttempts = settings.releaseBootAttempts(),
+        releaseBootAttemptsConfigured = settings.releaseBootAttemptsConfigured(),
+        releaseFollowSeconds = settings.releaseFollowSeconds(),
+        releaseFollowSecondsConfigured = settings.releaseFollowSecondsConfigured(),
+        releaseMaxMb = settings.releaseMaxMb(),
+        releaseMaxMbConfigured = settings.releaseMaxMbConfigured(),
+        releaseRestartDelaySeconds = settings.releaseRestartDelaySeconds(),
+        releaseRestartDelaySecondsConfigured = settings.releaseRestartDelaySecondsConfigured(),
     )
+
+    /** How many server jars are kept for rolling back to. Issue #584. */
+    @MutationMapping
+    fun setReleasesKept(@Argument count: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setReleasesKept(count, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "The last $count server releases are kept")
+        return installationSettings()
+    }
+
+    /** How many starts a newly activated server release gets before it is given up on. Issue #584. */
+    @MutationMapping
+    fun setReleaseBootAttempts(@Argument count: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setReleaseBootAttempts(count, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "A server release gets $count starts before it is given up on")
+        return installationSettings()
+    }
+
+    /** How often every server checks it runs the chosen release. Issue #584. */
+    @MutationMapping
+    fun setReleaseFollowSeconds(@Argument seconds: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setReleaseFollowSeconds(seconds, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "Servers check for a new release every $seconds seconds")
+        return installationSettings()
+    }
+
+    /** The largest server jar taken. Issue #584. */
+    @MutationMapping
+    fun setReleaseMaxMb(@Argument mb: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setReleaseMaxMb(mb, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "Server jars capped at $mb MB")
+        return installationSettings()
+    }
+
+    /** How long a server waits after an update before restarting. Issue #584. */
+    @MutationMapping
+    fun setReleaseRestartDelaySeconds(@Argument seconds: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setReleaseRestartDelaySeconds(seconds, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "A server restarts $seconds seconds after an update")
+        return installationSettings()
+    }
 
     /** How long a scratchpad nobody touches is kept; zero keeps them for ever. Issue #492. */
     @MutationMapping
@@ -841,4 +896,19 @@ data class InstallationSettingsView(
      * what is not an administrator's decision on Temporal is how long it waits.
      */
     val taskSweepConfigurable: Boolean,
+    /** Server updates, #584: how many jars are kept for rolling back to. */
+    val releasesKept: Int,
+    val releasesKeptConfigured: Int,
+    /** How many starts a newly activated release gets before it is given up on. */
+    val releaseBootAttempts: Int,
+    val releaseBootAttemptsConfigured: Int,
+    /** How often every server checks it runs the chosen release, in seconds. */
+    val releaseFollowSeconds: Int,
+    val releaseFollowSecondsConfigured: Int,
+    /** The largest server jar taken, uploaded or downloaded, in megabytes. */
+    val releaseMaxMb: Int,
+    val releaseMaxMbConfigured: Int,
+    /** How long a server waits after an update before restarting, in seconds. */
+    val releaseRestartDelaySeconds: Int,
+    val releaseRestartDelaySecondsConfigured: Int,
 )

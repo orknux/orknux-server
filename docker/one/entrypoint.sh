@@ -191,7 +191,8 @@ fi
 
 note "Orknux is starting on ${ORKNUX_PORT:-8080}, the interface with it."
 
-# `exec`, so the JVM is PID 1 and `docker stop` reaches it. Without it a shell
-# holds PID 1, the signal stops there, and the JVM is killed at the end of the
-# grace period with requests in flight.
-exec java $JAVA_OPTS -jar /app/app.jar
+# `exec` into the start loop (#584), which becomes PID 1: it chooses a jar - an
+# update an administrator installed, or this image's own - runs it, starts it
+# again when it asks, and hands `docker stop`'s SIGTERM on to the JVM so the
+# shutdown is graceful rather than a kill at the end of the grace period.
+exec /usr/local/bin/orknux-run

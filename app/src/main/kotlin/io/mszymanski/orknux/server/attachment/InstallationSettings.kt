@@ -7,6 +7,9 @@ import io.mszymanski.orknux.server.llm.SessionProperties
 import io.mszymanski.orknux.server.monitoring.MetricsProperties
 import io.mszymanski.orknux.server.revision.RevisionProperties
 import io.mszymanski.orknux.server.task.TaskSweepProperties
+import io.mszymanski.orknux.server.update.DEFAULT_RELEASE_BOOT_ATTEMPTS
+import io.mszymanski.orknux.server.update.MAX_RELEASE_BOOT_ATTEMPTS
+import io.mszymanski.orknux.server.update.MIN_RELEASE_BOOT_ATTEMPTS
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.Id
@@ -125,6 +128,19 @@ object SettingNames {
     const val SESSIONS_ACTIVE_WINDOW_SECONDS = "sessions.active.window.seconds"
     /** How long a step of a workspace copy may wait for a lock. Issue #581. */
     const val WORKSPACE_COPY_LOCK_WAIT_SECONDS = "workspace.copy.lock.wait.seconds"
+
+    /** Server updates, #584: how many jars are kept, and how a start is judged. */
+    const val RELEASES_KEPT = "releases.kept"
+    const val RELEASE_BOOT_ATTEMPTS = io.mszymanski.orknux.server.update.RELEASE_BOOT_ATTEMPTS_SETTING
+    const val RELEASE_FOLLOW_SECONDS = "release.follow.seconds"
+    const val RELEASE_MAX_MB = "release.max.mb"
+    const val RELEASE_RESTART_DELAY_SECONDS = "release.restart.delay.seconds"
+
+    /**
+     * The newest migration this database cannot be rolled back past, raised by
+     * every release that starts on it. Written by the server, never by a screen.
+     */
+    const val RELEASE_SCHEMA_FLOOR = "release.schema.floor"
 }
 
 /**
@@ -1104,6 +1120,103 @@ class InstallationSettings(
         write(SettingNames.HTTP_HOSTS, written.joinToString(","), by)
     }
 
+    /**
+     * How many server jars the database keeps for rolling back to. Issue #584.
+     *
+     * Each is a third of a gigabyte, so this is a judgement about the database's
+     * disk as much as about how far back anybody would go; the oldest that is
+     * not running is removed once a new one is stored.
+     */
+    fun releasesKept(): Int = ranged(SettingNames.RELEASES_KEPT, MIN_RELEASES_KEPT..MAX_RELEASES_KEPT, DEFAULT_RELEASES_KEPT)
+
+    fun releasesKeptConfigured(): Int = DEFAULT_RELEASES_KEPT
+
+    @Transactional
+    fun setReleasesKept(count: Int, by: String) {
+        if (count !in MIN_RELEASES_KEPT..MAX_RELEASES_KEPT) throw ReleasesKeptOutOfRangeException(count)
+        write(SettingNames.RELEASES_KEPT, count.toString(), by)
+    }
+
+    /**
+     * How many starts a newly activated release gets before the launcher gives
+     * up on it and goes back to what ran before. Read by the launcher too,
+     * straight from this table, which is why its name and range live in
+     * `update/ReleaseLauncher.kt`.
+     */
+    fun releaseBootAttempts(): Int =
+        ranged(SettingNames.RELEASE_BOOT_ATTEMPTS, MIN_RELEASE_BOOT_ATTEMPTS..MAX_RELEASE_BOOT_ATTEMPTS, DEFAULT_RELEASE_BOOT_ATTEMPTS)
+
+    fun releaseBootAttemptsConfigured(): Int = DEFAULT_RELEASE_BOOT_ATTEMPTS
+
+    @Transactional
+    fun setReleaseBootAttempts(count: Int, by: String) {
+        if (count !in MIN_RELEASE_BOOT_ATTEMPTS..MAX_RELEASE_BOOT_ATTEMPTS) throw ReleaseBootAttemptsOutOfRangeException(count)
+        write(SettingNames.RELEASE_BOOT_ATTEMPTS, count.toString(), by)
+    }
+
+    /**
+     * How often every server asks whether the release it runs is still the one
+     * chosen, in seconds - which is how the other replicas follow an update one
+     * of them was asked for.
+     */
+    fun releaseFollowSeconds(): Int = ranged(
+        SettingNames.RELEASE_FOLLOW_SECONDS,
+        MIN_RELEASE_FOLLOW_SECONDS..MAX_RELEASE_FOLLOW_SECONDS,
+        DEFAULT_RELEASE_FOLLOW_SECONDS,
+    )
+
+    fun releaseFollowSecondsConfigured(): Int = DEFAULT_RELEASE_FOLLOW_SECONDS
+
+    @Transactional
+    fun setReleaseFollowSeconds(seconds: Int, by: String) {
+        if (seconds !in MIN_RELEASE_FOLLOW_SECONDS..MAX_RELEASE_FOLLOW_SECONDS) throw ReleaseFollowOutOfRangeException(seconds)
+        write(SettingNames.RELEASE_FOLLOW_SECONDS, seconds.toString(), by)
+    }
+
+    /** The largest server jar this installation takes, uploaded or downloaded, in megabytes. */
+    fun releaseMaxMb(): Int = ranged(SettingNames.RELEASE_MAX_MB, MIN_RELEASE_MAX_MB..MAX_RELEASE_MAX_MB, DEFAULT_RELEASE_MAX_MB)
+
+    fun releaseMaxMbConfigured(): Int = DEFAULT_RELEASE_MAX_MB
+
+    @Transactional
+    fun setReleaseMaxMb(mb: Int, by: String) {
+        if (mb !in MIN_RELEASE_MAX_MB..MAX_RELEASE_MAX_MB) throw ReleaseMaxOutOfRangeException(mb)
+        write(SettingNames.RELEASE_MAX_MB, mb.toString(), by)
+    }
+
+    /**
+     * How long a server waits after an update before it restarts, in seconds:
+     * long enough for the answer to reach the browser that asked.
+     */
+    fun releaseRestartDelaySeconds(): Int = ranged(
+        SettingNames.RELEASE_RESTART_DELAY_SECONDS,
+        MIN_RELEASE_RESTART_DELAY..MAX_RELEASE_RESTART_DELAY,
+        DEFAULT_RELEASE_RESTART_DELAY,
+    )
+
+    fun releaseRestartDelaySecondsConfigured(): Int = DEFAULT_RELEASE_RESTART_DELAY
+
+    @Transactional
+    fun setReleaseRestartDelaySeconds(seconds: Int, by: String) {
+        if (seconds !in MIN_RELEASE_RESTART_DELAY..MAX_RELEASE_RESTART_DELAY) {
+            throw ReleaseRestartDelayOutOfRangeException(seconds)
+        }
+        write(SettingNames.RELEASE_RESTART_DELAY_SECONDS, seconds.toString(), by)
+    }
+
+    /** The schema floor this database has recorded; 0 before any release recorded one. */
+    fun releaseSchemaFloor(): Int =
+        settings.findByIdOrNull(SettingNames.RELEASE_SCHEMA_FLOOR)?.value?.trim()?.toIntOrNull() ?: 0
+
+    /** Raises the floor to [floor], never lowers it. */
+    @Transactional
+    fun raiseReleaseSchemaFloor(floor: Int) {
+        if (floor > releaseSchemaFloor()) write(SettingNames.RELEASE_SCHEMA_FLOOR, floor.toString(), "server")
+    }
+
+    private fun ranged(name: String, range: IntRange, default: Int): Int =
+        settings.findByIdOrNull(name)?.value?.trim()?.toIntOrNull()?.takeIf { it in range } ?: default
+
     private fun write(name: String, value: String, by: String) {
         val held = settings.findByIdOrNull(name) ?: InstallationSetting(name = name)
         held.value = value
@@ -1764,6 +1877,62 @@ class RetentionOutOfRangeException(val days: Int) : RuntimeException(
 ), Refusal {
 
     override val arguments get() = mapOf("days" to days)
+}
+
+/**
+ * Server updates, #584. A jar kept is a third of a gigabyte, so twenty is a
+ * ceiling on the disk rather than on anybody's caution; one is the release
+ * running and nothing to go back to, which is a choice an operator may make.
+ */
+const val MIN_RELEASES_KEPT = 1
+const val MAX_RELEASES_KEPT = 20
+const val DEFAULT_RELEASES_KEPT = 3
+
+/** Five seconds to an hour between asking whether this server still runs the chosen release. */
+const val MIN_RELEASE_FOLLOW_SECONDS = 5
+const val MAX_RELEASE_FOLLOW_SECONDS = 3600
+const val DEFAULT_RELEASE_FOLLOW_SECONDS = 30
+
+/** A gigabyte is where a single Postgres value stops; a jar never needs to come near it. */
+const val MIN_RELEASE_MAX_MB = 64
+const val MAX_RELEASE_MAX_MB = 1000
+const val DEFAULT_RELEASE_MAX_MB = 768
+
+const val MIN_RELEASE_RESTART_DELAY = 0
+const val MAX_RELEASE_RESTART_DELAY = 60
+const val DEFAULT_RELEASE_RESTART_DELAY = 3
+
+class ReleasesKeptOutOfRangeException(val count: Int) : RuntimeException(
+    "$count is not a number of server releases to keep. Choose between $MIN_RELEASES_KEPT and $MAX_RELEASES_KEPT.",
+), Refusal {
+    override val arguments get() = mapOf("count" to count)
+}
+
+class ReleaseBootAttemptsOutOfRangeException(val count: Int) : RuntimeException(
+    "$count is not a number of starts to give a release. " +
+        "Choose between $MIN_RELEASE_BOOT_ATTEMPTS and $MAX_RELEASE_BOOT_ATTEMPTS.",
+), Refusal {
+    override val arguments get() = mapOf("count" to count)
+}
+
+class ReleaseFollowOutOfRangeException(val seconds: Int) : RuntimeException(
+    "$seconds is not a number of seconds between release checks. " +
+        "Choose between $MIN_RELEASE_FOLLOW_SECONDS and $MAX_RELEASE_FOLLOW_SECONDS.",
+), Refusal {
+    override val arguments get() = mapOf("seconds" to seconds)
+}
+
+class ReleaseMaxOutOfRangeException(val mb: Int) : RuntimeException(
+    "$mb MB is not a size a server jar can be limited to. Choose between $MIN_RELEASE_MAX_MB and $MAX_RELEASE_MAX_MB.",
+), Refusal {
+    override val arguments get() = mapOf("mb" to mb)
+}
+
+class ReleaseRestartDelayOutOfRangeException(val seconds: Int) : RuntimeException(
+    "$seconds is not a number of seconds to wait before restarting. " +
+        "Choose between $MIN_RELEASE_RESTART_DELAY and $MAX_RELEASE_RESTART_DELAY.",
+), Refusal {
+    override val arguments get() = mapOf("seconds" to seconds)
 }
 
 @Configuration(proxyBeanMethods = false)

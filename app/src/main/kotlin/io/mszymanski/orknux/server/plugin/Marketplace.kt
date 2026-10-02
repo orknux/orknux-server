@@ -176,6 +176,80 @@ class Marketplace(
         return if (found.isNull || found.isMissingNode) null else read(found)
     }
 
+    /**
+     * The server releases orknux.ai offers after [after], newest first. Issue #584.
+     *
+     * Null where the far end has never heard of `serverReleases` - a
+     * marketplace older than the feature, or one an installation points at
+     * that only lists plugins. That is "nothing offered yet", not a failure,
+     * and the Updates screen says it in those words; anything else that goes
+     * wrong is the usual [MarketplaceUnreachableException].
+     */
+    fun serverReleases(after: String?): List<OfferedServerRelease>? {
+        for (fields in SERVER_RELEASE_LADDER) {
+            try {
+                val answer = asked(
+                    """
+                    query ServerReleases(${'$'}after: String) {
+                      serverReleases(after: ${'$'}after) { $fields }
+                    }
+                    """.trimIndent(),
+                    mapOf("after" to after),
+                )
+                return answer.path("data").path("serverReleases").values().map { node ->
+                    OfferedServerRelease(
+                        version = node.path("version").asString(""),
+                        publishedAt = node.path("publishedAt").asString(""),
+                        changelog = node.path("changelog").asString(""),
+                        jarUrl = node.path("jarUrl").asString(""),
+                        sha256 = node.path("sha256").asString("").lowercase(),
+                        size = node.path("size").asLong(0),
+                    )
+                }.filter { it.version.isNotBlank() }.toList()
+            } catch (refused: MarketplaceRefusedQueryException) {
+                log.info("the marketplace refused the server release fields: {}", refused.message)
+            }
+        }
+        return null
+    }
+
+    /**
+     * A server jar, fetched into [to] through the same client and the same key
+     * as everything else this class asks for. Refused past [maxBytes], counted
+     * as it arrives rather than trusted from a header.
+     */
+    fun downloadServerJar(url: String, to: java.nio.file.Path, maxBytes: Long) {
+        if (!configured) throw MarketplaceUnreachableException("this installation has no marketplace configured")
+        val key = installKey.today() ?: throw MarketplaceUnreachableException(MarketplaceInstallKey.MISSING)
+        val request = HttpRequest.newBuilder(URI.create(url))
+            .header(MarketplaceInstallKey.HEADER, key)
+            .GET()
+            .build()
+        val answer = try {
+            http.send(request, HttpResponse.BodyHandlers.ofInputStream())
+        } catch (failure: java.io.IOException) {
+            throw MarketplaceUnreachableException(failure.message ?: "it could not be reached")
+        } catch (failure: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw MarketplaceUnreachableException("the request was interrupted")
+        }
+        answer.body().use { body ->
+            if (answer.statusCode() == 401) throw MarketplaceUnreachableException(MarketplaceInstallKey.REFUSED)
+            if (answer.statusCode() != 200) throw MarketplaceUnreachableException("it answered ${answer.statusCode()}")
+            java.nio.file.Files.newOutputStream(to).use { out ->
+                val buffer = ByteArray(1 shl 16)
+                var total = 0L
+                while (true) {
+                    val read = body.read(buffer)
+                    if (read < 0) break
+                    total += read
+                    if (total > maxBytes) throw MarketplaceUnreachableException("the jar is larger than this installation takes")
+                    out.write(buffer, 0, read)
+                }
+            }
+        }
+    }
+
     private fun read(node: tools.jackson.databind.JsonNode) = MarketplaceOffering(
         key = node.path("key").asString(""),
         name = node.path("name").asString(""),
@@ -382,8 +456,26 @@ class Marketplace(
          */
         val LADDER = listOf(FIELDS, WITH_VERSIONS, WITH_TAGS, WITH_CATEGORY, CORE_FIELDS)
 
+        /**
+         * What a server release listing is asked for, newest shape first. One
+         * rung today; a field added later is a new rung above it, and a
+         * marketplace that refuses every rung offers no server releases.
+         */
+        val SERVER_RELEASE_LADDER = listOf("version publishedAt changelog jarUrl sha256 size")
     }
 }
+
+/** A server release orknux.ai offers, as it answered. Issue #584. */
+data class OfferedServerRelease(
+    val version: String,
+    val publishedAt: String,
+    /** What changed, in markdown: that version's section of CHANGELOG.md. */
+    val changelog: String,
+    val jarUrl: String,
+    /** Lowercase hex; held against the downloaded bytes before anything else looks at them. */
+    val sha256: String,
+    val size: Long,
+)
 
 /**
  * The marketplace answered, and refused the query.
