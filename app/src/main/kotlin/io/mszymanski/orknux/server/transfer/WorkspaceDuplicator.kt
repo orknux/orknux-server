@@ -146,8 +146,17 @@ class WorkspaceDuplicator(
         require(wanted.isNotEmpty()) { "Give the new workspace a name." }
         require(workspaces.findByName(wanted) == null) { "There is already a workspace called \"$wanted\"." }
 
+        /*
+         * Logged at every step, at INFO, so a copy that stops can be found from
+         * the log alone. Issue #581: one sat on a Postgres installation with no
+         * error and nothing written, and nothing said which step it was on. Each
+         * line is written *before* the step, so the last one is where it is.
+         */
+        val started = System.nanoTime()
+        log.info("Copy of workspace {} \"{}\" as \"{}\" by {}: creating the workspace", sourceId, source.name, wanted, by)
         val copy = requireNotNull(inOwnTransaction.execute { workspaces.save(settingsOf(source, wanted)) })
         val into = requireNotNull(copy.id)
+        log.info("Copy of workspace {} into {}: workspace created", sourceId, into)
 
         val counts = linkedMapOf<String, Int>()
         val problems = mutableListOf<String>()
@@ -162,6 +171,8 @@ class WorkspaceDuplicator(
          * below, so every reference resolves and the list says what to set.
          */
         val externals = requireNotNull(inOwnTransaction.execute { copyExternals(sourceId, into, counts) })
+        log.info("Copy of workspace {} into {}: connections, MCP servers and model providers committed", sourceId, into)
+        log.info("Copy of workspace {} into {}: pointing the workspace's model settings at the copies", sourceId, into)
         inOwnTransaction.executeWithoutResult { remapModels(into, externals.models) }
 
         /*
@@ -180,11 +191,16 @@ class WorkspaceDuplicator(
         val totals = pending.groupingBy { it.first.label }.eachCount()
         val overall = pending.size
         var carried = 0
+        log.info("Copy of workspace {} into {}: {} components to copy {}", sourceId, into, overall, totals)
         pending.firstOrNull()?.let { (kind, _) -> progress(WorkspaceCopyProgress.Step(kind.label, 0, totals.getValue(kind.label), 0, overall)) }
         val lastWhy = mutableMapOf<Pair<ComponentKind, Long>, String?>()
+        var pass = 0
         while (pending.isNotEmpty()) {
             val before = pending.size
+            pass += 1
+            log.info("Copy of workspace {} into {}: pass {}, {} components left", sourceId, into, pass, before)
             pending.toList().forEach { (kind, id) ->
+                log.info("Copy of workspace {} into {}: copying {} {}", sourceId, into, kind.label, id)
                 /*
                  * Shallow, because the order above has already put everything
                  * this points at in place. Deep would export each dependency
@@ -215,7 +231,10 @@ class WorkspaceDuplicator(
                             ),
                         )
                     }
-                    .onFailure { why -> lastWhy[kind to id] = why.message }
+                    .onFailure { why ->
+                        lastWhy[kind to id] = why.message
+                        log.info("Copy of workspace {} into {}: {} {} not copied on pass {}: {}", sourceId, into, kind.label, id, pass, why.message?.lineSequence()?.firstOrNull())
+                    }
             }
             if (pending.size == before) break
         }
@@ -228,8 +247,13 @@ class WorkspaceDuplicator(
             problems += "${kind.label} \"$called\" was not copied: $said"
         }
 
+        log.info("Copy of workspace {} into {}: naming the variables", sourceId, into)
         val secrets = copyVariables(sourceId, into)
         if (secrets.isNotEmpty()) counts["variable"] = (counts["variable"] ?: 0)
+        log.info(
+            "Copy of workspace {} into {}: done in {} ms, {} copied, {} not",
+            sourceId, into, (System.nanoTime() - started) / 1_000_000, carried, problems.size,
+        )
 
         return Copied(
             workspaceId = into,
@@ -262,7 +286,9 @@ class WorkspaceDuplicator(
         val byName = org.springframework.data.domain.Sort.by("name")
 
         val heldConnections = connections.findByWorkspaceId(from, byName)
+        log.info("Copy of workspace {} into {}: {} connections", from, into, heldConnections.size)
         heldConnections.forEach { held ->
+            log.info("Copy of workspace {} into {}: connection \"{}\"", from, into, held.name)
             connections.save(
                 io.mszymanski.orknux.connector.connection.WorkspaceConnection(
                     workspaceId = into,
@@ -290,7 +316,9 @@ class WorkspaceDuplicator(
         if (heldConnections.isNotEmpty()) counts["connection"] = heldConnections.size
 
         val heldServers = mcpServers.findByWorkspaceId(from, byName)
+        log.info("Copy of workspace {} into {}: {} MCP servers", from, into, heldServers.size)
         heldServers.forEach { held ->
+            log.info("Copy of workspace {} into {}: MCP server \"{}\"", from, into, held.name)
             mcpServers.save(
                 io.mszymanski.orknux.connector.connection.McpServer(
                     workspaceId = into,
@@ -308,15 +336,19 @@ class WorkspaceDuplicator(
 
         val modelIds = mutableMapOf<Long, Long>()
         val heldProviders = providers.findByWorkspaceId(from, byName)
+        log.info("Copy of workspace {} into {}: {} model providers", from, into, heldProviders.size)
         heldProviders.forEach { held ->
+            log.info("Copy of workspace {} into {}: model provider \"{}\"", from, into, held.name)
             val copy = providers.save(held.copied(workspaceId = into, name = held.name))
             if (held.secretVariableId != null || !held.secret.isNullOrBlank()) needs += "model provider ${held.name}"
             models.findByProviderId(requireNotNull(held.id)).forEach { model ->
+                log.info("Copy of workspace {} into {}: model \"{}\" of \"{}\"", from, into, model.name, held.name)
                 val made = models.save(model.copied(providerId = requireNotNull(copy.id), name = model.name))
                 modelIds[requireNotNull(model.id)] = requireNotNull(made.id)
             }
         }
         if (heldProviders.isNotEmpty()) counts["model provider"] = heldProviders.size
+        log.info("Copy of workspace {} into {}: committing connections, MCP servers and model providers", from, into)
 
         return Externals(modelIds, needs)
     }
