@@ -9,9 +9,8 @@
 #                   without a directory or an OIDC provider nobody can get in.
 #   temporal        what makes a run durable. Required with the configuration
 #                   below, and the server is pointed at it.
-#   orknux-server   the API and the engine.
-#   orknux-ui       what you open in a browser. It forwards /api, /graphql and
-#                   /mcp to the server, so the browser stays on one origin.
+#   orknux-server   what you open in a browser: the interface, the API and the
+#                   engine, on one port and one origin.
 #
 #   temporal-ui     optional, behind the `debug` profile. See the bottom.
 #
@@ -145,20 +144,23 @@ services:
       retries: 30
 
   # ---------------------------------------------------------------------------
-  # The API and the engine.
+  # What you open: the interface, the API and the engine.
   #
-  # Deliberately publishes no port. Everything a browser or a script needs is
-  # reachable through orknux-ui below, on one origin, which is what keeps the
-  # session cookie first-party. Publishing 8080 as well would give you two
-  # addresses for the same server and one of them would set a cookie the other
-  # cannot use.
+  # The interface is served by the server from its own jar, so everything a
+  # browser or a script needs - the page, /api, /graphql, /mcp - is on this one
+  # port and one origin, which is what keeps the session cookie first-party.
+  # The manual is part of the bundle and is served at /docs, so an installation
+  # with no way out to the internet still has it.
+  #
+  # Before #585 a second image, orknux/orknux-ui, sat in front of this one with
+  # nginx. It is not needed any more; see deploy/README.md for moving an
+  # existing installation off it.
   # ---------------------------------------------------------------------------
   orknux-server:
     # Pinned, so what you bring up today is what you bring up next week.
     # ORKNUX_SERVER_TAG moves it: a release (`0.9`, `0.9.9`), `sha-<commit>`
     # which never moves, or `latest` to follow main and accept that an upgrade
-    # can happen to you. The interface below is pinned to the same number on
-    # purpose - the two halves are released together.
+    # can happen to you. The interface is inside the image, so it moves with it.
     image: orknux/orknux-server:${ORKNUX_SERVER_TAG:-0.9}
     restart: unless-stopped
     depends_on:
@@ -224,9 +226,9 @@ services:
       # http://localhost:8233 when you bring up the `debug` profile.
       ORKNUX_TEMPORAL_UI_URL: ${ORKNUX_TEMPORAL_UI_URL:-}
 
-      # Empty allows no cross-origin callers, which is correct here: the browser
-      # only ever talks to orknux-ui, and orknux-ui forwards. Fill this in only
-      # if you serve the interface from a different origin to the API.
+      # Empty allows no cross-origin callers, which is correct here: the page
+      # and the API it calls come from this same server. Fill this in only if
+      # you serve the interface from a different origin to the API.
       ORKNUX_ALLOWED_ORIGINS: ${ORKNUX_ALLOWED_ORIGINS:-}
 
       # Where this installation is reached from, as somebody's browser spells
@@ -296,6 +298,9 @@ services:
       # the server then cannot write a single attachment. /home/orknux exists in
       # the image and belongs to that user, so the volume inherits it.
       - orknux-data:/home/orknux
+    ports:
+      # The only published port. Change the left half if 8080 is taken.
+      - "${ORKNUX_HTTP_PORT:-8080}:8080"
     healthcheck:
       # A TCP connect, because the image carries no curl and no wget. It proves
       # the server is listening, not that it migrated - `docker compose logs
@@ -305,29 +310,6 @@ services:
       timeout: 5s
       retries: 30
       start_period: 60s
-
-  # ---------------------------------------------------------------------------
-  # What you open.
-  #
-  # Static files served by nginx, with /api, /graphql and /mcp forwarded to the
-  # server. nginx resolves that name once, when it starts, so this waits for the
-  # server: an interface that comes up without a back end serves a sign-in
-  # screen that cannot sign anybody in.
-  #
-  # The manual is part of the bundle and is served at /docs, so an installation
-  # with no way out to the internet still has it.
-  # ---------------------------------------------------------------------------
-  orknux-ui:
-    image: orknux/orknux-ui:${ORKNUX_UI_TAG:-0.9}
-    restart: unless-stopped
-    depends_on:
-      orknux-server:
-        condition: service_started
-    environment:
-      ORKNUX_SERVER_URL: http://orknux-server:8080
-    ports:
-      # The only published port. Change the left half if 8080 is taken.
-      - "${ORKNUX_HTTP_PORT:-8080}:8080"
 
   # ---------------------------------------------------------------------------
   # Temporal's own web interface. Not required by anything - it is how a run

@@ -1,6 +1,6 @@
 # A whole Orknux, on Kubernetes, from the published images.
 #
-# The same five things deploy/compose.yaml runs, in the same arrangement, from
+# The same four things deploy/compose.yaml runs, in the same arrangement, from
 # the same images on Docker Hub - nothing here is built from source:
 #
 #   postgres        the database. Flyway migrates it on the server's first start.
@@ -8,9 +8,8 @@
 #                   without a directory or an OIDC provider nobody can get in.
 #   temporal        what makes a run durable. Required with the configuration
 #                   below, and the server is pointed at it.
-#   orknux-server   the API and the engine.
-#   orknux-ui       what you open in a browser. It forwards /api, /graphql and
-#                   /mcp to the server, so the browser stays on one origin.
+#   orknux-server   what you open in a browser: the interface, the API and the
+#                   engine, on one port and one origin.
 #
 # Two commands:
 #
@@ -27,7 +26,7 @@
 #
 # Then:
 #
-#   kubectl -n orknux port-forward svc/orknux-ui 8080:8080
+#   kubectl -n orknux port-forward svc/orknux-server 8080:8080
 #
 # and http://localhost:8080, signing in as `alice` / `password`. README.md in
 # this directory says how to put an Ingress in front of it instead, and what to
@@ -518,13 +517,17 @@ spec:
 
 ---
 # -----------------------------------------------------------------------------
-# The API and the engine.
+# What you open: the interface, the API and the engine.
 #
-# No Service of any type that reaches outside the cluster. Everything a browser
-# or a script needs is reachable through orknux-ui below, on one origin, which
-# is what keeps the session cookie first-party. Exposing 8080 as well would give
-# you two addresses for the same server and one of them would set a cookie the
-# other cannot use.
+# The interface is served by the server from its own jar, so everything a
+# browser or a script needs - the page, /api, /graphql, /mcp - is behind this
+# one Service, on one origin, which is what keeps the session cookie
+# first-party. The manual is part of the bundle and is served at /docs, so an
+# installation with no way out to the internet still has it.
+#
+# Before #585 a second Deployment, orknux/orknux-ui, sat in front of this one
+# with nginx. It is not needed any more; README.md in this directory says how
+# to move an existing installation off it.
 # -----------------------------------------------------------------------------
 apiVersion: v1
 kind: Service
@@ -532,6 +535,10 @@ metadata:
   name: orknux-server
   namespace: orknux
 spec:
+  # ClusterIP: this file publishes nothing outside the cluster. Reach it with
+  # `kubectl port-forward svc/orknux-server 8080:8080` to look at it, and put an
+  # Ingress in front of it to keep it - README.md has one to copy.
+  type: ClusterIP
   selector:
     app: orknux-server
   ports:
@@ -613,8 +620,7 @@ spec:
           # Pinned, so what you bring up today is what you bring up next week.
           # A release (`0.9`, `0.9.9`), `sha-<commit>` which never moves, or
           # `latest` to follow main and accept that an upgrade can happen to
-          # you. The interface below is pinned to the same number on purpose -
-          # the two halves are released together.
+          # you. The interface is inside the image, so it moves with it.
           image: orknux/orknux-server:0.9
           env:
             # -----------------------------------------------------------------
@@ -693,7 +699,7 @@ spec:
               value: ""
 
             # Empty allows no cross-origin callers, which is correct here: the
-            # browser only ever talks to orknux-ui, and orknux-ui forwards.
+            # page and the API it calls come from this same server.
             - name: ORKNUX_ALLOWED_ORIGINS
               value: ""
 
@@ -770,91 +776,3 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: orknux-data
-
----
-# -----------------------------------------------------------------------------
-# What you open.
-#
-# Static files served by nginx, with /api, /graphql and /mcp forwarded to the
-# server. The manual is part of the bundle and is served at /docs, so an
-# installation with no way out to the internet still has it.
-#
-# This is the half that scales. It holds nothing, and nginx resolves
-# `orknux-server` once when it starts - which on Kubernetes is a ClusterIP that
-# does not change for the life of the Service, so a replica started now and one
-# started next month agree about where the server is. Pointing it at a headless
-# Service instead would hand nginx a pod IP it would then cache past that pod's
-# death, which is the failure this note exists to prevent.
-#
-# It is also why nothing here waits for the server: the Service's address exists
-# from the moment the Service does, whether or not a pod is behind it yet. In
-# compose this needed depends_on, because there the name resolved to a container
-# that had to exist first.
-# -----------------------------------------------------------------------------
-apiVersion: v1
-kind: Service
-metadata:
-  name: orknux-ui
-  namespace: orknux
-spec:
-  # ClusterIP: this file publishes nothing outside the cluster. Reach it with
-  # `kubectl port-forward svc/orknux-ui 8080:8080` to look at it, and put an
-  # Ingress in front of it to keep it - README.md has one to copy.
-  type: ClusterIP
-  selector:
-    app: orknux-ui
-  ports:
-    - name: http
-      port: 8080
-      targetPort: 8080
-
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: orknux-ui
-  namespace: orknux
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: orknux-ui
-  template:
-    metadata:
-      labels:
-        app: orknux-ui
-    spec:
-      # See the note in this file's header: kubelet would otherwise inject a
-      # variable per Service into every container, and the names are decided by
-      # what things are called here rather than by what this image expects.
-      enableServiceLinks: false
-      containers:
-        - name: orknux-ui
-          # Pinned to the same number as the server above. The interface and the
-          # server are one product released under one version; pinning them apart
-          # is how a bundle ends up calling an API that has moved.
-          image: orknux/orknux-ui:0.9
-          env:
-            - name: ORKNUX_SERVER_URL
-              value: http://orknux-server:8080
-          ports:
-            - name: http
-              containerPort: 8080
-          readinessProbe:
-            httpGet:
-              path: /
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /
-              port: http
-            periodSeconds: 20
-            failureThreshold: 3
-          resources:
-            requests:
-              cpu: 10m
-              memory: 32Mi
-            limits:
-              memory: 128Mi

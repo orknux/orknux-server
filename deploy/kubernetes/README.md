@@ -2,7 +2,7 @@
 
 [`orknux.yaml`](orknux.yaml) in this directory is a whole Orknux, from the
 images published on Docker Hub. It is the same deployment
-[`deploy/compose.yaml`](../compose.yaml) describes — the same five services, the
+[`deploy/compose.yaml`](../compose.yaml) describes — the same four services, the
 same images, the same arrangement — written as Kubernetes objects.
 
 ```
@@ -15,7 +15,7 @@ kubectl apply -f orknux.yaml
 Then, to look at it:
 
 ```
-kubectl -n orknux port-forward svc/orknux-ui 8080:8080
+kubectl -n orknux port-forward svc/orknux-server 8080:8080
 ```
 
 and open **http://localhost:8080**, signing in as `alice` / `password`.
@@ -30,9 +30,9 @@ deployment from this manifest it reports the secret key set and the right length
 the schema applied with nothing failed, authentication against the directory, and
 attachments writable at `/home/orknux/attachments` — that last one being the
 `fsGroup` in the manifest doing its job. One `WARN`, for **Allowed origins**, is
-correct and expected here: it is empty because the browser only ever talks to
-`orknux-ui`, and filling it in is only right where the interface is served from
-somewhere else.
+correct and expected here: it is empty because the server serves the interface
+itself, so the page and the API are one origin, and filling it in is only right
+where the interface is served from somewhere else.
 
 **[`deploy/README.md`](../README.md) is the other half of this page and is not
 repeated here.** What each service is for, why LDAP and Temporal are not
@@ -116,18 +116,6 @@ StatefulSet with one replica stops the old pod before starting the new one, and
 its claim is not deleted when the object is. A Deployment can be made to behave
 the first way and cannot be made to behave the second.
 
-**Nothing waits for the server before the interface starts.** nginx resolves
-`ORKNUX_SERVER_URL` once, when it starts — which is why compose needs
-`depends_on` there. A ClusterIP exists from the moment the Service does, whether
-or not a pod is behind it yet, and does not change for the life of the Service,
-so the interface can start first and a replica started next month agrees with
-one started today about where the server is.
-
-**Do not point the interface at a headless Service.** It would hand nginx a pod
-IP, resolved once and cached past that pod's death, and the symptom is an
-interface that served fine for a week and now 502s everything under `/api` while
-the server is plainly healthy.
-
 **Temporal's health check cannot use the name the compose file uses.** Its
 readiness probe asks `$(hostname -i):7233`, which looks like a workaround and is
 the only address of the three that works.
@@ -196,8 +184,7 @@ metadata:
     # An attachment may be 25MB and the server accepts a 26MB request. An
     # ingress controller has a limit of its own — 1MB on ingress-nginx — and
     # without this the upload fails at the edge with a 413 the server never
-    # sees. Read **Attachments larger than a megabyte** below before deciding
-    # this is the only place that limit is set.
+    # sees.
     nginx.ingress.kubernetes.io/proxy-body-size: "30m"
 spec:
   ingressClassName: nginx
@@ -212,16 +199,14 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: orknux-ui
+                name: orknux-server
                 port:
                   number: 8080
 ```
 
-Route everything to `orknux-ui` and nothing to `orknux-server`. The interface
-forwards `/api`, `/graphql` and `/mcp` itself, and that is what keeps the
-browser on one origin and the session cookie first-party. A second rule sending
-`/api` straight to the server would give you two addresses for the same server,
-and a cookie set at one of them that the other cannot use.
+One rule, everything to `orknux-server`. The server serves the interface as well
+as `/api`, `/graphql` and `/mcp`, and one host for all of it is what keeps the
+browser on one origin and the session cookie first-party.
 
 Two things to set once a host exists:
 
@@ -237,58 +222,22 @@ Make sure the controller sets `X-Forwarded-For` and `X-Forwarded-Proto` —
 ingress-nginx does — or the audit log attributes every action to the proxy
 rather than to the person.
 
-### Attachments larger than a megabyte
+## Moving off the orknux-ui Deployment
 
-**The annotation above is necessary and is not sufficient, and the reason is not
-Kubernetes.** `orknux/orknux-ui` sets no `client_max_body_size`, so the nginx
-inside it holds to nginx's own default of 1MB — while the settings screen offers
-25MB and the server accepts a 26MB request. Every attachment above about a
-megabyte is refused by the interface with a 413 the server never sees, whether
-that interface is reached through an Ingress, a `port-forward`, or
-`docker compose`.
+Until #585 this manifest ran a second Deployment, `orknux-ui` — nginx serving
+the interface and forwarding `/api`, `/graphql` and `/mcp` to the server. The
+server image now carries the interface and serves it itself, so that Deployment
+is no longer needed. An installation that still runs it keeps working — the
+server still answers every path it forwards — so this is a tidy-up rather than
+an emergency, and it can wait for a convenient moment:
 
-The all-in-one `orknux-one` image does not have this problem: `docker/one/nginx.conf`
-in this repository sets `client_max_body_size 30m`, with a comment saying
-precisely what happens without it. The fix was made in the image that carries
-its own nginx configuration and not in the one that carries only a server block,
-so the two disagree — and the one that disagrees is the one a deployment runs.
-
-Until `orknux-ui` sets it, a deployment that needs large attachments has to add
-it from outside. Files in `/etc/nginx/conf.d` are included into the `http`
-block, and `client_max_body_size` is valid there, so one more file is enough:
-
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: orknux-ui-body-size
-  namespace: orknux
-data:
-  # Sorted before default.conf, and in the http block rather than in a server
-  # block, so it applies to everything this nginx serves.
-  00-body-size.conf: |
-    client_max_body_size 30m;
-```
-
-mounted into the interface's container with `subPath`, so it lands beside the
-rendered `default.conf` instead of replacing the directory that holds it:
-
-```yaml
-          volumeMounts:
-            - name: body-size
-              mountPath: /etc/nginx/conf.d/00-body-size.conf
-              subPath: 00-body-size.conf
-              readOnly: true
-      volumes:
-        - name: body-size
-          configMap:
-            name: orknux-ui-body-size
-```
-
-This is deliberately not in `orknux.yaml`. It is a workaround for something that
-belongs in the interface image, and a third place that sets this limit is a
-third place that can disagree with the other two — which is how there came to be
-two. Take it if you need it now, and drop it again when the image sets its own.
+1. Upgrade `orknux-server` to a release that serves the interface, and check it
+   with `kubectl -n orknux port-forward svc/orknux-server 8080:8080`.
+2. Point whatever reached `orknux-ui` — the Ingress backend above, a
+   port-forward, a LoadBalancer — at `orknux-server` on 8080.
+3. Remove the old objects:
+   `kubectl -n orknux delete deploy/orknux-ui svc/orknux-ui`, and the
+   `orknux-ui-body-size` ConfigMap if you had added it.
 
 ## Why the server is one replica
 
@@ -313,8 +262,8 @@ attachments claim has to become `ReadWriteMany` or an object store, since
 `ReadWriteOnce` will not mount on two nodes; and the strategy can go back to
 `RollingUpdate` once nothing owns a claim exclusively.
 
-The interface is the half that scales freely. It holds nothing, and it is
-`replicas: 2` here already.
+The interface is served by the same pods, so it scales with the server and has
+no replica count of its own.
 
 ## Where the data lives
 
@@ -389,10 +338,9 @@ ones this file adds:
 
 ```
 kubectl -n orknux set image deploy/orknux-server orknux-server=orknux/orknux-server:0.9.9.7
-kubectl -n orknux set image deploy/orknux-ui orknux-ui=orknux/orknux-ui:0.9.9.7
 ```
 
-or edit both tags in the file and apply it again, which is the one that leaves
+or edit the tag in the file and apply it again, which is the one that leaves
 the cluster matching what is in git.
 
 Flyway migrates on the way up, so the schema follows the server. JPA runs with
@@ -400,13 +348,13 @@ Flyway migrates on the way up, so the schema follows the server. JPA runs with
 changes the database and a mismatch is a startup failure rather than a strange
 query. Take a copy of the Postgres claim first if you would mind going back.
 
-**Move both tags together.** The interface and the server are one product
-released under one version, and the interface is a bundle calling an API — the
-version skew a rolling deploy normally tolerates is not a thing to rely on here.
-`sha-<commit>` is the only tag that never moves, and is what to pin to if you
-want to be certain what is running.
+The interface is inside the server image, so one tag moves both halves and they
+cannot drift apart. `sha-<commit>` is the only tag that never moves, and is what
+to pin to if you want to be certain what is running. An installation still
+running the old `orknux-ui` Deployment can drop it whenever convenient; see
+**Moving off the orknux-ui Deployment** above.
 
-Both Orknux images are published for **linux/amd64 only**. On a mixed cluster,
+The Orknux image is published for **linux/amd64 only**. On a mixed cluster,
 that is a `nodeSelector` on `kubernetes.io/arch: amd64` away from being a pod
 that schedules onto an arm64 node and does not start. Postgres, Temporal and
 OpenLDAP all have native arm64 builds.
@@ -434,15 +382,9 @@ OpenLDAP all have native arm64 builds.
 - **A second `orknux-server` pod stuck `ContainerCreating` after an edit** — the
   strategy was changed to `RollingUpdate` somewhere. Two pods cannot mount
   `orknux-data`; put it back to `Recreate`.
-- **502 from `/api` while the server is healthy** — nginx in the interface is
-  holding an address that has gone. It resolves once at startup, so this is what
-  a headless Service, or a Service deleted and recreated, looks like from the
-  browser. `kubectl -n orknux rollout restart deploy/orknux-ui`, then fix the
-  Service it points at.
-- **Uploads fail at about a megabyte** — a body limit, and there are two of them
-  in the path. The ingress controller's is the annotation in the Ingress above;
-  the interface image's own is nginx's 1MB default, which it does not override.
-  **Attachments larger than a megabyte** above has both.
+- **Uploads fail at about a megabyte** — the ingress controller's body limit.
+  The annotation in the Ingress above raises it; the server itself accepts a
+  26MB request.
 - **`ldap` in `CrashLoopBackOff` with `parse error=5`** — `enableServiceLinks`
   has been dropped from that pod, or the Deployment was copied without it. See
   **Every pod sets `enableServiceLinks: false`** above; the message names a

@@ -37,7 +37,9 @@ reaches, `WorkflowGraphSource` for the graph a run is given. That is also the
 seam to pull on if one of them ever has to become its own service.
 
 [orknux-ui](https://github.com/michjak-szymanski/orknux-ui) is the React front
-end, and talks only to this service.
+end, and talks only to this service. Its bundle is built into the server's jar
+and served by the server itself, so the published image is the whole product on
+one port.
 
 ## What it looks like
 
@@ -99,7 +101,7 @@ Read the part about `ORKNUX_SECRET_KEY` before you save a credential rather than
 after.
 
 The same deployment is written as Kubernetes objects in
-[deploy/kubernetes/](deploy/kubernetes/) — one manifest, the same five services
+[deploy/kubernetes/](deploy/kubernetes/) — one manifest, the same four services
 and the same images. [Its README](deploy/kubernetes/README.md) covers only what
 differs there: the secret key as a Secret the manifest deliberately does not
 carry, probes that can ask for a URL because kubelet is the one asking, why the
@@ -121,9 +123,9 @@ retried and does not resume; a wait longer than five minutes fails by design;
 there is no directory and no OIDC; and SQLite means one writer, one process and
 one machine. [DOCKERHUB-ONE.md](DOCKERHUB-ONE.md) is the full list, and
 [deploy/README.md](deploy/README.md) says where the line between this and a
-deployment is. It is built from [Dockerfile.one](Dockerfile.one), which merges
-this repository's `Dockerfile` with the interface's own image rather than
-describing either again.
+deployment is. It is built from [Dockerfile.one](Dockerfile.one), which builds
+the same jar as this repository's `Dockerfile`, interface included, and adds
+SQLite and a first start that invents what it is not given.
 
 ### To work on Orknux
 
@@ -173,6 +175,9 @@ server proxies `/api` and `/graphql` to this service on 8080 (override with
 `ORKNUX_SERVER_URL`), so the browser stays on one origin and the session cookie
 is first-party. Open http://localhost:5173 and sign in with a directory user
 from the table below; going to 8080 directly gets you the API, not the app.
+`spring-boot:run` builds the jar without `-Pwith-ui`, so it serves no interface;
+the images build with it, after `npm run build` in the submodule, and serve the
+bundle from the jar on the same port as the API.
 
 ### Checking the image
 
@@ -183,7 +188,9 @@ scripts/verify-one-image.sh       # the same for orknux-one, started with nothin
 
 The suite says the code behaves; this says the artefact runs. It builds the
 image, brings it up against a real Postgres, and checks that it boots and
-serves, that Flyway migrated, that anonymous callers are refused, that it runs
+serves, that Flyway migrated, that anonymous callers are refused, that the
+interface is served from the jar — the page, its hashed assets, a deep link —
+to somebody not yet signed in, that it runs
 as `orknux` rather than root, that the JVM is PID 1, and that `docker stop`
 reaches it rather than killing it. CI runs it between the suite and the publish,
 so nothing reaches the registry unstarted.

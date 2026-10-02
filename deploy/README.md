@@ -57,8 +57,7 @@ length, and whether every stored secret can still be read with it.
 | `postgres` | Yes, unless you use SQLite *and* drop Temporal | Everything Orknux knows. Sessions live here too, so signing in survives a restart. Temporal keeps its own state here as well, which is why dropping it takes both. |
 | `ldap` | Yes, unless you use OIDC or the internal administrator below | Somewhere to sign in against. Orknux keeps its own users too, but nothing seeds the first one for you. |
 | `temporal` | Yes, as configured here | What makes a run durable: it survives a restart, retries a step, and can be looked at afterwards. |
-| `orknux-server` | Yes | The API and the engine. |
-| `orknux-ui` | Yes | What you open. It also serves the manual at `/docs`. |
+| `orknux-server` | Yes | What you open: the interface, the API and the engine. It also serves the manual at `/docs`. |
 | `temporal-ui` | No, `debug` profile | Temporal's own web interface, for reading the history of a run that went wrong. |
 
 **One Postgres, not two.** Temporal keeps its own `temporal` and
@@ -165,10 +164,9 @@ docker run -d --name orknux -p 8080:8080 -v orknux-data:/var/lib/orknux orknux/o
 docker logs orknux
 ```
 
-The interface, the server and the database file are one container. nginx serves
-the bundle on `8080` and forwards `/api`, `/graphql` and `/mcp` to the server on
-the loopback address inside it, which is the same arrangement the two-image
-deployment has and the reason the browser stays on one origin.
+The interface, the server and the database file are one container. The server
+answers on `8080` and serves the interface itself, exactly as `orknux-server`
+does in the compose file, which is why the browser stays on one origin.
 
 **Nothing has to be supplied and nothing is a documented default.** On the first
 start it writes a database, generates an encryption key, and creates one
@@ -273,7 +271,7 @@ identity - an ordinary internal user called `everyone`, holding the built-in
 `Administrators` role. **Anyone who can reach the port then administers this
 installation**, sees every workspace and can use every stored credential, so it
 belongs only where something else is already the gate: a laptop somebody is
-trying the product on, a VPN, an authenticating proxy in front of `orknux-ui`.
+trying the product on, a VPN, an authenticating proxy in front of `orknux-server`.
 Note that this compose file publishes 8080 on the host, which is not a gate.
 
 Nothing arrives at it by accident. Unset is `LDAP`, empty is `LDAP`, and a value
@@ -286,12 +284,9 @@ password, so it cannot be signed in as afterwards.
 
 ## Only one port is published
 
-`orknux-ui` on 8080, and that is all. The API is not published separately, and
-that is deliberate rather than tidy: `orknux-ui` forwards `/api`, `/graphql` and
-`/mcp` to the server, so the browser only ever talks to one origin and the
-session cookie is first-party. Publishing the server as well would give you two
-addresses for the same server, and a cookie set at one of them that the other
-cannot use.
+`orknux-server` on 8080, and that is all. The server serves the interface as
+well as `/api`, `/graphql` and `/mcp`, so the browser only ever talks to one
+origin and the session cookie is first-party.
 
 Postgres, LDAP and Temporal are not published either. Nothing outside this file
 has any business connecting to them, and a database on a laptop's 5432 is a
@@ -313,9 +308,8 @@ or in a `.env` file next to `compose.yaml`.
 | `ORKNUX_BOOTSTRAP_ADMIN_USERNAME` | *empty* | The first internal administrator, created at startup if nobody has that name. Empty seeds nobody. See above. |
 | `ORKNUX_BOOTSTRAP_ADMIN_PASSWORD` | *empty* | What they sign in with the first time. At least 12 characters, and something to change and unset once you are in. |
 | `ORKNUX_SERVER_TAG` | `0.9` | Which `orknux/orknux-server` image. |
-| `ORKNUX_UI_TAG` | `0.9` | Which `orknux/orknux-ui` image. |
 | `ORKNUX_TEMPORAL_UI_URL` | *empty* | Where a run links out to. Empty offers no links, which is right while the Temporal UI is not running. |
-| `ORKNUX_ALLOWED_ORIGINS` | *empty* | Cross-origin callers to allow. Empty is correct here, since the browser only talks to `orknux-ui`. |
+| `ORKNUX_ALLOWED_ORIGINS` | *empty* | Cross-origin callers to allow. Empty is correct here, since the page and the API come from the same server. |
 | `ORKNUX_TEMPORAL_UI_PORT` | `8233` | Only with `--profile debug`. |
 | `ORKNUX_OIDC_ISSUER` | *empty* | The OIDC provider, by its issuer. Only read when `ORKNUX_AUTH_METHOD=OIDC`. |
 | `ORKNUX_OIDC_CLIENT_ID` | *empty* | This installation, as the provider knows it. |
@@ -362,8 +356,8 @@ happens if you say nothing.
 
 ## Which images, and where the tags come from
 
-All three images - `orknux-server`, `orknux-ui` and the all-in-one `orknux-one` -
-are published from CI on every push to `main`, under one scheme:
+Both images - `orknux-server` and the all-in-one `orknux-one` - are published
+from CI on every push to `main`, under one scheme:
 
 - `latest` follows `main`.
 - `X.Y.Z` and `X.Y` come from release tags.
@@ -373,21 +367,24 @@ are published from CI on every push to `main`, under one scheme:
 `compose.yaml` pins `0.9`, so what you bring up today is what you bring up next
 week. `latest` follows `main` and moving under a running deployment is how an
 upgrade happens to you rather than being something you did. Set
-`ORKNUX_SERVER_TAG` and `ORKNUX_UI_TAG` to move deliberately, and to
-`sha-<commit>` if you want to be certain to the commit.
+`ORKNUX_SERVER_TAG` to move deliberately, and to `sha-<commit>` if you want to
+be certain to the commit.
 
 Both repositories are at `0.9`/`0.9.9.7`, released together, and that is what
-this file uses. They are meant to move together - the interface and the server
-are one product released under one version - so pin them to the same number.
-Check what exists before reaching for a different one:
+this file uses. The interface is built into the server image, so one tag is the
+whole product and the two halves cannot be pinned apart. Check what exists
+before reaching for a different one:
 
 - https://hub.docker.com/r/orknux/orknux-server/tags
-- https://hub.docker.com/r/orknux/orknux-ui/tags
 - https://hub.docker.com/r/orknux/orknux-one/tags
 
-`orknux-one` contains the other two and moves with them, so pin it to the same
+`orknux-one` carries the same jar and moves with it, so pin it to the same
 number. It takes no tag variable here because this file does not run it - it is
 the alternative to this file rather than a service in it.
+
+`orknux/orknux-ui`, the nginx image that used to serve the interface in front
+of the server, is no longer needed; see **Upgrading** for moving an
+installation off it.
 
 Both Orknux images are published for **linux/amd64 only**. They run on Apple
 Silicon under Docker Desktop's emulation, slowly. Postgres, Temporal and
@@ -427,7 +424,7 @@ skipped:
 5. **Change the passwords.** `ORKNUX_DB_PASSWORD` and
    `ORKNUX_LDAP_ADMIN_PASSWORD` are both the obvious word.
 6. **Put TLS in front of it.** Terminate in your own proxy and forward to
-   `orknux-ui` on 8080. Make sure that proxy sets `X-Forwarded-For` and
+   `orknux-server` on 8080. Make sure that proxy sets `X-Forwarded-For` and
    `X-Forwarded-Proto`, or the audit log attributes every action to the proxy
    rather than to the person. Then set
    `ORKNUX_SESSION_COOKIE_SAME_SITE=strict` if nothing links into Orknux from
@@ -474,13 +471,27 @@ Flyway migrates on the way up, so the schema follows the server. JPA runs with
 changes the database and a mismatch is a startup failure rather than a strange
 query. Take the Postgres volume first if you would mind going back.
 
+### From an installation that still runs orknux-ui
+
+Until #585 the interface was a second image, `orknux/orknux-ui`: nginx serving
+the bundle and forwarding `/api`, `/graphql` and `/mcp` to the server, which
+published no port of its own. The server image now carries the interface and
+serves it itself, so that container is no longer needed. One that is still
+running keeps working - the server still answers every path it forwards - so
+this can wait for a convenient moment:
+
+1. Pull a server release that serves the interface.
+2. Point whatever reached `orknux-ui` - the published port, a reverse proxy, an
+   Ingress - at `orknux-server` on 8080. With this file, that is the `ports:`
+   entry moving from the `orknux-ui` service to `orknux-server`; copying the
+   new `compose.yaml` does it.
+3. Remove the `orknux-ui` service, and `ORKNUX_UI_TAG` from your `.env`.
+   `docker compose up -d --remove-orphans` stops the old container.
+
 ## When it does not come up
 
 - **`required variable ORKNUX_SECRET_KEY is missing a value`** - the guard doing
   its job. Export one, as above.
-- **`orknux-ui` restarts in a loop** - nginx resolves the server's name once,
-  when it starts, so it will not start before the server exists. `docker compose
-  logs orknux-server` first.
 - **The server sits in `starting`** - it waits for Postgres, the directory and
   Temporal to report healthy before it is even created, and then runs the
   migrations. Its healthcheck allows a minute before it starts counting.
@@ -495,7 +506,7 @@ query. Take the Postgres volume first if you would mind going back.
 
 ## On Kubernetes instead
 
-The same deployment — the same five services, the same images, the same
+The same deployment — the same four services, the same images, the same
 arrangement — is written as Kubernetes objects in
 [`kubernetes/orknux.yaml`](kubernetes/orknux.yaml).
 
@@ -504,7 +515,7 @@ kubectl create namespace orknux
 kubectl -n orknux create secret generic orknux-secret-key \
   --from-literal=secret-key="$(openssl rand -base64 32)"
 kubectl apply -f kubernetes/orknux.yaml
-kubectl -n orknux port-forward svc/orknux-ui 8080:8080
+kubectl -n orknux port-forward svc/orknux-server 8080:8080
 ```
 
 **This page is the other half of that one and is not repeated there.**

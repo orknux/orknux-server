@@ -5,9 +5,9 @@ with the agents, models, connections and credentials a workspace holds, plugins
 installed from a marketplace, and an issue tracker an assistant can work through
 over MCP.
 
-This image is the API and the engine. The interface people sign in to is
-[`orknux/orknux-ui`](https://hub.docker.com/r/orknux/orknux-ui), which talks only
-to this.
+This image is the whole product - the interface, the API and the engine - on
+8080. **It replaces `orknux/orknux-ui`**: point the port, proxy or Ingress that
+reached that at this container and remove it. Until then it keeps working.
 
 - **Source:** https://github.com/michjak-szymanski/orknux-server
 - **Licence:** AGPL-3.0-or-later
@@ -35,7 +35,6 @@ services:
       ORKNUX_DB_PASSWORD: orknux
       ORKNUX_LDAP_URLS: ldap://ldap:389
       ORKNUX_TEMPORAL_TARGET: temporal:7233
-      ORKNUX_ALLOWED_ORIGINS: https://orknux.example.com
       ORKNUX_ATTACHMENTS_LOCATION: /home/orknux/attachments
     volumes:
       - orknux-data:/home/orknux   # only if attachments are on
