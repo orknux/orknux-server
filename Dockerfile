@@ -1,10 +1,34 @@
 # syntax=docker/dockerfile:1
 
-# Build and package the server.
+# Build and package Orknux: the interface and the server, in one jar.
 #
-# Two stages, because the JDK, the Maven repository and the source tree are all
-# build-time concerns: shipping them would multiply the image size and hand
-# anyone who pulls it the toolchain as well as the application.
+# Three stages, because Node, the JDK, the Maven repository and the source tree
+# are all build-time concerns: shipping them would multiply the image size and
+# hand anyone who pulls it the toolchain as well as the application.
+#
+# The interface used to be an image of its own, nginx in front of the bundle.
+# Since #585 the server serves it from the jar, so a release - and an in-place
+# update of one (#584) - is one artifact carrying both halves. The build context
+# needs the orknux-ui submodule checked out.
+
+# ---------------------------------------------------------------------------
+# The interface bundle.
+# ---------------------------------------------------------------------------
+FROM node:22-bookworm-slim AS ui
+
+WORKDIR /ui
+
+# The lockfile first, on its own layer: dependencies change far less often than
+# the code, so a source edit does not reinstall them.
+COPY orknux-ui/package.json orknux-ui/package-lock.json ./
+RUN npm ci --no-fund --no-audit
+
+COPY orknux-ui/ ./
+RUN npm run build
+
+# ---------------------------------------------------------------------------
+# The server jar, carrying the bundle.
+# ---------------------------------------------------------------------------
 FROM eclipse-temurin:25-jdk AS build
 
 WORKDIR /build
@@ -23,12 +47,14 @@ RUN chmod +x mvnw && ./mvnw -B -ntp dependency:go-offline
 COPY app/src app/src
 COPY modules/connection/src modules/connection/src
 COPY modules/execution/src modules/execution/src
+# Where -Pwith-ui looks for it: the submodule's own build output.
+COPY --from=ui /ui/dist orknux-ui/dist
 
 # Tests are not run here. The suite brings up Postgres through Testcontainers,
 # which needs a Docker daemon this build does not have — and a container build
 # is the wrong place to find out a test fails. CI runs them as their own job,
 # and this image is only built once they pass.
-RUN ./mvnw -B -ntp package -DskipTests
+RUN ./mvnw -B -ntp package -DskipTests -Pwith-ui
 
 FROM eclipse-temurin:25-jre AS runtime
 

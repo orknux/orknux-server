@@ -189,31 +189,7 @@ else
     note "Signing in with $ORKNUX_AUTH_METHOD, as set in the environment."
 fi
 
-# ---------------------------------------------------------------------------
-# The interface.
-#
-# nginx serves the bundle and forwards /api, /graphql and /mcp to the server on
-# the loopback address, which is what keeps the browser on one origin and the
-# session cookie first-party. The server block is the interface image's own
-# template, rendered here the way that image's entrypoint renders it.
-#
-# Only ORKNUX_SERVER_URL is substituted. envsubst with no list would also expand
-# $uri and $host, which are nginx's variables and not the environment's - the
-# single-page fallback would become `try_files  / /index.html` and every deep
-# link would 404.
-# ---------------------------------------------------------------------------
-
-mkdir -p /tmp/orknux-nginx
-envsubst '${ORKNUX_SERVER_URL}' \
-    < /etc/nginx/orknux-default.conf.template \
-    > /etc/nginx/conf.d/default.conf
-
-# Started before the server rather than after it, and in daemon mode so this
-# script continues. nginx resolves the address in proxy_pass when it starts, and
-# 127.0.0.1 needs no resolving - so unlike the interface image, this one does not
-# have to wait for a back end, because the back end is in the same container.
-nginx -c /etc/nginx/nginx.conf
-note "The interface is being served on 8080; the server is starting on ${ORKNUX_PORT:-8081}."
+note "Orknux is starting on ${ORKNUX_PORT:-8080}, the interface with it."
 
 # `exec`, so the JVM is PID 1 and `docker stop` reaches it. Without it a shell
 # holds PID 1, the signal stops there, and the JVM is killed at the end of the

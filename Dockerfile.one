@@ -15,10 +15,10 @@
 # writer at a time and one process. `deploy/compose.yaml` is the deployment, and
 # DOCKERHUB-ONE.md says all of this plainly to whoever pulls this.
 #
-# Three build stages, and the first two are the two images this merges: the
-# interface's bundle and the server's jar. The interface's own nginx
-# configuration is copied in rather than rewritten, so there is one description
-# of what /api, /graphql and /mcp mean.
+# Built exactly as ./Dockerfile builds its jar - the interface inside it, served
+# by the server itself since #585 - so this image ships the same artifact rather
+# than a differently built one, and a bug found here is a bug there. What it
+# adds is SQLite and a first start that invents what it is not given.
 
 # ---------------------------------------------------------------------------
 # The interface bundle.
@@ -36,9 +36,7 @@ COPY orknux-ui/ ./
 RUN npm run build
 
 # ---------------------------------------------------------------------------
-# The server jar. Identical to the one in ./Dockerfile, deliberately: this image
-# ships the same artefact rather than a differently built one, so a bug found
-# here is a bug there.
+# The server jar, carrying the bundle. Identical to the one in ./Dockerfile.
 # ---------------------------------------------------------------------------
 FROM eclipse-temurin:25-jdk AS server
 
@@ -56,42 +54,27 @@ RUN chmod +x mvnw && ./mvnw -B -ntp dependency:go-offline
 COPY app/src app/src
 COPY modules/connection/src modules/connection/src
 COPY modules/execution/src modules/execution/src
+COPY --from=ui /ui/dist orknux-ui/dist
 
 # Tests are not run here, for the same reason ./Dockerfile does not run them:
 # the suite brings up Postgres through Testcontainers and needs a Docker daemon
 # this build does not have. CI runs them as their own job, and this image is
 # only built once they pass.
-RUN ./mvnw -B -ntp package -DskipTests
+RUN ./mvnw -B -ntp package -DskipTests -Pwith-ui
 
 # ---------------------------------------------------------------------------
 # The image itself.
 # ---------------------------------------------------------------------------
 FROM eclipse-temurin:25-jre AS runtime
 
-# nginx to serve the bundle and forward the API, envsubst to render the server
-# block, curl for the healthcheck. --no-install-recommends because the
-# recommended set of a web server on a base image is most of a web server's
-# ecosystem, and none of it is used here.
+# curl for the healthcheck, and nothing else: the server serves the interface.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends nginx-light gettext-base curl \
+    && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Not root. Nothing here needs to write outside its own data directory, and a
 # container that cannot install anything is one less thing an exploit can use.
 RUN groupadd --system orknux && useradd --system --gid orknux --create-home orknux
-
-# What the packaged nginx expects to own, given to the user that will run it.
-# /etc/nginx/conf.d is written to at startup - the server block is rendered from
-# a template there - and everything nginx buffers goes under /tmp instead of
-# /var/lib/nginx, which this configuration says and this makes true.
-COPY docker/one/nginx.conf /etc/nginx/nginx.conf
-COPY orknux-ui/docker/default.conf.template /etc/nginx/orknux-default.conf.template
-COPY orknux-ui/docker/proxy.conf /etc/nginx/orknux-proxy.conf
-RUN rm -f /etc/nginx/sites-enabled/default \
-    && mkdir -p /etc/nginx/conf.d /tmp/orknux-nginx \
-    && chown -R orknux:orknux /etc/nginx/conf.d /tmp/orknux-nginx
-
-COPY --from=ui --chown=orknux:orknux /ui/dist /usr/share/nginx/html
 
 WORKDIR /app
 COPY --from=server --chown=orknux:orknux /build/app/target/orknux-app-*.jar app.jar
@@ -127,11 +110,8 @@ USER orknux
 # A file, and nothing else to run.
 ENV ORKNUX_DB_URL=jdbc:sqlite:/var/lib/orknux/orknux.db
 
-# nginx has 8080, the port anybody publishes, so the server takes the one behind
-# it. Only nginx is exposed: the server is reachable on the loopback address
-# inside this container and nowhere else.
-ENV ORKNUX_PORT=8081
-ENV ORKNUX_SERVER_URL=http://127.0.0.1:8081
+# The server answers on 8080 itself, the interface included.
+ENV ORKNUX_PORT=8080
 
 # The inline engine. Temporal is a service, this image runs one process, and the
 # alternative is a ~200MB Go binary and a schema to apply on every start. What it
@@ -164,8 +144,7 @@ ENV JAVA_OPTS="-XX:MaxRAMPercentage=75"
 
 EXPOSE 8080
 
-# Through nginx and answered by the server, so a healthy container means both
-# halves are up. /api/auth/method is the one endpoint open by design - the
+# /api/auth/method is the one endpoint open by design - the
 # sign-in screen has to read it before anybody has signed in - so this needs no
 # credentials. The start period is generous: a first start migrates the schema.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=120s \
