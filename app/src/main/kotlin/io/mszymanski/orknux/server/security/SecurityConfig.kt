@@ -148,6 +148,12 @@ class SecurityConfig {
                  * application. See [metricsAccess].
                  */
                 authorize(HttpMethod.GET, PROMETHEUS_PATH, metricsAccess(settings))
+                /*
+                 * The interface's own files and pages, which the server serves
+                 * since #585. The sign-in screen is one of them, so they cannot
+                 * ask for a session; nothing out there is data.
+                 */
+                authorize(io.mszymanski.orknux.server.ui.InterfaceResources.PAGES, permitAll)
                 authorize(anyRequest, authenticated)
             }
             // Answer unauthenticated calls with 401 instead of redirecting to a login page.

@@ -22,6 +22,8 @@
 
     <properties>
         <start-class>io.mszymanski.orknux.server.OrknuxServerKt</start-class>
+        <!-- Where -Pwith-ui takes the built interface from; the submodule's own build output. -->
+        <orknux.ui.dist>${project.basedir}/../orknux-ui/dist</orknux.ui.dist>
         <!-- Which JUnit tags the suite leaves out; see the surefire configuration
              below for what is in `slow` and why. A property rather than a literal
              so that one command line switches it off. -->
@@ -518,5 +520,67 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+            The interface, carried in the jar and served by the server. Issue #585.
+            The images build orknux-ui first and package with -Pwith-ui; without it
+            the jar serves no interface, which is what tests and spring-boot:run
+            want - development has Vite in front of the server. A profile rather
+            than always, so a stale orknux-ui/dist left on a machine never ends up
+            in a jar nobody asked to carry one.
+        -->
+        <profile>
+            <id>with-ui</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <artifactId>maven-resources-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>interface-bundle</id>
+                                <phase>process-resources</phase>
+                                <goals>
+                                    <goal>copy-resources</goal>
+                                </goals>
+                                <configuration>
+                                    <outputDirectory>${project.build.outputDirectory}/static</outputDirectory>
+                                    <resources>
+                                        <resource>
+                                            <directory>${orknux.ui.dist}</directory>
+                                            <filtering>false</filtering>
+                                        </resource>
+                                    </resources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <!-- A jar that promises the interface and has none is refused here, not in production. -->
+                    <plugin>
+                        <artifactId>maven-enforcer-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>interface-bundle-present</id>
+                                <phase>validate</phase>
+                                <goals>
+                                    <goal>enforce</goal>
+                                </goals>
+                                <configuration>
+                                    <rules>
+                                        <requireFilesExist>
+                                            <files>
+                                                <file>${orknux.ui.dist}/index.html</file>
+                                            </files>
+                                            <message>-Pwith-ui needs the built interface at ${orknux.ui.dist}: run npm run build in orknux-ui first.</message>
+                                        </requireFilesExist>
+                                    </rules>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
 </project>
