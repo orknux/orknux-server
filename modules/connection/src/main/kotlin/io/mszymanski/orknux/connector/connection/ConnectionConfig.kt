@@ -3,6 +3,7 @@ package io.mszymanski.orknux.connector.connection
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Configuration
+import java.time.Duration
 
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(ConnectionProperties::class, SlackProperties::class)
@@ -26,4 +27,12 @@ data class SlackProperties(
      * the process lives helps nobody; pasting a new token clears the wait.
      */
     val retryFailedSeconds: Long = 300,
+
+    /**
+     * How long a socket may hear nothing before it is pinged, and reopened if
+     * the ping goes unanswered. Silence alone reopens nothing - a quiet
+     * workspace is quiet - so this bounds how long a dead socket goes
+     * unnoticed, not how often a live one is disturbed. Zero turns it off.
+     */
+    val quietPeriod: Duration = Duration.ofMinutes(10),
 )

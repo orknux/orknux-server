@@ -1,13 +1,11 @@
 package io.mszymanski.orknux.connector.connection
 
+import com.google.gson.JsonParser
 import com.slack.api.bolt.App
-import com.slack.api.bolt.AppConfig
-import com.slack.api.bolt.socket_mode.SocketModeApp
 import com.slack.api.model.event.AppMentionEvent
 import com.slack.api.model.event.MessageBotEvent
 import com.slack.api.model.event.MessageEvent
 import com.slack.api.model.event.MessageFileShareEvent
-import com.slack.api.socket_mode.SocketModeClient
 import jakarta.annotation.PreDestroy
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
@@ -15,10 +13,12 @@ import org.springframework.boot.context.event.ApplicationReadyEvent
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.context.event.EventListener
 import org.springframework.stereotype.Component
+import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Listens to Slack over Socket Mode, one websocket per workspace connection that
@@ -46,6 +46,13 @@ import java.util.concurrent.TimeUnit
  * disconnects — so the set of sockets is reconciled on a timer rather than only
  * at startup. A connection whose credentials changed is closed and reopened,
  * since a session outlives the token it was opened with.
+ *
+ * **Two more reasons to reopen one, since #592.** Somebody pressed Reconnect -
+ * on this replica or another, which is why the press is a recorded
+ * [SlackReconnectRequests] generation rather than a call - or the socket went
+ * quiet for longer than `orknux.slack.quiet-period` and then did not answer a
+ * ping. Either way the socket used to stay "open" until a restart, because
+ * nothing short of a changed token ever closed it.
  */
 @Component
 @ConditionalOnProperty(prefix = "orknux.slack", name = ["enabled"], havingValue = "true", matchIfMissing = true)
@@ -58,6 +65,10 @@ class SlackListener(
     private val slackClients: SlackClients,
     /** Who each connection posts as, which is how a reply to one of ours is known. */
     private val botUsers: SlackBotUsers,
+    /** What dials Slack; a stand-in in a test, which has no network. */
+    private val sockets: SlackSockets = SocketModeSockets(slackClients),
+    /** The Reconnect presses every replica reads; see [SlackReconnectRequests]. */
+    private val reconnects: SlackReconnectRequests = InMemorySlackReconnectRequests(),
 ) {
 
     /** Open sockets by workspace connection id. */
@@ -65,6 +76,22 @@ class SlackListener(
 
     /** The credentials that would not open, so they are not tried on every pass. */
     private val failures = ConcurrentHashMap<Long, FailedAttempt>()
+
+    /**
+     * When each connection last delivered an event, kept apart from its session
+     * so a reconnect does not make it look as though nothing ever arrived.
+     */
+    private val lastEvents = ConcurrentHashMap<Long, Instant>()
+
+    /** Why each connection last failed to open, kept after it recovers. */
+    private val lastFailures = ConcurrentHashMap<Long, Failure>()
+
+    /**
+     * One pass or one press at a time. A press arriving mid-pass would
+     * otherwise close a socket the pass is about to judge, and open a second
+     * beside the one the pass opens.
+     */
+    private val lock = Any()
 
     private val reconciler = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "slack-listener").apply { isDaemon = true }
@@ -120,7 +147,7 @@ class SlackListener(
      * Visible for the sake of a caller that has just changed a connection and
      * would rather not wait for the timer.
      */
-    fun reconcile() {
+    fun reconcile() = synchronized(lock) {
         /*
          * The app-level token is what decides this, not the type: a Slack
          * connection given one listens, one left without it only sends.
@@ -135,14 +162,172 @@ class SlackListener(
             .mapNotNull { connection -> listening(connection)?.let { requireNotNull(connection.id) to it } }
             .toMap()
 
+        /*
+         * Read once a pass. A database that will not answer costs the presses
+         * made meanwhile and nothing else - every socket stays as it is.
+         */
+        val generations = runCatching { reconnects.generations() }
+            .onFailure { log.warn("Could not read the Slack reconnect requests: {}", it.message) }
+            .getOrDefault(emptyMap())
+
         for ((id, session) in sessions) {
-            if (wanted[id]?.fingerprint != session.fingerprint) close(id)
+            val generation = generations[id] ?: 0
+            when {
+                wanted[id]?.fingerprint != session.fingerprint -> close(id)
+                generation > session.generation -> {
+                    log.info("Reconnecting Slack on connection {}: somebody asked to", id)
+                    close(id)
+                }
+                silent(id, session) -> close(id)
+            }
         }
         failures.keys.removeIf { it !in wanted }
         for ((id, connection) in wanted) {
-            if (sessions.containsKey(id) || connection.waitingAfterFailure(failures[id])) continue
-            open(id, connection)
+            if (sessions.containsKey(id)) continue
+            val failure = failures[id]
+            // A press made after the failure is the attempt the wait holds back.
+            val asked = failure != null && (generations[id] ?: 0) > failure.generation
+            if (connection.waitingAfterFailure(failure) && !asked) continue
+            open(id, connection, generations[id] ?: 0)
         }
+    }
+
+    /**
+     * Closes this connection's socket and opens it again at once, here and on
+     * every other replica, and answers what came of it here.
+     *
+     * The press is recorded first, so a replica that is not this one honours it
+     * on its next pass whatever happens below. The wait after a failure is
+     * cleared, because somebody pressing Reconnect is asking for exactly the
+     * attempt that wait holds back.
+     */
+    fun reconnect(connectionId: Long): SlackSocketState {
+        val generation = reconnects.request(connectionId)
+        synchronized(lock) {
+            close(connectionId)
+            failures.remove(connectionId)
+            val connection = workspaceConnections.findById(connectionId).orElse(null)
+                ?.takeIf { it.type == ConnectionType.SLACK }
+                ?.let(::listening)
+            if (connection != null) {
+                log.info("Reconnecting Slack on connection {}: somebody asked to", connection.name)
+                open(connectionId, connection, generation)
+            }
+        }
+        return stateOf(connectionId)
+    }
+
+    /**
+     * How this replica's socket for one connection is doing.
+     *
+     * This replica's, and only that: another holds a socket of its own and
+     * would answer for it. On one server - which is nearly every installation -
+     * that is the whole answer.
+     */
+    fun stateOf(connectionId: Long): SlackSocketState {
+        val session = sessions[connectionId]
+        val failure = lastFailures[connectionId]
+        val status = when {
+            session != null -> SlackSocketStatus.CONNECTED
+            failures.containsKey(connectionId) -> SlackSocketStatus.FAILED
+            workspaceConnections.findById(connectionId).orElse(null)?.let(::listening) != null ->
+                SlackSocketStatus.CONNECTING
+            else -> SlackSocketStatus.NOT_LISTENING
+        }
+        val appConnections = session?.appConnections?.get()
+        return SlackSocketState(
+            status = status,
+            connectedSince = session?.openedAt,
+            lastEventAt = lastEvents[connectionId],
+            lastFailure = failure?.reason,
+            lastFailureAt = failure?.at,
+            appConnections = appConnections,
+            sharedWithOthers = session != null && appConnections != null &&
+                appConnections > ownSessionsOf(session),
+        )
+    }
+
+    /**
+     * Whether a socket has gone quiet for longer than it should and does not
+     * answer when asked.
+     *
+     * Silence alone is not death: a workspace nobody types in at night sends
+     * nothing for hours. So a quiet socket is pinged, and only one that does
+     * not answer is reopened - an answer counts as hearing from it, and the
+     * question is not asked again until it has been quiet as long once more.
+     *
+     * A quiet period of zero or less turns this off.
+     */
+    private fun silent(id: Long, session: SlackSession): Boolean {
+        val quiet = properties.quietPeriod
+        if (quiet.isZero || quiet.isNegative) return false
+        val now = Instant.now()
+        val since = session.lastHeard.get()
+        if (Duration.between(since, now) <= quiet) return false
+        if (runCatching { session.socket.alive() }.getOrDefault(false)) {
+            session.lastHeard.set(now)
+            return false
+        }
+        log.warn(
+            "Reconnecting Slack on connection {}: nothing arrived since {} and it did not answer a ping",
+            id,
+            since,
+        )
+        return true
+    }
+
+    /**
+     * One frame off a socket: a sign of life, and - where it is Slack's `hello` -
+     * how many connections Slack is holding for this app.
+     *
+     * **Slack splits one app's events between all its connections.** Every
+     * Socket Mode connection opened for an app, by whichever app-level token and
+     * from whichever machine, is handed a share of that app's events and the
+     * others never see them. So a second installation listening with the same
+     * app - an old development server left running is how it was found - takes
+     * a trigger's mentions at random, and from here that is a trigger that
+     * works sometimes. `hello` says `num_connections`; more of them than this
+     * installation holds is somebody else listening.
+     */
+    private fun heard(connectionId: Long, session: SlackSession, frame: String) {
+        session.lastHeard.set(Instant.now())
+        if (!frame.contains("\"hello\"")) return
+        val hello = runCatching { JsonParser.parseString(frame).asJsonObject }.getOrNull() ?: return
+        if (hello.get("type")?.takeIf { it.isJsonPrimitive }?.asString != "hello") return
+        val count = hello.get("num_connections")?.takeIf { it.isJsonPrimitive }?.asInt ?: return
+        hello.getAsJsonObject("connection_info")?.get("app_id")?.takeIf { it.isJsonPrimitive }?.asString
+            ?.let(session.appId::set)
+
+        val before = session.appConnections.getAndSet(count)
+        val own = ownSessionsOf(session)
+        // Once per change, not once per hello: Slack says hello on every
+        // refresh, and a warning repeated every few hours is one nobody reads.
+        if (before != count && count > own) {
+            log.warn(
+                "Slack splits this app's events between {} connections on connection {}, and this server holds {}: " +
+                    "another server is listening with this app, and receives a share of its events",
+                count,
+                connectionId,
+                own,
+            )
+        }
+    }
+
+    /**
+     * How many of the sessions this server holds belong to one Slack app.
+     *
+     * Two connections in two workspaces may well be the same app; a session
+     * that has not said which app it is counts for itself alone. The session
+     * asked about counts whether or not it is in [sessions] yet, since the
+     * first `hello` arrives while it is still opening.
+     *
+     * A server's own, and only that: an installation run as two replicas holds
+     * two connections per app, and each replica reads the other as somebody
+     * else - which, for where Slack sends an event, it is.
+     */
+    private fun ownSessionsOf(session: SlackSession): Int {
+        val appId = session.appId.get() ?: return 1
+        return 1 + sessions.values.count { it !== session && it.appId.get() == appId }
     }
 
     /**
@@ -156,94 +341,97 @@ class SlackListener(
         return Listening(connection, bot, app)
     }
 
-    private fun open(id: Long, connection: Listening) {
+    private fun open(id: Long, connection: Listening, generation: Long) {
         val workspaceId = connection.workspaceId
+        // Made before the socket, so a `hello` arriving while it opens has
+        // somewhere to land.
+        val session = SlackSession(connection.fingerprint, generation)
         try {
-            // The Slack instance the app is built on is the one the whole
-            // session runs through - the `apps.connections.open` that issues the
-            // websocket URL, every call a handler makes, and the socket itself.
-            // Giving it one that consults the proxy rules is what puts Slack
-            // under the same rules as everything else outbound.
-            val routed = slackClients.forSocketMode()
-            val app = App(
-                AppConfig.builder()
-                    .singleTeamBotToken(connection.botToken)
-                    .slack(routed.slack)
-                    .build(),
+            session.socket = sockets.open(
+                SlackSocketRequest(
+                    connectionId = id,
+                    name = connection.name,
+                    botToken = connection.botToken,
+                    appToken = connection.appToken,
+                    register = { app -> register(app, id, workspaceId) },
+                    heard = { frame -> heard(id, session, frame) },
+                ),
             )
-            app.event(AppMentionEvent::class.java) { payload, context ->
-                publish(id, workspaceId, payload.event, payload.teamId)
-                context.ack()
-            }
-
-            /*
-             * Everything anyone types in a channel this bot can read.
-             *
-             * A mention is addressed to us and a message is not, which is the
-             * difference worth keeping in mind when reading the volume: this
-             * arrives once per message in every channel the bot is a member of,
-             * for as long as the token carries `channels:history`. What keeps
-             * that affordable is that the work is a repository query against the
-             * trigger catalogue and nothing more until something matches.
-             */
-            app.event(MessageEvent::class.java) { payload, context ->
-                receive(id, workspaceId, payload.event, payload.teamId)
-                context.ack()
-            }
-
-            /*
-             * A message that carries a file, which Slack delivers as its own
-             * kind of event.
-             *
-             * Nothing was registered for it, so Bolt answered every upload with
-             * `no handler found` and the message was dropped on the floor -
-             * with its text, its thread and its file. What that looked like
-             * from a Slack channel is somebody attaching a PDF, asking the bot
-             * about it, and the bot replying that it has no PDF: the mention
-             * arrived, the upload never did, and the agent was telling the
-             * truth about what it had been given.
-             *
-             * The same path as an ordinary message, because that is what it is
-             * - `message` with a `file_share` subtype - and the same loop
-             * guard applies to it.
-             */
-            app.event(MessageFileShareEvent::class.java) { payload, context ->
-                receive(id, workspaceId, payload.event, payload.teamId)
-                context.ack()
-            }
-
-            /*
-             * A bot's message, acknowledged and dropped.
-             *
-             * Registered rather than left unhandled so that the drop is written
-             * down where somebody looks for it, and so the SDK does not log a
-             * missing handler for every one. See [ours] for why a message from a
-             * bot is never published: a workflow that answers in a thread it
-             * watches would otherwise trigger itself, for ever.
-             */
-            app.event(MessageBotEvent::class.java) { _, context -> context.ack() }
-
-            // Tyrus is the websocket client the standalone bundle provides; the
-            // JDK has none of its own. It takes a proxy, but only one address
-            // and only when it connects, so it is pointed at the URL Slack has
-            // by then issued this session rather than at a rule chosen now.
-            val socket = SocketModeApp(connection.appToken, SocketModeClient.Backend.Tyrus, app)
-            routed.routeAgainst { socket.client?.wssUri?.toString() }
-            socket.startAsync()
-            sessions[id] = SlackSession(socket, connection.fingerprint)
+            sessions[id] = session
             failures.remove(id)
             log.info("Listening to Slack on connection {} (workspace {})", connection.name, workspaceId)
         } catch (failure: Exception) {
             // A bad token, or Slack being unreachable. Neither is a failure of
             // the application, and neither is worth asking about every 30
-            // seconds, so it waits — until the credentials change.
-            failures[id] = FailedAttempt(connection.fingerprint, Instant.now())
+            // seconds, so it waits - until the credentials change, or somebody
+            // presses Reconnect.
+            val now = Instant.now()
+            failures[id] = FailedAttempt(connection.fingerprint, now, generation)
+            lastFailures[id] = Failure(failure.message ?: failure.javaClass.simpleName, now)
             log.warn(
                 "Could not listen to Slack on connection {} (workspace {}): {}",
                 connection.name,
                 workspaceId,
                 failure.message,
             )
+        }
+    }
+
+    /** What a session listens for, registered on the app it is built on. */
+    private fun register(app: App, id: Long, workspaceId: Long) {
+        app.event(AppMentionEvent::class.java) { payload, context ->
+            publish(id, workspaceId, payload.event, payload.teamId)
+            context.ack()
+        }
+
+        /*
+         * Everything anyone types in a channel this bot can read.
+         *
+         * A mention is addressed to us and a message is not, which is the
+         * difference worth keeping in mind when reading the volume: this
+         * arrives once per message in every channel the bot is a member of,
+         * for as long as the token carries `channels:history`. What keeps
+         * that affordable is that the work is a repository query against the
+         * trigger catalogue and nothing more until something matches.
+         */
+        app.event(MessageEvent::class.java) { payload, context ->
+            receive(id, workspaceId, payload.event, payload.teamId)
+            context.ack()
+        }
+
+        /*
+         * A message that carries a file, which Slack delivers as its own
+         * kind of event.
+         *
+         * Nothing was registered for it, so Bolt answered every upload with
+         * `no handler found` and the message was dropped on the floor -
+         * with its text, its thread and its file. What that looked like
+         * from a Slack channel is somebody attaching a PDF, asking the bot
+         * about it, and the bot replying that it has no PDF: the mention
+         * arrived, the upload never did, and the agent was telling the
+         * truth about what it had been given.
+         *
+         * The same path as an ordinary message, because that is what it is
+         * - `message` with a `file_share` subtype - and the same loop
+         * guard applies to it.
+         */
+        app.event(MessageFileShareEvent::class.java) { payload, context ->
+            receive(id, workspaceId, payload.event, payload.teamId)
+            context.ack()
+        }
+
+        /*
+         * A bot's message, acknowledged and dropped.
+         *
+         * Registered rather than left unhandled so that the drop is written
+         * down where somebody looks for it, and so the SDK does not log a
+         * missing handler for every one. See [ours] for why a message from a
+         * bot is never published: a workflow that answers in a thread it
+         * watches would otherwise trigger itself, for ever.
+         */
+        app.event(MessageBotEvent::class.java) { _, context ->
+            lastEvents[id] = Instant.now()
+            context.ack()
         }
     }
 
@@ -254,6 +442,7 @@ class SlackListener(
      * and a test that had to open one could not run without Slack.
      */
     fun publish(connectionId: Long, workspaceId: Long, mention: AppMentionEvent, slackWorkspaceId: String?) {
+        lastEvents[connectionId] = Instant.now()
         val event = IncomingEvent(
             connectionId = connectionId,
             workspaceId = workspaceId,
@@ -325,6 +514,7 @@ class SlackListener(
     ) = receive(connectionId, workspaceId, said(message), slackWorkspaceId)
 
     private fun receive(connectionId: Long, workspaceId: Long, message: Said, slackWorkspaceId: String?) {
+        lastEvents[connectionId] = Instant.now()
         /*
          * Handed on whole, rather than filtered here and handed on after.
          *
@@ -599,8 +789,8 @@ class SlackListener(
 
     private fun close(id: Long) {
         val session = sessions.remove(id) ?: return
-        // A session is closed because the credentials changed, and a new token
-        // may well be a different Slack user. Asked again rather than assumed.
+        // A session may be closed because the credentials changed, and a new
+        // token may well be a different Slack user. Asked again rather than assumed.
         botUsers.forget(id)
         runCatching { session.socket.close() }
             .onFailure { log.warn("Could not close the Slack socket for connection {}", id, it) }
@@ -616,9 +806,25 @@ class SlackListener(
     /** Which connections are listening, for the monitoring screen and the tests. */
     fun listeningConnectionIds(): Set<Long> = sessions.keys.toSet()
 
-    private class SlackSession(val socket: SocketModeApp, val fingerprint: Int)
+    private class SlackSession(
+        val fingerprint: Int,
+        /** The reconnect generation it was opened under; a newer one reopens it. */
+        val generation: Long,
+    ) {
+        lateinit var socket: SlackSocket
+        val openedAt: Instant = Instant.now()
 
-    private class FailedAttempt(val fingerprint: Int, val at: Instant)
+        /** When anything last arrived, or a ping was last answered. */
+        val lastHeard = AtomicReference(Instant.now())
+
+        /** What Slack's latest `hello` said: which app, and how many connections it holds for it. */
+        val appId = AtomicReference<String?>()
+        val appConnections = AtomicReference<Int?>()
+    }
+
+    private class FailedAttempt(val fingerprint: Int, val at: Instant, val generation: Long)
+
+    private class Failure(val reason: String, val at: Instant)
 
     /**
      * A connection that listens, with the two tokens it listens by.

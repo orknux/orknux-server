@@ -47,6 +47,7 @@ class IntegrationExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ConnectionPluginTypeInvalidException,
             is ConnectionUrlInvalidException,
             is ConnectionNotConfiguredException,
+            is ConnectionNotSlackException,
             is McpServerNameTakenException,
             is McpServerNameInvalidException,
             is McpServerAddressInvalidException,

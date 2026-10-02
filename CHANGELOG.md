@@ -24,6 +24,7 @@ have failed.
 - Admin Settings has a Workspace copies heading with how long a copy may wait for a lock (default 60 seconds). A copy that waits longer stops and says which step it stopped at, rather than waiting for ever.
 - The field picker for references and variables works from the keyboard: the arrow keys, Home and End move through the list, Enter picks and Escape closes.
 - Admin -> Updates updates the server in place: Update on a release orknux.ai lists, with its changelog, or upload a jar. Every jar must be signed with the Orknux release key the image carries and is checked again on every start; the database keeps the last few (Admin Settings, default 3) and any of them can be rolled back to, as can the image's own jar, unless the schema has moved past what it can run on. Every server restarts on the chosen release, a release that will not start is given up on after three starts, and each update and rollback is in the audit log.
+- A Slack connection's page shows its socket on one line - connected since when and when the last event arrived, or why it would not open - with a Reconnect button that closes the socket and opens it again on every server, and is recorded in the audit log. When another server is listening with the same Slack app the page says so ("Slack splits this app's events between N connections"), since Slack then sends that server a share of the events, and the log warns once.
 
 ### 🔧 Changed
 
@@ -34,6 +35,7 @@ have failed.
 ### 🐛 Fixed
 
 - Talking over a spoken answer in voice mode stops it again. The hold restarted at every gap between syllables, so ordinary speech never held long enough; a short noise such as a cough still does not interrupt.
+- A Slack socket that died without the client noticing no longer stays "open" and deaf until a restart: one that has heard nothing for ten minutes (`ORKNUX_SLACK_QUIET_PERIOD`) and does not answer a ping is reopened by itself, with a log line saying why.
 - Duplicating a workspace shows its progress from the first connection on, says when progress cannot be read instead of sitting on the first line, and logs every step, so a copy that stops can be found from the log.
 
 ## 0.9.9.7

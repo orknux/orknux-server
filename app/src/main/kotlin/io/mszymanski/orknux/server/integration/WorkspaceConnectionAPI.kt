@@ -1,7 +1,11 @@
 package io.mszymanski.orknux.server.integration
 
+import io.mszymanski.orknux.connector.connection.ConnectionType
 import io.mszymanski.orknux.connector.connection.CreateWorkspaceConnectionInput
 import io.mszymanski.orknux.connector.connection.SlackDirectory
+import io.mszymanski.orknux.connector.connection.SlackSocketService
+import io.mszymanski.orknux.connector.connection.SlackSocketState
+import io.mszymanski.orknux.connector.connection.SlackSocketStatus
 import io.mszymanski.orknux.connector.connection.SlackSuggestion
 import io.mszymanski.orknux.connector.connection.SlackSuggestions
 import io.mszymanski.orknux.connector.connection.SlackTargetCheck
@@ -19,6 +23,9 @@ import org.springframework.graphql.data.method.annotation.MutationMapping
 import org.springframework.graphql.data.method.annotation.QueryMapping
 import org.springframework.graphql.data.method.annotation.SchemaMapping
 import org.springframework.stereotype.Controller
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 
 /**
  * The connections one workspace holds. The connection module holds them and the
@@ -34,6 +41,8 @@ class WorkspaceConnectionAPI(
     private val slackDirectory: SlackDirectory,
     /** The kinds of host the loaded plugins declare, to refuse one nothing declares. Issue #363. */
     private val pluginKinds: io.mszymanski.orknux.server.plugin.PluginConnectionTypes,
+    /** A Slack connection's socket: its state, and the Reconnect press. #592. */
+    private val slackSockets: SlackSocketService,
 ) {
 
     @QueryMapping
@@ -282,14 +291,83 @@ class WorkspaceConnectionAPI(
         return connections.revealWorkspaceConnectionUserToken(id)
     }
 
+    /**
+     * Closes a Slack connection's socket and opens it again, here and on every
+     * other replica. #592.
+     *
+     * What used to be the only way to do this was a restart: a socket re-opened
+     * only when its token changed, so one that died without the client noticing
+     * stayed "open" and heard nothing. The audit entry is the person's action,
+     * and is written whatever the socket then does - a press that ended in a
+     * refused token was still a press.
+     */
+    @MutationMapping
+    fun reconnectSlackConnection(@Argument id: Long): SlackSocketView {
+        val connection = connections.workspaceConnection(id)?.takeIf { access.canSee(it.workspaceId) }
+            ?: throw ConnectionNotFoundException(id)
+        if (connection.type != ConnectionType.SLACK) throw ConnectionNotSlackException(id, connection.name)
+
+        val state = slackSockets.reconnect(id)
+        auditRecorder.record(
+            connection.workspaceId,
+            WorkspaceAuditCategory.INTEGRATION,
+            "Slack connection ${connection.name} reconnected",
+        )
+        return SlackSocketView.of(state)
+    }
+
+    /**
+     * The socket's state, asked for by the one page that shows it.
+     *
+     * A field rather than a query of its own so the page reads it with the
+     * connection; the list of connections does not select it, and so asks
+     * nothing about sockets it does not draw.
+     */
+    @SchemaMapping(typeName = "WorkspaceConnection", field = "slackSocket")
+    fun slackSocket(connection: WorkspaceConnectionView): SlackSocketView? =
+        if (connection.type == ConnectionType.SLACK) SlackSocketView.of(slackSockets.stateOf(connection.id)) else null
+
     private fun requireWorkspaceAccess(workspaceId: Long) {
         access.requireVisible(workspaceId)
+    }
+}
+
+/** A Slack connection's socket, with its times written the way every other date here is. */
+data class SlackSocketView(
+    val status: SlackSocketStatus,
+    val connectedSince: String?,
+    val lastEventAt: String?,
+    val lastFailure: String?,
+    val lastFailureAt: String?,
+    val appConnections: Int?,
+    val sharedWithOthers: Boolean,
+) {
+    companion object {
+        fun of(state: SlackSocketState) = SlackSocketView(
+            status = state.status,
+            connectedSince = state.connectedSince?.let(::written),
+            lastEventAt = state.lastEventAt?.let(::written),
+            lastFailure = state.lastFailure,
+            lastFailureAt = state.lastFailureAt?.let(::written),
+            appConnections = state.appConnections,
+            sharedWithOthers = state.sharedWithOthers,
+        )
+
+        private fun written(at: Instant): String =
+            at.atOffset(ZoneOffset.UTC).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
     }
 }
 
 class ConnectionNotFoundException(val id: Long) : RuntimeException("No connection with id $id"), Refusal {
 
     override val arguments get() = mapOf("id" to id)
+}
+
+/** Reconnecting a socket is a Slack connection's business; nothing else holds one. */
+class ConnectionNotSlackException(val id: Long, val name: String) :
+    RuntimeException("Connection $name is not a Slack connection, and has no socket to reconnect"), Refusal {
+
+    override val arguments get() = mapOf("name" to name)
 }
 
 /**

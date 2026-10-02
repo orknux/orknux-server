@@ -557,6 +557,10 @@ orknux:
     # How long a connection Slack refused is left alone; changing the token
     # clears the wait, so a corrected credential is not held back by it.
     retry-failed-seconds: ${ORKNUX_SLACK_RETRY_FAILED_SECONDS:300}
+    # How long a socket may hear nothing before it is pinged, and reopened if the
+    # ping goes unanswered. Silence alone reopens nothing - a quiet workspace is
+    # quiet - so this is how long a dead socket can go unnoticed. 0 turns it off.
+    quiet-period: ${ORKNUX_SLACK_QUIET_PERIOD:10m}
   script:
     # A workspace's JavaScript runs in a GraalJS sandbox with no host access, no
     # files, no network and no threads. These bound what it can spend.
