@@ -45,7 +45,7 @@ interface ExecutionWorkflow {
  * The Temporal SDK converts payloads with Jackson 2 and no Kotlin module, so
  * the creator is bound explicitly, as everywhere else in this service.
  */
-data class RunPlan @JsonCreator constructor(
+data class RunPlan(
     @JsonProperty("executionId") val executionId: Long,
     @JsonProperty("workflowName") val workflowName: String,
     @JsonProperty("steps") val steps: List<String>,
@@ -86,7 +86,46 @@ data class RunPlan @JsonCreator constructor(
     @JsonProperty("splits") val splits: List<String> = emptyList(),
     /** How many steps may be running at once, read when the run was planned. */
     @JsonProperty("parallelism") val parallelism: Int = 1,
-)
+) {
+    companion object {
+        /**
+         * How a plan is read back from history, by Temporal's own Jackson mapper.
+         *
+         * That mapper does not know Kotlin's defaults: a field absent from a
+         * history an older release wrote reaches the constructor as null, and
+         * a non-null parameter throws - on replay, where the workflow task
+         * then fails for ever. That is how every run parked across the
+         * 0.9.9.7 to 0.9.9.8 upgrade stuck on `splits`; `edges`, `carried`
+         * and `blocked` had the same flaw for older histories. So every field
+         * added after the first is read as nullable here and given its
+         * default, and a field added later belongs in this list too -
+         * RunPlanHistoryTest reads plans of each older shape.
+         */
+        @JvmStatic
+        @JsonCreator
+        fun fromHistory(
+            @JsonProperty("executionId") executionId: Long,
+            @JsonProperty("workflowName") workflowName: String,
+            @JsonProperty("steps") steps: List<String>,
+            @JsonProperty("input") input: String?,
+            @JsonProperty("edges") edges: List<PlanEdge>?,
+            @JsonProperty("carried") carried: List<PlanExit>?,
+            @JsonProperty("blocked") blocked: List<String>?,
+            @JsonProperty("splits") splits: List<String>?,
+            @JsonProperty("parallelism") parallelism: Int?,
+        ) = RunPlan(
+            executionId = executionId,
+            workflowName = workflowName,
+            steps = steps,
+            input = input,
+            edges = edges.orEmpty(),
+            carried = carried.orEmpty(),
+            blocked = blocked.orEmpty(),
+            splits = splits.orEmpty(),
+            parallelism = parallelism?.takeIf { it > 0 } ?: 1,
+        )
+    }
+}
 
 /** One step an earlier run took, and which way out of it that run went. */
 data class PlanExit @JsonCreator constructor(
