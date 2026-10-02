@@ -1290,6 +1290,12 @@ type Mutation {
     """
     activateServerRelease(id: ID!): ServerUpdateStarted!
     """
+    Takes a kept server release out of the history, its jar with it. Refused
+    for the release running or chosen, and the one it would fall back to.
+    Administrators only.
+    """
+    removeServerRelease(id: ID!): Boolean!
+    """
     Restarts every server into the image's own jar - the version the image was
     built with - choosing nothing from the database. Refused where the schema has
     moved past what it can run on. Administrators only.

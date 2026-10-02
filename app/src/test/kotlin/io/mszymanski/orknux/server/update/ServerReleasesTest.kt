@@ -242,6 +242,27 @@ class ServerReleasesTest(
         mockMvc.perform(post("/api/server-releases").contentType(MediaType.APPLICATION_OCTET_STREAM).content(byteArrayOf(1)))
             .andExpect(status().isForbidden)
         assertThat(releases.findById(release.id!!).get().state).isEqualTo(ServerReleaseState.STORED)
+        graphQlTester.document("mutation { removeServerRelease(id: ${release.id}) }").execute()
+            .errors().satisfy { assertThat(it).isNotEmpty() }
+        assertThat(releases.findById(release.id!!)).isPresent
+    }
+
+    @Test
+    fun `a kept release can be removed, its jar with it, and the one chosen cannot`() {
+        val old = stored(Shape(version = "9.9.6"))
+        val chosen = stored(Shape(version = "9.9.7"))
+        graphQlTester.document("mutation { activateServerRelease(id: ${chosen.id}) { restarting } }").execute()
+
+        graphQlTester.document("mutation { removeServerRelease(id: ${old.id}) }").execute()
+            .path("removeServerRelease").entity(Boolean::class.java).isEqualTo(true)
+        assertThat(releases.findById(old.id!!)).isEmpty
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM server_release_part WHERE release_id = ?", Int::class.java, old.id))
+            .isZero()
+        assertThat(audit.findAll().map { it.message }).contains("Server release 9.9.6 removed")
+
+        graphQlTester.document("mutation { removeServerRelease(id: ${chosen.id}) }").execute()
+            .errors().satisfy { assertThat(it.single().extensions["code"]).isEqualTo("ServerReleaseInUse") }
+        assertThat(releases.findById(chosen.id!!)).isPresent
     }
 
     @Test

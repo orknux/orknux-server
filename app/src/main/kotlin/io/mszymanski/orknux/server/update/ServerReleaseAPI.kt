@@ -211,6 +211,15 @@ class ServerReleaseAPI(
         return started(id)
     }
 
+    /** Takes one kept release out of the history; refused for the one running or chosen. */
+    @MutationMapping
+    fun removeServerRelease(@Argument id: Long): Boolean {
+        access.requireAdmin()
+        val removed = updates.remove(id)
+        audit.record(null, WorkspaceAuditCategory.WORKSPACE, "Server release ${removed.version} removed")
+        return true
+    }
+
     /**
      * A jar from the administrator's own disk: a hotfix build, or an
      * air-gapped installation's only way to receive one. Stored, not started -
@@ -378,6 +387,7 @@ class ServerReleaseExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ServerUpdatesDisabledException,
             is ServerReleaseSourceDisabledException,
             is ServerReleaseNotActivatableException,
+            is ServerReleaseInUseException,
             is ServerReleaseAlreadyStoredException,
             is ServerReleaseTooLargeException,
             is ServerReleaseNotOfferedException,

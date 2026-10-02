@@ -275,20 +275,45 @@ class ServerReleases(
         for (release in all.reversed()) {
             if (excess <= 0) break
             if (release.id in protected) continue
-            transaction.executeWithoutResult {
-                val connection = DataSourceUtils.getConnection(dataSource)
-                try {
-                    connection.prepareStatement("DELETE FROM server_release_part WHERE release_id = ?").use {
-                        it.setLong(1, requireNotNull(release.id))
-                        it.executeUpdate()
-                    }
-                } finally {
-                    DataSourceUtils.releaseConnection(connection, dataSource)
-                }
-                releases.deleteById(requireNotNull(release.id))
-            }
+            delete(release)
             log.info("Server release {} removed; {} are kept", release.version, kept)
             excess--
+        }
+    }
+
+    /**
+     * The releases nothing may take away: the one chosen and the one it falls
+     * back to, and the one this server runs. Removing any of them would leave a
+     * start loop - this server's or another's - choosing a jar that is gone.
+     */
+    private fun inUse(): Set<Long?> = buildSet {
+        releases.findAllByStateIn(listOf(ServerReleaseState.ACTIVATING, ServerReleaseState.ACTIVE))
+            .forEach { add(it.id); add(it.fallbackId) }
+        add(runningReleaseId())
+    }
+
+    /** An administrator's removal of one kept release, refused for one in use. */
+    fun remove(id: Long): ServerRelease {
+        val release = releases.findByIdOrNull(id) ?: throw ServerReleaseNotFoundException(id)
+        if (id in inUse()) throw ServerReleaseInUseException(release.version)
+        delete(release)
+        log.info("Server release {} removed by an administrator", release.version)
+        return release
+    }
+
+    /** The jar's pieces first, then its row, in one transaction. */
+    private fun delete(release: ServerRelease) {
+        transaction.executeWithoutResult {
+            val connection = DataSourceUtils.getConnection(dataSource)
+            try {
+                connection.prepareStatement("DELETE FROM server_release_part WHERE release_id = ?").use {
+                    it.setLong(1, requireNotNull(release.id))
+                    it.executeUpdate()
+                }
+            } finally {
+                DataSourceUtils.releaseConnection(connection, dataSource)
+            }
+            releases.deleteById(requireNotNull(release.id))
         }
     }
 
@@ -464,6 +489,11 @@ class ServerReleaseSourceDisabledException(val source: ServerReleaseSource) :
 
 class ServerReleaseNotFoundException(val id: Long) : RuntimeException("There is no stored server release $id."), Refusal {
     override val arguments get() = mapOf("id" to id)
+}
+
+class ServerReleaseInUseException(val version: String) :
+    RuntimeException("Server release $version is running or chosen, so it cannot be removed; start another first."), Refusal {
+    override val arguments get() = mapOf("version" to version)
 }
 
 class ServerReleaseNotActivatableException(val version: String, val why: String) :
