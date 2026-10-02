@@ -345,10 +345,14 @@ class TriggerRunner(
                     workflowId = workflowId,
                     trigger = when (trigger.type) {
                         TriggerType.SCHEDULED -> ExecutionTrigger.SCHEDULE
-                        TriggerType.WEBHOOK -> ExecutionTrigger.WEBHOOK
-                        // Its own value: a Slack mention is not somebody calling
-                        // a URL, and the run page said "Webhook" for one.
-                        TriggerType.INCOMING_CONNECTION -> ExecutionTrigger.CONNECTION
+                        /*
+                         * An event on a connection is stored as WEBHOOK too, and
+                         * deliberately: a value of its own is one an older jar
+                         * cannot read, and a rollback has to be able to open the
+                         * executions list. What it was is the fired trigger's to
+                         * say - see WorkflowExecutionAPI's `source`.
+                         */
+                        TriggerType.INCOMING_CONNECTION, TriggerType.WEBHOOK -> ExecutionTrigger.WEBHOOK
                     },
                     payload = payload,
                     // Which trigger this is. A workflow may be drawn with two,

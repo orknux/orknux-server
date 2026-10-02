@@ -68,8 +68,14 @@ class WorkflowExecutionAPI(
         }.toMap()
     }
 
+    /**
+     * The fired trigger worth asking about. Only a run recorded as WEBHOOK, which
+     * is how a connection event is stored - a value of its own would be one an
+     * older jar cannot read after a rollback. Not a re-run, which is MANUAL and
+     * keeps the trigger it repeats without having been started by it.
+     */
     private fun connectionFired(trigger: ExecutionTrigger, firedTriggerId: Long?): Long? =
-        firedTriggerId.takeIf { trigger == ExecutionTrigger.CONNECTION }
+        firedTriggerId.takeIf { trigger == ExecutionTrigger.WEBHOOK }
 
     /** The pictures one run's image nodes drew, oldest first, as the graph shows them. */
     private fun picturesOf(executionId: Long): List<ExecutionPictureView> =
@@ -359,7 +365,7 @@ data class RunView(
     val workflowName: String,
     val status: ExecutionStatus,
     val trigger: ExecutionTrigger,
-    /** For a [ExecutionTrigger.CONNECTION] run, which connection and event; null otherwise. */
+    /** For a run an event on a connection started, which connection and event; null otherwise. */
     val source: ExecutionSourceView?,
     val startedAt: String,
     val finishedAt: String?,
@@ -378,7 +384,7 @@ data class RunView(
         workflowName = run.workflowName,
         status = run.status,
         trigger = run.trigger,
-        source = run.firedTriggerId?.takeIf { run.trigger == ExecutionTrigger.CONNECTION }?.let(sources::get),
+        source = run.firedTriggerId?.takeIf { run.trigger == ExecutionTrigger.WEBHOOK }?.let(sources::get),
         startedAt = run.startedAt,
         finishedAt = run.finishedAt,
         durationSeconds = run.durationSeconds,
@@ -472,7 +478,7 @@ data class RunDetailView(
      * said it. Empty for a run that spoke nothing. Issue #264.
      */
     val speeches: List<ExecutionSpeechView> = emptyList(),
-    /** For a [ExecutionTrigger.CONNECTION] run, which connection and event; null otherwise. */
+    /** For a run an event on a connection started, which connection and event; null otherwise. */
     val source: ExecutionSourceView? = null,
 ) {
     constructor(

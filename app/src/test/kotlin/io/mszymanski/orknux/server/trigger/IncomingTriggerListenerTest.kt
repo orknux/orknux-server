@@ -97,17 +97,18 @@ class IncomingTriggerListenerTest(
         val started = runs.executions(workspaceId, null, null, null, null, null, null)
         assertThat(started.content).singleElement().satisfies({
             assertThat(it.workflowName).isEqualTo("Incident Response")
-            assertThat(it.trigger).isEqualTo(ExecutionTrigger.CONNECTION)
+            // Stored as WEBHOOK, which every older jar can read after a rollback.
+            assertThat(it.trigger).isEqualTo(ExecutionTrigger.WEBHOOK)
         })
         assertThat(audit.findAll().map { it.message })
             .contains("Workflow Incident Response run started by trigger Slack Mention Handler")
     }
 
     /**
-     * A Slack mention is not a webhook, and the run says what it was. It used
-     * to be recorded as WEBHOOK, and the run page said "Triggered by: Webhook"
-     * for a mention - which sent whoever read it looking for a URL nobody had
-     * called. The list and the run both say which connection and which event.
+     * A Slack mention is not a webhook, and the run says what it was. The run
+     * page said "Triggered by: Webhook" for a mention, which sent whoever read
+     * it looking for a URL nobody had called. The stored value stays WEBHOOK so
+     * a rolled-back server can still read the row; `source` says the rest.
      */
     @Test
     fun `a run a mention started reads as a Slack mention, in the list and on the run`() {
@@ -124,7 +125,7 @@ class IncomingTriggerListenerTest(
             }
             """,
         ).execute()
-        listed.path("workspaceExecutions.content[0].trigger").entity(String::class.java).isEqualTo("CONNECTION")
+        listed.path("workspaceExecutions.content[0].trigger").entity(String::class.java).isEqualTo("WEBHOOK")
         listed.path("workspaceExecutions.content[0].source.connectionType").entity(String::class.java).isEqualTo("SLACK")
         listed.path("workspaceExecutions.content[0].source.action").entity(String::class.java).isEqualTo("MENTION")
 
@@ -132,9 +133,15 @@ class IncomingTriggerListenerTest(
         val run = graphQlTester.document(
             """query { execution(id: $id) { trigger source { connectionType action } } }""",
         ).execute()
-        run.path("execution.trigger").entity(String::class.java).isEqualTo("CONNECTION")
+        run.path("execution.trigger").entity(String::class.java).isEqualTo("WEBHOOK")
         run.path("execution.source.connectionType").entity(String::class.java).isEqualTo("SLACK")
         run.path("execution.source.action").entity(String::class.java).isEqualTo("MENTION")
+
+        // A re-run keeps the trigger it repeats, but a person started it.
+        graphQlTester.document("""mutation { rerunExecution(id: $id) { trigger source { action } } }""")
+            .execute()
+            .path("rerunExecution.trigger").entity(String::class.java).isEqualTo("MANUAL")
+            .path("rerunExecution.source").valueIsNull()
     }
 
     /**

@@ -24,15 +24,6 @@ enum class ExecutionTrigger {
     MANUAL,
     SCHEDULE,
     API,
-
-    /**
-     * An event arriving on one of the workspace's connections - a Slack mention,
-     * a message, a reply. Not a webhook: nothing called a URL of ours, and a run
-     * a Slack mention started read "Triggered by: Webhook". The connection and
-     * the event are the fired trigger's to say, which is where the run page
-     * reads them from. Runs recorded before this value existed stay [WEBHOOK].
-     */
-    CONNECTION,
 }
 
 /** Where one node of the graph got to in a run. */

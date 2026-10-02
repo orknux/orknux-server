@@ -3029,16 +3029,13 @@ enum ExecutionTrigger {
     MANUAL
     SCHEDULE
     API
-    """
-    An event arriving on one of the workspace's connections - a Slack mention, a
-    message, a reply. `source` says which kind of connection and which event,
-    where the trigger that fired is still there to ask. Runs recorded before this
-    value existed read WEBHOOK.
-    """
-    CONNECTION
 }
 
-"What a run started by an event on a connection was started by."
+"""
+What a run started by an event on a connection was started by. Such a run is
+stored as WEBHOOK - a new stored value would be one an older server cannot read
+after a rollback - so this is read off the trigger that fired it.
+"""
 type ExecutionSource {
     "The kind of connection the event arrived on."
     connectionType: ConnectionType!
@@ -3054,7 +3051,7 @@ type Execution {
     "Set when a condition ended the run early; null for an ordinary finish."
     stoppedReason: String
     trigger: ExecutionTrigger!
-    "For a CONNECTION run, which connection and event started it; null otherwise, and where that trigger has since been removed."
+    "For a run an event on a connection started, which connection and which event; null for any other run, and where that trigger has since been removed."
     source: ExecutionSource
     "ISO-8601 offset date-time."
     startedAt: String!
@@ -5663,7 +5660,7 @@ type ExecutionDetail {
     workflowName: String!
     status: ExecutionStatus!
     trigger: ExecutionTrigger!
-    "For a CONNECTION run, which connection and event started it; null otherwise, and where that trigger has since been removed."
+    "For a run an event on a connection started, which connection and which event; null for any other run, and where that trigger has since been removed."
     source: ExecutionSource
     startedAt: String!
     finishedAt: String
