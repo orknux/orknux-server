@@ -17,9 +17,21 @@ have failed.
 
 ## Unreleased
 
+### ✨ Added
+
+- Admin Settings has a Workflow runs heading with Steps running at once (default 4, 1 to 32), the most steps of one run that work at the same time.
+- An agent's MCP server can be left out of an import, like one of its tools, and the agent arrives without it; a server the file names and this workspace lacks no longer blocks the import.
+- The field picker for references and variables works from the keyboard: the arrow keys, Home and End move through the list, Enter picks and Escape closes.
+
 ### 🔧 Changed
 
+- A node that is not a condition or a decision, drawn with lines to several nodes, now runs those paths at the same time rather than one after another. A failure on one path no longer stops the others: they finish, and the run ends FAILED. A node where paths meet still waits for all of them. A graph with no such fan-out runs exactly as before.
+
 - The `orknux/orknux-server` image now serves the interface itself, on its own port 8080, so it is the whole product and `orknux/orknux-ui` is no longer needed; `orknux-one` has no nginx either. An installation still running `orknux-ui` keeps working, since the server answers every path it forwarded, but to move off it point the browser, published port, reverse proxy or Ingress at `orknux-server` on 8080 and remove the `orknux-ui` container (and `ORKNUX_UI_TAG`) - `deploy/README.md` and `deploy/kubernetes/README.md` have the steps.
+
+### 🐛 Fixed
+
+- Talking over a spoken answer in voice mode stops it again. The hold restarted at every gap between syllables, so ordinary speech never held long enough; a short noise such as a cough still does not interrupt.
 
 ## 0.9.9.7
 
