@@ -5,10 +5,13 @@ import com.fasterxml.jackson.annotation.JsonProperty
 import io.mszymanski.orknux.workflow.execution.BranchGate
 import io.mszymanski.orknux.workflow.execution.EdgeBranch
 import io.mszymanski.orknux.workflow.execution.ExecutionStatus
+import io.mszymanski.orknux.workflow.execution.Frontier
+import io.mszymanski.orknux.workflow.execution.ParallelLanes
 import io.mszymanski.orknux.workflow.execution.GraphEdge
 import io.mszymanski.orknux.workflow.execution.StepStatus
 import io.temporal.failure.ActivityFailure
 import io.temporal.failure.ApplicationFailure
+import io.temporal.workflow.Async
 import io.temporal.workflow.SignalMethod
 import io.temporal.workflow.Workflow
 import io.temporal.workflow.WorkflowInterface
@@ -74,6 +77,15 @@ data class RunPlan @JsonCreator constructor(
      * — rather than as a plan that cannot be understood.
      */
     @JsonProperty("blocked") val blocked: List<String> = emptyList(),
+    /**
+     * The nodes whose lines out are walked side by side. Issue #285.
+     *
+     * Defaulted like [blocked], and an absent list is what keeps every run in
+     * flight before this existed on the loop its history was written by.
+     */
+    @JsonProperty("splits") val splits: List<String> = emptyList(),
+    /** How many steps may be running at once, read when the run was planned. */
+    @JsonProperty("parallelism") val parallelism: Int = 1,
 )
 
 /** One step an earlier run took, and which way out of it that run went. */
@@ -197,6 +209,12 @@ class ExecutionWorkflowImpl : ExecutionWorkflow {
         // leading to it and be skipped as unreachable.
         plan.carried.forEach { gate.follow(it.nodeKey, it.branch, it.option) }
 
+        // A graph that fans out walks its paths side by side (#285). Every
+        // other plan - and every plan in a history written before there was
+        // such a thing, which has no splits to read - is walked exactly as it
+        // always was, issuing the same commands in the same order.
+        if (plan.splits.isNotEmpty()) return runSideBySide(plan, gate)
+
         for ((index, nodeKey) in plan.steps.withIndex()) {
             val unreached = plan.steps.size - index - 1
 
@@ -205,25 +223,10 @@ class ExecutionWorkflowImpl : ExecutionWorkflow {
                 continue
             }
 
-            // Ask the step, and sleep on Temporal's clock for as long as it says
-            // it is not ready. This is what makes a wait first class: the
-            // activity returns immediately whether or not the step is done, so
-            // the step timeout bounds the work a node does rather than the time
-            // it waits, no worker is held while the timer runs down, and the
-            // timer outlives every process involved. What it costs is history —
-            // a wait that asks every thirty seconds writes an event each time —
-            // which is what the run timeout is there to bound.
-            // The report stays null while the step is still parking and asking
-            // again, and where the run left by a failure edge instead of the
-            // step ever answering at all.
-            var report: StepReport? = null
-            var diverted = false
-            while (true) {
-                val attempt = try {
-                    activities.runStep(RunStepCommand(plan.executionId, nodeKey))
-                } catch (failure: ActivityFailure) {
+            when (val arrival = ask(plan.executionId, nodeKey)) {
+                is Arrival.Failed -> {
                     /*
-                     * Every attempt is spent by the time this is thrown - and a
+                     * Every attempt is spent by the time this arrives - and a
                      * failure the graph has an answer for is a direction rather
                      * than an ending, the same one the inline engine takes: the
                      * step stays failed and the run carries on down the edge
@@ -231,83 +234,189 @@ class ExecutionWorkflowImpl : ExecutionWorkflow {
                      */
                     if (gate.catchesFailure(nodeKey)) {
                         activities.recordFailureExit(RecordFailureExitCommand(plan.executionId, nodeKey))
-                        diverted = true
-                        break
+                        gate.follow(nodeKey, EdgeBranch.FAILURE)
+                        continue
                     }
                     activities.failRun(
                         FailRunCommand(
                             executionId = plan.executionId,
                             nodeKey = nodeKey,
-                            reason = failure.reason(),
+                            reason = arrival.reason,
                             unreached = unreached,
                         ),
                     )
                     return ExecutionStatus.FAILED
                 }
-
                 /*
                  * The step was cut short because somebody asked the run to
                  * stop: the same ending the inline engine gives it, so a run
                  * stops the same way whichever engine carries it. Issue #440.
                  */
-                if (attempt.stopped) {
+                Arrival.Stopped -> {
                     activities.stopRun(StopRunCommand(plan.executionId))
                     return ExecutionStatus.STOPPED
                 }
-
-                if (attempt.status != StepStatus.WAITING) {
-                    report = attempt
-                    break
-                }
-
-                val pause = attempt.resumeAfterSeconds
-                if (pause == null) {
-                    // Unreachable — a parked node says when to come back — but
-                    // spinning on it, or leaving the step open for ever, would
-                    // both be worse than stopping and saying so.
+                is Arrival.Lost -> {
                     activities.failRun(
                         FailRunCommand(
                             executionId = plan.executionId,
                             nodeKey = nodeKey,
-                            reason = "$nodeKey parked without saying when to come back",
+                            reason = arrival.reason,
                             unreached = unreached,
                         ),
                     )
                     return ExecutionStatus.FAILED
                 }
-                /*
-                 * A wait that something arriving can cut short. Versioned, because
-                 * a run already in its sleep when this shipped replays a timer and
-                 * must go on seeing one.
-                 */
-                if (Workflow.getVersion(WAKE_ON_EVENT, Workflow.DEFAULT_VERSION, 1) == Workflow.DEFAULT_VERSION) {
-                    Workflow.sleep(Duration.ofSeconds(pause))
-                } else {
-                    Workflow.await(Duration.ofSeconds(pause)) { woken }
-                    woken = false
+                is Arrival.Answered -> {
+                    val outcome = arrival.report
+                    gate.follow(nodeKey, outcome.branch, outcome.option)
+
+                    /*
+                     * A condition that did not hold ends the run - unless it has
+                     * branches, where it chose a direction rather than an ending.
+                     */
+                    if (outcome.halt && !gate.branches(nodeKey)) {
+                        activities.finishRun(FinishRunCommand(plan.executionId, nodeKey, outcome.output))
+                        return ExecutionStatus.COMPLETED
+                    }
                 }
-            }
-
-            if (diverted) {
-                gate.follow(nodeKey, EdgeBranch.FAILURE)
-                continue
-            }
-
-            val outcome = requireNotNull(report)
-            gate.follow(nodeKey, outcome.branch, outcome.option)
-
-            /*
-             * A condition that did not hold ends the run - unless it has
-             * branches, where it chose a direction rather than an ending.
-             */
-            if (outcome.halt && !gate.branches(nodeKey)) {
-                activities.finishRun(FinishRunCommand(plan.executionId, nodeKey, outcome.output))
-                return ExecutionStatus.COMPLETED
             }
         }
 
         activities.finishRun(FinishRunCommand(plan.executionId))
         return ExecutionStatus.COMPLETED
+    }
+
+    /**
+     * Walks a plan whose graph fans out, the paths of each split at the same
+     * time. Issue #285.
+     *
+     * The [Frontier] decides what starts, what is skipped and how the run ends,
+     * exactly as it does for the inline engine. Each step it starts is asked in
+     * a workflow thread of its own - [Async] - so its activity, its retries and
+     * its waits on Temporal's clock go on while the other paths' do, and this
+     * loop waits for whichever reports first. Deterministic, as a workflow has
+     * to be: the frontier decides from the plan and from the order the reports
+     * arrived in, and both are in the history.
+     */
+    private fun runSideBySide(plan: RunPlan, gate: BranchGate): ExecutionStatus {
+        val edges = plan.edges.map { GraphEdge(it.source, it.target, it.branch, it.option) }
+        val frontier = Frontier(
+            order = plan.steps,
+            edges = edges,
+            gate = gate,
+            lanes = ParallelLanes(edges, plan.splits),
+            limit = plan.parallelism,
+        )
+        val arrived = ArrayDeque<Pair<String, Arrival>>()
+
+        while (true) {
+            for (move in frontier.next()) {
+                when (move) {
+                    is Frontier.Skip ->
+                        activities.skipStep(SkipStepCommand(plan.executionId, move.nodeKey, move.reason))
+                    is Frontier.Run -> Async.procedure {
+                        arrived.addLast(move.nodeKey to ask(plan.executionId, move.nodeKey))
+                    }
+                }
+            }
+            if (frontier.idle) break
+
+            Workflow.await { arrived.isNotEmpty() }
+            val (nodeKey, arrival) = arrived.removeFirst()
+            when (arrival) {
+                is Arrival.Answered -> {
+                    val report = arrival.report
+                    frontier.completed(nodeKey, report.branch, report.option, report.halt, report.output)
+                }
+                is Arrival.Failed ->
+                    if (frontier.failed(nodeKey, arrival.reason)) {
+                        activities.recordFailureExit(RecordFailureExitCommand(plan.executionId, nodeKey))
+                    }
+                is Arrival.Lost -> frontier.failed(nodeKey, arrival.reason)
+                Arrival.Stopped -> frontier.stopped(nodeKey)
+            }
+        }
+
+        val failure = frontier.failure
+        val halt = frontier.halt
+        return when {
+            failure != null -> {
+                activities.failRun(
+                    FailRunCommand(plan.executionId, failure.nodeKey, failure.reason, frontier.unreachedCount),
+                )
+                ExecutionStatus.FAILED
+            }
+            frontier.stopping -> {
+                activities.stopRun(StopRunCommand(plan.executionId))
+                ExecutionStatus.STOPPED
+            }
+            halt != null -> {
+                activities.finishRun(FinishRunCommand(plan.executionId, halt.first, halt.second))
+                ExecutionStatus.COMPLETED
+            }
+            else -> {
+                activities.finishRun(FinishRunCommand(plan.executionId))
+                ExecutionStatus.COMPLETED
+            }
+        }
+    }
+
+    /** How asking one step ended, for whichever loop asked it. */
+    private sealed interface Arrival {
+        data class Answered(val report: StepReport) : Arrival
+
+        /** Every attempt spent; [reason] is what the step said. */
+        data class Failed(val reason: String) : Arrival
+
+        /** Cut short by a stop. Issue #440. */
+        data object Stopped : Arrival
+
+        /** Parked without saying when to come back, which a node never should. */
+        data class Lost(val reason: String) : Arrival
+    }
+
+    /**
+     * Asks the step, and sleeps on Temporal's clock for as long as it says it
+     * is not ready. This is what makes a wait first class: the activity returns
+     * immediately whether or not the step is done, so the step timeout bounds
+     * the work a node does rather than the time it waits, no worker is held
+     * while the timer runs down, and the timer outlives every process involved.
+     * What it costs is history - a wait that asks every thirty seconds writes
+     * an event each time - which is what the run timeout is there to bound.
+     *
+     * Shared by both loops, and issuing exactly the commands the sequential
+     * loop always issued for one step, in the same order.
+     */
+    private fun ask(executionId: Long, nodeKey: String): Arrival {
+        while (true) {
+            val attempt = try {
+                activities.runStep(RunStepCommand(executionId, nodeKey))
+            } catch (failure: ActivityFailure) {
+                return Arrival.Failed(failure.reason())
+            }
+
+            if (attempt.stopped) return Arrival.Stopped
+            if (attempt.status != StepStatus.WAITING) return Arrival.Answered(attempt)
+
+            // Unreachable - a parked node says when to come back - but
+            // spinning on it, or leaving the step open for ever, would both be
+            // worse than stopping and saying so.
+            val pause = attempt.resumeAfterSeconds
+                ?: return Arrival.Lost("$nodeKey parked without saying when to come back")
+
+            /*
+             * A wait that something arriving can cut short. Versioned, because
+             * a run already in its sleep when this shipped replays a timer and
+             * must go on seeing one.
+             */
+            if (Workflow.getVersion(WAKE_ON_EVENT, Workflow.DEFAULT_VERSION, 1) == Workflow.DEFAULT_VERSION) {
+                Workflow.sleep(Duration.ofSeconds(pause))
+            } else {
+                Workflow.await(Duration.ofSeconds(pause)) { woken }
+                woken = false
+            }
+        }
     }
 
     /** What the step said, rather than Temporal's wrapper around it. */

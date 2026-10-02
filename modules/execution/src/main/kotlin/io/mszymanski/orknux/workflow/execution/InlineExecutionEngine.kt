@@ -6,7 +6,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.stereotype.Service
 import java.time.Duration
+import jakarta.annotation.PreDestroy
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Runs a workflow on the calling thread: a restart mid-step loses that step,
@@ -107,7 +111,9 @@ class InlineExecutionEngine(
         val executionId = requireNotNull(plan.execution.id)
         driving.add(executionId)
         try {
-            return walk(plan, executionId)
+            // A graph that fans out walks its paths side by side (#285); every
+            // other graph is walked exactly as it always was.
+            return if (plan.splits.isEmpty()) walk(plan, executionId) else walkSideBySide(plan, executionId)
         } finally {
             driving.remove(executionId)
         }
@@ -186,6 +192,127 @@ class InlineExecutionEngine(
         }
 
         return steps.finishRun(executionId)
+    }
+
+    /**
+     * Walks a run whose graph fans out, carrying the paths of each split at the
+     * same time. Issue #285.
+     *
+     * What runs, what is skipped and how the run ends is the [Frontier]'s to
+     * decide, which the Temporal workflow asks too; this thread only does what
+     * it says. Each step is carried out on a thread of [branches], the same
+     * [runToDecision] a sequential run calls - waits, retries and an
+     * interrupted step's settling included - and reports back here, and this
+     * thread is the only one that touches the gate or the frontier.
+     *
+     * How many run at once is the plan's [ExecutionPlan.parallelism], read
+     * from the installation's settings when the run was planned.
+     */
+    private fun walkSideBySide(plan: ExecutionPlan, executionId: Long): WorkflowExecution {
+        val gate = BranchGate(plan.edges, plan.blocked)
+        plan.carried.forEach { gate.follow(it.nodeKey, it.branch, it.option) }
+
+        val frontier = Frontier(
+            order = plan.steps.map { it.nodeKey },
+            edges = plan.edges,
+            gate = gate,
+            lanes = ParallelLanes(plan.edges, plan.splits),
+            limit = plan.parallelism,
+            deadEnds = plan.deadEnds,
+        )
+        // Handed over still RUNNING by a replan: in flight when the process died. #448.
+        val interrupted = plan.steps.filter { it.status == StepStatus.RUNNING }.mapTo(HashSet()) { it.nodeKey }
+        val reported = LinkedBlockingQueue<Reported>()
+        var broken: Throwable? = null
+
+        while (true) {
+            if (!frontier.stopping && steps.wasStopAsked(executionId)) {
+                log.info("Execution {} was asked to stop; starting nothing more", executionId)
+                frontier.stop()
+            }
+            for (move in frontier.next()) {
+                when (move) {
+                    is Frontier.Skip -> steps.skipStep(executionId, move.nodeKey, move.reason)
+                    is Frontier.Run -> branches.execute {
+                        reported.put(carryOut(executionId, move.nodeKey, move.nodeKey in interrupted))
+                    }
+                }
+            }
+            if (frontier.idle) break
+
+            when (val report = reported.take()) {
+                is Reported.Done -> {
+                    val outcome = report.outcome
+                    frontier.completed(report.nodeKey, outcome.branch, outcome.option, outcome.halt, outcome.output)
+                }
+                is Reported.Failed ->
+                    if (frontier.failed(report.nodeKey, report.reason)) {
+                        steps.recordFailureExit(executionId, report.nodeKey)
+                    } else {
+                        log.warn("Execution {} failed at {}: {}", executionId, report.nodeKey, report.reason)
+                    }
+                is Reported.Stopped -> frontier.stopped(report.nodeKey)
+                is Reported.Broken -> {
+                    // Not a step's failure but the engine's own - a write that
+                    // could not be made. Nothing more starts, what is running
+                    // is let finish, and then it is thrown, as a sequential
+                    // run would have thrown it.
+                    broken = broken ?: report.cause
+                    frontier.stopped(report.nodeKey)
+                }
+            }
+        }
+
+        broken?.let { throw it }
+        val failure = frontier.failure
+        val halt = frontier.halt
+        return when {
+            failure != null -> steps.failRun(executionId, failure.nodeKey, failure.reason, frontier.unreachedCount)
+            frontier.stopping -> steps.stopRun(executionId)
+            halt != null -> {
+                log.info("Execution {} stopped at {}: that path has nothing further to do", executionId, halt.first)
+                steps.finishRun(executionId, stoppedAt = halt.first, reason = halt.second)
+            }
+            else -> steps.finishRun(executionId)
+        }
+    }
+
+    /** One step carried out on a thread of [branches], as the walking thread is told about it. */
+    private fun carryOut(executionId: Long, nodeKey: String, interrupted: Boolean): Reported = try {
+        Reported.Done(nodeKey, runToDecision(executionId, nodeKey, interrupted))
+    } catch (stopped: StepStoppedException) {
+        Reported.Stopped(nodeKey)
+    } catch (failure: StepFailedException) {
+        Reported.Failed(nodeKey, failure.message ?: "the step failed")
+    } catch (cause: Throwable) {
+        Reported.Broken(nodeKey, cause)
+    }
+
+    private sealed interface Reported {
+        val nodeKey: String
+
+        data class Done(override val nodeKey: String, val outcome: StepOutcome) : Reported
+        data class Failed(override val nodeKey: String, val reason: String) : Reported
+        data class Stopped(override val nodeKey: String) : Reported
+        data class Broken(override val nodeKey: String, val cause: Throwable) : Reported
+    }
+
+    /**
+     * The threads the paths of a split are carried on. Issue #285.
+     *
+     * Unbounded here because the bound is the run's: the frontier never has
+     * more of one run's steps going than the installation's setting allows,
+     * and a run's own thread is already one per run. Daemon threads, named so
+     * a thread dump says what they are.
+     */
+    private val threads = AtomicInteger()
+    private val branches = Executors.newCachedThreadPool { work ->
+        Thread(work, "orknux-branch-${threads.incrementAndGet()}").apply { isDaemon = true }
+    }
+
+    @PreDestroy
+    fun shutdown() {
+        branches.shutdownNow()
     }
 
     /**

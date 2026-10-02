@@ -29,7 +29,8 @@ class FakeWorkflowGraphSource : WorkflowGraphSource {
  * A runner for the tests to steer: nodes named `ok…` do work and hand something
  * on, `wait…` parks for an hour the first time and is done the second, `boom`
  * fails, `flaky…` fails until it is on its third attempt, `settled…` fails in a
- * way that says trying again is pointless, `asks-yes…` / `asks-no…` answer the
+ * way that says trying again is pointless, `nap…` / `put…` add a field of their
+ * own after a second or at once, `asks-yes…` / `asks-no…` answer the
  * way a condition does, and `block…` / `sleep…` stand in for a step stuck in
  * a model call - see [Blocking]. Ahead of [UnimplementedNodeRunner], which
  * claims everything.
@@ -68,6 +69,16 @@ class ScriptedNodeRunner : NodeRunner {
         step.name.startsWith("asks-no") ->
             StepResult(StepStatus.COMPLETED, "${step.name} did not hold", halt = true, branch = EdgeBranch.NO)
         step.name.startsWith("ok") -> StepResult(StepStatus.COMPLETED, "${step.name} did the work")
+        /*
+         * Work that takes a while and adds a field of its own to what the run
+         * carries, under the node's key - so where two paths meet, the node
+         * there can be asked whether it was handed both. Issue #285.
+         */
+        step.name.startsWith("nap") -> {
+            Thread.sleep(NAP.toMillis())
+            StepResult(StepStatus.COMPLETED, """{"${step.nodeKey}":"${step.name}"}""")
+        }
+        step.name.startsWith("put") -> StepResult(StepStatus.COMPLETED, """{"${step.nodeKey}":"${step.name}"}""")
         step.name.startsWith("wait") -> park(step)
         else -> UnimplementedNodeRunner().run(step, input)
     }
@@ -83,11 +94,14 @@ class ScriptedNodeRunner : NodeRunner {
         return StepResult.waiting(WAIT, "${step.name} is waiting")
     }
 
-    private companion object {
-        val WAIT: Duration = Duration.ofHours(1)
+    companion object {
+        /** How long a `nap` node works: long enough to tell side by side from one after the other. */
+        val NAP: Duration = Duration.ofSeconds(1)
+
+        private val WAIT: Duration = Duration.ofHours(1)
 
         /** The attempt a `flaky` node finally works on. */
-        const val FLAKY_UNTIL = 3
+        private const val FLAKY_UNTIL = 3
     }
 }
 

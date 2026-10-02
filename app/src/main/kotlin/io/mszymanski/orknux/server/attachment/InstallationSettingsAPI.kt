@@ -59,6 +59,8 @@ class InstallationSettingsAPI(
         agentMaxSubagentsConfigured = settings.agentMaxSubagentsConfigured(),
         agentMaxSubagentsAtOnce = settings.agentMaxSubagentsAtOnce(),
         agentMaxSubagentsAtOnceConfigured = settings.agentMaxSubagentsAtOnceConfigured(),
+        workflowStepsAtOnce = settings.workflowStepsAtOnce(),
+        workflowStepsAtOnceConfigured = settings.workflowStepsAtOnceConfigured(),
         maxRepeatedToolCalls = settings.maxRepeatedToolCalls(),
         maxRepeatedToolCallsConfigured = settings.maxRepeatedToolCallsConfigured(),
         repeatedToolCallsWindowSeconds = settings.repeatedToolCallsWindowSeconds(),
@@ -423,6 +425,25 @@ class InstallationSettingsAPI(
     }
 
     /**
+     * How many steps of one workflow run may be running at once. Issue #285.
+     *
+     * Read when a run is planned, so a run already going keeps the number it
+     * started with.
+     */
+    @MutationMapping
+    fun setWorkflowStepsAtOnce(@Argument count: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setWorkflowStepsAtOnce(count, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "Workflow runs allowed $count steps running at once",
+        )
+        return installationSettings()
+    }
+
+    /**
      * How many asks may be working at once. Issue #461.
      *
      * An ask past the ceiling waits its turn rather than being refused: a
@@ -712,6 +733,9 @@ data class InstallationSettingsView(
      */
     val agentMaxSubagentsAtOnce: Int,
     val agentMaxSubagentsAtOnceConfigured: Int,
+    /** How many steps of one workflow run may be running at once. Issue #285. */
+    val workflowStepsAtOnce: Int,
+    val workflowStepsAtOnceConfigured: Int,
     /**
      * The loop guard. Issue #516: how many identical calls, how close together
      * they have to be to count, and how often a turn is told before it ends.

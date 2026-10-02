@@ -209,7 +209,11 @@ class StepRunner(
     private val interrupts: StepInterrupts,
     /** Told when a step has parked; see [StepParked]. */
     private val published: org.springframework.context.ApplicationEventPublisher,
+    transactionManager: org.springframework.transaction.PlatformTransactionManager,
 ) {
+
+    /** What [carry] reads and writes the run under; see there. */
+    private val transactions = org.springframework.transaction.support.TransactionTemplate(transactionManager)
 
     /**
      * Where a jittered wait's randomness comes from.
@@ -324,10 +328,7 @@ class StepRunner(
         // What the run carries from here on. Written once, where it is read
         // from, so both engines carry the same thing and neither has to hand it
         // to the other.
-        if (result.status == StepStatus.COMPLETED) {
-            execution.carried = Payloads.carry(input, result.output)
-            executions.save(execution)
-        }
+        if (result.status == StepStatus.COMPLETED) carry(executionId, result.output)
 
         log.write(
             executionId,
@@ -672,6 +673,25 @@ class StepRunner(
         execution.stoppedReason = STOP_REASON
         log.write(executionId, null, LogLevel.INFO, "${execution.workflowName} was stopped")
         return executions.save(execution)
+    }
+
+    /**
+     * Adds what a step produced to what the run carries. Issue #285.
+     *
+     * Merged into the run as it stands now rather than into what the step was
+     * handed, under a lock on the run. One path at a time, the two are the same
+     * thing; with paths running side by side another step may have added its
+     * own output since this one started, and merging into the older copy would
+     * quietly drop it - which is the one thing a node after the paths meet
+     * relies on finding. Written on its own, too, so nothing else on the run
+     * this step read when it began - a stop asked for since - is written back.
+     */
+    private fun carry(executionId: Long, produced: String?) {
+        transactions.executeWithoutResult {
+            val run = executions.lockById(executionId) ?: throw ExecutionNotFoundException(executionId)
+            run.carried = Payloads.carry(run.carried ?: run.input, produced)
+            executions.save(run)
+        }
     }
 
     private fun stepOf(executionId: Long, nodeKey: String) =

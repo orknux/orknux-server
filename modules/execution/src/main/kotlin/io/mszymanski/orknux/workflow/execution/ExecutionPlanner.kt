@@ -38,7 +38,32 @@ data class ExecutionPlan(
      * as it always did.
      */
     val blocked: Set<String> = emptySet(),
+    /**
+     * The nodes whose lines out are walked side by side; see [splits]. Issue #285.
+     *
+     * Empty for a graph without one, and an engine handed an empty set walks
+     * the plan one step after another exactly as it always has.
+     */
+    val splits: Set<String> = emptySet(),
+    /** How many steps of this run may be running at once, read when it was planned. */
+    val parallelism: Int = 1,
+    /**
+     * Failures a run picked up after a restart had already left behind on
+     * paths it went on walking past. Empty for every other plan.
+     */
+    val deadEnds: List<DeadEnd> = emptyList(),
 )
+
+/**
+ * How many steps of one run may be running at the same time. Issue #285.
+ *
+ * Declared here and answered by the app, which keeps the number among the
+ * installation's settings: this module holds no settings of its own.
+ */
+fun interface StepConcurrency {
+
+    fun stepsAtOnce(): Int
+}
 
 /**
  * A step an earlier run took, and which way out of it that run went.
@@ -82,6 +107,8 @@ class ExecutionPlanner(
      * refusal is not a run that failed.
      */
     private val metrics: WorkflowRunMetrics,
+    /** How wide a run with splits may go; read once per plan. Issue #285. */
+    private val concurrency: StepConcurrency,
 ) {
 
     /**
@@ -228,6 +255,8 @@ class ExecutionPlanner(
             graph.edges,
             earlier?.exits.orEmpty(),
             blocked,
+            splits = graph.splits(),
+            parallelism = concurrency.stepsAtOnce(),
         )
     }
 
@@ -309,9 +338,21 @@ class ExecutionPlanner(
          * none; a failed step the run carried on from left its FAILURE edge, and
          * that edge is what its branch records.
          */
+        /*
+         * A failure nothing caught, in a run with splits, opened no way: that
+         * run walks on past one along its other paths (#285), and what lies
+         * behind it stays unreached. A sequential run ended at such a step, so
+         * for one of those this reads the record exactly as it always has.
+         */
+        val splits = graph.splits()
+        val uncaught = { step: ExecutionStep ->
+            splits.isNotEmpty() && step.status == StepStatus.FAILED && step.branch != EdgeBranch.FAILURE
+        }
         val carried = inOrder
             .filter { it.status == StepStatus.COMPLETED || it.status == StepStatus.FAILED }
+            .filterNot(uncaught)
             .map { CarriedExit(it.nodeKey, it.branch, it.branchOption) }
+        val deadEnds = inOrder.filter(uncaught).map { DeadEnd(it.nodeKey, it.error ?: "the step failed") }
 
         // The open step, in the state it was left in, and everything the run had
         // not reached. A run walks one step at a time, so this is at most one
@@ -321,7 +362,16 @@ class ExecutionPlanner(
         }
 
         val blocked = notBegunAt(graph, execution.firedTriggerId)
-        return ExecutionPlan(execution, toRun, graph.edges, carried, blocked)
+        return ExecutionPlan(
+            execution,
+            toRun,
+            graph.edges,
+            carried,
+            blocked,
+            splits = splits,
+            parallelism = concurrency.stepsAtOnce(),
+            deadEnds = deadEnds,
+        )
     }
 
     private fun repeated(executionId: Long?): Long? =

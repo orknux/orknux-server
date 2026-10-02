@@ -105,7 +105,11 @@ class StepInterrupts {
         }
     }
 
-    private val running = ConcurrentHashMap<Long, Handle>()
+    /**
+     * Every step of a run in flight on this process. More than one where the
+     * run fans out (#285), and a stop has to reach each of them.
+     */
+    private val running = ConcurrentHashMap<Long, Set<Handle>>()
 
     /**
      * Carries out [body] as the work of one step, cut short if the run is
@@ -125,7 +129,7 @@ class StepInterrupts {
     fun <T> stoppable(executionId: Long, nodeKey: String, body: () -> T): T {
         val handle = Handle(executionId, nodeKey)
         val outer = current.get()
-        running[executionId] = handle
+        running.compute(executionId) { _, held -> held.orEmpty() + handle }
         current.set(handle)
         try {
             return body()
@@ -134,7 +138,7 @@ class StepInterrupts {
             throw failure
         } finally {
             handle.done()
-            running.remove(executionId, handle)
+            running.computeIfPresent(executionId) { _, held -> (held - handle).ifEmpty { null } }
             if (outer == null) current.remove() else current.set(outer)
             // A stop that landed leaves the interrupt on the thread, and a thread
             // that carries on with it set fails its next blocking call - which
@@ -164,7 +168,7 @@ class StepInterrupts {
     fun isCarrying(executionId: Long): Boolean = running.containsKey(executionId)
 
     /**
-     * Cuts short whatever step of this run is in flight, if one is.
+     * Cuts short whatever steps of this run are in flight, if any are.
      *
      * Only ends the work: the thread carrying the step records what happened
      * and ends the run itself. Nothing here waits for it - the caller is a
@@ -172,7 +176,7 @@ class StepInterrupts {
      * here to cut, and the flag the engine already reads is what stops it.
      */
     fun stop(executionId: Long) {
-        running[executionId]?.stop()
+        running[executionId]?.forEach { it.stop() }
     }
 
     companion object {
