@@ -445,8 +445,8 @@ Concretely, for `X.Y.Z`:
    version left behind is a version an operator is shown.
 3. Bump `version` in `orknux-ui/package.json` and move the submodule pin. The two
    halves are released together under one number.
-4. Move the pins in `deploy/compose.yaml` - `ORKNUX_SERVER_TAG` and
-   `ORKNUX_UI_TAG` default to the release, not to `latest` - and every version
+4. Move the pin in `deploy/compose.yaml` - `ORKNUX_SERVER_TAG` defaults to the
+   minor (`0.9`), and moves only when the minor does - and every version
    quoted in `deploy/README.md`, `deploy/kubernetes/orknux.yaml` and
    `deploy/kubernetes/README.md`. `grep -rn "X.Y.Z-1"` is the check: a version
    left behind is one an operator is handed.
@@ -477,12 +477,14 @@ the interface container is still fetching its dependencies and a browser - it
 was forty when the installation being photographed was `Dockerfile.one` built
 inside Docker, and thirty-five of those were the build.
 
-**This repository publishes two images.** `orknux-server` from `Dockerfile`, and
-the all-in-one `orknux-one` from `Dockerfile.one` - the interface, the server and
-a SQLite file in one container, verified by `scripts/verify-one-image.sh` and
-described by `DOCKERHUB-ONE.md`. It builds the interface from the `orknux-ui`
-submodule, so its CI jobs check out with `submodules: true` and it reuses that
-image's own nginx template rather than carrying a second copy. Everything the
+**This repository publishes two images, and each is the whole product.**
+`orknux-server` from `Dockerfile`, and the all-in-one `orknux-one` from
+`Dockerfile.one` - the same jar with a SQLite file beside it, verified by
+`scripts/verify-one-image.sh` and described by `DOCKERHUB-ONE.md`. Since #585 the
+server serves the interface from its own jar (`InterfaceResources`, packaged by
+`-Pwith-ui`), so there is no nginx and no `orknux-ui` image any more; both
+Dockerfiles build the bundle from the `orknux-ui` submodule, and every CI job that
+builds an image checks out with `submodules: true`. Everything the
 image invents on a first start - the encryption key, the database, the
 administrator - is in `docker/one/entrypoint.sh`, and the key is the part to be
 careful with: generating a second one on a later start makes every stored
