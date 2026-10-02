@@ -11,6 +11,19 @@ interface WorkflowExecutionRepository :
     JpaRepository<WorkflowExecution, Long>,
     JpaSpecificationExecutor<WorkflowExecution> {
 
+    /**
+     * The run, held against every other writer until the transaction ends.
+     * Issue #285.
+     *
+     * What two steps finishing at the same moment on two paths of one run take
+     * before adding what they produced to what the run carries: read, merged
+     * and written by one of them at a time, or the second write carries a copy
+     * that never saw the first and loses it.
+     */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select e from WorkflowExecution e where e.id = :id")
+    fun lockById(@org.springframework.data.repository.query.Param("id") id: Long): WorkflowExecution?
+
     /** The most recent run of one workflow, for the list that shows where it got to. */
     fun findFirstByWorkspaceIdAndWorkflowIdOrderByStartedAtDesc(
         workspaceId: Long,

@@ -1207,6 +1207,11 @@ type Mutation {
     sends a model round again with the same ask in other words.
     """
     setAgentMaxSubagentsAtOnce(count: Int!): InstallationSettings!
+    """
+    How many steps of one workflow run may be running at once. Issue #285.
+    Administrators only; a run already going keeps the number it started with.
+    """
+    setWorkflowStepsAtOnce(count: Int!): InstallationSettings!
     "How many identical calls in a row are allowed. Issue #516."
     setMaxRepeatedToolCalls(count: Int!): InstallationSettings!
     "How many tool calls one message may ask for at once. Issue #518."
@@ -6478,6 +6483,16 @@ type InstallationSettings {
     agentMaxSubagentsAtOnce: Int!
     "Three, unless somebody has said otherwise."
     agentMaxSubagentsAtOnceConfigured: Int!
+    """
+    How many steps of one workflow run may be running at once. Issue #285.
+
+    A node with lines to several others sends the run down all of them side
+    by side; a step past this waits for another to finish. One walks the
+    paths one after the other.
+    """
+    workflowStepsAtOnce: Int!
+    "Four, unless somebody has said otherwise."
+    workflowStepsAtOnceConfigured: Int!
     """
     The loop guard. Issue #516.
 

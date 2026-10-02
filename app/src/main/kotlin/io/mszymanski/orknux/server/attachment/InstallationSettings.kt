@@ -94,6 +94,9 @@ object SettingNames {
 
     /** How many asks may be in flight at once. Issue #461. */
     const val AGENT_MAX_SUBAGENTS_AT_ONCE = "agent.max.subagents.at.once"
+
+    /** How many steps of one workflow run may be running at once. Issue #285. */
+    const val WORKFLOW_STEPS_AT_ONCE = "workflow.steps.at.once"
     const val COMMAND_MARKER = "command.marker"
     const val SESSIONS_REMOVABLE = "sessions.removable"
     const val SCRATCHPAD_BUDGET_BYTES = "scratchpad.budget.bytes"
@@ -461,6 +464,35 @@ class InstallationSettings(
 
     /** Three at once, which is enough to be worth doing and few enough to be affordable. */
     fun agentMaxSubagentsAtOnceConfigured(): Int = DEFAULT_SUBAGENTS_AT_ONCE
+
+    /**
+     * How many steps of one workflow run may be running at the same time.
+     * Issue #285.
+     *
+     * A node with lines to several others sends the run down all of them side
+     * by side, and each of those paths may be an agent with its own model
+     * calls - so a graph drawn with ten lines out of one node would otherwise
+     * be ten calls on somebody's quota at once. A step past the ceiling waits
+     * for one of the others to finish rather than being refused. Counted per
+     * run, for the reason the asks above are counted per conversation: a busy
+     * workflow must not starve every other one. One walks the paths one after
+     * the other, which is how every run went before this.
+     */
+    fun workflowStepsAtOnce(): Int {
+        val held = settings.findByIdOrNull(SettingNames.WORKFLOW_STEPS_AT_ONCE)
+            ?: return workflowStepsAtOnceConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_STEPS_AT_ONCE..MAX_STEPS_AT_ONCE }
+            ?: workflowStepsAtOnceConfigured()
+    }
+
+    /** Four, which covers the fan-outs people draw without making one run a burst of model calls. */
+    fun workflowStepsAtOnceConfigured(): Int = DEFAULT_STEPS_AT_ONCE
+
+    @Transactional
+    fun setWorkflowStepsAtOnce(count: Int, by: String) {
+        if (count !in MIN_STEPS_AT_ONCE..MAX_STEPS_AT_ONCE) throw StepsAtOnceOutOfRangeException(count)
+        write(SettingNames.WORKFLOW_STEPS_AT_ONCE, count.toString(), by)
+    }
 
     /**
      * How many identical tool calls in a row end a turn. Issue #516.
@@ -1417,6 +1449,14 @@ const val MAX_AT_ONCE = 20
 
 const val DEFAULT_SUBAGENTS_AT_ONCE = 3
 
+/** One is a run that walks its paths one after the other, as every run did before #285. */
+const val MIN_STEPS_AT_ONCE = 1
+
+/** Past this a single run is a burst on somebody's model quota rather than a workflow. */
+const val MAX_STEPS_AT_ONCE = 32
+
+const val DEFAULT_STEPS_AT_ONCE = 4
+
 const val MIN_SUBAGENTS = 0
 const val MAX_SUBAGENTS = 100
 
@@ -1471,6 +1511,15 @@ class RepeatWindowOutOfRangeException(val seconds: Int) : RuntimeException(
 ), Refusal {
 
     override val arguments get() = mapOf("seconds" to seconds)
+}
+
+/** Issue #285. */
+class StepsAtOnceOutOfRangeException(val count: Int) : RuntimeException(
+    "$count is not a number of workflow steps that can run at once. " +
+        "Choose between $MIN_STEPS_AT_ONCE and $MAX_STEPS_AT_ONCE.",
+), Refusal {
+
+    override val arguments get() = mapOf("count" to count)
 }
 
 /** Issue #461. */

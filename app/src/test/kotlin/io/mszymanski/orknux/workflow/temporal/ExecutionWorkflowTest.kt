@@ -2,6 +2,7 @@ package io.mszymanski.orknux.workflow.temporal
 
 import io.mszymanski.orknux.server.OrknuxServer
 import io.mszymanski.orknux.workflow.execution.Blocking
+import io.mszymanski.orknux.workflow.execution.ExecutionPlan
 import io.mszymanski.orknux.workflow.execution.ExecutionPlanner
 import io.mszymanski.orknux.workflow.execution.ExecutionService
 import io.mszymanski.orknux.workflow.execution.ExecutionStatus
@@ -431,6 +432,86 @@ class ExecutionWorkflowTest(
         } finally {
             real.close()
         }
+    }
+
+    /**
+     * A fan-out on Temporal: each path's step is its own activity, started side
+     * by side, and the node where the paths meet runs once, after both. Issue
+     * #285. Two steps that take a second each finish together in about one.
+     */
+    @Test
+    fun `the paths of a fan-out run as activities at the same time, and meet once`() {
+        val planned = fanOut(left = "nap-left", right = "nap-right")
+        val plan = runPlanOf(planned, "start here")
+        assertThat(plan.splits).containsExactly("start")
+
+        val began = System.nanoTime()
+        val status = workflow().run(plan)
+        val took = Duration.ofNanos(System.nanoTime() - began)
+
+        assertThat(status).isEqualTo(ExecutionStatus.COMPLETED)
+        assertThat(took).isLessThan(Duration.ofMillis(1800))
+
+        val recorded = steps.findByExecutionIdOrderByOrderAsc(plan.executionId).associateBy { it.nodeKey }
+        val left = recorded.getValue("left")
+        val right = recorded.getValue("right")
+        assertThat(left.startedAt).isBefore(right.finishedAt)
+        assertThat(right.startedAt).isBefore(left.finishedAt)
+
+        val join = recorded.getValue("join")
+        assertThat(join.status).isEqualTo(StepStatus.COMPLETED)
+        assertThat(join.attempts).isEqualTo(1)
+        assertThat(join.startedAt).isAfterOrEqualTo(left.finishedAt).isAfterOrEqualTo(right.finishedAt)
+        assertThat(join.input).contains("\"left\"").contains("\"right\"")
+    }
+
+    /** The inline test said again here: a failing path lets the other finish, and fails the run. */
+    @Test
+    fun `a failure on one path of a fan-out lets the other finish, and fails the run`() {
+        val planned = fanOut(left = "boom", right = "nap-right")
+        val status = workflow().run(runPlanOf(planned, "start here"))
+
+        assertThat(status).isEqualTo(ExecutionStatus.FAILED)
+        val executionId = requireNotNull(planned.execution.id)
+        assertThat(executions.findById(executionId).orElseThrow().error).isEqualTo("boom has no answer")
+        val recorded = steps.findByExecutionIdOrderByOrderAsc(executionId).associateBy { it.nodeKey }
+        assertThat(recorded.getValue("left").status).isEqualTo(StepStatus.FAILED)
+        assertThat(recorded.getValue("right").status).isEqualTo(StepStatus.COMPLETED)
+        assertThat(recorded.getValue("join").status).isEqualTo(StepStatus.PENDING)
+    }
+
+    /** A graph without a fan-out hands the workflow no splits, which keeps it on the loop it always had. */
+    @Test
+    fun `a graph without a fan-out is planned with no splits`() {
+        (graphs as FakeWorkflowGraphSource).graphs[WORKFLOW] = WorkflowGraph(
+            workflowId = WORKFLOW,
+            name = "Chain",
+            nodes = listOf(node("ok"), node("ok-2")),
+            edges = listOf(GraphEdge("ok", "ok-2")),
+        )
+        val planned = planner.plan(WORKSPACE, WORKFLOW, ExecutionTrigger.API, "start here")
+        assertThat(runPlanOf(planned, "start here").splits).isEmpty()
+    }
+
+    /** start fans out to two paths, which meet again at `join`. */
+    private fun fanOut(left: String, right: String): ExecutionPlan {
+        (graphs as FakeWorkflowGraphSource).graphs[WORKFLOW] = WorkflowGraph(
+            workflowId = WORKFLOW,
+            name = "Fan-out",
+            nodes = listOf(
+                GraphNode(key = "start", kind = NodeKind.TRIGGER, name = "start"),
+                GraphNode(key = "left", kind = NodeKind.ACTION, name = left),
+                GraphNode(key = "right", kind = NodeKind.ACTION, name = right),
+                GraphNode(key = "join", kind = NodeKind.ACTION, name = "put-join"),
+            ),
+            edges = listOf(
+                GraphEdge("start", "left"),
+                GraphEdge("start", "right"),
+                GraphEdge("left", "join"),
+                GraphEdge("right", "join"),
+            ),
+        )
+        return planner.plan(WORKSPACE, WORKFLOW, ExecutionTrigger.API, "start here")
     }
 
     private fun workflow() = environment.workflowClient.newWorkflowStub(

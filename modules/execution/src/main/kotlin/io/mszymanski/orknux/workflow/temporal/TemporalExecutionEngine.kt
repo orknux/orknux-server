@@ -1,6 +1,7 @@
 package io.mszymanski.orknux.workflow.temporal
 
 import io.mszymanski.orknux.workflow.execution.ExecutionEngine
+import io.mszymanski.orknux.workflow.execution.ExecutionPlan
 import io.mszymanski.orknux.workflow.execution.ExecutionPlanner
 import io.mszymanski.orknux.workflow.execution.ExecutionTrigger
 import io.mszymanski.orknux.workflow.execution.GraphVersion
@@ -56,15 +57,7 @@ class TemporalExecutionEngine(
         )
 
         // Started, not awaited: a run outlives the request that asked for it.
-        WorkflowClient.start(workflow::run, RunPlan(
-            executionId = executionId,
-            workflowName = plan.execution.workflowName,
-            steps = plan.steps.map { it.nodeKey },
-            input = input,
-            edges = plan.edges.map { PlanEdge(it.source, it.target, it.branch, it.option) },
-            carried = plan.carried.map { PlanExit(it.nodeKey, it.branch, it.option) },
-            blocked = plan.blocked.toList(),
-        ))
+        WorkflowClient.start(workflow::run, runPlanOf(plan, input))
 
         return plan.execution
     }
@@ -86,3 +79,16 @@ class TemporalExecutionEngine(
  * it: the engine that starts the run, and whatever wants to link to it.
  */
 fun temporalWorkflowId(executionId: Long): String = "orknux-execution-$executionId"
+
+/** What the workflow is handed for a recorded plan: everything it decides from, and nothing it would fetch. */
+fun runPlanOf(plan: ExecutionPlan, input: String?): RunPlan = RunPlan(
+    executionId = requireNotNull(plan.execution.id),
+    workflowName = plan.execution.workflowName,
+    steps = plan.steps.map { it.nodeKey },
+    input = input,
+    edges = plan.edges.map { PlanEdge(it.source, it.target, it.branch, it.option) },
+    carried = plan.carried.map { PlanExit(it.nodeKey, it.branch, it.option) },
+    blocked = plan.blocked.toList(),
+    splits = plan.splits.toList(),
+    parallelism = plan.parallelism,
+)
