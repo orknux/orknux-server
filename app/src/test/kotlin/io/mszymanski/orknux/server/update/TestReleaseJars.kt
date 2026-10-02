@@ -74,6 +74,8 @@ object TestReleaseJars {
         val startClass: String? = ReleaseJarVerifier.START_CLASS,
         val mainClass: String? = ReleaseJarVerifier.BOOT_LAUNCHER,
         val withInterface: Boolean = true,
+        /** The launcher class, without which a release could not update itself back. */
+        val withLauncher: Boolean = true,
         val schemaVersion: Int = 333,
         val schemaFloor: Int? = 333,
         /** Bytes of a stored library, to make a jar bigger than one piece. */
@@ -96,12 +98,24 @@ object TestReleaseJars {
             }
             put("org/springframework/boot/loader/launch/JarLauncher.class", byteArrayOf(1, 2, 3))
             put("BOOT-INF/classes/io/mszymanski/orknux/server/OrknuxServerKt.class", byteArrayOf(4, 5, 6))
-            // Random, so it does not deflate to nothing and a padded jar really is that big.
-            put("BOOT-INF/lib/library.jar", ByteArray(shape.padding.coerceAtLeast(16)).also { java.util.Random(7).nextBytes(it) })
+            // Random, so a padded jar really is that big; stored rather than
+            // deflated, so a jar of a hundred megabytes is quick to build.
+            val library = ByteArray(shape.padding.coerceAtLeast(16)).also { java.util.Random(7).nextBytes(it) }
+            jar.putNextEntry(
+                JarEntry("BOOT-INF/lib/library.jar").apply {
+                    method = ZipEntry.STORED
+                    size = library.size.toLong()
+                    compressedSize = library.size.toLong()
+                    crc = java.util.zip.CRC32().also { it.update(library) }.value
+                },
+            )
+            jar.write(library)
+            jar.closeEntry()
             put("BOOT-INF/classes/db/migration/postgresql/V1__first.sql", "SELECT 1;".toByteArray())
             put("BOOT-INF/classes/db/migration/postgresql/V${shape.schemaVersion}__latest.sql", "SELECT 2;".toByteArray())
             shape.schemaFloor?.let { put("BOOT-INF/classes/db/migration/rollback-floor", "$it\n".toByteArray()) }
             if (shape.withInterface) put("BOOT-INF/classes/static/index.html", "<!doctype html>".toByteArray())
+            if (shape.withLauncher) put(ReleaseJarVerifier.LAUNCHER, byteArrayOf(8, 8, 8))
         }
         return into
     }

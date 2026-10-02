@@ -50,6 +50,7 @@ class ServerReleaseAPI(
     private val access: WorkspaceAccess,
     private val audit: WorkspaceAuditRecorder,
     private val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
+    private val fetcher: ReleaseUrlFetcher,
 ) {
 
     @QueryMapping
@@ -73,12 +74,18 @@ class ServerReleaseAPI(
                 imageVersion = updates.imageVersion(),
                 imageActivatable = false,
                 imageRefusal = null,
+                sourceUrl = null,
+                officialEnabled = false,
+                uploadEnabled = false,
+                urlEnabled = false,
+                maxMb = settings.releaseMaxMb(),
             )
         }
         val imageRefusal = updates.imageRefusal(floor)
 
         var offeredError: String? = null
-        val offered = if (!marketplace.configured) {
+        val officialOn = updates.sourceEnabled(ServerReleaseSource.ORKNUX_AI)
+        val offered = if (!marketplace.configured || !officialOn) {
             null
         } else {
             try {
@@ -105,6 +112,11 @@ class ServerReleaseAPI(
             imageVersion = updates.imageVersion(),
             imageActivatable = imageRefusal == null,
             imageRefusal = imageRefusal,
+            sourceUrl = updates.sourceUrl(),
+            officialEnabled = officialOn,
+            uploadEnabled = updates.sourceEnabled(ServerReleaseSource.UPLOAD),
+            urlEnabled = updates.sourceEnabled(ServerReleaseSource.URL),
+            maxMb = settings.releaseMaxMb(),
         )
     }
 
@@ -128,7 +140,7 @@ class ServerReleaseAPI(
     @MutationMapping
     fun installServerRelease(@Argument version: String): ServerUpdateStarted {
         access.requireAdmin()
-        updates.requireEnabled()
+        updates.requireSource(ServerReleaseSource.ORKNUX_AI)
         val listed: OfferedServerRelease = marketplace.serverReleases(after = null)
             ?.firstOrNull { it.version == version }
             ?: throw ServerReleaseNotOfferedException(version)
@@ -150,6 +162,48 @@ class ServerReleaseAPI(
         return started(release.id!!)
     }
 
+    /**
+     * A jar at a URL - a company's Artifactory, which a platform team fills
+     * with the releases it has approved. Issue #589. Fetched through the
+     * proxy rules, then verified and stored exactly as an upload is, and not
+     * started: starting is the same button as for any other stored release.
+     *
+     * [credential] is sent to that host and to nothing else, and is never
+     * written anywhere: not the row, not the audit, not a log line.
+     */
+    @MutationMapping
+    fun installServerReleaseFromUrl(@Argument url: String, @Argument credential: String?): StoredServerReleaseView {
+        access.requireAdmin()
+        updates.requireSource(ServerReleaseSource.URL)
+        val file = Files.createTempFile("orknux-fetched-", ".jar")
+        try {
+            val from = fetcher.fetch(url, credential, file)
+            val release = updates.store(file, ServerReleaseSource.URL, currentUser(), sourceUrl = from)
+            audit.record(
+                null,
+                WorkspaceAuditCategory.WORKSPACE,
+                "Server release ${release.version} fetched from ${java.net.URI(from).host}",
+            )
+            return view(release, updates.runningReleaseId(), updates.schemaFloor())
+        } finally {
+            Files.deleteIfExists(file)
+        }
+    }
+
+    /**
+     * What `releases.json` in the directory [url] lists newer than what runs.
+     * Reads only; fetching one is [installServerReleaseFromUrl] with its
+     * `jarUrl`. Issue #589.
+     */
+    @QueryMapping
+    fun serverReleasesAtUrl(@Argument url: String, @Argument credential: String?): List<ListedServerReleaseView> {
+        access.requireAdmin()
+        updates.requireSource(ServerReleaseSource.URL)
+        val stored = updates.stored().map { it.version }.toSet()
+        return fetcher.listed(url, credential, after = updates.runningVersion())
+            .map { ListedServerReleaseView(it.version, it.jarUrl, it.version in stored) }
+    }
+
     /** Starts a release the database holds: a rollback, or going forward again. */
     @MutationMapping
     fun activateServerRelease(@Argument id: Long): ServerUpdateStarted {
@@ -165,9 +219,15 @@ class ServerReleaseAPI(
     @PostMapping("/api/server-releases")
     fun upload(request: HttpServletRequest): ResponseEntity<Map<String, Any?>> {
         access.requireAdmin()
-        updates.requireEnabled()
+        updates.requireSource(ServerReleaseSource.UPLOAD)
         val limit = settings.releaseMaxMb() * 1024L * 1024L
-        if (request.contentLengthLong > limit) throw ServerReleaseTooLargeException(settings.releaseMaxMb())
+        if (request.contentLengthLong > limit) {
+            // Read and dropped, not stored: a client still sending a body it
+            // was not asked for does not read the answer, and the reason would
+            // arrive as a reset connection instead of a sentence.
+            request.inputStream.use { it.transferTo(java.io.OutputStream.nullOutputStream()) }
+            throw ServerReleaseTooLargeException(settings.releaseMaxMb())
+        }
 
         val file: Path = Files.createTempFile("orknux-upload-", ".jar")
         try {
@@ -213,6 +273,7 @@ class ServerReleaseAPI(
             id = release.id!!,
             version = release.version,
             source = release.source,
+            sourceUrl = release.sourceUrl,
             size = release.size,
             sha256 = release.sha256,
             schemaVersion = release.schemaVersion,
@@ -254,6 +315,25 @@ data class ServerUpdatesView(
     /** Whether going back to it is allowed; see [imageRefusal] where not. */
     val imageActivatable: Boolean,
     val imageRefusal: String?,
+    /** ORKNUX_RELEASE_SOURCE_URL, to fill the URL field with; null where unset or switched off. */
+    val sourceUrl: String?,
+    /** ORKNUX_SELF_UPDATE_OFFICIAL, under the master switch. */
+    val officialEnabled: Boolean,
+    /** ORKNUX_SELF_UPDATE_UPLOAD, under the master switch. */
+    val uploadEnabled: Boolean,
+    /** ORKNUX_SELF_UPDATE_URL, under the master switch. */
+    val urlEnabled: Boolean,
+    /** The largest jar taken, so the page can refuse one before sending a third of a gigabyte. */
+    val maxMb: Int,
+)
+
+/** A release a repository's releases.json lists. */
+data class ListedServerReleaseView(
+    val version: String,
+    /** Absolute, resolved against the directory the list was read from. */
+    val jarUrl: String,
+    /** Already in the database by that version. */
+    val stored: Boolean,
 )
 
 data class OfferedServerReleaseView(
@@ -269,6 +349,7 @@ data class StoredServerReleaseView(
     val id: Long,
     val version: String,
     val source: ServerReleaseSource,
+    val sourceUrl: String?,
     val size: Long,
     val sha256: String,
     val schemaVersion: Int,
@@ -295,12 +376,15 @@ class ServerReleaseExceptionResolver : DataFetcherExceptionResolverAdapter() {
     override fun resolveToSingleError(exception: Throwable, environment: DataFetchingEnvironment): GraphQLError? {
         val errorType = when (exception) {
             is ServerUpdatesDisabledException,
+            is ServerReleaseSourceDisabledException,
             is ServerReleaseNotActivatableException,
             is ServerReleaseAlreadyStoredException,
             is ServerReleaseTooLargeException,
             is ServerReleaseNotOfferedException,
             is ServerReleaseDownloadMismatchException,
             is ReleaseJarRefusedException,
+            is ServerReleaseUrlRefusedException,
+            is ServerReleaseFetchFailedException,
             -> ErrorType.BAD_REQUEST
 
             is ServerReleaseNotFoundException -> ErrorType.NOT_FOUND
@@ -315,6 +399,7 @@ class ServerReleaseExceptionResolver : DataFetcherExceptionResolverAdapter() {
 class ServerReleaseUploadExceptionHandler {
     @ExceptionHandler(
         ServerUpdatesDisabledException::class,
+        ServerReleaseSourceDisabledException::class,
         ServerReleaseAlreadyStoredException::class,
         ServerReleaseTooLargeException::class,
         ReleaseJarRefusedException::class,

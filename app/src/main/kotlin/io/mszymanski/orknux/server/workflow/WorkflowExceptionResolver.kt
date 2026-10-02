@@ -284,6 +284,7 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is io.mszymanski.orknux.server.attachment.ReleaseFollowOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.ReleaseMaxOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.ReleaseRestartDelayOutOfRangeException,
+            is io.mszymanski.orknux.server.attachment.ReleaseDownloadOutOfRangeException,
             /* What marks a command in a message; a letter is refused. Issue #381. */
             is io.mszymanski.orknux.server.workspace.CommandMarkerInvalidException,
             /* A usage window whose date was not one; see the model API. */

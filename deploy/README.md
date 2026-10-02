@@ -473,14 +473,36 @@ query. Take the Postgres volume first if you would mind going back.
 
 ### Updating in place, and turning it off
 
-An administrator can also update from **Admin -> Updates**: a release from
-orknux.ai or an uploaded jar, checked against the release key the image carries,
-kept in the database and restarted into - and rolled back the same way. A newer
-image always wins over a release chosen under an older one, so the two commands
-above still upgrade. It is **on by default**; set `ORKNUX_SELF_UPDATE: "false"`
-on `orknux-server` where every version that runs has to be approved, and the
-image's own jar always runs. On a read-only root filesystem, give
-`/tmp/orknux-release` (`ORKNUX_RELEASE_DIR`) a tmpfs.
+An administrator can also update from **Admin -> Updates**: a release from the
+official server, an uploaded jar, or a jar fetched from a URL, checked against
+the release key the image carries, kept in the database and restarted into - and
+rolled back the same way. A newer image always wins over a release chosen under
+an older one, so the two commands above still upgrade. It is **on by default**;
+set `ORKNUX_SELF_UPDATE: "false"` on `orknux-server` where every version that
+runs has to be approved, and the image's own jar always runs. On a read-only
+root filesystem, give `/tmp/orknux-release` (`ORKNUX_RELEASE_DIR`) a tmpfs.
+
+Each source has its own switch under that one, all `true` by default:
+`ORKNUX_SELF_UPDATE_OFFICIAL`, `ORKNUX_SELF_UPDATE_UPLOAD` and
+`ORKNUX_SELF_UPDATE_URL`. `false` refuses that source, and a release it brought
+in earlier can no longer be started; the image's own jar always can.
+
+To take releases only from your own repository, point
+`ORKNUX_RELEASE_SOURCE_URL` at a generic Artifactory repository the platform team
+fills - a jar's URL, or a directory ending in `/` with a `releases.json` beside
+the jars (`[{"version": "0.9.9.9", "jarUrl": "orknux-server-0.9.9.9.jar"}]`) -
+and set `ORKNUX_SELF_UPDATE_OFFICIAL` and `ORKNUX_SELF_UPDATE_UPLOAD` to
+`"false"`. The page fills its URL field from it; a token or `user:password` typed
+beside it is sent to that host and stored nowhere. The fetch goes through the
+proxy rules and trusted authorities on Admin -> Networking, and the jar is
+verified exactly as an upload is: the repository is trusted to have it, never
+for what is in it.
+
+A release jar is about 350 MB, and Admin -> Settings caps it at 1024 MB. A proxy
+in front of the server has its own cap on a request body and answers 413 before
+the server sees the upload - the old `orknux-ui` container below among them, and
+an ingress-nginx at `proxy-body-size`. Raise it to the jar limit, or point the
+proxy straight at `orknux-server`.
 
 ### From an installation that still runs orknux-ui
 

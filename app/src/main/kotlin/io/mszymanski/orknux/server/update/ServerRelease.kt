@@ -11,8 +11,13 @@ import jakarta.persistence.Table
 import org.springframework.data.jpa.repository.JpaRepository
 import java.time.OffsetDateTime
 
-/** Where a stored server jar came from. */
-enum class ServerReleaseSource { ORKNUX_AI, UPLOAD }
+/**
+ * Where a stored server jar came from: the official server, a file an
+ * administrator uploaded, or a URL they gave - a company's own repository,
+ * #589. The source is trusted for availability only; every one is verified the
+ * same way.
+ */
+enum class ServerReleaseSource { ORKNUX_AI, UPLOAD, URL }
 
 /**
  * A server jar this installation holds, without its bytes. Issue #584.
@@ -49,6 +54,14 @@ class ServerRelease(
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     val source: ServerReleaseSource = ServerReleaseSource.UPLOAD,
+
+    /**
+     * Where a [ServerReleaseSource.URL] release was fetched from, without the
+     * credential, the query or the fragment - so nothing that authenticated the
+     * download is ever written down. Null for the other sources.
+     */
+    @Column(name = "source_url", length = 2000)
+    val sourceUrl: String? = null,
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)

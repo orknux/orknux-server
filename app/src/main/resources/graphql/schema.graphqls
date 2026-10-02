@@ -113,6 +113,12 @@ type Query {
     database keeps to roll back to. Administrators only. Issue #584.
     """
     serverUpdates: ServerUpdates!
+    """
+    What releases.json in a repository directory lists newer than what runs -
+    the directory ends in /, and its jarUrls may be relative to it. Reads only.
+    Administrators only. Issue #589.
+    """
+    serverReleasesAtUrl(url: String!, credential: String): [ListedServerRelease!]!
     "The plugins loaded into this installation, by name. Administrators only."
     plugins: [Plugin!]!
     """
@@ -1295,10 +1301,20 @@ type Mutation {
     setReleaseBootAttempts(count: Int!): InstallationSettings!
     "How often every server checks it runs the chosen release, between 5 and 3600 seconds. Administrators only."
     setReleaseFollowSeconds(seconds: Int!): InstallationSettings!
-    "The largest server jar taken, uploaded or downloaded, between 64 and 1000 MB. Administrators only."
+    "The largest server jar taken, uploaded or downloaded, between 64 and 4096 MB. Administrators only."
     setReleaseMaxMb(mb: Int!): InstallationSettings!
     "How long a server waits after an update before restarting, between 0 and 60 seconds. Administrators only."
     setReleaseRestartDelaySeconds(seconds: Int!): InstallationSettings!
+    "How long a server jar fetched from a URL may take, between 10 and 3600 seconds. Administrators only. Issue #589."
+    setReleaseDownloadSeconds(seconds: Int!): InstallationSettings!
+    """
+    Fetches a server jar from a URL - a company's own repository - checks it
+    against the release key exactly as an upload is checked, and stores it
+    without starting it. Only http and https; the credential, a bearer token or
+    user:password, is sent as Authorization to that host and is never stored or
+    logged. Administrators only. Issue #589.
+    """
+    installServerReleaseFromUrl(url: String!, credential: String): StoredServerRelease!
     """
     Whether a conversation may be thrown away. Administrators only.
 
@@ -6695,6 +6711,9 @@ type InstallationSettings {
     "How long a server waits after an update before restarting, in seconds."
     releaseRestartDelaySeconds: Int!
     releaseRestartDelaySecondsConfigured: Int!
+    "How long a server jar fetched from a URL may take, in seconds."
+    releaseDownloadSeconds: Int!
+    releaseDownloadSecondsConfigured: Int!
 }
 
 "Server updates as an administrator sees them. Issue #584."
@@ -6723,6 +6742,25 @@ type ServerUpdates {
     "Whether every server may go back to the image's own jar; see imageRefusal where not."
     imageActivatable: Boolean!
     imageRefusal: String
+    "ORKNUX_RELEASE_SOURCE_URL: where this installation takes releases from, to fill the URL field with; null where unset."
+    sourceUrl: String
+    "ORKNUX_SELF_UPDATE_OFFICIAL under the master switch: whether the official server's releases are taken."
+    officialEnabled: Boolean!
+    "ORKNUX_SELF_UPDATE_UPLOAD under the master switch: whether an uploaded jar is taken."
+    uploadEnabled: Boolean!
+    "ORKNUX_SELF_UPDATE_URL under the master switch: whether a jar from a URL is taken."
+    urlEnabled: Boolean!
+    "The largest server jar taken, in megabytes; the Admin Settings value."
+    maxMb: Int!
+}
+
+"A server release a repository's releases.json lists. Issue #589."
+type ListedServerRelease {
+    version: String!
+    "Absolute, resolved against the directory the list was read from."
+    jarUrl: String!
+    "Already in the database by that version."
+    stored: Boolean!
 }
 
 "A server release orknux.ai offers."
@@ -6738,8 +6776,11 @@ type OfferedServerRelease {
 
 "Where a stored server jar came from."
 enum ServerReleaseSource {
+    "The official server."
     ORKNUX_AI
     UPLOAD
+    "A URL an administrator gave, such as a company's Artifactory."
+    URL
 }
 
 "Where a stored server release stands."
@@ -6765,6 +6806,8 @@ type StoredServerRelease {
     schemaVersion: Int!
     "The newest migration a database that ran it cannot be rolled back past."
     schemaFloor: Int!
+    "Where a URL release was fetched from, without its credential or query; null for the other sources."
+    sourceUrl: String
     storedAt: String!
     storedBy: String!
     state: ServerReleaseState!

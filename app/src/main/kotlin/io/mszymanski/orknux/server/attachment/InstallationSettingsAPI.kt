@@ -110,6 +110,8 @@ class InstallationSettingsAPI(
         releaseMaxMbConfigured = settings.releaseMaxMbConfigured(),
         releaseRestartDelaySeconds = settings.releaseRestartDelaySeconds(),
         releaseRestartDelaySecondsConfigured = settings.releaseRestartDelaySecondsConfigured(),
+        releaseDownloadSeconds = settings.releaseDownloadSeconds(),
+        releaseDownloadSecondsConfigured = settings.releaseDownloadSecondsConfigured(),
     )
 
     /** How many server jars are kept for rolling back to. Issue #584. */
@@ -154,6 +156,15 @@ class InstallationSettingsAPI(
         access.requireAdmin()
         settings.setReleaseRestartDelaySeconds(seconds, currentUser())
         auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "A server restarts $seconds seconds after an update")
+        return installationSettings()
+    }
+
+    /** How long a server jar fetched from a URL may take. Issue #589. */
+    @MutationMapping
+    fun setReleaseDownloadSeconds(@Argument seconds: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setReleaseDownloadSeconds(seconds, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "A server jar download may take $seconds seconds")
         return installationSettings()
     }
 
@@ -911,4 +922,7 @@ data class InstallationSettingsView(
     /** How long a server waits after an update before restarting, in seconds. */
     val releaseRestartDelaySeconds: Int,
     val releaseRestartDelaySecondsConfigured: Int,
+    /** How long a server jar fetched from a URL may take, in seconds. */
+    val releaseDownloadSeconds: Int,
+    val releaseDownloadSecondsConfigured: Int,
 )

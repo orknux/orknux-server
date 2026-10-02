@@ -73,12 +73,41 @@ class ServerReleases(
     @Value("\${orknux.update.release-dir:/tmp/orknux-release}") private val releaseDir: String,
     /** The image's own jar, as the start loop names it; empty outside one. */
     @Value("\${orknux.update.image-jar:}") private val imageJar: String,
+    /** ORKNUX_RELEASE_SOURCE_URL: a company repository to take releases from, #589; empty where none. */
+    @Value("\${orknux.update.source-url:}") private val sourceUrl: String,
+    /** ORKNUX_SELF_UPDATE_OFFICIAL: releases from the official server. */
+    @Value("\${orknux.update.official:true}") private val officialEnabled: Boolean,
+    /** ORKNUX_SELF_UPDATE_UPLOAD: a jar an administrator uploads. */
+    @Value("\${orknux.update.upload:true}") private val uploadEnabled: Boolean,
+    /** ORKNUX_SELF_UPDATE_URL: a jar fetched from a URL. */
+    @Value("\${orknux.update.url:true}") private val urlEnabled: Boolean,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
     private val transaction = TransactionTemplate(transactions)
 
     fun enabled(): Boolean = enabled
+
+    /**
+     * Whether [source] may bring a release in, and a release it brought be
+     * started. Each source has its own switch under the master one, so an
+     * installation can take signed official releases and nothing else, or
+     * only its own Artifactory. #589.
+     */
+    fun sourceEnabled(source: ServerReleaseSource): Boolean = enabled && when (source) {
+        ServerReleaseSource.ORKNUX_AI -> officialEnabled
+        ServerReleaseSource.UPLOAD -> uploadEnabled
+        ServerReleaseSource.URL -> urlEnabled
+    }
+
+    /** [requireEnabled], and then [source]'s own switch. */
+    fun requireSource(source: ServerReleaseSource) {
+        requireEnabled()
+        if (!sourceEnabled(source)) throw ServerReleaseSourceDisabledException(source)
+    }
+
+    /** Where this installation takes releases from besides the official server, or null. */
+    fun sourceUrl(): String? = sourceUrl.trim().ifEmpty { null }
 
     /**
      * What this server is, by the manifest of the jar it was started from where
@@ -141,6 +170,11 @@ class ServerReleases(
      */
     fun refusalFor(release: ServerRelease, floor: Int = schemaFloor()): String? = when {
         release.id == runningReleaseId() && release.state == ServerReleaseState.ACTIVE -> "It is the release running now."
+        // Stored before the verifier asked; the launcher would refuse it too, but only after a restart.
+        ReleaseJarVerifier.predatesUpdates(release.version) ->
+            "It ${ReleaseJarVerifier.PREDATES_UPDATES.removePrefix("it ")}."
+        !sourceEnabled(release.source) ->
+            "Its source is turned off on this installation (${ServerReleaseSourceDisabledException.variableOf(release.source)} is false)."
         release.schemaVersion < floor ->
             "It was built for schema V${release.schemaVersion}, and this database has run migrations up to " +
                 "V$floor that it cannot go back past."
@@ -156,8 +190,8 @@ class ServerReleases(
      * checked before a row exists, so a refused jar leaves nothing behind;
      * the same bytes stored twice are refused rather than kept twice.
      */
-    fun store(file: Path, source: ServerReleaseSource, by: String): ServerRelease {
-        requireEnabled()
+    fun store(file: Path, source: ServerReleaseSource, by: String, sourceUrl: String? = null): ServerRelease {
+        requireSource(source)
         val size = Files.size(file)
         val limit = settings.releaseMaxMb() * 1024L * 1024L
         if (size > limit) throw ServerReleaseTooLargeException(settings.releaseMaxMb())
@@ -175,6 +209,7 @@ class ServerReleases(
                     schemaVersion = verified.schemaVersion,
                     schemaFloor = verified.schemaFloor,
                     source = source,
+                    sourceUrl = sourceUrl,
                     storedAt = OffsetDateTime.now(),
                     storedBy = by,
                 ),
@@ -411,6 +446,21 @@ class ServerRestart(
 class ServerUpdatesDisabledException : RuntimeException(
     "Server updates are turned off on this installation (ORKNUX_SELF_UPDATE is false).",
 )
+
+/** A source an installation switched off; the master switch has its own refusal. #589. */
+class ServerReleaseSourceDisabledException(val source: ServerReleaseSource) :
+    RuntimeException("This installation does not take server releases from that source (${variableOf(source)} is false)."),
+    Refusal {
+    override val arguments get() = mapOf("source" to source.name, "variable" to variableOf(source))
+
+    companion object {
+        fun variableOf(source: ServerReleaseSource): String = when (source) {
+            ServerReleaseSource.ORKNUX_AI -> "ORKNUX_SELF_UPDATE_OFFICIAL"
+            ServerReleaseSource.UPLOAD -> "ORKNUX_SELF_UPDATE_UPLOAD"
+            ServerReleaseSource.URL -> "ORKNUX_SELF_UPDATE_URL"
+        }
+    }
+}
 
 class ServerReleaseNotFoundException(val id: Long) : RuntimeException("There is no stored server release $id."), Refusal {
     override val arguments get() = mapOf("id" to id)
