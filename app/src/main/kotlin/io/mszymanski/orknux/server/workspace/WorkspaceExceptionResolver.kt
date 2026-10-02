@@ -37,6 +37,11 @@ class WorkspaceExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is CompactionSummaryInvalidException,
             is CompactionSummaryTooLongException,
             is ScriptTimeoutOutOfRangeException,
+            // A workspace file that is not one, is newer than this reads, or
+            // says something impossible: refused before anything is made. #590.
+            is io.mszymanski.orknux.server.transfer.WorkspaceFileUnreadableException,
+            is io.mszymanski.orknux.server.transfer.WorkspaceFileVersionUnknownException,
+            is io.mszymanski.orknux.server.transfer.WorkspaceFileInvalidException,
             -> ErrorType.BAD_REQUEST
             is WorkspaceNotFoundException,
             is ModelNotFoundForWorkspaceException,
