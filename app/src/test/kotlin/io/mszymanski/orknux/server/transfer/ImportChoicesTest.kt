@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.transfer
 
+import io.mszymanski.orknux.connector.connection.McpServerRepository
 import io.mszymanski.orknux.server.agent.AgentRepository
 import io.mszymanski.orknux.server.agent.AgentToolRepository
 import io.mszymanski.orknux.server.agent.SkillCatalogRepository
@@ -32,6 +33,10 @@ import tools.jackson.databind.ObjectMapper
  *   missing, and the import goes ahead with the grant intact.
  * - A tool an agent points at can be left out, and the agent arrives without
  *   it - the one kind of reference that can go, because a grant list is a list.
+ * - An MCP server an agent points at can be left out the same way, and the
+ *   agent arrives without that grant. No file carries one, so without this a
+ *   server that exists nowhere here could only be got past by making one.
+ *   Issue #580.
  * - A carried component can be given a name of the person's choosing, and
  *   everything in the file that pointed at it follows; a name that is taken is
  *   refused on the row rather than moved along, because somebody typed it.
@@ -51,6 +56,7 @@ class ImportChoicesTest(
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val audit: WorkspaceAuditRepository,
     @Autowired val mapper: ObjectMapper,
+    @Autowired val mcpServers: McpServerRepository,
 ) {
 
     private var from: Long = 0
@@ -62,6 +68,7 @@ class ImportChoicesTest(
         tools.deleteAll()
         catalogs.deleteAll()
         plugins.deleteAll()
+        mcpServers.deleteAll()
         audit.deleteAll()
         workspaces.deleteAll()
         from = requireNotNull(workspaces.save(Workspace(name = "backend")).id)
@@ -131,6 +138,61 @@ class ImportChoicesTest(
         graphQlTester.document(
             """query { componentImportPlan(workspaceId: $into, envelope: ${quote(json)},
                  exclude: [{ kind: FUNCTION, name: "lookup" }]) { importable } }""",
+        ).execute().errors().expect { it.message!!.contains("none to leave out") }.verify()
+    }
+
+    /* ----------------------------------------- leaving an MCP server out --- */
+
+    @Test
+    fun `an MCP server an agent points at can be left out, and the agent arrives without it`() {
+        createMcpServer(from, "jira")
+        createMcpServer(from, "order mcp")
+        createMcpServer(into, "jira")
+        val agentId = createAgent(from, "Triage bot", mcpServers = listOf("jira", "order mcp"))
+        val json = export(from, "AGENT", agentId, "DEEP")
+
+        val refused = plan(into, json)
+        assertThat(refused.importable).isFalse()
+        val missing = refused.entries.single { it.external == "MCP_SERVER" && it.name == "order mcp" }
+        assertThat(missing.disposition).isEqualTo("MISSING")
+        assertThat(missing.droppable).describedAs("the row may be left out").isTrue()
+        assertThat(refused.entries.single { it.external == "MCP_SERVER" && it.name == "jira" }.droppable).isTrue()
+
+        val leaveOut = """[{ external: MCP_SERVER, name: "order mcp" }]"""
+        val planned = plan(into, json, exclude = leaveOut)
+        assertThat(planned.importable).describedAs(planned.problems.joinToString()).isTrue()
+        val row = planned.entries.single { it.external == "MCP_SERVER" && it.name == "order mcp" }
+        assertThat(row.disposition).isEqualTo("EXCLUDE")
+        assertThat(row.detail).isEqualTo("Left out: Triage bot arrives without it.")
+
+        import(into, json, exclude = leaveOut)
+        assertThat(agents.findByWorkspaceIdAndName(into, "Triage bot")!!.mcpServers).containsExactly("jira")
+    }
+
+    @Test
+    fun `an MCP server left out is left out even where this workspace has one by that name`() {
+        createMcpServer(from, "jira")
+        createMcpServer(into, "jira")
+        val agentId = createAgent(from, "Triage bot", mcpServers = listOf("jira"))
+
+        import(into, export(from, "AGENT", agentId, "DEEP"), exclude = """[{ external: MCP_SERVER, name: "jira" }]""")
+
+        assertThat(agents.findByWorkspaceIdAndName(into, "Triage bot")!!.mcpServers).isEmpty()
+    }
+
+    @Test
+    fun `an MCP server no agent in the file points at cannot be left out, nor a model`() {
+        createMcpServer(from, "jira")
+        val agentId = createAgent(from, "Triage bot", mcpServers = listOf("jira"))
+        val json = export(from, "AGENT", agentId, "DEEP")
+
+        graphQlTester.document(
+            """query { componentImportPlan(workspaceId: $into, envelope: ${quote(json)},
+                 exclude: [{ external: MCP_SERVER, name: "ghost" }]) { importable } }""",
+        ).execute().errors().expect { it.message!!.contains("no mcp server called ghost") }.verify()
+        graphQlTester.document(
+            """query { componentImportPlan(workspaceId: $into, envelope: ${quote(json)},
+                 exclude: [{ external: MODEL, name: "jira" }]) { importable } }""",
         ).execute().errors().expect { it.message!!.contains("none to leave out") }.verify()
     }
 
@@ -211,10 +273,12 @@ class ImportChoicesTest(
 
     private data class Entry(
         val kind: String?,
+        val external: String?,
         val name: String,
         val targetName: String,
         val disposition: String,
         val droppable: Boolean,
+        val detail: String,
     )
 
     private data class Plan(val importable: Boolean, val entries: List<Entry>, val problems: List<String>)
@@ -224,10 +288,12 @@ class ImportChoicesTest(
         entries = node.path("entries").values().map {
             Entry(
                 kind = it.path("kind").takeIf { held -> held.isString }?.stringValue(),
+                external = it.path("external").takeIf { held -> held.isString }?.stringValue(),
                 name = it.path("name").stringValue(),
                 targetName = it.path("targetName").stringValue(),
                 disposition = it.path("disposition").stringValue(),
                 droppable = it.path("droppable").asBoolean(false),
+                detail = it.path("detail").stringValue(),
             )
         },
         problems = node.path("problems").values().map { it.stringValue() },
@@ -241,7 +307,7 @@ class ImportChoicesTest(
         graphQlTester.document(
             """query { componentImportPlan(workspaceId: $workspaceId, envelope: ${quote(envelope)},
                  exclude: $exclude, rename: $rename) {
-                 importable problems entries { kind name targetName disposition droppable } } }""",
+                 importable problems entries { kind external name targetName disposition droppable detail } } }""",
         ).execute().path("componentImportPlan").entity(Map::class.java).get().let(mapper::valueToTree),
     )
 
@@ -249,7 +315,7 @@ class ImportChoicesTest(
         graphQlTester.document(
             """mutation { importComponents(workspaceId: $workspaceId, envelope: ${quote(envelope)},
                  exclude: $exclude, rename: $rename) {
-                 importable problems entries { kind name targetName disposition droppable } } }""",
+                 importable problems entries { kind external name targetName disposition droppable detail } } }""",
         ).execute().path("importComponents").entity(Map::class.java).get().let(mapper::valueToTree),
     )
 
@@ -268,6 +334,7 @@ class ImportChoicesTest(
         name: String,
         tools: List<String> = emptyList(),
         skillCatalogs: List<String> = emptyList(),
+        mcpServers: List<String> = emptyList(),
     ): Long {
         val id = graphQlTester.document(
             """mutation { createAgent(input: { workspaceId: $workspaceId, name: ${quote(name)}, type: LLM }) { id } }""",
@@ -275,10 +342,16 @@ class ImportChoicesTest(
         graphQlTester.document(
             """mutation { updateAgent(id: $id, input: { name: ${quote(name)},
                  tools: [${tools.joinToString(", ") { quote(it) }}],
-                 skillCatalogs: [${skillCatalogs.joinToString(", ") { quote(it) }}] }) { id } }""",
+                 skillCatalogs: [${skillCatalogs.joinToString(", ") { quote(it) }}],
+                 mcpServers: [${mcpServers.joinToString(", ") { quote(it) }}] }) { id } }""",
         ).execute()
         return id
     }
+
+    private fun createMcpServer(workspaceId: Long, name: String): Long = graphQlTester.document(
+        """mutation { createMcpServer(input: { workspaceId: $workspaceId, name: ${quote(name)},
+             address: "https://mcp.example", authType: BEARER_TOKEN, secret: "token" }) { id } }""",
+    ).execute().path("createMcpServer.id").entity(Long::class.java).get()
 
     private companion object {
         val PLUGIN = """
