@@ -188,7 +188,9 @@ scripts/verify-one-image.sh       # the same for orknux-one, started with nothin
 
 The suite says the code behaves; this says the artefact runs. It builds the
 image, brings it up against a real Postgres, and checks that it boots and
-serves, that Flyway migrated, that anonymous callers are refused, that it runs
+serves, that Flyway migrated, that anonymous callers are refused, that the
+interface is served from the jar — the page, its hashed assets, a deep link —
+to somebody not yet signed in, that it runs
 as `orknux` rather than root, that the JVM is PID 1, and that `docker stop`
 reaches it rather than killing it. CI runs it between the suite and the publish,
 so nothing reaches the registry unstarted.

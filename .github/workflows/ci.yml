@@ -126,6 +126,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        # The server image builds the interface into its jar since #585, from
+        # the submodule. Without this the checkout leaves an empty directory and
+        # the build fails on a missing package.json.
+        with:
+          submodules: true
 
       - name: Build the image and start it
         run: ./scripts/verify-image.sh
@@ -201,8 +206,9 @@ jobs:
 
       # Nothing but a port and a volume, deliberately.
       #
-      # This used to need ORKNUX_ALLOWED_ORIGINS, because nginx forwarded
-      # `Host: $host` and dropped the port: the server rebuilt the request's
+      # This used to need ORKNUX_ALLOWED_ORIGINS, because the nginx this image
+      # carried before #585 forwarded `Host: $host` and dropped the port: the
+      # server rebuilt the request's
       # address without it while the browser sent an Origin with it,
       # same-origin looked cross-origin, and every GraphQL call from the page
       # answered 403 while curl - which sends no Origin - was served
@@ -344,6 +350,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        # The interface is a submodule and this image builds its bundle into
+        # the jar since #585.
+        with:
+          submodules: true
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
@@ -414,9 +424,8 @@ jobs:
   # The all-in-one image, published beside the other one and on the same terms.
   #
   # Its own job rather than another step in `publish`, so the two images do not
-  # hold each other up: a broken interface bundle should not stop the server
-  # image reaching the registry, and an image that fails to start should not stop
-  # the other one either. Same tags, same conditions, same credentials.
+  # hold each other up: one that fails to start should not stop the other
+  # reaching the registry. Same tags, same conditions, same credentials.
   publish-one:
     name: Publish all-in-one image
     runs-on: ubuntu-latest
@@ -468,9 +477,9 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # A cache scope of its own. This image builds a node bundle the other
-          # one does not, and sharing the default scope would have each build
-          # evicting the other's layers.
+          # A cache scope of its own. The two Dockerfiles build the same jar but
+          # end in different images, and sharing the default scope would have
+          # each build evicting the other's layers.
           cache-from: type=gha,scope=one
           cache-to: type=gha,mode=max,scope=one
 

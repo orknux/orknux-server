@@ -8,8 +8,8 @@
 # no network**, and everything it needs it has to invent on the way up. So the
 # things worth asserting are different ones.
 #
-#   1. it serves the interface and forwards the API on one port, and describes its
-#      own sign-in truthfully - there is no directory in here
+#   1. it serves the interface and the API on one port, and describes its own
+#      sign-in truthfully - there is no directory in here
 #   2. it invented an encryption key, kept it, and did not invent a second one
 #      on the next start - the failure this image can most easily have is silent
 #   3. it invented an administrator, and that administrator can actually sign in
@@ -86,14 +86,14 @@ wait_for_it() {
 
 # 1. One port, two halves.
 #
-# `/` is nginx serving the bundle and `/api/auth/method` is the server answering
-# through it - the one endpoint open by design, since the sign-in screen has to
-# read it before anybody has signed in. Both on the same port is the whole point
-# of merging the images: the browser stays on one origin, so the session cookie
-# is first-party.
+# Since #585 there is no nginx in here: the server serves the bundle from its own
+# jar. `/api/auth/method` is the one endpoint open by design, since the sign-in
+# screen has to read it before anybody has signed in, and `/` below is the page.
+# Both on the same port is the whole point: the browser stays on one origin, so
+# the session cookie is first-party.
 say "Waiting for it to answer"
 wait_for_it 180
-ok "The API answers through the proxy"
+ok "The API answers on $PORT"
 
 # What it says about signing in, which is the first thing anybody sees.
 #

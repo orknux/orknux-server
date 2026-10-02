@@ -15,9 +15,10 @@
 #   1. it boots and serves
 #   2. Flyway migrated the schema it was given
 #   3. security is enforced in the packaged image, not only in the dev profile
-#   4. it runs as a non-root user, as the Dockerfile intends
-#   5. the JVM is PID 1, so `docker stop` reaches it and shutdown is graceful
-#   6. it stops within the grace period rather than being killed
+#   4. it serves the interface, to somebody not yet signed in
+#   5. it runs as a non-root user, as the Dockerfile intends
+#   6. the JVM is PID 1, so `docker stop` reaches it and shutdown is graceful
+#   7. it stops within the grace period rather than being killed
 #
 # What it does not cover: Temporal. The image is started with the inline engine,
 # because whether a separate service is reachable is not a property of this
@@ -120,14 +121,48 @@ code="$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://localhost:$PORT/g
 [ "$code" = "401" ] || die "An anonymous GraphQL call answered $code, expected 401"
 ok "Anonymous calls are refused"
 
-# 4. Not root. The Dockerfile says so; this checks the image was built the way
+# 4. The interface. Since #585 it is built into the jar with -Pwith-ui and served
+#    by the server, so an image built without the profile — or with an empty
+#    bundle — boots, migrates, refuses strangers and serves nobody a page. Every
+#    check above passes on that image; these are what notice. Asked anonymously,
+#    because the sign-in page has to load before anybody has signed in.
+say "Checking that it serves the interface"
+headers="$(mktemp)"
+page="$(curl -fsS -D "$headers" "http://localhost:$PORT/")" \
+  || die "GET / did not answer 200 — the image serves no interface"
+grep -qi '<html' <<<"$page" || die "GET / answered, but not with a page"
+grep -qi '^cache-control:.*no-cache' "$headers" \
+  || die "GET / is cacheable — a browser would keep the previous bundle after an upgrade"
+ok "/ is the page, and is not cached"
+
+# The page names its own hashed assets; one of them has to come back, and be
+# kept, or the page is a blank screen that looked fine from curl.
+asset="$(grep -oE '/assets/[^"]+' <<<"$page" | head -n 1 || true)"
+[ -n "$asset" ] || die "The page names no /assets/ file — the bundle in the jar is not a build"
+code="$(curl -s -o /dev/null -D "$headers" -w '%{http_code}' "http://localhost:$PORT$asset")"
+[ "$code" = "200" ] || die "GET $asset answered $code"
+grep -qi '^cache-control:.*max-age=31536000' "$headers" \
+  || die "GET $asset is not cached for a year, though its name is its hash"
+ok "$asset is served and kept"
+
+# A route the page draws, typed into the address bar, is the page; a path the
+# server owns is not, or a mistyped API call would answer with a sign-in screen.
+deep="$(curl -fsS "http://localhost:$PORT/workspace/1/workflows")" \
+  || die "A deep link did not answer 200 — reloading any page but / would fail"
+[ "$deep" = "$page" ] || die "A deep link answered something other than the page"
+code="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$PORT/api/no-such-thing")"
+[ "$code" != "200" ] || die "An unknown /api path answered 200 — the page is standing in for the API"
+ok "Deep links get the page; /api does not ($code)"
+rm -f "$headers"
+
+# 5. Not root. The Dockerfile says so; this checks the image was built the way
 #    it reads.
 say "Checking the user"
 who="$(docker exec "$APP" id -un)"
 [ "$who" = "orknux" ] || die "Running as $who, expected orknux"
 ok "Runs as $who"
 
-# 5. The JVM is PID 1. The entrypoint uses `exec` for this reason: without it a
+# 6. The JVM is PID 1. The entrypoint uses `exec` for this reason: without it a
 #    shell holds PID 1, `docker stop` signals the shell, and the JVM is killed
 #    at the end of the grace period instead of shutting down.
 say "Checking PID 1"
@@ -137,7 +172,7 @@ case "$pid1" in
   *) die "PID 1 is '$pid1', not the JVM — docker stop will not reach it" ;;
 esac
 
-# 6. It stops when asked. Anything slower than the grace period is a container
+# 7. It stops when asked. Anything slower than the grace period is a container
 #    that gets killed on every deploy, mid-request.
 say "Checking that it stops gracefully"
 began="$(date +%s)"
