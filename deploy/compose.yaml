@@ -291,6 +291,19 @@ services:
       # installation with no way out - the Libraries screen then offers the
       # upload alone, rather than a field that fails on being used.
       ORKNUX_LIBRARY_REGISTRY_URL: ${ORKNUX_LIBRARY_REGISTRY_URL:-https://registry.npmjs.org}
+      # In-place updates from Admin -> Updates (#584): an administrator installs
+      # a release signed with the Orknux key - from the official server, an
+      # uploaded jar, or a URL such as a company Artifactory - and the server
+      # restarts onto it; the image's own jar is always one press away. All on
+      # by default. Where every version that runs must be approved, set the
+      # first to false and the image's jar always runs; or turn off only the
+      # sources you do not want. ORKNUX_RELEASE_SOURCE_URL pre-fills the URL
+      # source - point it at your own repository.
+      ORKNUX_SELF_UPDATE: ${ORKNUX_SELF_UPDATE:-true}
+      ORKNUX_SELF_UPDATE_OFFICIAL: ${ORKNUX_SELF_UPDATE_OFFICIAL:-true}
+      ORKNUX_SELF_UPDATE_UPLOAD: ${ORKNUX_SELF_UPDATE_UPLOAD:-true}
+      ORKNUX_SELF_UPDATE_URL: ${ORKNUX_SELF_UPDATE_URL:-true}
+      ORKNUX_RELEASE_SOURCE_URL: ${ORKNUX_RELEASE_SOURCE_URL:-}
     volumes:
       # Mounted at the server user's home, not at /app/data, and that is not a
       # style choice. The image runs as `orknux` (uid 999); a named volume on a

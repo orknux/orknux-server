@@ -718,6 +718,18 @@ spec:
             # (ORKNUX_RELEASE_DIR), where the chosen jar is written to run.
             - name: ORKNUX_SELF_UPDATE
               value: "true"
+            # One switch per source, all on by default: the official server, an
+            # uploaded jar, and a URL - such as your Artifactory, which
+            # ORKNUX_RELEASE_SOURCE_URL pre-fills. Turn off the ones you do not
+            # want, and keep ORKNUX_SELF_UPDATE as the master switch.
+            - name: ORKNUX_SELF_UPDATE_OFFICIAL
+              value: "true"
+            - name: ORKNUX_SELF_UPDATE_UPLOAD
+              value: "true"
+            - name: ORKNUX_SELF_UPDATE_URL
+              value: "true"
+            - name: ORKNUX_RELEASE_SOURCE_URL
+              value: ""
 
             # Everything else the server understands is one more ORKNUX_
             # variable here; DOCKERHUB.md lists every one of them with what it
@@ -733,6 +745,12 @@ spec:
             # volume itself.
             - name: data
               mountPath: /home/orknux
+            # Where the start loop writes the release it chose before running
+            # it. An emptyDir rather than the image's /tmp, so a pod run with
+            # readOnlyRootFilesystem still updates in place; it is rewritten on
+            # every start, so nothing in it needs to survive the pod.
+            - name: releases
+              mountPath: /tmp/orknux-release
           # /api/auth/method is what the container's own health check reads: it
           # is open by design and needs no credential, and actuator's health
           # endpoint is deliberately not exposed. The compose file has to spell
@@ -785,3 +803,6 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: orknux-data
+        - name: releases
+          emptyDir:
+            sizeLimit: 2Gi
