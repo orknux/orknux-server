@@ -1259,6 +1259,8 @@ type Mutation {
     session is still going. Administrators only. Issue #448.
     """
     setSessionsActiveWindowSeconds(seconds: Int!): InstallationSettings!
+    "How long a step of a workspace copy may wait for a lock, 1 to 3600 seconds. Administrators only. Issue #581."
+    setWorkspaceCopyLockWaitSeconds(seconds: Int!): InstallationSettings!
     """
     Whether a conversation may be thrown away. Administrators only.
 
@@ -6615,6 +6617,13 @@ type InstallationSettings {
     sessionsActiveWindowSeconds: Int!
     "What a fresh installation counts - ORKNUX_SESSIONS_ACTIVE_WINDOW_SECONDS."
     sessionsActiveWindowSecondsConfigured: Int!
+    """
+    How long a step of a workspace copy may wait for a row another transaction
+    holds, in seconds. Past it the copy stops and says where. Issue #581.
+    """
+    workspaceCopyLockWaitSeconds: Int!
+    "What a fresh installation waits: the built-in default."
+    workspaceCopyLockWaitSecondsConfigured: Int!
     """
     False where the installation runs Temporal, and the field is not offered.
 

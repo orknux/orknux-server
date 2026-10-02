@@ -82,11 +82,54 @@ class WorkspaceDuplicator(
      * after it failed too, and the copy was lost.
      */
     transactions: org.springframework.transaction.PlatformTransactionManager,
+    /** Where the copy's lock wait is read and set. Issue #581. */
+    private val installation: io.mszymanski.orknux.server.attachment.InstallationSettings,
+    dataSource: javax.sql.DataSource,
 ) {
 
     private val inOwnTransaction = org.springframework.transaction.support.TransactionTemplate(transactions)
 
+    /**
+     * Whether a transaction of the copy can be told how long to wait for a lock.
+     * Postgres waits for ever by default; SQLite's one writer is already bounded
+     * by its busy timeout and the queue in front of it.
+     */
+    private val boundedWaits = !io.mszymanski.orknux.server.database.isSqlite(
+        io.mszymanski.orknux.server.database.jdbcUrlOf(dataSource),
+    )
+
+    /** Joins the transaction's own connection: the JPA transaction exposes it to JDBC. */
+    private val jdbc = org.springframework.jdbc.core.JdbcTemplate(dataSource)
+
     private val log = LoggerFactory.getLogger(javaClass)
+
+    /**
+     * One step of the copy in a transaction of its own, waiting at most
+     * [lockWaitSeconds] for any lock it needs. Issue #581: a copy on Postgres sat
+     * for ever with nothing in the log, and a lock wait is the one way a
+     * statement there waits without limit. Bounded, a wait becomes an error that
+     * is logged and answered instead of a page that never moves.
+     */
+    private fun <T : Any> step(lockWaitSeconds: Int, work: () -> T): T = requireNotNull(
+        inOwnTransaction.execute {
+            if (boundedWaits) jdbc.execute("SET LOCAL lock_timeout = '${lockWaitSeconds}s'")
+            work()
+        },
+    )
+
+    /**
+     * What a failed step comes to in a sentence. A lock wait that ran out is
+     * said as one, rather than as the database's "canceling statement", which
+     * reads as somebody having cancelled the copy.
+     */
+    private fun reasonOf(why: Throwable, lockWaitSeconds: Int): String {
+        val lockTimedOut = generateSequence(why) { it.cause }.any { cause ->
+            (cause as? java.sql.SQLException)?.sqlState == LOCK_NOT_AVAILABLE
+        }
+        if (lockTimedOut) return "it waited $lockWaitSeconds seconds for a row another transaction was holding"
+        // The database's own words stop at the first line: the rest is SQL and binds.
+        return why.message?.lineSequence()?.firstOrNull()?.substringBefore(" [insert") ?: why.javaClass.simpleName
+    }
 
     /** What a duplicate came to, said so a screen can report it honestly. */
     data class Copied(
@@ -153,13 +196,38 @@ class WorkspaceDuplicator(
          * line is written *before* the step, so the last one is where it is.
          */
         val started = System.nanoTime()
+        // Read once: a copy is held to the number it started under.
+        val wait = installation.workspaceCopyLockWaitSeconds()
         log.info("Copy of workspace {} \"{}\" as \"{}\" by {}: creating the workspace", sourceId, source.name, wanted, by)
-        val copy = requireNotNull(inOwnTransaction.execute { workspaces.save(settingsOf(source, wanted)) })
+        val copy = step(wait) { workspaces.save(settingsOf(source, wanted)) }
         val into = requireNotNull(copy.id)
         log.info("Copy of workspace {} into {}: workspace created", sourceId, into)
 
         val counts = linkedMapOf<String, Int>()
         val problems = mutableListOf<String>()
+
+        /*
+         * Everything there is to carry, counted before anything is carried, so
+         * the page has numbers from the first step rather than a sentence until
+         * the components start. Issue #581: the externals step said nothing, so
+         * a copy spending its time there - or stopped there - looked the same as
+         * one that had not begun. A retry later does not move the goalposts.
+         */
+        val externals = externalsOf(sourceId)
+        val pending = order.flatMap { kind -> idsOf(sourceId, kind).map { kind to it } }.toMutableList()
+        val totals = linkedMapOf<String, Int>()
+        externals.forEach { (kind, ids) -> if (ids.isNotEmpty()) totals[kind] = ids.size }
+        pending.groupingBy { it.first.label }.eachCount().forEach { (kind, count) -> totals[kind] = count }
+        val overall = totals.values.sum()
+        var carried = 0
+        log.info("Copy of workspace {} into {}: {} things to copy {}", sourceId, into, overall, totals)
+        totals.keys.firstOrNull()?.let { kind -> progress(WorkspaceCopyProgress.Step(kind, 0, totals.getValue(kind), 0, overall)) }
+
+        fun carriedOne(kind: String) {
+            counts[kind] = (counts[kind] ?: 0) + 1
+            carried += 1
+            progress(WorkspaceCopyProgress.Step(kind, counts.getValue(kind), totals.getValue(kind), carried, overall))
+        }
 
         /*
          * What components point at by name, before any component. Issue #570:
@@ -169,11 +237,26 @@ class WorkspaceDuplicator(
          * copy of a Slack desk kept almost nothing. Copied under the same names
          * with their credentials left behind, which is the stance on secrets
          * below, so every reference resolves and the list says what to set.
+         *
+         * One transaction each, like the components, so a poll asking how far
+         * the copy has got is answered between two of them on SQLite as well.
+         * One that fails stops the copy: a component after it would point at a
+         * name that is not there, and the copy would say less than it lost.
          */
-        val externals = requireNotNull(inOwnTransaction.execute { copyExternals(sourceId, into, counts) })
-        log.info("Copy of workspace {} into {}: connections, MCP servers and model providers committed", sourceId, into)
+        val needs = mutableListOf<String>()
+        val modelIds = mutableMapOf<Long, Long>()
+        externals.forEach { (kind, ids) ->
+            ids.forEach { id ->
+                val what = runCatching {
+                    step(wait) { copyExternal(sourceId, into, kind, id, needs, modelIds) }
+                }.getOrElse { why -> throw stopped(sourceId, into, "$kind \"${externalName(kind, id)}\"", why, wait) }
+                log.info("Copy of workspace {} into {}: {} \"{}\" copied", sourceId, into, kind, what)
+                carriedOne(kind)
+            }
+        }
         log.info("Copy of workspace {} into {}: pointing the workspace's model settings at the copies", sourceId, into)
-        inOwnTransaction.executeWithoutResult { remapModels(into, externals.models) }
+        runCatching { step(wait) { remapModels(into, modelIds) } }
+            .onFailure { why -> throw stopped(sourceId, into, "the workspace's model settings", why, wait) }
 
         /*
          * Copied kind by kind, and then again for what did not come. Issue #570:
@@ -183,16 +266,7 @@ class WorkspaceDuplicator(
          * pass carries nothing new; what is left then is genuinely missing, and
          * is reported with the reason from its last attempt.
          */
-        val pending = order.flatMap { kind -> idsOf(sourceId, kind).map { kind to it } }.toMutableList()
         order.forEach { kind -> if (pending.any { it.first == kind }) counts[kind.label] = 0 }
-        // How many of each kind there are, and of everything, for the progress
-        // the page draws. Counted before the first pass, so a retry does not
-        // move the goalposts. Issue #572.
-        val totals = pending.groupingBy { it.first.label }.eachCount()
-        val overall = pending.size
-        var carried = 0
-        log.info("Copy of workspace {} into {}: {} components to copy {}", sourceId, into, overall, totals)
-        pending.firstOrNull()?.let { (kind, _) -> progress(WorkspaceCopyProgress.Step(kind.label, 0, totals.getValue(kind.label), 0, overall)) }
         val lastWhy = mutableMapOf<Pair<ComponentKind, Long>, String?>()
         var pass = 0
         while (pending.isNotEmpty()) {
@@ -209,7 +283,7 @@ class WorkspaceDuplicator(
                  * great deal of work to arrive at the same place.
                  */
                 runCatching {
-                    inOwnTransaction.executeWithoutResult {
+                    step(wait) {
                         val envelope = exporter.export(sourceId, kind, id, ExportDepth.SHALLOW)
                         /*
                          * Planned before it is applied: the plan writes nothing
@@ -223,17 +297,11 @@ class WorkspaceDuplicator(
                 }
                     .onSuccess {
                         pending.remove(kind to id)
-                        counts[kind.label] = (counts[kind.label] ?: 0) + 1
-                        carried += 1
-                        progress(
-                            WorkspaceCopyProgress.Step(
-                                kind.label, counts.getValue(kind.label), totals.getValue(kind.label), carried, overall,
-                            ),
-                        )
+                        carriedOne(kind.label)
                     }
                     .onFailure { why ->
-                        lastWhy[kind to id] = why.message
-                        log.info("Copy of workspace {} into {}: {} {} not copied on pass {}: {}", sourceId, into, kind.label, id, pass, why.message?.lineSequence()?.firstOrNull())
+                        lastWhy[kind to id] = reasonOf(why, wait)
+                        log.info("Copy of workspace {} into {}: {} {} not copied on pass {}: {}", sourceId, into, kind.label, id, pass, lastWhy[kind to id])
                     }
             }
             if (pending.size == before) break
@@ -242,9 +310,7 @@ class WorkspaceDuplicator(
             val called = runCatching { nameOf(sourceId, kind, id) }.getOrNull() ?: id.toString()
             val why = lastWhy[kind to id]
             log.warn("Copying {} {} into workspace {} failed: {}", kind.label, called, into, why)
-            // The database's own words stop at the first line: the rest is SQL and binds.
-            val said = why?.lineSequence()?.firstOrNull()?.substringBefore(" [insert")
-            problems += "${kind.label} \"$called\" was not copied: $said"
+            problems += "${kind.label} \"$called\" was not copied: $why"
         }
 
         log.info("Copy of workspace {} into {}: naming the variables", sourceId, into)
@@ -260,17 +326,48 @@ class WorkspaceDuplicator(
             name = wanted,
             counts = counts,
             secretsToSet = secrets,
-            credentialsToSet = externals.credentialsToSet,
+            credentialsToSet = needs,
             problems = problems,
         )
     }
 
-    /** What copying the externals came to: source model id to its copy, and what needs a credential. */
-    private data class Externals(val models: Map<Long, Long>, val credentialsToSet: List<String>)
+    /**
+     * A step the copy cannot go on without, failed: logged with where it
+     * stopped, and answered as a sentence. Issue #581.
+     */
+    private fun stopped(from: Long, into: Long, at: String, why: Throwable, wait: Int): WorkspaceCopyStoppedException {
+        val reason = reasonOf(why, wait)
+        log.warn("Copy of workspace {} into {} stopped at {}: {}", from, into, at, reason, why)
+        val made = workspaces.findByIdOrNull(into)?.name ?: into.toString()
+        return WorkspaceCopyStoppedException(made, at, reason)
+    }
 
     /**
-     * Connections, model providers with their models, and MCP servers, copied
-     * without their credentials. Issue #570.
+     * The connections, MCP servers and model providers a workspace holds, by
+     * the kind the page names them under, in the order they are copied. Ids
+     * only: each is read again inside the transaction that copies it.
+     */
+    private fun externalsOf(from: Long): List<Pair<String, List<Long>>> {
+        val byName = org.springframework.data.domain.Sort.by("name")
+        return listOf(
+            "connection" to connections.findByWorkspaceId(from, byName).mapNotNull { it.id },
+            "mcp server" to mcpServers.findByWorkspaceId(from, byName).mapNotNull { it.id },
+            "model provider" to providers.findByWorkspaceId(from, byName).mapNotNull { it.id },
+        )
+    }
+
+    /** What one of those is called, for a sentence about it; its id where it cannot be read. */
+    private fun externalName(kind: String, id: Long): String = runCatching {
+        when (kind) {
+            "connection" -> connections.findByIdOrNull(id)?.name
+            "mcp server" -> mcpServers.findByIdOrNull(id)?.name
+            else -> providers.findByIdOrNull(id)?.name
+        }
+    }.getOrNull() ?: id.toString()
+
+    /**
+     * One connection, model provider with its models, or MCP server, copied
+     * without its credentials. Issue #570.
      *
      * Field by field rather than by reflection, for the reason the snapshot is:
      * what is carried is a decision. What is left behind is named at each: the
@@ -280,14 +377,19 @@ class WorkspaceDuplicator(
      * credential it reads, so it works as it did and needs nothing set.
      * WorkspaceDuplicateTest holds a list of every field, so a field added to
      * one of these and not decided on here fails a test.
+     *
+     * @return its name, for the log.
      */
-    private fun copyExternals(from: Long, into: Long, counts: MutableMap<String, Int>): Externals {
-        val needs = mutableListOf<String>()
-        val byName = org.springframework.data.domain.Sort.by("name")
-
-        val heldConnections = connections.findByWorkspaceId(from, byName)
-        log.info("Copy of workspace {} into {}: {} connections", from, into, heldConnections.size)
-        heldConnections.forEach { held ->
+    private fun copyExternal(
+        from: Long,
+        into: Long,
+        kind: String,
+        id: Long,
+        needs: MutableList<String>,
+        modelIds: MutableMap<Long, Long>,
+    ): String = when (kind) {
+        "connection" -> {
+            val held = requireNotNull(connections.findByIdOrNull(id)?.takeIf { it.workspaceId == from })
             log.info("Copy of workspace {} into {}: connection \"{}\"", from, into, held.name)
             connections.save(
                 io.mszymanski.orknux.connector.connection.WorkspaceConnection(
@@ -312,12 +414,11 @@ class WorkspaceDuplicator(
                 held.appTokenVariableId != null || !held.appToken.isNullOrBlank() ||
                 held.userTokenVariableId != null || !held.userToken.isNullOrBlank()
             if (held.connectionId == null && hadCredential) needs += "connection ${held.name}"
+            held.name
         }
-        if (heldConnections.isNotEmpty()) counts["connection"] = heldConnections.size
 
-        val heldServers = mcpServers.findByWorkspaceId(from, byName)
-        log.info("Copy of workspace {} into {}: {} MCP servers", from, into, heldServers.size)
-        heldServers.forEach { held ->
+        "mcp server" -> {
+            val held = requireNotNull(mcpServers.findByIdOrNull(id)?.takeIf { it.workspaceId == from })
             log.info("Copy of workspace {} into {}: MCP server \"{}\"", from, into, held.name)
             mcpServers.save(
                 io.mszymanski.orknux.connector.connection.McpServer(
@@ -331,26 +432,21 @@ class WorkspaceDuplicator(
                 ),
             )
             if (held.secretVariableId != null || !held.secret.isNullOrBlank()) needs += "MCP server ${held.name}"
+            held.name
         }
-        if (heldServers.isNotEmpty()) counts["mcp server"] = heldServers.size
 
-        val modelIds = mutableMapOf<Long, Long>()
-        val heldProviders = providers.findByWorkspaceId(from, byName)
-        log.info("Copy of workspace {} into {}: {} model providers", from, into, heldProviders.size)
-        heldProviders.forEach { held ->
+        else -> {
+            val held = requireNotNull(providers.findByIdOrNull(id)?.takeIf { it.workspaceId == from })
             log.info("Copy of workspace {} into {}: model provider \"{}\"", from, into, held.name)
             val copy = providers.save(held.copied(workspaceId = into, name = held.name))
             if (held.secretVariableId != null || !held.secret.isNullOrBlank()) needs += "model provider ${held.name}"
-            models.findByProviderId(requireNotNull(held.id)).forEach { model ->
+            models.findByProviderId(id).forEach { model ->
                 log.info("Copy of workspace {} into {}: model \"{}\" of \"{}\"", from, into, model.name, held.name)
                 val made = models.save(model.copied(providerId = requireNotNull(copy.id), name = model.name))
                 modelIds[requireNotNull(model.id)] = requireNotNull(made.id)
             }
+            held.name
         }
-        if (heldProviders.isNotEmpty()) counts["model provider"] = heldProviders.size
-        log.info("Copy of workspace {} into {}: committing connections, MCP servers and model providers", from, into)
-
-        return Externals(modelIds, needs)
     }
 
     /**
@@ -456,4 +552,20 @@ class WorkspaceDuplicator(
 
     private fun nameOf(workspaceId: Long, kind: ComponentKind, id: Long): String =
         exporter.fileNameFor(workspaceId, kind, id)
+}
+
+/** Postgres's `lock_not_available`, which is what a `lock_timeout` running out raises. */
+private const val LOCK_NOT_AVAILABLE = "55P03"
+
+/**
+ * A copy that could not go on, said where it stopped and why. Issue #581.
+ *
+ * The workspace it was making is left as far as it got, and named, so whoever
+ * reads this knows there is something to delete or to finish by hand.
+ */
+class WorkspaceCopyStoppedException(val workspace: String, val at: String, val reason: String) : RuntimeException(
+    "The copy stopped at $at because $reason. The workspace \"$workspace\" holds what was copied before it.",
+), io.mszymanski.orknux.server.graphql.Refusal {
+
+    override val arguments get() = mapOf("workspace" to workspace, "at" to at, "reason" to reason)
 }

@@ -41,6 +41,9 @@ class WorkspaceExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is WorkspaceNotFoundException,
             is ModelNotFoundForWorkspaceException,
             -> ErrorType.NOT_FOUND
+            // Not the caller's doing, but a sentence saying where the copy
+            // stopped and what it left, rather than a correlation id. Issue #581.
+            is io.mszymanski.orknux.server.transfer.WorkspaceCopyStoppedException -> ErrorType.INTERNAL_ERROR
             else -> return null
         }
 

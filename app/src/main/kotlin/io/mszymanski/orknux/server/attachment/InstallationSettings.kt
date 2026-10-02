@@ -120,6 +120,8 @@ object SettingNames {
     /** And how much of each line the next block of that many costs. Issue #481. */
     const val TOOL_SUMMARY_TRIM_PERCENT = "tool.summary.trim.percent"
     const val SESSIONS_ACTIVE_WINDOW_SECONDS = "sessions.active.window.seconds"
+    /** How long a step of a workspace copy may wait for a lock. Issue #581. */
+    const val WORKSPACE_COPY_LOCK_WAIT_SECONDS = "workspace.copy.lock.wait.seconds"
 }
 
 /**
@@ -934,6 +936,34 @@ class InstallationSettings(
     }
 
     /**
+     * How long one step of a workspace copy may wait for a row another
+     * transaction holds, in seconds. Issue #581.
+     *
+     * Postgres waits for a lock for ever unless told otherwise, and a copy that
+     * did sat on a page that never moved with nothing in the log. Bounded, the
+     * wait ends as an error that names the step. A minute by default: no step
+     * of a copy takes a lock somebody should be holding for longer, and a
+     * busier installation can say so here.
+     */
+    fun workspaceCopyLockWaitSeconds(): Int {
+        val held = settings.findByIdOrNull(SettingNames.WORKSPACE_COPY_LOCK_WAIT_SECONDS)
+            ?: return DEFAULT_COPY_LOCK_WAIT_SECONDS
+        return held.value.toIntOrNull()?.takeIf { it in MIN_COPY_LOCK_WAIT_SECONDS..MAX_COPY_LOCK_WAIT_SECONDS }
+            ?: DEFAULT_COPY_LOCK_WAIT_SECONDS
+    }
+
+    /** What a fresh installation waits: the built-in default. */
+    fun workspaceCopyLockWaitSecondsConfigured(): Int = DEFAULT_COPY_LOCK_WAIT_SECONDS
+
+    @Transactional
+    fun setWorkspaceCopyLockWaitSeconds(seconds: Int, by: String) {
+        if (seconds !in MIN_COPY_LOCK_WAIT_SECONDS..MAX_COPY_LOCK_WAIT_SECONDS) {
+            throw CopyLockWaitOutOfRangeException(seconds)
+        }
+        write(SettingNames.WORKSPACE_COPY_LOCK_WAIT_SECONDS, seconds.toString(), by)
+    }
+
+    /**
      * What marks a command in a message that starts a run, for the whole
      * installation - `!review`. A workspace may carry its own, which wins.
      * Issue #402.
@@ -1606,6 +1636,25 @@ const val MAX_ACTIVE_WINDOW_SECONDS = 3600
 class ActiveWindowOutOfRangeException(val seconds: Int) : RuntimeException(
     "$seconds is not a number of seconds a session can be counted active for. " +
         "Choose between $MIN_ACTIVE_WINDOW_SECONDS and $MAX_ACTIVE_WINDOW_SECONDS.",
+), Refusal {
+
+    override val arguments get() = mapOf("seconds" to seconds)
+}
+
+/**
+ * A second and an hour, for how long a step of a workspace copy may wait for a
+ * lock. The floor is a second because no wait at all would fail a copy on the
+ * ordinary traffic of a working installation; the ceiling is an hour because a
+ * lock held longer than that is not traffic, and the point is to hear of it.
+ * Issue #581.
+ */
+const val MIN_COPY_LOCK_WAIT_SECONDS = 1
+const val MAX_COPY_LOCK_WAIT_SECONDS = 3600
+const val DEFAULT_COPY_LOCK_WAIT_SECONDS = 60
+
+class CopyLockWaitOutOfRangeException(val seconds: Int) : RuntimeException(
+    "$seconds is not a number of seconds a workspace copy can wait for a lock. " +
+        "Choose between $MIN_COPY_LOCK_WAIT_SECONDS and $MAX_COPY_LOCK_WAIT_SECONDS.",
 ), Refusal {
 
     override val arguments get() = mapOf("seconds" to seconds)
