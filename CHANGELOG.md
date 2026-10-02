@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## 0.9.9.7
+
+### 🐛 Fixed
+
+- A workflow agent on an Azure OpenAI provider retries again when Azure fails an answer it had already started, with a server error or a rate limit, up to the node's retry attempts. Since 0.9.9.5 these failures ended the step on the first try. A failure about the request itself is still not retried.
+
 ## 0.9.9.6
 
 ### ✨ Added

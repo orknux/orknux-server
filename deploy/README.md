@@ -376,7 +376,7 @@ upgrade happens to you rather than being something you did. Set
 `ORKNUX_SERVER_TAG` and `ORKNUX_UI_TAG` to move deliberately, and to
 `sha-<commit>` if you want to be certain to the commit.
 
-Both repositories are at `0.9`/`0.9.9.6`, released together, and that is what
+Both repositories are at `0.9`/`0.9.9.7`, released together, and that is what
 this file uses. They are meant to move together - the interface and the server
 are one product released under one version - so pin them to the same number.
 Check what exists before reaching for a different one:
