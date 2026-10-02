@@ -40,10 +40,8 @@ services:
       - orknux-data:/home/orknux   # only if attachments are on
 ```
 
-The volume sits on the server user's home directory on purpose: a named volume
-on a path the image does not contain is created owned by root, and this image
-runs as `orknux`, which then cannot write to it. Move it only somewhere that
-user can write.
+The volume is on the server user's home on purpose: a named volume on a path
+the image lacks is created owned by root, which `orknux` cannot write to.
 
 A whole installation - database, directory, Temporal - is
 [`deploy/compose.yaml`](https://github.com/michjak-szymanski/orknux-server/blob/main/deploy/compose.yaml)
@@ -61,9 +59,9 @@ installation serves pages and every credential it holds is quietly unusable. A
 *missing* key still boots: that is a first run with nothing encrypted yet, and
 refusing would hide the screen explaining what to set.
 
-There is deliberately **no default**: a key committed to an image is one every
-installation shares, which is the same as no key. Generate one with `openssl
-rand -base64 32` and keep it somewhere other than the database it protects.
+There is deliberately **no default**: a key in an image is one every
+installation shares. Generate one with `openssl rand -base64 32` and keep it
+somewhere other than the database it protects.
 **Changing or losing it makes every stored credential unreadable**, and they
 have to be entered again. Admin -> Doctor says whether the key is set, the right
 length, and whether every stored secret still reads with it.
@@ -189,11 +187,9 @@ the log says what is missing.
 Temporal is what makes a run durable: it survives a restart, retries a step, and
 can be looked at afterwards.
 
-What a trigger, a schedule or the API runs is the workflow **as published** -
-Run in the editor is the one thing using the draft. Its nodes hold the *id* of
-the function or agent they call, read when the step runs, so editing one changes
-what a published workflow does with no republish. The README's **Publishing**
-has the rest.
+A trigger, a schedule or the API runs the workflow **as published**; Run in the
+editor uses the draft. Its nodes name the function or agent they call, read when
+the step runs. The README's **Publishing** has the rest.
 
 | Variable | What it does | Default | Required |
 | --- | --- | --- | --- |
@@ -257,15 +253,16 @@ before anything is loaded.
 
 ## Updates
 
-An administrator can update this server in place on **Admin -> Updates**, from
-the marketplace or an uploaded jar signed with the release key this image
-carries, and roll back. **On by default**: where every version must be approved,
-set `ORKNUX_SELF_UPDATE=false`.
+**Admin -> Updates** updates this server in place and rolls it back: from the
+official server, an uploaded jar, or a URL such as your Artifactory. Every jar
+must be signed with the release key this image carries. **On by default.**
 
 | Variable | What it does | Default | Required |
 | --- | --- | --- | --- |
-| `ORKNUX_SELF_UPDATE` | `false` refuses updates and runs the image's jar. | `true` | No |
-| `ORKNUX_RELEASE_DIR` | Where the chosen jar is written to run. On a read-only root filesystem, mount an `emptyDir` here. | `/tmp/orknux-release` | No |
+| `ORKNUX_SELF_UPDATE` | `false` refuses every source and runs the image's jar. | `true` | No |
+| `ORKNUX_SELF_UPDATE_OFFICIAL` `ORKNUX_SELF_UPDATE_UPLOAD` `ORKNUX_SELF_UPDATE_URL` | `false` refuses that one source. | `true` | No |
+| `ORKNUX_RELEASE_SOURCE_URL` | Fills the URL field; ending in `/`, Check reads `releases.json` there. | empty | No |
+| `ORKNUX_RELEASE_DIR` | Where the chosen jar is written to run; on a read-only root, mount an `emptyDir`. | `/tmp/orknux-release` | No |
 
 ## Models and connections
 

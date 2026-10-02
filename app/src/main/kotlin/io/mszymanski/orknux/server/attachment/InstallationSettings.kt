@@ -143,6 +143,7 @@ object SettingNames {
     const val RELEASE_FOLLOW_SECONDS = "release.follow.seconds"
     const val RELEASE_MAX_MB = "release.max.mb"
     const val RELEASE_RESTART_DELAY_SECONDS = "release.restart.delay.seconds"
+    const val RELEASE_DOWNLOAD_SECONDS = "release.download.seconds"
 
     /**
      * The newest migration this database cannot be rolled back past, raised by
@@ -1212,6 +1213,28 @@ class InstallationSettings(
         write(SettingNames.RELEASE_RESTART_DELAY_SECONDS, seconds.toString(), by)
     }
 
+    /**
+     * The longest a server jar fetched from a URL may take, in seconds: to
+     * connect, to answer, and to arrive in full. Issue #589. A third of a
+     * gigabyte over a slow company network is minutes, and a stalled download
+     * would otherwise hold an administrator's request for ever.
+     */
+    fun releaseDownloadSeconds(): Int = ranged(
+        SettingNames.RELEASE_DOWNLOAD_SECONDS,
+        MIN_RELEASE_DOWNLOAD_SECONDS..MAX_RELEASE_DOWNLOAD_SECONDS,
+        DEFAULT_RELEASE_DOWNLOAD_SECONDS,
+    )
+
+    fun releaseDownloadSecondsConfigured(): Int = DEFAULT_RELEASE_DOWNLOAD_SECONDS
+
+    @Transactional
+    fun setReleaseDownloadSeconds(seconds: Int, by: String) {
+        if (seconds !in MIN_RELEASE_DOWNLOAD_SECONDS..MAX_RELEASE_DOWNLOAD_SECONDS) {
+            throw ReleaseDownloadOutOfRangeException(seconds)
+        }
+        write(SettingNames.RELEASE_DOWNLOAD_SECONDS, seconds.toString(), by)
+    }
+
     /** The schema floor this database has recorded; 0 before any release recorded one. */
     fun releaseSchemaFloor(): Int =
         settings.findByIdOrNull(SettingNames.RELEASE_SCHEMA_FLOOR)?.value?.trim()?.toIntOrNull() ?: 0
@@ -1901,14 +1924,23 @@ const val MIN_RELEASE_FOLLOW_SECONDS = 5
 const val MAX_RELEASE_FOLLOW_SECONDS = 3600
 const val DEFAULT_RELEASE_FOLLOW_SECONDS = 30
 
-/** A gigabyte is where a single Postgres value stops; a jar never needs to come near it. */
+/**
+ * A release jar is a third of a gigabyte, and a gigabyte leaves it room to
+ * grow. The bytes go into the database in pieces, so no single value comes
+ * near Postgres's own gigabyte whatever this says.
+ */
 const val MIN_RELEASE_MAX_MB = 64
-const val MAX_RELEASE_MAX_MB = 1000
-const val DEFAULT_RELEASE_MAX_MB = 768
+const val MAX_RELEASE_MAX_MB = 4096
+const val DEFAULT_RELEASE_MAX_MB = 1024
 
 const val MIN_RELEASE_RESTART_DELAY = 0
 const val MAX_RELEASE_RESTART_DELAY = 60
 const val DEFAULT_RELEASE_RESTART_DELAY = 3
+
+/** Ten seconds to an hour for a jar fetched from a URL; ten minutes unless somebody says otherwise. */
+const val MIN_RELEASE_DOWNLOAD_SECONDS = 10
+const val MAX_RELEASE_DOWNLOAD_SECONDS = 3600
+const val DEFAULT_RELEASE_DOWNLOAD_SECONDS = 600
 
 class ReleasesKeptOutOfRangeException(val count: Int) : RuntimeException(
     "$count is not a number of server releases to keep. Choose between $MIN_RELEASES_KEPT and $MAX_RELEASES_KEPT.",
@@ -1934,6 +1966,13 @@ class ReleaseMaxOutOfRangeException(val mb: Int) : RuntimeException(
     "$mb MB is not a size a server jar can be limited to. Choose between $MIN_RELEASE_MAX_MB and $MAX_RELEASE_MAX_MB.",
 ), Refusal {
     override val arguments get() = mapOf("mb" to mb)
+}
+
+class ReleaseDownloadOutOfRangeException(val seconds: Int) : RuntimeException(
+    "$seconds is not a number of seconds a server jar download may take. " +
+        "Choose between $MIN_RELEASE_DOWNLOAD_SECONDS and $MAX_RELEASE_DOWNLOAD_SECONDS.",
+), Refusal {
+    override val arguments get() = mapOf("seconds" to seconds)
 }
 
 class ReleaseRestartDelayOutOfRangeException(val seconds: Int) : RuntimeException(

@@ -76,6 +76,23 @@ class ReleaseJarVerifierTest {
             .hasMessageContaining("rolled back to")
     }
 
+    /**
+     * A release this server could be moved onto and never update back from,
+     * without an image change. Refused here, so from every source and for the
+     * launcher too.
+     */
+    @Test
+    fun `a release older than in-place updates is refused, by its number or by a missing launcher`() {
+        val reason = "This jar cannot be used: it predates in-place updates (0.9.9.8), so this server could not update back from it."
+        assertThatThrownBy { verifier.verify(TestReleaseJars.signed(Shape(version = "0.9.9.7"))) }.hasMessage(reason)
+        assertThatThrownBy { verifier.verify(TestReleaseJars.signed(Shape(version = "0.9.8"))) }.hasMessage(reason)
+        assertThatThrownBy { verifier.verify(TestReleaseJars.signed(Shape(version = "1.0", withLauncher = false))) }.hasMessage(reason)
+
+        assertThat(verifier.verify(TestReleaseJars.signed(Shape(version = "0.9.9.8"))).version).isEqualTo("0.9.9.8")
+        assertThat(verifier.verify(TestReleaseJars.signed(Shape(version = "0.9.9.8-SNAPSHOT"))).version).isEqualTo("0.9.9.8-SNAPSHOT")
+        assertThat(verifier.verify(TestReleaseJars.signed(Shape(version = "0.9.10"))).version).isEqualTo("0.9.10")
+    }
+
     @Test
     fun `a file that is not a jar is refused in a sentence`() {
         val garbage = TestReleaseJars.temporary("not a jar at all".toByteArray())

@@ -105,12 +105,15 @@ class ReleaseJarVerifier(private val trusted: List<X509Certificate>) {
             throw ReleaseJarRefusedException("it is not started by Spring Boot's launcher")
         }
         val version = main.getValue("Implementation-Version")?.trim().orEmpty()
-        if (ReleaseVersion.parse(version) == null) {
-            throw ReleaseJarRefusedException("it carries no version this server can read")
-        }
+        val parsed = ReleaseVersion.parse(version)
+            ?: throw ReleaseJarRefusedException("it carries no version this server can read")
         if (names.none { it.startsWith("BOOT-INF/classes/") } || names.none { it.startsWith("BOOT-INF/lib/") }) {
             throw ReleaseJarRefusedException("it is not a Spring Boot jar (BOOT-INF/classes and BOOT-INF/lib)")
         }
+        // Both halves of the same question: a release older than the version
+        // number, or one whose launcher was left out, would run a server with
+        // no way back but a new image.
+        if (predatesUpdates(parsed) || LAUNCHER !in names) throw ReleaseJarRefusedException(PREDATES_UPDATES)
         if (INTERFACE !in names) throw ReleaseJarRefusedException("it carries no interface")
 
         val schema = names.mapNotNull { MIGRATION.matchEntire(it)?.groupValues?.get(1)?.toIntOrNull() }.maxOrNull()
@@ -127,6 +130,33 @@ class ReleaseJarVerifier(private val trusted: List<X509Certificate>) {
         const val BOOT_LAUNCHER = "org.springframework.boot.loader.launch.JarLauncher"
         private const val INTERFACE = "BOOT-INF/classes/static/index.html"
         private const val FLOOR = "BOOT-INF/classes/db/migration/rollback-floor"
+
+        /**
+         * The update machinery a release must carry: the launcher the image's
+         * start loop hands over to (docker/orknux-run.sh names it).
+         */
+        const val LAUNCHER = "BOOT-INF/classes/io/mszymanski/orknux/server/update/ReleaseLauncherKt.class"
+
+        /**
+         * The first release that can update itself in place. A jar older than
+         * this would run a server with no Updates page and no launcher, and an
+         * installation moved onto one could only come back by changing its
+         * image - so every source refuses it, for activation and rollback
+         * alike. The image's own jar is not a stored release and is not asked.
+         */
+        val FIRST_UPDATABLE: ReleaseVersion = ReleaseVersion(listOf(0, 9, 9, 8), "")
+
+        const val PREDATES_UPDATES = "it predates in-place updates (0.9.9.8), so this server could not update back from it"
+
+        /**
+         * Whether [version] is older than [FIRST_UPDATABLE], by its numbers
+         * alone: a `0.9.9.8-SNAPSHOT` carries the machinery as much as the
+         * release does, which is what is being asked.
+         */
+        fun predatesUpdates(version: ReleaseVersion): Boolean = version.copy(qualifier = "") < FIRST_UPDATABLE
+
+        /** [predatesUpdates] for a version as stored; an unreadable one predates nothing it can say. */
+        fun predatesUpdates(version: String): Boolean = ReleaseVersion.parse(version)?.let(::predatesUpdates) ?: false
         private val MIGRATION = Regex("""BOOT-INF/classes/db/migration/postgresql/V(\d+)__[^/]*\.sql""")
 
         /** Where the image keeps the certificate it trusts, on its own classpath. */

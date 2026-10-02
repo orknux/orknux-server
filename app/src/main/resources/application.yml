@@ -161,10 +161,25 @@ orknux:
     # carries. On by default; false refuses all of it and the image runs its own
     # jar, for a platform that approves every version that runs. #584.
     enabled: ${ORKNUX_SELF_UPDATE:true}
+    # One switch per source, under the master one, so an installation can take
+    # signed official releases and nothing else - or only its own repository.
+    # A source turned off is refused at its door, and a release it brought in
+    # earlier can no longer be started; the image's own jar always can. #589.
+    official: ${ORKNUX_SELF_UPDATE_OFFICIAL:true}
+    upload: ${ORKNUX_SELF_UPDATE_UPLOAD:true}
+    url: ${ORKNUX_SELF_UPDATE_URL:true}
     # Where the launcher writes the chosen jar before running it. Read by the
     # launcher, not the server; it is here so the two are documented together.
     # On a read-only root filesystem, mount an emptyDir (or tmpfs) here.
     release-dir: ${ORKNUX_RELEASE_DIR:/tmp/orknux-release}
+    # Where this installation takes releases from besides the official server:
+    # a company's own repository, such as an Artifactory the platform team
+    # fills. It fills the URL field on Admin -> Updates; ending in / it is a
+    # directory, and Check reads releases.json there to list newer versions.
+    # Every jar from it is verified against the release key like any other -
+    # the source is trusted for availability only. Blank leaves the field empty
+    # for an administrator to type. #589.
+    source-url: ${ORKNUX_RELEASE_SOURCE_URL:}
   marketplace:
     # Where the plugin catalog is read from. This server holds no catalog of
     # its own: it asks, and installs from the URL the answer carries. Blank

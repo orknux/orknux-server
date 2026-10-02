@@ -196,11 +196,29 @@ class ServerReleasesTest(
 
     @Test
     fun `rolling back is a stored release activated, audited as a rollback`() {
-        val older = stored(Shape(version = "0.0.1"))
+        // Older than what runs and still able to update: a pre-release of the first that can.
+        val older = stored(Shape(version = "0.9.9.8-rc1"))
 
         graphQlTester.document("mutation { activateServerRelease(id: ${older.id}) { release { state } } }").execute()
             .path("activateServerRelease.release.state").entity(String::class.java).isEqualTo("ACTIVATING")
-        assertThat(audit.findAll().map { it.message }).contains("Server rolled back to 0.0.1")
+        assertThat(audit.findAll().map { it.message }).contains("Server rolled back to 0.9.9.8-rc1")
+    }
+
+    /**
+     * A row stored before the verifier asked - by hand here, since no door
+     * takes one any more - is not offered for activation either.
+     */
+    @Test
+    fun `a stored release older than in-place updates cannot be activated`() {
+        val release = stored(Shape(version = "9.9.1"))
+        jdbc.update("UPDATE server_release SET version = '0.9.9.7' WHERE id = ?", release.id)
+
+        graphQlTester.document("{ serverUpdates { stored { activatable refusal } } }").execute()
+            .path("serverUpdates.stored[0].activatable").entity(Boolean::class.java).isEqualTo(false)
+            .path("serverUpdates.stored[0].refusal").entity(String::class.java)
+            .isEqualTo("It predates in-place updates (0.9.9.8), so this server could not update back from it.")
+        graphQlTester.document("mutation { activateServerRelease(id: ${release.id}) { restarting } }").execute()
+            .errors().satisfy { assertThat(it.single().extensions["code"]).isEqualTo("ServerReleaseNotActivatable") }
     }
 
     @Test

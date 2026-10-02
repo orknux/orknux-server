@@ -181,11 +181,12 @@ metadata:
   name: orknux
   namespace: orknux
   annotations:
-    # An attachment may be 25MB and the server accepts a 26MB request. An
-    # ingress controller has a limit of its own — 1MB on ingress-nginx — and
-    # without this the upload fails at the edge with a 413 the server never
-    # sees.
-    nginx.ingress.kubernetes.io/proxy-body-size: "30m"
+    # An attachment may be 25MB, and a server jar uploaded on Admin -> Updates
+    # about 350MB (Admin Settings caps it at 1024MB). An ingress controller has
+    # a limit of its own — 1MB on ingress-nginx — and without this an upload
+    # fails at the edge with a 413 the server never sees. Where nobody uploads
+    # jars, "30m" covers attachments.
+    nginx.ingress.kubernetes.io/proxy-body-size: "1024m"
 spec:
   ingressClassName: nginx
   tls:
