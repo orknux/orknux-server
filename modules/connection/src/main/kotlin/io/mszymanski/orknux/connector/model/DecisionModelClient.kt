@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.connector.model
 
+import io.mszymanski.orknux.connector.Unreachable
 import io.mszymanski.orknux.connector.connection.ConnectionProbe
 import io.mszymanski.orknux.connector.connection.ConnectionProperties
 import io.mszymanski.orknux.connector.proxy.ProxyRouter
@@ -190,7 +191,7 @@ class DecisionModelClient(
             // next attempt may well be answered.
             log.warn("Asking {} at {} failed: {}", model.name, url, failure.toString())
             log.debug("Asking {} at {} failed", model.name, url, failure)
-            Decision.Failed("${model.name} could not be reached: ${failure.message ?: failure.javaClass.simpleName}")
+            Decision.Failed("${model.name} could not answer: ${Unreachable.describe(url, failure)}")
         }
     }
 

@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.connector.model
 
+import io.mszymanski.orknux.connector.Unreachable
 import io.mszymanski.orknux.connector.connection.ConnectionProbe
 import io.mszymanski.orknux.connector.proxy.ProxyRouter
 import com.openai.errors.OpenAIServiceException
@@ -106,7 +107,7 @@ class ModelTranscriptionClient(
             Transcription.Failed(refused.message ?: "${model.name} answered ${refused.statusCode()}")
         } catch (failure: Exception) {
             log.warn("Transcription by {} at {} could not be done", model.name, endpoint, failure)
-            Transcription.Failed(failure.message ?: "The transcription could not be done")
+            Transcription.Failed(Unreachable.describe(endpoint, failure))
         }
     }
 

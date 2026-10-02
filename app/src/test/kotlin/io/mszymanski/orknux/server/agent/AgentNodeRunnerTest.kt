@@ -256,6 +256,57 @@ class AgentNodeRunnerTest(
         assertThat(executions.findAll().single().status).isEqualTo(ExecutionStatus.COMPLETED)
     }
 
+    /**
+     * A provider nobody is listening for says where it was looked for and why
+     * it was not there. The step used to read "could not answer: Request
+     * failed" - the SDK's wrapper - with the refused connection to
+     * `localhost:11434` from inside a container one cause further down, where
+     * no page and no log line showed it.
+     */
+    @Test
+    fun `a provider nobody is listening for fails the step with the address and the cause`() {
+        serveAnswer()
+        val endpoint = "http://127.0.0.1:${closedPort()}/v1"
+        val agentId = agent("Support responder", model(endpoint))
+        graph(agentId, attempts = 1)
+
+        start(expectFailure = true)
+
+        val step = steps.findAll().single { it.agentId == agentId }
+        assertThat(step.status).isEqualTo(StepStatus.FAILED)
+        assertThat(step.error)
+            .contains("Support responder could not answer: Could not reach $endpoint: connection refused")
+            .doesNotContain("Request failed")
+    }
+
+    /** The hand-built path, which Anthropic still takes, says it the same way. */
+    @Test
+    fun `the hand-built path names the address and the cause too`() {
+        serveAnswer()
+        val endpoint = "http://127.0.0.1:${closedPort()}"
+        val providerId = graphQlTester.document(
+            """mutation { createModelProvider(input: {
+                 workspaceId: $workspaceId, name: "Claude", type: ANTHROPIC, endpoint: "$endpoint", secret: "sk-test"
+               }) { id } }""",
+        ).execute().path("createModelProvider.id").entity(Long::class.java).get()
+        val modelId = graphQlTester.document(
+            """mutation { createModel(input: { providerId: $providerId, name: "Claude", modelId: "claude", kind: CHAT })
+               { id } }""",
+        ).execute().path("createModel.id").entity(Long::class.java).get()
+        val agentId = agent("Support responder", modelId)
+        graph(agentId, attempts = 1)
+
+        start(expectFailure = true)
+
+        val step = steps.findAll().single { it.agentId == agentId }
+        assertThat(step.status).isEqualTo(StepStatus.FAILED)
+        assertThat(step.error).contains("Could not reach $endpoint").contains(": connection refused")
+    }
+
+    /** A loopback port that was free a moment ago and has nothing on it now. */
+    private fun closedPort(): Int =
+        java.net.ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
+
     private fun serveAnswer(): String = serveAfter(refusals = 0, status = 200)
 
     /**

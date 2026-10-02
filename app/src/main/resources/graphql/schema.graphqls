@@ -3068,6 +3068,18 @@ enum ExecutionTrigger {
     API
 }
 
+"""
+What a run started by an event on a connection was started by. Such a run is
+stored as WEBHOOK - a new stored value would be one an older server cannot read
+after a rollback - so this is read off the trigger that fired it.
+"""
+type ExecutionSource {
+    "The kind of connection the event arrived on."
+    connectionType: ConnectionType!
+    "The event, as the trigger that fired names it."
+    action: TriggerAction!
+}
+
 type Execution {
     id: ID!
     workflowId: ID!
@@ -3076,6 +3088,8 @@ type Execution {
     "Set when a condition ended the run early; null for an ordinary finish."
     stoppedReason: String
     trigger: ExecutionTrigger!
+    "For a run an event on a connection started, which connection and which event; null for any other run, and where that trigger has since been removed."
+    source: ExecutionSource
     "ISO-8601 offset date-time."
     startedAt: String!
     finishedAt: String
@@ -5723,6 +5737,8 @@ type ExecutionDetail {
     workflowName: String!
     status: ExecutionStatus!
     trigger: ExecutionTrigger!
+    "For a run an event on a connection started, which connection and which event; null for any other run, and where that trigger has since been removed."
+    source: ExecutionSource
     startedAt: String!
     finishedAt: String
     durationSeconds: Int

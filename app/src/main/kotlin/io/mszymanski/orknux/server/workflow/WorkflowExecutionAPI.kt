@@ -1,6 +1,10 @@
 package io.mszymanski.orknux.server.workflow
 
+import io.mszymanski.orknux.connector.connection.ConnectionType
+import io.mszymanski.orknux.connector.connection.WorkspaceConnectionRepository
 import io.mszymanski.orknux.server.graphql.Refusal
+import io.mszymanski.orknux.server.trigger.TriggerAction
+import io.mszymanski.orknux.server.trigger.WorkflowTriggerRepository
 import io.mszymanski.orknux.server.security.WorkspaceAccess
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
@@ -39,7 +43,39 @@ class WorkflowExecutionAPI(
     private val pictures: ExecutionPictureRepository,
     /** What a run said out loud, filed against the steps that said it. */
     private val speeches: ExecutionSpeechRepository,
+    /** Which trigger fired a connection run, and so which event on which kind of connection. */
+    private val triggers: WorkflowTriggerRepository,
+    private val connections: WorkspaceConnectionRepository,
 ) {
+
+    /**
+     * What started each of these connection runs, by the trigger that fired it.
+     *
+     * Read off the trigger rather than written onto the run: the run already
+     * keeps which trigger fired it, and the trigger is what knows its connection
+     * and its event. A trigger that has since been removed answers nothing, and
+     * the run reads as a plain connection run.
+     */
+    private fun sourcesOf(fired: Collection<Long>): Map<Long, ExecutionSourceView> {
+        if (fired.isEmpty()) return emptyMap()
+        val found = triggers.findAllById(fired.toSet())
+        val types = connections.findAllById(found.mapNotNull { it.connectionId }.toSet())
+            .associate { requireNotNull(it.id) to it.type }
+        return found.mapNotNull { trigger ->
+            val type = trigger.connectionId?.let(types::get) ?: return@mapNotNull null
+            val action = trigger.action ?: return@mapNotNull null
+            requireNotNull(trigger.id) to ExecutionSourceView(type, action)
+        }.toMap()
+    }
+
+    /**
+     * The fired trigger worth asking about. Only a run recorded as WEBHOOK, which
+     * is how a connection event is stored - a value of its own would be one an
+     * older jar cannot read after a rollback. Not a re-run, which is MANUAL and
+     * keeps the trigger it repeats without having been started by it.
+     */
+    private fun connectionFired(trigger: ExecutionTrigger, firedTriggerId: Long?): Long? =
+        firedTriggerId.takeIf { trigger == ExecutionTrigger.WEBHOOK }
 
     /** The pictures one run's image nodes drew, oldest first, as the graph shows them. */
     private fun picturesOf(executionId: Long): List<ExecutionPictureView> =
@@ -73,7 +109,8 @@ class WorkflowExecutionAPI(
             order = order,
             ascending = ascending,
         )
-        return RunPage(found, assignedIn(workspaceId))
+        val sources = sourcesOf(found.content.mapNotNull { connectionFired(it.trigger, it.firedTriggerId) })
+        return RunPage(found, assignedIn(workspaceId), sources)
     }
 
     /**
@@ -115,6 +152,8 @@ class WorkflowExecutionAPI(
             assignments.existsByWorkspaceIdAndWorkflowId(run.workspaceId, run.workflowId),
             picturesOf(run.id),
             speechesOf(run.id),
+        ).copy(
+            source = connectionFired(run.trigger, run.firedTriggerId)?.let { sourcesOf(listOf(it))[it] },
         )
     }
 
@@ -326,6 +365,8 @@ data class RunView(
     val workflowName: String,
     val status: ExecutionStatus,
     val trigger: ExecutionTrigger,
+    /** For a run an event on a connection started, which connection and event; null otherwise. */
+    val source: ExecutionSourceView?,
     val startedAt: String,
     val finishedAt: String?,
     val durationSeconds: Int?,
@@ -337,12 +378,13 @@ data class RunView(
      */
     val workflowAssigned: Boolean,
 ) {
-    constructor(run: ExecutionView, assigned: Set<Long>) : this(
+    constructor(run: ExecutionView, assigned: Set<Long>, sources: Map<Long, ExecutionSourceView> = emptyMap()) : this(
         id = run.id,
         workflowId = run.workflowId,
         workflowName = run.workflowName,
         status = run.status,
         trigger = run.trigger,
+        source = run.firedTriggerId?.takeIf { run.trigger == ExecutionTrigger.WEBHOOK }?.let(sources::get),
         startedAt = run.startedAt,
         finishedAt = run.finishedAt,
         durationSeconds = run.durationSeconds,
@@ -359,8 +401,8 @@ data class RunPage(
     val totalElements: Int,
     val totalPages: Int,
 ) {
-    constructor(page: ExecutionPage, assigned: Set<Long>) : this(
-        content = page.content.map { RunView(it, assigned) },
+    constructor(page: ExecutionPage, assigned: Set<Long>, sources: Map<Long, ExecutionSourceView> = emptyMap()) : this(
+        content = page.content.map { RunView(it, assigned, sources) },
         page = page.page,
         size = page.size,
         totalElements = page.totalElements,
@@ -436,6 +478,8 @@ data class RunDetailView(
      * said it. Empty for a run that spoke nothing. Issue #264.
      */
     val speeches: List<ExecutionSpeechView> = emptyList(),
+    /** For a run an event on a connection started, which connection and event; null otherwise. */
+    val source: ExecutionSourceView? = null,
 ) {
     constructor(
         run: ExecutionDetailView,
@@ -467,6 +511,15 @@ data class RunDetailView(
         speeches = speeches,
     )
 }
+
+/**
+ * What started a run an event on a connection started: the kind of connection
+ * and the event, so the run says "Slack mention" rather than only "Connection".
+ */
+data class ExecutionSourceView(
+    val connectionType: ConnectionType,
+    val action: TriggerAction,
+)
 
 /** One thing a run said out loud, as the run graph plays it. */
 data class ExecutionSpeechView(

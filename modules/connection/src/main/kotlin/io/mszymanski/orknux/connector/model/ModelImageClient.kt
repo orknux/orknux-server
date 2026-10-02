@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.connector.model
 
+import io.mszymanski.orknux.connector.Unreachable
 import io.mszymanski.orknux.connector.connection.ConnectionProbe
 import io.mszymanski.orknux.connector.proxy.ProxyRouter
 import com.openai.errors.OpenAIServiceException
@@ -193,7 +194,7 @@ class ModelImageClient(
             // the picture is the whole of the request, so a caller with no
             // reason to show has nothing at all to show.
             log.warn("Drawing by {} at {} could not be done", model.name, endpoint, failure)
-            Picture.Failed(failure.message ?: "The picture could not be drawn")
+            Picture.Failed(Unreachable.describe(endpoint, failure))
         }
     }
 
@@ -259,7 +260,7 @@ class ModelImageClient(
             Picture.Drawn(bytes, contentType.takeIf { it.startsWith("image/") } ?: PNG, millis)
         } catch (failure: Exception) {
             log.warn("The picture {} drew could not be collected", name, failure)
-            Picture.Failed(failure.message ?: "The picture could not be collected")
+            Picture.Failed(Unreachable.describe(url, failure, Duration.ofSeconds(FETCH_SECONDS)))
         }
     }
 

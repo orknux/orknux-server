@@ -345,6 +345,13 @@ class TriggerRunner(
                     workflowId = workflowId,
                     trigger = when (trigger.type) {
                         TriggerType.SCHEDULED -> ExecutionTrigger.SCHEDULE
+                        /*
+                         * An event on a connection is stored as WEBHOOK too, and
+                         * deliberately: a value of its own is one an older jar
+                         * cannot read, and a rollback has to be able to open the
+                         * executions list. What it was is the fired trigger's to
+                         * say - see WorkflowExecutionAPI's `source`.
+                         */
                         TriggerType.INCOMING_CONNECTION, TriggerType.WEBHOOK -> ExecutionTrigger.WEBHOOK
                     },
                     payload = payload,
