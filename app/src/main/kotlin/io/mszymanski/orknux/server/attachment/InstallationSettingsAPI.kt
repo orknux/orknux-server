@@ -98,6 +98,8 @@ class InstallationSettingsAPI(
         sessionsRemovable = settings.sessionsRemovable(),
         sessionsActiveWindowSeconds = settings.sessionsActiveWindowSeconds(),
         sessionsActiveWindowSecondsConfigured = settings.sessionsActiveWindowSecondsConfigured(),
+        workspaceCopyLockWaitSeconds = settings.workspaceCopyLockWaitSeconds(),
+        workspaceCopyLockWaitSecondsConfigured = settings.workspaceCopyLockWaitSecondsConfigured(),
     )
 
     /** How long a scratchpad nobody touches is kept; zero keeps them for ever. Issue #492. */
@@ -187,6 +189,24 @@ class InstallationSettingsAPI(
             null,
             WorkspaceAuditCategory.WORKSPACE,
             "A session counts as active for $seconds seconds after its last line",
+        )
+        return installationSettings()
+    }
+
+    /**
+     * How long a step of a workspace copy may wait for a lock. Issue #581: a
+     * copy on Postgres waited for ever, and an installation whose traffic holds
+     * rows longer than a minute says so here.
+     */
+    @MutationMapping
+    fun setWorkspaceCopyLockWaitSeconds(@Argument seconds: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setWorkspaceCopyLockWaitSeconds(seconds, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "A workspace copy waits up to $seconds seconds for a lock",
         )
         return installationSettings()
     }
@@ -807,6 +827,10 @@ data class InstallationSettingsView(
     val sessionsActiveWindowSeconds: Int,
     /** What a fresh installation counts - ORKNUX_SESSIONS_ACTIVE_WINDOW_SECONDS. */
     val sessionsActiveWindowSecondsConfigured: Int,
+    /** How long a step of a workspace copy may wait for a lock, in seconds. Issue #581. */
+    val workspaceCopyLockWaitSeconds: Int,
+    /** What a fresh installation waits: the built-in default. */
+    val workspaceCopyLockWaitSecondsConfigured: Int,
     /** What a fresh installation allows: the built-in default. */
     val pluginMaxSourceKbConfigured: Int,
     /**
