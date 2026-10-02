@@ -14,15 +14,14 @@ were generated for your installation on the first start.
 **This is for trying Orknux, developing against it, and demonstrating it. It is
 not a deployment**, and the reasons are listed under *What this cannot do* below
 rather than left to be discovered. A real installation is
-[`orknux/orknux-server`](https://hub.docker.com/r/orknux/orknux-server) and
-[`orknux/orknux-ui`](https://hub.docker.com/r/orknux/orknux-ui) with a Postgres
-and a Temporal beside them, which is
+[`orknux/orknux-server`](https://hub.docker.com/r/orknux/orknux-server) — the
+same jar, interface included — with a Postgres and a Temporal beside it, which is
 [`deploy/compose.yaml`](https://github.com/michjak-szymanski/orknux-server/blob/main/deploy/compose.yaml).
 
 - **Source:** https://github.com/michjak-szymanski/orknux-server
 - **Licence:** AGPL-3.0-or-later
-- **Exposes:** `8080` — nginx, with `/api`, `/graphql` and `/mcp` forwarded to
-  the server on the loopback address inside the container
+- **Exposes:** `8080` — the server, which serves the interface as well as
+  `/api`, `/graphql` and `/mcp`
 - **Runs as:** `orknux`, not root
 - **Data:** `/var/lib/orknux`
 - **Tags:** `latest` follows `main`; `X.Y.Z` and `X.Y` come from release tags;
@@ -153,8 +152,7 @@ when everything is one container.
 | `ORKNUX_DATA` | Where this image keeps the key and the first password. | `/var/lib/orknux` |
 | `ORKNUX_DB_URL` | The database. Point it at a Postgres and this image will use one. | `jdbc:sqlite:/var/lib/orknux/orknux.db` |
 | `ORKNUX_TEMPORAL_ENABLED` | `false` is what makes one container possible. Setting it `true` requires a reachable Temporal, and the server **refuses to start** without one. | `false` |
-| `ORKNUX_PORT` | The server, behind nginx. Not the published port. | `8081` |
-| `ORKNUX_SERVER_URL` | Where nginx forwards `/api`, `/graphql` and `/mcp`. | `http://127.0.0.1:8081` |
+| `ORKNUX_PORT` | The port the server, and with it the interface, answers on inside the container. Leave it: the healthcheck asks 8080. | `8080` |
 | `ORKNUX_ATTACHMENTS_LOCATION` | Chat attachments, in the volume. | `/var/lib/orknux/attachments` |
 | `ORKNUX_BASE_URL` | Where this installation is: what a mailed password reset link points at, and the host on every picture link handed to a model. A path with no host behind it is a link that resolves nowhere once a model has copied it into a message. | `http://localhost:8080` |
 | `ORKNUX_ALLOWED_ORIGINS` | Empty, because the interface is served from this origin. | empty |
@@ -165,10 +163,10 @@ else: `8080` is fixed inside the container.
 
 ## Health
 
-`HEALTHCHECK` fetches `/api/auth/method` through nginx, so a healthy container
-means both halves are up — the proxy is serving and the server behind it is
-answering. The start period is two minutes, because the first start migrates a
-schema before it answers anything.
+`HEALTHCHECK` fetches `/api/auth/method`, which needs no credentials, so a
+healthy container means the server is answering — and with it the interface,
+which the same process serves. The start period is two minutes, because the first
+start migrates a schema before it answers anything.
 
 ## Upgrading
 
