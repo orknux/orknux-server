@@ -164,9 +164,21 @@ class ReleaseLauncher(
  */
 class JdbcReleaseStore(private val connect: () -> Connection) : ReleaseStore {
 
-    override fun current(): LaunchableRelease? = query(
-        "$SELECT WHERE state IN ('ACTIVATING', 'ACTIVE') ORDER BY id DESC",
-    )
+    /**
+     * Null, and not an error, where the table is not there yet: the first
+     * start after upgrading to the release that brought it runs this before
+     * the server has migrated the schema, and nothing can have been chosen.
+     */
+    override fun current(): LaunchableRelease? {
+        if (!tableExists()) return null
+        return query("$SELECT WHERE state IN ('ACTIVATING', 'ACTIVE') ORDER BY id DESC")
+    }
+
+    private fun tableExists(): Boolean = connect().use { connection ->
+        listOf("server_release", "SERVER_RELEASE").any { name ->
+            connection.metaData.getTables(null, null, name, arrayOf("TABLE")).use { it.next() }
+        }
+    }
 
     override fun row(id: Long): LaunchableRelease? = query("$SELECT WHERE id = ?", id)
 
