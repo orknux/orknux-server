@@ -16,8 +16,12 @@ import io.mszymanski.orknux.server.trigger.WorkflowTriggerRepository
 import io.mszymanski.orknux.server.workspace.Workspace
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
+import tools.jackson.databind.ObjectMapper
+import java.time.OffsetDateTime
+import java.time.format.DateTimeFormatter
 
 /**
  * A workspace copied whole. Issue #408.
@@ -42,6 +46,13 @@ import org.springframework.stereotype.Service
  * matches by name inside the target, so a shared dependency exported twice
  * lands once.
  *
+ * **One copy, from two places.** Issue #590: a workspace can also be written to
+ * a file ([export]) and brought in from one ([importFile]) on another
+ * installation. Both go through [carry], from an [Origin] that is either a
+ * workspace here or a file, so a copy and an import cannot come to carry
+ * different things or in a different order - the retry passes, the lock wait,
+ * the log and the answer are the same code.
+ *
  * ## What is not copied, and why
  *
  * **Runs and sessions.** A copy of a workspace is a copy of how it is set up,
@@ -52,7 +63,7 @@ import org.springframework.stereotype.Service
  * answer. They could be re-encrypted into the copy - the value is readable here
  * - but a credential silently in two places is a credential nobody knows the
  * extent of, and the whole point of marking one is that somebody decides where
- * it goes. So the copy asks rather than assumes.
+ * it goes. So the copy asks rather than assumes. A file holds none either.
  */
 @Service
 class WorkspaceDuplicator(
@@ -75,6 +86,8 @@ class WorkspaceDuplicator(
     private val mcpServers: io.mszymanski.orknux.connector.connection.McpServerRepository,
     private val providers: io.mszymanski.orknux.connector.model.ModelProviderRepository,
     private val models: io.mszymanski.orknux.connector.model.LlmModelRepository,
+    /** The installation's default connections, which an inherited connection is named by in a file. */
+    private val defaultConnections: io.mszymanski.orknux.connector.connection.ConnectionRepository,
     /**
      * One transaction per piece rather than one for the whole copy. Issue #570:
      * a component that failed in the database left the one shared session
@@ -85,6 +98,8 @@ class WorkspaceDuplicator(
     /** Where the copy's lock wait is read and set. Issue #581. */
     private val installation: io.mszymanski.orknux.server.attachment.InstallationSettings,
     dataSource: javax.sql.DataSource,
+    private val mapper: ObjectMapper,
+    @Value("\${orknux.version:unknown}") private val version: String,
 ) {
 
     private val inOwnTransaction = org.springframework.transaction.support.TransactionTemplate(transactions)
@@ -170,6 +185,35 @@ class WorkspaceDuplicator(
     )
 
     /**
+     * Where a copy's pieces come from: a workspace on this installation, or a
+     * file written by one. Issue #590. Everything is handed over as work to do
+     * inside the step that does it, so a piece read from the database is read
+     * in that piece's own transaction, as it always was.
+     */
+    private interface Origin {
+        /** For the log: `workspace 4 "Desk"`, or `file "Desk"`. */
+        val label: String
+        /** The new workspace's settings under [name], with no model chosen yet. */
+        fun settings(name: String): Workspace
+        /** Which models the workspace used for what, by name. */
+        fun modelChoices(): Map<String, ModelName>
+        /** Connections, MCP servers and model providers, by the kind the page names them under. */
+        fun externals(): List<Pair<String, List<ExternalPiece>>>
+        /** Every component, in [order]. */
+        fun components(): List<ComponentPiece>
+        fun variableNames(): List<String>
+    }
+
+    /** One connection, MCP server or provider with its models; [carry] writes it into a workspace. */
+    private class ExternalPiece(
+        val name: () -> String,
+        val carry: (into: Long, needs: MutableList<String>, models: MutableMap<ModelName, Long>) -> String,
+    )
+
+    /** One component. Compared by identity: two pieces are never the same piece. */
+    private class ComponentPiece(val kind: ComponentKind, val ref: String, val name: () -> String, val envelope: () -> String)
+
+    /**
      * Not one transaction, deliberately. The new workspace is committed first,
      * then each component in a transaction of its own, so one that cannot be
      * copied - refused by the plan, or failing in the database - is named in
@@ -185,6 +229,33 @@ class WorkspaceDuplicator(
     ): Copied {
         val source = workspaces.findByIdOrNull(sourceId)
             ?: throw IllegalArgumentException("There is no workspace $sourceId.")
+        return carry(DatabaseOrigin(source), name, by, progress)
+    }
+
+    /**
+     * A workspace file brought in as a new workspace. Issue #590.
+     *
+     * The whole file is read and checked first - its format, its version, and
+     * every row in it - so a file this installation cannot hold is refused
+     * before there is a workspace to clean up. After that it is a copy like any
+     * other, and answers the same way.
+     */
+    fun importFile(
+        content: String,
+        name: String,
+        by: String,
+        progress: (WorkspaceCopyProgress.Step) -> Unit = {},
+    ): Copied = carry(FileOrigin(readWorkspaceFile(mapper, content)), name, by, progress)
+
+    /** The name a file says its workspace had, for an import that is given none. */
+    fun nameIn(content: String): String = readWorkspaceFile(mapper, content).name
+
+    private fun carry(
+        origin: Origin,
+        name: String,
+        by: String,
+        progress: (WorkspaceCopyProgress.Step) -> Unit,
+    ): Copied {
         val wanted = name.trim()
         require(wanted.isNotEmpty()) { "Give the new workspace a name." }
         require(workspaces.findByName(wanted) == null) { "There is already a workspace called \"$wanted\"." }
@@ -198,10 +269,11 @@ class WorkspaceDuplicator(
         val started = System.nanoTime()
         // Read once: a copy is held to the number it started under.
         val wait = installation.workspaceCopyLockWaitSeconds()
-        log.info("Copy of workspace {} \"{}\" as \"{}\" by {}: creating the workspace", sourceId, source.name, wanted, by)
-        val copy = step(wait) { workspaces.save(settingsOf(source, wanted)) }
+        val from = origin.label
+        log.info("Copy of {} as \"{}\" by {}: creating the workspace", from, wanted, by)
+        val copy = step(wait) { workspaces.save(origin.settings(wanted)) }
         val into = requireNotNull(copy.id)
-        log.info("Copy of workspace {} into {}: workspace created", sourceId, into)
+        log.info("Copy of {} into {}: workspace created", from, into)
 
         val counts = linkedMapOf<String, Int>()
         val problems = mutableListOf<String>()
@@ -213,14 +285,14 @@ class WorkspaceDuplicator(
          * a copy spending its time there - or stopped there - looked the same as
          * one that had not begun. A retry later does not move the goalposts.
          */
-        val externals = externalsOf(sourceId)
-        val pending = order.flatMap { kind -> idsOf(sourceId, kind).map { kind to it } }.toMutableList()
+        val externals = origin.externals()
+        val pending = origin.components().toMutableList()
         val totals = linkedMapOf<String, Int>()
-        externals.forEach { (kind, ids) -> if (ids.isNotEmpty()) totals[kind] = ids.size }
-        pending.groupingBy { it.first.label }.eachCount().forEach { (kind, count) -> totals[kind] = count }
+        externals.forEach { (kind, pieces) -> if (pieces.isNotEmpty()) totals[kind] = pieces.size }
+        pending.groupingBy { it.kind.label }.eachCount().forEach { (kind, count) -> totals[kind] = count }
         val overall = totals.values.sum()
         var carried = 0
-        log.info("Copy of workspace {} into {}: {} things to copy {}", sourceId, into, overall, totals)
+        log.info("Copy of {} into {}: {} things to copy {}", from, into, overall, totals)
         totals.keys.firstOrNull()?.let { kind -> progress(WorkspaceCopyProgress.Step(kind, 0, totals.getValue(kind), 0, overall)) }
 
         fun carriedOne(kind: String) {
@@ -244,19 +316,22 @@ class WorkspaceDuplicator(
          * name that is not there, and the copy would say less than it lost.
          */
         val needs = mutableListOf<String>()
-        val modelIds = mutableMapOf<Long, Long>()
-        externals.forEach { (kind, ids) ->
-            ids.forEach { id ->
+        val modelIds = mutableMapOf<ModelName, Long>()
+        externals.forEach { (kind, pieces) ->
+            pieces.forEach { piece ->
                 val what = runCatching {
-                    step(wait) { copyExternal(sourceId, into, kind, id, needs, modelIds) }
-                }.getOrElse { why -> throw stopped(sourceId, into, "$kind \"${externalName(kind, id)}\"", why, wait) }
-                log.info("Copy of workspace {} into {}: {} \"{}\" copied", sourceId, into, kind, what)
+                    step(wait) { piece.carry(into, needs, modelIds) }
+                }.getOrElse { why ->
+                    val called = runCatching { piece.name() }.getOrDefault("?")
+                    throw stopped(from, into, "$kind \"$called\"", why, wait)
+                }
+                log.info("Copy of {} into {}: {} \"{}\" copied", from, into, kind, what)
                 carriedOne(kind)
             }
         }
-        log.info("Copy of workspace {} into {}: pointing the workspace's model settings at the copies", sourceId, into)
-        runCatching { step(wait) { remapModels(into, modelIds) } }
-            .onFailure { why -> throw stopped(sourceId, into, "the workspace's model settings", why, wait) }
+        log.info("Copy of {} into {}: pointing the workspace's model settings at the copies", from, into)
+        runCatching { step(wait) { remapModels(into, origin.modelChoices(), modelIds) } }
+            .onFailure { why -> throw stopped(from, into, "the workspace's model settings", why, wait) }
 
         /*
          * Copied kind by kind, and then again for what did not come. Issue #570:
@@ -266,25 +341,18 @@ class WorkspaceDuplicator(
          * pass carries nothing new; what is left then is genuinely missing, and
          * is reported with the reason from its last attempt.
          */
-        order.forEach { kind -> if (pending.any { it.first == kind }) counts[kind.label] = 0 }
-        val lastWhy = mutableMapOf<Pair<ComponentKind, Long>, String?>()
+        order.forEach { kind -> if (pending.any { it.kind == kind }) counts[kind.label] = 0 }
+        val lastWhy = mutableMapOf<ComponentPiece, String?>()
         var pass = 0
         while (pending.isNotEmpty()) {
             val before = pending.size
             pass += 1
-            log.info("Copy of workspace {} into {}: pass {}, {} components left", sourceId, into, pass, before)
-            pending.toList().forEach { (kind, id) ->
-                log.info("Copy of workspace {} into {}: copying {} {}", sourceId, into, kind.label, id)
-                /*
-                 * Shallow, because the order above has already put everything
-                 * this points at in place. Deep would export each dependency
-                 * again with every component that touches it, which the
-                 * importer would match by name and discard - correct, and a
-                 * great deal of work to arrive at the same place.
-                 */
+            log.info("Copy of {} into {}: pass {}, {} components left", from, into, pass, before)
+            pending.toList().forEach { piece ->
+                log.info("Copy of {} into {}: copying {} {}", from, into, piece.kind.label, piece.ref)
                 runCatching {
                     step(wait) {
-                        val envelope = exporter.export(sourceId, kind, id, ExportDepth.SHALLOW)
+                        val envelope = piece.envelope()
                         /*
                          * Planned before it is applied: the plan writes nothing
                          * and joins no transaction, so a component that cannot
@@ -296,29 +364,29 @@ class WorkspaceDuplicator(
                     }
                 }
                     .onSuccess {
-                        pending.remove(kind to id)
-                        carriedOne(kind.label)
+                        pending.remove(piece)
+                        carriedOne(piece.kind.label)
                     }
                     .onFailure { why ->
-                        lastWhy[kind to id] = reasonOf(why, wait)
-                        log.info("Copy of workspace {} into {}: {} {} not copied on pass {}: {}", sourceId, into, kind.label, id, pass, lastWhy[kind to id])
+                        lastWhy[piece] = reasonOf(why, wait)
+                        log.info("Copy of {} into {}: {} {} not copied on pass {}: {}", from, into, piece.kind.label, piece.ref, pass, lastWhy[piece])
                     }
             }
             if (pending.size == before) break
         }
-        pending.forEach { (kind, id) ->
-            val called = runCatching { nameOf(sourceId, kind, id) }.getOrNull() ?: id.toString()
-            val why = lastWhy[kind to id]
-            log.warn("Copying {} {} into workspace {} failed: {}", kind.label, called, into, why)
-            problems += "${kind.label} \"$called\" was not copied: $why"
+        pending.forEach { piece ->
+            val called = runCatching { piece.name() }.getOrNull() ?: piece.ref
+            val why = lastWhy[piece]
+            log.warn("Copying {} {} into workspace {} failed: {}", piece.kind.label, called, into, why)
+            problems += "${piece.kind.label} \"$called\" was not copied: $why"
         }
 
-        log.info("Copy of workspace {} into {}: naming the variables", sourceId, into)
-        val secrets = copyVariables(sourceId, into)
+        log.info("Copy of {} into {}: naming the variables", from, into)
+        val secrets = origin.variableNames()
         if (secrets.isNotEmpty()) counts["variable"] = (counts["variable"] ?: 0)
         log.info(
-            "Copy of workspace {} into {}: done in {} ms, {} copied, {} not",
-            sourceId, into, (System.nanoTime() - started) / 1_000_000, carried, problems.size,
+            "Copy of {} into {}: done in {} ms, {} copied, {} not",
+            from, into, (System.nanoTime() - started) / 1_000_000, carried, problems.size,
         )
 
         return Copied(
@@ -335,12 +403,186 @@ class WorkspaceDuplicator(
      * A step the copy cannot go on without, failed: logged with where it
      * stopped, and answered as a sentence. Issue #581.
      */
-    private fun stopped(from: Long, into: Long, at: String, why: Throwable, wait: Int): WorkspaceCopyStoppedException {
+    private fun stopped(from: String, into: Long, at: String, why: Throwable, wait: Int): WorkspaceCopyStoppedException {
         val reason = reasonOf(why, wait)
-        log.warn("Copy of workspace {} into {} stopped at {}: {}", from, into, at, reason, why)
+        log.warn("Copy of {} into {} stopped at {}: {}", from, into, at, reason, why)
         val made = workspaces.findByIdOrNull(into)?.name ?: into.toString()
         return WorkspaceCopyStoppedException(made, at, reason)
     }
+
+    /** A workspace on this installation, read piece by piece as the copy goes. */
+    private inner class DatabaseOrigin(private val source: Workspace) : Origin {
+        private val sourceId = requireNotNull(source.id)
+
+        override val label = "workspace $sourceId \"${source.name}\""
+
+        override fun settings(name: String) = settingsOf(source, name)
+
+        override fun modelChoices(): Map<String, ModelName> = WORKSPACE_MODEL_CHOICES.mapNotNull { choice ->
+            choice.get(source)?.let(::modelNameOf)?.let { choice.key to it }
+        }.toMap()
+
+        override fun externals() = externalsOf(sourceId).map { (kind, ids) ->
+            kind to ids.map { id ->
+                ExternalPiece(
+                    name = { externalName(kind, id) },
+                    carry = { into, needs, modelIds -> copyExternal(sourceId, into, kind, id, needs, modelIds) },
+                )
+            }
+        }
+
+        override fun components() = order.flatMap { kind ->
+            idsOf(sourceId, kind).map { id ->
+                /*
+                 * Shallow, because the order above has already put everything
+                 * this points at in place. Deep would export each dependency
+                 * again with every component that touches it, which the
+                 * importer would match by name and discard - correct, and a
+                 * great deal of work to arrive at the same place.
+                 */
+                ComponentPiece(kind, id.toString(), { nameOf(sourceId, kind, id) }) {
+                    exporter.export(sourceId, kind, id, ExportDepth.SHALLOW)
+                }
+            }
+        }
+
+        override fun variableNames() = copyVariables(sourceId)
+    }
+
+    /** A workspace file, already read and checked whole. Issue #590. */
+    private inner class FileOrigin(private val file: WorkspaceFileContent) : Origin {
+
+        override val label = "file \"${file.name}\""
+
+        override fun settings(name: String) = Workspace(name = name).also { made ->
+            WORKSPACE_SETTINGS.forEach { it.read(file.settings, made) }
+        }
+
+        override fun modelChoices() = file.models
+
+        override fun externals() = listOf(
+            "connection" to file.connections.map { node ->
+                ExternalPiece({ node.path("name").asString("?") }) { into, needs, _ ->
+                    /*
+                     * An inherited connection reads the installation's default
+                     * of the same name here, if this installation has one; one
+                     * that has not is a connection of the workspace's own, and
+                     * needs what the default would have given it.
+                     */
+                    val inherits = node.path("inherits").takeIf { it.isString }?.asString()
+                    val default = inherits?.let { defaultConnections.findByName(it) }
+                    val made = connections.save(connectionFrom(node, into, default?.id))
+                    val needed = node.path("credentialNeeded").asBoolean(false) || (inherits != null && default == null)
+                    if (default == null && needed) needs += "connection ${made.name}"
+                    made.name
+                }
+            },
+            "mcp server" to file.mcpServers.map { node ->
+                ExternalPiece({ node.path("name").asString("?") }) { into, needs, _ ->
+                    val made = mcpServers.save(mcpServerFrom(node, into))
+                    if (node.path("credentialNeeded").asBoolean(false)) needs += "MCP server ${made.name}"
+                    made.name
+                }
+            },
+            "model provider" to file.providers.map { node ->
+                ExternalPiece({ node.path("name").asString("?") }) { into, needs, modelIds ->
+                    val made = providers.save(providerFrom(node, into))
+                    if (node.path("credentialNeeded").asBoolean(false)) needs += "model provider ${made.name}"
+                    node.path("models").values().forEach { model ->
+                        val saved = models.save(modelFrom(model, requireNotNull(made.id), made.name))
+                        modelIds.putIfAbsent(ModelName(made.name, saved.name), requireNotNull(saved.id))
+                    }
+                    made.name
+                }
+            },
+        )
+
+        override fun components() = order.flatMap { kind ->
+            file.components.filter { it.kind == kind }.map { held ->
+                ComponentPiece(kind, held.name, { held.name }) { mapper.writeValueAsString(held.envelope) }
+            }
+        }
+
+        override fun variableNames() = file.variables
+    }
+
+    /**
+     * The whole workspace as one file. Issue #590.
+     *
+     * What [duplicate] would carry, written down: the settings, each external
+     * without its credential (saying which had one), every component as a
+     * shallow envelope in the order a copy brings them, and the variables by
+     * name. Read in one transaction, so the file is one moment of the workspace.
+     */
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
+    fun export(sourceId: Long): String {
+        val source = workspaces.findByIdOrNull(sourceId)
+            ?: throw IllegalArgumentException("There is no workspace $sourceId.")
+        val root = mapper.createObjectNode()
+        root.put("format", WORKSPACE_FILE_FORMAT)
+        root.put("formatVersion", WORKSPACE_FILE_VERSION)
+        // Only ever quoted back in a message; nothing branches on it.
+        root.put("producedBy", "Orknux $version")
+        root.put("exportedAt", OffsetDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME))
+
+        val workspace = root.putObject("workspace")
+        workspace.put("name", source.name)
+        val settings = workspace.putObject("settings")
+        WORKSPACE_SETTINGS.forEach { it.write(source, settings) }
+        val chosen = workspace.putObject("models")
+        WORKSPACE_MODEL_CHOICES.forEach { choice ->
+            val named = choice.get(source)?.let(::modelNameOf)
+            if (named == null) chosen.putNull(choice.key) else chosen.putObject(choice.key).put("provider", named.provider).put("name", named.name)
+        }
+
+        val byName = org.springframework.data.domain.Sort.by("name")
+        val connectionRows = root.putArray("connections")
+        connections.findByWorkspaceId(sourceId, byName).forEach { held ->
+            val inherits = held.connectionId?.let { defaultConnections.findByIdOrNull(it)?.name }
+            connectionNode(held, inherits, held.connectionId == null && hadCredential(held), connectionRows.addObject())
+        }
+        val serverRows = root.putArray("mcpServers")
+        mcpServers.findByWorkspaceId(sourceId, byName).forEach { held ->
+            mcpServerNode(held, held.secretVariableId != null || !held.secret.isNullOrBlank(), serverRows.addObject())
+        }
+        val providerRows = root.putArray("modelProviders")
+        providers.findByWorkspaceId(sourceId, byName).forEach { held ->
+            val row = providerRows.addObject()
+            providerNode(held, held.secretVariableId != null || !held.secret.isNullOrBlank(), row)
+            val modelRows = row.putArray("models")
+            models.findByProviderId(requireNotNull(held.id)).sortedBy { it.name }.forEach { modelNode(it, modelRows.addObject()) }
+        }
+
+        val components = root.putArray("components")
+        order.forEach { kind ->
+            idsOf(sourceId, kind).forEach { id ->
+                components.add(mapper.readTree(exporter.export(sourceId, kind, id, ExportDepth.SHALLOW)))
+            }
+        }
+        val names = root.putArray("variables")
+        copyVariables(sourceId).forEach { names.add(it) }
+        return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(root)
+    }
+
+    /** `Support desk.orkx-workspace.json` - the workspace's own name, made safe to save. */
+    fun fileNameFor(sourceId: Long): String {
+        val name = workspaces.findByIdOrNull(sourceId)?.name ?: "workspace"
+        val safe = name.map { if (it.isLetterOrDigit() || it in "-_ .") it else '-' }.joinToString("").trim(' ', '-', '.')
+            .ifEmpty { "workspace" }
+        return "$safe.orkx-workspace.json"
+    }
+
+    /** A model by its provider's name and its own, which is how anything outside this database names one. */
+    private fun modelNameOf(modelId: Long): ModelName? {
+        val model = models.findByIdOrNull(modelId) ?: return null
+        val provider = providers.findByIdOrNull(model.providerId) ?: return null
+        return ModelName(provider.name, model.name)
+    }
+
+    private fun hadCredential(held: io.mszymanski.orknux.connector.connection.WorkspaceConnection) =
+        held.secretVariableId != null || !held.secret.isNullOrBlank() ||
+            held.appTokenVariableId != null || !held.appToken.isNullOrBlank() ||
+            held.userTokenVariableId != null || !held.userToken.isNullOrBlank()
 
     /**
      * The connections, MCP servers and model providers a workspace holds, by
@@ -386,7 +628,7 @@ class WorkspaceDuplicator(
         kind: String,
         id: Long,
         needs: MutableList<String>,
-        modelIds: MutableMap<Long, Long>,
+        modelIds: MutableMap<ModelName, Long>,
     ): String = when (kind) {
         "connection" -> {
             val held = requireNotNull(connections.findByIdOrNull(id)?.takeIf { it.workspaceId == from })
@@ -410,10 +652,7 @@ class WorkspaceDuplicator(
                     }.toMutableList(),
                 ),
             )
-            val hadCredential = held.secretVariableId != null || !held.secret.isNullOrBlank() ||
-                held.appTokenVariableId != null || !held.appToken.isNullOrBlank() ||
-                held.userTokenVariableId != null || !held.userToken.isNullOrBlank()
-            if (held.connectionId == null && hadCredential) needs += "connection ${held.name}"
+            if (held.connectionId == null && hadCredential(held)) needs += "connection ${held.name}"
             held.name
         }
 
@@ -443,7 +682,7 @@ class WorkspaceDuplicator(
             models.findByProviderId(id).forEach { model ->
                 log.info("Copy of workspace {} into {}: model \"{}\" of \"{}\"", from, into, model.name, held.name)
                 val made = models.save(model.copied(providerId = requireNotNull(copy.id), name = model.name))
-                modelIds[requireNotNull(model.id)] = requireNotNull(made.id)
+                modelIds.putIfAbsent(ModelName(held.name, model.name), requireNotNull(made.id))
             }
             held.name
         }
@@ -452,61 +691,36 @@ class WorkspaceDuplicator(
     /**
      * The workspace's own model choices, pointed at the copies. Issue #570: the
      * settings were carried as ids, which named the source workspace's models -
-     * a copy whose chat would think with another workspace's provider.
+     * a copy whose chat would think with another workspace's provider. By name
+     * since #590, which is the only way a file can say it; a choice naming a
+     * model that was not carried is left unset rather than guessed.
      */
-    private fun remapModels(into: Long, copied: Map<Long, Long>) {
+    private fun remapModels(into: Long, chosen: Map<String, ModelName>, copied: Map<ModelName, Long>) {
         val copy = workspaces.findByIdOrNull(into) ?: return
-        fun mapped(id: Long?): Long? = id?.let { copied[it] }
-        copy.companionModelId = mapped(copy.companionModelId)
-        copy.transcriptionModelId = mapped(copy.transcriptionModelId)
-        copy.speechModelId = mapped(copy.speechModelId)
-        copy.compactionModelId = mapped(copy.compactionModelId)
-        copy.imageModelId = mapped(copy.imageModelId)
-        copy.quickChatModelId = mapped(copy.quickChatModelId)
-        copy.sessionCompactionModelId = mapped(copy.sessionCompactionModelId)
+        WORKSPACE_MODEL_CHOICES.forEach { choice -> choice.set(copy, chosen[choice.key]?.let { copied[it] }) }
         workspaces.save(copy)
     }
 
     /**
      * The workspace's own settings, carried onto the copy.
      *
-     * Everything a workspace decides about itself: which models it uses, its
-     * compaction, its ceilings. Not its roles - who may see a workspace is a
-     * decision about people rather than about the setup, and copying it would
-     * silently widen access to a workspace nobody has reviewed yet.
+     * Everything a workspace decides about itself: its compaction, its
+     * ceilings, its voice - [WORKSPACE_SETTINGS] is the list, and a file writes
+     * the same one. Not its roles - who may see a workspace is a decision about
+     * people rather than about the setup, and copying it would silently widen
+     * access to a workspace nobody has reviewed yet. Not its model choices,
+     * which are pointed at the copies once those exist.
      */
-    private fun settingsOf(source: Workspace, name: String) = Workspace(
-        name = name,
-        description = source.description,
-        companionModelId = source.companionModelId,
-        transcriptionModelId = source.transcriptionModelId,
-        speechModelId = source.speechModelId,
-        compactAfterTokens = source.compactAfterTokens,
-        compactionSummaryTokens = source.compactionSummaryTokens,
-        compactionModelId = source.compactionModelId,
-        imageModelId = source.imageModelId,
-        quickChatModelId = source.quickChatModelId,
-        quickChatMayWrite = source.quickChatMayWrite,
-        chatShowTimestamps = source.chatShowTimestamps,
-        defaultMemoryShare = source.defaultMemoryShare,
-        taskMaxTurns = source.taskMaxTurns,
-        agentMaxSubagents = source.agentMaxSubagents,
-        maxToolCallsAtOnce = source.maxToolCallsAtOnce,
-        sessionCompactAfterTokens = source.sessionCompactAfterTokens,
-        sessionCompactionKeepTurns = source.sessionCompactionKeepTurns,
-        sessionCompactionSummaryTokens = source.sessionCompactionSummaryTokens,
-        sessionCompactionAttempts = source.sessionCompactionAttempts,
-        sessionCompactionModelId = source.sessionCompactionModelId,
-        unsafeBuiltInTools = source.unsafeBuiltInTools,
-        commandMarker = source.commandMarker,
-    )
+    private fun settingsOf(source: Workspace, name: String) = Workspace(name = name).also { copy ->
+        WORKSPACE_SETTINGS.forEach { it.copy(source, copy) }
+    }
 
     /**
      * The variables, with the secret ones emptied.
      *
      * @return the names that arrived without a value, for somebody to set.
      */
-    private fun copyVariables(from: Long, into: Long): List<String> {
+    private fun copyVariables(from: Long): List<String> {
         val secrets = mutableListOf<String>()
         variables.findByWorkspaceId(from, Pageable.unpaged()).content.forEach { held ->
             secrets += held.name

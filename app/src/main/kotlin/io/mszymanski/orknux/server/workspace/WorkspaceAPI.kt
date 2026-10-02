@@ -155,6 +155,46 @@ class WorkspaceAPI(
         )
     }
 
+    /**
+     * A workspace file brought in as a new workspace. Issue #590.
+     *
+     * The other half of the Export row action, and answered the way a
+     * duplicate is: what came, what needs a credential, which variables need a
+     * value, and what could not come. The file arrives as the text the page
+     * read, like a component import's envelope.
+     *
+     * Named by the file when the caller names nothing: the first free of
+     * "<name>", "<name> 2", ... A name the caller chose that is taken is
+     * refused rather than changed, since it was a choice.
+     */
+    @MutationMapping
+    fun importWorkspace(@Argument content: String, @Argument name: String?, @Argument progressKey: String?): WorkspaceCopyView {
+        access.requireAdmin()
+        val chosen = name?.trim()?.takeIf { it.isNotEmpty() }
+        if (chosen != null && repository.findByName(chosen) != null) throw WorkspaceNameTakenException(chosen)
+        val wanted = chosen ?: nextFreeName(duplicator.nameIn(content).trim())
+        val by = org.springframework.security.core.context.SecurityContextHolder
+            .getContext().authentication?.name ?: "system"
+        val key = progressKey?.trim()?.takeIf { it.isNotEmpty() }
+        val made = try {
+            duplicator.importFile(content, wanted, by) { step -> key?.let { copyProgress.report(it, step) } }
+        } finally {
+            key?.let { copyProgress.forget(it) }
+        }
+        auditRecorder.record(made.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Workspace ${made.name} imported")
+        return WorkspaceCopyView(
+            workspace = repository.findByIdOrNull(made.workspaceId) ?: throw WorkspaceNotFoundException(made.workspaceId),
+            carried = made.counts.map { (kind, count) -> CopiedKind(kind, count) },
+            variablesToSet = made.secretsToSet,
+            credentialsToSet = made.credentialsToSet,
+            problems = made.problems,
+        )
+    }
+
+    private fun nextFreeName(base: String): String = generateSequence(1) { it + 1 }
+        .map { if (it == 1) base else "$base $it" }
+        .first { repository.findByName(it) == null }
+
     private fun nextCopyName(original: String): String {
         val base = original.replace(Regex(""" copy(?: \d+)?$"""), "")
         return generateSequence(1) { it + 1 }

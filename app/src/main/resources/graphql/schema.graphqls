@@ -1510,6 +1510,20 @@ type Mutation {
         progressKey: String
     ): WorkspaceCopy!
     """
+    Brings in a workspace file - what GET /api/workspaces/{id}/export downloads -
+    as a new workspace. Issue #590. Carries what a duplicate carries, and answers
+    the same way; a file of another kind, or of a newer format than this
+    installation reads, is refused before anything is created.
+    """
+    importWorkspace(
+        "The file's text, as the page read it."
+        content: String!
+        "The new workspace's name. Left out, the file's, or the first free one of <name> 2, <name> 3; a name given and taken is refused."
+        name: String
+        "A key the page makes up, to read how far the import has got with workspaceCopyProgress."
+        progressKey: String
+    ): WorkspaceCopy!
+    """
     Saves the workspace settings form. Name and description for anybody who
     administers this workspace; the two role lists for an installation
     administrator only, since whoever edits them decides who else gets in.

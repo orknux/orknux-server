@@ -289,4 +289,27 @@ class WorkspaceDuplicateTest(
                 .isEmpty()
         }
     }
+
+    /**
+     * And every setting of the workspace itself. Issue #590: the copy carried a
+     * hand-kept list that had fallen behind the entity - the timeouts and the
+     * voice settings stayed with the original - and a file has to carry the same
+     * list. Both read [WORKSPACE_SETTINGS] now; a field added to [Workspace] and
+     * not put there or here fails.
+     */
+    @Test
+    fun `every field of a workspace is either a carried setting, a model choice, or left on purpose`() {
+        val fields = Workspace::class.java.declaredFields
+            .filter { !java.lang.reflect.Modifier.isStatic(it.modifiers) && !it.isSynthetic }
+            .map { it.name }.toSet()
+        // Its id and its name are the copy's own; who may see it is a decision about people.
+        val left = setOf("id", "name", "roles", "adminRoles")
+        // Carried by name and pointed at the copied models.
+        val models = setOf("companionModelId", "transcriptionModelId", "speechModelId", "compactionModelId",
+            "imageModelId", "quickChatModelId", "sessionCompactionModelId")
+        assertThat(WORKSPACE_MODEL_CHOICES).hasSize(models.size)
+        assertThat(fields - WORKSPACE_SETTINGS.map { it.key }.toSet() - models - left)
+            .describedAs("fields of Workspace a copy and a workspace file have not decided on")
+            .isEmpty()
+    }
 }
