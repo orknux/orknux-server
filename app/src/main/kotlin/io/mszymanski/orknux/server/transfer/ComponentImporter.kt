@@ -174,11 +174,13 @@ class ComponentImporter(
             .mapNotNull { entry -> entry.kind?.let { it to entry.name } }
             .toSet()
         val held = parsed.components.filter { (it.kind to it.name) !in leftOut }
-        // And the tools an agent is to arrive without: references left out, which
-        // are the rows that are EXCLUDE and not carried. Issue #383.
-        val dropped = plan.entries.filter { it.disposition == ImportDisposition.EXCLUDE && !it.carried }
-            .map { it.name }
-            .toSet()
+        // And the tools and MCP servers an agent is to arrive without: references
+        // left out, which are the rows that are EXCLUDE and not carried. Kept
+        // apart by kind, so a tool and a server sharing a name cannot take each
+        // other with them. Issues #383 and #580.
+        val droppedRows = plan.entries.filter { it.disposition == ImportDisposition.EXCLUDE && !it.carried }
+        val dropped = droppedRows.filter { it.kind == ComponentKind.TOOL }.map { it.name }.toSet()
+        val droppedServers = droppedRows.filter { it.external == ExternalKind.MCP_SERVER }.map { it.name }.toSet()
 
         // What the file could not carry, settled before anything is written:
         // by name where the target has one, and by what the caller bound where
@@ -186,6 +188,7 @@ class ComponentImporter(
         // was previewed and what is written cannot come apart.
         val told = bindings.associateBy { it.kind to it.name }
         val bound = held.flatMap(::externalsOf).distinct()
+            .filterNot { it.kind == ExternalKind.MCP_SERVER && it.label in droppedServers }
             .mapNotNull { reference ->
                 boundTo(workspaceId, reference, told)?.let { (reference.kind to reference.label) to it }
             }
@@ -239,7 +242,7 @@ class ComponentImporter(
         objects.forEach { component -> wireObject(workspaceId, component, resolved) }
         written.filter { it.kind != ComponentKind.OBJECT }.forEach { component ->
             val here = named.getValue(component.kind to component.name)
-            resolved[component.kind to component.name] = create(workspaceId, component, here, resolved, bound, dropped)
+            resolved[component.kind to component.name] = create(workspaceId, component, here, resolved, bound, dropped, droppedServers)
         }
 
         plan.entries.filter { it.kind != null && it.disposition in WRITTEN }.forEach { entry ->
@@ -274,13 +277,32 @@ class ComponentImporter(
         val agentTools = parsed.components.filter { it.kind == ComponentKind.AGENT }
             .flatMap { it.node.names("toolRefs") }
             .toSet()
-        val dropped = exclude.filter { (it.kind to it.name) !in inFile }.map { one ->
-            if (one.kind != ComponentKind.TOOL || one.name !in agentTools) {
-                throw ImportExclusionUnknownException(one.kind, one.name)
+        /*
+         * And an MCP server an agent points at, for the same reason: it is one
+         * more entry in a grant list, and an agent without it is still the
+         * agent. No file carries one, so without this the only way past a
+         * server that exists nowhere here was to make one. A model is not
+         * like this - an agent without one cannot think. Issue #580.
+         */
+        val agentServers = parsed.components.filter { it.kind == ComponentKind.AGENT }
+            .flatMap { it.node.names("mcpServerRefs") }
+            .toSet()
+        val (externalExclusions, componentExclusions) = exclude.partition { it.external != null }
+        val droppedServers = externalExclusions.map { one ->
+            val external = requireNotNull(one.external)
+            if (one.kind != null || external != ExternalKind.MCP_SERVER || one.name !in agentServers) {
+                throw ImportExclusionUnknownException(external.label, one.name)
             }
             one.name
         }.toSet()
-        val leftOut = leftOut(workspaceId, parsed, exclude.filter { (it.kind to it.name) in inFile })
+        val dropped = componentExclusions.filter { (it.kind to it.name) !in inFile }.map { one ->
+            val kind = one.kind ?: throw ImportExclusionUnknownException("component", one.name)
+            if (kind != ComponentKind.TOOL || one.name !in agentTools) {
+                throw ImportExclusionUnknownException(kind.label, one.name)
+            }
+            one.name
+        }.toSet()
+        val leftOut = leftOut(workspaceId, parsed, componentExclusions.filter { (it.kind to it.name) in inFile })
         val held = parsed.components.filter { (it.kind to it.name) !in leftOut }
         val carried = held.map { it.kind to it.name }.toSet()
         val entries = mutableListOf<ImportEntry>()
@@ -465,6 +487,20 @@ class ComponentImporter(
                 if (!asked.add(reference.kind to reference.label)) return@forEach
                 val kind = reference.kind
                 val was = reference.type?.let { " (${it.lowercase().replace('_', ' ')})" }.orEmpty()
+                // Only an agent's MCP server can go; see agentServers. Issue #580.
+                val droppable = kind == ExternalKind.MCP_SERVER && component.kind == ComponentKind.AGENT
+                if (droppable && reference.label in droppedServers) {
+                    entries += ImportEntry(
+                        kind = null,
+                        external = kind,
+                        name = reference.label,
+                        targetName = reference.label,
+                        droppable = true,
+                        disposition = ImportDisposition.EXCLUDE,
+                        detail = "Left out: ${component.name} arrives without it.",
+                    )
+                    return@forEach
+                }
                 val here = boundTo(workspaceId, reference, told)
                     ?.let { externals.labelOf(workspaceId, kind, it) }
                 if (here == null) {
@@ -473,10 +509,15 @@ class ComponentImporter(
                         external = kind,
                         name = reference.label,
                         targetName = reference.label,
+                        droppable = droppable,
                         disposition = ImportDisposition.MISSING,
                         detail = "${component.name} points at ${kind.indefinite} called ${reference.label}$was. " +
                             "A ${kind.label} is kept beside a credential, so no export carries one — say which " +
-                            "of this workspace's own it means, or make one and import again.",
+                            "of this workspace's own it means, " + if (droppable) {
+                                "make one and import again, or leave it out and ${component.name} arrives without it."
+                            } else {
+                                "or make one and import again."
+                            },
                     )
                     problems += "There is no ${kind.label} called ${reference.label} here, and " +
                         "${component.name} needs one."
@@ -486,6 +527,7 @@ class ComponentImporter(
                         external = kind,
                         name = reference.label,
                         targetName = here,
+                        droppable = droppable,
                         disposition = ImportDisposition.REUSE,
                         detail = "The imported ${component.name} will point at $here. Its credentials are this " +
                             "workspace's own; nothing came from the file but the name.",
@@ -573,8 +615,9 @@ class ComponentImporter(
         val out = mutableMapOf<Pair<ComponentKind, String>, String>()
 
         asked.forEach { one ->
-            if (one.kind to one.name !in carried) throw ImportExclusionUnknownException(one.kind, one.name)
-            out[one.kind to one.name] = "Left out: nothing is created for it, and it is still in the file."
+            val kind = one.kind ?: throw ImportExclusionUnknownException("component", one.name)
+            if (kind to one.name !in carried) throw ImportExclusionUnknownException(kind.label, one.name)
+            out[kind to one.name] = "Left out: nothing is created for it, and it is still in the file."
         }
 
         var settled = false
@@ -866,6 +909,8 @@ class ComponentImporter(
         bound: Map<Pair<ExternalKind, String>, Long>,
         /** The tools an agent is to arrive without. Issue #383. */
         dropped: Set<String> = emptySet(),
+        /** The MCP servers an agent is to arrive without. Issue #580. */
+        droppedServers: Set<String> = emptySet(),
     ): Long {
         val node = component.node
         val now = OffsetDateTime.now()
@@ -1076,10 +1121,14 @@ class ComponentImporter(
                     // the file used: an agent holds the name, so binding "Jira"
                     // to this workspace's "Jira (staging)" has to write the
                     // second one or the grant would point at nothing.
-                    mcpServers = node.names("mcpServerRefs").mapNotNull { server ->
-                        bound[ExternalKind.MCP_SERVER to server]
-                            ?.let { externals.labelOf(workspaceId, ExternalKind.MCP_SERVER, it) }
-                    }.toMutableList(),
+                    // A server left out is skipped by name, not by being unbound:
+                    // one this workspace has by that name would bind itself.
+                    mcpServers = node.names("mcpServerRefs")
+                        .filter { it !in droppedServers }
+                        .mapNotNull { server ->
+                            bound[ExternalKind.MCP_SERVER to server]
+                                ?.let { externals.labelOf(workspaceId, ExternalKind.MCP_SERVER, it) }
+                        }.toMutableList(),
                     // A tool it was granted may have been renamed on the way in,
                     // and the grant follows it, exactly as every other reference
                     // in the file does.
@@ -1634,10 +1683,10 @@ data class ImportEntry(
      */
     val carried: Boolean = false,
     /**
-     * Whether this reference can be left out of the import: a tool an agent
-     * points at, which the agent can arrive without. The one kind of reference
-     * a screen may offer to remove, beside everything the file carries.
-     * Issue #383.
+     * Whether this reference can be left out of the import: a tool or an MCP
+     * server an agent points at, which the agent can arrive without. The only
+     * references a screen may offer to remove, beside everything the file
+     * carries. Issues #383 and #580.
      */
     val droppable: Boolean = false,
     /** The name in the file; for a model, the provider's name and the model's. */
@@ -1679,8 +1728,15 @@ data class ComponentBinding(
  * ignored — see [ImportExclusionUnknownException].
  */
 data class ComponentExclusion(
-    val kind: ComponentKind,
+    /** Set for a component, or for a tool an agent points at. */
+    val kind: ComponentKind? = null,
     val name: String,
+    /**
+     * Set instead of [kind] for an MCP server an agent points at, the one
+     * external that may be left out: the agent arrives without the grant.
+     * Issue #580.
+     */
+    val external: ExternalKind? = null,
 )
 
 /**

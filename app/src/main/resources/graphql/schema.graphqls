@@ -8044,9 +8044,15 @@ is a mention rather than a thing, so removing it would leave whatever mentioned
 it pointing at nowhere. One of those is refused rather than ignored.
 """
 input ComponentExclusionInput {
-    kind: ComponentKind!
+    "Set for a component the file carries, or a tool an agent in it points at."
+    kind: ComponentKind
     "The name in the file, as the plan gave it."
     name: String!
+    """
+    Set instead of `kind` for an MCP server an agent points at: the agent arrives
+    without the grant. The one external that may be left out. Issue #580.
+    """
+    external: ExternalKind
 }
 
 """
@@ -8125,9 +8131,9 @@ type ComponentImportEntry {
     """
     carried: Boolean!
     """
-    Whether this reference may be left out: a tool an agent points at, which the
-    agent can arrive without. The one kind of reference a screen may offer to
-    remove, beside everything the file carries. Issue #383.
+    Whether this reference may be left out: a tool or an MCP server an agent
+    points at, which the agent can arrive without. The only references a screen
+    may offer to remove, beside everything the file carries. Issues #383, #580.
     """
     droppable: Boolean!
     "The name in the file; for a model, the provider's name and the model's."

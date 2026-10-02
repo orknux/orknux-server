@@ -270,10 +270,10 @@ class ImportBindingInvalidException(kind: ExternalKind, name: String, targetId: 
  * is also the answer to the mistake worth naming — a plan lists what the file
  * points at beside what it holds, and only what it holds can be left out.
  */
-class ImportExclusionUnknownException(kind: ComponentKind, name: String) : RuntimeException(
-    "This file carries no ${kind.label} called $name, so there is none to leave out. What can be left out is " +
-        "what the file carries, and a tool an agent in it points at; anything else it points at has to " +
-        "exist here instead. Nothing was imported.",
+class ImportExclusionUnknownException(label: String, name: String) : RuntimeException(
+    "This file carries no $label called $name, so there is none to leave out. What can be left out is " +
+        "what the file carries, and a tool or an MCP server an agent in it points at; anything else it " +
+        "points at has to exist here instead. Nothing was imported.",
 )
 
 /**
