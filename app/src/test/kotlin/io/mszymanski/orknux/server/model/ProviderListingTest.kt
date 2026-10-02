@@ -102,12 +102,30 @@ class ProviderListingTest(
         assertThat(checked.lastCheckMessage).doesNotContain("No model list")
     }
 
-    private fun provider(endpoint: String): Long = requireNotNull(
+    /**
+     * A provider with nothing listening says where it was looked for and what
+     * stopped it - not the SDK's "Request failed", and not "No model list",
+     * which the fallback used to say about a server that was not there at all
+     * and which sends whoever reads it to check a path that was right.
+     */
+    @Test
+    fun `a provider nothing is listening for is reported with the address and the cause`() {
+        val endpoint = "http://127.0.0.1:${java.net.ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }}/v1"
+        val provider = provider(endpoint, ProviderType.OPENAI)
+
+        val checked = service.testProvider(provider)
+
+        assertThat(checked.status).isEqualTo(ProviderStatus.FAILED)
+        assertThat(checked.lastCheckMessage).contains("Could not reach $endpoint: connection refused")
+        assertThat(checked.lastCheckMessage).doesNotContain("Request failed").doesNotContain("No model list")
+    }
+
+    private fun provider(endpoint: String, type: ProviderType = ProviderType.AZURE_OPENAI): Long = requireNotNull(
         providers.save(
             ModelProvider(
                 workspaceId = workspaceId,
                 name = "Azure OpenAI",
-                type = ProviderType.AZURE_OPENAI,
+                type = type,
                 endpoint = endpoint,
                 secret = "sk-test",
             ),

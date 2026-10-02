@@ -97,10 +97,63 @@ class IncomingTriggerListenerTest(
         val started = runs.executions(workspaceId, null, null, null, null, null, null)
         assertThat(started.content).singleElement().satisfies({
             assertThat(it.workflowName).isEqualTo("Incident Response")
-            assertThat(it.trigger).isEqualTo(ExecutionTrigger.WEBHOOK)
+            assertThat(it.trigger).isEqualTo(ExecutionTrigger.CONNECTION)
         })
         assertThat(audit.findAll().map { it.message })
             .contains("Workflow Incident Response run started by trigger Slack Mention Handler")
+    }
+
+    /**
+     * A Slack mention is not a webhook, and the run says what it was. It used
+     * to be recorded as WEBHOOK, and the run page said "Triggered by: Webhook"
+     * for a mention - which sent whoever read it looking for a URL nobody had
+     * called. The list and the run both say which connection and which event.
+     */
+    @Test
+    fun `a run a mention started reads as a Slack mention, in the list and on the run`() {
+        instance(workflowId, createTrigger("Slack Mention Handler", "MENTION"))
+
+        publisher.publishEvent(mention())
+
+        val listed = graphQlTester.document(
+            """
+            query {
+              workspaceExecutions(workspaceId: $workspaceId) {
+                content { id trigger source { connectionType action } }
+              }
+            }
+            """,
+        ).execute()
+        listed.path("workspaceExecutions.content[0].trigger").entity(String::class.java).isEqualTo("CONNECTION")
+        listed.path("workspaceExecutions.content[0].source.connectionType").entity(String::class.java).isEqualTo("SLACK")
+        listed.path("workspaceExecutions.content[0].source.action").entity(String::class.java).isEqualTo("MENTION")
+
+        val id = listed.path("workspaceExecutions.content[0].id").entity(Long::class.java).get()
+        val run = graphQlTester.document(
+            """query { execution(id: $id) { trigger source { connectionType action } } }""",
+        ).execute()
+        run.path("execution.trigger").entity(String::class.java).isEqualTo("CONNECTION")
+        run.path("execution.source.connectionType").entity(String::class.java).isEqualTo("SLACK")
+        run.path("execution.source.action").entity(String::class.java).isEqualTo("MENTION")
+    }
+
+    /**
+     * A run started by hand says nothing about a connection, even where the
+     * workflow has a connection trigger drawn on it.
+     */
+    @Test
+    fun `a run started by hand has no source`() {
+        instance(workflowId, createTrigger("Slack Mention Handler", "MENTION"))
+
+        val run = graphQlTester.document(
+            """
+            mutation {
+              startExecution(workspaceId: $workspaceId, workflowId: $workflowId) { id trigger source { action } }
+            }
+            """,
+        ).execute()
+        run.path("startExecution.trigger").entity(String::class.java).isEqualTo("MANUAL")
+        run.path("startExecution.source").valueIsNull()
     }
 
     /**

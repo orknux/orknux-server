@@ -250,6 +250,8 @@ data class ExecutionView(
     val error: String?,
     /** Set when a condition ended the run early; null for an ordinary finish. */
     val stoppedReason: String? = null,
+    /** The trigger definition that fired this run, where one did. */
+    val firedTriggerId: Long? = null,
 ) {
     constructor(execution: WorkflowExecution) : this(
         id = requireNotNull(execution.id),
@@ -263,6 +265,7 @@ data class ExecutionView(
         durationSeconds = execution.finishedAt?.let { seconds(execution.startedAt, it) },
         error = execution.error,
         stoppedReason = execution.stoppedReason,
+        firedTriggerId = execution.firedTriggerId,
     )
 }
 
@@ -415,6 +418,8 @@ data class ExecutionDetailView(
     val stoppedReason: String? = null,
     val steps: List<ExecutionStepView>,
     val logs: List<ExecutionLogLineView>,
+    /** The trigger definition that fired this run, where one did. */
+    val firedTriggerId: Long? = null,
 ) {
     constructor(execution: WorkflowExecution, steps: List<ExecutionStep>, logs: List<ExecutionLog>) : this(
         id = requireNotNull(execution.id),
@@ -433,6 +438,7 @@ data class ExecutionDetailView(
         stoppedReason = execution.stoppedReason,
         steps = steps.map(::ExecutionStepView),
         logs = logs.map(::ExecutionLogLineView),
+        firedTriggerId = execution.firedTriggerId,
     )
 }
 

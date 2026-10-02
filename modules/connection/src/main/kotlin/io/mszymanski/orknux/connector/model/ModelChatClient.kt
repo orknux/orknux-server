@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.connector.model
 
+import io.mszymanski.orknux.connector.Unreachable
 import io.mszymanski.orknux.connector.connection.ConnectionProbe
 import com.openai.errors.OpenAIServiceException
 import io.mszymanski.orknux.connector.proxy.ProxyRouter
@@ -528,7 +529,7 @@ class ModelChatClient(
             // thinking. None of it is the provider's answer to this request, so
             // none of it is settled.
             log.warn("Calling {} failed", ready.request.uri(), failure)
-            ChatCompletion.Failed(failure.message ?: "The provider could not be reached", permanent = false)
+            ChatCompletion.Failed(unreachable(ready.request, failure), permanent = false)
         }
     }
 
@@ -811,7 +812,7 @@ class ModelChatClient(
                 // sentence wanted is the wrapped one's.
                 val cause = (failure as? ExecutionException)?.cause ?: failure
                 log.warn("Calling {} failed", ready.request.uri(), cause)
-                return ChatCompletion.Failed(cause.message ?: "The provider could not be reached", permanent = false)
+                return ChatCompletion.Failed(unreachable(ready.request, cause), permanent = false)
             }
             val millis = (System.nanoTime() - started) / 1_000_000
 
@@ -925,7 +926,7 @@ class ModelChatClient(
                 // did not resolve, a timeout on a model still thinking. None of
                 // it is the provider's answer, so none of it is settled.
                 log.warn("Calling {} failed", endpoint, failure)
-                return ChatCompletion.Failed(failure.message ?: "The provider could not be reached", permanent = false)
+                return ChatCompletion.Failed(Unreachable.describe(endpoint, failure), permanent = false)
             }
             val millis = (System.nanoTime() - started) / 1_000_000
 
@@ -935,6 +936,10 @@ class ModelChatClient(
             }
         }
     }
+
+    /** Where [request] went and what stopped it - see [Unreachable]. */
+    private fun unreachable(request: HttpRequest, failure: Throwable): String =
+        Unreachable.describe(request.uri().toString(), failure, request.timeout().orElse(null))
 
     private fun answered(modelId: Long, outcome: OpenAiChat.Outcome.Answered, millis: Long): ChatCompletion {
         val split = split(outcome.said, outcome.thought)

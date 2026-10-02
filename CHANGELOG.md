@@ -35,6 +35,8 @@ have failed.
 
 - Talking over a spoken answer in voice mode stops it again. The hold restarted at every gap between syllables, so ordinary speech never held long enough; a short noise such as a cough still does not interrupt.
 - Duplicating a workspace shows its progress from the first connection on, says when progress cannot be read instead of sitting on the first line, and logs every step, so a copy that stops can be found from the log.
+- A model that cannot be reached says where it was called and why, such as "Could not reach http://localhost:11434/v1: connection refused", instead of "Request failed". This applies to agent steps, chats, provider checks, speech, transcription, pictures and decisions. A provider check no longer reports "No model list" for a server that is not there.
+- A run started by a Slack mention, message or reply says so on the executions list and the run page ("Slack mention") instead of "Webhook". Runs recorded before the upgrade still read Webhook.
 
 ## 0.9.9.7
 

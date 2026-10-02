@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.connector.model
 
+import io.mszymanski.orknux.connector.Unreachable
 import io.mszymanski.orknux.connector.connection.ConnectionProbe
 import io.mszymanski.orknux.connector.proxy.ProxyRouter
 import com.openai.errors.OpenAIServiceException
@@ -129,7 +130,7 @@ class ModelSpeechClient(
             Speech.Failed(refused.message ?: "${model.name} answered ${refused.statusCode()}")
         } catch (failure: Exception) {
             log.warn("Speech by {} at {} could not be done", model.name, endpoint, failure)
-            Speech.Failed(failure.message ?: "The text could not be read")
+            Speech.Failed(Unreachable.describe(endpoint, failure))
         }
     }
 

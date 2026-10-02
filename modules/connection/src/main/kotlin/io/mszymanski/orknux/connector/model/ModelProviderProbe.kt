@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.connector.model
 
+import io.mszymanski.orknux.connector.Unreachable
 import io.mszymanski.orknux.connector.connection.CheckOutcome
 import io.mszymanski.orknux.connector.connection.CheckResult
 import io.mszymanski.orknux.connector.connection.ConnectionProbe
@@ -144,6 +145,10 @@ class ModelProviderProbe(
 
                 is Listing.Failed -> {
                     if (asked.refused) return asked
+                    // Nothing answered at all: the same host asked by hand will
+                    // not answer either, and "no model list" would send whoever
+                    // reads it to the path when the server is not there.
+                    if (asked.unreachable) return asked
                     /*
                      * Not a refusal, so somewhere else is worth trying - but
                      * only somewhere else. Where the fallback would send the
@@ -196,7 +201,7 @@ class ModelProviderProbe(
              */
             log.warn("Asking {} for its models failed: {}", url, failure.toString())
             log.debug("Asking {} for its models failed", url, failure)
-            Listing.Failed(failure.message ?: "The provider could not be reached")
+            Listing.Failed(Unreachable.describe(url, failure, Duration.ofSeconds(properties.probeTimeoutSeconds)))
         }
     }
 
@@ -238,7 +243,11 @@ class ModelProviderProbe(
             // of these stacks for one press of one button.
             log.warn("Asking {} for its models through the SDK failed: {}", base, failure.toString())
             log.debug("Asking {} for its models through the SDK failed", base, failure)
-            Listing.Failed(failure.message ?: "The provider could not be reached", refused = false)
+            Listing.Failed(
+                Unreachable.describe(base, failure),
+                refused = false,
+                unreachable = Unreachable.isTransport(failure),
+            )
         }
     }
 
@@ -290,7 +299,7 @@ class ModelProviderProbe(
         } catch (failure: Exception) {
             log.warn("Asking {} what it can decide with failed: {}", base, failure.toString())
             log.debug("Asking {} what it can decide with failed", base, failure)
-            Listing.Failed(failure.message ?: "The provider could not be reached")
+            Listing.Failed(Unreachable.describe(base, failure, Duration.ofSeconds(properties.probeTimeoutSeconds)))
         }
     }
 
@@ -317,8 +326,11 @@ class ModelProviderProbe(
          * @param refused whether the provider itself said no - a credential it
          *   would not take. Anything else is only "not here", and is worth
          *   asking again somewhere else.
+         * @param unreachable whether nothing answered at all - a refused
+         *   connection, a name that does not resolve, a timeout - which asking
+         *   the same host by another path will not change.
          */
-        data class Failed(val reason: String, val refused: Boolean = true) : Listing
+        data class Failed(val reason: String, val refused: Boolean = true, val unreachable: Boolean = false) : Listing
     }
 
     /**
@@ -675,7 +687,7 @@ class ModelProviderProbe(
             EntraToken.Issued(token, seconds)
         } catch (failure: Exception) {
             log.warn("Asking {} for a token failed", address, failure)
-            EntraToken.Failed(failure.message ?: "Entra ID could not be reached")
+            EntraToken.Failed(Unreachable.describe(address, failure, Duration.ofSeconds(properties.probeTimeoutSeconds)))
         }
     }
 

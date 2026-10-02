@@ -345,7 +345,10 @@ class TriggerRunner(
                     workflowId = workflowId,
                     trigger = when (trigger.type) {
                         TriggerType.SCHEDULED -> ExecutionTrigger.SCHEDULE
-                        TriggerType.INCOMING_CONNECTION, TriggerType.WEBHOOK -> ExecutionTrigger.WEBHOOK
+                        TriggerType.WEBHOOK -> ExecutionTrigger.WEBHOOK
+                        // Its own value: a Slack mention is not somebody calling
+                        // a URL, and the run page said "Webhook" for one.
+                        TriggerType.INCOMING_CONNECTION -> ExecutionTrigger.CONNECTION
                     },
                     payload = payload,
                     // Which trigger this is. A workflow may be drawn with two,

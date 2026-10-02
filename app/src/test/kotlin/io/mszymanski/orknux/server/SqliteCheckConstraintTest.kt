@@ -2,7 +2,6 @@ package io.mszymanski.orknux.server
 
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
-import org.springframework.core.io.ClassPathResource
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver
 
 /**
@@ -14,7 +13,7 @@ import org.springframework.core.io.support.PathMatchingResourcePatternResolver
  * the SQLite installation on the first row that uses the new value. It is the
  * quiet half of the two-schemas bargain, and this is what watches it.
  *
- * Textual on purpose. It reads the Postgres history and the SQLite baseline as
+ * Textual on purpose. It reads the Postgres history and the SQLite one as
  * files rather than asking a database, so it needs neither container nor
  * connection and runs in whichever suite is going. What it asserts is that every
  * literal a named CHECK allows on Postgres is also allowed under SQLite. How the
@@ -33,7 +32,7 @@ class SqliteCheckConstraintTest {
     @Test
     fun `every value a CHECK allows on Postgres is allowed on SQLite`() {
         val postgres = checksIn(postgresSchema())
-        val sqlite = checksIn(sqliteBaseline())
+        val sqlite = checksIn(sqliteSchema())
 
         assertThat(postgres).isNotEmpty()
 
@@ -43,8 +42,8 @@ class SqliteCheckConstraintTest {
             if (absent.isEmpty()) null else "$name allows $absent on Postgres and not on SQLite"
         }
         assertThat(missing).describedAs(
-            "A CHECK constraint was changed in a Postgres migration and not folded into " +
-                "db/migration/sqlite/V1__baseline.sql",
+            "A CHECK constraint was changed in a Postgres migration and not in a " +
+                "db/migration/sqlite migration",
         ).isEmpty()
     }
 
@@ -60,8 +59,17 @@ class SqliteCheckConstraintTest {
         return migrations.joinToString("\n") { it.inputStream.reader().readText() }
     }
 
-    private fun sqliteBaseline(): String =
-        ClassPathResource("db/migration/sqlite/V1__baseline.sql").inputStream.reader().readText()
+    /**
+     * The SQLite baseline and every migration after it, in order. Since SQLite
+     * installations exist the baseline cannot be edited - its checksum would
+     * refuse their next start - so a widened CHECK arrives in a numbered file
+     * that rebuilds the table, V12 the first, and reading only V1 would report
+     * it missing.
+     */
+    private fun sqliteSchema(): String =
+        PathMatchingResourcePatternResolver().getResources("classpath:db/migration/sqlite/V*.sql")
+            .sortedBy { it.filename!!.substringAfter('V').substringBefore("__").toInt() }
+            .joinToString("\n") { it.inputStream.reader().readText() }
 
     /**
      * Every named CHECK in the text, and the quoted literals it names. Later
