@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🔧 Changed
+
+- The `orknux/orknux-server` image now serves the interface itself, on its own port 8080, so it is the whole product and `orknux/orknux-ui` is no longer needed; `orknux-one` has no nginx either. An installation still running `orknux-ui` keeps working, since the server answers every path it forwarded, but to move off it point the browser, published port, reverse proxy or Ingress at `orknux-server` on 8080 and remove the `orknux-ui` container (and `ORKNUX_UI_TAG`) - `deploy/README.md` and `deploy/kubernetes/README.md` have the steps.
+
 ## 0.9.9.7
 
 ### 🐛 Fixed
