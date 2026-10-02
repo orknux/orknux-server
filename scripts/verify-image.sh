@@ -17,8 +17,9 @@
 #   3. security is enforced in the packaged image, not only in the dev profile
 #   4. it serves the interface, to somebody not yet signed in
 #   5. it runs as a non-root user, as the Dockerfile intends
-#   6. the JVM is PID 1, so `docker stop` reaches it and shutdown is graceful
+#   6. the start loop is PID 1, and hands `docker stop` on to the JVM
 #   7. it stops within the grace period rather than being killed
+#   8. it updates itself in place, rolls back, and refuses a tampered jar (#584)
 #
 # What it does not cover: Temporal. The image is started with the inline engine,
 # because whether a separate service is reachable is not a property of this
@@ -172,14 +173,15 @@ who="$(docker exec "$APP" id -un)"
 [ "$who" = "orknux" ] || die "Running as $who, expected orknux"
 ok "Runs as $who"
 
-# 6. The JVM is PID 1. The entrypoint uses `exec` for this reason: without it a
-#    shell holds PID 1, `docker stop` signals the shell, and the JVM is killed
-#    at the end of the grace period instead of shutting down.
+# 6. PID 1 is the start loop (#584), which outlives a server that exits to be
+#    started on another release, and hands SIGTERM on to the JVM - without that
+#    `docker stop` would stop at the shell and the JVM would be killed at the end
+#    of the grace period. The graceful stop below is what proves the handing on.
 say "Checking PID 1"
-pid1="$(docker exec "$APP" cat /proc/1/cmdline | tr '\0' ' ' | awk '{print $1}')"
+pid1="$(docker exec "$APP" cat /proc/1/cmdline | tr '\0' ' ')"
 case "$pid1" in
-  *java) ok "PID 1 is $pid1" ;;
-  *) die "PID 1 is '$pid1', not the JVM — docker stop will not reach it" ;;
+  *orknux-run*) ok "PID 1 is the start loop: $pid1" ;;
+  *) die "PID 1 is '$pid1', not the start loop — nothing will hand docker stop's signal to the JVM" ;;
 esac
 
 # 7. It stops when asked. Anything slower than the grace period is a container
@@ -202,4 +204,47 @@ case "$code" in
   *) die "It exited $code, which is neither a clean stop nor a signal" ;;
 esac
 
-printf '\n\033[32mThe image works.\033[0m\n'
+# 7. An update in place, a rollback, and a tampered jar refused at start-up,
+#    on Postgres. #584. A second container on the same database, handed the
+#    TEST ONLY trust of a key made here and an administrator to sign in as; see
+#    scripts/self-update/lib.sh for what is asserted and why.
+UPDATE_APP="orknux-verify-update"
+UPDATE_WORK="${SELF_UPDATE_WORK:-$(mktemp -d)}"
+UPDATE_PASSWORD="verify-$(head -c 12 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')"
+cleanup_update() {
+  if [ "${KEEP:-}" != "1" ]; then
+    docker rm -f "$UPDATE_APP" >/dev/null 2>&1 || true
+    rm -rf "$UPDATE_WORK"
+  fi
+  cleanup
+}
+trap cleanup_update EXIT
+docker rm -f "$UPDATE_APP" >/dev/null 2>&1 || true
+
+# shellcheck source=self-update/lib.sh
+. "$(dirname "$0")/self-update/lib.sh"
+say "Preparing a release to update to"
+self_update_prepare "$IMAGE" "$UPDATE_WORK"
+
+mapfile -t trust < <(self_update_trust_args "$UPDATE_WORK")
+docker run -d --name "$UPDATE_APP" --network "$NET" -p "$PORT:8080" \
+  -e ORKNUX_DB_URL="jdbc:postgresql://$DB:5432/orknux" \
+  -e ORKNUX_SECRET_KEY="$SECRET_KEY" \
+  -e ORKNUX_TEMPORAL_ENABLED=false \
+  -e ORKNUX_AUTH_METHOD=INTERNAL \
+  -e ORKNUX_BOOTSTRAP_ADMIN_USERNAME=admin \
+  -e ORKNUX_BOOTSTRAP_ADMIN_PASSWORD="$UPDATE_PASSWORD" \
+  "${trust[@]}" "$IMAGE" >/dev/null
+for _ in $(seq 1 120); do
+  curl -fsS "http://localhost:$PORT/api/auth/method" >/dev/null 2>&1 && break
+  sleep 1
+done
+curl -fsS "http://localhost:$PORT/api/auth/method" >/dev/null 2>&1 || { docker logs "$UPDATE_APP" 2>&1 | tail -40; die "The update container never answered"; }
+
+tamper_postgres() {
+  docker run --rm --network "$NET" -v "$UPDATE_WORK:/work" -v "$SELF_UPDATE_TOOLS:/tools:ro" -w /work "$SELF_UPDATE_JDK" \
+    java -cp 'BOOT-INF/lib/*' /tools/Tamper.java "jdbc:postgresql://$DB:5432/orknux" orknux orknux >/dev/null
+}
+self_update_run "$UPDATE_APP" "http://localhost:$PORT" admin "$UPDATE_PASSWORD" "$UPDATE_WORK" tamper_postgres
+
+printf '\n\033[32mThe image works, and updates itself in place.\033[0m\n'

@@ -16,7 +16,8 @@
 #   4. a signed-in call reads and writes, so SQLite migrated and works
 #   5. an anonymous call is still refused, in the packaged image
 #   6. a restart is the same installation: same key, same account, same data
-#   7. non-root, JVM as PID 1, and it stops within the grace period
+#   7. non-root, the start loop as PID 1, and it stops within the grace period
+#   8. it updates itself in place, rolls back, and refuses a tampered jar (#584)
 #
 # Point 3 is the one to keep. A password that is generated, printed and then does
 # not work is indistinguishable from an image that is fine until somebody tries
@@ -220,11 +221,17 @@ who="$(docker exec "$APP" id -un)"
 [ "$who" = "orknux" ] || die "Running as $who, expected orknux"
 ok "Runs as $who"
 
-pid1="$(docker exec "$APP" cat /proc/1/cmdline | tr '\0' ' ' | awk '{print $1}')"
+# PID 1 is the start loop since #584, not the JVM: it has to outlive a server
+# that exits to be started on another release. It hands SIGTERM on, which the
+# graceful stop below is what proves.
+pid1="$(docker exec "$APP" cat /proc/1/cmdline | tr '\0' ' ')"
 case "$pid1" in
-  *java) ok "PID 1 is $pid1" ;;
-  *) die "PID 1 is '$pid1', not the JVM - docker stop will not reach it" ;;
+  *orknux-run*) ok "PID 1 is the start loop: $pid1" ;;
+  *) die "PID 1 is '$pid1', not the start loop - nothing will hand docker stop's signal to the JVM" ;;
 esac
+docker exec "$APP" sh -c 'for p in /proc/[0-9]*; do tr "\0" " " < $p/cmdline; echo; done' | grep -q -- '-jar' \
+  || die "No JVM is running under the start loop"
+ok "The JVM runs under it"
 
 # 7. A restart is the same installation.
 #
@@ -270,4 +277,50 @@ case "$code" in
   *) die "It exited $code, which is neither a clean stop nor a signal" ;;
 esac
 
-printf '\n\033[32morknux-one works with nothing supplied.\033[0m\n'
+# 9. An update in place, a rollback, and a tampered jar refused at start-up. #584.
+#
+# A container of its own, because this one is handed something: the TEST ONLY
+# pair that trusts a key made here, which the "nothing supplied" container above
+# must never have. See scripts/self-update/lib.sh for what is asserted and why.
+UPDATE_APP="orknux-one-verify-update"
+UPDATE_VOLUME="orknux-one-verify-update-data"
+UPDATE_PORT="18098"
+UPDATE_WORK="${SELF_UPDATE_WORK:-$(mktemp -d)}"
+cleanup_update() {
+  if [ "${KEEP:-}" != "1" ]; then
+    docker rm -f "$UPDATE_APP" >/dev/null 2>&1 || true
+    docker volume rm "$UPDATE_VOLUME" >/dev/null 2>&1 || true
+    rm -rf "$UPDATE_WORK"
+  fi
+  cleanup
+}
+trap cleanup_update EXIT
+docker rm -f "$UPDATE_APP" >/dev/null 2>&1 || true
+docker volume rm "$UPDATE_VOLUME" >/dev/null 2>&1 || true
+
+# shellcheck source=self-update/lib.sh
+. "$(dirname "$0")/self-update/lib.sh"
+say "Preparing a release to update to"
+self_update_prepare "$IMAGE" "$UPDATE_WORK"
+
+mapfile -t trust < <(self_update_trust_args "$UPDATE_WORK")
+docker run -d --name "$UPDATE_APP" -p "$UPDATE_PORT:8080" -v "$UPDATE_VOLUME:/var/lib/orknux" "${trust[@]}" "$IMAGE" >/dev/null
+APP="$UPDATE_APP" BASE="http://localhost:$UPDATE_PORT" wait_for_it 180
+case "$(docker logs "$UPDATE_APP" 2>&1)" in
+  *"TEST ONLY"*) ok "It says, loudly, that it trusts a test key" ;;
+  *) die "A container trusting a test key did not say so" ;;
+esac
+update_password="$(docker exec "$UPDATE_APP" cat /var/lib/orknux/admin-password)"
+orknux_uid="$(docker exec "$UPDATE_APP" id -u)"
+
+# The database is a file in the volume, so it is changed with the container
+# stopped, as the user the image runs as - a journal left behind owned by
+# anybody else would be a database the server can no longer write.
+tamper_one() {
+  docker run --rm --user "$orknux_uid" -v "$UPDATE_VOLUME:/var/lib/orknux" -v "$UPDATE_WORK:/work" \
+    -v "$SELF_UPDATE_TOOLS:/tools:ro" -w /work "$SELF_UPDATE_JDK" \
+    java -cp 'BOOT-INF/lib/*' /tools/Tamper.java jdbc:sqlite:/var/lib/orknux/orknux.db >/dev/null
+}
+self_update_run "$UPDATE_APP" "http://localhost:$UPDATE_PORT" admin "$update_password" "$UPDATE_WORK" tamper_one
+
+printf '\n\033[32morknux-one works with nothing supplied, and updates itself in place.\033[0m\n'
