@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## 0.9.9.6
+
+### ✨ Added
+
+- A plugin that declares its own kind of connection is handed that connection's address, credential and headers, so it can call the service itself over `orknux.http`. Only for a connection in the workspace the plugin runs for; Slack and mail connections stay handles, because the server still speaks those on the plugin's behalf.
+
 ## 0.9.9.5
 
 ### ✨ Added
