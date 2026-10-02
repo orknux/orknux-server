@@ -19,6 +19,9 @@ have failed.
 
 ### ✨ Added
 
+- Every node in the workflow editor and on a run's page shows an icon: the one it was given, or else its kind's own (the picture the Add menu uses, and a speaker for text to speech). The node's Icon field shows that default greyed as Default.
+- An image or decision node's model opens in the drawer beside the graph, the way an agent node opens its agent: the model page's own settings, saved in place, following the node's model picker. A ctrl-click still opens the model's page.
+- A run's page and a session's log refresh every second until somebody chooses another interval; lists still start at Off.
 - Admin Settings has a Workflow runs heading with Steps running at once (default 4, 1 to 32), the most steps of one run that work at the same time.
 - An agent's MCP server can be left out of an import, like one of its tools, and the agent arrives without it; a server the file names and this workspace lacks no longer blocks the import.
 - Admin Settings has a Workspace copies heading with how long a copy may wait for a lock (default 60 seconds). A copy that waits longer stops and says which step it stopped at, rather than waiting for ever.
@@ -39,6 +42,7 @@ have failed.
 
 ### 🐛 Fixed
 
+- A zoomed picture's close button sits on the picture's own corner, not the window's, which on a wide screen was far from it.
 - Talking over a spoken answer in voice mode stops it again. The hold restarted at every gap between syllables, so ordinary speech never held long enough; a short noise such as a cough still does not interrupt.
 - A Slack socket that died without the client noticing no longer stays "open" and deaf until a restart: one that has heard nothing for ten minutes (`ORKNUX_SLACK_QUIET_PERIOD`) and does not answer a ping is reopened by itself, with a log line saying why.
 - Duplicating a workspace shows its progress from the first connection on, says when progress cannot be read instead of sitting on the first line, and logs every step, so a copy that stops can be found from the log.
