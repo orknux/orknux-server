@@ -69,6 +69,8 @@ class ServerReleases(
     @Value("\${orknux.version}") private val runningVersion: String,
     /** The jar this server was started from, as the start loop names it; empty outside one. */
     @Value("\${orknux.update.running-jar:}") private val runningJar: String,
+    /** Where the launcher writes the jar it chose, and says when it could not read the table. */
+    @Value("\${orknux.update.release-dir:/tmp/orknux-release}") private val releaseDir: String,
     /** The image's own jar, as the start loop names it; empty outside one. */
     @Value("\${orknux.update.image-jar:}") private val imageJar: String,
 ) {
@@ -300,8 +302,35 @@ class ServerReleases(
             releases.save(failed)
         }
 
+        val blind = launcherBlindness()
+        if (blind != null && wantedReleaseId() != runningReleaseId()) {
+            log.error(
+                "The start loop could not read the release table ({}), so it ran the image's own jar. This server will " +
+                    "not restart to follow the chosen release until it can: check that ORKNUX_DB_URL (or " +
+                    "SPRING_DATASOURCE_URL) and its credentials are in the container's environment.",
+                blind,
+            )
+            audit.recordAutomated(
+                null,
+                WorkspaceAuditCategory.WORKSPACE,
+                "Server release not started: the start loop could not read the database ($blind)",
+                actor = "server",
+            )
+            return
+        }
         if (enabled) restart.follow { wantedReleaseId() != runningReleaseId() }
     }
+
+    /**
+     * Why the launcher could not read the release table on this start, or null
+     * where it could. Following a chosen release means restarting into the
+     * launcher, so a launcher that cannot see the choice would be restarted
+     * into every few seconds for ever; this is what stops that.
+     */
+    fun launcherBlindness(): String? = runCatching {
+        val marker = java.nio.file.Path.of(releaseDir).resolve(BLIND_MARKER)
+        if (java.nio.file.Files.exists(marker)) java.nio.file.Files.readString(marker).trim().ifEmpty { "no reason given" } else null
+    }.getOrNull()
 }
 
 /**

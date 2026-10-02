@@ -330,6 +330,32 @@ class ServerReleasesTest(
         assertThat(releases.findById(previous.id!!).get().state).isEqualTo(ServerReleaseState.ACTIVE)
     }
 
+    /**
+     * The start loop could not read the release table - an installation that
+     * names its database only in SPRING_DATASOURCE_URL used to be one - so it
+     * ran the image's jar. Following the choice would restart into the same
+     * blind launcher every few seconds for ever; instead the server stays up on
+     * what it runs and says why where an administrator will look.
+     */
+    @Test
+    fun `a launcher that could not read the releases is not restarted into, and says why`() {
+        val chosen = stored(Shape(version = "9.9.7"))
+        graphQlTester.document("mutation { activateServerRelease(id: ${chosen.id}) { restarting } }").execute()
+        val marker = releaseDir.resolve(BLIND_MARKER)
+        java.nio.file.Files.writeString(marker, "java.net.ConnectException: Connection refused")
+        try {
+            assertThat(updates.launcherBlindness()).contains("Connection refused")
+
+            updates.started()
+
+            assertThat(audit.findAll().map { it.message })
+                .anyMatch { it.contains("the start loop could not read the database") }
+        } finally {
+            java.nio.file.Files.deleteIfExists(marker)
+        }
+        assertThat(updates.launcherBlindness()).isNull()
+    }
+
     @Test
     fun `a newer image wins over what the database chose under the old one`() {
         val release = stored(Shape(version = "8.0.6"))
@@ -399,6 +425,9 @@ class ServerReleasesTest(
 
         fun where() = "${stub.address.hostString}:${stub.address.port}"
 
+        /** Where this server's launcher would have written, and left its marker. */
+        val releaseDir: java.nio.file.Path = java.nio.file.Files.createTempDirectory("orknux-release-test")
+
         @JvmStatic
         @AfterAll
         fun stop() = stub.stop(0)
@@ -408,6 +437,7 @@ class ServerReleasesTest(
         fun properties(registry: DynamicPropertyRegistry) {
             registry.add("orknux.marketplace.url") { "http://${where()}/graphql" }
             registry.add("orknux.update.certificate") { TestReleaseJars.trusted.pem.toUri().toString() }
+            registry.add("orknux.update.release-dir") { releaseDir.toString() }
         }
     }
 }

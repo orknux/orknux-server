@@ -297,6 +297,14 @@ const val MAX_RELEASE_BOOT_ATTEMPTS = 20
 /** The exit code that asks the start loop to choose a jar and start again. */
 const val RESTART_EXIT_CODE = 75
 
+/**
+ * The file the launcher leaves in the release directory when it could not read
+ * the release table, holding why; removed by the next launch that could.
+ */
+const val BLIND_MARKER = "launcher-could-not-read-releases"
+
+private fun env(name: String): String? = System.getenv(name)?.ifBlank { null }
+
 /** Which jar file a server was started from, as the launcher names it; null for anything else. */
 fun releaseIdOf(jar: String?): Long? =
     jar?.let { Regex("""release-(\d+)\.jar$""").find(it.replace('\\', '/'))?.groupValues?.get(1)?.toLongOrNull() }
@@ -309,10 +317,18 @@ fun main(args: Array<String>) {
     System.setOut(System.err)
 
     val image = Path.of(args.firstOrNull() ?: System.getenv("ORKNUX_IMAGE_JAR") ?: "/app/app.jar")
+    val blind = Path.of(env("ORKNUX_RELEASE_DIR") ?: "/tmp/orknux-release").resolve(BLIND_MARKER)
     val chosen = try {
-        launch(image)
+        launch(image).also { runCatching { Files.deleteIfExists(blind) } }
     } catch (failure: Throwable) {
         System.err.println("orknux launcher: ERROR could not choose a release, running the image's own jar: $failure")
+        // Said where the server will look, so it does not restart to follow a
+        // release this launcher cannot reach - which would be a restart every
+        // few seconds for ever. See ServerReleases.started.
+        runCatching {
+            Files.createDirectories(blind.parent)
+            Files.writeString(blind, failure.toString())
+        }
         image
     }
     answer.println(chosen.toAbsolutePath())
@@ -325,9 +341,14 @@ private fun launch(image: Path): Path {
 
     // application.yml's own defaults, so the launcher and the server agree on
     // which database this is when nothing is set.
-    val url = System.getenv("ORKNUX_DB_URL")?.ifBlank { null } ?: "jdbc:postgresql://localhost:5432/orknux"
-    val user = System.getenv("ORKNUX_DB_USERNAME") ?: "orknux"
-    val password = System.getenv("ORKNUX_DB_PASSWORD") ?: "orknux"
+    //
+    // Spring's own names too: the server binds SPRING_DATASOURCE_* over the
+    // ORKNUX_ ones, so an installation configured that way is the same
+    // database to the server and must be to the launcher, or it reads
+    // localhost while the server reads the real one.
+    val url = env("SPRING_DATASOURCE_URL") ?: env("ORKNUX_DB_URL") ?: "jdbc:postgresql://localhost:5432/orknux"
+    val user = env("SPRING_DATASOURCE_USERNAME") ?: System.getenv("ORKNUX_DB_USERNAME") ?: "orknux"
+    val password = env("SPRING_DATASOURCE_PASSWORD") ?: System.getenv("ORKNUX_DB_PASSWORD") ?: "orknux"
     // A first start: there is no file yet, so nothing was ever chosen - and
     // connecting would create an empty one before the server has said where.
     if (url.startsWith("jdbc:sqlite:") && !Files.exists(Path.of(url.removePrefix("jdbc:sqlite:").substringBefore('?')))) {
