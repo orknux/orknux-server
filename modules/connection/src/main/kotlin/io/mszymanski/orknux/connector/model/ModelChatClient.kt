@@ -930,7 +930,7 @@ class ModelChatClient(
             val millis = (System.nanoTime() - started) / 1_000_000
 
             return when (outcome) {
-                is OpenAiChat.Outcome.Failed -> ChatCompletion.Failed(outcome.reason)
+                is OpenAiChat.Outcome.Failed -> ChatCompletion.Failed(outcome.reason, outcome.permanent)
                 is OpenAiChat.Outcome.Answered -> answered(modelId, outcome, millis)
             }
         }

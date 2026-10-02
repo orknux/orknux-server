@@ -207,6 +207,38 @@ class AgentNodeRunnerTest(
     }
 
     /**
+     * Issue #583. Azure answers through the Responses API, which reports a
+     * server falling over inside a 200 rather than as a status code - and that
+     * was taken as final, so the node's policy was never spent on it.
+     */
+    @Test
+    fun `an Azure answer that failed on the provider's side is asked again under the node's policy`() {
+        val agentId = agent("Reviewer", azureModel(serveResponsesAfter(failures = 1, code = "server_error")))
+        graph(agentId, attempts = 3)
+
+        start()
+
+        val step = steps.findAll().single { it.agentId == agentId }
+        assertThat(step.status).isEqualTo(StepStatus.COMPLETED)
+        assertThat(step.attempts).isEqualTo(2)
+        assertThat(step.output).isEqualTo("The database was the cause.")
+        assertThat(received).hasSize(2)
+    }
+
+    @Test
+    fun `an Azure answer that failed over the request is not asked again`() {
+        val agentId = agent("Reviewer", azureModel(serveResponsesAfter(failures = 9, code = "invalid_prompt")))
+        graph(agentId, attempts = 3)
+
+        start(expectFailure = true)
+
+        val step = steps.findAll().single { it.agentId == agentId }
+        assertThat(step.status).isEqualTo(StepStatus.FAILED)
+        assertThat(step.attempts).isEqualTo(1)
+        assertThat(received).hasSize(1)
+    }
+
+    /**
      * And where the graph has an answer for it, the run goes on down the edge
      * drawn for exactly this rather than ending at the agent.
      */
@@ -694,6 +726,57 @@ class AgentNodeRunnerTest(
         }
         server.start()
         return "http://${server.address.hostString}:${server.address.port}"
+    }
+
+    /**
+     * Azure's Responses API, failing its first [failures] answers with [code]
+     * after a 200, as Azure does. Streamed or not, whichever was asked for: the
+     * loop streams where somebody is watching and a node usually has nobody.
+     */
+    private fun serveResponsesAfter(failures: Int, code: String): String {
+        val calls = AtomicInteger()
+        server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
+        server.createContext("/openai/v1/responses") { exchange ->
+            val asked = exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
+            received += asked
+            val failing = calls.incrementAndGet() <= failures
+            val response = if (failing) {
+                """{"id":"r","object":"response","created_at":1,"model":"m","status":"failed","output":[],""" +
+                    """"error":{"code":"$code","message":"The provider could not answer."}}"""
+            } else {
+                """{"id":"r","object":"response","created_at":1,"model":"m","status":"completed","output":[""" +
+                    """{"type":"message","id":"m1","role":"assistant","status":"completed",""" +
+                    """"content":[{"type":"output_text","text":"The database was the cause.","annotations":[]}]}],""" +
+                    """"usage":{"input_tokens":11,"output_tokens":6,"total_tokens":17}}"""
+            }
+            val streaming = mapper.readTree(asked).path("stream").asBoolean(false)
+            val (type, body) = if (streaming) {
+                val event = if (failing) "response.failed" else "response.completed"
+                "text/event-stream" to """event: $event${"\n"}data: {"type":"$event","sequence_number":1,"response":$response}${"\n\n"}"""
+            } else {
+                "application/json" to response
+            }
+            val bytes = body.toByteArray(StandardCharsets.UTF_8)
+            exchange.responseHeaders.add("Content-Type", type)
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+            exchange.close()
+        }
+        server.start()
+        return "http://${server.address.hostString}:${server.address.port}"
+    }
+
+    private fun azureModel(endpoint: String): Long {
+        val providerId = graphQlTester.document(
+            """mutation { createModelProvider(input: {
+                 workspaceId: $workspaceId, name: "Azure", type: AZURE_OPENAI, endpoint: "$endpoint", secret: "azure-test"
+               }) { id } }""",
+        ).execute().path("createModelProvider.id").entity(Long::class.java).get()
+
+        return graphQlTester.document(
+            """mutation { createModel(input: { providerId: $providerId, name: "Sol", modelId: "gpt-6-sol", kind: CHAT })
+               { id } }""",
+        ).execute().path("createModel.id").entity(Long::class.java).get()
     }
 
     /**

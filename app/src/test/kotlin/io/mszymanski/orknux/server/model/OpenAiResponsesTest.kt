@@ -267,7 +267,46 @@ class OpenAiResponsesTest {
 
         val outcome = chat().stream(azure(), model(), listOf(ChatTurn("user", "Hi")), emptyList(), {}) {}
 
-        assertThat(outcome).isEqualTo(OpenAiChat.Outcome.Failed("The model fell over."))
+        // A server error is the provider falling over, not the request being wrong:
+        // a workflow step's retry policy has to be allowed to ask again. #583.
+        assertThat(outcome).isEqualTo(OpenAiChat.Outcome.Failed("The model fell over.", permanent = false))
+    }
+
+    /**
+     * The other half of #583: a code about the request itself will be said
+     * again, so a retry policy is not spent proving it.
+     */
+    @Test
+    fun `a stream failed over the request itself is final`() {
+        streamed = listOf(
+            event("""{"type":"response.failed","sequence_number":1,"response":{"id":"r","object":"response","created_at":1,"model":"m","status":"failed","output":[],"error":{"code":"invalid_prompt","message":"That prompt was refused."}}}"""),
+        )
+
+        val outcome = chat().stream(azure(), model(), listOf(ChatTurn("user", "Hi")), emptyList(), {}) {}
+
+        assertThat(outcome).isEqualTo(OpenAiChat.Outcome.Failed("That prompt was refused.", permanent = true))
+    }
+
+    @Test
+    fun `a rate limit said inside a stream may be asked again, and so may an error that names no code`() {
+        streamed = listOf(event("""{"type":"error","sequence_number":1,"code":"rate_limit_exceeded","message":"Slow down.","param":null}"""))
+        val limited = chat().stream(azure(), model(), listOf(ChatTurn("user", "Hi")), emptyList(), {}) {}
+
+        streamed = listOf(event("""{"type":"error","sequence_number":1,"code":null,"message":"Something broke.","param":null}"""))
+        val unnamed = chat().stream(azure(), model(), listOf(ChatTurn("user", "Hi")), emptyList(), {}) {}
+
+        assertThat(limited).isEqualTo(OpenAiChat.Outcome.Failed("Slow down.", permanent = false))
+        assertThat(unnamed).isEqualTo(OpenAiChat.Outcome.Failed("Something broke.", permanent = false))
+    }
+
+    @Test
+    fun `an answer that came back failed is judged by its code too`() {
+        answer = """{"id":"r","object":"response","created_at":1,"model":"m","status":"failed","output":[],""" +
+            """"error":{"code":"server_error","message":"The model fell over."}}"""
+
+        val outcome = chat().complete(azure(), model(), listOf(ChatTurn("user", "Hi")), emptyList())
+
+        assertThat(outcome).isEqualTo(OpenAiChat.Outcome.Failed("The model fell over.", permanent = false))
     }
 
     @Test

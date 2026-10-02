@@ -9,6 +9,7 @@ import com.openai.models.responses.EasyInputMessage
 import com.openai.models.responses.FunctionTool
 import com.openai.models.responses.Response
 import com.openai.models.responses.ResponseCreateParams
+import com.openai.models.responses.ResponseError
 import com.openai.models.responses.ResponseFunctionToolCall
 import com.openai.models.responses.ResponseIncludable
 import com.openai.models.responses.ResponseInputContent
@@ -102,7 +103,7 @@ internal class OpenAiResponses(private val clients: ModelClients) {
         // By the item id the stream names them with, in the order they began.
         val gathered = linkedMapOf<String, Gathering>()
         var finished: Response? = null
-        var failed: String? = null
+        var failed: OpenAiChat.Outcome.Failed? = null
         var heard = false
 
         val started = System.nanoTime()
@@ -155,16 +156,17 @@ internal class OpenAiResponses(private val clients: ModelClients) {
                     event.isCompleted() -> finished = event.asCompleted().response()
                     // Cut short - by the output limit, usually. What arrived is handed on, as on chat completions.
                     event.isIncomplete() -> finished = event.asIncomplete().response()
-                    event.isFailed() -> failed = event.asFailed().response().error().orElse(null)?.message()
-                        ?: "The provider could not finish the answer"
-                    event.isError() -> failed = event.asError().message()
+                    event.isFailed() -> failed = event.asFailed().response().error().orElse(null)
+                        ?.let { failure(it) }
+                        ?: OpenAiChat.Outcome.Failed("The provider could not finish the answer", permanent = false)
+                    event.isError() -> failed = event.asError().let { failure(it.code().orElse(null), it.message()) }
                 }
             }
         }
         hangup?.letGo()
 
         if (hangup?.hungUp == true) return OpenAiChat.Outcome.Failed(OpenAiChat.HUNG_UP)
-        failed?.let { return OpenAiChat.Outcome.Failed(it) }
+        failed?.let { return it }
 
         /*
          * Not one event, from a provider that answered anyway: `stream: true`
@@ -196,8 +198,23 @@ internal class OpenAiResponses(private val clients: ModelClients) {
         val arguments = StringBuilder()
     }
 
+    /**
+     * A failure the provider reported inside an answer it had begun, and whether
+     * asking again could come out differently. Issue #583: these arrive after a
+     * 200, so there is no status code for [ModelChatClient] to settle them by,
+     * and they were all taken as final - an Azure server error mid-stream was
+     * never retried by a workflow step's policy, however many attempts it had.
+     * The code is the provider's own word on what went wrong; an absent one says
+     * nothing against trying again, which is how an unrecognised 5xx is read.
+     */
+    private fun failure(error: ResponseError): OpenAiChat.Outcome.Failed =
+        failure(error.code().asString(), error.message())
+
+    private fun failure(code: String?, message: String): OpenAiChat.Outcome.Failed =
+        OpenAiChat.Outcome.Failed(message, permanent = code != null && code !in PASSING)
+
     private fun outcome(answer: Response): OpenAiChat.Outcome {
-        answer.error().orElse(null)?.let { return OpenAiChat.Outcome.Failed(it.message()) }
+        answer.error().orElse(null)?.let { return failure(it) }
 
         val output = answer.output()
         val said = output.filter { it.isMessage() }
@@ -374,5 +391,17 @@ internal class OpenAiResponses(private val clients: ModelClients) {
          */
         fun speaks(provider: ModelProvider): Boolean =
             provider.type == ProviderType.AZURE_OPENAI && provider.chatApi != ChatApi.CHAT_COMPLETIONS
+
+        /**
+         * The error codes that pass: the provider fell over or was busy, and the
+         * same request may well be answered next time. Everything else it names -
+         * an invalid prompt, an image it could not read, a policy - is about the
+         * request and will be said again. Issue #583.
+         */
+        private val PASSING = setOf(
+            ResponseError.Code.SERVER_ERROR.asString(),
+            ResponseError.Code.RATE_LIMIT_EXCEEDED.asString(),
+            ResponseError.Code.VECTOR_STORE_TIMEOUT.asString(),
+        )
     }
 }

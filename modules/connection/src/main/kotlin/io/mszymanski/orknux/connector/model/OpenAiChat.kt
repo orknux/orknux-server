@@ -325,7 +325,13 @@ class OpenAiChat(
             val reasoningItems: List<String> = emptyList(),
         ) : Outcome
 
-        data class Failed(val reason: String) : Outcome
+        /**
+         * @param permanent whether asking again could ever come out differently -
+         * see [ModelChatClient.ChatCompletion.Failed]. Only a failure the provider
+         * reports inside an answer it had already begun needs saying here; one
+         * with a status code is settled from the code, in [ModelChatClient].
+         */
+        data class Failed(val reason: String, val permanent: Boolean = true) : Outcome
     }
 
     private sealed interface Ready {
