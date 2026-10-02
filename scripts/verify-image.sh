@@ -68,11 +68,21 @@ docker run -d --name "$DB" --network "$NET" \
   -e POSTGRES_DB=orknux -e POSTGRES_USER=orknux -e POSTGRES_PASSWORD=orknux \
   postgres:18 >/dev/null
 
-for _ in $(seq 1 30); do
-  docker exec "$DB" pg_isready -U orknux -d orknux >/dev/null 2>&1 && break
+# Ready means ready over TCP, asked twice in a row. The image's first start runs
+# a temporary server on the socket only, answers pg_isready from it, then stops
+# it to start the real one - so one success on the socket can land just before
+# the restart, and the next command meets a database that is not there.
+ready=0
+for _ in $(seq 1 60); do
+  if docker exec "$DB" pg_isready -h 127.0.0.1 -U orknux -d orknux >/dev/null 2>&1; then
+    ready=$((ready + 1))
+    [ "$ready" -ge 2 ] && break
+  else
+    ready=0
+  fi
   sleep 1
 done
-docker exec "$DB" pg_isready -U orknux -d orknux >/dev/null 2>&1 || die "Postgres never became ready"
+[ "$ready" -ge 2 ] || die "Postgres never became ready"
 ok "Postgres is up"
 
 say "Starting the image"
