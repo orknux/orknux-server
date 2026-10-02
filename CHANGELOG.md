@@ -28,6 +28,8 @@ have failed.
 - A run's page folds its summary, graph and log, and a step's input and output, by a chevron at each heading; what is folded stays folded on every run's page.
 - Admin -> Updates updates the server in place: Update on a release the official server lists, with its changelog, or upload a jar. Every jar must be signed with the Orknux release key the image carries and is checked again on every start, and one older than 0.9.9.8 or without the update launcher is refused from every source, since the server could not update back from it; the database keeps the last few (Admin Settings, default 3) and any of them can be rolled back to, as can the image's own jar, unless the schema has moved past what it can run on. Every server restarts on the chosen release, a release that will not start is given up on after three starts, and each update and rollback is in the audit log.
 - Admin -> Updates also fetches a release from a URL, such as a company Artifactory the platform team fills (#589): a jar's address, or a directory whose `releases.json` lists newer versions to fetch, prefilled from `ORKNUX_RELEASE_SOURCE_URL`. An optional token or `user:password` goes to that host only and is stored nowhere; the download goes through the proxy rules, is bounded by the jar size limit and Admin Settings' download time, and is verified exactly as an upload. Each source has its own switch under `ORKNUX_SELF_UPDATE`, all on by default: `ORKNUX_SELF_UPDATE_OFFICIAL`, `ORKNUX_SELF_UPDATE_UPLOAD` and `ORKNUX_SELF_UPDATE_URL`.
+- Admin -> Updates updates the server in place: Update on a release orknux.ai lists, with its changelog, or upload a jar. Every jar must be signed with the Orknux release key the image carries and is checked again on every start; the database keeps the last few (Admin Settings, default 3) and any of them can be rolled back to, as can the image's own jar, unless the schema has moved past what it can run on. Every server restarts on the chosen release, a release that will not start is given up on after three starts, and each update and rollback is in the audit log.
+- A Slack connection's page shows its socket on one line - connected since when and when the last event arrived, or why it would not open - with a Reconnect button that closes the socket and opens it again on every server, and is recorded in the audit log. When another server is listening with the same Slack app the page says so ("Slack splits this app's events between N connections"), since Slack then sends that server a share of the events, and the log warns once.
 
 ### 🔧 Changed
 
@@ -38,6 +40,7 @@ have failed.
 ### 🐛 Fixed
 
 - Talking over a spoken answer in voice mode stops it again. The hold restarted at every gap between syllables, so ordinary speech never held long enough; a short noise such as a cough still does not interrupt.
+- A Slack socket that died without the client noticing no longer stays "open" and deaf until a restart: one that has heard nothing for ten minutes (`ORKNUX_SLACK_QUIET_PERIOD`) and does not answer a ping is reopened by itself, with a log line saying why.
 - Duplicating a workspace shows its progress from the first connection on, says when progress cannot be read instead of sitting on the first line, and logs every step, so a copy that stops can be found from the log.
 
 ## 0.9.9.7

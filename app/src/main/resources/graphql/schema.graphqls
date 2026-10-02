@@ -2019,6 +2019,13 @@ type Mutation {
     revealWorkspaceConnectionAppToken(id: ID!): String
     "Returns the stored user token and records that it was revealed."
     revealWorkspaceConnectionUserToken(id: ID!): String
+    """
+    Closes a Slack connection's Socket Mode socket and opens it again at once,
+    on this server and - through a recorded request - on every other replica,
+    and answers how it stands here. Clears the wait after a failed attempt.
+    Refused for a connection that is not Slack. #592.
+    """
+    reconnectSlackConnection(id: ID!): SlackSocketState!
     createMcpServer(input: CreateMcpServerInput!): McpServer!
     updateMcpServer(id: ID!, input: UpdateMcpServerInput!): McpServer!
     """
@@ -4885,6 +4892,46 @@ type WorkspaceConnection {
     lastCheckMessage: String
     "ISO-8601 offset date-time, or null when no check has run."
     lastCheckedAt: String
+    "How this server's Socket Mode socket for it stands; null for a connection that is not Slack. #592."
+    slackSocket: SlackSocketState
+}
+
+"""
+A Slack connection's Socket Mode socket, as the server answering holds it.
+
+One server's: each replica holds a socket of its own, and what it last heard is
+its own to say. Held in memory, so a restart starts it afresh.
+"""
+type SlackSocketState {
+    status: SlackSocketStatus!
+    "ISO-8601 offset date-time the open socket was opened at; null when none is open."
+    connectedSince: String
+    "ISO-8601 offset date-time an event last arrived on this connection, across reconnects."
+    lastEventAt: String
+    "Why the socket last would not open, kept after it recovers."
+    lastFailure: String
+    lastFailureAt: String
+    "How many connections Slack's latest hello said it holds for this Slack app."
+    appConnections: Int
+    """
+    More connections than this server holds for the app: somebody else - another
+    installation, an old development server - is listening with it, and Slack
+    hands that one a share of the app's events, which never arrive here.
+    """
+    sharedWithOthers: Boolean!
+}
+
+"Where a Slack connection's socket stands."
+enum SlackSocketStatus {
+    CONNECTED
+    "Holds both tokens and has not been opened yet; the next pass will."
+    CONNECTING
+    "The last attempt was refused or unreachable; lastFailure says which."
+    FAILED
+    "No app-level token, so it sends and does not listen."
+    NOT_LISTENING
+    "This server listens to no Slack at all."
+    DISABLED
 }
 
 "What the workspace screen reports about a connection."

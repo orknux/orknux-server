@@ -276,9 +276,10 @@ must be signed with the release key this image carries. **On by default.**
 | `ORKNUX_CONNECTION_PROBE_TIMEOUT_SECONDS` | How long a check may take to find out whether anything is listening. | `5` | No |
 | `ORKNUX_CONNECTION_ALLOW_LINK_LOCAL` | Link-local addresses reach cloud instance metadata, so they are refused; turning this on lets a workspace's connection reach them. Private and loopback stay reachable either way. | `false` | No |
 | `ORKNUX_CONNECTION_ENTRA_AUTHORITY` | Where an Entra ID token is asked for. The worldwide cloud - a tenant in a sovereign cloud has an address of its own. | `https://login.microsoftonline.com` | No |
-| `ORKNUX_SLACK_ENABLED` | Opens one Socket Mode websocket per Slack connection holding an app-level token, and turns arriving mentions into workflow runs. | `true` | No |
-| `ORKNUX_SLACK_RECONCILE_SECONDS` | How often open sockets are compared with stored connections, so a token pasted into the settings form starts listening without a restart. | `30` | No |
-| `ORKNUX_SLACK_RETRY_FAILED_SECONDS` | How long a connection Slack refused is left alone. Changing the token clears the wait. | `300` | No |
+| `ORKNUX_SLACK_ENABLED` | One Socket Mode websocket per Slack connection holding an app-level token. | `true` | No |
+| `ORKNUX_SLACK_RECONCILE_SECONDS` | How often open sockets are compared with stored connections, so a new token listens without a restart. | `30` | No |
+| `ORKNUX_SLACK_RETRY_FAILED_SECONDS` | How long a connection Slack refused is left alone; a new token or Reconnect clears it. | `300` | No |
+| `ORKNUX_SLACK_QUIET_PERIOD` | How long a socket may be silent before a ping; unanswered, it is reopened. `0` is off. | `10m` | No |
 
 **A workspace's mail is not configured here.** The `ORKNUX_MAIL_*` variables
 above are the installation's own relay; mail a *workflow* sends is a connection
