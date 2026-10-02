@@ -495,3 +495,126 @@ jobs:
           password: ${{ secrets.DOCKERHUB_DESCRIPTION_TOKEN || secrets.DOCKERHUB_TOKEN }}
           repository: ${{ vars.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME_ONE }}
           readme-filepath: ./DOCKERHUB-ONE.md
+
+  # The signed server jar a running installation updates itself from (#584).
+  #
+  # Tags only: a jar is a release, and an installation shown one from a branch
+  # nobody reviewed would be offered exactly what the images refuse to publish.
+  # Built as the images build theirs - the interface inside, -Pwith-ui - then
+  # signed with the release key, whose public half every image pins
+  # (app/src/main/resources/release/orknux-release.pem) and refuses anything
+  # else by. A tag build without the key fails rather than publishing an
+  # unsigned jar: no installation would accept one, and finding that out from
+  # an administrator's Update button is the wrong place.
+  release-jar:
+    name: Sign and publish the server jar
+    runs-on: ubuntu-latest
+    needs: [build, image, image-one]
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    permissions:
+      # To attach the jar to the GitHub release.
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: orknux-ui/package-lock.json
+
+      - name: Build the interface
+        working-directory: orknux-ui
+        run: |
+          npm ci --no-fund --no-audit
+          npm run build
+
+      - name: Build the jar
+        run: ./mvnw -B -ntp package -DskipTests -Pwith-ui
+
+      - name: Sign it, and check it is signed by the key every image pins
+        id: jar
+        env:
+          KEYSTORE: ${{ secrets.ORKNUX_RELEASE_KEYSTORE }}
+          STOREPASS: ${{ secrets.ORKNUX_RELEASE_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE" ] || [ -z "$STOREPASS" ]; then
+            echo "::error::ORKNUX_RELEASE_KEYSTORE and ORKNUX_RELEASE_KEYSTORE_PASSWORD are required on a release tag; an unsigned jar is one no installation will accept."
+            exit 1
+          fi
+          version="${GITHUB_REF_NAME#v}"
+          built="app/target/orknux-app-$version.jar"
+          [ -f "$built" ] || { echo "::error::$built was not built - does the tag match the version in pom.xml?"; exit 1; }
+          signed="orknux-server-$version.jar"
+
+          echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.p12"
+          jarsigner -keystore "$RUNNER_TEMP/release.p12" -storetype PKCS12 -storepass:env STOREPASS \
+            -signedjar "$signed" "$built" orknux-release
+          rm -f "$RUNNER_TEMP/release.p12"
+
+          jarsigner -verify "$signed" | tee "$RUNNER_TEMP/verify.txt"
+          grep -q '^jar verified' "$RUNNER_TEMP/verify.txt" || { echo "::error::jarsigner did not verify $signed"; exit 1; }
+          pinned="$(keytool -printcert -file app/src/main/resources/release/orknux-release.pem | grep -m1 'SHA256:')"
+          signer="$(keytool -printcert -jarfile "$signed" | grep -m1 'SHA256:')"
+          [ -n "$pinned" ] && [ "$pinned" = "$signer" ] \
+            || { echo "::error::$signed is signed by $signer, and the images pin $pinned"; exit 1; }
+
+          # That version's section of the changelog, without its heading.
+          awk -v heading="## $version" '$0 == heading { found = 1; next } found && /^## / { exit } found' CHANGELOG.md \
+            > "$RUNNER_TEMP/changelog.md"
+          {
+            echo "file=$signed"
+            echo "version=$version"
+            echo "sha256=$(sha256sum "$signed" | cut -d' ' -f1)"
+            echo "size=$(stat -c %s "$signed")"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Attach it to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/changelog.md"
+          gh release upload "$GITHUB_REF_NAME" "${{ steps.jar.outputs.file }}" --clobber
+
+      # Two steps, because orknux.ai sits behind Cloudflare, which refuses a
+      # request body over 100 MB and a jar is three times that: the release is
+      # announced with its hash and size, then its bytes go up in pieces, each
+      # at the offset the site says it has received up to - so a run that is
+      # retried carries on where the last one stopped.
+      - name: Offer it through orknux.ai
+        env:
+          TOKEN: ${{ secrets.ORKNUX_AI_PUBLISH_TOKEN }}
+          FILE: ${{ steps.jar.outputs.file }}
+          VERSION: ${{ steps.jar.outputs.version }}
+          SHA256: ${{ steps.jar.outputs.sha256 }}
+          SIZE: ${{ steps.jar.outputs.size }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::notice::ORKNUX_AI_PUBLISH_TOKEN is not set, so $VERSION is not offered through orknux.ai; it is on the GitHub release."
+            exit 0
+          fi
+          site="https://orknux.ai/api/server-releases"
+          answer="$(curl -fsS -X POST "$site" -H "Authorization: Bearer $TOKEN" \
+            -F "version=$VERSION" -F "sha256=$SHA256" -F "size=$SIZE" -F "changelog=<$RUNNER_TEMP/changelog.md")"
+          piece=$((90 * 1024 * 1024))
+          while [ "$(jq -r '.published' <<<"$answer")" != "true" ]; do
+            offset="$(jq -r '.received' <<<"$answer")"
+            [ "$offset" -lt "$SIZE" ] || { echo "::error::orknux.ai has every byte and has not published: $answer"; exit 1; }
+            dd if="$FILE" of="$RUNNER_TEMP/piece" iflag=skip_bytes,count_bytes skip="$offset" count="$piece" status=none
+            answer="$(curl -fsS -X PUT "$site/$VERSION/jar?offset=$offset" -H "Authorization: Bearer $TOKEN" \
+              -H 'Content-Type: application/octet-stream' --data-binary "@$RUNNER_TEMP/piece")"
+            echo "orknux.ai has $(jq -r '.received' <<<"$answer") of $SIZE bytes"
+          done
+          echo "$VERSION is offered through orknux.ai: $(jq -r '.jarUrl' <<<"$answer")"
