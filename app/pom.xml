@@ -22,8 +22,11 @@
 
     <properties>
         <start-class>io.mszymanski.orknux.server.OrknuxServerKt</start-class>
-        <!-- Where -Pwith-ui takes the built interface from; the submodule's own build output. -->
-        <orknux.ui.dist>${project.basedir}/../orknux-ui/dist</orknux.ui.dist>
+        <!-- Where -Pwith-ui takes the built interface from; the submodule's own build output.
+             The parent's directory rather than `${project.basedir}/..`: on Linux the
+             enforcer's requireFilesExist reports a path with `..` in it missing while
+             the file is there, so the image build failed inside Docker. -->
+        <orknux.ui.dist>${project.parent.basedir}/orknux-ui/dist</orknux.ui.dist>
         <!-- Which JUnit tags the suite leaves out; see the surefire configuration
              below for what is in `slow` and why. A property rather than a literal
              so that one command line switches it off. -->
