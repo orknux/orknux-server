@@ -129,6 +129,14 @@ object SettingNames {
     /** How long a step of a workspace copy may wait for a lock. Issue #581. */
     const val WORKSPACE_COPY_LOCK_WAIT_SECONDS = "workspace.copy.lock.wait.seconds"
 
+    /**
+     * Log levels set from the screen, #591: one row per logger, `log.level.<name>`,
+     * read by `logging/LogLevels.kt`. The two knobs are kept off that prefix.
+     */
+    const val LOG_LEVEL_PREFIX = "log.level."
+    const val LOG_ROOT_REVERT_MINUTES = "logging.root.revert.minutes"
+    const val LOG_FOLLOW_SECONDS = "logging.follow.seconds"
+
     /** Server updates, #584: how many jars are kept, and how a start is judged. */
     const val RELEASES_KEPT = "releases.kept"
     const val RELEASE_BOOT_ATTEMPTS = io.mszymanski.orknux.server.update.RELEASE_BOOT_ATTEMPTS_SETTING

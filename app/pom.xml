@@ -481,6 +481,8 @@
                         <!-- No sweep calls a provider while a suite is running. -->
                         <orknux.model.check.enabled>false</orknux.model.check.enabled>
                         <orknux.connection.check.enabled>false</orknux.connection.check.enabled>
+                        <!-- No clock re-reads the log levels; LogLevelAPITest calls refresh itself. -->
+                        <orknux.logging.levels.follow-enabled>false</orknux.logging.levels.follow-enabled>
                         <!-- No clock deletes a revision mid-suite; RevisionRetentionTest
                              calls the sweep itself. The bean is still built, which is
                              what lets it. -->

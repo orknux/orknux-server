@@ -1,0 +1,54 @@
+# The server's log levels, set from Admin -> Settings without a restart. Issue #591.
+#
+# A file of its own rather than a section of schema.graphqls: it is one
+# aggregate with its own controller, and Spring reads every .graphqls under
+# graphql/ into the one schema.
+
+extend type Query {
+    "The root and every logger set here or named by the configuration, with what each logs at. Administrators only."
+    logLevels: LogLevels!
+}
+
+extend type Mutation {
+    """
+    Sets one logger's level, on every server: TRACE, DEBUG, INFO, WARN, ERROR,
+    OFF, or INHERIT to take its parent's. A root below INFO goes back on its own
+    after `rootRevertMinutes`. Administrators only.
+    """
+    setLogLevel(name: String!, level: String!): LogLevels!
+    "Drops what was set for one logger, so the configuration decides again. Administrators only."
+    clearLogLevel(name: String!): LogLevels!
+    "Drops every level set here. Administrators only."
+    resetLogLevels: LogLevels!
+    "How long the root may stay below INFO, between 1 and 1440 minutes. Administrators only."
+    setLogRootRevertMinutes(minutes: Int!): LogLevels!
+    "How often every server re-reads the levels, between 5 and 3600 seconds. Administrators only."
+    setLogFollowSeconds(seconds: Int!): LogLevels!
+}
+
+type LogLevels {
+    "The root first, then the rest by name."
+    loggers: [LoggerLevel!]!
+    "Loggers worth offering that are not on the list yet."
+    suggestions: [String!]!
+    "What a level may be set to."
+    levels: [String!]!
+    rootRevertMinutes: Int!
+    rootRevertMinutesConfigured: Int!
+    followSeconds: Int!
+    followSecondsConfigured: Int!
+}
+
+type LoggerLevel {
+    name: String!
+    "What was set here, or null where the configuration decides."
+    level: String
+    "What the logger itself carries on this server now; null inherits."
+    configuredLevel: String
+    "What it actually logs at."
+    effectiveLevel: String!
+    "What the configuration gives it; null inherits."
+    defaultLevel: String
+    "When a root set below INFO goes back on its own, ISO-8601."
+    revertsAt: String
+}
