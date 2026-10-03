@@ -15,7 +15,11 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
-## Unreleased
+## 0.9.9.10
+
+### 🔧 Changed
+
+- Admin -> Updates shows only the newest offered release's changes open; the others fold to their version line, and clicking a version opens or closes its changes.
 
 ### 🐛 Fixed
 
