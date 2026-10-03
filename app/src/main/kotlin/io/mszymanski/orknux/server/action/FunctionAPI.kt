@@ -880,6 +880,7 @@ class FunctionAPI(
               //   orknux.slack.message(connection, link)    the message a permalink points at
               //   orknux.slack.user(connection, '<@U…>')    who a mention is
               //   orknux.slack.mention(connection, name)    the <@…> notation to post
+              //   orknux.connections.query({ type: 'SLACK' }) this workspace's connections
               // Each answers a value with `error` on it when it could not; check that
               // first. There is no fetch, no import and no require: this is a sandbox.
 

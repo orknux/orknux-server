@@ -183,6 +183,89 @@ class PluginCapabilityTest {
         assertThat((answer as ScriptResult.Returned).json).contains("that connection has been deleted")
     }
 
+    /**
+     * `orknux.connections.query` is one helper in both sandboxes. Issue #597.
+     *
+     * The same call written in a function and in a plugin granted it reaches
+     * the server as the same capability with the same argument and the run's
+     * workspace, and comes back as the same answer - only the two keys the
+     * filter knows cross, whatever else the guest put on the object.
+     */
+    @Test
+    fun `a plugin gets the same connections helper a function does`() {
+        val seen = mutableListOf<Triple<PluginCapability, String, Long?>>()
+        val answering = PluginHost { capability, argument, on ->
+            seen += Triple(capability, argument, on)
+            """{"connections":[{"id":7,"name":"Support Slack","type":"SLACK"}]}"""
+        }
+        val call = "orknux.connections.query({ type: 'SLACK', name: 'support slack', secret: 'x', get extra() { return 1; } })"
+
+        val function = ScriptRunner(ScriptProperties(timeoutMillis = 10_000, statementLimit = 2_000_000), answering)
+            .call("export default function find() { return $call; }", "find", emptyList(), on = 12)
+        val plugin = PluginRunner(PluginProperties(timeoutMillis = 5_000, statementLimit = 2_000_000), answering).call(
+            """
+                export default class Finder extends OrknuxPlugin {
+                  id() { return 'finder'; }
+                  apiVersion() { return 1; }
+                  capabilities() { return ['CONNECTIONS_QUERY']; }
+                  functions() {
+                    return [new OrknuxFunction({ name: 'find', params: [], returnType: 'map', run: () => $call })];
+                  }
+                }
+            """.trimIndent(),
+            "find",
+            emptyList(),
+            capabilities = setOf(PluginCapability.CONNECTIONS_QUERY),
+            on = 12,
+        )
+
+        assertThat((function as ScriptResult.Returned).json).contains("\"name\":\"Support Slack\"")
+        assertThat((plugin as ScriptResult.Returned).json).isEqualTo(function.json)
+        assertThat(seen).hasSize(2).allSatisfy({ (capability, argument, on) ->
+            assertThat(capability).isEqualTo(PluginCapability.CONNECTIONS_QUERY)
+            assertThat(argument).isEqualTo("""{"type":"SLACK","name":"support slack"}""")
+            assertThat(on).describedAs("the run's workspace, not the script's").isEqualTo(12L)
+        })
+    }
+
+    /** No filter, or an empty one, asks for everything - and a filter that is not an object is refused in the guest. */
+    @Test
+    fun `an absent filter asks for every connection, and a wrong one is refused before the server`() {
+        val seen = mutableListOf<String>()
+        val answering = ScriptRunner(
+            ScriptProperties(timeoutMillis = 10_000, statementLimit = 2_000_000),
+            PluginHost { _, argument, _ -> seen += argument; """{"connections":[]}""" },
+        )
+
+        answering.call("export default function a() { return orknux.connections.query(); }", "a", emptyList(), on = 12)
+        answering.call("export default function b() { return orknux.connections.query({}); }", "b", emptyList(), on = 12)
+        val refused = answering.call("export default function c() { return orknux.connections.query('SLACK'); }", "c", emptyList(), on = 12)
+
+        assertThat(seen).containsExactly("{}", "{}")
+        assertThat((refused as ScriptResult.Returned).json).contains("takes an object")
+    }
+
+    @Test
+    fun `a plugin not granted the connections query is refused without the server being asked`() {
+        val lister = """
+            export default class Lister extends OrknuxPlugin {
+              id() { return 'lister'; }
+              apiVersion() { return 1; }
+              capabilities() { return ['CONNECTIONS_QUERY']; }
+              functions() {
+                return [new OrknuxFunction({ name: 'list', params: [], returnType: 'map', run: () => orknux.connections.query() })];
+              }
+            }
+        """.trimIndent()
+
+        // Declared and not accepted, and granted something else entirely: refused either way.
+        listOf(emptySet(), setOf(PluginCapability.SLACK_READ_THREAD)).forEach { granted ->
+            val answer = runner.call(lister, "list", emptyList(), capabilities = granted, on = 12)
+            assertThat((answer as ScriptResult.Returned).json).contains("was not granted CONNECTIONS_QUERY")
+        }
+        assertThat(asked).describedAs("the server was never asked").isEmpty()
+    }
+
     /** What it declares is readable, so a person can be shown it before granting. */
     @Test
     fun `what a plugin asks the server for is read off it`() {

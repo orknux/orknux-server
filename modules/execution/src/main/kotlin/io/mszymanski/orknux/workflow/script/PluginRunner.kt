@@ -89,6 +89,10 @@ class PluginRunner(
                 ).prependIndent("  "),
             )
             .replace("%HTTP%", HostHelpers.http("this plugin was not granted NETWORK_REQUEST").prependIndent("  "))
+            .replace(
+                "%CONNECTIONS%",
+                HostHelpers.connections("this plugin was not granted CONNECTIONS_QUERY").prependIndent("  "),
+            )
             .replace("%LOG%", HostHelpers.log(HostHelpers.threshold(properties.logLevel)).prependIndent("  "))
             .replace("%STORE%", HostHelpers.sessionStore().prependIndent("  "))
             .replace("%SCRATCHPAD%", HostHelpers.scratchpads().prependIndent("  "))
@@ -1664,6 +1668,7 @@ class PluginRunner(
             globalThis.orknux = {
 %SLACK%
 %HTTP%
+%CONNECTIONS%
 %LOG%
 %STORE%
 %SCRATCHPAD%

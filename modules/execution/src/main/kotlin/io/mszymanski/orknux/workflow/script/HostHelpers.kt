@@ -170,6 +170,38 @@ internal object HostHelpers {
     """.trimIndent()
 
     /**
+     * `orknux.connections`, as both a plugin and a function see it. Issue #597.
+     *
+     * `query(filter)` answers `{ connections: [...] }` - the workspace's own,
+     * each a handle the Slack doors take as it is - or `{ error }`. The filter
+     * is an object so that a later field is a new key rather than a new call,
+     * and only the keys this knows are copied across: a guest handing over an
+     * object with a getter or a cycle in it gets the two strings it meant and
+     * nothing else crosses.
+     *
+     * @param absent what to say when this door is not wired: a plugin was not
+     *   granted it, or a function is on an installation that answers none.
+     */
+    fun connections(absent: String): String = """
+        connections: {
+          query(filter) {
+            const host = globalThis.__orknuxHost;
+            if (host === undefined || host.connections_query === undefined) {
+              return { error: '$absent' };
+            }
+            const given = filter === undefined || filter === null ? {} : filter;
+            if (typeof given !== 'object' || Array.isArray(given)) {
+              return { error: 'connections.query takes an object: { type, name }, both optional' };
+            }
+            const asked = {};
+            if (given.type !== undefined && given.type !== null) asked.type = String(given.type);
+            if (given.name !== undefined && given.name !== null) asked.name = String(given.name);
+            return JSON.parse(host.connections_query(JSON.stringify(asked)));
+          },
+        },
+    """.trimIndent()
+
+    /**
      * `orknux.http`, as both a plugin and a function see it.
      *
      * The guest never holds a socket: it hands over a URL and gets an answer

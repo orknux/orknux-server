@@ -74,6 +74,11 @@ class SlackPluginHost(
      * drawn - see [PdfRenderer] for why something that writes a PDF needs it.
      */
     private val pdfs: PdfRenderer,
+    /**
+     * And the fifth: which connections the run's workspace holds, with no
+     * credential among them. See [ConnectionsPluginHost]. Issue #597.
+     */
+    private val connectionList: ConnectionsPluginHost,
 ) : PluginHost {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -113,6 +118,13 @@ class SlackPluginHost(
          * note on the capability.
          */
         PluginCapability.RENDER_PDF -> renderPdf(argument)
+
+        /*
+         * Scoped like the Slack doors, and more strictly: there is no
+         * connection id in the call at all, so the run's workspace is the
+         * whole of what decides what is answered.
+         */
+        PluginCapability.CONNECTIONS_QUERY -> connectionList.query(argument, on)
     }
 
     /**
