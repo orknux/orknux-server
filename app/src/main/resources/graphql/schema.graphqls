@@ -1223,6 +1223,17 @@ type Mutation {
     Administrators only; a run already going keeps the number it started with.
     """
     setWorkflowStepsAtOnce(count: Int!): InstallationSettings!
+    """
+    How long a workflow step may go without its worker saying it is alive before
+    Temporal hands it to another, in seconds; 0 turns the heartbeat off. Issue #601.
+    Administrators only; a run already going takes it up from its next step.
+    """
+    setWorkflowStepHeartbeatSeconds(seconds: Int!): InstallationSettings!
+    """
+    How many goes in all an agent step gets on the inline engine when restarts
+    keep cutting it short. Issue #601. Administrators only.
+    """
+    setWorkflowRestartAttempts(count: Int!): InstallationSettings!
     "How many identical calls in a row are allowed. Issue #516."
     setMaxRepeatedToolCalls(count: Int!): InstallationSettings!
     "How many tool calls one message may ask for at once. Issue #518."
@@ -6627,6 +6638,23 @@ type InstallationSettings {
     workflowStepsAtOnce: Int!
     "Four, unless somebody has said otherwise."
     workflowStepsAtOnceConfigured: Int!
+    """
+    Temporal: how long a step may go without its worker saying it is alive before
+    it is handed to another worker, in seconds. Issue #601.
+
+    A killed server says nothing; without this a run sat on the step it was in
+    until the step's whole timeout ran out. 0 turns it off.
+    """
+    workflowStepHeartbeatSeconds: Int!
+    "What the file says: ORKNUX_TEMPORAL_STEP_HEARTBEAT_SECONDS, thirty unless set."
+    workflowStepHeartbeatSecondsConfigured: Int!
+    """
+    Inline engine: how many goes in all an agent step gets when restarts keep
+    cutting it short, the ones that died included. Issue #601.
+    """
+    workflowRestartAttempts: Int!
+    "What the file says: ORKNUX_INLINE_RESTART_ATTEMPTS, three unless set."
+    workflowRestartAttemptsConfigured: Int!
     """
     The loop guard. Issue #516.
 

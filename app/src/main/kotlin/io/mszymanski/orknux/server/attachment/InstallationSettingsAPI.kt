@@ -61,6 +61,10 @@ class InstallationSettingsAPI(
         agentMaxSubagentsAtOnceConfigured = settings.agentMaxSubagentsAtOnceConfigured(),
         workflowStepsAtOnce = settings.workflowStepsAtOnce(),
         workflowStepsAtOnceConfigured = settings.workflowStepsAtOnceConfigured(),
+        workflowStepHeartbeatSeconds = settings.workflowStepHeartbeatSeconds().toInt(),
+        workflowStepHeartbeatSecondsConfigured = settings.workflowStepHeartbeatSecondsConfigured().toInt(),
+        workflowRestartAttempts = settings.workflowRestartAttempts(),
+        workflowRestartAttemptsConfigured = settings.workflowRestartAttemptsConfigured(),
         maxRepeatedToolCalls = settings.maxRepeatedToolCalls(),
         maxRepeatedToolCallsConfigured = settings.maxRepeatedToolCallsConfigured(),
         repeatedToolCallsWindowSeconds = settings.repeatedToolCallsWindowSeconds(),
@@ -511,6 +515,43 @@ class InstallationSettingsAPI(
     }
 
     /**
+     * The step heartbeat on Temporal. Issue #601.
+     *
+     * Read as a run starts and handed back with each step's report, so a run
+     * already going takes it up from its next step.
+     */
+    @MutationMapping
+    fun setWorkflowStepHeartbeatSeconds(@Argument seconds: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setWorkflowStepHeartbeatSeconds(seconds.toLong(), currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            if (seconds == 0) {
+                "Workflow steps no longer send a heartbeat"
+            } else {
+                "Workflow steps send a heartbeat, and are handed on after ${seconds}s without one"
+            },
+        )
+        return installationSettings()
+    }
+
+    /** How many goes an agent step cut short by restarts gets. Issue #601. */
+    @MutationMapping
+    fun setWorkflowRestartAttempts(@Argument count: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setWorkflowRestartAttempts(count, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "Agent steps cut short by a restart allowed $count goes",
+        )
+        return installationSettings()
+    }
+
+    /**
      * How many steps of one workflow run may be running at once. Issue #285.
      *
      * Read when a run is planned, so a run already going keeps the number it
@@ -822,6 +863,12 @@ data class InstallationSettingsView(
     /** How many steps of one workflow run may be running at once. Issue #285. */
     val workflowStepsAtOnce: Int,
     val workflowStepsAtOnceConfigured: Int,
+    /** How soon a step whose server died is handed to a live worker, on Temporal. Issue #601. */
+    val workflowStepHeartbeatSeconds: Int,
+    val workflowStepHeartbeatSecondsConfigured: Int,
+    /** How many goes an agent step cut short by restarts gets, on the inline engine. Issue #601. */
+    val workflowRestartAttempts: Int,
+    val workflowRestartAttemptsConfigured: Int,
     /**
      * The loop guard. Issue #516: how many identical calls, how close together
      * they have to be to count, and how often a turn is told before it ends.

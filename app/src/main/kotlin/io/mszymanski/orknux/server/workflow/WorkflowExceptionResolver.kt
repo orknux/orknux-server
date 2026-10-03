@@ -272,6 +272,9 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is io.mszymanski.orknux.server.attachment.SubagentsOutOfRangeException,
             /* How many steps of one run may be running at once. Issue #285. */
             is io.mszymanski.orknux.server.attachment.StepsAtOnceOutOfRangeException,
+            /* How a step a dead server was in is recovered. Issue #601. */
+            is io.mszymanski.orknux.server.attachment.StepHeartbeatOutOfRangeException,
+            is io.mszymanski.orknux.server.attachment.RestartAttemptsOutOfRangeException,
             /* How many findable tools find_tools names outright. Issue #442. */
             is io.mszymanski.orknux.server.attachment.ToolsNamedOutOfRangeException,
             /* How long a session counts as active after its last line. Issue #448. */

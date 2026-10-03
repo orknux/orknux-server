@@ -96,6 +96,19 @@ interface NodeRunner {
      *   needs to answer whoever asked has nowhere else to read that from.
      */
     fun run(step: ExecutionStep, input: String?, trigger: String? = null): StepResult
+
+    /**
+     * Whether a step this runner was in the middle of when its process died is
+     * asked again rather than failed. Issue #601.
+     *
+     * False by default, which is the rule #448 set: nothing can say how far a
+     * lost step got, and a function that charged a card does not become
+     * repeatable because the process under it died. A runner says true only
+     * where asking again is the job rather than a risk - an agent answering a
+     * message, whose work is a conversation kept in its session, and whose
+     * failing the run means the message is never answered at all.
+     */
+    fun asksAgainAfterRestart(step: ExecutionStep): Boolean = false
 }
 
 /**

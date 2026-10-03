@@ -6,6 +6,7 @@ import io.mszymanski.orknux.workflow.execution.ExecutionPlanner
 import io.mszymanski.orknux.workflow.execution.ExecutionTrigger
 import io.mszymanski.orknux.workflow.execution.GraphVersion
 import io.mszymanski.orknux.workflow.execution.ResumePoint
+import io.mszymanski.orknux.workflow.execution.StepRecovery
 import io.mszymanski.orknux.workflow.execution.WorkflowExecution
 import io.temporal.client.WorkflowClient
 import io.temporal.client.WorkflowOptions
@@ -28,6 +29,8 @@ class TemporalExecutionEngine(
     private val planner: ExecutionPlanner,
     private val client: WorkflowClient,
     private val properties: TemporalProperties,
+    /** The step heartbeat a run starts with; see [RunPlan.heartbeatSeconds]. Issue #601. */
+    private val recovery: StepRecovery,
 ) : ExecutionEngine {
 
     override fun start(
@@ -57,7 +60,7 @@ class TemporalExecutionEngine(
         )
 
         // Started, not awaited: a run outlives the request that asked for it.
-        WorkflowClient.start(workflow::run, runPlanOf(plan, input))
+        WorkflowClient.start(workflow::run, runPlanOf(plan, input, recovery.stepHeartbeatSeconds()))
 
         return plan.execution
     }
@@ -81,7 +84,7 @@ class TemporalExecutionEngine(
 fun temporalWorkflowId(executionId: Long): String = "orknux-execution-$executionId"
 
 /** What the workflow is handed for a recorded plan: everything it decides from, and nothing it would fetch. */
-fun runPlanOf(plan: ExecutionPlan, input: String?): RunPlan = RunPlan(
+fun runPlanOf(plan: ExecutionPlan, input: String?, heartbeatSeconds: Long? = null): RunPlan = RunPlan(
     executionId = requireNotNull(plan.execution.id),
     workflowName = plan.execution.workflowName,
     steps = plan.steps.map { it.nodeKey },
@@ -91,4 +94,5 @@ fun runPlanOf(plan: ExecutionPlan, input: String?): RunPlan = RunPlan(
     blocked = plan.blocked.toList(),
     splits = plan.splits.toList(),
     parallelism = plan.parallelism,
+    heartbeatSeconds = heartbeatSeconds,
 )

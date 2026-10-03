@@ -46,6 +46,8 @@ class InlineExecutionEngine(
     private val planner: ExecutionPlanner,
     private val steps: StepRunner,
     private val properties: InlineExecutionProperties,
+    /** How many goes an agent step a restart cut short gets, read when it is found. Issue #601. */
+    private val recovery: StepRecovery,
 ) : ExecutionEngine {
 
     /**
@@ -93,7 +95,8 @@ class InlineExecutionEngine(
      * fresh thread, exactly as it would have been walked had the first one not
      * died. A step left WAITING is asked again once its wake has passed; one
      * left RUNNING is failed as interrupted first, and its node's retry policy
-     * decides whether it is asked again - see [StepRunner.interruptStep]; a
+     * decides whether it is asked again - see [StepRunner.interruptStep] - unless
+     * it is an agent's, which is simply asked again (#601); a
      * run with no open step walks on to the next PENDING one. Nothing to carry
      * on - the run finished, or is no longer running - is a run already seen
      * to, and answers null.
@@ -335,7 +338,11 @@ class InlineExecutionEngine(
         var first = interrupted
 
         while (true) {
-            val outcome = if (first) steps.interruptStep(executionId, nodeKey) else steps.runStep(executionId, nodeKey)
+            val outcome = if (first) {
+                steps.interruptStep(executionId, nodeKey, recovery.restartAttempts())
+            } else {
+                steps.runStep(executionId, nodeKey)
+            }
             first = false
             if (outcome.status != StepStatus.WAITING) return outcome
 

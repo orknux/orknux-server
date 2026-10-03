@@ -100,6 +100,10 @@ object SettingNames {
 
     /** How many steps of one workflow run may be running at once. Issue #285. */
     const val WORKFLOW_STEPS_AT_ONCE = "workflow.steps.at.once"
+
+    /** How a step a dead server was in the middle of is recovered. Issue #601. */
+    const val WORKFLOW_STEP_HEARTBEAT_SECONDS = "workflow.step.heartbeat.seconds"
+    const val WORKFLOW_RESTART_ATTEMPTS = "workflow.restart.attempts"
     const val COMMAND_MARKER = "command.marker"
     const val SESSIONS_REMOVABLE = "sessions.removable"
     const val SCRATCHPAD_BUDGET_BYTES = "scratchpad.budget.bytes"
@@ -189,6 +193,16 @@ class InstallationSettings(
      * come to disagree with which bean was built.
      */
     @Value("\${orknux.temporal.enabled:true}") private val temporalEnabled: Boolean,
+    /**
+     * Where a fresh installation starts on the step heartbeat and on an agent
+     * step's goes after a restart, before anybody touches the screen - read as
+     * properties for the reason [temporalEnabled] is: the property classes they
+     * would otherwise come from exist only under one engine each. Issue #601.
+     */
+    @Value("\${orknux.temporal.step-heartbeat-seconds:$DEFAULT_STEP_HEARTBEAT_SECONDS}")
+    private val stepHeartbeatSecondsFile: Long = DEFAULT_STEP_HEARTBEAT_SECONDS,
+    @Value("\${orknux.execution.inline.restart-attempts:$DEFAULT_RESTART_ATTEMPTS}")
+    private val restartAttemptsFile: Int = DEFAULT_RESTART_ATTEMPTS,
 ) {
 
     /**
@@ -519,6 +533,62 @@ class InstallationSettings(
     fun setWorkflowStepsAtOnce(count: Int, by: String) {
         if (count !in MIN_STEPS_AT_ONCE..MAX_STEPS_AT_ONCE) throw StepsAtOnceOutOfRangeException(count)
         write(SettingNames.WORKFLOW_STEPS_AT_ONCE, count.toString(), by)
+    }
+
+    /**
+     * Temporal: how long a step may go without its worker saying it is alive
+     * before it is handed to another worker. Issue #601.
+     *
+     * A killed server says nothing, and without a heartbeat the only thing that
+     * noticed was the step's whole timeout - five minutes of a run sitting on a
+     * step nothing was running. The step says it is alive a third of this
+     * apart. Zero turns it off. Read as each run starts and handed back with
+     * every step's report, so a change applies to the steps asked after it.
+     */
+    fun workflowStepHeartbeatSeconds(): Long {
+        val held = settings.findByIdOrNull(SettingNames.WORKFLOW_STEP_HEARTBEAT_SECONDS)
+            ?: return workflowStepHeartbeatSecondsConfigured()
+        return held.value.toLongOrNull()?.takeIf { it in MIN_STEP_HEARTBEAT_SECONDS..MAX_STEP_HEARTBEAT_SECONDS }
+            ?: workflowStepHeartbeatSecondsConfigured()
+    }
+
+    /** What the file says - ORKNUX_TEMPORAL_STEP_HEARTBEAT_SECONDS, thirty unless set. */
+    fun workflowStepHeartbeatSecondsConfigured(): Long =
+        stepHeartbeatSecondsFile.takeIf { it in MIN_STEP_HEARTBEAT_SECONDS..MAX_STEP_HEARTBEAT_SECONDS }
+            ?: DEFAULT_STEP_HEARTBEAT_SECONDS
+
+    @Transactional
+    fun setWorkflowStepHeartbeatSeconds(seconds: Long, by: String) {
+        if (seconds !in MIN_STEP_HEARTBEAT_SECONDS..MAX_STEP_HEARTBEAT_SECONDS) {
+            throw StepHeartbeatOutOfRangeException(seconds)
+        }
+        write(SettingNames.WORKFLOW_STEP_HEARTBEAT_SECONDS, seconds.toString(), by)
+    }
+
+    /**
+     * Inline engine: how many goes in all an agent step gets when restarts keep
+     * cutting it short, the ones that died included. Issue #601.
+     *
+     * Any other step a restart caught is failed as interrupted; an agent
+     * answering a message is asked again, because failing it left the message
+     * unanswered. Bounded because the step may be what kills the process. Read
+     * when the sweep finds the step.
+     */
+    fun workflowRestartAttempts(): Int {
+        val held = settings.findByIdOrNull(SettingNames.WORKFLOW_RESTART_ATTEMPTS)
+            ?: return workflowRestartAttemptsConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_RESTART_ATTEMPTS..MAX_RESTART_ATTEMPTS }
+            ?: workflowRestartAttemptsConfigured()
+    }
+
+    /** What the file says - ORKNUX_INLINE_RESTART_ATTEMPTS, three unless set. */
+    fun workflowRestartAttemptsConfigured(): Int =
+        restartAttemptsFile.takeIf { it in MIN_RESTART_ATTEMPTS..MAX_RESTART_ATTEMPTS } ?: DEFAULT_RESTART_ATTEMPTS
+
+    @Transactional
+    fun setWorkflowRestartAttempts(count: Int, by: String) {
+        if (count !in MIN_RESTART_ATTEMPTS..MAX_RESTART_ATTEMPTS) throw RestartAttemptsOutOfRangeException(count)
+        write(SettingNames.WORKFLOW_RESTART_ATTEMPTS, count.toString(), by)
     }
 
     /**
@@ -1631,6 +1701,23 @@ const val MAX_STEPS_AT_ONCE = 32
 
 const val DEFAULT_STEPS_AT_ONCE = 4
 
+/** Zero is no heartbeat: a dead worker is noticed only when the step's timeout runs out. Issue #601. */
+const val MIN_STEP_HEARTBEAT_SECONDS = 0L
+
+/** Ten minutes; past that the five-minute step timeout notices a dead worker first anyway. */
+const val MAX_STEP_HEARTBEAT_SECONDS = 600L
+
+/** About how long a restarted server takes to come back. */
+const val DEFAULT_STEP_HEARTBEAT_SECONDS = 30L
+
+/** One is the go that died: an agent step a restart cut short is then failed, as any other step is. */
+const val MIN_RESTART_ATTEMPTS = 1
+
+const val MAX_RESTART_ATTEMPTS = 10
+
+/** Temporal's own number of attempts at a step, so the two engines carry a dying step equally far. */
+const val DEFAULT_RESTART_ATTEMPTS = 3
+
 const val MIN_SUBAGENTS = 0
 const val MAX_SUBAGENTS = 100
 
@@ -1685,6 +1772,24 @@ class RepeatWindowOutOfRangeException(val seconds: Int) : RuntimeException(
 ), Refusal {
 
     override val arguments get() = mapOf("seconds" to seconds)
+}
+
+/** Issue #601. */
+class StepHeartbeatOutOfRangeException(val seconds: Long) : RuntimeException(
+    "$seconds is not a step heartbeat. " +
+        "Choose between $MIN_STEP_HEARTBEAT_SECONDS and $MAX_STEP_HEARTBEAT_SECONDS seconds; 0 turns it off.",
+), Refusal {
+
+    override val arguments get() = mapOf("seconds" to seconds)
+}
+
+/** Issue #601. */
+class RestartAttemptsOutOfRangeException(val count: Int) : RuntimeException(
+    "$count is not a number of goes an agent step gets after a restart. " +
+        "Choose between $MIN_RESTART_ATTEMPTS and $MAX_RESTART_ATTEMPTS.",
+), Refusal {
+
+    override val arguments get() = mapOf("count" to count)
 }
 
 /** Issue #285. */

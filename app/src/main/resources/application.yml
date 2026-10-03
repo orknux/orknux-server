@@ -652,6 +652,15 @@ orknux:
       # the step fails and says what would have carried it. A Temporal wait is a
       # timer, holds nothing, and is bounded by run-timeout-hours instead.
       max-wait: ${ORKNUX_INLINE_MAX_WAIT:5m}
+      # How many goes in all an agent step gets when restarts keep cutting it
+      # short. A step a restart caught mid-work is failed, because nothing can
+      # say how far it got - except an agent answering a message, which is
+      # asked again: failing it left the message unanswered until somebody
+      # pressed Rerun. Bounded because the step may be what kills the process.
+      # Three, as Temporal's step-attempts. Where a fresh installation starts;
+      # Admin -> Settings, under Workflow runs, is the answer from then on, read
+      # each time the sweep finds such a step. Issue #601.
+      restart-attempts: ${ORKNUX_INLINE_RESTART_ATTEMPTS:3}
   task:
     # What one task may spend before it is stopped and told so. An agent running
     # until it decides it is done is an unbounded bill, so there are two
@@ -715,6 +724,14 @@ orknux:
     # step and answers, so it is the run timeout that bounds a long wait.
     step-timeout-seconds: ${ORKNUX_TEMPORAL_STEP_TIMEOUT_SECONDS:300}
     step-attempts: ${ORKNUX_TEMPORAL_STEP_ATTEMPTS:3}
+    # How long a step may go without its worker saying it is alive before it is
+    # handed to another. A killed server says nothing, and without this a run sat
+    # on the step it was in until step-timeout-seconds ran out. The step says it
+    # is alive a third of this apart, whatever it is waiting on. 0 turns it off.
+    # Where a fresh installation starts; Admin -> Settings, under Workflow runs,
+    # is the answer from then on, and a run takes a change up from its next
+    # step. Issue #601.
+    step-heartbeat-seconds: ${ORKNUX_TEMPORAL_STEP_HEARTBEAT_SECONDS:30}
     run-timeout-hours: ${ORKNUX_TEMPORAL_RUN_TIMEOUT_HOURS:24}
   model:
     check:

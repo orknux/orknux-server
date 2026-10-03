@@ -110,6 +110,18 @@ class AgentNodeRunner(
 
     override fun supports(kind: NodeKind): Boolean = kind == NodeKind.AGENT
 
+    /**
+     * An agent cut short by a restart is asked again. Issue #601.
+     *
+     * Its work is answering what reached it, and failing the step leaves the
+     * message unanswered until somebody reruns the whole run. What it had
+     * already done is in its session, which it is handed again - the question
+     * is not recorded twice, see [run] - so asked again it reads where it got
+     * to rather than starting blind. Temporal has always retried this step
+     * after a dead worker; this is the inline engine doing the same.
+     */
+    override fun asksAgainAfterRestart(step: ExecutionStep): Boolean = true
+
     override fun run(step: ExecutionStep, input: String?, trigger: String?): StepResult {
         // A node pointing at nothing is not configured, which is not a failure:
         // a graph is drawn before it is finished, and a run should say what it
@@ -440,7 +452,16 @@ class AgentNodeRunner(
                 }
         }
 
-        val remembered = session?.let { sessions.remembered(it, budget) }.orEmpty()
+        /*
+         * Less the question itself, where an earlier attempt of this step asked
+         * it - a restart that cut the model call short, or a retry. That
+         * attempt recorded the question before asking, so the session already
+         * ends with it, and the turns below add it again. Issue #601.
+         */
+        val remembered = session?.let { sessions.remembered(it, budget) }.orEmpty().let { turns ->
+            val last = turns.lastOrNull()
+            if (step.attempts > 1 && last?.role == "user" && last.content == question) turns.dropLast(1) else turns
+        }
 
         /*
          * And what its tools returned, which is not the same thing.
@@ -506,7 +527,13 @@ class AgentNodeRunner(
          * is 0 until the first wait and nonzero after, so it is the signal that
          * this pass is a resume. Issue #396.
          */
-        if (step.agentSleeps == 0) session?.let { sessions.userSaid(it, step.name, question) }
+        /*
+         * Nor on a second attempt at the step, for the same reason: the first
+         * recorded the question before the model was asked, so a restart that
+         * killed the call, or a retry after it failed, would otherwise write
+         * it twice. Issue #601.
+         */
+        if (step.agentSleeps == 0 && step.attempts <= 1) session?.let { sessions.userSaid(it, step.name, question) }
 
         /*
          * Said before the model is asked, not after.
