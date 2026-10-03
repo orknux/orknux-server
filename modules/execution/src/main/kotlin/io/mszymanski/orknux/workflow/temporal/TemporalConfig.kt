@@ -6,6 +6,7 @@ import io.temporal.client.WorkflowClientOptions
 import io.temporal.common.RetryOptions
 import io.temporal.serviceclient.WorkflowServiceStubs
 import io.temporal.serviceclient.WorkflowServiceStubsOptions
+import io.temporal.worker.Worker
 import io.temporal.worker.WorkerFactory
 import io.temporal.worker.WorkflowImplementationOptions
 import org.slf4j.LoggerFactory
@@ -74,35 +75,48 @@ class TemporalConfig {
         val factory = WorkerFactory.newInstance(client)
         val worker = factory.newWorker(properties.taskQueue)
 
-        worker.registerWorkflowImplementationTypes(
-            WorkflowImplementationOptions.newBuilder()
-                .setDefaultActivityOptions(activityOptions(properties))
-                .build(),
-            ExecutionWorkflowImpl::class.java,
-        )
+        registerExecutionWorkflow(worker, activityOptions(properties))
         worker.registerActivitiesImplementations(activities)
         registrars.forEach { it.register(worker) }
         return factory
     }
 
     private fun activityOptions(properties: TemporalProperties): ActivityOptions =
-        activityOptions(properties.stepTimeoutSeconds, properties.stepAttempts, properties.stepHeartbeatSeconds)
+        activityOptions(properties.stepTimeoutSeconds, properties.stepAttempts)
 
     companion object {
+        /**
+         * The run interpreter on [worker], with [stepOptions] as what every step
+         * is asked with. Issue #601.
+         *
+         * By a factory rather than by type, so each run is handed the step
+         * options and can add the step heartbeat to them as it goes: a stub's
+         * own options are not merged over the worker's defaults, and workflow
+         * code has no way to read those back. One function, so the suite
+         * registers the workflow exactly as a deployment does.
+         */
+        fun registerExecutionWorkflow(worker: Worker, stepOptions: ActivityOptions) {
+            worker.registerWorkflowImplementationFactory(
+                ExecutionWorkflow::class.java,
+                io.temporal.workflow.Functions.Func<ExecutionWorkflow> { ExecutionWorkflowImpl(stepOptions) },
+                WorkflowImplementationOptions.newBuilder()
+                    .setDefaultActivityOptions(stepOptions)
+                    .build(),
+            )
+        }
+
         /**
          * What every step activity is held to. One function, so the test that
          * kills a worker mid-step is held to what a deployment is.
          *
-         * The heartbeat timeout is what notices a dead worker: the step
-         * heartbeats while it works (see [ExecutionActivitiesImpl]), and one
-         * that stops is retried on a worker that is alive. Issue #601.
+         * No heartbeat timeout here: that one is an Admin setting and is put
+         * on each step's stub by [ExecutionWorkflowImpl] as the step is asked,
+         * so a change applies to the next step rather than to the next start
+         * of the worker. Issue #601.
          */
-        fun activityOptions(stepTimeoutSeconds: Long, stepAttempts: Int, stepHeartbeatSeconds: Long): ActivityOptions =
+        fun activityOptions(stepTimeoutSeconds: Long, stepAttempts: Int): ActivityOptions =
             ActivityOptions.newBuilder()
                 .setStartToCloseTimeout(Duration.ofSeconds(stepTimeoutSeconds))
-                .apply {
-                    if (stepHeartbeatSeconds > 0) setHeartbeatTimeout(Duration.ofSeconds(stepHeartbeatSeconds))
-                }
                 .setRetryOptions(
                     RetryOptions.newBuilder()
                         .setMaximumAttempts(stepAttempts)

@@ -1,6 +1,7 @@
 package io.mszymanski.orknux.server.agent
 
 import com.sun.net.httpserver.HttpServer
+import io.mszymanski.orknux.server.attachment.InstallationSettings
 import io.mszymanski.orknux.server.llm.LlmSessionEventKind
 import io.mszymanski.orknux.server.llm.LlmSessionEventRepository
 import io.mszymanski.orknux.server.llm.LlmSessionRecorder
@@ -74,6 +75,7 @@ class StrandedAgentStepTest(
     @Autowired val recorder: LlmSessionRecorder,
     @Autowired val sessions: LlmSessionRepository,
     @Autowired val sessionEvents: LlmSessionEventRepository,
+    @Autowired val settings: InstallationSettings,
 ) {
 
     private var workspaceId: Long = 0
@@ -125,7 +127,10 @@ class StrandedAgentStepTest(
     }
 
     @AfterEach
-    fun stop() = server.stop(0)
+    fun stop() {
+        server.stop(0)
+        settings.setWorkflowRestartAttempts(settings.workflowRestartAttemptsConfigured(), "alice")
+    }
 
     @Test
     fun `an agent step a restart cut short is asked again, and the run finishes with the message answered`() {
@@ -172,6 +177,21 @@ class StrandedAgentStepTest(
         val answer = steps.findByExecutionIdOrderByOrderAsc(executionId).single { it.nodeKey == "answer" }
         assertThat(answer.status).isEqualTo(StepStatus.FAILED)
         assertThat(answer.error).contains("interrupted by a restart")
+        assertThat(received).isEmpty()
+    }
+
+    @Test
+    fun `the number of goes is the Admin setting, read when the sweep finds the step`() {
+        // Set to one after the step died: the go that died was the only one,
+        // so the step fails as any other kind would.
+        val executionId = strandedMidCall(attemptsSpent = 1)
+        settings.setWorkflowRestartAttempts(1, "alice")
+
+        assertThat(sweeper.sweep()).isEqualTo(1)
+
+        await().atMost(Duration.ofSeconds(20)).untilAsserted {
+            assertThat(executions.findById(executionId).orElseThrow().status).isEqualTo(ExecutionStatus.FAILED)
+        }
         assertThat(received).isEmpty()
     }
 

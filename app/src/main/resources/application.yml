@@ -657,7 +657,9 @@ orknux:
       # say how far it got - except an agent answering a message, which is
       # asked again: failing it left the message unanswered until somebody
       # pressed Rerun. Bounded because the step may be what kills the process.
-      # Three, as Temporal's step-attempts. Issue #601.
+      # Three, as Temporal's step-attempts. Where a fresh installation starts;
+      # Admin -> Settings, under Workflow runs, is the answer from then on, read
+      # each time the sweep finds such a step. Issue #601.
       restart-attempts: ${ORKNUX_INLINE_RESTART_ATTEMPTS:3}
   task:
     # What one task may spend before it is stopped and told so. An agent running
@@ -726,7 +728,9 @@ orknux:
     # handed to another. A killed server says nothing, and without this a run sat
     # on the step it was in until step-timeout-seconds ran out. The step says it
     # is alive a third of this apart, whatever it is waiting on. 0 turns it off.
-    # Issue #601.
+    # Where a fresh installation starts; Admin -> Settings, under Workflow runs,
+    # is the answer from then on, and a run takes a change up from its next
+    # step. Issue #601.
     step-heartbeat-seconds: ${ORKNUX_TEMPORAL_STEP_HEARTBEAT_SECONDS:30}
     run-timeout-hours: ${ORKNUX_TEMPORAL_RUN_TIMEOUT_HOURS:24}
   model:

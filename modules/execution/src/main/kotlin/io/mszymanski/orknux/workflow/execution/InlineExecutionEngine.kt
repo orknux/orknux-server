@@ -46,6 +46,8 @@ class InlineExecutionEngine(
     private val planner: ExecutionPlanner,
     private val steps: StepRunner,
     private val properties: InlineExecutionProperties,
+    /** How many goes an agent step a restart cut short gets, read when it is found. Issue #601. */
+    private val recovery: StepRecovery,
 ) : ExecutionEngine {
 
     /**
@@ -337,7 +339,7 @@ class InlineExecutionEngine(
 
         while (true) {
             val outcome = if (first) {
-                steps.interruptStep(executionId, nodeKey, properties.restartAttempts)
+                steps.interruptStep(executionId, nodeKey, recovery.restartAttempts())
             } else {
                 steps.runStep(executionId, nodeKey)
             }
@@ -412,16 +414,4 @@ data class InlineExecutionProperties(
      * carrying the run, so an unbounded wait is an unbounded thread.
      */
     val maxWait: Duration = Duration.ofMinutes(5),
-    /**
-     * How many goes in all an agent step gets when restarts keep cutting it
-     * short, the ones that died included. Issue #601.
-     *
-     * A step left RUNNING by a restart is failed rather than repeated, except
-     * where its runner says asking again is the job - see
-     * [NodeRunner.asksAgainAfterRestart]. Three, the number of attempts
-     * Temporal gives the same step (`orknux.temporal.step-attempts`), so the
-     * two engines carry a dying agent step equally far. Bounded at all because
-     * the step may be what kills the process.
-     */
-    val restartAttempts: Int = 3,
 )

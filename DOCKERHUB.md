@@ -200,9 +200,9 @@ the step runs. The README's **Publishing** has the rest.
 | `ORKNUX_TEMPORAL_RUN_TIMEOUT_HOURS` | How long a whole run may take, waits included. | `24` | No |
 | `ORKNUX_TEMPORAL_STEP_TIMEOUT_SECONDS` | How long one step's own work may take. It does not bound a *wait*, which parks the step. | `300` | No |
 | `ORKNUX_TEMPORAL_STEP_ATTEMPTS` | How many times the platform tries a failing step. A node's own retry policy is separate. | `3` | No |
-| `ORKNUX_TEMPORAL_STEP_HEARTBEAT_SECONDS` | How soon a dead server's step moves to a live one; `0` waits out the step timeout. | `30` | No |
+| `ORKNUX_TEMPORAL_STEP_HEARTBEAT_SECONDS` | How soon a dead server's step moves to a live one; Admin Settings overrides. | `30` | No |
 | `ORKNUX_TEMPORAL_UI_URL` | Temporal's own web interface, linked out to from a run. Empty offers no links. | `http://localhost:8233` | No |
-| `ORKNUX_INLINE_RESTART_ATTEMPTS` | Inline engine only: the goes an agent step cut short by restarts gets. | `3` | No |
+| `ORKNUX_INLINE_RESTART_ATTEMPTS` | Inline only: goes an agent step cut short by restarts gets; Admin Settings overrides. | `3` | No |
 | `ORKNUX_INLINE_MAX_WAIT` | Inline engine only: how long a run may stay parked before the step fails. A Temporal wait is bounded by the run timeout. | `5m` | No |
 | `ORKNUX_TASK_MAX_TURNS` | How often a task's agent may be asked before stopping, unless the workspace sets its own. Copied onto a task when made, so a change spares one running. | `40` | No |
 | `ORKNUX_TASK_WORKING_TIME` | The longest a task may be *working*. Not wall clock: time parked waiting to be approved counts for none. | `2h` | No |

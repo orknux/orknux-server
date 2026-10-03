@@ -9,6 +9,7 @@ import io.mszymanski.orknux.workflow.execution.Frontier
 import io.mszymanski.orknux.workflow.execution.ParallelLanes
 import io.mszymanski.orknux.workflow.execution.GraphEdge
 import io.mszymanski.orknux.workflow.execution.StepStatus
+import io.temporal.activity.ActivityOptions
 import io.temporal.failure.ActivityFailure
 import io.temporal.failure.ApplicationFailure
 import io.temporal.workflow.Async
@@ -86,6 +87,15 @@ data class RunPlan(
     @JsonProperty("splits") val splits: List<String> = emptyList(),
     /** How many steps may be running at once, read when the run was planned. */
     @JsonProperty("parallelism") val parallelism: Int = 1,
+    /**
+     * The step heartbeat the run starts with, in seconds; zero is none. Issue #601.
+     *
+     * An Admin setting, read when the run was started, and updated from each
+     * step's report as the run goes - see [StepReport.heartbeatSeconds]. Null in
+     * a history written before it existed, which asks its steps exactly as it
+     * always did: with the worker's options and no heartbeat.
+     */
+    @JsonProperty("heartbeatSeconds") val heartbeatSeconds: Long? = null,
 ) {
     companion object {
         /**
@@ -113,6 +123,7 @@ data class RunPlan(
             @JsonProperty("blocked") blocked: List<String>?,
             @JsonProperty("splits") splits: List<String>?,
             @JsonProperty("parallelism") parallelism: Int?,
+            @JsonProperty("heartbeatSeconds") heartbeatSeconds: Long?,
         ) = RunPlan(
             executionId = executionId,
             workflowName = workflowName,
@@ -123,6 +134,7 @@ data class RunPlan(
             blocked = blocked.orEmpty(),
             splits = splits.orEmpty(),
             parallelism = parallelism?.takeIf { it > 0 } ?: 1,
+            heartbeatSeconds = heartbeatSeconds,
         )
     }
 }
@@ -196,6 +208,17 @@ data class StepReport @JsonCreator constructor(
      * and an absent flag has to read as the report it always was.
      */
     @JsonProperty("stopped") val stopped: Boolean = false,
+    /**
+     * The step heartbeat as the installation has it now, so the next step this
+     * run asks is held to it. Issue #601.
+     *
+     * Carried back in the activity's result rather than read by the workflow,
+     * because workflow code may not read the database and a result is history:
+     * a replay reads the same number back that the run acted on, whatever the
+     * setting says by then. Null from a release before this, which leaves the
+     * run on what it had.
+     */
+    @JsonProperty("heartbeatSeconds") val heartbeatSeconds: Long? = null,
 )
 
 /** A run that was asked to stop, to be ended where it stands. Issue #440. */
@@ -222,10 +245,51 @@ data class FailRunCommand @JsonCreator constructor(
  * the step it was on with it — and Temporal hands that step to another worker
  * rather than losing the run.
  */
-class ExecutionWorkflowImpl : ExecutionWorkflow {
+class ExecutionWorkflowImpl(
+    /**
+     * The options every step is asked with, which a step's heartbeat is added
+     * to. Issue #601. Handed in by [TemporalConfig.registerExecutionWorkflow],
+     * because a stub's options are not merged over the worker's defaults and
+     * workflow code cannot read them back. Null where the class is registered
+     * by type - then every step is asked with the worker's options alone.
+     */
+    private val stepOptions: ActivityOptions? = null,
+) : ExecutionWorkflow {
 
     /** Options come from the worker's registration, so this stays free of configuration. */
     private val activities = Workflow.newActivityStub(ExecutionActivities::class.java)
+
+    /**
+     * The step heartbeat the next step is asked with, in seconds; null asks with
+     * the worker's options alone, as every run did before this. Issue #601.
+     */
+    private var heartbeat: Long? = null
+
+    /** One stub per heartbeat a run has used, since a stub's options are fixed when it is made. */
+    private val beating = mutableMapOf<Long, ExecutionActivities>()
+
+    /**
+     * What a step is asked through: held to the heartbeat the run knows now.
+     *
+     * Options are not part of what a replay compares - it matches the commands
+     * a run issues, an activity of this type in this order, and not their
+     * timeouts - so a run whose heartbeat changed part-way, or one written
+     * before there was a heartbeat at all, replays as it ran. The number is
+     * read from the plan and the reports, which are history, never from the
+     * setting itself.
+     */
+    private fun stepActivities(): ExecutionActivities {
+        val base = stepOptions ?: return activities
+        val seconds = heartbeat?.takeIf { it > 0 } ?: return activities
+        return beating.getOrPut(seconds) {
+            // Built on the step options, so a step keeps its timeout and its
+            // retries and only gains the heartbeat.
+            Workflow.newActivityStub(
+                ExecutionActivities::class.java,
+                ActivityOptions.newBuilder(base).setHeartbeatTimeout(Duration.ofSeconds(seconds)).build(),
+            )
+        }
+    }
 
     /** Set by [wake], and read by a parked step's wait. */
     private var woken = false
@@ -235,6 +299,7 @@ class ExecutionWorkflowImpl : ExecutionWorkflow {
     }
 
     override fun run(plan: RunPlan): ExecutionStatus {
+        heartbeat = plan.heartbeatSeconds
         /*
          * What still has a reason to run. Built from the edges the plan
          * carries, so this workflow decides the same way the inline engine
@@ -430,10 +495,11 @@ class ExecutionWorkflowImpl : ExecutionWorkflow {
     private fun ask(executionId: Long, nodeKey: String): Arrival {
         while (true) {
             val attempt = try {
-                activities.runStep(RunStepCommand(executionId, nodeKey))
+                stepActivities().runStep(RunStepCommand(executionId, nodeKey))
             } catch (failure: ActivityFailure) {
                 return Arrival.Failed(failure.reason())
             }
+            attempt.heartbeatSeconds?.let { heartbeat = it }
 
             if (attempt.stopped) return Arrival.Stopped
             if (attempt.status != StepStatus.WAITING) return Arrival.Answered(attempt)

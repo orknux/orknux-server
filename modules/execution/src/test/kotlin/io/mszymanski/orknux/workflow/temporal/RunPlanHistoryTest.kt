@@ -37,6 +37,8 @@ class RunPlanHistoryTest {
         assertThat(plan.splits).isEmpty()
         assertThat(plan.parallelism).isEqualTo(1)
         assertThat(plan.steps).containsExactly("first", "then")
+        // And no step heartbeat, so its steps are asked as they always were. #601.
+        assertThat(plan.heartbeatSeconds).isNull()
     }
 
     @Test
@@ -55,7 +57,7 @@ class RunPlanHistoryTest {
     fun `a plan this release writes reads back as itself`() {
         val written = RunPlan(
             executionId = 7, workflowName = "Now", steps = listOf("a", "b", "c"), input = "{}",
-            splits = listOf("a"), parallelism = 4,
+            splits = listOf("a"), parallelism = 4, heartbeatSeconds = 30,
         )
         val payload = DefaultDataConverter.STANDARD_INSTANCE.toPayload(written).get()
 

@@ -1,6 +1,8 @@
 package io.mszymanski.orknux.workflow.temporal
 
 import io.mszymanski.orknux.server.OrknuxServer
+import io.mszymanski.orknux.server.attachment.InstallationSettings
+import io.mszymanski.orknux.workflow.execution.StepRecovery
 import io.mszymanski.orknux.workflow.execution.ExecutionPlanner
 import io.mszymanski.orknux.workflow.execution.ExecutionStatus
 import io.mszymanski.orknux.workflow.execution.ExecutionStepRepository
@@ -15,10 +17,14 @@ import io.mszymanski.orknux.workflow.execution.WorkflowExecutionRepository
 import io.mszymanski.orknux.workflow.execution.WorkflowGraph
 import io.mszymanski.orknux.workflow.execution.WorkflowGraphSource
 import io.temporal.activity.Activity
+import io.temporal.api.enums.v1.EventType
+import io.temporal.client.WorkflowClient
 import io.temporal.client.WorkflowOptions
+import io.temporal.client.WorkflowStub
+import io.temporal.testing.WorkflowReplayer
 import io.temporal.testing.TestWorkflowEnvironment
-import io.temporal.worker.WorkflowImplementationOptions
 import org.assertj.core.api.Assertions.assertThat
+import org.awaitility.Awaitility.await
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -57,6 +63,8 @@ class DeadWorkerStepTest(
     @Autowired val executions: WorkflowExecutionRepository,
     @Autowired val steps: ExecutionStepRepository,
     @Autowired val graphs: WorkflowGraphSource,
+    @Autowired val settings: InstallationSettings,
+    @Autowired val recovery: StepRecovery,
 ) {
 
     private lateinit var environment: TestWorkflowEnvironment
@@ -69,26 +77,17 @@ class DeadWorkerStepTest(
 
     @BeforeEach
     fun start() {
+        // Short, so the test is quick; set the way an administrator sets it.
+        settings.setWorkflowStepHeartbeatSeconds(HEARTBEAT_SECONDS, "alice")
         executions.deleteAll()
         (graphs as FakeWorkflowGraphSource).graphs.clear()
 
         environment = TestWorkflowEnvironment.newInstance()
         val worker = environment.newWorker(QUEUE)
-        worker.registerWorkflowImplementationTypes(
-            WorkflowImplementationOptions.newBuilder()
-                .setDefaultActivityOptions(
-                    // The deployment's shape - a step timeout, three attempts, a
-                    // heartbeat - with short numbers so the test is quick, and a
-                    // step timeout long enough to tell the two apart.
-                    TemporalConfig.activityOptions(
-                        stepTimeoutSeconds = STEP_TIMEOUT_SECONDS,
-                        stepAttempts = 3,
-                        stepHeartbeatSeconds = HEARTBEAT_SECONDS,
-                    ),
-                )
-                .build(),
-            ExecutionWorkflowImpl::class.java,
-        )
+        // As TemporalConfig registers it: the deployment's shape - a step
+        // timeout and three attempts - with a step timeout long enough to tell
+        // from the heartbeat, which comes from the setting by way of the plan.
+        TemporalConfig.registerExecutionWorkflow(worker, STEP_OPTIONS)
         worker.registerActivitiesImplementations(DyingWorker(activities))
         environment.start()
     }
@@ -97,6 +96,8 @@ class DeadWorkerStepTest(
     fun stop() {
         dead.countDown()
         environment.close()
+        // Rows outlive the class that wrote them.
+        settings.setWorkflowStepHeartbeatSeconds(settings.workflowStepHeartbeatSecondsConfigured(), "alice")
     }
 
     @Test
@@ -112,13 +113,9 @@ class DeadWorkerStepTest(
         )
         val planned = planner.plan(WORKSPACE, WORKFLOW, ExecutionTrigger.API, "what is the capital of France")
         val executionId = requireNotNull(planned.execution.id)
-        val plan = RunPlan(
-            executionId = executionId,
-            workflowName = planned.execution.workflowName,
-            steps = planned.steps.map { it.nodeKey },
-            input = "what is the capital of France",
-            edges = planned.edges.map { PlanEdge(it.source, it.target, it.branch) },
-        )
+        // As TemporalExecutionEngine starts a run: the heartbeat read from the
+        // setting as the run begins.
+        val plan = runPlanOf(planned, "what is the capital of France", recovery.stepHeartbeatSeconds())
         val workflowId = "dead-worker-$executionId"
         val stub = environment.workflowClient.newWorkflowStub(
             ExecutionWorkflow::class.java,
@@ -147,6 +144,71 @@ class DeadWorkerStepTest(
         // for real - which is what a deployment waited, at five minutes.
         assertThat(Duration.ofNanos(System.nanoTime() - began))
             .isLessThan(Duration.ofSeconds(STEP_TIMEOUT_SECONDS / 2))
+    }
+
+    /**
+     * A change to the setting reaches a run already going, from its next step,
+     * and the run replays as it ran. Issue #601.
+     *
+     * Activity options are fixed when a stub is made, and workflow code may not
+     * read a setting: so the number comes in with the plan and back with every
+     * step's report, which are both history. The run parks on its first step;
+     * the setting is changed while it waits; the step asked after the change
+     * is held to the new number. Then the whole history is replayed against
+     * the workflow, which fails on any command the code would issue
+     * differently - and passes, because a heartbeat is an option on a command
+     * rather than a command.
+     */
+    @Test
+    fun `a heartbeat changed mid-run applies to the steps asked after it, and the run replays`() {
+        (graphs as FakeWorkflowGraphSource).graphs[WORKFLOW] = WorkflowGraph(
+            workflowId = WORKFLOW,
+            name = "Wait, then answer",
+            nodes = listOf(
+                GraphNode(key = "wait-first", kind = NodeKind.ACTION, name = "wait-first"),
+                GraphNode(key = "reply", kind = NodeKind.AGENT, name = "ok-reply"),
+            ),
+            edges = listOf(GraphEdge("wait-first", "reply")),
+        )
+        val planned = planner.plan(WORKSPACE, WORKFLOW, ExecutionTrigger.API, "hello")
+        val executionId = requireNotNull(planned.execution.id)
+        val workflowId = "heartbeat-change-$executionId"
+        val stub = environment.workflowClient.newWorkflowStub(
+            ExecutionWorkflow::class.java,
+            WorkflowOptions.newBuilder().setTaskQueue(QUEUE).setWorkflowId(workflowId).build(),
+        )
+        WorkflowClient.start(stub::run, runPlanOf(planned, "hello", recovery.stepHeartbeatSeconds()))
+
+        // Parked on its hour-long wait: the first step has been asked once.
+        await().atMost(java.time.Duration.ofSeconds(20)).until {
+            steps.findByExecutionIdAndNodeKey(executionId, "wait-first")?.status == StepStatus.WAITING
+        }
+        settings.setWorkflowStepHeartbeatSeconds(CHANGED_SECONDS, "alice")
+
+        val status = WorkflowStub.fromTyped(stub).getResult(ExecutionStatus::class.java)
+        assertThat(status).isEqualTo(ExecutionStatus.COMPLETED)
+
+        val history = environment.workflowClient.fetchHistory(workflowId)
+        val heartbeats = history.events
+            .filter { it.eventType == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED }
+            .map { it.activityTaskScheduledEventAttributes }
+            .filter { it.activityType.name.equals("runStep", ignoreCase = true) }
+            .map { it.heartbeatTimeout.seconds }
+        // The wait asked, the wait asked again after its timer - both on the
+        // number the run started with, since the report that carried the
+        // change came back from the second - and the step after it on the new.
+        assertThat(heartbeats).containsExactly(HEARTBEAT_SECONDS, HEARTBEAT_SECONDS, CHANGED_SECONDS)
+
+        // And the history replays against the workflow as it is, with the
+        // setting changed again since: a replay reads the numbers back from the
+        // history rather than from the setting.
+        settings.setWorkflowStepHeartbeatSeconds(0, "alice")
+        // On a worker of its own, registered as a deployment registers it.
+        TestWorkflowEnvironment.newInstance().use { replaying ->
+            val replayer = replaying.newWorker("replay-$workflowId")
+            TemporalConfig.registerExecutionWorkflow(replayer, STEP_OPTIONS)
+            WorkflowReplayer.replayWorkflowExecution(history, replayer)
+        }
     }
 
     /**
@@ -186,6 +248,8 @@ class DeadWorkerStepTest(
         const val WORKSPACE = 7L
         const val WORKFLOW = 1L
         const val HEARTBEAT_SECONDS = 2L
+        const val CHANGED_SECONDS = 9L
         const val STEP_TIMEOUT_SECONDS = 60L
+        val STEP_OPTIONS = TemporalConfig.activityOptions(stepTimeoutSeconds = STEP_TIMEOUT_SECONDS, stepAttempts = 3)
     }
 }

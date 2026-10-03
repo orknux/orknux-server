@@ -1,6 +1,7 @@
 package io.mszymanski.orknux.workflow.temporal
 
 import io.mszymanski.orknux.workflow.execution.StepFailedException
+import io.mszymanski.orknux.workflow.execution.StepRecovery
 import io.mszymanski.orknux.workflow.execution.StepRunner
 import io.mszymanski.orknux.workflow.execution.StepStatus
 import io.mszymanski.orknux.workflow.execution.StepStoppedException
@@ -59,7 +60,11 @@ interface ExecutionActivities {
  * driving it, or the two would drift.
  */
 @Component
-class ExecutionActivitiesImpl(private val steps: StepRunner) : ExecutionActivities {
+class ExecutionActivitiesImpl(
+    private val steps: StepRunner,
+    /** The heartbeat a run's next step is held to, handed back with each report. Issue #601. */
+    private val recovery: StepRecovery,
+) : ExecutionActivities {
 
     /**
      * Says the step is still being worked on, while it is. Issue #601.
@@ -153,6 +158,7 @@ class ExecutionActivitiesImpl(private val steps: StepRunner) : ExecutionActiviti
             // A timer is the granularity Temporal deals in, so anything under a
             // second becomes one: sleeping for none of it would only spin.
             resumeAfterSeconds = outcome.resumeAfter?.toSeconds()?.coerceAtLeast(1),
+            heartbeatSeconds = recovery.stepHeartbeatSeconds(),
         )
     }
 

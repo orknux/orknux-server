@@ -19,7 +19,7 @@ have failed.
 
 ### 🐛 Fixed
 
-- A run whose agent step was waiting on its model when the server died now carries on and answers the message, without Rerun. On Temporal the step heartbeats, so a dead server's step is retried on a live one within `ORKNUX_TEMPORAL_STEP_HEARTBEAT_SECONDS` (default 30) rather than after the whole five-minute step timeout; on the inline engine (`orknux-one`) the step is asked again instead of failing as interrupted, up to `ORKNUX_INLINE_RESTART_ATTEMPTS` goes (default 3). Other kinds of step a restart cut short still fail as interrupted, and the retried agent's question is no longer written into its session twice.
+- A run whose agent step was waiting on its model when the server died now carries on and answers the message, without Rerun. On Temporal the step heartbeats, so a dead server's step is retried on a live one within `ORKNUX_TEMPORAL_STEP_HEARTBEAT_SECONDS` (default 30) rather than after the whole five-minute step timeout; on the inline engine (`orknux-one`) the step is asked again instead of failing as interrupted, up to `ORKNUX_INLINE_RESTART_ATTEMPTS` goes (default 3). Both are on Admin -> Settings under Workflow runs, as Step heartbeat and Agent step goes after a restart; the variables are where a fresh installation starts, and a run already going takes a heartbeat change up from its next step. Other kinds of step a restart cut short still fail as interrupted, and the retried agent's question is no longer written into its session twice.
 
 ## 0.9.9.10
 
