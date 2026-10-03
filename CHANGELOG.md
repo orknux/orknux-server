@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- Admin -> Settings -> HTTP tools: switch the agents' `http_get`, `http_request` and `http_download` off (grants are kept and come back as they were), or limit them to an allow list of URL patterns and methods, with a tester that answers from the same matcher the tools use. Agents holding one of them also get `http_allowList`, which says what the policy allows. Functions, JavaScript tools and plugins calling `orknux.http` are not affected; on an existing installation the tools stay on and allow any URL until somebody changes it.
+
 ## 0.9.9.10
 
 ### 🔧 Changed

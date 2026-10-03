@@ -6341,6 +6341,12 @@ type BuiltInTool {
     governance: BuiltInToolGovernance!
     "The first sentence of what the model is told about it, for the agent form's hover card; null where none was found."
     summary: String
+    """
+    Why no agent is offered it at the moment whatever it was granted, or null
+    where nothing withholds it. The HTTP tools switched off in Admin Settings
+    are the case: every grant is kept, and this says why it does nothing.
+    """
+    unavailable: String
 }
 
 "What decides whether an agent is offered a built-in tool."
@@ -6364,6 +6370,8 @@ enum BuiltInToolGovernance {
     ORKNUX_ACCESS
     "Shell access."
     SHELL_ACCESS
+    "Any of the HTTP tools granted, while Admin Settings has them switched on."
+    HTTP_TOOLS
 }
 
 """

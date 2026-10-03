@@ -61,6 +61,8 @@ class AgentTools(
     /** An SVG drawn as a PNG for picture_view, since no model reads SVG. Issue #561. */
     private val svgs: io.mszymanski.orknux.server.plugin.SvgRenderer,
     private val mapper: ObjectMapper,
+    /** Whether the HTTP tools are switched on in Admin Settings. Issue #602. */
+    private val httpPolicy: io.mszymanski.orknux.server.embedded.HttpToolPolicy,
 ) {
 
     /**
@@ -211,7 +213,13 @@ class AgentTools(
          * somebody installed. Issue #501.
          */
         embedded.toolSpecs().forEach { spec ->
-            if (BuiltInTools.granted(agent, spec.name)) add(spec)
+            /*
+             * Less the HTTP tools while Admin Settings has them off. Issue #602:
+             * withheld here and refused by the tool itself, and the agent's
+             * grant left exactly as it was, so switching them on again gives
+             * every agent back what it held.
+             */
+            if (BuiltInTools.granted(agent, spec.name) && httpPolicy.offers(spec.name)) add(spec)
         }
 
         if (agentTools.offered(agent) && BuiltInTools.granted(agent, AgentRunTools.ASK)) {

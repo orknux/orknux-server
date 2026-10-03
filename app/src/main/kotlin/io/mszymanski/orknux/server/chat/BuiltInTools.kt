@@ -58,6 +58,13 @@ enum class BuiltInGovernance {
 
     /** Offered while the agent has shell access. */
     SHELL_ACCESS,
+
+    /**
+     * Offered while the agent holds one of the HTTP tools and they are switched
+     * on in Admin Settings. Issue #602: `http_allowList`, which answers where
+     * those tools may go - a question nobody without one of them can have.
+     */
+    HTTP_TOOLS,
 }
 
 /** One of the server's own tools, and what switches it. */
@@ -99,6 +106,7 @@ class BuiltInTools(
     fun all(): List<BuiltInTool> = buildList {
         GRANTED.forEach { add(BuiltInTool(it, BuiltInGovernance.GRANT)) }
         REACHING.forEach { add(BuiltInTool(it, BuiltInGovernance.GRANT_REACHING)) }
+        add(BuiltInTool(HTTP_ALLOW_LIST, BuiltInGovernance.HTTP_TOOLS))
         add(BuiltInTool(memories.descriptor().name, BuiltInGovernance.MEMORY_CATALOGS))
         add(BuiltInTool(memories.saveDescriptor().name, BuiltInGovernance.MEMORY_CATALOGS))
         add(BuiltInTool(memories.updateDescriptor().name, BuiltInGovernance.MEMORY_CATALOGS))
@@ -233,6 +241,26 @@ class BuiltInTools(
 
         private val REACHING_SET = REACHING.toSet()
 
+        /**
+         * The three that make requests, which Admin Settings -> HTTP tools
+         * switches and fences. Issue #602. Not `web_search`: a search engine's
+         * address is not one a model picks.
+         */
+        val HTTP: List<String> = listOf("http_get", "http_request", "http_download")
+
+        /**
+         * What answers where those may go. Issue #602.
+         *
+         * Not a grant of its own, in [GRANTED] or [REACHING]: it is offered
+         * exactly while the agent holds one of [HTTP] and they are switched
+         * on, because the policy is a question only an agent that can make a
+         * request has, and a model told about a fence it has no way to reach
+         * is a model handed a tool that answers about nothing. Derived, so no
+         * migration gives it to anybody - it arrives with the HTTP tools on
+         * the agents that already hold them.
+         */
+        const val HTTP_ALLOW_LIST = "http_allowList"
+
         /** Whether this name is one of the built-ins switched on the Tools list. */
         fun switchable(name: String): Boolean = name in GRANTED_SET || name in REACHING_SET
 
@@ -263,6 +291,7 @@ class BuiltInTools(
              * nobody has had an opinion about must answer "no".
              */
             name in REACHING_SET -> name in agent.tools
+            name == HTTP_ALLOW_LIST -> HTTP.any { it in agent.tools }
             else -> name !in GRANTED_SET || name !in agent.hiddenTools
         }
 
@@ -284,6 +313,8 @@ class BuiltInTools(
          * carried here, because whether *it* is found is somebody else's decision.
          */
         fun carried(agent: Agent, name: String): Boolean =
+            // The policy travels the way the tools it describes do: found where they are found.
+            if (name == HTTP_ALLOW_LIST) HTTP.any { it in agent.tools && carried(agent, it) } else
             (name !in GRANTED_SET && name !in REACHING_SET) ||
                 agent.maxTools == null ||
                 name in agent.requiredTools

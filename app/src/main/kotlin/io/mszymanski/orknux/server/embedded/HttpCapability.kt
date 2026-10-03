@@ -55,6 +55,8 @@ class HttpCapability(
     private val scratch: LlmSessionStore,
     private val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
     private val mapper: ObjectMapper,
+    /** Admin Settings -> HTTP tools, which fences the tools and not the functions. Issue #602. */
+    private val policy: HttpToolPolicy,
 ) : EmbeddedCapability {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -98,6 +100,13 @@ class HttpCapability(
                 EmbeddedParam(HEADERS, ValueType.MAP, "Headers to send."),
             ),
         ),
+        EmbeddedTool(
+            name = ALLOW_LIST,
+            summary = "Which URLs and methods the HTTP tools may request.",
+            description = "Which URLs and methods the HTTP tools may request on this installation: either any URL, " +
+                "or a list of rules, each a regular expression for the whole URL and the methods it allows. " +
+                "Ask it before guessing an address, and after a request was refused by the allow list.",
+        ),
     )
 
     override fun functions(): List<EmbeddedFunction> = listOf(
@@ -121,7 +130,25 @@ class HttpCapability(
         ),
     )
 
+    /**
+     * One tool call, which is an agent's: fenced by Admin Settings -> HTTP
+     * tools before anything else is looked at. Issue #602.
+     */
     override fun run(name: String, arguments: String, workspaceId: Long, sessionId: Long?): String {
+        if (!policy.enabled()) return refusal(HttpToolPolicy.SWITCHED_OFF_SENTENCE)
+        if (name == ALLOW_LIST) return mapper.writeValueAsString(policy.describe())
+        return perform(name, arguments, sessionId, fenced = true)
+    }
+
+    /**
+     * The request itself, from either door.
+     *
+     * [fenced] is the agents' allow list, and only the tool door sets it: a
+     * workflow's `http_get` function was written by somebody who chose its
+     * address, which is the case `orknux.http` is and the case the policy is
+     * not about. The proxy rules and the hosts below apply either way.
+     */
+    private fun perform(name: String, arguments: String, sessionId: Long?, fenced: Boolean): String {
         val asked = runCatching { mapper.readTree(arguments) }.getOrNull()
             ?: return refusal("That is not valid JSON.")
         val url = text(asked, URL)?.trim()?.takeIf { it.isNotEmpty() }
@@ -138,6 +165,18 @@ class HttpCapability(
         }
         if (method !in METHODS) return refusal("\"$method\" is not a method this sends; use ${METHODS.joinToString(", ")}.")
 
+        /*
+         * Checked here, before a byte is sent, and only here: redirects are not
+         * followed - the client is left at its default, which never follows -
+         * so a 3xx comes back as the answer with its location, and fetching
+         * that location is a new call that meets this same check. A redirect
+         * therefore cannot carry a request somewhere the list does not allow.
+         */
+        if (fenced) {
+            val decided = policy.decide(url, method)
+            if (!decided.allowed) return refusal(decided.message)
+        }
+
         return try {
             if (name == DOWNLOAD) download(url, asked, sessionId) else send(url, method, asked)
         } catch (failure: Exception) {
@@ -152,7 +191,7 @@ class HttpCapability(
         declared.params.forEachIndexed { at, param ->
             unquoted(arguments.getOrNull(at))?.let { named[param.name] = it }
         }
-        val said = run(name, mapper.writeValueAsString(named), workspaceId, sessionId)
+        val said = perform(name, mapper.writeValueAsString(named), sessionId, fenced = false)
         runCatching { mapper.readTree(said) }.getOrNull()?.path("error")?.takeIf { it.isTextual }?.let {
             return ScriptResult.Failed(it.stringValue(), 0)
         }
@@ -292,6 +331,7 @@ class HttpCapability(
         const val GET = "get"
         const val REQUEST = "request"
         const val DOWNLOAD = "download"
+        const val ALLOW_LIST = "allowList"
 
         const val URL = "url"
         const val METHOD = "method"
