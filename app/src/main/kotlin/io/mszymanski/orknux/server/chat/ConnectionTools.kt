@@ -73,6 +73,18 @@ class ConnectionTools(
     fun handles(name: String): Boolean = name == FIND
 
     /**
+     * The connections this agent was granted, as rows: read by id, and kept
+     * only where the id still answers and is still the agent's workspace's.
+     *
+     * The one reading of the grant. The briefing recites it, [run] searches
+     * it, and a plugin's connection argument is held to it - so what an agent
+     * is told it holds and what it may pass are the same list by construction.
+     */
+    fun granted(agent: Agent): List<WorkspaceConnectionView> = agent.connections
+        .mapNotNull { connections.workspaceConnection(it) }
+        .filter { it.workspaceId == agent.workspaceId }
+
+    /**
      * What matches, as JSON, and nothing the agent was not granted.
      *
      * Read by id and dropped where the id no longer answers, which is what the
@@ -87,9 +99,7 @@ class ConnectionTools(
             )
         }
 
-        val granted = agent.connections
-            .mapNotNull { connections.workspaceConnection(it) }
-            .filter { it.workspaceId == agent.workspaceId }
+        val granted = granted(agent)
 
         val asked = query(arguments)?.trim().orEmpty()
         val matches = if (asked.isEmpty()) granted else granted.filter { matches(it, asked) }

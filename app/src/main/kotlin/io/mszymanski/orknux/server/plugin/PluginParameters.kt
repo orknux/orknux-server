@@ -364,19 +364,24 @@ class PluginParameters(
      * @param params what the plugin declared, in order; the arguments are
      *   positional against them, and anything past the end (a workspace
      *   function's granted variables) is passed through untouched.
+     * @param granted the connections an agent was granted, where an agent is
+     *   the caller - see [ConnectionGrants]. Null for a workflow node and the
+     *   editor's Run, where nobody is acting but the workspace itself.
      */
     fun connectionArguments(
         plugin: Plugin,
         workspaceId: Long,
         params: List<PluginFunctionParamView>,
         arguments: List<String>,
+        granted: ConnectionGrants? = null,
     ): ConnectionArguments {
         if (params.none { it.type.equals(PluginDeclarations.CONNECTION, ignoreCase = true) }) {
             return ConnectionArguments.Handed(arguments)
         }
         val accepts = accepts(plugin)
         val opened = Opened(workspaceId, accepts.ownKinds)
-        val held by lazy { connections.workspaceConnections(workspaceId) }
+        val held by lazy { reachable(workspaceId, granted) }
+        val agent = granted != null
 
         val handed = arguments.mapIndexed { at, given ->
             val param = params.getOrNull(at)
@@ -392,16 +397,16 @@ class PluginParameters(
                 // Exact first, then regardless of case - and only where that is one connection.
                 is Said.Name -> held.firstOrNull { it.name == said.name }
                     ?: held.filter { it.name.equals(said.name, ignoreCase = true) }.singleOrNull()
-            } ?: return ConnectionArguments.Refused(refusal(param.name, said.text, accepts, held))
+            } ?: return ConnectionArguments.Refused(refusal(param.name, said.text, accepts, held, agent))
             if (!accepts.fits(found)) {
                 return ConnectionArguments.Refused(
                     "the ${param.name} argument names ${quoted(found.name)} (id ${found.id}), which is " +
                         "${kindOf(found)} connection rather than ${accepts.label ?: "one this plugin uses"}. " +
-                        choices(accepts, held),
+                        choices(accepts, held, agent),
                 )
             }
             handleOf(found, opened)
-                ?: return ConnectionArguments.Refused(refusal(param.name, said.text, accepts, held))
+                ?: return ConnectionArguments.Refused(refusal(param.name, said.text, accepts, held, agent))
         }
         return ConnectionArguments.Handed(handed)
     }
@@ -413,12 +418,25 @@ class PluginParameters(
      * The list is the useful half. A model has no picker; without it, the id it
      * was meant to pass is a number it has to have been told somewhere else.
      */
-    fun connectionArgumentMeaning(plugin: Plugin, workspaceId: Long): String {
+    fun connectionArgumentMeaning(plugin: Plugin, workspaceId: Long, granted: ConnectionGrants? = null): String {
         val accepts = accepts(plugin)
-        val held = connections.workspaceConnections(workspaceId)
-        return "One of this workspace's ${accepts.label?.let { "$it " } ?: ""}connections, by its id or its exact " +
-            "name. " + choices(accepts, held)
+        val held = reachable(workspaceId, granted)
+        val whose = if (granted != null) "the" else "this workspace's"
+        val kind = accepts.label?.let { "$it " } ?: ""
+        val tail = if (granted != null) " you have been granted" else ""
+        return "One of $whose ${kind}connections$tail, by its id or its exact name. " +
+            choices(accepts, held, granted != null)
     }
+
+    /**
+     * What an argument may name: the workspace's connections, or - where an
+     * agent is calling - only the ones it was granted. A connection the agent
+     * was not granted is not merely refused but unseen, so a refusal cannot
+     * say that it exists.
+     */
+    private fun reachable(workspaceId: Long, granted: ConnectionGrants?): List<WorkspaceConnectionView> =
+        granted?.connections?.filter { it.workspaceId == workspaceId }
+            ?: connections.workspaceConnections(workspaceId)
 
     /**
      * Which connections a plugin's connection argument may name.
@@ -480,18 +498,32 @@ class PluginParameters(
      * Never more than a connection's id, name and kind: this goes back to a
      * model and into a run's log, and both are places a credential must not be.
      */
-    private fun refusal(name: String, text: String, accepts: Accepts, held: List<WorkspaceConnectionView>): String =
-        "the $name argument has to name one of this workspace's ${accepts.label?.let { "$it " } ?: ""}" +
-            "connections, by its id or its name, and ${quoted(text)} is none of them. " + choices(accepts, held)
+    private fun refusal(
+        name: String,
+        text: String,
+        accepts: Accepts,
+        held: List<WorkspaceConnectionView>,
+        agent: Boolean,
+    ): String {
+        val kind = accepts.label?.let { "$it " } ?: ""
+        val whose = if (agent) "the ${kind}connections you have been granted" else "this workspace's ${kind}connections"
+        return "the $name argument has to name one of $whose, by its id or its name, and ${quoted(text)} is " +
+            "none of them. " + choices(accepts, held, agent)
+    }
 
-    private fun choices(accepts: Accepts, held: List<WorkspaceConnectionView>): String {
+    private fun choices(accepts: Accepts, held: List<WorkspaceConnectionView>, agent: Boolean): String {
         val usable = held.filter { accepts.fits(it) }.sortedBy { it.id }
         val kind = accepts.label?.let { "$it " } ?: ""
         if (usable.isEmpty()) {
-            return "This workspace has no ${kind}connection; one has to be added on its Connections page first."
+            return if (agent) {
+                "You have been granted no ${kind}connection; one has to be granted to you under this agent's " +
+                    "Connections setting first."
+            } else {
+                "This workspace has no ${kind}connection; one has to be added on its Connections page first."
+            }
         }
-        return "This workspace's ${kind}connections: " +
-            usable.joinToString(", ") { "${it.id} (${it.name})" } + "."
+        val listed = usable.joinToString(", ") { "${it.id} (${it.name})" } + "."
+        return if (agent) "The ${kind}connections you have been granted: $listed" else "This workspace's ${kind}connections: $listed"
     }
 
     private fun kindOf(connection: WorkspaceConnectionView): String {
@@ -531,6 +563,13 @@ class PluginParameters(
         const val ECHOED_CHARS = 80
     }
 }
+
+/**
+ * The connections an agent may name, read once by [io.mszymanski.orknux.server.chat.ConnectionTools.granted]
+ * - the one place an agent's grants are turned into rows - and handed down so
+ * the plugin side never learns what an agent is.
+ */
+class ConnectionGrants(val connections: List<WorkspaceConnectionView>)
 
 /** A plugin call's arguments with its connections resolved, or why one could not be. */
 sealed interface ConnectionArguments {

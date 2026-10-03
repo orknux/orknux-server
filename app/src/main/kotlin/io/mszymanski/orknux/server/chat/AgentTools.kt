@@ -316,15 +316,15 @@ class AgentTools(
                         ToolParameterSpec(
                             name = param.name,
                             /*
-                             * A connection is said in this workspace's terms -
-                             * which kind, and which ones there are - because
+                             * A connection is said in this agent's terms -
+                             * which kind, and which of its grants those are - because
                              * "the id of a connection" leaves a model to find
                              * a number it has no way to look up.
                              */
                             description = describe(
                                 param,
                                 if (param.type == ValueType.CONNECTION) {
-                                    pluginTools.connectionMeaning(tool, agent.workspaceId)
+                                    pluginTools.connectionMeaning(tool, agent)
                                 } else {
                                     null
                                 },

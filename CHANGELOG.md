@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🔧 Changed
+
+- An agent calling a plugin function or tool may pass only a connection it has been granted, by id or name; the tool's description and any refusal list only those of the kind, and an agent holding none is told to grant one in its Connections setting. Any connection of the right kind in the workspace used to do. Workflow nodes are unchanged. On upgrade, grant each agent that uses the Prometheus or Jenkins plugins the connections it should reach.
+
 ## 0.9.9.9
 
 ### ✨ Added
