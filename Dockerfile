@@ -77,10 +77,11 @@ USER orknux
 
 EXPOSE 8080
 
-# Containers get a share of the host, not the host: this lets the JVM see the
-# cgroup limit rather than the machine's memory and size its heap to the wrong
-# number.
-ENV JAVA_OPTS="-XX:MaxRAMPercentage=75"
+# The heap is sized by the start loop from the container's memory limit:
+# ORKNUX_HEAP_PERCENT of it, but never more than the limit less
+# ORKNUX_NATIVE_MEMORY_MB, which the JVM needs beside the heap (#587). A
+# JAVA_OPTS that sizes the heap itself (-Xmx, MaxRAMPercentage) is left alone.
+ENV JAVA_OPTS=""
 
 # The image's own jar, which the launcher falls back to whenever a stored
 # release is not right.

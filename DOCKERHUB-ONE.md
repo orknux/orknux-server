@@ -156,7 +156,9 @@ when everything is one container.
 | `ORKNUX_ATTACHMENTS_LOCATION` | Chat attachments, in the volume. | `/var/lib/orknux/attachments` |
 | `ORKNUX_BASE_URL` | Where this installation is: what a mailed password reset link points at, and the host on every picture link handed to a model. A path with no host behind it is a link that resolves nowhere once a model has copied it into a message. | `http://localhost:8080` |
 | `ORKNUX_ALLOWED_ORIGINS` | Empty, because the interface is served from this origin. | empty |
-| `JAVA_OPTS` | | `-XX:MaxRAMPercentage=75` |
+| `JAVA_OPTS` | Passed to the JVM. One that sizes the heap (`-Xmx`, `MaxRAMPercentage`) replaces the two below. | empty |
+| `ORKNUX_HEAP_PERCENT` `ORKNUX_NATIVE_MEMORY_MB` | With a memory limit (`--memory 2g`), the heap is the smaller of that percent of it and the limit less those MB, which the JVM needs beside the heap: 2 GB gets a 1 GB heap. | `75` `1024` |
+| `ORKNUX_MALLOC_ARENAS` `ORKNUX_NIO_BUFFER_CACHE_KB` | glibc's malloc arenas, eight per host core otherwise; the largest direct buffer a thread keeps for I/O. Both kept memory that was free. | `2` `256` |
 
 Publishing on another port changes what `ORKNUX_BASE_URL` should be, and nothing
 else: `8080` is fixed inside the container.

@@ -85,7 +85,7 @@ ever changes it.
 
 | Variable | What it does | Default | Required |
 | --- | --- | --- | --- |
-| `ORKNUX_DB_URL` | The JDBC URL, and what picks the database. `jdbc:postgresql://host:5432/orknux` or `jdbc:sqlite:/data/orknux.db`. | `jdbc:postgresql://localhost:5432/orknux` | **Yes** in a deployment - the default is localhost |
+| `ORKNUX_DB_URL` | The JDBC URL, and what picks the database. `jdbc:postgresql://host:5432/orknux` or `jdbc:sqlite:/data/orknux.db`. | `jdbc:postgresql://localhost:5432/orknux` | **Yes** in a deployment |
 | `ORKNUX_DB_USERNAME` | The user it connects as. Ignored under SQLite. | `orknux` | **Yes** in a Postgres deployment |
 | `ORKNUX_DB_PASSWORD` | That user's password. Ignored under SQLite. | `orknux` | **Yes** in a Postgres deployment |
 | `ORKNUX_DB_MIGRATE` | Whether Flyway migrates on start. Turn it off only where something else owns the schema, which this build expects at its own version. | `true` | No |
@@ -201,11 +201,11 @@ the step runs. The README's **Publishing** has the rest.
 | `ORKNUX_TEMPORAL_STEP_TIMEOUT_SECONDS` | How long one step's own work may take. It does not bound a *wait*, which parks the step. | `300` | No |
 | `ORKNUX_TEMPORAL_STEP_ATTEMPTS` | How many times the platform tries a failing step. A node's own retry policy is separate. | `3` | No |
 | `ORKNUX_TEMPORAL_UI_URL` | Temporal's own web interface, linked out to from a run. Empty offers no links. | `http://localhost:8233` | No |
-| `ORKNUX_INLINE_MAX_WAIT` | Inline engine only: how long a run may stay parked before the step fails and says what would have carried it. A Temporal wait is a timer, bounded by the run timeout. | `5m` | No |
-| `ORKNUX_TASK_MAX_TURNS` | How often a task's agent may be asked before stopping, unless the workspace sets its own. Copied onto a task at creation, as is the next, so a change spares one running. | `40` | No |
+| `ORKNUX_INLINE_MAX_WAIT` | Inline engine only: how long a run may stay parked before the step fails. A Temporal wait is bounded by the run timeout. | `5m` | No |
+| `ORKNUX_TASK_MAX_TURNS` | How often a task's agent may be asked before stopping, unless the workspace sets its own. Copied onto a task when made, so a change spares one running. | `40` | No |
 | `ORKNUX_TASK_WORKING_TIME` | The longest a task may be *working*. Not wall clock: time parked waiting to be approved counts for none. | `2h` | No |
 | `ORKNUX_TASK_PATIENCE` | How long a parked task waits for a person. | `7d` | No |
-| `ORKNUX_TASK_SWEEP_MINUTES` | How long a task may sit at Queued before being handed over again, so a restart strands nothing. An installation carrying its own tasks sets this on Admin -> Settings instead. | `5` | No |
+| `ORKNUX_TASK_SWEEP_MINUTES` | How long a task may sit at Queued before being handed over again, so a restart strands nothing; Admin -> Settings overrides it. | `5` | No |
 | `ORKNUX_EXECUTION_RETENTION_DAYS` | How long a finished run is kept, with its steps. Admin -> Settings is the switch; this is the floor. | `90` | No |
 | `ORKNUX_EXECUTION_SWEEP_ENABLED` | `false` sweeps nothing on a timer. | `true` | No |
 | `ORKNUX_REVISION_RETENTION_DAYS` | How long a replaced version of a function, tool, skill or agent is kept, from when it stopped being current. Admin -> Settings is the switch. | `14` | No |
@@ -275,7 +275,7 @@ must be signed with the release key this image carries. **On by default.**
 | `ORKNUX_CONNECTION_CHECK_ENABLED` | The same, for connections. | `true` | No |
 | `ORKNUX_CONNECTION_CHECK_INTERVAL` | How often connections are checked. | `5m` | No |
 | `ORKNUX_CONNECTION_PROBE_TIMEOUT_SECONDS` | How long a check may take to find out whether anything is listening. | `5` | No |
-| `ORKNUX_CONNECTION_ALLOW_LINK_LOCAL` | Link-local addresses reach cloud instance metadata, so they are refused; turning this on lets a workspace's connection reach them. Private and loopback stay reachable either way. | `false` | No |
+| `ORKNUX_CONNECTION_ALLOW_LINK_LOCAL` | Link-local addresses reach cloud instance metadata, so they are refused unless this is on. Private and loopback are reachable either way. | `false` | No |
 | `ORKNUX_CONNECTION_ENTRA_AUTHORITY` | Where an Entra ID token is asked for. The worldwide cloud - a tenant in a sovereign cloud has an address of its own. | `https://login.microsoftonline.com` | No |
 | `ORKNUX_SLACK_ENABLED` | One Socket Mode websocket per Slack connection holding an app-level token. | `true` | No |
 | `ORKNUX_SLACK_RECONCILE_SECONDS` | How often open sockets are compared with stored connections, so a new token listens without a restart. | `30` | No |
@@ -297,9 +297,9 @@ a rule at all.
 
 | Variable | What it does | Default | Required |
 | --- | --- | --- | --- |
-| `ORKNUX_CHAT_ENABLED` | Whether this installation has a chat at all. `false` is final: an administrator may turn the chat off from the screen, but not back on where the operator said no. | `true` | No |
-| `ORKNUX_ATTACHMENTS_ENABLED` | Whether files may be attached at all - to a chat message, an issue, or a comment on one. `false` is final in the same way, and hides the upload controls without hiding files already uploaded. | `true` | No |
-| `ORKNUX_ATTACHMENTS_LOCATION` | Where the bytes go, one directory per workspace. **A relative path resolves against the working directory**, wrong in a container: give an absolute one on a volume, or attachments go with it. | `data/attachments` | **Yes** if attachments are on |
+| `ORKNUX_CHAT_ENABLED` | Whether this installation has a chat at all. `false` is final: the screen can turn it off but not back on. | `true` | No |
+| `ORKNUX_ATTACHMENTS_ENABLED` | Whether files may be attached - to a chat message, an issue or a comment. `false` is final likewise, and hides the upload controls but not files already uploaded. | `true` | No |
+| `ORKNUX_ATTACHMENTS_LOCATION` | Where the bytes go, a directory per workspace. **Give an absolute path on a volume**: a relative one resolves against the working directory. | `data/attachments` | **Yes** if attachments are on |
 | `ORKNUX_ATTACHMENTS_MAX_FILE_SIZE_MB` | The largest file that will be accepted. | `25` | No |
 | `ORKNUX_UPLOAD_MAX_FILE_SIZE` | The servlet's own cap on one uploaded file. Keep it at or above the attachment cap, or the larger limit is never reached. | `25MB` | No |
 | `ORKNUX_UPLOAD_MAX_REQUEST_SIZE` | The cap on a whole upload request. | `26MB` | No |
@@ -321,7 +321,7 @@ and ORKNUX_TASK_SWEEP_INITIAL_DELAY are in
 | --- | --- | --- | --- |
 | `ORKNUX_PORT` | The port this server listens on inside the container. | `8080` | No |
 | `ORKNUX_ALLOWED_ORIGINS` | Where the interface is served from, when it is not this server. Comma separated; empty allows none, which is right once they share an origin. | `http://localhost:5173` | **Yes** where the interface is elsewhere |
-| `ORKNUX_BASE_URL` | Where the interface is reached from, as a browser spells it: what a mailed reset link points at, and the host on every picture link handed to a model. Configured rather than read off the `Host` header, which a caller writes. | `http://localhost:5173` | **Yes** for password resets |
+| `ORKNUX_BASE_URL` | Where a browser reaches the interface: the host of a mailed reset link and of every picture link handed to a model. Not read off the `Host` header, which a caller writes. | `http://localhost:5173` | **Yes** for password resets |
 | `ORKNUX_WEBHOOK_MAX_BODY_SIZE` | The most a webhook caller may post to `/api/webhooks/…`. That endpoint is open by necessity, so more is refused with 413 before any trigger runs. | `1MB` | No |
 | `ORKNUX_ASYNC_REQUEST_TIMEOUT` | How long a request answered with a promise may stay open; the container's own thirty seconds would cut off the five minutes `orknux_news` may wait. | `330s` | No |
 | `ORKNUX_SESSION_TIMEOUT` | How long a session survives without being used. A fortnight suits a self-hosted tool behind an identity provider; shorten it otherwise. | `14d` | No |
@@ -335,8 +335,10 @@ and ORKNUX_TASK_SWEEP_INITIAL_DELAY are in
 | `ORKNUX_LOG_MAX_FILE_SIZE` | When the log file rolls. Only consulted when a file is being written. | `10MB` | No |
 | `ORKNUX_LOG_MAX_HISTORY` | How many rolled files are kept. | `14` | No |
 | `ORKNUX_LOG_TOTAL_SIZE_CAP` | The ceiling on all of them together. | `1GB` | No |
-| `ORKNUX_METRICS_ANONYMOUS` | Whether `/actuator/prometheus` answers an unauthenticated caller. A scrape describes the installation, so `true` only where the scraper alone is on that network. | `false` | No |
-| `JAVA_OPTS` | Passed to the JVM. The default gives the heap three quarters of the container's memory limit. | `-XX:MaxRAMPercentage=75` | No |
+| `ORKNUX_METRICS_ANONYMOUS` | Whether `/actuator/prometheus` answers an unauthenticated caller. `true` only where the scraper alone is on that network. | `false` | No |
+| `JAVA_OPTS` | Passed to the JVM. One that sizes the heap (`-Xmx`, `MaxRAMPercentage`) replaces the two below. | *none* | No |
+| `ORKNUX_HEAP_PERCENT` `ORKNUX_NATIVE_MEMORY_MB` | Heap: the smaller of the percent of the memory limit and the limit less the MB the JVM needs beside it. 2 GB gets 1 GB. | `75` `1024` | No |
+| `ORKNUX_MALLOC_ARENAS` `ORKNUX_NIO_BUFFER_CACHE_KB` | glibc's arenas, eight per host core otherwise; the largest direct buffer a thread keeps for I/O. | `2` `256` | No |
 
 Sessions are kept in the database, so signing in outlives a restart and more
 than one replica.

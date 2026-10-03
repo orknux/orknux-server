@@ -787,9 +787,10 @@ spec:
               cpu: 500m
               memory: 1Gi
             limits:
-              # This is the number the JVM sizes its heap from. The image sets
-              # -XX:MaxRAMPercentage=75, and a container sees the cgroup limit
-              # rather than the machine, so the heap here is about 1.5Gi.
+              # This is the number the JVM sizes its heap from. The start loop
+              # gives the heap the limit less ORKNUX_NATIVE_MEMORY_MB (1024) where
+              # that is less than ORKNUX_HEAP_PERCENT (75) of it, so the heap here
+              # is 1Gi and the rest is the JVM's own memory (#587).
               # Removing this limit does not give the JVM more room - it gives it
               # the node's memory to size itself against, on a pod the kubelet
               # will evict first.

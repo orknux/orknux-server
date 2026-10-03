@@ -89,7 +89,9 @@ done
 ok "Postgres is up"
 
 say "Starting the image"
-docker run -d --name "$APP" --network "$NET" -p "$PORT:8080" \
+# The memory of the pod production runs in, so the heap the start loop chooses
+# for it is checked below rather than assumed (#587).
+docker run -d --name "$APP" --network "$NET" -p "$PORT:8080" --memory 2g \
   -e ORKNUX_DB_URL="jdbc:postgresql://$DB:5432/orknux" \
   -e ORKNUX_SECRET_KEY="$SECRET_KEY" \
   -e ORKNUX_TEMPORAL_ENABLED=false \
@@ -184,6 +186,27 @@ pid1="$(docker exec "$APP" cat /proc/1/cmdline | tr '\0' ' ')"
 case "$pid1" in
   *orknux-run*) ok "PID 1 is the start loop: $pid1" ;;
   *) die "PID 1 is '$pid1', not the start loop — nothing will hand docker stop's signal to the JVM" ;;
+esac
+
+# 6b. The JVM's memory is sized for the container, not the machine. #587: a heap
+#     of three quarters of a 2 GB pod left too little beside it, and the kernel
+#     killed the pod at its limit; glibc's arenas, one per thread up to eight
+#     per host core, kept 250 MB they had freed.
+say "Checking the memory budget"
+java_pid="$(docker exec "$APP" ps -eo pid,args | awk '$2 == "java" && / -jar / { print $1; exit }')"
+[ -n "$java_pid" ] || die "No server JVM is running"
+cmdline="$(docker exec "$APP" cat "/proc/$java_pid/cmdline" | tr '\0' ' ')"
+case "$cmdline" in
+  *"-Xmx1024m"*) ok "A 2 GB limit gives the heap 1024 MB and leaves the rest to the JVM" ;;
+  *) die "The heap is not 1024 MB of a 2 GB limit: $cmdline" ;;
+esac
+case "$cmdline" in
+  *"-Djdk.nio.maxCachedBufferSize=262144"*) ok "Direct buffers kept for I/O are capped at 256 KB" ;;
+  *) die "The JDK's per-thread buffer cache is not capped: $cmdline" ;;
+esac
+case "$(docker exec "$APP" cat "/proc/$java_pid/environ" | tr '\0' '\n')" in
+  *"MALLOC_ARENA_MAX=2"*) ok "glibc keeps two arenas, not eight per host core" ;;
+  *) die "MALLOC_ARENA_MAX is not set for the server" ;;
 esac
 
 # 7. It stops when asked. Anything slower than the grace period is a container

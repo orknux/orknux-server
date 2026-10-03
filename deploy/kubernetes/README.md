@@ -98,9 +98,11 @@ hundred and twenty-odd migrations long. The liveness probe does not run until
 the startup probe has succeeded once, which is what stops a slow first start
 from being read as a hung server and restarted into another slow first start.
 
-**The memory limit is what sizes the heap.** The image sets
-`-XX:MaxRAMPercentage=75` and a container sees its cgroup limit rather than the
-node, so `limits.memory: 2Gi` on the server is a heap of about 1.5Gi. Removing
+**The memory limit is what sizes the heap.** The start loop reads the cgroup
+limit and gives the heap the smaller of `ORKNUX_HEAP_PERCENT` (75) of it and the
+limit less `ORKNUX_NATIVE_MEMORY_MB` (1024), which the JVM needs beside the heap -
+so `limits.memory: 2Gi` on the server is a heap of 1Gi. It used to be 1.5Gi,
+and the pod was killed at its limit once the heap grew into it (#587). Removing
 the limit does not give the JVM more room — it gives it the node's memory to
 size itself against, on a pod the kubelet will evict first. Raise the limit to
 raise the heap.

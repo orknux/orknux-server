@@ -188,6 +188,22 @@ orknux:
     # the image runs. While it is set, Admin -> Updates cannot choose. Read by
     # the launcher; here so the server shows what it decided. #593.
     pin: ${ORKNUX_RELEASE_PIN:}
+  jvm:
+    # The container's memory budget, read by the image's start loop before the
+    # JVM exists (docker/orknux-run.sh) and here only so the two are documented
+    # together. The heap is the smaller of heap-percent of the container's
+    # limit and the limit less native-memory-mb: metaspace, the code cache,
+    # thread stacks, malloc's arenas and the sandboxes' classes live beside the
+    # heap, 650 MB under heavy load, and a heap that grew into them was how a
+    # 2 GB pod was killed at its limit. A JAVA_OPTS that sizes the heap itself
+    # wins. malloc-arenas caps glibc's arenas, which otherwise number eight per
+    # core of the host and kept 250 MB they had freed; MALLOC_ARENA_MAX wins
+    # where set. nio-buffer-cache-kb is the largest direct buffer a thread keeps
+    # for I/O, where the JDK otherwise keeps the largest it ever used. #587.
+    heap-percent: ${ORKNUX_HEAP_PERCENT:75}
+    native-memory-mb: ${ORKNUX_NATIVE_MEMORY_MB:1024}
+    malloc-arenas: ${ORKNUX_MALLOC_ARENAS:2}
+    nio-buffer-cache-kb: ${ORKNUX_NIO_BUFFER_CACHE_KB:256}
   marketplace:
     # Where the plugin catalog is read from. This server holds no catalog of
     # its own: it asks, and installs from the URL the answer carries. Blank
