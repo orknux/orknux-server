@@ -200,7 +200,8 @@ class ActionNodeRunner(
         // to the channel instead, which is what a plain send has always meant.
         val threadTs = resolved(ActionParameters.THREAD_TS).takeIf { it.isNotEmpty() }
 
-        return when (val delivery = messages.send(connectionId, target, content, threadTs)) {
+        // Only through this workspace's own connections, whatever id was saved. #588.
+        return when (val delivery = messages.send(connectionId, target, content, threadTs, on = action.workspaceId)) {
             is Delivery.Sent -> StepResult(
                 StepStatus.COMPLETED,
                 expressions.namedJson(
@@ -261,7 +262,7 @@ class ActionNodeRunner(
             replyTo = resolved(ActionParameters.REPLY_TO).ifEmpty { action.emailReplyTo.orEmpty() }.ifEmpty { null },
         )
 
-        return when (val delivery = mail.send(connectionId, message)) {
+        return when (val delivery = mail.send(connectionId, message, on = action.workspaceId)) {
             is MailDelivery.Sent -> StepResult(
                 StepStatus.COMPLETED,
                 expressions.namedJson(
@@ -424,6 +425,10 @@ class ActionNodeRunner(
      */
     private fun callFunction(action: WorkflowAction, step: ExecutionStep, input: String?, trigger: String?): StepResult {
         val function = action.functionId?.let { functions.findByIdOrNull(it) }
+            // Another workspace's own function is not one this action may call,
+            // with that workspace's variables behind it; a plugin's or a
+            // built-in one belongs to none. Issue #588.
+            ?.takeIf { it.scope != FunctionScope.WORKSPACE || it.workspaceId == action.workspaceId }
             ?: return StepResult(StepStatus.SKIPPED, "The function ${action.name} calls has been deleted.")
 
         val given = expressions.parse(input)

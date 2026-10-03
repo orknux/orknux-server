@@ -96,6 +96,36 @@ class ActionAPITest(
     }
 
     /**
+     * A node's own draft may be unfinished, but it may not name another
+     * workspace's connection: that was a way to send through another team's
+     * Slack by typing a number. Issue #588.
+     */
+    @Test
+    fun `a workflow's own action cannot name another workspace's connection`() {
+        val workflowId = graphQlTester.document(
+            """mutation { createWorkflow(input: { workspaceId: $workspaceId, name: "Borrowing" }) { workflowId } }""",
+        ).execute().path("createWorkflow.workflowId").entity(Long::class.java).get()
+        val other = requireNotNull(workspaces.save(Workspace(name = "elsewhere")).id)
+        val theirs = graphQlTester.document(
+            """mutation { createWorkspaceConnection(input: { workspaceId: $other, name: "Their Slack", type: SLACK }) { id } }""",
+        ).execute().path("createWorkspaceConnection.id").entity(Long::class.java).get()
+
+        graphQlTester.document(
+            """
+            mutation {
+              createAction(input: {
+                workspaceId: $workspaceId, workflowId: $workflowId, name: "Borrowed", type: EXECUTE,
+                subtype: OUTGOING_CONNECTION, connectionId: $theirs, connectionAction: SEND_MESSAGE
+              }) { id }
+            }
+            """,
+        ).execute().errors().satisfy { errors ->
+            assertThat(errors).singleElement().satisfies({ assertThat(it.message).contains("a connection this workspace holds") })
+        }
+        assertThat(actions.findAll().map { it.name }).doesNotContain("Borrowed")
+    }
+
+    /**
      * A workflow's own action is its own: off the workspace's list, on its.
      *
      * "Custom" is a definition made from a node, for that one node, rather

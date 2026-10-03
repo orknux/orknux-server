@@ -58,6 +58,8 @@ class HttpCapability(
     private val mapper: ObjectMapper,
     /** Admin Settings -> HTTP tools, which fences the tools and not the functions. Issue #602. */
     private val policy: HttpToolPolicy,
+    /** Asks of the address whether it may be reached, and reads no further than the limit. Issue #588. */
+    private val fetch: io.mszymanski.orknux.server.security.GuardedFetch,
 ) : EmbeddedCapability {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -238,18 +240,32 @@ class HttpCapability(
             }
             .build()
 
-        val answered = router.client()
-            .send(router.authorized(request), HttpResponse.BodyHandlers.ofString())
+        /*
+         * Read up to four bytes for every character handed on, the longest a
+         * UTF-8 character is, and cut there - the rest of a long page is never
+         * held. Not followed past a redirect, as before: the answer is the
+         * redirect, and the model can ask for where it points.
+         */
+        val mostChars = MOST_BODY_CHARS
+        val answered = when (
+            val fetched = fetch.fetch(router.builder().build(), request, mostChars * 4L, followRedirects = false, router::authorized, cutLong = true)
+        ) {
+            is io.mszymanski.orknux.server.security.GuardedFetch.Fetched.Refused ->
+                return refusal("that address may not be reached: ${fetched.why}.")
+            is io.mszymanski.orknux.server.security.GuardedFetch.Fetched.TooLarge ->
+                return refusal("the answer is longer than ${fetched.most} bytes, which is more than is read.")
+            is io.mszymanski.orknux.server.security.GuardedFetch.Fetched.Answered -> fetched
+        }
 
-        val text = answered.body().orEmpty()
+        val text = answered.text()
         val json = runCatching { mapper.readTree(text) }.getOrNull()?.takeIf { it.isObject }
 
         return mapper.writeValueAsString(
             linkedMapOf(
-                "status" to answered.statusCode(),
-                "ok" to (answered.statusCode() < 400),
-                "headers" to answered.headers().map().mapValues { it.value.firstOrNull() },
-                "body" to text.take(MOST_BODY_CHARS),
+                "status" to answered.status,
+                "ok" to (answered.status < 400),
+                "headers" to answered.headers.map().mapValues { it.value.firstOrNull() },
+                "body" to text.take(mostChars),
                 /*
                  * An object only. A JSON array leaves this null and stays in the
                  * body, because a map cannot hold a list and whoever asked for
@@ -267,18 +283,23 @@ class HttpCapability(
             .GET()
             .build()
 
-        val answered = router.client()
-            .send(router.authorized(request), HttpResponse.BodyHandlers.ofByteArray())
-        val bytes = answered.body() ?: ByteArray(0)
-        if (bytes.size > MOST_DOWNLOAD_BYTES) {
-            return refusal("that is ${bytes.size} bytes, and at most ${MOST_DOWNLOAD_BYTES / (1024 * 1024)} MB are fetched.")
+        val mostMb = MOST_DOWNLOAD_BYTES / (1024 * 1024)
+        val answered = when (
+            val fetched = fetch.fetch(router.builder().build(), request, mostMb * 1024L * 1024L, followRedirects = false, router::authorized)
+        ) {
+            is io.mszymanski.orknux.server.security.GuardedFetch.Fetched.Refused ->
+                return refusal("that address may not be reached: ${fetched.why}.")
+            is io.mszymanski.orknux.server.security.GuardedFetch.Fetched.TooLarge ->
+                return refusal("that is more than $mostMb MB, which is the most that is fetched.")
+            is io.mszymanski.orknux.server.security.GuardedFetch.Fetched.Answered -> fetched
         }
+        val bytes = answered.bytes
 
         val answer = linkedMapOf<String, Any?>(
-            "status" to answered.statusCode(),
-            "ok" to (answered.statusCode() < 400),
+            "status" to answered.status,
+            "ok" to (answered.status < 400),
             "size" to bytes.size,
-            "contentType" to answered.headers().firstValue("content-type").orElse(null),
+            "contentType" to answered.headers.firstValue("content-type").orElse(null),
         )
         if (sessionId == null) {
             answer["base64"] = Base64.getEncoder().encodeToString(bytes)
@@ -286,7 +307,7 @@ class HttpCapability(
             val named = "http." + java.lang.Long.toString(System.nanoTime(), 36)
             scratch.put(
                 sessionId, named, mapper.writeValueAsString(Base64.getEncoder().encodeToString(bytes)),
-                io.mszymanski.orknux.workflow.script.StoredKind(answered.headers().firstValue("content-type").orElse(null)?.substringBefore(';')?.trim(), true),
+                io.mszymanski.orknux.workflow.script.StoredKind(answered.headers.firstValue("content-type").orElse(null)?.substringBefore(';')?.trim(), true),
             )
             answer[KEY] = named
             answer["note"] = "Pass $KEY to whatever sends, uploads or saves a file."

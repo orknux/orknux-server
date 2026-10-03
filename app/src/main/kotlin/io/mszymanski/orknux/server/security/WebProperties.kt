@@ -30,4 +30,24 @@ data class WebProperties(
      * at least a link, and the alternative is a paragraph of angle brackets.
      */
     val baseUrl: String = "http://localhost:5173",
+
+    /**
+     * The Content-Security-Policy every page is served with, where it is not
+     * the built-in one. Issue #588.
+     *
+     * Empty is the built-in policy, `SecurityConfig.DEFAULT_CONTENT_SECURITY_POLICY`:
+     * this origin and nothing else. An installation that has to allow
+     * something more - images from a known host in rendered answers - writes
+     * the whole policy here, because a policy pieced together from parts is
+     * one nobody can read in one place.
+     */
+    val contentSecurityPolicy: String = "",
+
+    /**
+     * Whether the session cookie is marked Secure: `true`, `false`, or `auto`
+     * for whenever the request reached this server over TLS. Behind a proxy
+     * that ends TLS the request never does, so `auto` sends it without - set
+     * `true` there. Issue #588.
+     */
+    val sessionCookieSecure: String = "auto",
 )

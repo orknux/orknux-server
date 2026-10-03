@@ -571,7 +571,31 @@ class TriggerAPI(
          * and choosing what it needs is where somebody is, not a mistake.
          * A run reaching an unfinished one is prevented at publish instead;
          * see `GraphValidator`.
+         *
+         * Unfinished is not the same as borrowed, though: what it does name
+         * has to be this workspace's, draft or not - another workspace's
+         * function asked to let a webhook through runs with that workspace's
+         * variables. Issue #588.
          */
+        trigger.connectionId?.let { id ->
+            if (connections.workspaceConnection(id)?.workspaceId != trigger.workspaceId) {
+                throw TriggerConnectionRequiredException()
+            }
+        }
+        trigger.authFunctionId?.let { id ->
+            val function = functions.findByIdOrNull(id)
+            if (function != null && function.scope == io.mszymanski.orknux.server.action.FunctionScope.WORKSPACE &&
+                function.workspaceId != trigger.workspaceId
+            ) {
+                throw TriggerWebhookAuthFunctionRequiredException()
+            }
+        }
+        trigger.objectId?.let { id ->
+            val shape = objects.findByIdOrNull(id)
+            if (shape?.workspaceId != null && shape.workspaceId != trigger.workspaceId) {
+                throw TriggerWebhookShapeRequiredException()
+            }
+        }
         if (trigger.workflowId != null) return
 
         when (trigger.type) {

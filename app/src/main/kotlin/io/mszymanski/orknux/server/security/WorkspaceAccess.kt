@@ -68,9 +68,28 @@ class WorkspaceAccess(
      * arriving at the door and the first sign-in being recorded.
      */
     private fun assigned(): Set<Role> {
-        val username = SecurityContextHolder.getContext().authentication?.name ?: return emptySet()
-        return users.findByUsername(username)?.roles?.toSet().orEmpty()
+        val authentication = SecurityContextHolder.getContext().authentication ?: return emptySet()
+        val username = authentication.name ?: return emptySet()
+        val row = users.findByUsername(username) ?: return emptySet()
+        /*
+         * An internal account's roles belong to whoever signed in as that
+         * account, and only to them. Rows are found by name, and a name is what
+         * a provider says it is: an OIDC token's `preferred_username` is often
+         * something the person can edit, so somebody calling themselves `admin`
+         * at the provider would otherwise have been handed the bootstrap
+         * administrator's roles here. A provider's sign-in reads its own row,
+         * which [io.mszymanski.orknux.server.user.UserDetection] writes as
+         * EXTERNAL, and never an INTERNAL one. Issue #588.
+         */
+        if (row.type == io.mszymanski.orknux.server.user.UserType.INTERNAL && fromProvider(authentication)) return emptySet()
+        return row.roles.toSet()
     }
+
+    /** Whether a directory or an identity provider vouched for this caller, rather than this installation. */
+    private fun fromProvider(authentication: org.springframework.security.core.Authentication): Boolean =
+        authentication is org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken ||
+            authentication is org.springframework.security.oauth2.server.resource.authentication.AbstractOAuth2TokenAuthenticationToken<*> ||
+            authentication.principal is org.springframework.security.ldap.userdetails.LdapUserDetails
 
     /**
      * Whether the caller may see this workspace.

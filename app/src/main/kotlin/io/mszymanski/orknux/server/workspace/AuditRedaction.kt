@@ -181,6 +181,7 @@ object AuditRedaction {
         ::headerValues,
         ::bearerTokens,
         ::userColonPassword,
+        ::jsonMembers,
         ::assignments,
         ::spacedLongFlags,
         ::attachedShortPassword,
@@ -303,6 +304,24 @@ object AuditRedaction {
         return SECRET_FRAGMENTS.any { cleaned.contains(it) }
     }
 
+    /**
+     * `"password": "x"` - a JSON member whose name says it holds a credential.
+     *
+     * The arguments of a tool call an agent makes are JSON, and they are what
+     * is written here; `password=x` was caught and `{"password":"x"}` was not.
+     * Only a string value, and only under a name the assignment rule would also
+     * have hidden. Issue #588.
+     */
+    private val JSON_MEMBER = Regex("""("([A-Za-z0-9_.\-]{1,64})"\s*:\s*")((?:[^"\\]|\\.)*)"""")
+
+    private fun jsonMembers(text: String): String = text.replace(JSON_MEMBER) { match ->
+        if (looksLikeCredentialName(match.groupValues[2]) && match.groupValues[3].isNotEmpty()) {
+            "${match.groupValues[1]}$MARKER\""
+        } else {
+            match.value
+        }
+    }
+
     private val QUOTED_ASSIGNMENT = Regex("""([A-Za-z0-9_.\-]{1,64})=(["'])([^"']*)\2""")
     private val BARE_ASSIGNMENT = Regex("""([A-Za-z0-9_.\-]{1,64})=([^\s"']+)""")
 
@@ -396,7 +415,8 @@ object AuditRedaction {
      * answer for the issuers who chose a prefix, not for anybody else.
      */
     private val KNOWN_TOKEN_SHAPES = Regex(
-        """(gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}|xox[abprse]-[A-Za-z0-9\-]{10,}|""" +
+        // This installation's own access tokens first: `orkx_` and 32 random bytes. #588.
+        """(orkx_[A-Za-z0-9_\-]{20,}|gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}|xox[abprse]-[A-Za-z0-9\-]{10,}|""" +
             """sk-(?:ant-)?[A-Za-z0-9_\-]{16,}|glpat-[A-Za-z0-9_\-]{16,}|(?:AKIA|ASIA)[0-9A-Z]{16}|""" +
             """AIza[0-9A-Za-z_\-]{30,}|ey[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{5,})""",
     )

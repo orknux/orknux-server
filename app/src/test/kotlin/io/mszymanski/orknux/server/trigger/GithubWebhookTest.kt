@@ -158,7 +158,7 @@ class GithubWebhookTest(
     fun `a delivery whose signature does not check out is refused`() {
         val answered = deliverSigned("pull_request", PULL_REQUEST, tampered(PULL_REQUEST))
 
-        assertThat(answered.status).isEqualTo(401)
+        assertThat(answered.status).isEqualTo(404) // as an unknown path is, #588
         assertThat(executions.findAll()).isEmpty()
         // And the owner is told, because a webhook everybody is being refused
         // from looks exactly like a webhook nobody is calling.
@@ -171,7 +171,7 @@ class GithubWebhookTest(
     fun `a delivery with no signature at all is refused`() {
         val answered = deliverSigned("pull_request", PULL_REQUEST, signature = null)
 
-        assertThat(answered.status).isEqualTo(401)
+        assertThat(answered.status).isEqualTo(404) // as an unknown path is, #588
         assertThat(executions.findAll()).isEmpty()
     }
 
@@ -190,7 +190,7 @@ class GithubWebhookTest(
                 .content(PULL_REQUEST),
         ).andReturn().response
 
-        assertThat(answered.status).isEqualTo(401)
+        assertThat(answered.status).isEqualTo(404) // as an unknown path is, #588
     }
 
     /**
@@ -286,7 +286,7 @@ class GithubWebhookTest(
     fun `a workspace that has not been told the secret refuses the caller`() {
         pluginSettings.deleteAll()
 
-        assertThat(deliver("pull_request", PULL_REQUEST).status).isEqualTo(401)
+        assertThat(deliver("pull_request", PULL_REQUEST).status).isEqualTo(404)
         assertThat(firings.findAll().single().detail).contains("has not been told webhookSecret")
     }
 

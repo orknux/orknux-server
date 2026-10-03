@@ -24,6 +24,21 @@ import java.util.stream.Stream
  */
 class AuditRedactionTest {
 
+    /** A tool call's arguments are JSON, and they are written to the session log. Issue #588. */
+    @Test
+    fun `a credential in a JSON member is replaced, and the rest of the object kept`() {
+        assertThat(AuditRedaction.redact("""{"url":"https://x.example","password":"hunter2","apiKey": "abc123"}"""))
+            .isEqualTo("""{"url":"https://x.example","password":"***","apiKey": "***"}""")
+        assertThat(AuditRedaction.redact("""{"title":"rotate the password policy"}"""))
+            .isEqualTo("""{"title":"rotate the password policy"}""")
+    }
+
+    @Test
+    fun `this installation's own access token is a token on sight`() {
+        val token = "orkx_" + "AbCdEfGhIjKlMnOpQrStUvWxYz012345"
+        assertThat(AuditRedaction.redactObvious("curl -H x $token")).doesNotContain(token)
+    }
+
     @ParameterizedTest(name = "{0}")
     @MethodSource("credentials")
     fun `a credential on a command line is replaced by a marker`(command: String, expected: String) {

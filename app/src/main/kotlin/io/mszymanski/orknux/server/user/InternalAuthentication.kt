@@ -62,14 +62,15 @@ class InternalAuthentication(
         val owner = users.findById(held.userId).orElse(null) ?: return null
         held.lastUsedAt = OffsetDateTime.now()
         tokens.save(held)
-        val signedIn = tokenFor(owner)
+        // Marked, so a door that must not be opened by a token can tell. #588.
+        val signedIn = tokenFor(owner).apply { details = ByToken(requireNotNull(held.id)) }
         if (!held.readOnly) return signedIn
         // The owner as they are, held to reading. See TokenAccess.
         return UsernamePasswordAuthenticationToken(
             signedIn.name,
             null,
             signedIn.authorities + SimpleGrantedAuthority(io.mszymanski.orknux.server.security.TokenAccess.READ_ONLY),
-        )
+        ).apply { details = ByToken(requireNotNull(held.id)) }
     }
 
     /**

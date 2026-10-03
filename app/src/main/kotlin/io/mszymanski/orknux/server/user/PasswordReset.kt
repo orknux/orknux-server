@@ -63,4 +63,17 @@ interface PasswordResetRepository : JpaRepository<PasswordReset, Long> {
     fun findByUserId(userId: Long): List<PasswordReset>
 
     fun deleteByUserId(userId: Long)
+
+    /**
+     * Spends a link, once: one row changed means this caller spent it, none
+     * means somebody else got there first. Issue #588.
+     */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true, clearAutomatically = true)
+    @org.springframework.data.jpa.repository.Query(
+        "update PasswordReset r set r.usedAt = :at where r.id = :id and r.usedAt is null",
+    )
+    fun spend(
+        @org.springframework.data.repository.query.Param("id") id: Long,
+        @org.springframework.data.repository.query.Param("at") at: java.time.OffsetDateTime,
+    ): Int
 }

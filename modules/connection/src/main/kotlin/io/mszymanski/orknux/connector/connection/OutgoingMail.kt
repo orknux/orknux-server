@@ -108,8 +108,14 @@ class OutgoingMail(
 
     private val log = LoggerFactory.getLogger(javaClass)
 
-    fun send(connectionId: Long, message: MailMessage): MailDelivery {
+    /**
+     * @param on the only workspace whose connections this may send through, the
+     *   same boundary [OutgoingMessages.send] takes: an action names a
+     *   connection by id, and an id is a number anybody can type. Issue #588.
+     */
+    fun send(connectionId: Long, message: MailMessage, on: Long? = null): MailDelivery {
         val connection = connections.findByIdOrNull(connectionId)
+            ?.takeIf { on == null || it.workspaceId == on }
             ?: return MailDelivery.NotPossible("the connection it sends through has been deleted")
 
         if (connection.type != ConnectionType.SMTP) {

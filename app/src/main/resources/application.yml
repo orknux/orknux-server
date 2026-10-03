@@ -408,6 +408,16 @@ orknux:
     # attacker chooses the address of, and the link in question opens an account.
     # Empty means no link can be written and none is sent; the log says so.
     base-url: ${ORKNUX_BASE_URL:http://localhost:5173}
+    # The Content-Security-Policy the interface is served with. Empty is the
+    # built-in one: this origin only, except https: pictures, which an answer
+    # that links to them draws. Write the whole policy here to change it - with
+    # img-src 'self' data: blob: to stop a model's answer fetching anything; see
+    # SecurityConfig.DEFAULT_CONTENT_SECURITY_POLICY. Issue #588.
+    content-security-policy: ${ORKNUX_CONTENT_SECURITY_POLICY:}
+    # Whether the session cookie is marked Secure. auto marks it when the request
+    # arrived over TLS, which behind a proxy that ends TLS it never does: set
+    # true there. Issue #588.
+    session-cookie-secure: ${ORKNUX_SESSION_COOKIE_SECURE:auto}
   webhook:
     # The most a webhook caller may send. This endpoint is open to the internet
     # by necessity - a build server cannot sign in - and the body it posts is

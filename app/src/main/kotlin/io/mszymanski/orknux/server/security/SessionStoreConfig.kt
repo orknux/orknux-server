@@ -51,6 +51,30 @@ class SessionStoreConfig {
      * its own default of thirty minutes, and the setting in the configuration file
      * would be a documented lie.
      */
+    /**
+     * The session cookie, as the configuration file describes it. Issue #588.
+     *
+     * Spring Session writes its own cookie and reads none of
+     * `server.servlet.session.cookie`, so ORKNUX_SESSION_COOKIE_SAME_SITE and
+     * ORKNUX_SESSION_COOKIE_HTTP_ONLY were documented and did nothing: the
+     * cookie was Lax and HttpOnly whatever they said. And Secure followed
+     * whether the request reached this process over TLS, which behind a proxy
+     * that ends TLS it never does - so the cookie went out without it.
+     * ORKNUX_SESSION_COOKIE_SECURE says so where the request cannot.
+     */
+    @Bean
+    fun sessionCookie(server: ServerProperties, web: WebProperties): org.springframework.session.web.http.CookieSerializer =
+        org.springframework.session.web.http.DefaultCookieSerializer().apply {
+            val cookie = server.servlet.session.cookie
+            cookie.sameSite?.let { setSameSite(it.attributeValue()) }
+            cookie.httpOnly?.let { setUseHttpOnlyCookie(it) }
+            when (web.sessionCookieSecure.trim().lowercase()) {
+                "true" -> setUseSecureCookie(true)
+                "false" -> setUseSecureCookie(false)
+                // "auto": Secure when the request arrived over TLS, as before.
+            }
+        }
+
     @Bean
     fun sessionTimeout(server: ServerProperties): SessionRepositoryCustomizer<JdbcIndexedSessionRepository> =
         SessionRepositoryCustomizer { repository ->

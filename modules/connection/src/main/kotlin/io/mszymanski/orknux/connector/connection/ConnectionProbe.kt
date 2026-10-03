@@ -342,7 +342,7 @@ class ConnectionProbe(
         // rather than looking it up, which is the whole point of asking it here.
         val literal = runCatching { InetAddress.ofLiteral(host.removeSurrounding("[", "]")) }.getOrNull()
             ?: return null
-        return if (!properties.allowLinkLocal && (literal.isLinkLocalAddress || literal.isAnyLocalAddress)) {
+        return if (!properties.allowLinkLocal && reachesMetadata(literal)) {
             "That host resolves to a link-local address"
         } else {
             null
@@ -351,7 +351,7 @@ class ConnectionProbe(
 
     private fun resolvedAddressProblem(host: String): String? = try {
         val addresses = InetAddress.getAllByName(host)
-        if (!properties.allowLinkLocal && addresses.any { it.isLinkLocalAddress || it.isAnyLocalAddress }) {
+        if (!properties.allowLinkLocal && addresses.any(::reachesMetadata)) {
             "That host resolves to a link-local address"
         } else {
             null
@@ -360,8 +360,20 @@ class ConnectionProbe(
         "The host could not be resolved"
     }
 
+    /**
+     * Link-local and unspecified addresses, and the metadata services that sit
+     * elsewhere: AWS's IPv6 one is a unique-local address and Alibaba's is in
+     * carrier-grade NAT space, so neither is link-local and both answered until
+     * #588.
+     */
+    private fun reachesMetadata(address: InetAddress): Boolean =
+        address.isLinkLocalAddress || address.isAnyLocalAddress || address.hostAddress in METADATA
+
     private companion object {
         val ALLOWED_SCHEMES = setOf("http", "https")
+
+        /** As `InetAddress.hostAddress` spells them. */
+        val METADATA = setOf("fd00:ec2:0:0:0:0:0:254", "100.100.100.200")
 
         /**
          * Answers that mean "not like that" rather than "not here": the method,

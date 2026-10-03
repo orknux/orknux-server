@@ -39,6 +39,20 @@ class SignInThrottleTest {
         ),
     )
 
+    /**
+     * Spraying names used to wipe every record, the one pausing a guessed
+     * account with them. Issue #588.
+     */
+    @Test
+    fun `spraying ten thousand names does not lift the pause on the one being guessed`() {
+        val throttle = throttle(perAddress = Int.MAX_VALUE, firstWait = Duration.ofSeconds(1))
+        repeat(3) { throttle.failed("alice", "10.0.0.1") }
+        repeat(10_050) { throttle.failed("name-$it", "10.0.$it.1") }
+
+        assertThatThrownBy { throttle.check("alice", "10.9.9.9") }
+            .isInstanceOf(TooManySignInAttempts::class.java)
+    }
+
     @Test
     fun `getting it wrong once or twice costs nothing at all`() {
         val throttle = throttle()

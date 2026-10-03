@@ -94,7 +94,9 @@ class WebhookAPI(
         } catch (failure: Exception) {
             // Whatever it was, the person who owns this trigger finds out here:
             // the caller is a machine and will only ever see a status code.
-            log.warn("Webhook {} could not be handled", path, failure)
+            // By the trigger's id: the path is the only thing between the
+            // internet and a run, and a log is read by more people. #588.
+            log.warn("Webhook of trigger {} could not be handled", trigger.id, failure)
             runner.note(trigger, FiringOutcome.FAILED, "The request could not be handled: ${failure.message}")
             ResponseEntity.internalServerError().body(mapOf("error" to "The request could not be handled."))
         }
@@ -120,7 +122,7 @@ class WebhookAPI(
              * the line below, because what the caller may know and what the
              * owner needs to know are not the same thing.
              */
-            log.debug("Webhook {} was called with something that is not JSON", path)
+            log.debug("Webhook of trigger {} was called with something that is not JSON", trigger.id)
             runner.note(trigger, FiringOutcome.FAILED, "The request body was not JSON")
             return notFound()
         }
@@ -137,14 +139,21 @@ class WebhookAPI(
          */
         val allowed = authenticated(trigger, sent, body, headers)
         if (!allowed.yes) {
-            log.debug("Webhook {} refused a caller: {}", path, allowed.detail)
+            log.debug("Webhook of trigger {} refused a caller: {}", trigger.id, allowed.detail)
             runner.note(trigger, FiringOutcome.UNAUTHENTICATED, allowed.detail)
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to "Not authenticated."))
+            /*
+             * 404, like everything else that is not a start. A 401 here was the
+             * one answer only a real path could give, so a list of guessed
+             * names sent with no credential came back with the armed ones
+             * marked - the reasoning that already made a body that will not
+             * parse a 404. The owner reads the reason on the line above. #588.
+             */
+            return notFound()
         }
 
         val shape = trigger.objectId?.let { objects.findByIdOrNull(it) }
         if (shape == null || !matches(sent, shape.properties, depth = 0)) {
-            log.debug("Webhook {} was called with a body that is not {}", path, shape?.name ?: "any known shape")
+            log.debug("Webhook of trigger {} was called with a body that is not {}", trigger.id, shape?.name ?: "any known shape")
             runner.note(
                 trigger,
                 FiringOutcome.FAILED,

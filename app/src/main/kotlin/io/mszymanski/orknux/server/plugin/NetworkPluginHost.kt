@@ -54,6 +54,11 @@ class NetworkPluginHost(
     private val proxies: ProxyRouter,
     /** What this installation trusts, watched so a new authority is picked up. */
     private val trusted: OutboundTrust,
+    /**
+     * Asks of every address a call reaches whether it may be reached, and reads
+     * no further than the limit. Issue #588.
+     */
+    private val fetch: io.mszymanski.orknux.server.security.GuardedFetch,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -82,11 +87,12 @@ class NetworkPluginHost(
         val made = proxies.builder()
             .connectTimeout(CONNECT_TIMEOUT)
             /*
-             * Followed, but only between addresses this would have accepted in the
-             * first place: `NORMAL` refuses a redirect from HTTPS to HTTP, which is
-             * the one that turns a checked call into an unchecked one.
+             * Not followed by the client: [GuardedFetch] follows them, asking of
+             * every address on the way whether it may be reached, and never from
+             * HTTPS down to HTTP. The client's own following would take the call
+             * wherever an answer pointed - cloud metadata included. Issue #588.
              */
-            .followRedirects(HttpClient.Redirect.NORMAL)
+            .followRedirects(HttpClient.Redirect.NEVER)
             .build()
         held.set(generation to made)
         return made
@@ -152,32 +158,35 @@ class NetworkPluginHost(
         headers(given.get(2)).forEach { (name, value) -> request.header(name, value) }
 
         return try {
+            // Main's limits; the settings sweep (#453) is what would make them knobs.
+            val most = if (wantBytes) MAX_BYTES.toLong() else MAX_BODY.toLong()
+            val answered = when (
+                val fetched = fetch.fetch(client(), request.build(), most, followRedirects = true)
+            ) {
+                is io.mszymanski.orknux.server.security.GuardedFetch.Fetched.Refused ->
+                    return refusal("that address may not be reached: ${fetched.why}")
+                is io.mszymanski.orknux.server.security.GuardedFetch.Fetched.TooLarge ->
+                    return refusal("the answer was larger than ${most / 1024} KB")
+                is io.mszymanski.orknux.server.security.GuardedFetch.Fetched.Answered -> fetched
+            }
             if (wantBytes) {
-                val answered = client().send(request.build(), HttpResponse.BodyHandlers.ofByteArray())
-                val held = answered.body() ?: ByteArray(0)
-                if (held.size > MAX_BYTES) {
-                    return refusal("the answer was larger than ${MAX_BYTES / (1024 * 1024)} MB")
-                }
+                val held = answered.bytes
 
                 val answer = mapper.createObjectNode()
-                answer.put("status", answered.statusCode())
+                answer.put("status", answered.status)
                 val headers = answer.putObject("headers")
-                answered.headers().map().forEach { (name, values) -> headers.put(name, values.joinToString(", ")) }
+                answered.headers.map().forEach { (name, values) -> headers.put(name, values.joinToString(", ")) }
                 answer.put("base64", java.util.Base64.getEncoder().encodeToString(held))
                 answer.put("size", held.size)
-                answer.put("contentType", answered.headers().firstValue("content-type").orElse(null))
+                answer.put("contentType", answered.headers.firstValue("content-type").orElse(null))
                 mapper.writeValueAsString(answer)
             } else {
-                val answered = client().send(request.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
-                val held = answered.body().orEmpty()
-                if (held.length > MAX_BODY) {
-                    return refusal("the answer was larger than ${MAX_BODY / 1024} KB")
-                }
+                val held = answered.text()
 
                 val answer = mapper.createObjectNode()
-                answer.put("status", answered.statusCode())
+                answer.put("status", answered.status)
                 val headers = answer.putObject("headers")
-                answered.headers().map().forEach { (name, values) -> headers.put(name, values.joinToString(", ")) }
+                answered.headers.map().forEach { (name, values) -> headers.put(name, values.joinToString(", ")) }
                 answer.put("body", held)
                 mapper.writeValueAsString(answer)
             }

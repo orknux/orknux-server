@@ -299,7 +299,22 @@ class ConditionAPI(
          * and choosing what it needs is where somebody is, not a mistake.
          * A run reaching an unfinished one is prevented at publish instead;
          * see `GraphValidator`.
+         *
+         * Unfinished is not the same as borrowed, though: what it does name
+         * has to be this workspace's, draft or not. Issue #588.
          */
+        condition.functionId?.let { id ->
+            val function = functions.findByIdOrNull(id)
+            if (function != null && function.scope == io.mszymanski.orknux.server.action.FunctionScope.WORKSPACE &&
+                function.workspaceId != condition.workspaceId
+            ) {
+                throw ConditionFunctionElsewhereException(function.name)
+            }
+        }
+        condition.members.forEach { member ->
+            val held = conditions.findByIdOrNull(member)
+            if (held != null && held.workspaceId != condition.workspaceId) throw ConditionNotFoundException(member)
+        }
         if (condition.workflowId != null) return
 
         when (condition.type) {

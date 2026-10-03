@@ -348,6 +348,22 @@ class EmailInvalidException(val email: String) :
  * Not a permission that can be granted: the provider is where they are true,
  * and a password here would be a second one to forget.
  */
+/**
+ * What a caller signed in with an access token carries, so a request can tell
+ * it from a session. Issue #588.
+ */
+data class ByToken(val tokenId: Long)
+
+/** Whether whoever is calling presented an access token rather than a session. */
+fun calledByToken(): Boolean =
+    org.springframework.security.core.context.SecurityContextHolder.getContext().authentication?.details is ByToken
+
+class TokenMintedByTokenException : RuntimeException(
+    "A new access token is made from a signed-in session, not with another token",
+), Refusal {
+    override val arguments get() = emptyMap<String, Any?>()
+}
+
 class PasswordNotSettableException(val username: String) : RuntimeException(
     "\"$username\" signs in through the identity provider, so there is no password to set here",
 ), Refusal {

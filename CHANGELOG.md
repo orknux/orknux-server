@@ -15,6 +15,29 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- `ORKNUX_SESSION_COOKIE_SECURE` marks the session cookie Secure (`auto`, the default, follows the request); `ORKNUX_CONTENT_SECURITY_POLICY` replaces the interface's Content-Security-Policy where the built-in one is too strict.
+
+### 🔧 Changed
+
+- **Cross-site writes are refused.** A write a browser says came from another site is refused with 403, by `Origin`, `Sec-Fetch-Site` or `Referer`; the CLI, `/mcp` and anything sending a bearer token are unaffected. If the interface is served from another origin, list it in `ORKNUX_ALLOWED_ORIGINS`.
+- A workspace function's `orknux.http`, an agent's HTTP tools and a plugin's requests refuse cloud metadata addresses, including after a redirect, and read an answer only up to their limit rather than whole.
+- A workflow's own action can no longer name another workspace's connection, function, condition, speech model or workflow, and a run will not send through another workspace's connection whatever was saved.
+- An access token can no longer make another token; make tokens from a signed-in session.
+- Setting somebody's password, or changing your own, ends their other sessions.
+- A webhook whose authentication function refuses a caller answers 404, like an unknown path, rather than 401.
+- `ORKNUX_SESSION_COOKIE_SAME_SITE` and `ORKNUX_SESSION_COOKIE_HTTP_ONLY` now take effect; they were ignored.
+
+### 🐛 Fixed
+
+- An identity provider's sign-in whose username matched an internal account's was given that account's roles.
+- Spraying sign-in attempts over ten thousand names wiped the pause on the one being guessed.
+- One mailed password-reset link could be spent twice by two requests at once.
+- Audit and session lines now hide credentials in JSON (`"password": "..."`) and this installation's own `orkx_` tokens.
+
 ## 1.1.9
 
 ### ✨ Added

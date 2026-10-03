@@ -271,8 +271,12 @@ class PasswordResetService(
          */
         if (password.length < SHORTEST_PASSWORD) throw PasswordTooShortException(SHORTEST_PASSWORD)
 
-        held.usedAt = OffsetDateTime.now()
-        resets.save(held)
+        /*
+         * Spent by a conditional update rather than read, checked and written:
+         * two requests carrying the same link at once both read it unused, and
+         * both set a password. Only one of them changes the row. Issue #588.
+         */
+        if (resets.spend(requireNotNull(held.id), OffsetDateTime.now()) != 1) throw refuse(from)
         resets.findByUserId(held.userId).filter { it.id != held.id }.forEach(resets::delete)
 
         owner.passwordHash = encoder.encode(password)

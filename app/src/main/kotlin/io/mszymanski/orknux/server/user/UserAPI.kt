@@ -36,6 +36,11 @@ class UserAPI(
     private val encoder: PasswordEncoder,
     private val access: WorkspaceAccess,
     private val audit: WorkspaceAuditRecorder,
+    /**
+     * Where sessions are, so a changed password can end the ones it was
+     * changed against. Issue #588.
+     */
+    private val sessions: org.springframework.session.jdbc.JdbcIndexedSessionRepository,
 ) {
 
     @QueryMapping
@@ -108,7 +113,20 @@ class UserAPI(
         held.passwordHash = encoder.encode(password)
         held.lastModifiedAt = OffsetDateTime.now()
         held.lastModifiedBy = editor()
-        return describe(users.save(held))
+        val saved = users.save(held)
+        // An administrator resets a password because the old one may be known;
+        // that is worth nothing while whoever knows it stays signed in. #588.
+        endSessions(held.username, keep = null)
+        return describe(saved)
+    }
+
+    /**
+     * Ends [username]'s sessions, all but [keep]: the one the person changing
+     * their own password is sitting in. A password reset by mail already did
+     * this; a password changed on the screen did not. Issue #588.
+     */
+    private fun endSessions(username: String, keep: String?) {
+        sessions.findByPrincipalName(username).keys.filter { it != keep }.forEach(sessions::deleteById)
     }
 
     /**
@@ -131,6 +149,9 @@ class UserAPI(
         held.lastModifiedAt = OffsetDateTime.now()
         held.lastModifiedBy = editor()
         users.save(held)
+        val current = (org.springframework.web.context.request.RequestContextHolder.getRequestAttributes()
+            as? org.springframework.web.context.request.ServletRequestAttributes)?.request?.getSession(false)?.id
+        endSessions(held.username, keep = current)
         return true
     }
 
@@ -302,6 +323,12 @@ class UserAPI(
     @MutationMapping
     @Transactional
     fun createUserToken(@Argument id: Long?, @Argument name: String, @Argument readOnly: Boolean?): NewTokenView {
+        /*
+         * Not with a token. A token that can mint tokens is one that, once
+         * leaked, makes itself a replacement nobody revoking the first knows
+         * about; making one is a person's act, in a session. Issue #588.
+         */
+        if (calledByToken()) throw TokenMintedByTokenException()
         val held = if (id == null) {
             users.findByUsername(editor()) ?: throw UserNotFoundException(-1)
         } else {

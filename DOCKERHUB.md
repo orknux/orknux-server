@@ -321,7 +321,8 @@ ORKNUX_TASK_SWEEP_INITIAL_DELAY, ORKNUX_WATCHER_MAX_SECONDS, ORKNUX_WATCHER_MIN_
 ORKNUX_WATCHER_MAX_PER_AGENT, ORKNUX_WATCHER_MIN_AGENT_CHECK_SECONDS,
 ORKNUX_WATCHER_LOOK_INITIAL_SECONDS, ORKNUX_WATCHER_LOOK_MULTIPLIER,
 ORKNUX_WATCHER_LOOK_MAX_SECONDS, ORKNUX_SCHEDULE_MIN_INTERVAL_SECONDS and
-ORKNUX_SCHEDULE_MAX_PER_AGENT are in
+ORKNUX_SCHEDULE_MAX_PER_AGENT and
+ORKNUX_CONTENT_SECURITY_POLICY are in
 [the README](https://github.com/orknux/orknux-server/blob/main/README.md#more-settings).
 
 ## Sessions, HTTP and logging
@@ -336,6 +337,7 @@ ORKNUX_SCHEDULE_MAX_PER_AGENT are in
 | `ORKNUX_SESSION_TIMEOUT` | How long a session survives without being used. A fortnight suits a tool behind an identity provider. | `14d` | No |
 | `ORKNUX_SESSION_COOKIE_SAME_SITE` | `lax` lets a link from elsewhere arrive signed in; `strict` where nothing links in. | `lax` | No |
 | `ORKNUX_SESSION_COOKIE_HTTP_ONLY` | Keeps the session cookie out of reach of scripts. | `true` | No |
+| `ORKNUX_SESSION_COOKIE_SECURE` | `true` behind a proxy that ends TLS; `auto` follows the request. | `auto` | **Yes** behind TLS |
 | `OPENAI_LOG` | What the model SDK prints to stderr: `info` each call's method and URL, `debug` headers and bodies, credentials redacted. | *none* | No |
 | `ORKNUX_LOG_LEVEL` | How much this application says: `TRACE` to `ERROR`. Its own code only, not the frameworks. | `INFO` | No |
 | `ORKNUX_LOG_LEVEL_ROOT` | The same for everything else on the classpath. `DEBUG` here is very loud. | `INFO` | No |

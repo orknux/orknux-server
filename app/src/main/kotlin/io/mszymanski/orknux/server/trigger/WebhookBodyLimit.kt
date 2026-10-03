@@ -125,7 +125,8 @@ class WebhookBodyLimit(private val most: Long) : Filter {
     }
 
     private fun refuse(request: HttpServletRequest, response: HttpServletResponse) {
-        log.warn("A webhook call to {} sent more than the {} bytes allowed", request.requestURI, most)
+        // Not the path: it is what guards the webhook, and logs travel. #588.
+        log.warn("A webhook call sent more than the {} bytes allowed", most)
         response.status = HttpStatus.PAYLOAD_TOO_LARGE.value()
         response.contentType = MediaType.APPLICATION_JSON_VALUE
         response.characterEncoding = Charsets.UTF_8.name()

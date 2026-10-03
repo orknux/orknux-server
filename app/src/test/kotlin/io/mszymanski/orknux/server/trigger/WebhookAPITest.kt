@@ -252,7 +252,7 @@ class WebhookAPITest(
         assertThat(allowed.status).isEqualTo(202)
 
         val refused = call("zendesk/guarded", """{"id":"T-2","token":"guess"}""")
-        assertThat(refused.status).isEqualTo(401)
+        assertThat(refused.status).isEqualTo(404) // as an unknown path is, #588
 
         // The reason is the gatekeeper's answer, not a crash: a note run as a
         // script would have written "SyntaxError" here for both calls.

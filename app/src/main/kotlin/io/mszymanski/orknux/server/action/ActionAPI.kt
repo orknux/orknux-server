@@ -44,6 +44,10 @@ class ActionAPI(
     private val dependants: ComponentDependants,
     /** What the loaded plugins declare, for a PLUGIN_ACTION to be checked against. Issue #438. */
     private val pluginActions: PluginActions,
+    /** Whose a speech model is, for [requireOwnReferences]. Issue #588. */
+    private val models: io.mszymanski.orknux.connector.model.ModelService,
+    /** Whose a workflow is, for the same. */
+    private val workflows: io.mszymanski.orknux.server.workflow.WorkspaceWorkflowRepository,
 ) {
 
     /**
@@ -373,6 +377,8 @@ class ActionAPI(
         }
         if (action.subtype !in allowed) throw ActionSubtypeMismatchException(action.type, action.subtype)
 
+        requireOwnReferences(action)
+
         // A draft belonging to one node, which is allowed to be unfinished.
         if (action.workflowId != null) return
 
@@ -535,6 +541,45 @@ class ActionAPI(
         .map { ArgumentMapping(argument = it.argument.trim(), expression = it.expression.trim()) }
         .filter { it.argument.isNotEmpty() }
         .toMutableList()
+
+    /**
+     * Every id the action names belongs to its own workspace. Issue #588.
+     *
+     * Asked of a node's own draft as well as of a shared action. A draft may be
+     * unfinished - which is why the checks below stop at it - but a draft that
+     * names another workspace's connection, function, condition, speech model
+     * or workflow is not unfinished, it is somebody sending through another
+     * team's Slack, running their function with their variables, or speaking
+     * on their key. Said as though the thing were not there, which is what it
+     * is to this workspace.
+     */
+    private fun requireOwnReferences(action: WorkflowAction) {
+        val home = action.workspaceId
+        action.connectionId?.let { id ->
+            if (connections.workspaceConnection(id)?.workspaceId != home) {
+                throw ActionSettingMissingException("a connection this workspace holds")
+            }
+        }
+        action.functionId?.let { id ->
+            val function = functions.findByIdOrNull(id)
+            if (function != null && function.scope == FunctionScope.WORKSPACE && function.workspaceId != home) {
+                throw ActionSettingMissingException("a function this workspace owns")
+            }
+        }
+        action.conditionId?.let { id ->
+            if (conditions.findByIdOrNull(id)?.let { it.workspaceId != home } == true) {
+                throw ActionSettingMissingException("a condition this workspace holds")
+            }
+        }
+        action.speechModelId?.let { id ->
+            if (models.model(id)?.workspaceId != home) throw ActionSettingMissingException("a speech model this workspace holds")
+        }
+        action.workflowId?.let { id ->
+            if (!workflows.existsByWorkspaceIdAndWorkflowId(home, id)) {
+                throw ActionSettingMissingException("a workflow this workspace holds")
+            }
+        }
+    }
 
     private fun requireWorkspaceAccess(workspaceId: Long) {
         access.requireVisible(workspaceId)

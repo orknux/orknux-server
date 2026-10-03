@@ -178,16 +178,23 @@ class SignInThrottle(private val properties: SignInThrottleProperties) {
      * A caller who sprays a new username at every attempt would otherwise be
      * writing a row of memory per try, and a defence that fills the heap has
      * chosen the wrong enemy. Quiet records go first; if there are still too
-     * many after that, the lot is dropped and said so - forgetting everything
-     * is worse than remembering it, but it is better than running out of room,
-     * and a spray this wide is already being held by its address.
+     * many after that, the ones that are not holding anybody in a pause go,
+     * and only then the oldest of the rest.
+     *
+     * It used to drop the lot. That made the defence a switch an attacker could
+     * press: spray ten thousand names, and the record pausing the one name being
+     * guessed was wiped with them. A record in a pause is what this exists for,
+     * so it is the last thing let go. Issue #588.
      */
     private fun forget(records: ConcurrentHashMap<String, Attempts>, now: Long) {
         if (records.size < MOST_REMEMBERED) return
         records.values.removeIf { now - it.last > properties.forgetAfter.toMillis() }
-        if (records.size >= MOST_REMEMBERED) {
-            log.warn("Sign-in attempts are being spread over more than {} names or addresses", MOST_REMEMBERED)
-            records.clear()
+        if (records.size < MOST_REMEMBERED) return
+        log.warn("Sign-in attempts are being spread over more than {} names or addresses", MOST_REMEMBERED)
+        records.values.removeIf { it.until <= now }
+        val over = records.size - MOST_REMEMBERED / 2
+        if (over > 0) {
+            records.entries.sortedBy { it.value.last }.take(over).forEach { records.remove(it.key, it.value) }
         }
     }
 
