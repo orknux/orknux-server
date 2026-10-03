@@ -1821,7 +1821,7 @@ class PluginUploadAPI(
               readonly type: ConnectionType;
               /** Which plugin's declared kind this is, as `key/name`, or null. */
               readonly pluginType: string | null;
-              /** Where it points, with any `user:password@` taken out. A host name for SMTP. */
+              /** Where it points: scheme, host, port and path only - no `user:password@`, query or fragment. A host name for SMTP. */
               readonly url: string;
               readonly authType: 'NONE' | 'API_KEY' | 'BEARER_TOKEN' | 'BASIC';
               readonly status: 'NOT_CONFIGURED' | 'NOT_CHECKED' | 'CONNECTED' | 'FAILED';

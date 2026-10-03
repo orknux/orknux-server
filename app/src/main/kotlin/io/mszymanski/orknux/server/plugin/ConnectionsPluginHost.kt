@@ -27,9 +27,9 @@ import tools.jackson.databind.node.ObjectNode
  *   headers   by name only. The connection page shows their values, but a
  *             header is where an API key goes when the auth kinds do not fit,
  *             and a value is a credential often enough that it stays here.
- *   url       with any `user:password@` taken out. A URL is where a connection
- *             points and a script wants it; a password written into one is
- *             still a password.
+ *   url       scheme, host, port and path only. A URL is where a connection
+ *             points and a script wants it; a password written into its user
+ *             info, or a token into its query or fragment, is still a secret.
  *
  * Scoped to [on], the run's own workspace, which the runner takes from the
  * run - the script has no way to name another. A call made inside no
@@ -126,9 +126,23 @@ class ConnectionsPluginHost(
         /** And inside `smtp`, for a mail connection. The password is not here. */
         val SMTP_CROSSES = setOf("port", "username", "from", "security")
 
-        private val USER_INFO = Regex("^([A-Za-z][A-Za-z0-9+.-]*://)[^/?#@]*@")
+        private val SCHEME = Regex("^[A-Za-z][A-Za-z0-9+.-]*://")
 
-        /** `https://user:pass@host/x` as `https://host/x`; anything else as it is. */
-        fun withoutUserInfo(url: String): String = url.replaceFirst(USER_INFO, "$1")
+        /**
+         * Scheme, host, port and path, and nothing that can carry a credential:
+         * `https://user:pass@host:8443/x?token=t#k` as `https://host:8443/x`.
+         * The query and the fragment go whole, because a token in one is the
+         * shape an incoming-webhook URL or an API key in the address takes, and
+         * nothing here can tell such a parameter from a harmless one. A bare
+         * host - an SMTP connection's - passes as it is.
+         */
+        fun withoutUserInfo(url: String): String {
+            val scheme = SCHEME.find(url)?.value.orEmpty()
+            val rest = url.substring(scheme.length)
+            val authorityEnds = rest.indexOfFirst { it == '/' || it == '?' || it == '#' }.let { if (it < 0) rest.length else it }
+            val authority = rest.substring(0, authorityEnds).substringAfterLast('@')
+            val path = rest.substring(authorityEnds).substringBefore('?').substringBefore('#')
+            return scheme + authority + path
+        }
     }
 }

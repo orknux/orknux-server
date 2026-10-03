@@ -1339,9 +1339,9 @@ orknux.connections.query({ type: 'SLACK' });     // this workspace's connections
   the workspace the run is in, which is taken from the run and is not something a
   script can set.
 - **`orknux.connections.query({ type, name })`** lists the connections of that
-  same workspace - id, name, kind, address, auth kind, status, header names and a
-  mail server's settings - so a script finds one rather than being handed its
-  id. Both keys are optional; `type` is `SLACK`, `SMTP`, `HTTP` or a plugin's
+  same workspace - id, name, kind, address (scheme, host, port and path), auth
+  kind, status, header names and a mail server's settings - so a script finds
+  one rather than being handed its id. Both keys are optional; `type` is `SLACK`, `SMTP`, `HTTP` or a plugin's
   declared kind, and `name` matches whole, ignoring case. It never answers a
   credential, a header value or the variable a credential is read from: the
   answer is an allow-list in `ConnectionsPluginHost`. A plugin needs the

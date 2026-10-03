@@ -96,7 +96,7 @@ class ConnectionsQueryTest(
         workspaceConnections.save(
             WorkspaceConnection(
                 workspaceId = mine, name = "Prod Prometheus", type = ConnectionType.HTTP,
-                url = "https://scraper:$planted@prometheus.example.invalid/api",
+                url = "https://scraper:$planted@prometheus.example.invalid:9090/api?token=q-$planted#f-$planted",
                 pluginType = "monitors/prometheus", authType = AuthType.BASIC, secret = "basic-$planted",
                 headers = mutableListOf(HttpHeader("X-Api-Key", "header-$planted")),
             ),
@@ -160,7 +160,7 @@ class ConnectionsQueryTest(
 
         assertThat(prometheus.get("type").asString()).isEqualTo("HTTP")
         assertThat(prometheus.get("pluginType").asString()).isEqualTo("monitors/prometheus")
-        assertThat(prometheus.get("url").asString()).isEqualTo("https://prometheus.example.invalid/api")
+        assertThat(prometheus.get("url").asString()).isEqualTo("https://prometheus.example.invalid:9090/api")
         assertThat(prometheus.get("authType").asString()).isEqualTo("BASIC")
         assertThat(prometheus.get("headers").values().map { it.asString() }).containsExactly("X-Api-Key")
 
@@ -180,6 +180,18 @@ class ConnectionsQueryTest(
         // Whole names only: a prefix is not a match.
         assertThat(names("""{"name":"Pag"}""")).isEmpty()
         assertThat(names("""{"type":"slack","name":"sales slack"}""")).containsExactly("Sales Slack")
+    }
+
+    /** Only scheme, host, port and path cross; a credential may hide in any other part of an address. */
+    @Test
+    fun `an address loses its user info, its query and its fragment`() {
+        fun cut(url: String) = ConnectionsPluginHost.withoutUserInfo(url)
+
+        assertThat(cut("https://u:p@h.invalid:8443/a/b?token=t&x=1#k")).isEqualTo("https://h.invalid:8443/a/b")
+        assertThat(cut("https://h.invalid?token=t")).isEqualTo("https://h.invalid")
+        assertThat(cut("https://h.invalid#token")).isEqualTo("https://h.invalid")
+        assertThat(cut("https://h.invalid?next=a@b")).isEqualTo("https://h.invalid")
+        assertThat(cut("smtp.example.invalid")).isEqualTo("smtp.example.invalid")
     }
 
     @Test
