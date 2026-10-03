@@ -15,14 +15,26 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
-## Unreleased
+## 0.9.9.11
+
+### ✨ Added
+
+- Admin -> Settings -> HTTP tools: switch the agents' `http_get`, `http_request` and `http_download` off (grants are kept and come back as they were), or limit them to an allow list of URL patterns and methods, with a tester that answers from the same matcher the tools use. Agents holding one of them also get `http_allowList`, which says what the policy allows. Functions, JavaScript tools and plugins calling `orknux.http` are not affected; on an existing installation the tools stay on and allow any URL until somebody changes it.
+- `orknux.connections.query({ type, name })` lets a function, JavaScript tool or plugin list its workspace's connections - id, name, type, address without its query string, auth kind, status and header names, never a credential. A plugin needs the new `CONNECTIONS_QUERY` grant, accepted by an administrator.
+- A model's page links to its provider, beside the Provider field.
+
+### 🔧 Changed
+
+- An agent calling a plugin function or tool may pass only a connection it has been granted, by id or name; the tool's description and any refusal list only those of the kind, and an agent holding none is told to grant one in its Connections setting. Any connection of the right kind in the workspace used to do. Workflow nodes are unchanged. On upgrade, grant each agent that uses the Prometheus or Jenkins plugins the connections it should reach.
+- `find_connections` is offered to every agent that has not switched it off on its Tools list, whatever the number of connections it holds; it used to appear only past six. An agent holding none is told so, and where connections are granted, instead of not having the tool. Every existing agent now holds it as Always, except one under a tool ceiling in a workspace that allows demoting built-ins. The briefing still lists a short grant up front.
+- The bootstrap administrator from `ORKNUX_BOOTSTRAP_ADMIN_USERNAME` / `_PASSWORD` is created before the server opens its port, so a script that signs in the moment a new container answers is no longer refused for the first half second.
 
 ### 🐛 Fixed
 
-- A plugin update whose download did not match what the marketplace published showed only INTERNAL_ERROR and an id; it now says what happened and to try again in a few minutes.
+- An Azure rate limit that arrives inside a streaming answer ("200: Your requests to ... have exceeded token rate limit") failed the agent step on the spot. It is a rate limit: waited out - for the time the provider names, or a short doubling backoff when it names none - and the call is asked again.
 - A run whose agent step was waiting on its model when the server died now carries on and answers the message, without Rerun. On Temporal the step heartbeats, so a dead server's step is retried on a live one within `ORKNUX_TEMPORAL_STEP_HEARTBEAT_SECONDS` (default 30) rather than after the whole five-minute step timeout; on the inline engine (`orknux-one`) the step is asked again instead of failing as interrupted, up to `ORKNUX_INLINE_RESTART_ATTEMPTS` goes (default 3). Both are on Admin -> Settings under Workflow runs, as Step heartbeat and Agent step goes after a restart; the variables are where a fresh installation starts, and a run already going takes a heartbeat change up from its next step. Other kinds of step a restart cut short still fail as interrupted, and the retried agent's question is no longer written into its session twice.
-### ✨ Added
-- Admin -> Settings -> HTTP tools: switch the agents' `http_get`, `http_request` and `http_download` off (grants are kept and come back as they were), or limit them to an allow list of URL patterns and methods, with a tester that answers from the same matcher the tools use. Agents holding one of them also get `http_allowList`, which says what the policy allows. Functions, JavaScript tools and plugins calling `orknux.http` are not affected; on an existing installation the tools stay on and allow any URL until somebody changes it.
+- A plugin update whose download did not match what the marketplace published showed only INTERNAL_ERROR and an id; it now says what happened and to try again in a few minutes.
+- A URL typed into a field is drawn as typed: the monospace font joined `://` into one glyph, so `http://` read as `http: /`.
 
 ## 0.9.9.10
 

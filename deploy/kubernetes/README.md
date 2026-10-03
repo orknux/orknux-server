@@ -340,7 +340,7 @@ ones this file adds:
 ## Upgrading
 
 ```
-kubectl -n orknux set image deploy/orknux-server orknux-server=orknux/orknux-server:0.9.9.10
+kubectl -n orknux set image deploy/orknux-server orknux-server=orknux/orknux-server:0.9.9.11
 ```
 
 or edit the tag in the file and apply it again, which is the one that leaves
