@@ -3,13 +3,14 @@ package io.mszymanski.orknux.server.user
 import io.mszymanski.orknux.server.security.Role
 import io.mszymanski.orknux.server.security.RoleRepository
 import org.slf4j.LoggerFactory
-import org.springframework.boot.context.event.ApplicationReadyEvent
+import org.springframework.beans.factory.SmartInitializingSingleton
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.boot.context.properties.EnableConfigurationProperties
-import org.springframework.context.event.EventListener
 import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.stereotype.Component
+import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionTemplate
 
 /**
  * The first administrator, named in the environment.
@@ -65,7 +66,21 @@ class BootstrapAdmin(
     private val roles: RoleRepository,
     private val encoder: PasswordEncoder,
     private val properties: BootstrapAdminProperties,
-) {
+    private val transactions: PlatformTransactionManager,
+) : SmartInitializingSingleton {
+
+    /*
+     * Seeded once every singleton exists - the schema migrated, the role table
+     * filled - and before the web server opens its port, which Spring starts
+     * after this. It used to be done at ApplicationReadyEvent, after the port
+     * was open: a sign-in arriving the moment the server first answered was
+     * refused with 401 for the half second before the account existed, which is
+     * what failed 0.9.9.10's image check twice and anything else that signs in
+     * as soon as a fresh container answers.
+     */
+    override fun afterSingletonsInstantiated() {
+        TransactionTemplate(transactions).executeWithoutResult { seedAdministrator() }
+    }
 
     /**
      * Runs on every start and is expected to do nothing on almost all of them.
@@ -79,7 +94,6 @@ class BootstrapAdmin(
      * Seeding is therefore only ever a creation, and the log says when it
      * declined to be anything more.
      */
-    @EventListener(ApplicationReadyEvent::class)
     @Transactional
     fun seedAdministrator() {
         val username = properties.username.trim()

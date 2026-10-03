@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.security.crypto.password.PasswordEncoder
+import org.springframework.transaction.PlatformTransactionManager
 
 /**
  * The way into an installation that has no directory and no OIDC provider.
@@ -30,6 +31,7 @@ class BootstrapAdminTest(
     @Autowired val roles: RoleRepository,
     @Autowired val internal: InternalAuthentication,
     @Autowired val encoder: PasswordEncoder,
+    @Autowired val transactions: PlatformTransactionManager,
 ) {
 
     @Test
@@ -91,5 +93,5 @@ class BootstrapAdminTest(
 
     /** The same component the context runs, told something else. */
     private fun seeding(username: String, password: String) =
-        BootstrapAdmin(users, roles, encoder, BootstrapAdminProperties(username, password))
+        BootstrapAdmin(users, roles, encoder, BootstrapAdminProperties(username, password), transactions)
 }
