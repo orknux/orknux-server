@@ -445,11 +445,11 @@ class BuiltInToolsTest(
         assertThat(quiet.finishAccess).isTrue()
         assertThat(quiet.artifactAccess).isTrue()
         assertThat(quiet.pictureLinkAccess).isTrue()
-        // The two that need nothing else: `ask_agent` and `find_connections`
-        // wait on a grant of their own - agents to ask, connections to name -
-        // and say nothing about this rule either way.
+        // `ask_agent` waits on a grant of its own - agents to ask - and says
+        // nothing about this rule either way. `find_connections` does not: it
+        // is offered holding no connection at all, and says so when asked.
         assertThat(tools.offeringFor(quiet).core.map { it.name })
-            .contains(AgentTools.SAVE_ARTIFACT, AgentTools.BASE64_ENCODE)
+            .contains(AgentTools.SAVE_ARTIFACT, AgentTools.BASE64_ENCODE, ConnectionTools.FIND)
 
         // And one deliberately hidden is still hidden, which is the whole of
         // the other half of the rule.

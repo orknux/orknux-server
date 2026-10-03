@@ -99,6 +99,17 @@ class BuiltInGrantsMigrationTest {
                     assertThat(hidden(db, 900)).isEmpty()
                     assertThat(hidden(db, 901)).isEmpty()
                     assertThat(granted(db, 901)).containsExactly("jira_search")
+                    /*
+                     * find_connections, which is offered to every agent now
+                     * rather than past a number of grants: every existing agent
+                     * holds it as Always, as a new agent does - V302 marked the
+                     * one with a ceiling, and V336 the one without, which V302
+                     * gave no marks at all. Once each.
+                     */
+                    assertThat(required(db, 901)).containsOnlyOnce("find_connections")
+                    assertThat(required(db, 900)).containsOnlyOnce("find_connections")
+                    assertThat(positions(db, "agent_required_tool", 900))
+                        .isEqualTo((0 until required(db, 900).size).toList())
                 }
             }
     }

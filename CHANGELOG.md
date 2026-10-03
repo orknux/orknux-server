@@ -20,6 +20,7 @@ have failed.
 ### 🔧 Changed
 
 - An agent calling a plugin function or tool may pass only a connection it has been granted, by id or name; the tool's description and any refusal list only those of the kind, and an agent holding none is told to grant one in its Connections setting. Any connection of the right kind in the workspace used to do. Workflow nodes are unchanged. On upgrade, grant each agent that uses the Prometheus or Jenkins plugins the connections it should reach.
+- `find_connections` is offered to every agent that has not switched it off on its Tools list, whatever the number of connections it holds; it used to appear only past six. An agent holding none is told so, and where connections are granted, instead of not having the tool. Every existing agent now holds it as Always, except one under a tool ceiling in a workspace that allows demoting built-ins. The briefing still lists a short grant up front.
 
 ## 0.9.9.9
 

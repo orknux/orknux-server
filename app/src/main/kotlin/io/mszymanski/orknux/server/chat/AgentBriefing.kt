@@ -454,7 +454,7 @@ class AgentBriefing(
                 "workspace allows none. Do the work yourself rather than saying you will pass it on."
         }
 
-        if (connectionTools.offered(agent)) {
+        if (connectionTools.pointedAt(agent)) {
             parts += buildString {
                 append("You have been granted ").append(agent.connections.size)
                 append(" connections. Where a tool takes a connection id, find the one you were told ")
