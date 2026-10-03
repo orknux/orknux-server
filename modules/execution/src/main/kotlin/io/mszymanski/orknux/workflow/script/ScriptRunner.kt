@@ -570,6 +570,10 @@ class ScriptRunner(
                 ).prependIndent("  "),
             )
             .replace("%HTTP%", HostHelpers.http("this installation cannot make requests from a function").prependIndent("  "))
+            .replace(
+                "%CONNECTIONS%",
+                HostHelpers.connections("this installation cannot list connections from a function").prependIndent("  "),
+            )
             .replace("%LOG%", HostHelpers.log(kept).prependIndent("  "))
             .replace("%STORE%", HostHelpers.sessionStore().prependIndent("  "))
             .replace("%SCRATCHPAD%", HostHelpers.scratchpads().prependIndent("  "))
@@ -775,6 +779,7 @@ class ScriptRunner(
             globalThis.orknux = {
 %SLACK%
 %HTTP%
+%CONNECTIONS%
 %LOG%
 %STORE%
 %SCRATCHPAD%

@@ -208,6 +208,25 @@ enum class PluginCapability(
      */
     RENDER_PDF("Turn a page of a PDF into a PNG, here on the server", forScripts = true),
 
+    /**
+     * List the workspace's connections - which ones there are, of what kind,
+     * and where they point - so a script can find the one it wants by name or
+     * kind instead of being handed its id. Issue #597.
+     *
+     * Never a credential. What crosses is built field by field from a list of
+     * what may, so a field somebody adds to a connection later stays on this
+     * side until somebody decides otherwise; a token, a password, a key and a
+     * reference to the variable holding one are not on that list.
+     *
+     * `forScripts` for the reason reading a thread is: what it reaches is the
+     * connections of the workspace the run belongs to, which the runner takes
+     * from the run and the script cannot name. Nothing it answers is more than
+     * the workspace's connection page already shows whoever can write a
+     * function there, and a handle it answers is still only usable through the
+     * doors above, each scoped the same way.
+     */
+    CONNECTIONS_QUERY("List the workspace's connections - names, kinds and addresses, never a credential", forScripts = true),
+
     ;
 
     companion object {

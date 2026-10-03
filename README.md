@@ -1319,6 +1319,7 @@ to reflect from.
 orknux.log.info('what is happening');            // and .debug .warn .error
 orknux.http.get(url, { authorization: token });  // .post, .request
 orknux.slack.thread(connection, channel, ts);    // the messages in one thread
+orknux.connections.query({ type: 'SLACK' });     // this workspace's connections
 ```
 
 - **`orknux.http`** is a request the *server* makes, so an installation's proxy
@@ -1337,6 +1338,14 @@ orknux.slack.thread(connection, channel, ts);    // the messages in one thread
 - **`orknux.slack.thread`** reads one thread through a connection belonging to
   the workspace the run is in, which is taken from the run and is not something a
   script can set.
+- **`orknux.connections.query({ type, name })`** lists the connections of that
+  same workspace - id, name, kind, address (scheme, host, port and path), auth
+  kind, status, header names and a mail server's settings - so a script finds
+  one rather than being handed its id. Both keys are optional; `type` is `SLACK`, `SMTP`, `HTTP` or a plugin's
+  declared kind, and `name` matches whole, ignoring case. It never answers a
+  credential, a header value or the variable a credential is read from: the
+  answer is an allow-list in `ConnectionsPluginHost`. A plugin needs the
+  `CONNECTIONS_QUERY` grant.
 
 Every one of them answers a value with `error` on it rather than throwing, so a
 condition that could not reach a service still decides. Check `error` before

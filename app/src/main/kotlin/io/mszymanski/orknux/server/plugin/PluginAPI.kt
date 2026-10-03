@@ -1708,6 +1708,25 @@ class PluginUploadAPI(
                 download(url: string, headers?: Record<string, string>): OrknuxBinaryResponse;
               };
 
+              connections: {
+                /**
+                 * The connections of the workspace this call runs for - never
+                 * another's - so a plugin can find one by kind or name instead
+                 * of being handed it.
+                 *
+                 * Needs the `CONNECTIONS_QUERY` capability. Never answers a
+                 * credential: no token, password or key, no header value, and
+                 * no reference to a variable holding one. What it answers is a
+                 * handle the Slack helpers take as it is.
+                 *
+                 * @param filter `type` is a built-in kind (`SLACK`, `SMTP`,
+                 *   `HTTP`) or a plugin's declared kind, as `key/name` or the
+                 *   name alone; `name` matches whole, ignoring case. Leave
+                 *   either out, or the filter, for everything.
+                 */
+                query(filter?: { type?: string; name?: string }): OrknuxConnectionList;
+              };
+
               /**
                * The AI session's own store, for a plugin that has to keep its
                * place between the calls of one conversation.
@@ -1786,6 +1805,36 @@ class PluginUploadAPI(
                   error?: undefined;
                 }
               | { error: string; status?: undefined; headers?: undefined; base64?: undefined; size?: undefined; contentType?: undefined };
+
+            /**
+             * One of the workspace's connections, as `orknux.connections.query`
+             * lists it: where it points and what kind it is, never what it
+             * signs in with.
+             */
+            interface OrknuxListedConnection {
+              readonly id: number;
+              readonly name: string;
+              readonly type: ConnectionType;
+              /** Which plugin's declared kind this is, as `key/name`, or null. */
+              readonly pluginType: string | null;
+              /** Where it points: scheme, host, port and path only - no `user:password@`, query or fragment. A host name for SMTP. */
+              readonly url: string;
+              readonly authType: 'NONE' | 'API_KEY' | 'BEARER_TOKEN' | 'BASIC';
+              readonly status: 'NOT_CONFIGURED' | 'NOT_CHECKED' | 'CONNECTED' | 'FAILED';
+              /** The names of the extra headers it sends; their values stay on the server. */
+              readonly headers: readonly string[];
+              /** A mail connection's settings, the password aside. Only on SMTP. */
+              readonly smtp?: {
+                readonly port: number | null;
+                readonly username: string | null;
+                readonly from: string | null;
+                readonly security: 'NONE' | 'STARTTLS' | 'TLS';
+              };
+            }
+
+            type OrknuxConnectionList =
+              | { connections: OrknuxListedConnection[]; error?: undefined }
+              | { error: string; connections?: undefined };
 
             /** The shape of a value crossing between a workflow and a plugin. */
             type OrknuxValueType = @VALUE_TYPE_UNION@;

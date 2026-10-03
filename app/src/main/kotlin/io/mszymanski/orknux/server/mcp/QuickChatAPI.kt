@@ -457,6 +457,18 @@ class QuickChat(
                   | { status: number; headers: Record<string, string>; body: string; json?: unknown; error?: undefined }
                   | { error: string };
 
+                type OrknuxListedConnection = {
+                  readonly id: number;
+                  readonly name: string;
+                  readonly type: string;        // SLACK, SMTP or HTTP
+                  readonly pluginType: string | null;  // a plugin's kind, as key/name
+                  readonly url: string;
+                  readonly authType: string;
+                  readonly status: string;
+                  readonly headers: string[];   // names only
+                  readonly smtp?: { port: number | null; username: string | null; from: string | null; security: string };
+                };
+
                 declare const orknux: {
                   readonly slack: {
                     thread(
@@ -501,6 +513,11 @@ class QuickChat(
                     get(url: string, headers?: Record<string, string>): OrknuxResponse;
                     post(url: string, body?: unknown, headers?: Record<string, string>): OrknuxResponse;
                   };
+                  readonly connections: {
+                    query(filter?: { type?: string; name?: string }):
+                      | { connections: OrknuxListedConnection[]; error?: undefined }
+                      | { error: string; connections?: undefined };
+                  };
                 };
                 """.trimIndent() +
                 "\nRead `error` before `messages`: a refusal is data, not a thrown error. " +
@@ -520,6 +537,10 @@ class QuickChat(
                 "content type; a JSON reply arrives parsed as `json`, beside the `body` it was parsed from. " +
                 "Read `error` first there too. A credential belongs in a workspace variable, which arrives as a " +
                 "parameter after the function's own - never written into the source. " +
+                "`orknux.connections.query({ type, name })` lists this workspace's connections - both keys " +
+                "optional, `type` a kind such as `SLACK`, `name` matched whole ignoring case - so a function can " +
+                "find the connection it wants rather than be handed an id; a listed one goes into the Slack calls " +
+                "as it is. It never answers a credential. " +
                 "`orknux.log` is how a function says anything: there is no `console`, the level is the " +
                 "installation's, and anything that is not a string is logged as JSON. " +
                 "There is nothing else on `orknux`. "
