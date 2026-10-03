@@ -200,7 +200,9 @@ the step runs. The README's **Publishing** has the rest.
 | `ORKNUX_TEMPORAL_RUN_TIMEOUT_HOURS` | How long a whole run may take, waits included. | `24` | No |
 | `ORKNUX_TEMPORAL_STEP_TIMEOUT_SECONDS` | How long one step's own work may take. It does not bound a *wait*, which parks the step. | `300` | No |
 | `ORKNUX_TEMPORAL_STEP_ATTEMPTS` | How many times the platform tries a failing step. A node's own retry policy is separate. | `3` | No |
+| `ORKNUX_TEMPORAL_STEP_HEARTBEAT_SECONDS` | How soon a dead server's step moves to a live one; `0` waits out the step timeout. | `30` | No |
 | `ORKNUX_TEMPORAL_UI_URL` | Temporal's own web interface, linked out to from a run. Empty offers no links. | `http://localhost:8233` | No |
+| `ORKNUX_INLINE_RESTART_ATTEMPTS` | Inline engine only: the goes an agent step cut short by restarts gets. | `3` | No |
 | `ORKNUX_INLINE_MAX_WAIT` | Inline engine only: how long a run may stay parked before the step fails. A Temporal wait is bounded by the run timeout. | `5m` | No |
 | `ORKNUX_TASK_MAX_TURNS` | How often a task's agent may be asked before stopping, unless the workspace sets its own. Copied onto a task when made, so a change spares one running. | `40` | No |
 | `ORKNUX_TASK_WORKING_TIME` | The longest a task may be *working*. Not wall clock: time parked waiting to be approved counts for none. | `2h` | No |
@@ -298,7 +300,7 @@ a rule at all.
 | Variable | What it does | Default | Required |
 | --- | --- | --- | --- |
 | `ORKNUX_CHAT_ENABLED` | Whether this installation has a chat at all. `false` is final: the screen can turn it off but not back on. | `true` | No |
-| `ORKNUX_ATTACHMENTS_ENABLED` | Whether files may be attached - to a chat message, an issue or a comment. `false` is final likewise, and hides the upload controls but not files already uploaded. | `true` | No |
+| `ORKNUX_ATTACHMENTS_ENABLED` | Whether files may be attached - to a chat message, an issue or a comment. `false` is final likewise. | `true` | No |
 | `ORKNUX_ATTACHMENTS_LOCATION` | Where the bytes go, a directory per workspace. **Give an absolute path on a volume**: a relative one resolves against the working directory. | `data/attachments` | **Yes** if attachments are on |
 | `ORKNUX_ATTACHMENTS_MAX_FILE_SIZE_MB` | The largest file that will be accepted. | `25` | No |
 | `ORKNUX_UPLOAD_MAX_FILE_SIZE` | The servlet's own cap on one uploaded file. Keep it at or above the attachment cap, or the larger limit is never reached. | `25MB` | No |
@@ -320,10 +322,10 @@ and ORKNUX_TASK_SWEEP_INITIAL_DELAY are in
 | Variable | What it does | Default | Required |
 | --- | --- | --- | --- |
 | `ORKNUX_PORT` | The port this server listens on inside the container. | `8080` | No |
-| `ORKNUX_ALLOWED_ORIGINS` | Where the interface is served from, when it is not this server. Comma separated; empty allows none, which is right once they share an origin. | `http://localhost:5173` | **Yes** where the interface is elsewhere |
+| `ORKNUX_ALLOWED_ORIGINS` | Where the interface is served from, when it is not this server. Comma separated; empty allows none. | `http://localhost:5173` | **Yes** where the interface is elsewhere |
 | `ORKNUX_BASE_URL` | Where a browser reaches the interface: the host of a mailed reset link and of every picture link handed to a model. Not read off the `Host` header, which a caller writes. | `http://localhost:5173` | **Yes** for password resets |
-| `ORKNUX_WEBHOOK_MAX_BODY_SIZE` | The most a webhook caller may post to `/api/webhooks/…`. That endpoint is open by necessity, so more is refused with 413 before any trigger runs. | `1MB` | No |
-| `ORKNUX_ASYNC_REQUEST_TIMEOUT` | How long a request answered with a promise may stay open; the container's own thirty seconds would cut off the five minutes `orknux_news` may wait. | `330s` | No |
+| `ORKNUX_WEBHOOK_MAX_BODY_SIZE` | The most a webhook caller may post to `/api/webhooks/…`. More is refused with 413 before any trigger runs. | `1MB` | No |
+| `ORKNUX_ASYNC_REQUEST_TIMEOUT` | How long a request answered with a promise may stay open. | `330s` | No |
 | `ORKNUX_SESSION_TIMEOUT` | How long a session survives without being used. A fortnight suits a self-hosted tool behind an identity provider; shorten it otherwise. | `14d` | No |
 | `ORKNUX_SESSION_COOKIE_SAME_SITE` | `strict` where the interface shares this origin and nothing links into it; `lax` is what lets a link from elsewhere arrive signed in. | `lax` | No |
 | `ORKNUX_SESSION_COOKIE_HTTP_ONLY` | Keeps the session cookie out of reach of scripts. | `true` | No |

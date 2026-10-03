@@ -31,6 +31,19 @@ data class TemporalProperties(
      */
     val stepTimeoutSeconds: Long = 300,
     /**
+     * How long a step may go without its worker saying it is still alive before
+     * Temporal counts the worker dead and hands the step to another. Issue #601.
+     *
+     * A worker that is killed - out of memory, a node drained - says nothing,
+     * and without this the only thing that noticed was [stepTimeoutSeconds]:
+     * five minutes of a run sitting on a step nothing was running, and a person
+     * waiting on an answer for all of them. The step heartbeats while it works,
+     * a third of this apart, so a live step in a long model call is never
+     * mistaken for a dead one. Thirty seconds: a restarted server is up again in
+     * about that, and a heartbeat is one small call. Zero turns it off.
+     */
+    val stepHeartbeatSeconds: Long = 30,
+    /**
      * How many times a step is tried. Most of what a step does is a call to
      * something else, and most of those failures are worth trying again; a node
      * whose failure is not can say so with a non-retryable failure.

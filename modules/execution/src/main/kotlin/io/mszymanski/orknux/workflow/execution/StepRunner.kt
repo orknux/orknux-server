@@ -361,11 +361,29 @@ class StepRunner(
      * simply slow is not failed under a live thread. Refused, rather than
      * failing the wrong thing, where the step turns out not to be RUNNING any
      * more - the thread that was carrying it got to the record first.
+     *
+     * The exception is a step whose runner says asking again is its job -
+     * [NodeRunner.asksAgainAfterRestart], an agent answering a message - which
+     * is run again rather than failed, for as long as it has spent fewer than
+     * [attempts] goes, the one that died included. Failing it left the message
+     * unanswered until somebody pressed Rerun, which repeats the whole run;
+     * Temporal had always asked such a step again. The bound is for a step
+     * that is itself what kills the process: a model call that runs it out of
+     * memory would otherwise restart it for ever. Issue #601.
      */
-    fun interruptStep(executionId: Long, nodeKey: String): StepOutcome {
+    fun interruptStep(executionId: Long, nodeKey: String, attempts: Int = 0): StepOutcome {
         val step = stepOf(executionId, nodeKey)
         check(step.status == StepStatus.RUNNING) {
             "Execution $executionId's step $nodeKey is ${step.status}, not left RUNNING by a restart"
+        }
+        if (step.enabled && step.attempts < attempts && runnerFor(step.kind).asksAgainAfterRestart(step)) {
+            log.write(
+                executionId,
+                nodeKey,
+                LogLevel.INFO,
+                "${step.name} was interrupted by a restart on attempt ${step.attempts} of $attempts; asking it again",
+            )
+            return runStep(executionId, nodeKey)
         }
         val execution = executionOf(executionId)
         val input = execution.carried ?: execution.input

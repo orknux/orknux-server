@@ -86,14 +86,30 @@ class TemporalConfig {
     }
 
     private fun activityOptions(properties: TemporalProperties): ActivityOptions =
-        ActivityOptions.newBuilder()
-            .setStartToCloseTimeout(Duration.ofSeconds(properties.stepTimeoutSeconds))
-            .setRetryOptions(
-                RetryOptions.newBuilder()
-                    .setMaximumAttempts(properties.stepAttempts)
-                    .build(),
-            )
-            .build()
+        activityOptions(properties.stepTimeoutSeconds, properties.stepAttempts, properties.stepHeartbeatSeconds)
+
+    companion object {
+        /**
+         * What every step activity is held to. One function, so the test that
+         * kills a worker mid-step is held to what a deployment is.
+         *
+         * The heartbeat timeout is what notices a dead worker: the step
+         * heartbeats while it works (see [ExecutionActivitiesImpl]), and one
+         * that stops is retried on a worker that is alive. Issue #601.
+         */
+        fun activityOptions(stepTimeoutSeconds: Long, stepAttempts: Int, stepHeartbeatSeconds: Long): ActivityOptions =
+            ActivityOptions.newBuilder()
+                .setStartToCloseTimeout(Duration.ofSeconds(stepTimeoutSeconds))
+                .apply {
+                    if (stepHeartbeatSeconds > 0) setHeartbeatTimeout(Duration.ofSeconds(stepHeartbeatSeconds))
+                }
+                .setRetryOptions(
+                    RetryOptions.newBuilder()
+                        .setMaximumAttempts(stepAttempts)
+                        .build(),
+                )
+                .build()
+    }
 }
 
 /**
