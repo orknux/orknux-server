@@ -370,7 +370,7 @@ upgrade happens to you rather than being something you did. Set
 `ORKNUX_SERVER_TAG` to move deliberately, and to `sha-<commit>` if you want to
 be certain to the commit.
 
-Both repositories are at `0.9`/`0.9.9.8`, released together, and that is what
+Both repositories are at `0.9`/`0.9.9.9`, released together, and that is what
 this file uses. The interface is built into the server image, so one tag is the
 whole product and the two halves cannot be pinned apart. Check what exists
 before reaching for a different one:

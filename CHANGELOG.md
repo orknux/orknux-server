@@ -15,7 +15,7 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
-## Unreleased
+## 0.9.9.9
 
 ### ✨ Added
 
@@ -26,6 +26,7 @@ have failed.
 ### 🔧 Changed
 
 - The server's heap is now the smaller of 75% of the container's memory limit and the limit less 1 GB, so a 2 GB pod runs a 1 GB heap instead of 1.5 GB. Under load the JVM needs about 650 MB beside its heap, so the 1.5 GB heap grew into memory the pod did not have and the kernel killed it at the limit (exit 137): the restarts production saw. glibc's malloc arenas are capped at 2, where it used to keep eight per host core and the memory they had freed, and the JDK keeps no I/O buffer over 256 KB per thread. An installation that sets `-Xmx` or `MaxRAMPercentage` in `JAVA_OPTS` keeps its own heap; the image's default `JAVA_OPTS` is now empty. Nothing to do on upgrade unless you had raised the memory limit to work around restarts, which is no longer needed for 2 GB.
+- A container given less than about 1.3 GB now runs a 256 MB heap and says so in its log at every start, which is likely too small: give it at least 2 GB, or lower `ORKNUX_NATIVE_MEMORY_MB`.
 - A run's page stops refreshing once the run has ended, and no page refreshes on its timer while its tab is hidden; it catches up when shown again. Every open tab used to ask once a second for as long as it stayed open.
 - A stored release that stops starting ends on the image's own jar instead of in a crash loop, however it was chosen. The start loop now runs the launcher again when a stored release exits rather than leaving it to Docker or Kubernetes, and the release is marked failed, with the reason on Admin -> Updates, after the allowed boot attempts. A release that has run before counts only the starts that failed, so replicas restarting together never fail a healthy one.
 - The plugin catalog lists Marketplace first and opens on it; Local, for a file of your own, is the second shelf. Opening the Catalog tab now asks the marketplace straight away.
