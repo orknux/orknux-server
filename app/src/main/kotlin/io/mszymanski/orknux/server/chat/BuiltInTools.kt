@@ -313,8 +313,14 @@ class BuiltInTools(
          * carried here, because whether *it* is found is somebody else's decision.
          */
         fun carried(agent: Agent, name: String): Boolean =
-            // The policy travels the way the tools it describes do: found where they are found.
-            if (name == HTTP_ALLOW_LIST) HTTP.any { it in agent.tools && carried(agent, it) } else
+            /*
+             * The policy travels with any HTTP tool, even where those are only
+             * found: it is one small tool, and it is the answer to "where can
+             * you send requests". Carried only where they were, a model with the
+             * HTTP tools behind a search answered that from the links it had
+             * seen instead, and never looked.
+             */
+            if (name == HTTP_ALLOW_LIST) HTTP.any { it in agent.tools } else
             (name !in GRANTED_SET && name !in REACHING_SET) ||
                 agent.maxTools == null ||
                 name in agent.requiredTools

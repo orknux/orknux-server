@@ -113,7 +113,7 @@ class HttpCapability(
         ),
         EmbeddedTool(
             name = ALLOW_LIST,
-            summary = "Which URLs and methods the HTTP tools may request.",
+            summary = "Where you may send HTTP requests - ask it when asked, or before guessing an address.",
             description = "Which URLs and methods the HTTP tools may request on this installation: either any URL, " +
                 "or a list of rules, each a regular expression for the whole URL and the methods it allows. " +
                 "Call it when asked where you can send requests - it is the only answer to that, not the " +

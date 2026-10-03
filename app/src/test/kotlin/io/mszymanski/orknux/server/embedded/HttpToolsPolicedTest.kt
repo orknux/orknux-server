@@ -226,4 +226,17 @@ class HttpToolsPolicedTest(
                 .contains(BuiltInTools.HTTP_ALLOW_LIST)
         }
     }
+
+    /**
+     * Under a tool ceiling with the HTTP tools only found, the policy is still
+     * carried: an agent like that, asked where it could send requests, answered
+     * from tool pages it had seen and never searched for the one tool that knew.
+     */
+    @Test
+    fun `the allow list is carried even where the HTTP tools are only found`() {
+        val ceilinged = agent("http_get", "http_request").apply { maxTools = 5 }
+        val offering = tools.offeringFor(ceilinged)
+        assertThat(offering.core.map { it.name }).contains(BuiltInTools.HTTP_ALLOW_LIST)
+        assertThat(offering.core.map { it.name }).doesNotContain("http_get", "http_request")
+    }
 }
