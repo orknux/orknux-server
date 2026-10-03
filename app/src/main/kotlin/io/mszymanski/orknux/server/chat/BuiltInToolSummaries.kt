@@ -40,6 +40,12 @@ class BuiltInToolSummaries(
     private val memories: ObjectProvider<MemoryTool>,
     private val orknux: ObjectProvider<OrknuxTools>,
     private val shells: ObjectProvider<ShellTools>,
+    /**
+     * What the release brings, read directly as well: the agent's own offer
+     * leaves the HTTP tools out while Admin Settings has them off, and these
+     * lines are read once for the life of the server. Issue #602.
+     */
+    private val embedded: ObjectProvider<io.mszymanski.orknux.server.embedded.EmbeddedCapabilities>,
 ) {
 
     /** Each built-in's name to its first sentence; a name with no spec found is absent. */
@@ -55,6 +61,7 @@ class BuiltInToolSummaries(
             tools = (BuiltInTools.GRANTED + BuiltInTools.REACHING).toMutableList(),
         )
         take { tools.getObject().specsFor(everything) }
+        take { embedded.getObject().toolSpecs() }
         take { notes.getObject().shed(PLACEHOLDER, "")?.specs() }
         take { todos.getObject().shed(PLACEHOLDER)?.specs() }
         take { dates.getObject().shed().specs() }

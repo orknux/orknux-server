@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.embedded
 
+import io.mszymanski.orknux.server.chat.BuiltInTools
 import io.mszymanski.orknux.connector.proxy.ProxyRouter
 import io.mszymanski.orknux.server.action.ValueType
 import io.mszymanski.orknux.server.llm.LlmSessionStore
@@ -55,9 +56,20 @@ class HttpCapability(
     private val scratch: LlmSessionStore,
     private val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
     private val mapper: ObjectMapper,
+    /** Admin Settings -> HTTP tools, which fences the tools and not the functions. Issue #602. */
+    private val policy: HttpToolPolicy,
 ) : EmbeddedCapability {
 
     private val log = LoggerFactory.getLogger(javaClass)
+
+    /*
+     * Said on every HTTP tool, because a model asked where it may send requests
+     * answered from the links it had happened to see - tool pages on this
+     * server - rather than asking: nothing it was offered said that the
+     * destinations are this installation's decision, or which tool knows them.
+     */
+    private val WHERE = "Where requests may go is decided by this installation: ${BuiltInTools.HTTP_ALLOW_LIST} answers it, " +
+        "and a refused request says why."
 
     override val key = "http"
     override val name = "HTTP"
@@ -68,7 +80,8 @@ class HttpCapability(
             summary = "Fetches a URL and reads what comes back.",
             description = "Fetches a URL and answers status, ok, headers, body as text and json where the " +
                 "body was a JSON object. A non-2xx is an answer rather than an error, so you can say what " +
-                "the other end complained about. Send an $AUTH header yourself where the API needs one.",
+                "the other end complained about. Send an $AUTH header yourself where the API needs one. " +
+                WHERE,
             params = listOf(
                 EmbeddedParam(URL, ValueType.STRING, "The full URL.", required = true),
                 EmbeddedParam(HEADERS, ValueType.MAP, "Headers to send, as a name and a value each."),
@@ -79,7 +92,7 @@ class HttpCapability(
             summary = "Any HTTP method, with a body.",
             description = "The same as $GET with the method named - POST, PUT, PATCH, DELETE, HEAD. A map " +
                 "$BODY goes as JSON with the content type set; a string $BODY goes exactly as written, " +
-                "which is how form-encoded and plain text are sent.",
+                "which is how form-encoded and plain text are sent. " + WHERE,
             params = listOf(
                 EmbeddedParam(URL, ValueType.STRING, "The full URL.", required = true),
                 EmbeddedParam(METHOD, ValueType.STRING, "GET, POST, PUT, PATCH, DELETE or HEAD."),
@@ -92,11 +105,19 @@ class HttpCapability(
             summary = "Fetches bytes and answers a key for them.",
             description = "Fetches a URL as bytes and keeps them here, answering a $KEY rather than base64 - " +
                 "so a file goes from an API into a channel without a megabyte passing through you, which is " +
-                "the one thing that does not survive the trip to the next call.",
+                "the one thing that does not survive the trip to the next call. " + WHERE,
             params = listOf(
                 EmbeddedParam(URL, ValueType.STRING, "The full URL.", required = true),
                 EmbeddedParam(HEADERS, ValueType.MAP, "Headers to send."),
             ),
+        ),
+        EmbeddedTool(
+            name = ALLOW_LIST,
+            summary = "Where you may send HTTP requests - ask it when asked, or before guessing an address.",
+            description = "Which URLs and methods the HTTP tools may request on this installation: either any URL, " +
+                "or a list of rules, each a regular expression for the whole URL and the methods it allows. " +
+                "Call it when asked where you can send requests - it is the only answer to that, not the " +
+                "addresses you have seen - before guessing an address, and after a request was refused.",
         ),
     )
 
@@ -121,7 +142,25 @@ class HttpCapability(
         ),
     )
 
+    /**
+     * One tool call, which is an agent's: fenced by Admin Settings -> HTTP
+     * tools before anything else is looked at. Issue #602.
+     */
     override fun run(name: String, arguments: String, workspaceId: Long, sessionId: Long?): String {
+        if (!policy.enabled()) return refusal(HttpToolPolicy.SWITCHED_OFF_SENTENCE)
+        if (name == ALLOW_LIST) return mapper.writeValueAsString(policy.describe())
+        return perform(name, arguments, sessionId, fenced = true)
+    }
+
+    /**
+     * The request itself, from either door.
+     *
+     * [fenced] is the agents' allow list, and only the tool door sets it: a
+     * workflow's `http_get` function was written by somebody who chose its
+     * address, which is the case `orknux.http` is and the case the policy is
+     * not about. The proxy rules and the hosts below apply either way.
+     */
+    private fun perform(name: String, arguments: String, sessionId: Long?, fenced: Boolean): String {
         val asked = runCatching { mapper.readTree(arguments) }.getOrNull()
             ?: return refusal("That is not valid JSON.")
         val url = text(asked, URL)?.trim()?.takeIf { it.isNotEmpty() }
@@ -138,6 +177,18 @@ class HttpCapability(
         }
         if (method !in METHODS) return refusal("\"$method\" is not a method this sends; use ${METHODS.joinToString(", ")}.")
 
+        /*
+         * Checked here, before a byte is sent, and only here: redirects are not
+         * followed - the client is left at its default, which never follows -
+         * so a 3xx comes back as the answer with its location, and fetching
+         * that location is a new call that meets this same check. A redirect
+         * therefore cannot carry a request somewhere the list does not allow.
+         */
+        if (fenced) {
+            val decided = policy.decide(url, method)
+            if (!decided.allowed) return refusal(decided.message)
+        }
+
         return try {
             if (name == DOWNLOAD) download(url, asked, sessionId) else send(url, method, asked)
         } catch (failure: Exception) {
@@ -152,7 +203,7 @@ class HttpCapability(
         declared.params.forEachIndexed { at, param ->
             unquoted(arguments.getOrNull(at))?.let { named[param.name] = it }
         }
-        val said = run(name, mapper.writeValueAsString(named), workspaceId, sessionId)
+        val said = perform(name, mapper.writeValueAsString(named), sessionId, fenced = false)
         runCatching { mapper.readTree(said) }.getOrNull()?.path("error")?.takeIf { it.isTextual }?.let {
             return ScriptResult.Failed(it.stringValue(), 0)
         }
@@ -292,6 +343,7 @@ class HttpCapability(
         const val GET = "get"
         const val REQUEST = "request"
         const val DOWNLOAD = "download"
+        const val ALLOW_LIST = "allowList"
 
         const val URL = "url"
         const val METHOD = "method"

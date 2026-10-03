@@ -1,0 +1,91 @@
+# Admin -> Settings -> HTTP tools. Issue #602.
+#
+# Whether an agent's http_get, http_request and http_download are offered, and
+# where they may go. The agents' tools only: orknux.http, which functions,
+# JavaScript tools and plugins call, is governed by the proxy rules alone.
+
+extend type Query {
+    "The switch, the policy and its rules. Administrators only."
+    httpToolSettings: HttpToolSettings!
+    """
+    What a request would meet: allowed or refused, and which rule decided.
+    Answered by the matcher the tools themselves ask, so the two cannot
+    disagree. With `draft`, the rules as a screen holds them before saving -
+    checked as a save would check them; without, the stored ones.
+    Administrators only.
+    """
+    httpToolCheck(url: String!, method: String!, draft: HttpToolPolicyInput): HttpToolCheck!
+}
+
+extend type Mutation {
+    """
+    Switches the HTTP tools on or off for every agent. Off withholds them and
+    leaves every agent's grant as it was. Administrators only.
+    """
+    setHttpToolsEnabled(enabled: Boolean!): HttpToolSettings!
+    """
+    The policy and its rules, replacing what was there. Refused whole, naming
+    the rule, where a pattern is not a regular expression or a rule allows no
+    method. Administrators only.
+    """
+    saveHttpToolPolicy(input: HttpToolPolicyInput!): HttpToolSettings!
+}
+
+type HttpToolSettings {
+    "Whether the HTTP tools are offered at all. On unless somebody switched them off."
+    enabled: Boolean!
+    policy: HttpToolPolicyKind!
+    "In the order they were written; kept while the policy is ANY, and read only under LIST."
+    rules: [HttpToolRule!]!
+    "What a rule may allow: the methods the tools send."
+    methods: [String!]!
+}
+
+enum HttpToolPolicyKind {
+    "Any URL, with any method the tools send."
+    ANY
+    "Only what some rule allows."
+    LIST
+}
+
+type HttpToolRule {
+    "A regular expression matched against the whole URL."
+    url: String!
+    methods: [String!]!
+}
+
+input HttpToolPolicyInput {
+    policy: HttpToolPolicyKind!
+    rules: [HttpToolRuleInput!]!
+}
+
+input HttpToolRuleInput {
+    url: String!
+    methods: [String!]!
+}
+
+type HttpToolCheck {
+    url: String!
+    method: String!
+    allowed: Boolean!
+    outcome: HttpToolOutcome!
+    "The rule that allowed it, by its place in the list from 1; null where none did."
+    matchedRule: Int
+    "Every rule whose pattern matches the URL, whatever its methods, by place from 1."
+    urlMatches: [Int!]!
+    "What an agent would be told, in English."
+    message: String!
+}
+
+enum HttpToolOutcome {
+    "The tools are switched off, so nothing is requested."
+    SWITCHED_OFF
+    "The policy allows any URL."
+    ANY_URL
+    "A rule matches the URL and lists the method."
+    ALLOWED
+    "No rule's pattern matches the URL."
+    NO_RULE_MATCHES
+    "Some rule matches the URL, and none of those lists the method."
+    METHOD_NOT_LISTED
+}

@@ -21,6 +21,8 @@ have failed.
 
 - A plugin update whose download did not match what the marketplace published showed only INTERNAL_ERROR and an id; it now says what happened and to try again in a few minutes.
 - A run whose agent step was waiting on its model when the server died now carries on and answers the message, without Rerun. On Temporal the step heartbeats, so a dead server's step is retried on a live one within `ORKNUX_TEMPORAL_STEP_HEARTBEAT_SECONDS` (default 30) rather than after the whole five-minute step timeout; on the inline engine (`orknux-one`) the step is asked again instead of failing as interrupted, up to `ORKNUX_INLINE_RESTART_ATTEMPTS` goes (default 3). Both are on Admin -> Settings under Workflow runs, as Step heartbeat and Agent step goes after a restart; the variables are where a fresh installation starts, and a run already going takes a heartbeat change up from its next step. Other kinds of step a restart cut short still fail as interrupted, and the retried agent's question is no longer written into its session twice.
+### ✨ Added
+- Admin -> Settings -> HTTP tools: switch the agents' `http_get`, `http_request` and `http_download` off (grants are kept and come back as they were), or limit them to an allow list of URL patterns and methods, with a tester that answers from the same matcher the tools use. Agents holding one of them also get `http_allowList`, which says what the policy allows. Functions, JavaScript tools and plugins calling `orknux.http` are not affected; on an existing installation the tools stay on and allow any URL until somebody changes it.
 
 ## 0.9.9.10
 
