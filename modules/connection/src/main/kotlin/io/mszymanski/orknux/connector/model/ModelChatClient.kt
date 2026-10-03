@@ -901,8 +901,9 @@ class ModelChatClient(
             val outcome = try {
                 call()
             } catch (refused: OpenAIServiceException) {
-                if (refused.statusCode() == HTTP_TOO_MANY_REQUESTS &&
-                    waitedForRetryAfter(modelId, limits, retryAfterOf(refused), attempt)
+                val status = statusOf(refused)
+                if (status == HTTP_TOO_MANY_REQUESTS &&
+                    waitedForRetryAfter(modelId, limits, waitOf(refused, attempt), attempt)
                 ) {
                     attempt++
                     continue
@@ -915,10 +916,10 @@ class ModelChatClient(
                  * not the other would behave differently for a reason nobody
                  * could see.
                  */
-                log.warn("{} answered {}", endpoint, refused.statusCode())
+                log.warn("{} answered {}", endpoint, status)
                 return ChatCompletion.Failed(
                     refused.message ?: "The provider refused the request",
-                    settled(refused.statusCode()),
+                    settled(status),
                     replyFault = aboutTheCall(refused.message.orEmpty()),
                 )
             } catch (failure: Exception) {
@@ -1594,6 +1595,40 @@ class ModelChatClient(
         retryAfter(refused.headers().values("retry-after").firstOrNull())
 
     /**
+     * What a refusal really was, where the status line cannot say.
+     *
+     * Azure rate limits a streaming call after it has already answered 200: the
+     * refusal is an error event inside the stream, and the SDK reports it with
+     * the stream's status. Read as 200 it was a settled refusal - neither waited
+     * out nor handed back as worth another go - so an agent step failed on the
+     * first rate limit of a busy hour ("200: Your requests to gpt-6-sol ... have
+     * exceeded token rate limit"). An error inside a 2xx is read from what it
+     * says: a rate limit is a 429, anything else is the provider failing part
+     * way, which is not the request's fault either.
+     */
+    private fun statusOf(refused: OpenAIServiceException): Int {
+        val status = refused.statusCode()
+        if (status !in 200..299) return status
+        val said = (refused.message.orEmpty() + " " + runCatching { refused.body().toString() }.getOrDefault(""))
+            .lowercase()
+        return if (RATE_LIMITED.any { it in said }) HTTP_TOO_MANY_REQUESTS else SERVER_ERROR
+    }
+
+    /**
+     * How long to wait before asking again: the Retry-After where there is one,
+     * else the time the provider's own sentence names ("retry after 6 seconds"),
+     * and for a rate limit inside a stream, which carries no headers and whose
+     * message does not always say, a short backoff that doubles each attempt.
+     * A real 429 that names no time is left to the node's retry policy, as it
+     * always was.
+     */
+    private fun waitOf(refused: OpenAIServiceException, attempt: Int): Duration? =
+        retryAfterOf(refused)
+            ?: RETRY_AFTER_SAID.find(refused.message.orEmpty())?.groupValues?.get(1)?.toLongOrNull()
+                ?.let { Duration.ofSeconds(it) }
+            ?: UNSAID_BACKOFF.multipliedBy(1L shl attempt).takeIf { refused.statusCode() in 200..299 }
+
+    /**
      * A Retry-After header as a duration: seconds is the common form, an
      * HTTP-date the other the spec allows. Null where it is absent or unreadable.
      */
@@ -1654,6 +1689,15 @@ class ModelChatClient(
          */
         val MAX_RETRY_AFTER: Duration = Duration.ofSeconds(120)
         const val MAX_RETRY_AFTER_ATTEMPTS = 2
+
+        /** How a provider says "rate limit" in an error that came inside a 2xx stream. */
+        val RATE_LIMITED = listOf("rate limit", "rate_limit", "ratelimit", "\"code\":\"429\"", "too many requests")
+
+        /** "Please retry after 6 seconds", as Azure words it. */
+        val RETRY_AFTER_SAID = Regex("""retry after (\d+) second""", RegexOption.IGNORE_CASE)
+
+        /** The first wait for a rate limit that named none; doubled per attempt. */
+        val UNSAID_BACKOFF: Duration = Duration.ofSeconds(5)
 
         /** Where the provider stops objecting to the request and starts failing. */
         const val SERVER_ERROR = 500

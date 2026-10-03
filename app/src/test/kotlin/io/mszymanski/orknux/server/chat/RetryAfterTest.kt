@@ -92,6 +92,51 @@ class RetryAfterTest(
         assertThat(calls.get()).isEqualTo(1)
     }
 
+    /**
+     * Azure rate limits a streaming call after answering 200: the refusal is an
+     * error event inside the stream, with no Retry-After and no time named.
+     * Read as a 200 it was a settled refusal and the agent step failed on it in
+     * production ("200: Your requests to gpt-6-sol ... have exceeded token rate
+     * limit"); it is a rate limit, waited out on a short backoff and asked again.
+     */
+    @Test
+    fun `a rate limit inside a 200 stream is waited out and the call retried`() {
+        val modelId = openAi(rateLimitedInStreamOnce())
+
+        val answer = chat.stream(modelId, asked) { }
+
+        assertThat(answer).isInstanceOf(ChatCompletion.Answered::class.java)
+        assertThat((answer as ChatCompletion.Answered).content).isEqualTo("Four.")
+        assertThat(calls.get()).isEqualTo(2)
+    }
+
+    private fun rateLimitedInStreamOnce(): String {
+        server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
+        server.createContext("/chat/completions") { exchange ->
+            exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
+            val first = calls.getAndIncrement() == 0
+            val events = if (first) {
+                """data: {"error":{"code":"429","message":"Your requests to stub for stub in polandcentral """ +
+                    """have exceeded token rate limit."}}""" + "\n\n"
+            } else {
+                """data: {"id":"c","object":"chat.completion.chunk","created":1,"model":"stub",""" +
+                    """"choices":[{"index":0,"delta":{"role":"assistant","content":"Four."},"finish_reason":null}]}""" +
+                    "\n\n" +
+                    """data: {"id":"c","object":"chat.completion.chunk","created":1,"model":"stub",""" +
+                    """"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],""" +
+                    """"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}""" + "\n\n" +
+                    "data: [DONE]\n\n"
+            }
+            exchange.responseHeaders.add("Content-Type", "text/event-stream")
+            val bytes = events.toByteArray(StandardCharsets.UTF_8)
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+            exchange.close()
+        }
+        server.start()
+        return "http://${server.address.hostString}:${server.address.port}"
+    }
+
     private fun model(id: Long) = requireNotNull(models.findByIdOrNull(id))
 
     /** Answers 429 with a Retry-After the first time, then a plain answer. */
