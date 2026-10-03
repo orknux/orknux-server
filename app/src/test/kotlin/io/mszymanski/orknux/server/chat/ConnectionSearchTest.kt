@@ -4,6 +4,7 @@ import io.mszymanski.orknux.connector.connection.ConnectionType
 import io.mszymanski.orknux.connector.connection.CreateWorkspaceConnectionInput
 import io.mszymanski.orknux.connector.connection.WorkspaceConnectionService
 import io.mszymanski.orknux.server.agent.Agent
+import io.mszymanski.orknux.server.agent.AgentRepository
 import io.mszymanski.orknux.server.agent.AgentType
 import io.mszymanski.orknux.server.workspace.Workspace
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
@@ -11,7 +12,11 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.graphql.test.autoconfigure.tester.AutoConfigureGraphQlTester
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.data.repository.findByIdOrNull
+import org.springframework.graphql.test.tester.ExecutionGraphQlServiceTester
+import org.springframework.security.test.context.support.WithMockUser
 import tools.jackson.databind.ObjectMapper
 
 /**
@@ -24,16 +29,24 @@ import tools.jackson.databind.ObjectMapper
  * certain length it is a wall a model skims rather than a list it reads.
  *
  * So past [ConnectionTools.LISTED] the briefing stops reciting and says there is
- * a tool. What is pinned here is which of the two an agent gets, that the tool
- * answers with ids and not credentials, and that it answers only with what that
- * agent was granted - it changes where the list is read, never what is in it.
+ * a tool. The tool itself is offered at any size - none, one, many - as a
+ * built-in on the Tools list, on and Always for a new agent. What is pinned here
+ * is what the briefing says at each size, that the tool is offered at each,
+ * what it answers (nothing held included, as an answer and not an error), that
+ * it answers with ids and not credentials, and that it answers only with what
+ * that agent was granted - it changes where the list is read, never what is in it.
  *
  * Makes its own workspace and connections, and leaves them: a workspace is found
  * rather than made again, and the connections are named for this test.
  */
 @SpringBootTest
+@AutoConfigureGraphQlTester
+@WithMockUser(username = "alice", roles = ["ADMINS"])
 class ConnectionSearchTest(
+    @Autowired val graphQlTester: ExecutionGraphQlServiceTester,
     @Autowired val finder: ConnectionTools,
+    @Autowired val tools: AgentTools,
+    @Autowired val agents: AgentRepository,
     @Autowired val briefing: AgentBriefing,
     @Autowired val connections: WorkspaceConnectionService,
     @Autowired val workspaces: WorkspaceRepository,
@@ -85,25 +98,55 @@ class ConnectionSearchTest(
             (0 until node.size()).map { mapper.convertValue(node.get(it), Map::class.java) }
         }
 
-    /* --------------------------------------------- which of the two it gets */
+    /* ------------------------------------- offered at any size, told by size */
+
+    private fun offered(agent: Agent): Boolean = tools.specsFor(agent).any { it.name == ConnectionTools.FIND }
 
     @Test
-    fun `a handful is still recited in the briefing and no tool is offered`() {
+    fun `an agent granted none is offered the tool and told plainly it holds nothing`() {
+        val none = agent(emptyList())
+
+        assertThat(offered(none)).isTrue()
+        assertThat(finder.recited(none)).isFalse()
+
+        val said = finder.run(none, "{}")
+        assertThat(mapper.readTree(said).has("error")).isFalse()
+        assertThat(found(said)).isEmpty()
+        assertThat(mapper.readTree(said).path("granted").asInt()).isEqualTo(0)
+        assertThat(mapper.readTree(said).path("note").asString())
+            .contains("no connection").contains("Connections setting")
+    }
+
+    @Test
+    fun `one grant is offered the tool and still recited in the briefing`() {
+        val one = agent(granted.take(1))
+
+        assertThat(offered(one)).isTrue()
+        assertThat(finder.recited(one)).isTrue()
+        assertThat(briefing.of(one).orEmpty()).contains("Production Jira")
+
+        val matches = found(finder.run(one, "{}"))
+        assertThat(matches.map { it["name"] }).containsExactly("Production Jira")
+    }
+
+    @Test
+    fun `a handful is still recited in the briefing, beside the tool`() {
         val few = agent(granted.take(3))
 
-        assertThat(finder.offered(few)).isFalse()
+        assertThat(offered(few)).isTrue()
         assertThat(finder.recited(few)).isTrue()
 
         val said = briefing.of(few).orEmpty()
         assertThat(said).contains("Production Jira")
-        assertThat(said).doesNotContain(ConnectionTools.FIND)
+        assertThat(found(finder.run(few, "{}"))).hasSize(3)
     }
 
     @Test
     fun `past that the briefing points at the tool instead of listing them`() {
         val many = agent(granted)
 
-        assertThat(finder.offered(many)).isTrue()
+        assertThat(offered(many)).isTrue()
+        assertThat(finder.pointedAt(many)).isTrue()
 
         val said = briefing.of(many).orEmpty()
         assertThat(said).contains(ConnectionTools.FIND)
@@ -114,15 +157,36 @@ class ConnectionSearchTest(
         // And the standing rule survives the change of place, because it is the
         // rule that makes a grant permission rather than encouragement.
         assertThat(said).contains("explicitly told")
+        assertThat(found(finder.run(many, "{}"))).hasSize(granted.size)
     }
 
+    /**
+     * Switched off on the Tools list, it is not offered - and the briefing does
+     * not point at a tool the round withholds, so the list is recited instead.
+     */
     @Test
-    fun `an agent granted none is offered nothing and told nothing`() {
-        val none = agent(emptyList())
+    fun `hidden on the Tools list, it is not offered and the grants are recited`() {
+        val many = agent(granted).apply { hiddenTools = mutableListOf(ConnectionTools.FIND) }
 
-        assertThat(finder.offered(none)).isFalse()
-        assertThat(finder.recited(none)).isFalse()
-        assertThat(briefing.of(none).orEmpty()).doesNotContain(ConnectionTools.FIND)
+        assertThat(offered(many)).isFalse()
+        assertThat(finder.pointedAt(many)).isFalse()
+        val said = briefing.of(many).orEmpty()
+        assertThat(said).doesNotContain(ConnectionTools.FIND).contains("Production Jira")
+    }
+
+    /** Like every built-in on the list: a new agent holds it, switched on and Always. */
+    @Test
+    fun `a new agent holds it, on and Always`() {
+        val id = graphQlTester.document(
+            """mutation { createAgent(input: { workspaceId: $workspaceId, name: "Fresh", type: LLM }) { id } }""",
+        ).execute().path("createAgent.id").entity(Long::class.java).get()
+
+        val fresh = requireNotNull(agents.findByIdOrNull(id))
+        assertThat(fresh.hiddenTools).doesNotContain(ConnectionTools.FIND)
+        assertThat(fresh.requiredTools).contains(ConnectionTools.FIND)
+        assertThat(BuiltInTools.granted(fresh, ConnectionTools.FIND)).isTrue()
+        assertThat(offered(fresh)).isTrue()
+        agents.delete(fresh)
     }
 
     /* ------------------------------------------------------ what it answers */
@@ -183,8 +247,10 @@ class ConnectionSearchTest(
         // this agent does not hold, there is nothing to find.
         assertThat(found(finder.run(agent(granted), """{"query":"confluence"}"""))).hasSize(1)
 
-        val said = finder.run(two, "{}")
-        assertThat(said).contains("has not been granted enough connections")
+        // And an agent holding two is answered with those two, however it asks.
+        assertThat(found(finder.run(two, "{}")).map { it["name"] })
+            .containsExactly("Production Jira", "Staging Jira")
+        assertThat(found(finder.run(two, """{"query":"confluence"}"""))).isEmpty()
     }
 }
 

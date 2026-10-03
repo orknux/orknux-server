@@ -18,6 +18,7 @@ import io.mszymanski.orknux.workflow.execution.ExecutionStepRepository
 import io.mszymanski.orknux.workflow.execution.StepStatus
 import io.mszymanski.orknux.workflow.execution.WorkflowExecutionRepository
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -43,6 +44,11 @@ import tools.jackson.databind.ObjectMapper
  * handle a setting would; a name works as well as an id; another workspace's
  * connection and one of the wrong kind are refused with the ones that would
  * do, and with no credential; and the model is told which those are.
+ *
+ * An agent is held to the connections it was granted, as the briefing tells
+ * it: one of the right kind it does not hold is refused as though it did not
+ * exist, and the schema and every refusal list only its grants. A workflow
+ * node has no agent, and is held to the workspace.
  */
 @SpringBootTest
 @AutoConfigureGraphQlTester
@@ -72,8 +78,13 @@ class PluginConnectionArgumentTest(
     private var workspaceId: Long = 0
     private var elsewhereId: Long = 0
 
-    @BeforeEach
-    fun reset() {
+    /**
+     * After each as well as before: an action naming the plugin's function
+     * would outlive the class, and the next class to delete plugins trips
+     * over its foreign key.
+     */
+    @AfterEach
+    fun clear() {
         logs.deleteAll()
         steps.deleteAll()
         executions.deleteAll()
@@ -88,6 +99,11 @@ class PluginConnectionArgumentTest(
         plugins.deleteAll()
         audit.deleteAll()
         workspaces.deleteAll()
+    }
+
+    @BeforeEach
+    fun reset() {
+        clear()
         workspaceId = requireNotNull(workspaces.save(Workspace(name = "backend")).id)
         elsewhereId = requireNotNull(workspaces.save(Workspace(name = "frontend")).id)
         upload.upload(MockMultipartFile("file", "monitors.js", "text/javascript", SOURCE.toByteArray()), null, null)
@@ -96,9 +112,9 @@ class PluginConnectionArgumentTest(
     /* ------------------------------------------------------- an agent's call ---- */
 
     @Test
-    fun `an agent's tool call with a connection id reaches the plugin as the handle`() {
+    fun `an agent's tool call with a granted connection's id reaches the plugin as the handle`() {
         val prod = connect("Prod Prometheus", "monitors/prometheus")
-        val agent = agent("monitors_query", "monitors_probe")
+        val agent = agent("monitors_query", "monitors_probe", holding = listOf(prod))
 
         // As a model writes it: the id as a string.
         val proxied = call(agent, "monitors_query", """{"prometheus":"$prod","promql":"up"}""")
@@ -119,18 +135,64 @@ class PluginConnectionArgumentTest(
     @Test
     fun `a connection's name works as well as its id`() {
         val prod = connect("Prod Prometheus", "monitors/prometheus")
-        val agent = agent("monitors_query")
+        val agent = agent("monitors_query", holding = listOf(prod))
 
         val answer = call(agent, "monitors_query", """{"prometheus":"prod prometheus","promql":"up"}""")
 
         assertHandle(answer.get("handed"), prod)
     }
 
+    /**
+     * Held to its grants, and not to the workspace. A grant is the agent's
+     * permission to name a connection, and an argument is naming one - so one
+     * it does not hold is refused exactly as one that does not exist would be.
+     */
     @Test
-    fun `another workspace's connection is refused, with the ones that would do and no credential`() {
+    fun `an agent may not name a connection of the right kind it was not granted`() {
+        val prod = connect("Prod Prometheus", "monitors/prometheus")
+        val staging = connect("Staging Prometheus", "monitors/prometheus")
+        val agent = agent("monitors_query", holding = listOf(prod))
+
+        for (named in listOf("\"$staging\"", "\"staging prometheus\"")) {
+            val answer = callRaw(agent, "monitors_query", """{"prometheus":$named,"promql":"up"}""")
+
+            val error = mapper.readTree(answer).get("error").asString()
+            assertThat(error).contains("prometheus argument").contains("you have been granted")
+            assertThat(error).contains("$prod (Prod Prometheus)")
+            // Nothing of it beyond what the caller itself wrote.
+            assertThat(error).doesNotContain("Staging Prometheus").doesNotContain("$staging (")
+            assertThat(answer).doesNotContain(SECRET).doesNotContain("Bearer")
+        }
+    }
+
+    @Test
+    fun `an agent granted no connection of the kind is told where a grant is made`() {
+        val prod = connect("Prod Prometheus", "monitors/prometheus")
+        val agent = agent("monitors_query")
+
+        val answer = callRaw(agent, "monitors_query", """{"prometheus":"$prod","promql":"up"}""")
+        val said = agentTools.specsFor(agent).single { it.name == "monitors_query" }
+            .parameters.single { it.name == "prometheus" }.description
+
+        val error = mapper.readTree(answer).get("error").asString()
+        assertThat(error).contains("granted no Prometheus connection").contains("Connections setting")
+        assertThat(error).doesNotContain("Prod Prometheus")
+        assertThat(said).contains("granted no Prometheus connection").doesNotContain("Prod Prometheus")
+    }
+
+    @Test
+    fun `another workspace's connection is refused, even granted, with the ones that would do and no credential`() {
         val prod = connect("Prod Prometheus", "monitors/prometheus")
         val theirs = connect("Their Prometheus", "monitors/prometheus", on = elsewhereId, secret = "their-secret")
-        val agent = agent("monitors_query")
+        /*
+         * A grant reaches only the agent's own workspace, whatever a row says.
+         * The API refuses to grant this one, so it is written as a stale or
+         * restored row would hold it.
+         */
+        val agent = agent("monitors_query", holding = listOf(prod)).let { held ->
+            held.connections.add(theirs)
+            agents.save(held)
+        }
 
         val answer = callRaw(agent, "monitors_query", """{"prometheus":"$theirs","promql":"up"}""")
 
@@ -143,10 +205,10 @@ class PluginConnectionArgumentTest(
     }
 
     @Test
-    fun `a connection of the wrong kind is refused, naming the kind it is`() {
+    fun `a granted connection of the wrong kind is refused, naming the kind it is`() {
         val prod = connect("Prod Prometheus", "monitors/prometheus")
         val wiki = connect("Wiki", null)
-        val agent = agent("monitors_query")
+        val agent = agent("monitors_query", holding = listOf(prod, wiki))
 
         val answer = callRaw(agent, "monitors_query", """{"prometheus":"$wiki","promql":"up"}""")
 
@@ -156,31 +218,48 @@ class PluginConnectionArgumentTest(
         assertThat(answer).doesNotContain(SECRET).doesNotContain("Bearer")
     }
 
+    /** What the model reads before it calls: the kind, and which of its grants those are. */
     @Test
-    fun `a name that matches nothing is refused, and says when there is nothing to pick`() {
-        val agent = agent("monitors_query")
-
-        val answer = callRaw(agent, "monitors_query", """{"prometheus":"staging","promql":"up"}""")
-
-        val error = mapper.readTree(answer).get("error").asString()
-        assertThat(error).contains("\"staging\"").contains("has no Prometheus connection")
-    }
-
-    /** What the model reads before it calls: the kind, and which ones there are. */
-    @Test
-    fun `the tool's schema says which connections the argument takes`() {
+    fun `the tool's schema lists only the agent's granted connections of the kind`() {
         val prod = connect("Prod Prometheus", "monitors/prometheus")
-        connect("Wiki", null)
-        val agent = agent("monitors_query")
+        val wiki = connect("Wiki", null)
+        connect("Staging Prometheus", "monitors/prometheus")
+        val agent = agent("monitors_query", holding = listOf(prod, wiki))
 
         val spec = agentTools.specsFor(agent).single { it.name == "monitors_query" }
         val said = spec.parameters.single { it.name == "prometheus" }.description
 
-        assertThat(said).contains("Prometheus").contains("id").contains("name").contains("$prod (Prod Prometheus)")
-        assertThat(said).doesNotContain("Wiki").doesNotContain(SECRET)
+        assertThat(said).contains("Prometheus").contains("id").contains("name").contains("granted")
+            .contains("$prod (Prod Prometheus)")
+        assertThat(said).doesNotContain("Wiki").doesNotContain("Staging").doesNotContain(SECRET)
     }
 
     /* ------------------------------------------------------ a workflow node ---- */
+
+    /**
+     * A node acts for the workspace, not for an agent, so it is held to the
+     * workspace and kind - granted to no agent at all, this still runs.
+     */
+    @Test
+    fun `a workflow node may name any of the workspace's connections of the kind`() {
+        val prod = connect("Prod Prometheus", "monitors/prometheus")
+        agent("monitors_query")
+
+        val step = runNode("""[{ name: "prometheus", expression: "$prod" }, { name: "promql", expression: "up" }]""")
+
+        assertThat(step.status).isEqualTo(StepStatus.COMPLETED)
+        assertHandle(mapper.readTree(step.output).get("result").get("handed"), prod)
+    }
+
+    @Test
+    fun `a workflow node with an unknown name is told the workspace's connections`() {
+        val prod = connect("Prod Prometheus", "monitors/prometheus")
+
+        val step = runNode("""[{ name: "prometheus", expression: "staging" }, { name: "promql", expression: "up" }]""")
+
+        assertThat(step.status).isEqualTo(StepStatus.FAILED)
+        assertThat(step.error).contains("this workspace's Prometheus connections").contains("$prod (Prod Prometheus)")
+    }
 
     @Test
     fun `a workflow node's connection argument reaches the plugin as the handle`() {
@@ -221,13 +300,15 @@ class PluginConnectionArgumentTest(
                }) { id } }""",
         ).execute().path("createWorkspaceConnection.id").entity(Long::class.java).get()
 
-    private fun agent(vararg tools: String) = run {
+    /** An agent granted [tools], and the connections [holding] by id. */
+    private fun agent(vararg tools: String, holding: List<Long> = emptyList()) = run {
         val id = graphQlTester.document(
             """mutation { createAgent(input: { workspaceId: $workspaceId, name: "Watcher", type: LLM }) { id } }""",
         ).execute().path("createAgent.id").entity(Long::class.java).get()
         graphQlTester.document(
             """mutation { updateAgent(id: $id, input: { name: "Watcher",
-                 tools: [${tools.joinToString(", ") { "\"$it\"" }}] }) { id } }""",
+                 tools: [${tools.joinToString(", ") { "\"$it\"" }}],
+                 connectionIds: [${holding.joinToString(", ")}] }) { id } }""",
         ).execute()
         requireNotNull(agents.findByIdOrNull(id))
     }

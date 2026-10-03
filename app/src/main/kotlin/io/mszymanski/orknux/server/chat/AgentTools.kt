@@ -175,8 +175,9 @@ class AgentTools(
         if (agent.shellAccess) addAll(shells.specs())
 
         /*
-         * And the ids of the connections it was granted, where there are
-         * enough of them to be worth asking for.
+         * And the ids of the connections it was granted, however many: one
+         * held is still worth looking up once the briefing has scrolled away,
+         * and none held is told so rather than left to guess.
          *
          * Core rather than searchable: it is one tool, it is how an agent gets
          * an id at all, and an agent that had to find the finder would be a
@@ -189,7 +190,7 @@ class AgentTools(
          * to see what an agent may do, and a tool that appears there and can be
          * hidden there has to be one the round actually withholds.
          */
-        if (connectionTools.offered(agent) && BuiltInTools.granted(agent, ConnectionTools.FIND)) {
+        if (BuiltInTools.granted(agent, ConnectionTools.FIND)) {
             add(connectionTools.specFor(agent))
         }
 
@@ -316,15 +317,15 @@ class AgentTools(
                         ToolParameterSpec(
                             name = param.name,
                             /*
-                             * A connection is said in this workspace's terms -
-                             * which kind, and which ones there are - because
+                             * A connection is said in this agent's terms -
+                             * which kind, and which of its grants those are - because
                              * "the id of a connection" leaves a model to find
                              * a number it has no way to look up.
                              */
                             description = describe(
                                 param,
                                 if (param.type == ValueType.CONNECTION) {
-                                    pluginTools.connectionMeaning(tool, agent.workspaceId)
+                                    pluginTools.connectionMeaning(tool, agent)
                                 } else {
                                     null
                                 },

@@ -2,6 +2,7 @@ package io.mszymanski.orknux.server.action
 
 import io.mszymanski.orknux.workflow.script.ScriptOrigin
 import io.mszymanski.orknux.server.plugin.ConnectionArguments
+import io.mszymanski.orknux.server.plugin.ConnectionGrants
 import io.mszymanski.orknux.server.plugin.Plugin
 import io.mszymanski.orknux.server.plugin.PluginDeclarations
 import io.mszymanski.orknux.server.plugin.PluginParameters
@@ -110,6 +111,13 @@ class FunctionCaller(
          * helper says there is no session there.
          */
         sessionId: Long? = null,
+        /**
+         * The connections the agent making this call was granted, where an
+         * agent is making it. A plugin's connection argument may then name
+         * only one of these; null - a workflow node, the editor's Run - holds
+         * it to the workspace's.
+         */
+        granted: ConnectionGrants? = null,
     ): ScriptResult {
         val arguments = declared + externals.of(function, insteadOfVariables)
 
@@ -125,7 +133,7 @@ class FunctionCaller(
          * `this.settings` — the editor says so where the edit is made.
          */
         if (function.scope == FunctionScope.PLUGIN && function.editedAt == null) {
-            return callPlugin(function, arguments, workspaceId, sessionId)
+            return callPlugin(function, arguments, workspaceId, sessionId, granted)
         }
 
         /*
@@ -186,6 +194,7 @@ class FunctionCaller(
         arguments: List<String>,
         workspaceId: Long,
         sessionId: Long? = null,
+        granted: ConnectionGrants? = null,
     ): ScriptResult {
         if (!plugin.enabled) {
             return ScriptResult.Failed(
@@ -205,7 +214,7 @@ class FunctionCaller(
 
         val declaredParams = pluginDeclarations.readTools(plugin.declaredTools)
             .firstOrNull { it.name == toolName }?.params.orEmpty()
-        val handed = when (val resolved = pluginParameters.connectionArguments(plugin, workspaceId, declaredParams, arguments)) {
+        val handed = when (val resolved = pluginParameters.connectionArguments(plugin, workspaceId, declaredParams, arguments, granted)) {
             is ConnectionArguments.Refused -> return ScriptResult.Failed("cannot run: " + resolved.reason, 0)
             is ConnectionArguments.Handed -> resolved.arguments
         }
@@ -304,6 +313,7 @@ class FunctionCaller(
         arguments: List<String>,
         workspaceId: Long,
         sessionId: Long? = null,
+        granted: ConnectionGrants? = null,
     ): ScriptResult {
         val plugin = function.pluginId?.let { plugins.findByIdOrNull(it) }
             ?: return ScriptResult.Failed("is declared by a plugin that is no longer loaded", 0)
@@ -343,7 +353,7 @@ class FunctionCaller(
          */
         val declaredParams = pluginDeclarations.read(plugin.declaredFunctions)
             .firstOrNull { it.name == declared }?.params.orEmpty()
-        val handed = when (val resolved = pluginParameters.connectionArguments(plugin, workspaceId, declaredParams, arguments)) {
+        val handed = when (val resolved = pluginParameters.connectionArguments(plugin, workspaceId, declaredParams, arguments, granted)) {
             is ConnectionArguments.Refused -> return ScriptResult.Failed("cannot run: " + resolved.reason, 0)
             is ConnectionArguments.Handed -> resolved.arguments
         }

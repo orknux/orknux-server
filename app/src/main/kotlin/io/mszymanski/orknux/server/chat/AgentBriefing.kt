@@ -1,6 +1,5 @@
 package io.mszymanski.orknux.server.chat
 
-import io.mszymanski.orknux.connector.connection.WorkspaceConnectionService
 import io.mszymanski.orknux.server.agent.Agent
 import io.mszymanski.orknux.server.agent.MOST_TOOL_SUMMARY_CHARS
 import io.mszymanski.orknux.server.agent.SkillTool
@@ -52,7 +51,6 @@ class AgentBriefing(
     private val skills: SkillTool,
     /** What this agent has been written down for it; see the note in `of`. */
     private val memories: io.mszymanski.orknux.server.memory.MemoryTool,
-    private val connections: WorkspaceConnectionService,
     /** Which of the two ways the granted connections are told; see [ConnectionTools]. */
     private val connectionTools: ConnectionTools,
     /**
@@ -456,7 +454,7 @@ class AgentBriefing(
                 "workspace allows none. Do the work yourself rather than saying you will pass it on."
         }
 
-        if (connectionTools.offered(agent)) {
+        if (connectionTools.pointedAt(agent)) {
             parts += buildString {
                 append("You have been granted ").append(agent.connections.size)
                 append(" connections. Where a tool takes a connection id, find the one you were told ")
@@ -467,9 +465,7 @@ class AgentBriefing(
         }
 
         val reachable = if (connectionTools.recited(agent)) {
-            agent.connections
-                .mapNotNull { connections.workspaceConnection(it) }
-                .filter { it.workspaceId == agent.workspaceId }
+            connectionTools.granted(agent)
         } else {
             emptyList()
         }

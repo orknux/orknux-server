@@ -7,6 +7,8 @@ import io.mszymanski.orknux.server.action.ValueType
 import io.mszymanski.orknux.server.action.WorkflowFunctionRepository
 import io.mszymanski.orknux.server.plugin.Plugin
 import io.mszymanski.orknux.server.plugin.PluginDeclarations
+import io.mszymanski.orknux.server.chat.ConnectionTools
+import io.mszymanski.orknux.server.plugin.ConnectionGrants
 import io.mszymanski.orknux.server.plugin.PluginParameters
 import io.mszymanski.orknux.server.plugin.PluginRepository
 import io.mszymanski.orknux.workflow.script.ScriptOrigin
@@ -43,16 +45,25 @@ class PluginToolCaller(
     private val caller: FunctionCaller,
     /** What a connection argument takes, said to the model in its own workspace's terms. */
     private val parameters: PluginParameters,
+    /** The one reading of an agent's connection grants; an argument is held to it. */
+    private val connectionGrants: ConnectionTools,
     private val mapper: ObjectMapper,
 ) {
 
     /**
      * What a model is told to pass for a connection argument of [tool]: the
-     * kind, by id or name, and which of this workspace's connections those are.
-     * The call resolves it to the handle; see [FunctionCaller].
+     * kind, by id or name, and which of the connections this agent was
+     * granted those are. The call resolves it to the handle; see [FunctionCaller].
      */
-    fun connectionMeaning(tool: PluginTool, workspaceId: Long): String =
-        parameters.connectionArgumentMeaning(tool.plugin, workspaceId)
+    fun connectionMeaning(tool: PluginTool, agent: Agent): String =
+        parameters.connectionArgumentMeaning(tool.plugin, agent.workspaceId, grantsOf(agent))
+
+    /**
+     * What an agent may pass where a plugin takes a connection: what it was
+     * granted, as the briefing tells it. Not the workspace's - a grant is the
+     * agent's permission to name a connection, and a tool argument is naming one.
+     */
+    private fun grantsOf(agent: Agent) = ConnectionGrants(connectionGrants.granted(agent))
 
     /**
      * One granted tool, ready to be offered and dispatched.
@@ -155,9 +166,17 @@ class PluginToolCaller(
                 workspaceId = agent.workspaceId,
                 origin = ScriptOrigin(),
                 sessionId = sessionId,
+                granted = grantsOf(agent),
             )
         } else {
-            caller.callPluginTool(tool.plugin, tool.declared.name, positional, agent.workspaceId, sessionId)
+            caller.callPluginTool(
+                tool.plugin,
+                tool.declared.name,
+                positional,
+                agent.workspaceId,
+                sessionId,
+                granted = grantsOf(agent),
+            )
         }
 
         return when (result) {
