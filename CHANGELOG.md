@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🐛 Fixed
+
+- A plugin update whose download did not match what the marketplace published showed only INTERNAL_ERROR and an id; it now says what happened and to try again in a few minutes.
+
 ## 0.9.9.10
 
 ### 🔧 Changed

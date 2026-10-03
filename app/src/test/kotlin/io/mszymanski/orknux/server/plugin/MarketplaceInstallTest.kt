@@ -9,7 +9,9 @@ import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.graphql.test.autoconfigure.tester.AutoConfigureGraphQlTester
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.graphql.test.tester.ExecutionGraphQlServiceTester
 import org.springframework.security.test.context.support.WithMockUser
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
@@ -31,8 +33,10 @@ import java.nio.charset.StandardCharsets
  * everything and offers nothing.
  */
 @SpringBootTest
+@AutoConfigureGraphQlTester
 @WithMockUser(username = "alice", roles = ["ADMINS"])
 class MarketplaceInstallTest(
+    @Autowired val graphQlTester: ExecutionGraphQlServiceTester,
     @Autowired val catalog: MarketplaceAPI,
     @Autowired val plugins: PluginRepository,
     @Autowired val libraries: PluginLibraryRepository,
@@ -253,6 +257,29 @@ class MarketplaceInstallTest(
             .contains(digestOf(plugin))
         assertThat(plugins.findAll()).isEmpty()
         assertThat(functions.findAll()).isEmpty()
+    }
+
+    /**
+     * And the page is told so in a sentence, not as INTERNAL_ERROR and an id -
+     * which is how a Prometheus update a stale cache answered reached somebody.
+     * The code is what the interface translates it from.
+     */
+    @Test
+    fun `a download that is not what the catalog published reaches the page as a sentence`() {
+        offeredDigest = digestOf("export default class Nothing {}")
+
+        graphQlTester.document(
+            """mutation { installMarketplacePlugin(key: "greeter", accept: "lib/words.js") { plugin { key } } }""",
+        )
+            .execute()
+            .errors()
+            .satisfy { errors ->
+                val refusal = errors.single()
+                assertThat(refusal.extensions["code"]).isEqualTo("PluginDigestMismatch")
+                assertThat(refusal.message).contains("did not arrive as the marketplace published it")
+                assertThat(refusal.message).contains("try again in a few minutes")
+            }
+        assertThat(plugins.findAll()).isEmpty()
     }
 
     /**

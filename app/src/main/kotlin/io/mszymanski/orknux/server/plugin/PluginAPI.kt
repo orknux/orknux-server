@@ -1,7 +1,5 @@
 package io.mszymanski.orknux.server.plugin
 
-import graphql.GraphQLError
-import graphql.schema.DataFetchingEnvironment
 import io.mszymanski.orknux.server.action.FunctionScope
 import io.mszymanski.orknux.server.action.WorkflowFunctionRepository
 import io.mszymanski.orknux.server.security.WorkspaceAccess
@@ -22,8 +20,6 @@ import org.springframework.data.repository.findByIdOrNull
 import org.springframework.graphql.data.method.annotation.Argument
 import org.springframework.graphql.data.method.annotation.MutationMapping
 import org.springframework.graphql.data.method.annotation.QueryMapping
-import org.springframework.graphql.execution.DataFetcherExceptionResolverAdapter
-import org.springframework.graphql.execution.ErrorType
 import org.springframework.http.ResponseEntity
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.stereotype.Component
@@ -2347,7 +2343,9 @@ class PluginReleaseGoneException(key: String, version: String) : RuntimeExceptio
  * from the outside.
  */
 class PluginDigestMismatchException(key: String, expected: String, held: String) : RuntimeException(
-    "$key did not arrive as the marketplace published it: it says sha256 $expected and what came back is $held.",
+    "$key did not arrive as the marketplace published it, so it was not installed: it says sha256 $expected " +
+        "and what came back is $held. A cache between here and the marketplace may still hold the previous " +
+        "release; try again in a few minutes.",
 )
 
 /**
@@ -2380,62 +2378,3 @@ class PluginApiVersionUnsupportedException(asked: Int, supported: Set<Int>) : Ru
     "The plugin uses plugin API version $asked, which this server does not know. " +
         "It supports ${supported.sorted().joinToString(", ")}.",
 )
-
-@Component
-class PluginExceptionResolver : DataFetcherExceptionResolverAdapter() {
-
-    override fun resolveToSingleError(exception: Throwable, environment: DataFetchingEnvironment): GraphQLError? {
-        val errorType = when (exception) {
-            is PluginEmptyException,
-            is PluginTooLargeException,
-            is PluginNotJavaScriptException,
-            is PluginNotTextException,
-            is PluginContractException,
-            is PluginApiVersionUnsupportedException,
-            
-            is PluginDeclarationInvalidException,
-            
-            is PluginIdInvalidException,
-            is PluginPermissionUnknownException,
-            is PluginCapabilityUnknownException,
-            is PluginAgreementNeededException,
-            is PluginInUseException,
-            is PluginFunctionInUseException,
-            is PluginParameterUnknownException,
-            is PluginParameterAmbiguousException,
-            is PluginParameterEmptyException,
-            is PluginParameterNotSecretException,
-            is PluginParameterNotValueException,
-            is PluginParameterVariableElsewhereException,
-            is PluginZipInvalidException,
-            is PluginUrlInvalidException,
-            -> ErrorType.BAD_REQUEST
-
-            /*
-             * A service that will not answer is not the caller's mistake, and
-             * reporting it as a bad request would have somebody checking what
-             * they typed instead of checking the marketplace. What matters
-             * either way is that the sentence travels: before these were
-             * named here, a marketplace that was down and a key that does not
-             * exist both arrived on screen as INTERNAL_ERROR and an id.
-             */
-            is MarketplaceUnreachableException,
-            is PluginUrlUnreachableException,
-            -> ErrorType.INTERNAL_ERROR
-
-            is PluginNotFoundException,
-            is MarketplaceOfferingUnknownException,
-            -> ErrorType.NOT_FOUND
-
-            else -> return null
-        }
-
-        return GraphQLError.newError()
-            .errorType(errorType)
-            .message(exception.message)
-            .path(environment.executionStepInfo.path)
-            .location(environment.field.sourceLocation)
-            .build()
-    }
-}
-
