@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.embedded
 
+import io.mszymanski.orknux.server.chat.BuiltInTools
 import io.mszymanski.orknux.connector.proxy.ProxyRouter
 import io.mszymanski.orknux.server.action.ValueType
 import io.mszymanski.orknux.server.llm.LlmSessionStore
@@ -61,6 +62,15 @@ class HttpCapability(
 
     private val log = LoggerFactory.getLogger(javaClass)
 
+    /*
+     * Said on every HTTP tool, because a model asked where it may send requests
+     * answered from the links it had happened to see - tool pages on this
+     * server - rather than asking: nothing it was offered said that the
+     * destinations are this installation's decision, or which tool knows them.
+     */
+    private val WHERE = "Where requests may go is decided by this installation: ${BuiltInTools.HTTP_ALLOW_LIST} answers it, " +
+        "and a refused request says why."
+
     override val key = "http"
     override val name = "HTTP"
 
@@ -70,7 +80,8 @@ class HttpCapability(
             summary = "Fetches a URL and reads what comes back.",
             description = "Fetches a URL and answers status, ok, headers, body as text and json where the " +
                 "body was a JSON object. A non-2xx is an answer rather than an error, so you can say what " +
-                "the other end complained about. Send an $AUTH header yourself where the API needs one.",
+                "the other end complained about. Send an $AUTH header yourself where the API needs one. " +
+                WHERE,
             params = listOf(
                 EmbeddedParam(URL, ValueType.STRING, "The full URL.", required = true),
                 EmbeddedParam(HEADERS, ValueType.MAP, "Headers to send, as a name and a value each."),
@@ -81,7 +92,7 @@ class HttpCapability(
             summary = "Any HTTP method, with a body.",
             description = "The same as $GET with the method named - POST, PUT, PATCH, DELETE, HEAD. A map " +
                 "$BODY goes as JSON with the content type set; a string $BODY goes exactly as written, " +
-                "which is how form-encoded and plain text are sent.",
+                "which is how form-encoded and plain text are sent. " + WHERE,
             params = listOf(
                 EmbeddedParam(URL, ValueType.STRING, "The full URL.", required = true),
                 EmbeddedParam(METHOD, ValueType.STRING, "GET, POST, PUT, PATCH, DELETE or HEAD."),
@@ -94,7 +105,7 @@ class HttpCapability(
             summary = "Fetches bytes and answers a key for them.",
             description = "Fetches a URL as bytes and keeps them here, answering a $KEY rather than base64 - " +
                 "so a file goes from an API into a channel without a megabyte passing through you, which is " +
-                "the one thing that does not survive the trip to the next call.",
+                "the one thing that does not survive the trip to the next call. " + WHERE,
             params = listOf(
                 EmbeddedParam(URL, ValueType.STRING, "The full URL.", required = true),
                 EmbeddedParam(HEADERS, ValueType.MAP, "Headers to send."),
@@ -105,7 +116,8 @@ class HttpCapability(
             summary = "Which URLs and methods the HTTP tools may request.",
             description = "Which URLs and methods the HTTP tools may request on this installation: either any URL, " +
                 "or a list of rules, each a regular expression for the whole URL and the methods it allows. " +
-                "Ask it before guessing an address, and after a request was refused by the allow list.",
+                "Call it when asked where you can send requests - it is the only answer to that, not the " +
+                "addresses you have seen - before guessing an address, and after a request was refused.",
         ),
     )
 

@@ -33,6 +33,7 @@ class HttpToolsPolicedTest(
     @Autowired val policy: HttpToolPolicy,
     @Autowired val settings: InstallationSettingRepository,
     @Autowired val embedded: EmbeddedCapabilities,
+    @Autowired val httpCapability: HttpCapability,
     @Autowired val scripts: ScriptRunner,
     @Autowired val mapper: ObjectMapper,
 ) {
@@ -208,5 +209,21 @@ class HttpToolsPolicedTest(
             .isInstanceOf(ScriptResult.Returned::class.java)
 
         assertThat(arrived).containsExactly("GET /written", "GET /graph", "GET /graph")
+    }
+
+    /**
+     * Asked where it may send requests, a model answered from the tool pages it
+     * had seen, because none of its HTTP tools said that the destinations are
+     * this installation's to decide or which tool knows them. Each says so now.
+     */
+    @Test
+    fun `every HTTP tool tells the model where to ask where it may go`() {
+        val described = httpCapability.tools().filter { "${BuiltInTools.HTTP_ALLOW_LIST}" != "http_${it.name}" }
+        assertThat(described).isNotEmpty()
+        described.forEach { tool ->
+            assertThat(tool.description)
+                .describedAs("${tool.name} names the allow-list tool")
+                .contains(BuiltInTools.HTTP_ALLOW_LIST)
+        }
     }
 }
