@@ -328,5 +328,6 @@ tamper_one() {
 }
 self_update_run "$UPDATE_APP" "http://localhost:$UPDATE_PORT" admin "$update_password" "$UPDATE_WORK" tamper_one
 self_update_fallbacks "$UPDATE_WORK" start_update_app
+self_update_mounted_dir start_update_app
 
 printf '\n\033[32morknux-one works with nothing supplied, and updates itself in place.\033[0m\n'

@@ -199,9 +199,7 @@ class ReleaseLauncher(
      * the container can change it between the check and `java -jar`.
      */
     private fun extracted(release: LaunchableRelease): Path {
-        Files.createDirectories(releaseDir)
-        ownerOnly(releaseDir, "rwx------")
-        val target = releaseDir.resolve("release-${release.id}.jar")
+        val target = jarDirectory().resolve("release-${release.id}.jar")
         if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
             target.toFile().setWritable(true)
             Files.delete(target)
@@ -220,6 +218,41 @@ class ReleaseLauncher(
         }
         say("Running release ${release.version}" + (if (pin != null) ", pinned by ${ReleasePin.VARIABLE}." else " from the database."))
         return target
+    }
+
+    /**
+     * Where the jar is written: a directory of the launcher's own inside the
+     * configured one (#600). The configured directory is often a mount - an
+     * emptyDir with an fsGroup on Kubernetes - that belongs to root, and only a
+     * directory's owner may change its mode, so it is left exactly as it was
+     * mounted and the owner-only treatment goes on the directory made here.
+     * Something already at that name that is not a plain directory is removed,
+     * never followed; one that is not ours fails the chmod, and so the release,
+     * out loud rather than running a jar from a directory somebody else controls.
+     */
+    private fun jarDirectory(): Path {
+        Files.createDirectories(releaseDir)
+        clearOldLayout()
+        val jars = releaseDir.resolve(JAR_DIRECTORY)
+        if (Files.exists(jars, LinkOption.NOFOLLOW_LINKS) && !Files.isDirectory(jars, LinkOption.NOFOLLOW_LINKS)) {
+            Files.delete(jars)
+        }
+        if (!Files.exists(jars, LinkOption.NOFOLLOW_LINKS)) Files.createDirectory(jars)
+        ownerOnly(jars, "rwx------")
+        return jars
+    }
+
+    /**
+     * Releases before #600 wrote the jar straight into the configured directory.
+     * One left there by them is never run again, so it goes; best effort,
+     * because it is only space.
+     */
+    private fun clearOldLayout() {
+        runCatching {
+            Files.newDirectoryStream(releaseDir, "release-*.jar").use { old ->
+                old.forEach { runCatching { Files.deleteIfExists(it) } }
+            }
+        }
     }
 
     private fun ownerOnly(path: Path, permissions: String) {
@@ -438,6 +471,13 @@ const val RESTART_EXIT_CODE = 75
  * the release table, holding why; removed by the next launch that could.
  */
 const val BLIND_MARKER = "launcher-could-not-read-releases"
+
+/**
+ * The launcher's own directory inside ORKNUX_RELEASE_DIR, where the chosen jar
+ * is written and run from (#600). The marker above stays in the configured
+ * directory itself, which only has to be writable.
+ */
+const val JAR_DIRECTORY = "jar"
 
 private fun env(name: String): String? = System.getenv(name)?.ifBlank { null }
 

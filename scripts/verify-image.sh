@@ -277,5 +277,6 @@ tamper_postgres() {
 }
 self_update_run "$UPDATE_APP" "http://localhost:$PORT" admin "$UPDATE_PASSWORD" "$UPDATE_WORK" tamper_postgres
 self_update_fallbacks "$UPDATE_WORK" start_update_app
+self_update_mounted_dir start_update_app
 
 printf '\n\033[32mThe image works, and updates itself in place.\033[0m\n'

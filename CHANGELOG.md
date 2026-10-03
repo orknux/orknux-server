@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🐛 Fixed
+
+- A release stored on Admin -> Updates could not be started on Kubernetes: with the manifest's `emptyDir` and `fsGroup` the launcher was refused (`/tmp/orknux-release: Operation not permitted`) and marked the release failed. The launcher runs from the image, so the fix arrives with the new image; activate the release again after upgrading.
+
 ## 0.9.9.9
 
 ### ✨ Added

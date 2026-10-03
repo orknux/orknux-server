@@ -15,6 +15,8 @@
 #   4. activated again, then one byte of it changed in the database with its
 #      sha256 rewritten to match - and the next start refuses it, runs the
 #      image's jar, and marks the release FAILED
+#   5. (#600) a release activated with the release directory a mounted volume
+#      that belongs to root, as Kubernetes' emptyDir with an fsGroup is
 #
 # Needs: say, ok, die from the caller; docker; curl.
 
@@ -208,6 +210,7 @@ self_update_fallbacks() {
   broken_pin_id="$(_su_upload "$work/broken-pin.jar")"
   broken_id="$(_su_upload "$work/broken.jar")"
   ok "Stored $SU_PIN_VERSION, and $SU_BROKEN_PIN_VERSION and $SU_BROKEN_VERSION, which cannot start"
+  SU_PIN_ID="$pin_id"
 
   "$recreate" -e "ORKNUX_RELEASE_PIN=$SU_PIN_VERSION"
   _su_wait_for "$SU_PIN_VERSION"
@@ -268,4 +271,63 @@ self_update_fallbacks() {
     *) die "The unbootable chosen release is not marked failed: $state" ;;
   esac
   : "$pin_id"
+}
+
+# self_update_mounted_dir RECREATE
+#   #600: the release directory as Kubernetes mounts it. deploy/kubernetes puts
+#   an emptyDir at /tmp/orknux-release with fsGroup 999, so the directory
+#   belongs to root and the server's group may write in it - and only its owner
+#   may change its mode. The launcher used to chmod it and every activation
+#   failed with "Operation not permitted". Here a volume is made the same way,
+#   with a jar an older release left in it, and a kept release is activated on
+#   it. Runs after self_update_fallbacks, which stored the release it uses.
+self_update_mounted_dir() {
+  local recreate="$1" volume="${SU_APP}-release-dir" gid answer state
+  [ -n "${SU_PIN_ID:-}" ] || die "self_update_mounted_dir runs after self_update_fallbacks"
+
+  say "Activating a release with the release directory a root-owned mount (#600)"
+  gid="$(docker exec "$SU_APP" id -g)"
+  docker volume rm "$volume" >/dev/null 2>&1 || true
+  docker volume create "$volume" >/dev/null
+  docker run --rm --user 0 --entrypoint sh -v "$volume:/d" "$SELF_UPDATE_JDK" -euc "
+    chown 0:$gid /d && chmod 2775 /d
+    echo 'a jar the old layout left' > /d/release-1.jar && chown 0:$gid /d/release-1.jar && chmod 0664 /d/release-1.jar
+  " || die "Could not prepare the volume"
+  ok "A volume owned by root, group $gid may write in it: $(docker run --rm -v "$volume:/d" "$SELF_UPDATE_JDK" stat -c '%U:%g %A' /d)"
+
+  "$recreate" -v "$volume:/tmp/orknux-release"
+  _su_wait_for "$SU_IMAGE_VERSION"
+  _su_signin
+  answer="$(_su_gql "{\"query\":\"mutation { activateServerRelease(id: $SU_PIN_ID) { restarting } }\"}")"
+  case "$answer" in *'"restarting":true'*) ;; *) die "Activating $SU_PIN_VERSION did not restart: $answer" ;; esac
+  for _ in $(seq 1 150); do
+    [ "$(_su_running || true)" = "$SU_PIN_VERSION" ] && break
+    case "$(_su_release "$SU_PIN_ID" 2>/dev/null || true)" in FAILED*) break ;; esac
+    sleep 2
+  done
+  state="$(_su_release "$SU_PIN_ID")"
+  case "$state" in
+    FAILED*) docker logs "$SU_APP" 2>&1 | grep 'orknux launcher' | tail -10
+             die "Release $SU_PIN_VERSION failed to start from the mounted directory: ${state#*|}" ;;
+  esac
+  _su_wait_for "$SU_PIN_VERSION"
+  ok "It runs $SU_PIN_VERSION, written into the mounted directory"
+
+  answer="$(docker exec "$SU_APP" sh -c 'stat -c "%U:%g %A %n" /tmp/orknux-release /tmp/orknux-release/*; ls -l /tmp/orknux-release/*/')"
+  case "$answer" in
+    *"root:$gid drwxrwsr-x /tmp/orknux-release"*) ok "The mount's own mode is as it was mounted" ;;
+    *) die "The mounted directory was changed: $answer" ;;
+  esac
+  case "$answer" in
+    *"release-1.jar"*) die "The old layout's jar was left behind: $answer" ;;
+  esac
+  case "$answer" in
+    *"drwx------ /tmp/orknux-release/jar"*"-r-------- "*"release-$SU_PIN_ID.jar"*) ok "The jar is its owner's alone and read-only, in the launcher's own directory" ;;
+    *) die "The jar is not where, or not as, it should be: $answer" ;;
+  esac
+
+  # Back to an ordinary container, so the caller's own clean-up is all there is.
+  "$recreate"
+  _su_wait_for "$SU_PIN_VERSION"
+  docker volume rm "$volume" >/dev/null 2>&1 || true
 }

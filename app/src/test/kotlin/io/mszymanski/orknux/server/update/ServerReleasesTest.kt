@@ -329,7 +329,7 @@ class ServerReleasesTest(
         val pinned = stored(Shape(version = "8.1.2"))
         val dir = Files.createTempDirectory("orknux-release-")
 
-        assertThat(launcher(dir, pin = "8.1.2").choose()).isEqualTo(dir.resolve("release-${pinned.id}.jar"))
+        assertThat(launcher(dir, pin = "8.1.2").choose()).isEqualTo(dir.resolve(JAR_DIRECTORY).resolve("release-${pinned.id}.jar"))
         // Never booted, so the start is counted - and the database's choice is left as it was.
         assertThat(releases.findById(pinned.id!!).get().bootAttempts).isEqualTo(1)
         assertThat(releases.findById(chosen.id!!).get().state).isEqualTo(ServerReleaseState.ACTIVATING)
@@ -368,7 +368,7 @@ class ServerReleasesTest(
     fun `a pinned release that never starts is marked failed, and the image runs from then on`() {
         val pinned = stored(Shape(version = "8.1.6"))
         val dir = Files.createTempDirectory("orknux-release-")
-        val jar = dir.resolve("release-${pinned.id}.jar").toString()
+        val jar = dir.resolve(JAR_DIRECTORY).resolve("release-${pinned.id}.jar").toString()
 
         repeat(DEFAULT_RELEASE_BOOT_ATTEMPTS) { i ->
             val last = if (i == 0) null else 1
@@ -392,7 +392,7 @@ class ServerReleasesTest(
         updates.activate(active.id!!, "alice")
         store().restore(active.id!!) // it started
         val dir = Files.createTempDirectory("orknux-release-")
-        val jar = dir.resolve("release-${active.id}.jar").toString()
+        val jar = dir.resolve(JAR_DIRECTORY).resolve("release-${active.id}.jar").toString()
 
         // Restarted by Docker, by an update, beside other replicas: not a failure.
         repeat(5) { assertThat(launcher(dir).choose().toString()).isEqualTo(jar) }
@@ -435,10 +435,57 @@ class ServerReleasesTest(
 
         val chosen = launcher(dir).choose()
 
-        assertThat(chosen).isEqualTo(dir.resolve("release-${release.id}.jar"))
+        assertThat(chosen).isEqualTo(dir.resolve(JAR_DIRECTORY).resolve("release-${release.id}.jar"))
         assertThat(ReleaseJarVerifier.sha256(chosen)).isEqualTo(release.sha256)
         assertThat(Files.isWritable(chosen)).isFalse()
         assertThat(releases.findById(release.id!!).get().bootAttempts).isEqualTo(1)
+    }
+
+    /**
+     * #600: the configured directory is a mount the launcher may not own - an
+     * emptyDir with an fsGroup belongs to root - so its mode is never touched.
+     * The jar goes into a directory the launcher makes, and that one is its
+     * owner's alone; a jar left in the old place by an earlier release goes.
+     * A directory the process cannot chmod is not something a test on any
+     * platform can make without root, so the scripts/self-update run with a
+     * root-owned volume is what covers the refusal itself.
+     */
+    @Test
+    fun `the jar is written into a directory of the launcher's own, and the mounted one is left as it was`() {
+        val release = stored(Shape(version = "8.0.7"))
+        updates.activate(release.id!!, "alice")
+        val dir = Files.createTempDirectory("orknux-release-")
+        val posix = Files.getFileStore(dir).supportsFileAttributeView("posix")
+        if (posix) Files.setPosixFilePermissions(dir, java.nio.file.attribute.PosixFilePermissions.fromString("rwxrwxr-x"))
+        val leftover = Files.writeString(dir.resolve("release-1.jar"), "an old layout's jar")
+        val elsewhere = Files.writeString(dir.resolve("something-else"), "not ours to remove")
+
+        val chosen = launcher(dir).choose()
+
+        assertThat(chosen.parent).isEqualTo(dir.resolve(JAR_DIRECTORY))
+        assertThat(Files.isSymbolicLink(chosen.parent)).isFalse()
+        assertThat(leftover).doesNotExist()
+        assertThat(elsewhere).exists()
+        if (posix) {
+            assertThat(java.nio.file.attribute.PosixFilePermissions.toString(Files.getPosixFilePermissions(dir))).isEqualTo("rwxrwxr-x")
+            assertThat(java.nio.file.attribute.PosixFilePermissions.toString(Files.getPosixFilePermissions(chosen.parent))).isEqualTo("rwx------")
+            assertThat(java.nio.file.attribute.PosixFilePermissions.toString(Files.getPosixFilePermissions(chosen))).isEqualTo("r--------")
+        }
+        // A second start writes it again over the read-only copy.
+        assertThat(launcher(dir).choose()).isEqualTo(chosen)
+    }
+
+    @Test
+    fun `a file where the launcher's directory belongs is removed, never followed`() {
+        val release = stored(Shape(version = "8.0.8"))
+        updates.activate(release.id!!, "alice")
+        val dir = Files.createTempDirectory("orknux-release-")
+        Files.writeString(dir.resolve(JAR_DIRECTORY), "in the way")
+
+        val chosen = launcher(dir).choose()
+
+        assertThat(chosen).isEqualTo(dir.resolve(JAR_DIRECTORY).resolve("release-${release.id}.jar"))
+        assertThat(ReleaseJarVerifier.sha256(chosen)).isEqualTo(release.sha256)
     }
 
     @Test
@@ -482,7 +529,7 @@ class ServerReleasesTest(
         jdbc.update("UPDATE server_release SET boot_attempts = ? WHERE id = ?", DEFAULT_RELEASE_BOOT_ATTEMPTS, next.id)
         val dir = Files.createTempDirectory("orknux-release-")
 
-        assertThat(launcher(dir).choose()).isEqualTo(dir.resolve("release-${previous.id}.jar"))
+        assertThat(launcher(dir).choose()).isEqualTo(dir.resolve(JAR_DIRECTORY).resolve("release-${previous.id}.jar"))
         assertThat(releases.findById(next.id!!).get().state).isEqualTo(ServerReleaseState.FAILED)
         assertThat(releases.findById(previous.id!!).get().state).isEqualTo(ServerReleaseState.ACTIVE)
     }

@@ -748,7 +748,9 @@ spec:
             # Where the start loop writes the release it chose before running
             # it. An emptyDir rather than the image's /tmp, so a pod run with
             # readOnlyRootFilesystem still updates in place; it is rewritten on
-            # every start, so nothing in it needs to survive the pod.
+            # every start, so nothing in it needs to survive the pod. It belongs
+            # to root with the fsGroup above, which is fine: the launcher writes
+            # into a directory of its own inside it and never changes its mode.
             - name: releases
               mountPath: /tmp/orknux-release
           # /api/auth/method is what the container's own health check reads: it
