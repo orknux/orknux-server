@@ -30,6 +30,10 @@ have failed.
 - A stored release that stops starting ends on the image's own jar instead of in a crash loop, however it was chosen. The start loop now runs the launcher again when a stored release exits rather than leaving it to Docker or Kubernetes, and the release is marked failed, with the reason on Admin -> Updates, after the allowed boot attempts. A release that has run before counts only the starts that failed, so replicas restarting together never fail a healthy one.
 - The plugin catalog lists Marketplace first and opens on it; Local, for a file of your own, is the second shelf. Opening the Catalog tab now asks the marketplace straight away.
 
+### 🐛 Fixed
+
+- A plugin function or tool that takes a connection as an argument is handed the connection itself - its address, auth kind and headers for a host of the plugin's own kind, as a connection setting is - instead of the id the agent or the workflow node wrote. A model may pass the connection's id or its name; one from another workspace, or of a kind the plugin does not use, is refused with the workspace's connections that would do, and the tool's description lists them.
+
 ## 0.9.9.8
 
 ### ✨ Added

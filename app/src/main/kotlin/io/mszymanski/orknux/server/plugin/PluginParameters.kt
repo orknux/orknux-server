@@ -3,6 +3,7 @@ package io.mszymanski.orknux.server.plugin
 import io.mszymanski.orknux.connector.connection.ConnectionCredentials
 import io.mszymanski.orknux.connector.connection.WorkspaceConnectionRepository
 import io.mszymanski.orknux.connector.connection.WorkspaceConnectionService
+import io.mszymanski.orknux.connector.connection.WorkspaceConnectionView
 import io.mszymanski.orknux.server.variable.WorkspaceVariableRepository
 import org.slf4j.LoggerFactory
 import org.springframework.data.repository.findByIdOrNull
@@ -253,9 +254,9 @@ class PluginParameters(
 
     /**
      * Which connections may cross with their address and credential, and for
-     * which workspace. Only [settingsFor] builds one: it is the path into the
-     * sandbox, and every other reader of a parameter only wants to know whether
-     * it is answered. Issue #363.
+     * which workspace. Only [settingsFor] and [connectionArguments] build one:
+     * they are the paths into the sandbox, and every other reader of a
+     * parameter only wants to know whether it is answered. Issue #363.
      */
     private class Opened(val workspaceId: Long, val ownKinds: Set<String>)
 
@@ -278,43 +279,7 @@ class PluginParameters(
             val id = setting.literalValue?.toLongOrNull() ?: return null
             val connection = connections.workspaceConnection(id) ?: return null
             if (!ofKind(null, parameter.connectionType, connection.type.name, connection.pluginType)) return null
-            val handle = mapper.createObjectNode()
-            handle.put("id", id)
-            handle.put("type", connection.type.name)
-            // Which of the plugin's own kinds of host this is, where it is one. Issue #363.
-            connection.pluginType?.let { handle.put("pluginType", it) }
-            /*
-             * A host of the plugin's own kind crosses with what reaching it
-             * takes: the address, the auth kind, the credential and every
-             * header to send. Issue #363.
-             *
-             * The rule above - never the credential - is about connections the
-             * plugin did not define. A Slack connection is the server's to
-             * speak to, through doors that keep the token on this side. A kind
-             * the plugin declared has no such door and is not meant to have
-             * one: the plugin is the only thing that knows how to talk to a
-             * Prometheus, and it does so over `orknux.http` under the
-             * NETWORK_REQUEST somebody already accepted for it. So the
-             * connection is where its credential lives - encrypted, kept off
-             * the plugin's settings page, chosen per workspace - and this is
-             * the one place it is handed over.
-             *
-             * Strictly the plugin's own: the id a connection stores is matched
-             * against this plugin's key and declared names, so a connection
-             * wearing another plugin's kind - or one this plugin stopped
-             * declaring - stays a handle. And only a connection of the
-             * workspace the plugin runs for, whatever a stale row points at.
-             */
-            if (opened != null && connection.pluginType in opened.ownKinds && connection.workspaceId == opened.workspaceId) {
-                val row = connectionRows.findByIdOrNull(id) ?: return null
-                val target = credentials.target(row)
-                handle.put("url", target.url)
-                handle.put("authType", target.authType.name)
-                target.secret?.let { handle.put("secret", it) }
-                val headers = handle.putObject("headers")
-                target.requestHeaders().forEach { (name, value) -> headers.put(name, value) }
-            }
-            return mapper.writeValueAsString(handle)
+            return handleOf(connection, opened)
         }
 
         setting.literalValue?.let { return asJson(parameter.type, it) }
@@ -331,6 +296,212 @@ class PluginParameters(
         }
         return asJson(parameter.type, variable.value)
     }
+
+    /**
+     * What crosses into the sandbox for one connection: the handle a setting
+     * and an argument both arrive as. Null where the row has gone.
+     */
+    private fun handleOf(connection: WorkspaceConnectionView, opened: Opened?): String? {
+        val id = connection.id
+        val handle = mapper.createObjectNode()
+        handle.put("id", id)
+        handle.put("type", connection.type.name)
+        // Which of the plugin's own kinds of host this is, where it is one. Issue #363.
+        connection.pluginType?.let { handle.put("pluginType", it) }
+        /*
+         * A host of the plugin's own kind crosses with what reaching it
+         * takes: the address, the auth kind, the credential and every
+         * header to send. Issue #363.
+         *
+         * The rule above - never the credential - is about connections the
+         * plugin did not define. A Slack connection is the server's to
+         * speak to, through doors that keep the token on this side. A kind
+         * the plugin declared has no such door and is not meant to have
+         * one: the plugin is the only thing that knows how to talk to a
+         * Prometheus, and it does so over `orknux.http` under the
+         * NETWORK_REQUEST somebody already accepted for it. So the
+         * connection is where its credential lives - encrypted, kept off
+         * the plugin's settings page, chosen per workspace - and this is
+         * the one place it is handed over.
+         *
+         * Strictly the plugin's own: the id a connection stores is matched
+         * against this plugin's key and declared names, so a connection
+         * wearing another plugin's kind - or one this plugin stopped
+         * declaring - stays a handle. And only a connection of the
+         * workspace the plugin runs for, whatever a stale row points at.
+         */
+        if (opened != null && connection.pluginType in opened.ownKinds && connection.workspaceId == opened.workspaceId) {
+            val row = connectionRows.findByIdOrNull(id) ?: return null
+            val target = credentials.target(row)
+            handle.put("url", target.url)
+            handle.put("authType", target.authType.name)
+            target.secret?.let { handle.put("secret", it) }
+            val headers = handle.putObject("headers")
+            target.requestHeaders().forEach { (name, value) -> headers.put(name, value) }
+        }
+        return mapper.writeValueAsString(handle)
+    }
+
+    /* ------------------------------------------------ connection arguments ---- */
+
+    /**
+     * A function's or a tool's arguments, with every connection argument turned
+     * into the handle a connection setting arrives as.
+     *
+     * A function or a tool may take a connection as an argument - the way one
+     * plugin reaches several Prometheus servers rather than the one a setting
+     * names - and what the caller has is the connection's id, or its name: a
+     * workflow node's picker writes the id, a model writes whatever it was told.
+     * Until this ran, that text reached the plugin as it was written, and a
+     * plugin fronting a host of its own kind had no address to call.
+     *
+     * The same checks a setting gets, applied per call rather than on a save:
+     * the connection is one of the calling workspace's, and of a kind the plugin
+     * can use. What is handed over is [handleOf]'s - address and credential for
+     * a host of the plugin's own kind, the id and type for anything else - read
+     * through [ConnectionCredentials] as every credential is.
+     *
+     * @param params what the plugin declared, in order; the arguments are
+     *   positional against them, and anything past the end (a workspace
+     *   function's granted variables) is passed through untouched.
+     */
+    fun connectionArguments(
+        plugin: Plugin,
+        workspaceId: Long,
+        params: List<PluginFunctionParamView>,
+        arguments: List<String>,
+    ): ConnectionArguments {
+        if (params.none { it.type.equals(PluginDeclarations.CONNECTION, ignoreCase = true) }) {
+            return ConnectionArguments.Handed(arguments)
+        }
+        val accepts = accepts(plugin)
+        val opened = Opened(workspaceId, accepts.ownKinds)
+        val held by lazy { connections.workspaceConnections(workspaceId) }
+
+        val handed = arguments.mapIndexed { at, given ->
+            val param = params.getOrNull(at)
+            if (param == null || !param.type.equals(PluginDeclarations.CONNECTION, ignoreCase = true)) {
+                return@mapIndexed given
+            }
+            val said = saidOf(given)
+            val found = when (said) {
+                // Left out: an optional connection the plugin decides about itself.
+                Said.Nothing -> return@mapIndexed given
+                is Said.Unreadable -> null
+                is Said.Id -> held.firstOrNull { it.id == said.id }
+                // Exact first, then regardless of case - and only where that is one connection.
+                is Said.Name -> held.firstOrNull { it.name == said.name }
+                    ?: held.filter { it.name.equals(said.name, ignoreCase = true) }.singleOrNull()
+            } ?: return ConnectionArguments.Refused(refusal(param.name, said.text, accepts, held))
+            if (!accepts.fits(found)) {
+                return ConnectionArguments.Refused(
+                    "the ${param.name} argument names ${quoted(found.name)} (id ${found.id}), which is " +
+                        "${kindOf(found)} connection rather than ${accepts.label ?: "one this plugin uses"}. " +
+                        choices(accepts, held),
+                )
+            }
+            handleOf(found, opened)
+                ?: return ConnectionArguments.Refused(refusal(param.name, said.text, accepts, held))
+        }
+        return ConnectionArguments.Handed(handed)
+    }
+
+    /**
+     * What a model is told a connection argument takes, for one plugin and one
+     * workspace: the kind, both ways of naming one, and the ones there are.
+     *
+     * The list is the useful half. A model has no picker; without it, the id it
+     * was meant to pass is a number it has to have been told somewhere else.
+     */
+    fun connectionArgumentMeaning(plugin: Plugin, workspaceId: Long): String {
+        val accepts = accepts(plugin)
+        val held = connections.workspaceConnections(workspaceId)
+        return "One of this workspace's ${accepts.label?.let { "$it " } ?: ""}connections, by its id or its exact " +
+            "name. " + choices(accepts, held)
+    }
+
+    /**
+     * Which connections a plugin's connection argument may name.
+     *
+     * A function's or a tool's parameter says only `connection`, never which
+     * kind - the plugin contract has no field for it - so the kind is the
+     * plugin's own: a plugin that declares kinds of host takes an argument to
+     * reach one of them, which is the whole reason it would take one (a setting
+     * already names a single connection per workspace). A plugin declaring no
+     * kinds takes any of the workspace's connections, as a handle.
+     */
+    private fun accepts(plugin: Plugin): Accepts {
+        val own = declarations.readConnectionTypes(plugin.declaredConnectionTypes, plugin.key, plugin.name)
+        if (own.isEmpty()) return Accepts(null, emptySet())
+        return Accepts(own.joinToString(" or ") { it.label }, own.map { it.id }.toSet())
+    }
+
+    private class Accepts(val label: String?, val ownKinds: Set<String>) {
+        fun fits(connection: WorkspaceConnectionView): Boolean = ownKinds.isEmpty() || connection.pluginType in ownKinds
+    }
+
+    /** What the caller wrote, read as an id, a name, or neither. */
+    private sealed interface Said {
+        /** As the caller wrote it, for a refusal to repeat. */
+        val text: String
+
+        data object Nothing : Said {
+            override val text = ""
+        }
+        data class Id(val id: Long, override val text: String) : Said
+        data class Name(val name: String, override val text: String) : Said
+        data class Unreadable(override val text: String) : Said
+    }
+
+    private fun saidOf(given: String?): Said {
+        if (given.isNullOrBlank()) return Said.Nothing
+        val node = runCatching { mapper.readTree(given) }.getOrNull() ?: return Said.Unreadable(given)
+        return when {
+            node.isMissingNode || node.isNull -> Said.Nothing
+            node.isIntegralNumber -> Said.Id(node.asLong(), node.asString())
+            node.isString -> {
+                val text = node.stringValue().trim()
+                when {
+                    text.isEmpty() -> Said.Nothing
+                    text.toLongOrNull() != null -> Said.Id(text.toLong(), text)
+                    else -> Said.Name(text, text)
+                }
+            }
+            // A handle handed back - from a setting, or a step before - is
+            // read by its id and checked again, never trusted as it stands.
+            node.isObject && node.has("id") -> saidOf(mapper.writeValueAsString(node.get("id")))
+            else -> Said.Unreadable(given)
+        }
+    }
+
+    /**
+     * Why an argument names nothing usable, with what would have been.
+     *
+     * Never more than a connection's id, name and kind: this goes back to a
+     * model and into a run's log, and both are places a credential must not be.
+     */
+    private fun refusal(name: String, text: String, accepts: Accepts, held: List<WorkspaceConnectionView>): String =
+        "the $name argument has to name one of this workspace's ${accepts.label?.let { "$it " } ?: ""}" +
+            "connections, by its id or its name, and ${quoted(text)} is none of them. " + choices(accepts, held)
+
+    private fun choices(accepts: Accepts, held: List<WorkspaceConnectionView>): String {
+        val usable = held.filter { accepts.fits(it) }.sortedBy { it.id }
+        val kind = accepts.label?.let { "$it " } ?: ""
+        if (usable.isEmpty()) {
+            return "This workspace has no ${kind}connection; one has to be added on its Connections page first."
+        }
+        return "This workspace's ${kind}connections: " +
+            usable.joinToString(", ") { "${it.id} (${it.name})" } + "."
+    }
+
+    private fun kindOf(connection: WorkspaceConnectionView): String {
+        val kind = connection.pluginType ?: connection.type.name
+        return if (kind.first().lowercaseChar() in "aeiou") "an $kind" else "a $kind"
+    }
+
+    /** Quoted, and cut short: whatever a caller wrote is echoed, never at length. */
+    private fun quoted(text: String): String =
+        "\"" + (if (text.length > ECHOED_CHARS) text.take(ECHOED_CHARS) + "..." else text) + "\""
 
     /** The text as the type says it should be written, or null when it is not that. */
     private fun asJson(type: String, held: String?): String? {
@@ -351,5 +522,18 @@ class PluginParameters(
 
     private companion object {
         val log = LoggerFactory.getLogger(PluginParameters::class.java)
+
+        /**
+         * How much of what a caller wrote a refusal repeats. Enough to recognise
+         * a name or an id by; a model that pasted something long is told it
+         * named nothing, not shown it back.
+         */
+        const val ECHOED_CHARS = 80
     }
+}
+
+/** A plugin call's arguments with its connections resolved, or why one could not be. */
+sealed interface ConnectionArguments {
+    data class Handed(val arguments: List<String>) : ConnectionArguments
+    data class Refused(val reason: String) : ConnectionArguments
 }

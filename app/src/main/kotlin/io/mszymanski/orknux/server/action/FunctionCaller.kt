@@ -1,7 +1,9 @@
 package io.mszymanski.orknux.server.action
 
 import io.mszymanski.orknux.workflow.script.ScriptOrigin
+import io.mszymanski.orknux.server.plugin.ConnectionArguments
 import io.mszymanski.orknux.server.plugin.Plugin
+import io.mszymanski.orknux.server.plugin.PluginDeclarations
 import io.mszymanski.orknux.server.plugin.PluginParameters
 import io.mszymanski.orknux.server.plugin.PluginCapabilities
 import io.mszymanski.orknux.server.plugin.PluginPermissions
@@ -41,6 +43,8 @@ class FunctionCaller(
     private val pluginRunner: PluginRunner,
     private val plugins: PluginRepository,
     private val pluginParameters: PluginParameters,
+    /** What a plugin declared its functions and tools to take - which arguments are connections. */
+    private val pluginDeclarations: PluginDeclarations,
     private val pluginPermissions: PluginPermissions,
     private val pluginCapabilities: PluginCapabilities,
     private val pluginSources: PluginSources,
@@ -199,10 +203,17 @@ class FunctionCaller(
             )
         }
 
+        val declaredParams = pluginDeclarations.readTools(plugin.declaredTools)
+            .firstOrNull { it.name == toolName }?.params.orEmpty()
+        val handed = when (val resolved = pluginParameters.connectionArguments(plugin, workspaceId, declaredParams, arguments)) {
+            is ConnectionArguments.Refused -> return ScriptResult.Failed("cannot run: " + resolved.reason, 0)
+            is ConnectionArguments.Handed -> resolved.arguments
+        }
+
         return pluginRunner.call(
             plugin.source,
             toolName,
-            arguments,
+            handed,
             pluginParameters.settingsFor(plugin, workspaceId),
             pluginPermissions.grantedTo(plugin),
             pluginCapabilities.grantedTo(plugin),
@@ -323,10 +334,24 @@ class FunctionCaller(
         // by: the prefix exists so two plugins can both declare `send`, and the
         // plugin never agreed to answer to it.
         val declared = function.name.removePrefix("${plugin.key}_")
+
+        /*
+         * A connection argument arrives as whatever named it - the id a node's
+         * picker wrote, the id or name a model wrote - and leaves as the handle
+         * the plugin can reach the host with. Settled when it names nothing
+         * usable: the same id names the same row on every attempt.
+         */
+        val declaredParams = pluginDeclarations.read(plugin.declaredFunctions)
+            .firstOrNull { it.name == declared }?.params.orEmpty()
+        val handed = when (val resolved = pluginParameters.connectionArguments(plugin, workspaceId, declaredParams, arguments)) {
+            is ConnectionArguments.Refused -> return ScriptResult.Failed("cannot run: " + resolved.reason, 0)
+            is ConnectionArguments.Handed -> resolved.arguments
+        }
+
         return pluginRunner.call(
             plugin.source,
             declared,
-            arguments,
+            handed,
             pluginParameters.settingsFor(plugin, workspaceId),
             // What a person accepted for this plugin, and nothing else. Read per
             // call from this plugin's row, so one plugin's agreement cannot reach

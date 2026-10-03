@@ -315,7 +315,20 @@ class AgentTools(
                     parameters = tool.params.map { param ->
                         ToolParameterSpec(
                             name = param.name,
-                            description = describe(param),
+                            /*
+                             * A connection is said in this workspace's terms -
+                             * which kind, and which ones there are - because
+                             * "the id of a connection" leaves a model to find
+                             * a number it has no way to look up.
+                             */
+                            description = describe(
+                                param,
+                                if (param.type == ValueType.CONNECTION) {
+                                    pluginTools.connectionMeaning(tool, agent.workspaceId)
+                                } else {
+                                    null
+                                },
+                            ),
                             /*
                              * What the plugin said, rather than true for
                              * everything. A tool whose parameter may be left
@@ -339,8 +352,8 @@ class AgentTools(
      * given" answers the question the sentinel convention used to answer
      * badly.
      */
-    private fun describe(param: FunctionParam): String {
-        val said = meaning(param.type)
+    private fun describe(param: FunctionParam, meant: String? = null): String {
+        val said = meant ?: meaning(param.type)
         if (param.required) return said
         val held = param.defaultJson
         return if (held == null) "$said. Optional." else "$said. Optional; $held if not given."

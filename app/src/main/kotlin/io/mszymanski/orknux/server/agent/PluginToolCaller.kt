@@ -7,6 +7,7 @@ import io.mszymanski.orknux.server.action.ValueType
 import io.mszymanski.orknux.server.action.WorkflowFunctionRepository
 import io.mszymanski.orknux.server.plugin.Plugin
 import io.mszymanski.orknux.server.plugin.PluginDeclarations
+import io.mszymanski.orknux.server.plugin.PluginParameters
 import io.mszymanski.orknux.server.plugin.PluginRepository
 import io.mszymanski.orknux.workflow.script.ScriptOrigin
 import io.mszymanski.orknux.workflow.script.ScriptResult
@@ -40,8 +41,18 @@ class PluginToolCaller(
     private val declarations: PluginDeclarations,
     private val functions: WorkflowFunctionRepository,
     private val caller: FunctionCaller,
+    /** What a connection argument takes, said to the model in its own workspace's terms. */
+    private val parameters: PluginParameters,
     private val mapper: ObjectMapper,
 ) {
+
+    /**
+     * What a model is told to pass for a connection argument of [tool]: the
+     * kind, by id or name, and which of this workspace's connections those are.
+     * The call resolves it to the handle; see [FunctionCaller].
+     */
+    fun connectionMeaning(tool: PluginTool, workspaceId: Long): String =
+        parameters.connectionArgumentMeaning(tool.plugin, workspaceId)
 
     /**
      * One granted tool, ready to be offered and dispatched.
