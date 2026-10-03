@@ -304,7 +304,12 @@ say "Preparing a release to update to"
 self_update_prepare "$IMAGE" "$UPDATE_WORK"
 
 mapfile -t trust < <(self_update_trust_args "$UPDATE_WORK")
-docker run -d --name "$UPDATE_APP" -p "$UPDATE_PORT:8080" -v "$UPDATE_VOLUME:/var/lib/orknux" "${trust[@]}" "$IMAGE" >/dev/null
+# Any arguments are handed to docker run: #593 starts it again with a pin.
+start_update_app() {
+  docker rm -f "$UPDATE_APP" >/dev/null 2>&1 || true
+  docker run -d --name "$UPDATE_APP" -p "$UPDATE_PORT:8080" -v "$UPDATE_VOLUME:/var/lib/orknux" "${trust[@]}" "$@" "$IMAGE" >/dev/null
+}
+start_update_app
 APP="$UPDATE_APP" BASE="http://localhost:$UPDATE_PORT" wait_for_it 180
 case "$(docker logs "$UPDATE_APP" 2>&1)" in
   *"TEST ONLY"*) ok "It says, loudly, that it trusts a test key" ;;
@@ -322,5 +327,6 @@ tamper_one() {
     java -cp 'BOOT-INF/lib/*' /tools/Tamper.java jdbc:sqlite:/var/lib/orknux/orknux.db >/dev/null
 }
 self_update_run "$UPDATE_APP" "http://localhost:$UPDATE_PORT" admin "$update_password" "$UPDATE_WORK" tamper_one
+self_update_fallbacks "$UPDATE_WORK" start_update_app
 
 printf '\n\033[32morknux-one works with nothing supplied, and updates itself in place.\033[0m\n'

@@ -183,3 +183,6 @@ release key this image carries; one that is not, or that changed after it was
 stored, is refused and the image's own jar runs. **On by default**;
 `ORKNUX_SELF_UPDATE=false` turns it off. A newer image always wins over a release
 chosen under an older one, so pulling a new tag still upgrades.
+`ORKNUX_RELEASE_PIN=<version>` runs that version whatever the page chose; a
+release that does not start, pinned or chosen, is marked failed and the image's
+own jar runs.

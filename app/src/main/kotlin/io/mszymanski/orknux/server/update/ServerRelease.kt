@@ -105,6 +105,7 @@ class ServerRelease(
 
 interface ServerReleaseRepository : JpaRepository<ServerRelease, Long> {
     fun findBySha256(sha256: String): ServerRelease?
+    fun findFirstByVersionOrderByIdDesc(version: String): ServerRelease?
     fun findAllByOrderByStoredAtDescIdDesc(): List<ServerRelease>
     fun findAllByStateIn(states: Collection<ServerReleaseState>): List<ServerRelease>
     fun findAllByStateAndFailureReportedFalse(state: ServerReleaseState): List<ServerRelease>

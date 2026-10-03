@@ -79,6 +79,8 @@ class ServerReleaseAPI(
                 uploadEnabled = false,
                 urlEnabled = false,
                 maxMb = settings.releaseMaxMb(),
+                pin = null,
+                pinRefusal = null,
             )
         }
         val imageRefusal = updates.imageRefusal(floor)
@@ -117,6 +119,8 @@ class ServerReleaseAPI(
             uploadEnabled = updates.sourceEnabled(ServerReleaseSource.UPLOAD),
             urlEnabled = updates.sourceEnabled(ServerReleaseSource.URL),
             maxMb = settings.releaseMaxMb(),
+            pin = updates.pin(),
+            pinRefusal = updates.pinRefusal(),
         )
     }
 
@@ -334,6 +338,10 @@ data class ServerUpdatesView(
     val urlEnabled: Boolean,
     /** The largest jar taken, so the page can refuse one before sending a third of a gigabyte. */
     val maxMb: Int,
+    /** ORKNUX_RELEASE_PIN, where set. #593. */
+    val pin: String?,
+    /** Why the pin could not be honoured, so the image's own jar runs; null where it was. */
+    val pinRefusal: String?,
 )
 
 /** A release a repository's releases.json lists. */
@@ -387,6 +395,7 @@ class ServerReleaseExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ServerUpdatesDisabledException,
             is ServerReleaseSourceDisabledException,
             is ServerReleaseNotActivatableException,
+            is ServerReleasePinnedException,
             is ServerReleaseInUseException,
             is ServerReleaseAlreadyStoredException,
             is ServerReleaseTooLargeException,

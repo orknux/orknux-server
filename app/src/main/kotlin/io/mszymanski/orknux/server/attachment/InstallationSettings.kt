@@ -149,7 +149,7 @@ object SettingNames {
      * The newest migration this database cannot be rolled back past, raised by
      * every release that starts on it. Written by the server, never by a screen.
      */
-    const val RELEASE_SCHEMA_FLOOR = "release.schema.floor"
+    const val RELEASE_SCHEMA_FLOOR = io.mszymanski.orknux.server.update.RELEASE_SCHEMA_FLOOR_SETTING
 }
 
 /**

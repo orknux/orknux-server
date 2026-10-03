@@ -300,14 +300,132 @@ class ServerReleasesTest(
 
     // The launcher, against the tables the server just wrote.
 
-    private fun launcher(dir: Path, imageVersion: String = updates.imageVersion()) = ReleaseLauncher(
+    private fun launcher(
+        dir: Path,
+        imageVersion: String = updates.imageVersion(),
+        pin: String? = null,
+        lastExit: Int? = null,
+        lastJar: String? = null,
+        err: ByteArrayOutputStream = ByteArrayOutputStream(),
+    ) = ReleaseLauncher(
         store = store(),
         verifier = TestReleaseJars.verifier(),
         imageJar = IMAGE,
         imageVersion = imageVersion,
         releaseDir = dir,
-        err = java.io.PrintStream(ByteArrayOutputStream()),
+        err = java.io.PrintStream(err),
+        pin = pin,
+        lastExit = lastExit,
+        lastJar = lastJar,
+        imageFloor = 0,
     )
+
+    // ORKNUX_RELEASE_PIN and the way back from a jar that does not start, #593.
+
+    @Test
+    fun `a pinned release runs, whatever the database chose`() {
+        val chosen = stored(Shape(version = "8.1.1"))
+        updates.activate(chosen.id!!, "alice")
+        val pinned = stored(Shape(version = "8.1.2"))
+        val dir = Files.createTempDirectory("orknux-release-")
+
+        assertThat(launcher(dir, pin = "8.1.2").choose()).isEqualTo(dir.resolve("release-${pinned.id}.jar"))
+        // Never booted, so the start is counted - and the database's choice is left as it was.
+        assertThat(releases.findById(pinned.id!!).get().bootAttempts).isEqualTo(1)
+        assertThat(releases.findById(chosen.id!!).get().state).isEqualTo(ServerReleaseState.ACTIVATING)
+        assertThat(releases.findById(chosen.id!!).get().bootAttempts).isEqualTo(0)
+    }
+
+    @Test
+    fun `a pin to the image's own version runs the image`() {
+        val chosen = stored(Shape(version = "8.1.3"))
+        updates.activate(chosen.id!!, "alice")
+
+        assertThat(launcher(Files.createTempDirectory("orknux-release-"), imageVersion = "8.1.0", pin = "8.1.0").choose())
+            .isEqualTo(IMAGE)
+    }
+
+    @Test
+    fun `a pin the database cannot honour runs the image, says why, and never runs the database's choice`() {
+        val chosen = stored(Shape(version = "8.1.4"))
+        updates.activate(chosen.id!!, "alice")
+        val said = ByteArrayOutputStream()
+
+        assertThat(launcher(Files.createTempDirectory("orknux-release-"), pin = "8.1.99", err = said).choose()).isEqualTo(IMAGE)
+        assertThat(said.toString()).contains("ERROR").contains("ORKNUX_RELEASE_PIN is 8.1.99").contains("keeps no release 8.1.99")
+    }
+
+    @Test
+    fun `a pin below the schema floor is refused`() {
+        stored(Shape(version = "8.1.5", schemaVersion = 333))
+        settings.raiseReleaseSchemaFloor(334)
+
+        assertThat(launcher(Files.createTempDirectory("orknux-release-"), pin = "8.1.5").choose()).isEqualTo(IMAGE)
+        assertThat(ReleasePin.refusal("8.1.5", ServerReleaseState.STORED, null, 333, 334)).contains("schema V333")
+    }
+
+    @Test
+    fun `a pinned release that never starts is marked failed, and the image runs from then on`() {
+        val pinned = stored(Shape(version = "8.1.6"))
+        val dir = Files.createTempDirectory("orknux-release-")
+        val jar = dir.resolve("release-${pinned.id}.jar").toString()
+
+        repeat(DEFAULT_RELEASE_BOOT_ATTEMPTS) { i ->
+            val last = if (i == 0) null else 1
+            assertThat(launcher(dir, pin = "8.1.6", lastExit = last, lastJar = last?.let { jar }).choose().toString()).isEqualTo(jar)
+        }
+        assertThat(launcher(dir, pin = "8.1.6", lastExit = 1, lastJar = jar).choose()).isEqualTo(IMAGE)
+
+        val failed = releases.findById(pinned.id!!).get()
+        assertThat(failed.state).isEqualTo(ServerReleaseState.FAILED)
+        assertThat(failed.failure).contains("did not start in $DEFAULT_RELEASE_BOOT_ATTEMPTS attempts")
+        // And the next start does not try it again.
+        assertThat(launcher(dir, pin = "8.1.6").choose()).isEqualTo(IMAGE)
+    }
+
+    @Test
+    fun `an active release counts only the starts its loop saw fail, and goes to the image, not back`() {
+        val previous = stored(Shape(version = "8.1.7"))
+        updates.activate(previous.id!!, "alice")
+        store().restore(previous.id!!)
+        val active = stored(Shape(version = "8.1.8"))
+        updates.activate(active.id!!, "alice")
+        store().restore(active.id!!) // it started
+        val dir = Files.createTempDirectory("orknux-release-")
+        val jar = dir.resolve("release-${active.id}.jar").toString()
+
+        // Restarted by Docker, by an update, beside other replicas: not a failure.
+        repeat(5) { assertThat(launcher(dir).choose().toString()).isEqualTo(jar) }
+        assertThat(releases.findById(active.id!!).get().bootAttempts).isEqualTo(0)
+        // Another jar's crash is not this one's.
+        assertThat(launcher(dir, lastExit = 1, lastJar = "/tmp/orknux-release/release-999999.jar").choose().toString()).isEqualTo(jar)
+        assertThat(releases.findById(active.id!!).get().bootAttempts).isEqualTo(0)
+
+        repeat(DEFAULT_RELEASE_BOOT_ATTEMPTS - 1) {
+            assertThat(launcher(dir, lastExit = 137, lastJar = jar).choose().toString()).isEqualTo(jar)
+        }
+        assertThat(launcher(dir, lastExit = 137, lastJar = jar).choose()).isEqualTo(IMAGE)
+        assertThat(releases.findById(active.id!!).get().failure).contains("the last exited with 137")
+        assertThat(releases.findById(previous.id!!).get().state).isEqualTo(ServerReleaseState.STORED)
+    }
+
+    @Test
+    fun `a server that comes up forgives the starts counted against what it runs`() {
+        val release = stored(Shape(version = "8.1.9"))
+        jdbc.update("UPDATE server_release SET boot_attempts = 2 WHERE id = ?", release.id)
+        val running = ServerReleases::class.java.getDeclaredField("runningJar").apply { isAccessible = true }
+        val before = running.get(updates)
+        running.set(updates, "/tmp/orknux-release/release-${release.id}.jar")
+        try {
+            updates.started()
+        } finally {
+            running.set(updates, before)
+        }
+        val after = releases.findById(release.id!!).get()
+        assertThat(after.bootAttempts).isEqualTo(0)
+        assertThat(after.bootedAt).isNotNull()
+        assertThat(after.state).isEqualTo(ServerReleaseState.STORED)
+    }
 
     @Test
     fun `the launcher runs a verified release, from the file it verified`() {

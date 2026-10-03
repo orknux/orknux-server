@@ -81,12 +81,34 @@ class ServerReleases(
     @Value("\${orknux.update.upload:true}") private val uploadEnabled: Boolean,
     /** ORKNUX_SELF_UPDATE_URL: a jar fetched from a URL. */
     @Value("\${orknux.update.url:true}") private val urlEnabled: Boolean,
+    /** ORKNUX_RELEASE_PIN: the version every start runs, whatever is chosen here; empty where unset. #593. */
+    @Value("\${orknux.update.pin:}") private val pinned: String,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
     private val transaction = TransactionTemplate(transactions)
 
     fun enabled(): Boolean = enabled
+
+    /** ORKNUX_RELEASE_PIN, or null where unset - or where updates are off, and the launcher never runs. */
+    fun pin(): String? = pinned.trim().ifEmpty { null }?.takeIf { enabled }
+
+    /**
+     * Why the launcher could not honour the pin, or null where it did or there
+     * is none - judged by [ReleasePin], as the launcher judges it, from the
+     * same row.
+     */
+    fun pinRefusal(): String? {
+        val pin = pin() ?: return null
+        if (pin == imageVersion()) return null
+        val release = releases.findFirstByVersionOrderByIdDesc(pin)
+        return ReleasePin.refusal(pin, release?.state, release?.failure, release?.schemaVersion ?: 0, schemaFloor())
+    }
+
+    /** Admin -> Updates cannot choose a release the environment has already chosen. */
+    private fun requireUnpinned() {
+        pin()?.let { throw ServerReleasePinnedException(it) }
+    }
 
     /**
      * Whether [source] may bring a release in, and a release it brought be
@@ -133,6 +155,7 @@ class ServerReleases(
      * allowed: the same floor as any stored release, read off the image's jar.
      */
     fun imageRefusal(floor: Int = schemaFloor()): String? {
+        pin()?.let { return pinnedSentence(it) }
         if (imageJar.isBlank()) {
             return "This server was not started by the image's start loop, so it cannot say which jar the image holds."
         }
@@ -148,6 +171,7 @@ class ServerReleases(
     /** Every server back on the image's own jar: nothing chosen in the database any more. */
     fun useImage(): Unit = transaction.executeWithoutResult {
         requireEnabled()
+        requireUnpinned()
         imageRefusal()?.let { throw ServerReleaseNotActivatableException(imageVersion(), it) }
         val current = releases.findAllByStateIn(listOf(ServerReleaseState.ACTIVATING, ServerReleaseState.ACTIVE))
         current.forEach { it.state = ServerReleaseState.STORED }
@@ -169,6 +193,7 @@ class ServerReleases(
      * administrator is shown beside a disabled button.
      */
     fun refusalFor(release: ServerRelease, floor: Int = schemaFloor()): String? = when {
+        pin() != null -> pinnedSentence(pin()!!)
         release.id == runningReleaseId() && release.state == ServerReleaseState.ACTIVE -> "It is the release running now."
         // Stored before the verifier asked; the launcher would refuse it too, but only after a restart.
         ReleaseJarVerifier.predatesUpdates(release.version) ->
@@ -236,6 +261,7 @@ class ServerReleases(
      */
     fun activate(id: Long, by: String): ServerRelease = transaction.execute {
         requireEnabled()
+        requireUnpinned()
         val release = releases.findByIdOrNull(id) ?: throw ServerReleaseNotFoundException(id)
         refusalFor(release)?.let { throw ServerReleaseNotActivatableException(release.version, it) }
 
@@ -322,6 +348,10 @@ class ServerReleases(
      * jar - the same answer the launcher would give, without its side effects.
      */
     fun wantedReleaseId(): Long? {
+        pin()?.let { pin ->
+            if (pin == imageVersion() || pinRefusal() != null) return null
+            return releases.findFirstByVersionOrderByIdDesc(pin)?.id
+        }
         val current = releases.findAllByStateIn(listOf(ServerReleaseState.ACTIVATING, ServerReleaseState.ACTIVE))
             .maxByOrNull { it.id ?: 0 } ?: return null
         if (ReleaseVersion.newer(imageVersion(), current.imageVersion)) return null
@@ -339,13 +369,17 @@ class ServerReleases(
 
         val running = runningReleaseId()?.let { releases.findByIdOrNull(it) }
         if (running != null) {
-            if (running.state == ServerReleaseState.ACTIVATING || running.state == ServerReleaseState.ACTIVE) {
-                running.state = ServerReleaseState.ACTIVE
-                running.bootAttempts = 0
-                running.bootedAt = OffsetDateTime.now()
-                releases.save(running)
+            // Came up: what the launcher counted against it is forgiven, and a
+            // pinned release - chosen by no row - has booted from now on.
+            if (running.state == ServerReleaseState.ACTIVATING) running.state = ServerReleaseState.ACTIVE
+            running.bootAttempts = 0
+            running.bootedAt = OffsetDateTime.now()
+            releases.save(running)
+            if (pin() != null) {
+                log.info("Running server release {}, pinned by {}", running.version, ReleasePin.VARIABLE)
+            } else {
+                log.info("Running server release {} from the database (activated by {})", running.version, running.activatedBy)
             }
-            log.info("Running server release {} from the database (activated by {})", running.version, running.activatedBy)
         } else if (runningJar.isNotBlank()) {
             log.info("Running the image's own jar, {}", runningVersion)
         }
@@ -360,6 +394,10 @@ class ServerReleases(
             )
             failed.failureReported = true
             releases.save(failed)
+        }
+
+        pinRefusal()?.let {
+            log.error("{} is {}, and it cannot be run: {}. Running the image's own jar.", ReleasePin.VARIABLE, pin(), it)
         }
 
         val blind = launcherBlindness()
@@ -466,6 +504,14 @@ class ServerRestart(
             exitProcess(RESTART_EXIT_CODE)
         }
     }
+}
+
+private fun pinnedSentence(pin: String) =
+    "This installation is pinned to $pin by ${ReleasePin.VARIABLE}; unset it to choose a release here."
+
+/** An activation or a rollback while ORKNUX_RELEASE_PIN decides what runs. #593. */
+class ServerReleasePinnedException(val pin: String) : RuntimeException(pinnedSentence(pin)), Refusal {
+    override val arguments get() = mapOf("pin" to pin, "variable" to ReleasePin.VARIABLE)
 }
 
 class ServerUpdatesDisabledException : RuntimeException(

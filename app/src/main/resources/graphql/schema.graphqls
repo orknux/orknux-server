@@ -6835,6 +6835,10 @@ type ServerUpdates {
     urlEnabled: Boolean!
     "The largest server jar taken, in megabytes; the Admin Settings value."
     maxMb: Int!
+    "ORKNUX_RELEASE_PIN: the version every start runs whatever is chosen here; null where unset. Issue #593."
+    pin: String
+    "Why the pin could not be honoured, so the image's own jar runs instead; null where it was."
+    pinRefusal: String
 }
 
 "A server release a repository's releases.json lists. Issue #589."

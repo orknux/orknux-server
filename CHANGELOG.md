@@ -15,6 +15,16 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- `ORKNUX_RELEASE_PIN` names the server version an installation runs, over whatever Admin -> Updates chose: a kept release that is signed and not below the schema floor, or the image's own version. A pin that cannot be honoured runs the image's own jar and says why, in the log and on Admin -> Updates; while it is set, the page cannot choose.
+
+### 🔧 Changed
+
+- A stored release that stops starting ends on the image's own jar instead of in a crash loop, however it was chosen. The start loop now runs the launcher again when a stored release exits rather than leaving it to Docker or Kubernetes, and the release is marked failed, with the reason on Admin -> Updates, after the allowed boot attempts. A release that has run before counts only the starts that failed, so replicas restarting together never fail a healthy one.
+
 ## 0.9.9.8
 
 ### ✨ Added

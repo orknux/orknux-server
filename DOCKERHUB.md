@@ -263,6 +263,7 @@ must be signed with the release key this image carries. **On by default.**
 | `ORKNUX_SELF_UPDATE_OFFICIAL` `ORKNUX_SELF_UPDATE_UPLOAD` `ORKNUX_SELF_UPDATE_URL` | `false` refuses that one source. | `true` | No |
 | `ORKNUX_RELEASE_SOURCE_URL` | Fills the URL field; ending in `/`, Check reads `releases.json` there. | empty | No |
 | `ORKNUX_RELEASE_DIR` | Where the chosen jar is written to run; on a read-only root, mount an `emptyDir`. | `/tmp/orknux-release` | No |
+| `ORKNUX_RELEASE_PIN` | A version to run whatever the page chose. One it cannot run runs the image's jar and says why. | empty | No |
 
 ## Models and connections
 
@@ -326,7 +327,7 @@ and ORKNUX_TASK_SWEEP_INITIAL_DELAY are in
 | `ORKNUX_SESSION_TIMEOUT` | How long a session survives without being used. A fortnight suits a self-hosted tool behind an identity provider; shorten it otherwise. | `14d` | No |
 | `ORKNUX_SESSION_COOKIE_SAME_SITE` | `strict` where the interface shares this origin and nothing links into it; `lax` is what lets a link from elsewhere arrive signed in. | `lax` | No |
 | `ORKNUX_SESSION_COOKIE_HTTP_ONLY` | Keeps the session cookie out of reach of scripts. | `true` | No |
-| `OPENAI_LOG` | What the model SDK prints to stderr: `info` for each call's method and URL, `debug` for headers and bodies with credentials redacted. Set it when the question is which URL a provider was called at. | *none* | No |
+| `OPENAI_LOG` | What the model SDK prints to stderr: `info` each call's method and URL, `debug` headers and bodies, credentials redacted. | *none* | No |
 | `ORKNUX_LOG_LEVEL` | How much this application says: `TRACE` to `ERROR`. Its own code only - triggers, model calls, task handover - and not the frameworks. | `INFO` | No |
 | `ORKNUX_LOG_LEVEL_ROOT` | The same for everything else on the classpath, for when what is wrong is underneath this application. `DEBUG` here is very loud. | `INFO` | No |
 | `ORKNUX_LOG_FORMAT` | `plain` reads well in a terminal; `json` (one ECS object per line) is what a collector wants. Applies to console and file alike. | `plain` | No |

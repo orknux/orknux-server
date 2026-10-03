@@ -180,6 +180,14 @@ orknux:
     # the source is trusted for availability only. Blank leaves the field empty
     # for an administrator to type. #589.
     source-url: ${ORKNUX_RELEASE_SOURCE_URL:}
+    # A version every start runs, whatever Admin -> Updates chose: a release
+    # the database keeps, signed with the release key and not below the schema
+    # floor - or the image's own version. A pin that cannot be honoured runs the
+    # image's own jar and says why, in the log and on Admin -> Updates; a pinned
+    # release that does not start in the allowed attempts is marked failed and
+    # the image runs. While it is set, Admin -> Updates cannot choose. Read by
+    # the launcher; here so the server shows what it decided. #593.
+    pin: ${ORKNUX_RELEASE_PIN:}
   marketplace:
     # Where the plugin catalog is read from. This server holds no catalog of
     # its own: it asks, and installs from the URL the answer carries. Blank

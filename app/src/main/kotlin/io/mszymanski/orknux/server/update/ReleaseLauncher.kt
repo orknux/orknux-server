@@ -25,6 +25,14 @@ import java.util.Properties
  * It prints one line on standard out, the path of the jar to run, and nothing
  * else ever reaches standard out. Whatever goes wrong, the answer is the image's
  * own jar: an update must never be able to stop a container starting.
+ *
+ * Two things can override the database's choice (#593). ORKNUX_RELEASE_PIN
+ * names a version, and the launcher runs that one or - where it cannot - the
+ * image's own jar, saying why; never what the database chose instead. And a
+ * stored jar that keeps failing to start is given up on: the start loop runs
+ * the launcher again when a stored jar exits, telling it how that one ended, so
+ * a release that cannot boot ends on the image's own jar rather than in a crash
+ * loop, whichever way it was chosen.
  */
 
 /** The states a stored release moves through. The strings are the column's CHECK. */
@@ -39,6 +47,10 @@ data class LaunchableRelease(
     val bootAttempts: Int,
     val fallbackId: Long?,
     val imageVersion: String?,
+    val schemaVersion: Int = 0,
+    /** Whether a server has ever come up on it; a pinned release counts every start until one has. */
+    val booted: Boolean = false,
+    val failure: String? = null,
 )
 
 /** The launcher's access to `server_release`. JDBC in production; the same JDBC in the tests. */
@@ -46,6 +58,10 @@ interface ReleaseStore {
     /** The release chosen to run - ACTIVATING or ACTIVE; there is at most one. */
     fun current(): LaunchableRelease?
     fun row(id: Long): LaunchableRelease?
+    /** The newest stored release that says it is [version], in any state. */
+    fun byVersion(version: String): LaunchableRelease?
+    /** The schema floor the server keeps in installation_setting; 0 where none is kept yet. */
+    fun schemaFloor(): Int
     fun bootAttemptsAllowed(): Int
     fun countAttempt(id: Long)
     /** FAILED, with the reason, and flagged so the server reports it once it is up. */
@@ -67,9 +83,21 @@ class ReleaseLauncher(
     private val imageVersion: String?,
     private val releaseDir: Path,
     private val err: PrintStream = System.err,
+    /** ORKNUX_RELEASE_PIN: the version to run whatever the database chose; null where unset. */
+    private val pin: String? = null,
+    /**
+     * How the last server this start loop ran ended, and from which jar - set
+     * only where it ended without being asked to restart (exit 75) or to stop.
+     */
+    private val lastExit: Int? = null,
+    private val lastJar: String? = null,
+    /** The image's own schema floor, below which nothing may run here. */
+    private val imageFloor: Int = ReleaseJarVerifier.ownFloor(),
 ) {
 
     fun choose(): Path {
+        pin?.let { return pinned(it) }
+
         // A bound rather than a loop until settled: each pass either answers or
         // moves a row out of ACTIVATING/ACTIVE, and two is the most that takes.
         repeat(4) {
@@ -87,28 +115,81 @@ class ReleaseLauncher(
                 return imageJar
             }
 
-            if (current.state == ServerReleaseState.ACTIVATING) {
-                val allowed = store.bootAttemptsAllowed()
-                if (current.bootAttempts >= allowed) {
-                    store.fail(current.id, "it did not start in $allowed attempts")
-                    loud("Release ${current.version} did not start in $allowed attempts and is marked failed.")
-                    val previous = current.fallbackId?.let(store::row)
-                    if (previous != null && previous.state != ServerReleaseState.FAILED) store.restore(previous.id)
-                    return@repeat
-                }
-                store.countAttempt(current.id)
+            /*
+             * A release on its way in counts every start, because a container
+             * that dies with it is restarted by Docker or Kubernetes and nobody
+             * tells the launcher how. One that has run counts only the starts
+             * its own loop saw fail: four replicas restarting at once are not
+             * four failures, and counting every start would fail a healthy
+             * release on an ordinary rolling restart.
+             */
+            val activating = current.state == ServerReleaseState.ACTIVATING
+            if (!admitted(current, countEveryStart = activating)) {
+                // What ran before an activation is the way back from it; an
+                // active release that stopped starting goes to the image.
+                val previous = current.fallbackId?.takeIf { activating }?.let(store::row)
+                if (previous != null && previous.state != ServerReleaseState.FAILED) store.restore(previous.id)
+                return@repeat
             }
 
-            return try {
-                extracted(current)
-            } catch (failure: Exception) {
-                val why = (failure as? ReleaseJarRefusedException)?.why ?: (failure.message ?: failure.javaClass.simpleName)
-                store.fail(current.id, why)
-                loud("Release ${current.version} was refused at start-up and is marked failed: $why. Running the image's own jar.")
-                imageJar
-            }
+            return started(current)
         }
         return imageJar
+    }
+
+    /**
+     * ORKNUX_RELEASE_PIN, honoured or refused - and refused out loud, with the
+     * image's own jar run in its place. Never the database's choice instead:
+     * an operator who pinned a version must not be able to mistake whatever
+     * else runs for the pin.
+     */
+    private fun pinned(pin: String): Path {
+        if (pin == imageVersion) {
+            say("ORKNUX_RELEASE_PIN is $pin, the image's own version; running the image.")
+            return imageJar
+        }
+        val release = store.byVersion(pin)
+        val floor = maxOf(store.schemaFloor(), imageFloor)
+        val refusal = ReleasePin.refusal(pin, release?.state, release?.failure, release?.schemaVersion ?: 0, floor)
+        if (refusal != null || release == null) {
+            loud("ORKNUX_RELEASE_PIN is $pin, and it cannot be run: $refusal. Running the image's own jar, $imageVersion.")
+            return imageJar
+        }
+        if (!admitted(release, countEveryStart = !release.booted)) {
+            loud("ORKNUX_RELEASE_PIN is $pin, and it was given up on. Running the image's own jar, $imageVersion.")
+            return imageJar
+        }
+        return started(release)
+    }
+
+    /**
+     * Counts this start against [release] where it counts, and fails it once it
+     * has had the starts the administrator allows. False where it was failed.
+     */
+    private fun admitted(release: LaunchableRelease, countEveryStart: Boolean): Boolean {
+        val crashed = lastExit != null && releaseIdOf(lastJar) == release.id
+        if (!countEveryStart && !crashed) return true
+        val allowed = store.bootAttemptsAllowed()
+        // Where every start is counted, the one that just failed already was;
+        // a crash of a release that had run is counted here for the first time.
+        val attempts = if (countEveryStart) release.bootAttempts else release.bootAttempts + 1
+        if (attempts >= allowed) {
+            val why = "it did not start in $allowed attempts" + (if (crashed) " (the last exited with $lastExit)" else "")
+            store.fail(release.id, why)
+            loud("Release ${release.version} did not start in $allowed attempts and is marked failed.")
+            return false
+        }
+        store.countAttempt(release.id)
+        return true
+    }
+
+    private fun started(release: LaunchableRelease): Path = try {
+        extracted(release)
+    } catch (failure: Exception) {
+        val why = (failure as? ReleaseJarRefusedException)?.why ?: (failure.message ?: failure.javaClass.simpleName)
+        store.fail(release.id, why)
+        loud("Release ${release.version} was refused at start-up and is marked failed: $why. Running the image's own jar.")
+        imageJar
     }
 
     /**
@@ -137,7 +218,7 @@ class ReleaseLauncher(
         if (verified.version != release.version) {
             throw ReleaseJarRefusedException("it says it is ${verified.version}, and was stored as ${release.version}")
         }
-        say("Running release ${release.version} from the database.")
+        say("Running release ${release.version}" + (if (pin != null) ", pinned by ${ReleasePin.VARIABLE}." else " from the database."))
         return target
     }
 
@@ -181,6 +262,18 @@ class JdbcReleaseStore(private val connect: () -> Connection) : ReleaseStore {
     }
 
     override fun row(id: Long): LaunchableRelease? = query("$SELECT WHERE id = ?", id)
+
+    override fun byVersion(version: String): LaunchableRelease? {
+        if (!tableExists()) return null
+        return query("$SELECT WHERE version = ? ORDER BY id DESC", version)
+    }
+
+    override fun schemaFloor(): Int = connect().use { connection ->
+        connection.prepareStatement("SELECT value FROM installation_setting WHERE name = ?").use { statement ->
+            statement.setString(1, RELEASE_SCHEMA_FLOOR_SETTING)
+            statement.executeQuery().use { if (it.next()) it.getString(1).trim().toIntOrNull() else null }
+        }
+    } ?: 0
 
     override fun bootAttemptsAllowed(): Int = connect().use { connection ->
         connection.prepareStatement("SELECT value FROM installation_setting WHERE name = ?").use { statement ->
@@ -271,6 +364,9 @@ class JdbcReleaseStore(private val connect: () -> Connection) : ReleaseStore {
                     bootAttempts = rows.getInt("boot_attempts"),
                     fallbackId = rows.getLong("fallback_id").takeUnless { rows.wasNull() },
                     imageVersion = rows.getString("image_version"),
+                    schemaVersion = rows.getInt("schema_version"),
+                    booted = rows.getObject("booted_at") != null,
+                    failure = rows.getString("failure"),
                 )
             }
         }
@@ -286,7 +382,8 @@ class JdbcReleaseStore(private val connect: () -> Connection) : ReleaseStore {
 
     companion object {
         private const val SELECT =
-            "SELECT id, version, sha256, state, boot_attempts, fallback_id, image_version FROM server_release"
+            "SELECT id, version, sha256, state, boot_attempts, fallback_id, image_version, schema_version, booted_at, " +
+                "failure FROM server_release"
 
         /**
          * How big a piece of a stored jar is. A storage format rather than a
@@ -305,6 +402,33 @@ const val RELEASE_BOOT_ATTEMPTS_SETTING = "release.boot.attempts"
 const val DEFAULT_RELEASE_BOOT_ATTEMPTS = 3
 const val MIN_RELEASE_BOOT_ATTEMPTS = 1
 const val MAX_RELEASE_BOOT_ATTEMPTS = 20
+
+/** InstallationSettings' name for the schema floor, which the launcher reads without Spring. */
+const val RELEASE_SCHEMA_FLOOR_SETTING = "release.schema.floor"
+
+/**
+ * ORKNUX_RELEASE_PIN, #593: the one version this installation runs whatever
+ * the database chose. Judged here for the launcher and the server alike, so
+ * Admin -> Updates says exactly what the launcher did.
+ */
+object ReleasePin {
+    const val VARIABLE = "ORKNUX_RELEASE_PIN"
+
+    /**
+     * Why a pin to [pin] cannot be honoured, or null where it can - given the
+     * newest stored release by that version ([state] null where there is none)
+     * and the database's schema floor. The signature is checked when the jar is
+     * written out; one that fails it is marked FAILED, and refused here after.
+     */
+    fun refusal(pin: String, state: ServerReleaseState?, failure: String?, schemaVersion: Int, floor: Int): String? = when {
+        state == null -> "the database keeps no release $pin; store it on Admin -> Updates first"
+        state == ServerReleaseState.FAILED -> "release $pin is marked failed" + (failure?.let { " ($it)" } ?: "")
+        ReleaseJarVerifier.predatesUpdates(pin) -> ReleaseJarVerifier.PREDATES_UPDATES
+        schemaVersion < floor ->
+            "it was built for schema V$schemaVersion, and this database has run migrations up to V$floor that it cannot go back past"
+        else -> null
+    }
+}
 
 /** The exit code that asks the start loop to choose a jar and start again. */
 const val RESTART_EXIT_CODE = 75
@@ -383,5 +507,9 @@ private fun launch(image: Path): Path {
         imageJar = image,
         imageVersion = ReleaseJarVerifier.versionOf(image),
         releaseDir = directory,
+        pin = env(ReleasePin.VARIABLE)?.trim(),
+        // Set by the start loop when the jar it ran last exited on its own.
+        lastExit = env("ORKNUX_LAST_EXIT")?.toIntOrNull(),
+        lastJar = env("ORKNUX_LAST_JAR"),
     ).choose()
 }
