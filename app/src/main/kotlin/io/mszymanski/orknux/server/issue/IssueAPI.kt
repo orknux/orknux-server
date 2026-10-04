@@ -107,6 +107,14 @@ class IssueAPI(
          */
         @Argument typeId: String?,
         @Argument search: String?,
+        /**
+         * Labels the issue must carry, every one of them, matched exactly and
+         * in any case. Issue #610: a label clicked on the page went into the
+         * search, which also reads the title and the description, so an issue
+         * that merely mentioned `0.9.9.12` came back under that label. The
+         * two are separate arguments and may be combined.
+         */
+        @Argument labels: List<String>?,
         @Argument page: Int?,
         @Argument size: Int?,
         @Argument order: IssueOrder?,
@@ -162,6 +170,7 @@ class IssueAPI(
                 workspaceId = workspaceId,
                 status = status?.let { statuses.match(workspaceId, it).key },
                 search = search,
+                labels = labels.orEmpty().map { it.trim() }.filter { it.isNotEmpty() },
                 type = typeWanted(workspaceId, typeId),
             ),
             asked,

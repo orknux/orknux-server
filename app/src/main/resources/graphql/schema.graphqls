@@ -26,7 +26,13 @@ type Query {
         already means "never mind".
         """
         typeId: ID,
+        "Words to look for in the title, the description or the labels."
         search: String,
+        """
+        Labels the issue carries, every one of them, matched exactly and in any
+        case - never against the title or the description. Combines with search.
+        """
+        labels: [String!],
         page: Int,
         size: Int,
         "Newest first when absent."

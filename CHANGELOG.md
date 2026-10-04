@@ -24,6 +24,7 @@ have failed.
 ### 🐛 Fixed
 
 - A model's usage is no longer lost when two answers are the first of the day at the same moment, or under-counted when two land together: each call is added to the day's row in one statement. On Postgres the lost call also logged `HHH000099: an assertion failure occurred`.
+- Clicking a label on the issues page shows the issues carrying that label, exactly and in any case, and no longer those that merely mention it in their title or description; it combines with the search box, and several labels mean all of them. `workspaceIssues` takes the same filter as a `labels` argument.
 
 ## 0.9.9.11
 
