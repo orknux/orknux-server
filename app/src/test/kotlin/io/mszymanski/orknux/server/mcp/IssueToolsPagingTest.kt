@@ -135,6 +135,30 @@ class IssueToolsPagingTest(
         assertThat(found).containsExactlyInAnyOrderElementsOf(oldest.toList())
     }
 
+    /**
+     * Issue #610: `labels` matches the labels, exactly and in any case - not
+     * an issue that mentions the label in its title or description, which is
+     * what `search` is for.
+     */
+    @Test
+    fun `the labels argument matches labels only, and search still reads the text`() {
+        issues.save(
+            Issue(
+                workspaceId = workspaceId,
+                number = filed + 1,
+                title = "Mentions P1 in its title",
+                description = "Nothing labelled here, only p1 in the words",
+                reporter = "alice",
+            ),
+        )
+
+        val labelled = numbersIn(tools.list(scope, """{"labels": "P1"}"""))
+        assertThat(labelled).containsExactlyInAnyOrderElementsOf(oldest.toList())
+
+        val searched = numbersIn(tools.list(scope, """{"search": "only p1 in the words"}"""))
+        assertThat(searched).containsExactly(filed + 1)
+    }
+
     /** Two labels still mean "carries both", now that the query does the work. */
     @Test
     fun `two labels still mean every one of them`() {

@@ -65,10 +65,15 @@ class IssueAPITest(
         )
     }
 
-    private fun file(title: String, labels: String = "[]", workspace: Long = workspaceId): Long =
+    private fun file(
+        title: String,
+        labels: String = "[]",
+        workspace: Long = workspaceId,
+        description: String = "Something to look at",
+    ): Long =
         graphQlTester.document(
             """mutation { createIssue(input: {
-                 workspaceId: $workspace, title: "$title", description: "Something to look at", labels: $labels
+                 workspaceId: $workspace, title: "$title", description: "$description", labels: $labels
                }) { id number status reporter } }""",
         ).execute()
             .path("createIssue.status").entity(String::class.java).isEqualTo("OPEN")
@@ -112,6 +117,50 @@ class IssueAPITest(
         graphQlTester.document("""{ workspaceIssues(workspaceId: $workspaceId, search: "look at") { content { title } } }""")
             .execute()
             .path("workspaceIssues.content").entityList(Any::class.java).hasSize(2)
+    }
+
+    /**
+     * Issue #610: a label filter matches the labels and nothing else. An issue
+     * whose description says `0.9.9.12` is not filed under it, and is still
+     * what a text search for the same words finds.
+     */
+    @Test
+    fun `a label filter matches labels only, exactly and in any case`() {
+        file("Shipped in the release", labels = """["0.9.9.12"]""")
+        file("Mentions the release", description = "Seen on 0.9.9.12 too")
+        file("A longer label", labels = """["0.9.9.123"]""")
+
+        graphQlTester.document(
+            """{ workspaceIssues(workspaceId: $workspaceId, labels: ["0.9.9.12"]) { totalElements content { title } } }""",
+        ).execute()
+            .path("workspaceIssues.content[*].title").entityList(String::class.java)
+            .containsExactly("Shipped in the release")
+
+        // The text search still reads the description - and the labels.
+        graphQlTester.document(
+            """{ workspaceIssues(workspaceId: $workspaceId, search: "0.9.9.12", order: TITLE, ascending: true) { content { title } } }""",
+        ).execute()
+            .path("workspaceIssues.content[*].title").entityList(String::class.java)
+            .containsExactly("A longer label", "Mentions the release", "Shipped in the release")
+    }
+
+    @Test
+    fun `a label filter ignores case and combines with the search and with another label`() {
+        file("Reply is late", labels = """["Slack", "p1"]""")
+        file("Reply is lost", labels = """["slack"]""")
+        file("Trigger fires twice", labels = """["slack", "p1"]""")
+
+        graphQlTester.document(
+            """{ workspaceIssues(workspaceId: $workspaceId, labels: ["SLACK"], search: "reply", order: TITLE, ascending: true) { content { title } } }""",
+        ).execute()
+            .path("workspaceIssues.content[*].title").entityList(String::class.java)
+            .containsExactly("Reply is late", "Reply is lost")
+
+        graphQlTester.document(
+            """{ workspaceIssues(workspaceId: $workspaceId, labels: ["slack", "P1"], order: TITLE, ascending: true) { content { title } } }""",
+        ).execute()
+            .path("workspaceIssues.content[*].title").entityList(String::class.java)
+            .containsExactly("Reply is late", "Trigger fires twice")
     }
 
     @Test

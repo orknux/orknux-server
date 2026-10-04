@@ -59,6 +59,7 @@ import io.mszymanski.orknux.server.workflow.WorkspaceWorkflow
 import io.mszymanski.orknux.server.workflow.WorkspaceWorkflowRepository
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
+import org.springframework.data.repository.findByIdOrNull
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -179,7 +180,11 @@ class ComponentImporter(
         // apart by kind, so a tool and a server sharing a name cannot take each
         // other with them. Issues #383 and #580.
         val droppedRows = plan.entries.filter { it.disposition == ImportDisposition.EXCLUDE && !it.carried }
-        val dropped = droppedRows.filter { it.kind == ComponentKind.TOOL }.map { it.name }.toSet()
+        val dropped = droppedRows.filter { it.kind == ComponentKind.TOOL }.map { it.name }.toSet() +
+            // And a carried tool left out that this workspace has none of: its
+            // agents arrive without the grant. Issue #3.
+            leftOut.filter { (kind, name) -> kind == ComponentKind.TOOL && findByName(workspaceId, kind, name) == null }
+                .map { it.second }
         val droppedServers = droppedRows.filter { it.external == ExternalKind.MCP_SERVER }.map { it.name }.toSet()
 
         // What the file could not carry, settled before anything is written:
@@ -324,7 +329,15 @@ class ComponentImporter(
         // off stays where it was on the list instead of vanishing from it.
         val taken = mutableMapOf<ComponentKind, MutableSet<String>>()
         parsed.components.forEach { component ->
-            val why = leftOut[component.kind to component.name]
+            val why = leftOut[component.kind to component.name]?.let { said ->
+                if (component.kind != ComponentKind.TOOL || findByName(workspaceId, component.kind, component.name) != null) {
+                    return@let said
+                }
+                val holders = held.filter { it.kind == ComponentKind.AGENT && component.name in it.node.names("toolRefs") }
+                    .map { it.name }
+                if (holders.isEmpty()) said else "$said ${holders.joinToString()} " +
+                    (if (holders.size == 1) "arrives" else "arrive") + " without it."
+            }
             if (why != null) {
                 entries += ImportEntry(
                     kind = component.kind,
@@ -433,6 +446,13 @@ class ComponentImporter(
                     return@forEach
                 }
                 val existing = findByName(workspaceId, kind, name)
+                /*
+                 * A tool the file carries and is leaving out, which this
+                 * workspace has none of: the agent arrives without that grant
+                 * rather than being left out with it. The carried row already
+                 * says so. Issue #3.
+                 */
+                if (droppable && existing == null && kind to name in leftOut) return@forEach
                 if (existing == null) {
                     entries += ImportEntry(
                         kind = kind,
@@ -458,13 +478,23 @@ class ComponentImporter(
                     )
                     problems += "There is no ${kind.label} called $name here, and ${component.name} needs one."
                 } else {
+                    val installation = if (kind == ComponentKind.FUNCTION) {
+                        functions.findByIdOrNull(existing)?.takeIf { it.workspaceId == null }
+                    } else {
+                        null
+                    }
                     entries += ImportEntry(
                         kind = kind,
                         name = name,
                         targetName = name,
                         droppable = droppable,
                         disposition = ImportDisposition.REUSE,
-                        detail = "Already here; the imported ${component.name} will point at it.",
+                        detail = if (installation != null) {
+                            "Brought by ${broughtBy(installation)}, which every workspace of this installation " +
+                                "has; the imported ${component.name} calls it."
+                        } else {
+                            "Already here; the imported ${component.name} will point at it."
+                        },
                     )
                 }
             }
@@ -625,7 +655,12 @@ class ComponentImporter(
             settled = true
             parsed.components.filter { (it.kind to it.name) !in out }.forEach { component ->
                 val needed = referencesOf(component).firstOrNull { (kind, name) ->
-                    kind to name in out && findByName(workspaceId, kind, name) == null
+                    kind to name in out && findByName(workspaceId, kind, name) == null &&
+                        // An agent without one of its tools is still the agent:
+                        // it arrives without the grant. Leaving out a tool used
+                        // to leave out every agent holding it, and every
+                        // workflow using those, without anybody asking. Issue #3.
+                        !(component.kind == ComponentKind.AGENT && kind == ComponentKind.TOOL)
                 } ?: return@forEach
                 out[component.kind to component.name] =
                     "Left out too: it points at ${needed.first.indefinite} called ${needed.second}, which is " +
@@ -1426,6 +1461,27 @@ class ComponentImporter(
             (kind != ComponentKind.TOOL || name !in pluginToolNames())
 
     /**
+     * A function every workspace of this installation has: one a plugin
+     * declared, under `<key>_<function>`, or one the release embeds. Issue #3.
+     *
+     * An action calling `slack_toSlack` was refused on import as calling a
+     * function "this file does not carry and this workspace does not have",
+     * though the Slack plugin was installed and the function was on the
+     * workspace's list. No export carries one - it is not the workspace's to
+     * carry - so it is reused by name the way a plugin's tool is.
+     */
+    private fun installationFunction(name: String): WorkflowFunction? =
+        functions.findByScopeAndName(FunctionScope.PLUGIN, name)
+            ?: functions.findByScopeAndName(FunctionScope.EMBEDDED, name)
+
+    /** Who brought an installation function, for the row that says it is reused. */
+    private fun broughtBy(function: WorkflowFunction): String = when (function.scope) {
+        FunctionScope.PLUGIN -> function.pluginId?.let { id -> plugins.findById(id).orElse(null)?.name }
+            ?.let { "the $it plugin" } ?: "a plugin"
+        else -> "this release of Orknux"
+    }
+
+    /**
      * The tools loaded plugins bring, by the name an agent's grant list holds
      * them under - `<key>_<function>`. Every workspace of the installation has
      * them, so a grant naming one is neither carried nor missing. Issue #383.
@@ -1481,6 +1537,7 @@ class ComponentImporter(
     private fun findByName(workspaceId: Long, kind: ComponentKind, name: String): Long? = when (kind) {
         ComponentKind.OBJECT -> objects.findByWorkspaceIdAndName(workspaceId, name)?.id
         ComponentKind.FUNCTION -> functions.findByWorkspaceIdAndName(workspaceId, name)?.id
+            ?: installationFunction(name)?.id
         // A definition a workflow owns may share a name with another's, so
         // these three take the shared one where there is one and the first
         // otherwise, rather than throwing over two workflows' "Action".

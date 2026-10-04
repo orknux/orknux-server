@@ -1,6 +1,9 @@
 package io.mszymanski.orknux.server.plugin
 
 import io.mszymanski.orknux.server.agent.Agent
+import io.mszymanski.orknux.server.agent.AgentAPI
+import io.mszymanski.orknux.server.agent.CreateAgentInput
+import io.mszymanski.orknux.server.agent.UpdateAgentInput
 import io.mszymanski.orknux.server.agent.AgentRepository
 import io.mszymanski.orknux.server.agent.AgentSkill
 import io.mszymanski.orknux.server.agent.AgentSkillRepository
@@ -45,6 +48,7 @@ class PluginSkillsTest(
     @Autowired val skills: AgentSkillRepository,
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val audit: WorkspaceAuditRepository,
+    @Autowired val agentApi: AgentAPI,
 ) {
 
     private var workspaceId: Long = 0
@@ -190,6 +194,69 @@ class PluginSkillsTest(
         plugin.enabled = true
         plugins.save(plugin)
         assertThat(granted(granted)).hasSize(2)
+    }
+
+    /* ------------------------------------------------ granted by default (#4) */
+
+    private fun created(name: String = "fresh"): Agent = agents.findById(
+        requireNotNull(agentApi.createAgent(CreateAgentInput(workspaceId = workspaceId, name = name, type = AgentType.LLM)).id),
+    ).get()
+
+    /**
+     * Issue #4: a new agent starts with every enabled plugin's catalog, as it
+     * starts with every built-in tool, instead of each being ticked by hand.
+     */
+    @Test
+    fun `a new agent is granted every plugin's skill catalog`() {
+        load()
+
+        val agent = created()
+
+        assertThat(agent.skillCatalogs).containsExactlyInAnyOrder(BuiltInSkills.CATALOG, "deploys_plugin")
+        assertThat(granted(agent)).hasSize(2)
+    }
+
+    /** One switched off is not offered, so it is not granted either. */
+    @Test
+    fun `a plugin switched off is not granted to a new agent`() {
+        load()
+        val plugin = plugins.findByKey("deploys")!!
+        plugin.enabled = false
+        plugins.save(plugin)
+
+        assertThat(created().skillCatalogs).containsExactly(BuiltInSkills.CATALOG)
+    }
+
+    /** And it is switched off per agent as any grant is, and stays off. */
+    @Test
+    fun `a new agent can have a plugin's catalog taken away, and it stays away`() {
+        load()
+        val agent = created()
+
+        agentApi.updateAgent(
+            requireNotNull(agent.id),
+            UpdateAgentInput(name = agent.name, skillCatalogs = listOf(BuiltInSkills.CATALOG)),
+        )
+
+        assertThat(agents.findById(requireNotNull(agent.id)).get().skillCatalogs).containsExactly(BuiltInSkills.CATALOG)
+    }
+
+    /**
+     * Not granted to an agent that already existed when the plugin arrived -
+     * neither by loading the plugin nor by a migration: an existing agent
+     * without a catalog may be one somebody chose to leave without it, and
+     * nothing stored can tell that from one nobody looked at. See
+     * `AgentAPI.startingCatalogs`.
+     */
+    @Test
+    fun `a plugin loaded later is not granted to an agent that already existed`() {
+        val before = created("before")
+
+        load()
+
+        assertThat(agents.findById(requireNotNull(before.id)).get().skillCatalogs)
+            .containsExactly(BuiltInSkills.CATALOG)
+        assertThat(created("after").skillCatalogs).contains("deploys_plugin")
     }
 
     /**

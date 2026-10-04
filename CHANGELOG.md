@@ -31,6 +31,12 @@ have failed.
 
 - Copy buttons copied nothing on an installation reached over plain http at a LAN address, where the browser offers no clipboard API; they fall back to the older copy command and say Copied, or that it could not copy.
 - A chat left while the agent is still thinking and opened again before it has finished now picks the answer up: the thinking and lookups so far are drawn, the rest arrives live, and Stop still stops it. It used to show the question and nothing else until the page was reloaded after the answer was done.
+- Admin -> Settings -> Agents: how long to wait out a rate limit that arrives inside a streaming answer and names no time (5 seconds by default, doubled on the next attempt, 1 to 60), read on every call.
+- A new agent starts with every enabled plugin's skill catalog granted, beside the server's own, and can have any of them switched off on its page. Agents that already exist are left as they were, and so is every existing agent when a plugin is installed later: grant the catalog on those by hand if they should have it.
+- Importing components: leaving out a tool the file carries no longer leaves out every agent that holds it (and every workflow using those agents); the agents arrive without that grant, and the tool's row says which. Where the workspace has a tool of that name, the agents point at it, as before.
+- Importing an action, condition or trigger that calls a plugin's function (`slack_toSlack`) no longer refuses it as missing where the plugin is installed: the plugin's function is reused, as a plugin's tool already was.
+- A model's usage is no longer lost when two answers are the first of the day at the same moment, or under-counted when two land together: each call is added to the day's row in one statement. On Postgres the lost call also logged `HHH000099: an assertion failure occurred`.
+- Clicking a label on the issues page shows the issues carrying that label, exactly and in any case, and no longer those that merely mention it in their title or description; it combines with the search box, and several labels mean all of them. `workspaceIssues` takes the same filter as a `labels` argument.
 
 ## 0.9.9.11
 

@@ -283,6 +283,8 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is io.mszymanski.orknux.server.attachment.ActiveWindowOutOfRangeException,
             /* How long a workspace copy waits for a lock. Issue #581. */
             is io.mszymanski.orknux.server.attachment.CopyLockWaitOutOfRangeException,
+            /* The first wait for a rate limit that named none. Issue #608. */
+            is io.mszymanski.orknux.server.attachment.RateLimitBackoffOutOfRangeException,
             /* The knobs of server updates. Issue #584. */
             is io.mszymanski.orknux.server.attachment.ReleasesKeptOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.ReleaseBootAttemptsOutOfRangeException,

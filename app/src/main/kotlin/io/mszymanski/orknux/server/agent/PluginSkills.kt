@@ -17,8 +17,10 @@ import org.springframework.stereotype.Service
  * **A plugin's skills are a catalog named `<key>_plugin`**, which is the whole
  * of the grant model. Skills have always been granted by catalog, and a plugin's
  * are granted the same way, from the same picker, by the same field on the
- * agent. Nothing is automatic: a plugin loaded into this installation hands its
- * skills to nobody until somebody grants the catalog.
+ * agent. An agent made after a plugin is loaded starts with its catalog, the
+ * way it starts with every built-in tool (issue #4, see `AgentAPI`); one that
+ * already existed is left as it was, so loading a plugin changes no agent's
+ * briefing until somebody grants the catalog there.
  *
  * The suffix is what makes the name the plugin's own. A bare key could be a
  * folder somebody already has - and then one grant string meant two things,

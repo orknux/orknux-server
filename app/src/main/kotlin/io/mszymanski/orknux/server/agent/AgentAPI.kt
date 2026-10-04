@@ -47,7 +47,35 @@ class AgentAPI(
     private val budgets: SessionMemoryBudgets,
     private val connections: WorkspaceConnectionService,
     private val builtIns: io.mszymanski.orknux.server.chat.BuiltInTools,
+    /** What a new agent is granted to read: every catalog the server and its plugins bring. Issue #4. */
+    private val pluginSkills: PluginSkills,
 ) {
+
+    /**
+     * The skill catalogs a new agent starts with: the server's own, and every
+     * catalog an enabled plugin brings. Issue #4.
+     *
+     * A plugin's catalog had to be granted by hand on every agent, so an agent
+     * made in a workspace with the Slack plugin did not know how that plugin's
+     * work is meant to be done until somebody went and ticked it. A skill is
+     * markdown an agent reads - it runs nothing and reaches nothing - so it is
+     * granted the way the built-in tools are: on, and switched off per agent
+     * on its page.
+     *
+     * Only at creation. An agent that already exists is not given a catalog
+     * by a migration, nor by a plugin installed later: before this, nothing
+     * was automatic, so an existing agent without a plugin's catalog is one
+     * somebody may have chosen to leave without it, and nothing stored can
+     * tell that apart from one nobody looked at. Adding instructions to the
+     * briefing of an agent already tuned and running changes what it does
+     * without anybody in its workspace having asked - and installing a plugin
+     * is an administrator's act across every workspace, so it would be done to
+     * agents whose owners never saw it happen. Built-in tools are different
+     * because V302's agents held them by not hiding them; a catalog is held by
+     * being named.
+     */
+    private fun startingCatalogs(): MutableList<String> =
+        (listOf(BuiltInSkills.CATALOG) + pluginSkills.catalogs().map { it.name }).distinct().toMutableList()
 
     /** The agent, with what its model is called: the screen shows the name. */
     private fun describe(agent: Agent) =
@@ -169,8 +197,9 @@ class AgentAPI(
                 requiredTools = BuiltInTools.GRANTED.toMutableList(),
                 // And the skills the server brings, for the same reason: they
                 // are what a command means, and an agent that holds none has no
-                // commands to tell anybody about. Issue #471.
-                skillCatalogs = mutableListOf(BuiltInSkills.CATALOG),
+                // commands to tell anybody about. Issue #471. With every
+                // plugin's catalog beside them; see startingCatalogs. Issue #4.
+                skillCatalogs = startingCatalogs(),
                 lastModifiedBy = currentUser(),
             ),
         )
@@ -237,10 +266,11 @@ class AgentAPI(
                 icon = DEFAULT_AGENT_ICON,
                 // As a hand-made agent: nothing hidden, so every built-in. #455.
                 requiredTools = BuiltInTools.GRANTED.toMutableList(),
-                // And the server's own skills, as a hand-made agent has. Still
-                // nothing of the workspace's, which is what the paragraph above
-                // is about: this catalog is the server's. Issue #471.
-                skillCatalogs = mutableListOf(BuiltInSkills.CATALOG),
+                // And the server's own skills and its plugins', as a hand-made
+                // agent has. Still nothing of the workspace's, which is what the
+                // paragraph above is about: these catalogs are the
+                // installation's, and a skill runs nothing. Issues #471 and #4.
+                skillCatalogs = startingCatalogs(),
                 lastModifiedBy = currentUser(),
             ),
         )
