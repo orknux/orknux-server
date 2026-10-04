@@ -70,6 +70,15 @@ class Watcher(
     @Column(nullable = false, columnDefinition = "text")
     val condition: String,
 
+    /**
+     * Which part of the tool's result the condition is held against: a JSONPath,
+     * `$` for the whole result. Chosen by the agent, on purpose, every time - a
+     * regex meant for a body of 0 was found in a status of 200. Null on watchers
+     * set before it existed, which read as the whole result.
+     */
+    @Column(name = "tool_result_path", length = 500)
+    val toolResultPath: String? = null,
+
     @Column(name = "interval_seconds", nullable = false)
     val intervalSeconds: Int,
 

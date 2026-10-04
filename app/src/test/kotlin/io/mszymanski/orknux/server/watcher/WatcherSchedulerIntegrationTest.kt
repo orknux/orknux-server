@@ -98,7 +98,7 @@ class WatcherSchedulerIntegrationTest(
         val answer = requireNotNull(tools.shed(agent, session)).run(
             ToolCall(
                 "1", WatcherTools.SET,
-                """{"tool":"buildStatus","condition_type":"jsonpath","condition":"$[?(@.status == 'done')]",
+                """{"tool":"buildStatus","tool_result_path":"$","condition_type":"jsonpath","condition":"$[?(@.status == 'done')]",
                    "interval_seconds":15,"timeout_seconds":600}""",
             ),
         )

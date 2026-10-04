@@ -49,6 +49,8 @@ type Watcher {
     arguments: String!
     conditionKind: WatcherConditionKind!
     condition: String!
+    "Which part of the tool's result the condition is held against, as a JSONPath; $ is the whole result."
+    toolResultPath: String!
     intervalSeconds: Int!
     timeoutSeconds: Int!
     "What the agent said it was waiting for."

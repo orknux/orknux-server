@@ -64,6 +64,14 @@ class WatcherTools(
                             ARGUMENTS,
                             "The arguments to call it with, as a JSON object, e.g. {\"id\": \"42\"}. {} for none.",
                         ),
+                        ToolParameterSpec(
+                            RESULT_PATH,
+                            "Which part of the tool's result the condition is held against, as a JSONPath: \$ for " +
+                                "the whole result, \$.body for the body of an http_get, \$.status for a status " +
+                                "field. Choose it on purpose: a regex held against the whole result also finds " +
+                                "what is in the status and headers.",
+                            required = true,
+                        ),
                         ToolParameterSpec(CONDITION_TYPE, "jsonpath or regex.", required = true),
                         ToolParameterSpec(
                             CONDITION,
@@ -134,6 +142,11 @@ class WatcherTools(
             }
             val condition = text(asked?.path(CONDITION))?.takeIf { it.isNotBlank() }
                 ?: throw WatcherRefused("Say in $CONDITION what the result has to match.")
+            val resultPath = text(asked?.path(RESULT_PATH))?.trim()?.takeIf { it.isNotEmpty() }
+                ?: throw WatcherRefused(
+                    "Say in $RESULT_PATH which part of the result the condition is held against: \$ for the " +
+                        "whole result, or a JSONPath such as \$.body for one field.",
+                )
             val interval = whole(asked?.path(INTERVAL))
                 ?: throw WatcherRefused("$INTERVAL must be a whole number of seconds.")
             val timeout = whole(asked?.path(TIMEOUT))
@@ -145,7 +158,7 @@ class WatcherTools(
                 service.create(
                     agent,
                     session,
-                    WatcherRequest(tool.trim(), arguments, kind, condition, interval, timeout, note),
+                    WatcherRequest(tool.trim(), arguments, kind, condition, resultPath, interval, timeout, note),
                 )
             } catch (already: WatcherAlreadyMatches) {
                 return answer(
@@ -155,9 +168,8 @@ class WatcherTools(
                         "result" to already.result,
                         "note" to "Called $tool once now, and the condition already matches what it returned, so " +
                             "no watcher was set. If this is what you were waiting for, it has happened. If not, " +
-                            "the condition is too broad: a regex is searched in the whole result text above, " +
-                            "status and headers included, so name the field - a jsonpath such as " +
-                            "\$[?(@.body == '0')], or a regex anchored to it - and set it again.",
+                            "the condition is too broad: narrow $RESULT_PATH to the field it is about - \$.body " +
+                            "rather than \$ for an http_get - or the condition itself, and set it again.",
                     ),
                 )
             }
@@ -193,6 +205,7 @@ class WatcherTools(
             "arguments" to watcher.arguments,
             "conditionType" to watcher.conditionKind.name.lowercase(),
             "condition" to watcher.condition,
+            "toolResultPath" to (watcher.toolResultPath ?: WatcherCondition.WHOLE),
             "intervalSeconds" to watcher.intervalSeconds,
             "timeoutSeconds" to watcher.timeoutSeconds,
             "endsAt" to watcher.expiresAt.toString(),
@@ -235,6 +248,7 @@ class WatcherTools(
         const val ARGUMENTS = "arguments"
         const val CONDITION_TYPE = "condition_type"
         const val CONDITION = "condition"
+        const val RESULT_PATH = "tool_result_path"
         const val INTERVAL = "interval_seconds"
         const val TIMEOUT = "timeout_seconds"
         const val NOTE = "note"

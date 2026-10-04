@@ -97,4 +97,37 @@ class WatcherConditionTest {
         assertThat(DEFAULT_WATCHER_MAX_PER_AGENT).isEqualTo(10)
         assertThat(skill).contains("ten unless")
     }
+
+    /**
+     * The path says which part of the result the condition is held against. An
+     * agent waiting for an http_get body of 0 wrote the regex 0, which the whole
+     * result answered with the 0 of status 200; held against $.body it does not.
+     */
+    @Test
+    fun `a result path holds the condition against the part of the result it names`() {
+        val regex = WatcherConditionKind.REGEX
+        val one = """{"status":200,"ok":true,"body":"1"}"""
+        assertThat(WatcherCondition.match(regex, "0", "$", one)).describedAs("the whole result").isEqualTo("0")
+        assertThat(WatcherCondition.match(regex, "0", "$.body", one)).describedAs("only the body").isNull()
+        assertThat(WatcherCondition.match(regex, "^0$", "$.body", """{"status":200,"body":"0"}""")).isEqualTo("0")
+        // A selected object is held as its JSON.
+        assertThat(WatcherCondition.match(regex, "done", "$.build", """{"build":{"state":"done"}}""")).isEqualTo("done")
+        assertThat(
+            WatcherCondition.match(WatcherConditionKind.JSONPATH, "$[?(@.state == 'done')]", "$.build", """{"build":{"state":"done"}}"""),
+        ).contains("done")
+        // A path that finds nothing, or a result that is not JSON, never matches.
+        assertThat(WatcherCondition.match(regex, "1", "$.missing", one)).isNull()
+        assertThat(WatcherCondition.match(regex, "1", "$.body", "plain text 1")).isNull()
+        // A watcher set before the path existed reads the whole result, as it did.
+        assertThat(WatcherCondition.match(regex, "0", null, one)).isEqualTo("0")
+    }
+
+    @Test
+    fun `a result path is a JSONPath or it is refused with the reason`() {
+        assertThat(WatcherCondition.problemWithPath("$")).isNull()
+        assertThat(WatcherCondition.problemWithPath("$.body")).isNull()
+        assertThat(WatcherCondition.problemWithPath("")).contains("tool_result_path")
+        assertThat(WatcherCondition.problemWithPath("body")).contains("starts with")
+        assertThat(WatcherCondition.problemWithPath("$[")).contains("not a JSONPath")
+    }
 }

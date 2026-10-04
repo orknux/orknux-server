@@ -130,7 +130,7 @@ class WatcherTest(
         extra: String = "",
     ): String = call(
         WatcherTools.SET,
-        """{"tool":"$toolName","arguments":{},"condition_type":"$type","condition":${json(condition)},""" +
+        """{"tool":"$toolName","arguments":{},"tool_result_path":"$","condition_type":"$type","condition":${json(condition)},""" +
             """"interval_seconds":$interval,"timeout_seconds":$timeout,"note":"tell the team"$extra}""",
     )
 
@@ -204,13 +204,19 @@ class WatcherTest(
         assertThat(set(condition = "status")).contains("starts with \$")
         assertThat(set(condition = "(unclosed", type = "regex")).contains("not a regular expression")
         assertThat(set(type = "xpath")).contains("condition_type must be jsonpath or regex")
+        assertThat(
+            call(
+                WatcherTools.SET,
+                """{"tool":"buildStatus","arguments":{},"condition_type":"regex","condition":"done","interval_seconds":15,"timeout_seconds":600}""",
+            ),
+        ).describedAs("tool_result_path is required").contains("tool_result_path")
 
         assertThat(set(interval = 14)).contains("at least 15")
         assertThat(set(timeout = settings.maxSeconds() + 1)).contains("at most ${settings.maxSeconds()} seconds")
         assertThat(set(timeout = 0)).contains("greater than zero")
         assertThat(set(interval = 60, timeout = 30)).contains("longer than timeout_seconds")
         assertThat(set(interval = "\"soon\"")).contains("whole number of seconds")
-        assertThat(call(WatcherTools.SET, """{"tool":"buildStatus","arguments":"[1]","condition_type":"regex",
+        assertThat(call(WatcherTools.SET, """{"tool":"buildStatus","tool_result_path":"$","arguments":"[1]","condition_type":"regex",
             "condition":"done","interval_seconds":15,"timeout_seconds":60}""")).contains("must be a JSON object")
 
         assertThat(watchers.count()).isZero()
@@ -236,7 +242,7 @@ class WatcherTest(
         val other = agents.save(
             Agent(workspaceId = workspaceId, name = "Other", type = AgentType.LLM, tools = mutableListOf("buildStatus")),
         )
-        assertThat(call(WatcherTools.SET, """{"tool":"buildStatus","condition_type":"regex","condition":"done",
+        assertThat(call(WatcherTools.SET, """{"tool":"buildStatus","tool_result_path":"$","condition_type":"regex","condition":"done",
             "interval_seconds":30,"timeout_seconds":60}""", of = other)).contains("\"watcher\":")
 
         // Zero switches them off, and a model is not offered what will not run.
@@ -253,7 +259,7 @@ class WatcherTest(
         val other = agents.save(
             Agent(workspaceId = workspaceId, name = "Other", type = AgentType.LLM, tools = mutableListOf("buildStatus")),
         )
-        val theirs = idIn(call(WatcherTools.SET, """{"tool":"buildStatus","condition_type":"regex","condition":"x",
+        val theirs = idIn(call(WatcherTools.SET, """{"tool":"buildStatus","tool_result_path":"$","condition_type":"regex","condition":"x",
             "interval_seconds":15,"timeout_seconds":60}""", of = other))
 
         val mine = call(WatcherTools.LIST, "{}")

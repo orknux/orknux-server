@@ -36,6 +36,8 @@ data class WatcherRequest(
     val arguments: String,
     val kind: WatcherConditionKind,
     val condition: String,
+    /** A JSONPath into the tool's result; `$` for all of it. */
+    val toolResultPath: String,
     val intervalSeconds: Int,
     val timeoutSeconds: Int,
     val note: String?,
@@ -111,6 +113,7 @@ class WatcherService(
         }
 
         WatcherCondition.problemWith(asked.kind, asked.condition)?.let { throw WatcherRefused(it) }
+        WatcherCondition.problemWithPath(asked.toolResultPath)?.let { throw WatcherRefused(it) }
 
         val shortest = settings.minIntervalSeconds()
         val longest = settings.maxSeconds()
@@ -150,7 +153,7 @@ class WatcherService(
          */
         val now0 = agentTools.getObject()
             .run(agent, ToolCall("watcher-set-check", asked.tool, asked.arguments), sessionId)
-        WatcherCondition.match(asked.kind, asked.condition, now0)?.let { matched ->
+        WatcherCondition.match(asked.kind, asked.condition, asked.toolResultPath, now0)?.let { matched ->
             throw WatcherAlreadyMatches(matched, now0)
         }
 
@@ -166,6 +169,7 @@ class WatcherService(
                     arguments = asked.arguments,
                     conditionKind = asked.kind,
                     condition = asked.condition,
+                    toolResultPath = asked.toolResultPath,
                     intervalSeconds = asked.intervalSeconds,
                     timeoutSeconds = asked.timeoutSeconds,
                     note = asked.note,
@@ -270,7 +274,7 @@ class WatcherService(
         // Outside any transaction: a tool may take as long as the thing it calls.
         val result = agentTools.getObject()
             .run(agent, ToolCall("watcher-$id-${watcher.checks + 1}", watcher.tool, watcher.arguments), watcher.sessionId)
-        val matched = WatcherCondition.match(watcher.conditionKind, watcher.condition, result)
+        val matched = WatcherCondition.match(watcher.conditionKind, watcher.condition, watcher.toolResultPath, result)
 
         inTransaction.executeWithoutResult {
             // Read again: a person may have stopped it while the tool ran.
@@ -375,7 +379,7 @@ class WatcherService(
         fun describe(watcher: Watcher): String = when (watcher.conditionKind) {
             WatcherConditionKind.JSONPATH -> "the JSONPath ${watcher.condition}"
             WatcherConditionKind.REGEX -> "the regular expression ${watcher.condition}"
-        }
+        } + (watcher.toolResultPath?.takeIf { it.trim() != WatcherCondition.WHOLE }?.let { " at $it" } ?: "")
     }
 }
 

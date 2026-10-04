@@ -51,6 +51,48 @@ object WatcherCondition {
         }
     }
 
+    /** `$`: the whole result, as the tool returned it. */
+    const val WHOLE = "$"
+
+    /** Null when the result path can be used, or why it cannot. */
+    fun problemWithPath(path: String): String? = when {
+        path.isBlank() -> "Say in tool_result_path which part of the result to hold the condition against: " +
+            "\$ for the whole of it, or a JSONPath such as \$.body or \$.status."
+        !path.trim().startsWith("$") -> "tool_result_path is a JSONPath and starts with \$, as in \$.body; " +
+            "\$ alone is the whole result."
+        else -> try {
+            JsonPath.compile(path.trim())
+            null
+        } catch (failure: InvalidPathException) {
+            "tool_result_path is not a JSONPath this server can read: ${failure.message}"
+        } catch (failure: IllegalArgumentException) {
+            "tool_result_path is not a JSONPath this server can read: ${failure.message}"
+        }
+    }
+
+    /**
+     * What matched, or null where nothing did, holding the condition against the
+     * part of the result [path] names. `$` (or null, on a watcher set before the
+     * path existed) is the whole result as the tool returned it. Any other path
+     * selects into the result read as JSON - a result that is not JSON, or a path
+     * that finds nothing, never matches. A selected string is the text a regex
+     * is searched in; anything else is its JSON.
+     */
+    fun match(kind: WatcherConditionKind, condition: String, path: String?, result: String): String? {
+        val whole = path == null || path.trim() == WHOLE
+        val subject = if (whole) result else selected(path!!.trim(), result) ?: return null
+        return match(kind, condition, subject)
+    }
+
+    private fun selected(path: String, result: String): String? = runCatching {
+        when (val found: Any? = JsonPath.using(LENIENT).parse(result).read<Any?>(path)) {
+            null -> null
+            is String -> found
+            is Collection<*> -> if (found.isEmpty()) null else JSONValue.toJSONString(found, AS_WRITTEN)
+            else -> JSONValue.toJSONString(found, AS_WRITTEN)
+        }
+    }.getOrNull()
+
     /** What matched, or null where nothing did. */
     fun match(kind: WatcherConditionKind, condition: String, result: String): String? = when (kind) {
         WatcherConditionKind.REGEX -> Regex(condition).find(result)?.value

@@ -23,6 +23,7 @@ have failed.
 
 ### 🔧 Changed
 
+- `watcher_set` takes a required `tool_result_path`: a JSONPath naming which part of the tool's result the condition is held against - `$` for all of it, `$.body` for an `http_get` body - so a regex meant for a body of 0 no longer fires on a status of 200. A condition already true when the watcher is set sets nothing, and the agent is shown what matched. The Watchers page shows each watcher's path. Watchers set before keep reading the whole result.
 - The Watchers skill is Always for every agent - its page is in front of the model each turn - new agents and existing ones alike, except an agent that hid it.
 - Admin -> Updates: every offered release's changes start closed, the newest included; a version opens on a click, and one somebody opened or closed stays that way.
 - A new token's secret is shown with a copy button beside it instead of a Done link, on Preferences and on the admin user page.

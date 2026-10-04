@@ -41,6 +41,11 @@ on one build wake you twice and use up your limit.
   note, to-do and scratchpad tools.
 - `arguments` - what to call it with, as a JSON object: `{"id": "42"}`, or
   `{}` for none. The same arguments every time.
+- `tool_result_path` - which part of the tool's result the condition is held
+  against, as a JSONPath, and you have to choose it: `$` for the whole result,
+  `$.body` for the body of an `http_get`, `$.status` for a status field. A
+  regex held against the whole result also finds what is in the status and
+  headers, so name the field when you mean one.
 - `condition_type` - `jsonpath` or `regex`.
 - `condition` - what the result has to match before you are woken. See below.
 - `interval_seconds` - how long between two calls.

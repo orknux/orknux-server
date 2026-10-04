@@ -186,7 +186,7 @@ class WatcherStepWakeTest(
                 else -> """
                     {"choices":[{"message":{"role":"assistant","content":null,
                       "tool_calls":[{"id":"call_1","type":"function","function":{"name":"watcher_set",
-                        "arguments":"{\"tool\":\"buildStatus\",\"condition_type\":\"regex\",\"condition\":\"done\",\"interval_seconds\":15,\"timeout_seconds\":600}"}}]}}],
+                        "arguments":"{\"tool\":\"buildStatus\",\"tool_result_path\":\"$\",\"condition_type\":\"regex\",\"condition\":\"done\",\"interval_seconds\":15,\"timeout_seconds\":600}"}}]}}],
                      "usage":{"prompt_tokens":9,"completion_tokens":4}}
                 """.trimIndent()
             }.toByteArray(StandardCharsets.UTF_8)
