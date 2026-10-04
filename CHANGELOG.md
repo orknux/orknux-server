@@ -21,6 +21,10 @@ have failed.
 
 - Admin -> Settings -> Agents: how long to wait out a rate limit that arrives inside a streaming answer and names no time (5 seconds by default, doubled on the next attempt, 1 to 60), read on every call.
 
+### 🐛 Fixed
+
+- A model's usage is no longer lost when two answers are the first of the day at the same moment, or under-counted when two land together: each call is added to the day's row in one statement. On Postgres the lost call also logged `HHH000099: an assertion failure occurred`.
+
 ## 0.9.9.11
 
 ### ✨ Added

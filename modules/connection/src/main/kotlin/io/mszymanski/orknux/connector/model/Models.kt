@@ -13,6 +13,9 @@ import io.mszymanski.orknux.connector.security.SECRET_COLUMN_LENGTH
 import io.mszymanski.orknux.connector.security.SecretConverter
 import org.springframework.data.domain.Sort
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Modifying
+import org.springframework.data.jpa.repository.Query
+import org.springframework.data.repository.query.Param
 import java.math.BigDecimal
 import java.time.LocalDate
 import java.time.OffsetDateTime
@@ -717,6 +720,38 @@ interface ModelUsageRepository : JpaRepository<ModelUsageDay, Long> {
 
     /** The row a call adds itself to; there is one per model per day. */
     fun findByModelIdAndDay(modelId: Long, day: LocalDate): ModelUsageDay?
+
+    /**
+     * Adds one call to the day's row, creating it if this is the first, in
+     * one statement. Issue #599.
+     *
+     * Read-then-write raced twice over: two first calls both inserted, and the
+     * loser's retry ran in a transaction Postgres had already aborted, so its
+     * usage was lost; and two calls that both read the row both wrote back the
+     * old count plus one. `ON CONFLICT ... DO UPDATE` is atomic on both
+     * engines and adds to whatever the row holds at that moment. The
+     * conflict target is `uk_model_usage_day`, which both schemas carry.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(
+        nativeQuery = true,
+        value = """
+            INSERT INTO model_usage_day (model_id, day, requests, input_tokens, output_tokens, latency_millis_total)
+            VALUES (:modelId, :day, 1, :inputTokens, :outputTokens, :millis)
+            ON CONFLICT (model_id, day) DO UPDATE SET
+                requests = model_usage_day.requests + 1,
+                input_tokens = model_usage_day.input_tokens + excluded.input_tokens,
+                output_tokens = model_usage_day.output_tokens + excluded.output_tokens,
+                latency_millis_total = model_usage_day.latency_millis_total + excluded.latency_millis_total
+        """,
+    )
+    fun addCall(
+        @Param("modelId") modelId: Long,
+        @Param("day") day: LocalDate,
+        @Param("inputTokens") inputTokens: Long,
+        @Param("outputTokens") outputTokens: Long,
+        @Param("millis") millis: Long,
+    ): Int
 }
 
 class ModelProviderNotFoundException(id: Long) : RuntimeException("No model provider with id $id")

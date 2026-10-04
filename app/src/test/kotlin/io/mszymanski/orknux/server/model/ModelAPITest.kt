@@ -34,6 +34,9 @@ import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.time.LocalDate
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * Providers and models end to end: the app decides who may ask and records what
@@ -414,6 +417,66 @@ class ModelAPITest(
             .path("modelUsage.totalTokens").entity(Double::class.java).isEqualTo(1_800.0)
             // The mean is the total time over the total requests.
             .path("modelUsage.averageLatencyMillis").entity(Double::class.java).isEqualTo(100.0)
+    }
+
+    /**
+     * Many answers from one model as the first of the day, all at once. The
+     * loser of the race on `uk_model_usage_day` used to retry inside the
+     * transaction its failed insert had already aborted on Postgres, so its
+     * usage was lost with an assertion failure from Hibernate; and two callers
+     * that both read the row added themselves to the same old count. Every
+     * one of them is counted now. Issue #599.
+     */
+    @Test
+    fun `calls that are the first of the day at the same moment are all counted`() {
+        val providerId = provider("Anthropic", "https://api.anthropic.com/v1")
+        val id = model(providerId, "Claude", "claude-3-5-sonnet")
+        val callers = 12
+        val rounds = 5
+        val start = CountDownLatch(1)
+        val pool = Executors.newFixedThreadPool(callers)
+        val failures = java.util.concurrent.ConcurrentLinkedQueue<Throwable>()
+        try {
+            repeat(callers) {
+                pool.submit {
+                    start.await()
+                    repeat(rounds) {
+                        runCatching { recorder.record(id, inputTokens = 10, outputTokens = 2, millis = 5) }
+                            .onFailure { failures.add(it) }
+                    }
+                }
+            }
+            start.countDown()
+        } finally {
+            pool.shutdown()
+            assertThat(pool.awaitTermination(60, TimeUnit.SECONDS)).isTrue()
+        }
+
+        assertThat(failures).isEmpty()
+        val today = usage.findAll().single()
+        assertThat(today.requests).isEqualTo(callers * rounds)
+        assertThat(today.inputTokens).isEqualTo(10L * callers * rounds)
+        assertThat(today.outputTokens).isEqualTo(2L * callers * rounds)
+        assertThat(today.latencyMillisTotal).isEqualTo(5L * callers * rounds)
+    }
+
+    /**
+     * A row written before the upsert - by the entity, as every release up to
+     * 0.9.9.11 wrote it - is the row a call adds itself to, not a second one
+     * beside it: the day is bound the same way on both engines. Issue #599.
+     */
+    @Test
+    fun `a call adds itself to a day the entity already wrote`() {
+        val providerId = provider("Anthropic", "https://api.anthropic.com/v1")
+        val id = model(providerId, "Claude", "claude-3-5-sonnet")
+        usage.save(day(id, LocalDate.now(), requests = 3, input = 30, output = 3, latency = 30))
+
+        recorder.record(id, inputTokens = 10, outputTokens = 1, millis = 10)
+
+        val today = usage.findAll().single()
+        assertThat(today.requests).isEqualTo(4)
+        assertThat(today.inputTokens).isEqualTo(40)
+        assertThat(usage.findByModelIdAndDay(id, LocalDate.now())?.outputTokens).isEqualTo(4)
     }
 
     @Test
