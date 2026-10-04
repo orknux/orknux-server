@@ -15,6 +15,22 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- Preferences -> Access Tokens: somebody with an account on this installation makes, sees and revokes their own `orkx_` tokens without an administrator, under the same rules as Admin -> Users (stored as a hash, carrying only their roles). Directory and single sign-on accounts get no section, since their tokens would outlive what the provider decides. Making and revoking a token, from either page, is written to the admin audit log.
+
+### 🔧 Changed
+
+- Admin -> Updates: every offered release's changes start closed, the newest included; a version opens on a click, and one somebody opened or closed stays that way.
+- A new token's secret is shown with a copy button beside it instead of a Done link, on Preferences and on the admin user page.
+- An agent's Tools count no longer counts `http_allowList` beside the HTTP tool that brought it, so granting one HTTP tool moves "n of m granted" by one; its row now says it is granted by the HTTP tools.
+
+### 🐛 Fixed
+
+- Copy buttons copied nothing on an installation reached over plain http at a LAN address, where the browser offers no clipboard API; they fall back to the older copy command and say Copied, or that it could not copy.
+
 ## 0.9.9.11
 
 ### ✨ Added
