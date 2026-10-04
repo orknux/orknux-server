@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.llm
 
+import io.mszymanski.orknux.connector.cluster.ClusterLeader
 import io.mszymanski.orknux.server.attachment.InstallationSettings
 import org.slf4j.LoggerFactory
 import org.springframework.boot.context.properties.ConfigurationProperties
@@ -59,6 +60,8 @@ class ScratchpadSweeper(
     private val pads: SessionScratchpadRepository,
     private val settings: InstallationSettings,
     private val properties: ScratchpadSweepProperties,
+    /** Which replica sweeps; alone where nothing says otherwise. Issue #597. */
+    private val leader: ClusterLeader = ClusterLeader.alone(),
 ) : SmartLifecycle {
 
     /**
@@ -83,7 +86,7 @@ class ScratchpadSweeper(
             Thread(runnable, "scratchpad-sweep").apply { isDaemon = true }
         }
         executor.scheduleAtFixedRate(
-            { runCatching { sweep() }.onFailure { log.warn("A scratchpad sweep did not finish: {}", it.message) } },
+            { runCatching { timedPass() }.onFailure { log.warn("A scratchpad sweep did not finish: {}", it.message) } },
             properties.initialDelay.toSeconds(),
             properties.interval.toSeconds(),
             TimeUnit.SECONDS,
@@ -91,6 +94,17 @@ class ScratchpadSweeper(
         clock = executor
         running = true
         log.info("Looking for scratchpads nobody has touched, every {}", properties.interval)
+    }
+
+    /**
+     * What the timer calls: a pass, on the one replica that leads. Issue #597.
+     * Every replica keeps its timer, so the work moves when the leader dies;
+     * a test asks [sweep] directly, or this to see the gate.
+     */
+    fun timedPass(): Boolean {
+        if (!leader.leads()) return false
+        sweep()
+        return true
     }
 
     override fun stop() {

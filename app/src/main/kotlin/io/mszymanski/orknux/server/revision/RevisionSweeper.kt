@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.revision
 
+import io.mszymanski.orknux.connector.cluster.ClusterLeader
 import io.mszymanski.orknux.server.attachment.InstallationSettings
 import io.mszymanski.orknux.server.workflow.WorkflowPublicationRepository
 import org.slf4j.LoggerFactory
@@ -59,6 +60,8 @@ class RevisionSweeper(
     private val publications: WorkflowPublicationRepository,
     private val settings: InstallationSettings,
     private val properties: RevisionProperties,
+    /** Which replica sweeps; alone where nothing says otherwise. Issue #597. */
+    private val leader: ClusterLeader = ClusterLeader.alone(),
 ) : SmartLifecycle {
 
     /**
@@ -89,7 +92,7 @@ class RevisionSweeper(
             Thread(runnable, "revision-sweep").apply { isDaemon = true }
         }
         executor.scheduleWithFixedDelay(
-            { runCatching(::sweep).onFailure { log.warn("Could not sweep component revisions", it) } },
+            { runCatching(::timedPass).onFailure { log.warn("Could not sweep component revisions", it) } },
             properties.sweepInitialDelay.toSeconds(),
             properties.sweepInterval.toSeconds(),
             TimeUnit.SECONDS,
@@ -97,6 +100,17 @@ class RevisionSweeper(
         sweeper = executor
         running = true
         log.info("Sweeping component history older than {} days every {}", retentionDays(), properties.sweepInterval)
+    }
+
+    /**
+     * What the timer calls: a pass, on the one replica that leads. Issue #597.
+     * Every replica keeps its timer, so the work moves when the leader dies;
+     * a test asks [sweep] directly, or this to see the gate.
+     */
+    fun timedPass(): Boolean {
+        if (!leader.leads()) return false
+        sweep()
+        return true
     }
 
     override fun stop() {

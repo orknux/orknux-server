@@ -91,6 +91,9 @@ class ClusterLeader(
     /** Whether this replica is the one to do what must be done once, right now. */
     fun leads(): Boolean = !enabled || (held != null && System.nanoTime() < believedUntilNanos)
 
+    /** How long the lease is right now: how far behind a follower must keep anything it would resume from. */
+    fun lease(): Duration = Duration.ofSeconds(leaseSeconds())
+
     /** Whether the lease is in use at all; false is one process alone. */
     fun isEnabled(): Boolean = enabled
 

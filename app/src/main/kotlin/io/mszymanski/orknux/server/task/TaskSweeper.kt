@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.task
 
+import io.mszymanski.orknux.connector.cluster.ClusterLeader
 import io.mszymanski.orknux.server.attachment.InstallationSettings
 import org.slf4j.LoggerFactory
 import org.springframework.boot.context.properties.ConfigurationProperties
@@ -97,6 +98,8 @@ class TaskSweeper(
     private val engine: TaskEngine,
     private val settings: InstallationSettings,
     private val properties: TaskSweepProperties,
+    /** Which replica sweeps; alone where nothing says otherwise. Issue #597. */
+    private val leader: ClusterLeader = ClusterLeader.alone(),
 ) : SmartLifecycle {
 
     /**
@@ -189,7 +192,7 @@ class TaskSweeper(
 
     private fun pass() {
         try {
-            sweep()
+            timedPass()
         } catch (failure: Exception) {
             // Nothing above this catches, so a pass that threw would otherwise
             // disappear into an executor - and take every later pass with it,
@@ -198,6 +201,17 @@ class TaskSweeper(
         } finally {
             arm(minutes().toLong() * SECONDS_PER_MINUTE)
         }
+    }
+
+    /**
+     * What the timer calls: a pass, on the one replica that leads. Issue #597.
+     * Every replica keeps its timer, so the work moves when the leader dies;
+     * a test asks [sweep] directly, or this to see the gate.
+     */
+    fun timedPass(): Boolean {
+        if (!leader.leads()) return false
+        sweep()
+        return true
     }
 
     /** What the administrator chose, or what the file said if nobody has. */

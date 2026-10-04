@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.workflow
 
+import io.mszymanski.orknux.connector.cluster.ClusterLeader
 import io.mszymanski.orknux.server.attachment.InstallationSettings
 import io.mszymanski.orknux.workflow.execution.ExecutionLogRepository
 import io.mszymanski.orknux.workflow.execution.ExecutionStepRepository
@@ -69,6 +70,8 @@ class ExecutionSweeper(
     private val logs: ExecutionLogRepository,
     private val settings: InstallationSettings,
     private val properties: ExecutionRetentionProperties,
+    /** Which replica sweeps; alone where nothing says otherwise. Issue #597. */
+    private val leader: ClusterLeader = ClusterLeader.alone(),
 ) : SmartLifecycle {
 
     /**
@@ -96,7 +99,7 @@ class ExecutionSweeper(
             Thread(runnable, "execution-sweep").apply { isDaemon = true }
         }
         executor.scheduleWithFixedDelay(
-            { runCatching(::sweep).onFailure { log.warn("Could not sweep run history", it) } },
+            { runCatching(::timedPass).onFailure { log.warn("Could not sweep run history", it) } },
             properties.sweepInitialDelay.toSeconds(),
             properties.sweepInterval.toSeconds(),
             TimeUnit.SECONDS,
@@ -104,6 +107,17 @@ class ExecutionSweeper(
         sweeper = executor
         running = true
         log.info("Sweeping run history finished more than {} days ago every {}", retentionDays(), properties.sweepInterval)
+    }
+
+    /**
+     * What the timer calls: a pass, on the one replica that leads. Issue #597.
+     * Every replica keeps its timer, so the work moves when the leader dies;
+     * a test asks [sweep] directly, or this to see the gate.
+     */
+    fun timedPass(): Boolean {
+        if (!leader.leads()) return false
+        sweep()
+        return true
     }
 
     override fun stop() {
