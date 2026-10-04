@@ -1288,6 +1288,8 @@ type Mutation {
     setSessionsActiveWindowSeconds(seconds: Int!): InstallationSettings!
     "How long a step of a workspace copy may wait for a lock, 1 to 3600 seconds. Administrators only. Issue #581."
     setWorkspaceCopyLockWaitSeconds(seconds: Int!): InstallationSettings!
+    "The first wait for a rate limit inside a streaming answer that named no time, 1 to 60 seconds, doubled per attempt. Administrators only. Issue #608."
+    setRateLimitBackoffSeconds(seconds: Int!): InstallationSettings!
     """
     Downloads a server release orknux.ai offers, checks it against the listing
     and the release key, stores it and restarts into it. Administrators only.
@@ -6807,6 +6809,13 @@ type InstallationSettings {
     workspaceCopyLockWaitSeconds: Int!
     "What a fresh installation waits: the built-in default."
     workspaceCopyLockWaitSecondsConfigured: Int!
+    """
+    The first wait, in seconds, for a rate limit that arrived inside a streaming
+    answer and named no time; doubled on the next attempt. Issue #608.
+    """
+    rateLimitBackoffSeconds: Int!
+    "What a fresh installation waits: the client's own default."
+    rateLimitBackoffSecondsConfigured: Int!
     """
     False where the installation runs Temporal, and the field is not offered.
 

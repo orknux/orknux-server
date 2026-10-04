@@ -6,6 +6,8 @@ import io.mszymanski.orknux.connector.model.ChatTurn
 import io.mszymanski.orknux.connector.model.LlmModelRepository
 import io.mszymanski.orknux.connector.model.ModelChatClient
 import io.mszymanski.orknux.connector.model.ModelProviderRepository
+import io.mszymanski.orknux.server.attachment.InstallationSettingRepository
+import io.mszymanski.orknux.server.attachment.SettingNames
 import io.mszymanski.orknux.server.workspace.Workspace
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import org.assertj.core.api.Assertions.assertThat
@@ -21,6 +23,7 @@ import org.springframework.security.test.context.support.WithMockUser
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -43,11 +46,15 @@ class RetryAfterTest(
     @Autowired val models: LlmModelRepository,
     @Autowired val providers: ModelProviderRepository,
     @Autowired val workspaces: WorkspaceRepository,
+    @Autowired val settings: InstallationSettingRepository,
 ) {
 
     private var workspaceId: Long = 0
     private lateinit var server: HttpServer
     private val calls = AtomicInteger(0)
+
+    /** When each request reached the stub, so a wait between them can be measured. */
+    private val arrivals = CopyOnWriteArrayList<Long>()
 
     @BeforeEach
     fun reset() {
@@ -56,10 +63,15 @@ class RetryAfterTest(
         workspaces.deleteAll()
         workspaceId = requireNotNull(workspaces.save(Workspace(name = "backend")).id)
         calls.set(0)
+        arrivals.clear()
+        settings.deleteById(SettingNames.RATE_LIMIT_BACKOFF_SECONDS)
     }
 
     @AfterEach
-    fun stop() = server.stop(0)
+    fun stop() {
+        if (::server.isInitialized) server.stop(0)
+        settings.deleteById(SettingNames.RATE_LIMIT_BACKOFF_SECONDS)
+    }
 
     private val asked = listOf(ChatTurn(role = "user", content = "Two and two?"))
 
@@ -110,10 +122,43 @@ class RetryAfterTest(
         assertThat(calls.get()).isEqualTo(2)
     }
 
+    /**
+     * The backoff for a rate limit that named no time is an Admin setting, read
+     * at the call: set to one second, the second request arrives after about a
+     * second rather than the five a fresh installation waits. Issue #608.
+     */
+    @Test
+    fun `the backoff for a rate limit that names no wait is what the setting says`() {
+        val modelId = openAi(rateLimitedInStreamOnce())
+        graphQlTester.document("mutation { setRateLimitBackoffSeconds(seconds: 1) { rateLimitBackoffSeconds } }")
+            .execute().path("setRateLimitBackoffSeconds.rateLimitBackoffSeconds").entity(Int::class.java).isEqualTo(1)
+
+        val answer = chat.stream(modelId, asked) { }
+
+        assertThat(answer).isInstanceOf(ChatCompletion.Answered::class.java)
+        assertThat(arrivals).hasSize(2)
+        val waited = arrivals[1] - arrivals[0]
+        assertThat(waited).isBetween(1_000L, 4_000L)
+    }
+
+    @Test
+    fun `the backoff refuses a wait outside a second to a minute`() {
+        graphQlTester.document("mutation { setRateLimitBackoffSeconds(seconds: 0) { rateLimitBackoffSeconds } }")
+            .execute().errors().satisfy { errors ->
+                assertThat(errors).hasSize(1)
+                assertThat(errors[0].extensions["code"]).isEqualTo("RateLimitBackoffOutOfRange")
+            }
+        graphQlTester.document("{ installationSettings { rateLimitBackoffSeconds rateLimitBackoffSecondsConfigured } }")
+            .execute()
+            .path("installationSettings.rateLimitBackoffSeconds").entity(Int::class.java).isEqualTo(5)
+            .path("installationSettings.rateLimitBackoffSecondsConfigured").entity(Int::class.java).isEqualTo(5)
+    }
+
     private fun rateLimitedInStreamOnce(): String {
         server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
         server.createContext("/chat/completions") { exchange ->
             exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
+            arrivals.add(System.currentTimeMillis())
             val first = calls.getAndIncrement() == 0
             val events = if (first) {
                 """data: {"error":{"code":"429","message":"Your requests to stub for stub in polandcentral """ +

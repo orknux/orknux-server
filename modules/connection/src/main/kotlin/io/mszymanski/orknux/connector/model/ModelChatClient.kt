@@ -231,6 +231,8 @@ class ModelChatClient(
     private val openAi: OpenAiChat,
     /** Holds a model's calls under its rate, shared across runs; see [ModelThrottle]. Issue #426. */
     private val throttle: ModelThrottle,
+    /** The first wait for a rate limit inside a stream that named none; read per call. Issue #608. */
+    private val backoff: RateLimitBackoff,
 ) {
 
     /**
@@ -1618,7 +1620,8 @@ class ModelChatClient(
      * How long to wait before asking again: the Retry-After where there is one,
      * else the time the provider's own sentence names ("retry after 6 seconds"),
      * and for a rate limit inside a stream, which carries no headers and whose
-     * message does not always say, a short backoff that doubles each attempt.
+     * message does not always say, a short backoff that doubles each attempt
+     * (an Admin setting since #608, five seconds unless somebody says otherwise).
      * A real 429 that names no time is left to the node's retry policy, as it
      * always was.
      */
@@ -1626,7 +1629,7 @@ class ModelChatClient(
         retryAfterOf(refused)
             ?: RETRY_AFTER_SAID.find(refused.message.orEmpty())?.groupValues?.get(1)?.toLongOrNull()
                 ?.let { Duration.ofSeconds(it) }
-            ?: UNSAID_BACKOFF.multipliedBy(1L shl attempt).takeIf { refused.statusCode() in 200..299 }
+            ?: backoff.unsaid().multipliedBy(1L shl attempt).takeIf { refused.statusCode() in 200..299 }
 
     /**
      * A Retry-After header as a duration: seconds is the common form, an
@@ -1695,9 +1698,6 @@ class ModelChatClient(
 
         /** "Please retry after 6 seconds", as Azure words it. */
         val RETRY_AFTER_SAID = Regex("""retry after (\d+) second""", RegexOption.IGNORE_CASE)
-
-        /** The first wait for a rate limit that named none; doubled per attempt. */
-        val UNSAID_BACKOFF: Duration = Duration.ofSeconds(5)
 
         /** Where the provider stops objecting to the request and starts failing. */
         const val SERVER_ERROR = 500

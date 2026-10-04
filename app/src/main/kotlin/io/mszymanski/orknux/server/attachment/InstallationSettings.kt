@@ -133,6 +133,9 @@ object SettingNames {
     /** How long a step of a workspace copy may wait for a lock. Issue #581. */
     const val WORKSPACE_COPY_LOCK_WAIT_SECONDS = "workspace.copy.lock.wait.seconds"
 
+    /** The first wait for a rate limit inside a stream that named none. Issue #608. */
+    const val RATE_LIMIT_BACKOFF_SECONDS = "model.rate.limit.backoff.seconds"
+
     /**
      * Log levels set from the screen, #591: one row per logger, `log.level.<name>`,
      * read by `logging/LogLevels.kt`. The two knobs are kept off that prefix.
@@ -1082,6 +1085,36 @@ class InstallationSettings(
     /** What a fresh installation waits: the built-in default. */
     fun workspaceCopyLockWaitSecondsConfigured(): Int = DEFAULT_COPY_LOCK_WAIT_SECONDS
 
+    /**
+     * The first wait, in seconds, for a rate limit that arrived inside a
+     * streaming answer and named no time; doubled on the next attempt.
+     * Issue #608.
+     *
+     * Azure says "rate limit" inside a 200 and does not always say for how
+     * long, so the client picks its own wait. Five seconds was right for the
+     * provider it was found on; another clears its window slower, and the
+     * first sign of that is an administrator watching steps fail - so it is
+     * here, and read by the client at the call.
+     */
+    fun rateLimitBackoffSeconds(): Int {
+        val held = settings.findByIdOrNull(SettingNames.RATE_LIMIT_BACKOFF_SECONDS)
+            ?: return rateLimitBackoffSecondsConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_RATE_LIMIT_BACKOFF_SECONDS..MAX_RATE_LIMIT_BACKOFF_SECONDS }
+            ?: rateLimitBackoffSecondsConfigured()
+    }
+
+    /** What a fresh installation waits: the client's own default. */
+    fun rateLimitBackoffSecondsConfigured(): Int =
+        io.mszymanski.orknux.connector.model.RateLimitBackoff.DEFAULT.seconds.toInt()
+
+    @Transactional
+    fun setRateLimitBackoffSeconds(seconds: Int, by: String) {
+        if (seconds !in MIN_RATE_LIMIT_BACKOFF_SECONDS..MAX_RATE_LIMIT_BACKOFF_SECONDS) {
+            throw RateLimitBackoffOutOfRangeException(seconds)
+        }
+        write(SettingNames.RATE_LIMIT_BACKOFF_SECONDS, seconds.toString(), by)
+    }
+
     @Transactional
     fun setWorkspaceCopyLockWaitSeconds(seconds: Int, by: String) {
         if (seconds !in MIN_COPY_LOCK_WAIT_SECONDS..MAX_COPY_LOCK_WAIT_SECONDS) {
@@ -1949,6 +1982,24 @@ class ActiveWindowOutOfRangeException(val seconds: Int) : RuntimeException(
 const val MIN_COPY_LOCK_WAIT_SECONDS = 1
 const val MAX_COPY_LOCK_WAIT_SECONDS = 3600
 const val DEFAULT_COPY_LOCK_WAIT_SECONDS = 60
+
+/**
+ * A second and a minute, for the first wait on a rate limit that named none.
+ * The floor is a second because asking again at once only spends another
+ * refusal; the ceiling is a minute because it doubles, and the client gives up
+ * on any wait past two minutes and hands the call to the node's own retry
+ * policy anyway. Issue #608.
+ */
+const val MIN_RATE_LIMIT_BACKOFF_SECONDS = 1
+const val MAX_RATE_LIMIT_BACKOFF_SECONDS = 60
+
+class RateLimitBackoffOutOfRangeException(val seconds: Int) : RuntimeException(
+    "$seconds is not a number of seconds to wait first on a rate limit that named no time. " +
+        "Choose between $MIN_RATE_LIMIT_BACKOFF_SECONDS and $MAX_RATE_LIMIT_BACKOFF_SECONDS.",
+), Refusal {
+
+    override val arguments get() = mapOf("seconds" to seconds)
+}
 
 class CopyLockWaitOutOfRangeException(val seconds: Int) : RuntimeException(
     "$seconds is not a number of seconds a workspace copy can wait for a lock. " +

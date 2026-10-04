@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- Admin -> Settings -> Agents: how long to wait out a rate limit that arrives inside a streaming answer and names no time (5 seconds by default, doubled on the next attempt, 1 to 60), read on every call.
+
 ## 0.9.9.11
 
 ### ✨ Added

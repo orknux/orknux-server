@@ -104,6 +104,8 @@ class InstallationSettingsAPI(
         sessionsActiveWindowSecondsConfigured = settings.sessionsActiveWindowSecondsConfigured(),
         workspaceCopyLockWaitSeconds = settings.workspaceCopyLockWaitSeconds(),
         workspaceCopyLockWaitSecondsConfigured = settings.workspaceCopyLockWaitSecondsConfigured(),
+        rateLimitBackoffSeconds = settings.rateLimitBackoffSeconds(),
+        rateLimitBackoffSecondsConfigured = settings.rateLimitBackoffSecondsConfigured(),
         releasesKept = settings.releasesKept(),
         releasesKeptConfigured = settings.releasesKeptConfigured(),
         releaseBootAttempts = settings.releaseBootAttempts(),
@@ -268,6 +270,23 @@ class InstallationSettingsAPI(
      * copy on Postgres waited for ever, and an installation whose traffic holds
      * rows longer than a minute says so here.
      */
+    /**
+     * The first wait for a rate limit inside a streaming answer that named no
+     * time, doubled per attempt. Issue #608.
+     */
+    @MutationMapping
+    fun setRateLimitBackoffSeconds(@Argument seconds: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setRateLimitBackoffSeconds(seconds, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "A rate limit that names no wait is first waited out for $seconds seconds",
+        )
+        return installationSettings()
+    }
+
     @MutationMapping
     fun setWorkspaceCopyLockWaitSeconds(@Argument seconds: Int): InstallationSettingsView {
         access.requireAdmin()
@@ -944,6 +963,10 @@ data class InstallationSettingsView(
     val workspaceCopyLockWaitSeconds: Int,
     /** What a fresh installation waits: the built-in default. */
     val workspaceCopyLockWaitSecondsConfigured: Int,
+    /** The first wait for a rate limit inside a stream that named none, in seconds. Issue #608. */
+    val rateLimitBackoffSeconds: Int,
+    /** What a fresh installation waits: the client's own default. */
+    val rateLimitBackoffSecondsConfigured: Int,
     /** What a fresh installation allows: the built-in default. */
     val pluginMaxSourceKbConfigured: Int,
     /**
