@@ -14,7 +14,7 @@ to start rather than quietly doing every task twice.
 ## How "exactly one" is decided
 
 One lease in the database, `orknux-leader`, held by one replica at a time and
-renewed on a timer. It is a ShedLock lock (`shedlock` table) taken with
+renewed on a timer, on Postgres and SQLite alike. It is a ShedLock lock (`shedlock` table) taken with
 `JdbcTemplateLockProvider` and kept alive with ShedLock's own `extend`, so the
 lock protocol is the library's and not ours. `ClusterLeader` in
 `modules/connection` is the wrapper: it takes the lock on start, extends it
@@ -75,7 +75,7 @@ call `sweep()` directly.
 | `TaskSweeper` | Two replicas handing the same stranded task over at once. | **Fixed** |
 | `ExecutionSweeper`, `RevisionSweeper`, `ScratchpadSweeper` | Concurrent deletes of the same rows; harmless but wasteful. | **Fixed** |
 | `SessionDueSweeper` | Each reminder announced once per replica. A follower keeps its mark one lease behind now, so a replica that takes over re-reads the gap rather than skipping it. | **Fixed** |
-| `ParkedRunSweeper` (inline engine only) | Another replica's long model call looks stranded and is resumed a second time. | Inline engine is one replica only - see below |
+| `ParkedRunSweeper` (inline engine only) | Another replica's long model call looks stranded and is resumed a second time. | Not gated: the inline engine refuses a second server, so it only ever runs alone - see below |
 | The session cleanup cron, `LogLevels` follow, `ReaderWatch`, `SessionTail` pump | Per-replica by nature. | Not gated, on purpose |
 
 ### Files on local disk
@@ -138,7 +138,14 @@ replica leads.
   the sign-in attempts and N times a provider's concurrency.
 - **Rolling restart on activation.** Replicas restart together. Staggering them
   wants a second lock and a readiness signal from the restarted replica.
-- **A two-replica test environment running the suites.** The lease, the gating,
+- **The suites at two replicas behind a load balancer.** The lease, the gating,
   the Slack hand-over and the refusal are tested in the suite on both databases
-  with two lease holders in one JVM; nothing yet drives the end-to-end and
-  browser suites through a load balancer at two replicas.
+  (`ClusterLeaderTest`, `LeaderGatedTimersTest`, `SlackLeaderTest`), and
+  `scripts/cluster-smoke/run.sh` runs two server containers on one Postgres with
+  Temporal: one holds the lease, the model check runs on it alone, Slack is
+  tried by it and reported ELSEWHERE by the other, and after a SIGKILL the other
+  takes over within one lease. Run against 0.9.9.10's jar the same script fails
+  on all three. Nothing yet drives the end-to-end and browser suites through a
+  load balancer at two replicas.
+- **A schedule firing once** is db-scheduler's guarantee and is not repeated in
+  the smoke; `TriggerSchedulerIntegrationTest` starts that scheduler for real.
