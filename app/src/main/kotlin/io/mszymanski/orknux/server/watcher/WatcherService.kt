@@ -138,6 +138,22 @@ class WatcherService(
             )
         }
 
+        /*
+         * Looked at once now, before anything is saved. An agent asked to wait
+         * for http://localhost:8077/ to return 0 wrote the regex `0`, which a
+         * regex finds anywhere in the result - and http_get's result is JSON
+         * with the status in it, so the 0 of 200 fired it on its first check
+         * while the body still said 1. A condition that is already true now is
+         * either the thing having happened already or a condition too broad to
+         * mean anything; both are the agent's to decide, today, not a wake-up
+         * later. Outside any transaction, as every check is.
+         */
+        val now0 = agentTools.getObject()
+            .run(agent, ToolCall("watcher-set-check", asked.tool, asked.arguments), sessionId)
+        WatcherCondition.match(asked.kind, asked.condition, now0)?.let { matched ->
+            throw WatcherAlreadyMatches(matched, now0)
+        }
+
         val now = OffsetDateTime.now()
         val saved = inTransaction.execute {
             val watcher = watchers.save(
@@ -372,3 +388,10 @@ class WatcherNotActiveException(val id: Long) : RuntimeException("Watcher #$id h
     io.mszymanski.orknux.server.graphql.Refusal {
     override val arguments get() = mapOf("id" to id)
 }
+
+/**
+ * The condition is already true of what the tool returns right now, so there is
+ * nothing to wait for - or the condition is too broad to wait with. Answered to
+ * the model, not refused: it decides which.
+ */
+class WatcherAlreadyMatches(val matched: String, val result: String) : RuntimeException("already matches")

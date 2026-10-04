@@ -96,6 +96,15 @@ the tool returned it. Java syntax.
 Remember that a result is often JSON: `"status":"done"` has quotes and maybe
 spaces around the colon, which the expression has to allow for.
 
+The **whole** result is searched, not only the part you care about. `http_get`
+answers JSON with the status, the headers and the body, so a bare `0` meant
+for a body of 0 also finds the 0 in a status of 200. Name the field instead -
+a body of 0 is `"body"\s*:\s*"0"`, or the JSONPath `$[?(@.body == '0')]`.
+
+The condition is checked once when you set the watcher. If it already matches
+what the tool returns now, no watcher is set and you are shown what matched:
+either the thing has already happened, or the condition is too broad.
+
 ### Wait for the end, not only for success
 
 If the thing you watch can fail, write the condition so it also matches the

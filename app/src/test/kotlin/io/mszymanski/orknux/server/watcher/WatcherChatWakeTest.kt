@@ -93,6 +93,10 @@ class WatcherChatWakeTest(
         val chat = chats.findById(chatId).orElseThrow()
         assertThat(assistantSaid(chat.conversationId)).containsExactly("Watching the build; I will tell you.")
 
+        // Done now, after the watcher was set while it was still running.
+        agentTools.findAll().single { it.name == "buildStatus" }.let {
+            it.source = "export default async function buildStatus() { return { status: 'done', build: 41 }; }"; it.typescript = "export default async function buildStatus() { return { status: 'done', build: 41 }; }"; agentTools.save(it)
+        }
         val watcher = watchers.findAll().single()
         assertThat(watcher.sessionId).isEqualTo(chat.llmSessionId)
         watcher.nextCheckAt = OffsetDateTime.now().minusSeconds(1)
@@ -148,7 +152,7 @@ class WatcherChatWakeTest(
         val agentId = graphQlTester.document(
             """mutation { createAgent(input: { workspaceId: $workspaceId, name: "Worker", type: LLM }) { id } }""",
         ).execute().path("createAgent.id").entity(Long::class.java).get()
-        val status = "export default async function buildStatus() { return { status: 'done', build: 41 }; }"
+        val status = "export default async function buildStatus() { return { status: 'running', build: 41 }; }"
         agentTools.save(AgentTool(workspaceId = workspaceId, name = "buildStatus", source = status, typescript = status))
         graphQlTester.document(
             """mutation { updateAgent(id: $agentId, input: { name: "Worker", modelId: $modelId, tools: ["buildStatus"] }) { id } }""",

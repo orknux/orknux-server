@@ -340,10 +340,14 @@ class WatcherTest(
 
     @Test
     fun `a regular expression is found anywhere in the result`() {
-        tool.source = returning("Deployed to production")
+        // Set while it is still on its way: a condition already true sets nothing.
+        tool.source = returning("Deploying to production")
         tool.typescript = tool.source
         agentTools.save(tool)
         val id = idIn(set(condition = """(?i)\bdeployed\b""", type = "regex"))
+        tool.source = returning("Deployed to production")
+        tool.typescript = tool.source
+        agentTools.save(tool)
         due(id)
         service.tick()
         val fired = watchers.findById(id).orElseThrow()

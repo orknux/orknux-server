@@ -76,7 +76,7 @@ class WatcherSchedulerIntegrationTest(
         clean()
         val workspaceId = requireNotNull(workspaces.save(Workspace(name = "backend")).id)
         session = recorder.open(workspaceId, "node", "restart")
-        val done = "export default async function buildStatus() { return { status: 'done' }; }"
+        val done = "export default async function buildStatus() { return { status: 'running' }; }"
         agentTools.save(AgentTool(workspaceId = workspaceId, name = "buildStatus", source = done, typescript = done))
         agent = agents.save(
             Agent(workspaceId = workspaceId, name = "Builder", type = AgentType.LLM, tools = mutableListOf("buildStatus")),
@@ -103,6 +103,9 @@ class WatcherSchedulerIntegrationTest(
             ),
         )
         val id = Regex("\"watcher\":(\\d+)").find(answer)!!.groupValues[1].toLong()
+        // Done now, after the watcher was set while it was still running.
+        val now = "export default async function buildStatus() { return { status: 'done' }; }"
+        agentTools.findAll().single { it.name == "buildStatus" }.let { it.source = now; it.typescript = now; agentTools.save(it) }
         // Due now rather than in fifteen seconds; the clock does the rest.
         val watcher = watchers.findById(id).orElseThrow()
         watcher.nextCheckAt = OffsetDateTime.now().minusSeconds(1)

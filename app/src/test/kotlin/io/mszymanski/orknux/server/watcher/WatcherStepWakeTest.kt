@@ -110,7 +110,7 @@ class WatcherStepWakeTest(
     @Test
     fun `a step whose agent finished with a watcher running is woken when it fires`() {
         val modelId = model(serve())
-        val status = "export default async function buildStatus() { return { status: 'done', build: 41 }; }"
+        val status = "export default async function buildStatus() { return { status: 'running', build: 41 }; }"
         agentTools.save(AgentTool(workspaceId = workspaceId, name = "buildStatus", source = status, typescript = status))
         val watcherAgent = agents.save(
             Agent(
@@ -135,6 +135,10 @@ class WatcherStepWakeTest(
         await().atMost(Duration.ofSeconds(20)).untilAsserted {
             assertThat(watchers.findAll()).hasSize(1)
             assertThat(steps.findAll().singleOrNull { it.nodeKey == "think" }?.agentSleeps).isEqualTo(1)
+        }
+        // Done now, after the watcher was set while it was still running.
+        agentTools.findAll().single { it.name == "buildStatus" }.let {
+            it.source = "export default async function buildStatus() { return { status: 'done', build: 41 }; }"; it.typescript = "export default async function buildStatus() { return { status: 'done', build: 41 }; }"; agentTools.save(it)
         }
         val watcher = watchers.findAll().single()
         watcher.nextCheckAt = OffsetDateTime.now().minusSeconds(1)

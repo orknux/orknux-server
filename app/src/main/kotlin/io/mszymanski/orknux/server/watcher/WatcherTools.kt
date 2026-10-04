@@ -68,7 +68,11 @@ class WatcherTools(
                         ToolParameterSpec(
                             CONDITION,
                             "For jsonpath, a path that finds something only when you should be woken, e.g. " +
-                                "\$[?(@.status == 'done')]. For regex, an expression found anywhere in the result.",
+                                "\$[?(@.status == 'done')]. For regex, an expression searched anywhere in the whole result " +
+                                "text - for http_get that is JSON with status, headers and body, so `0` also " +
+                                "matches the 0 of 200: target the field, e.g. jsonpath \$[?(@.body == '0')]. " +
+                                "The condition is checked once when you set it; one that already matches sets " +
+                                "nothing.",
                             required = true,
                         ),
                         ToolParameterSpec(INTERVAL, "Seconds between two calls; at least $shortest.", required = true),
@@ -137,11 +141,26 @@ class WatcherTools(
             val arguments = argumentsOf(asked?.path(ARGUMENTS))
             val note = text(asked?.path(NOTE))?.trim()?.ifEmpty { null }
 
-            val watcher = service.create(
-                agent,
-                session,
-                WatcherRequest(tool.trim(), arguments, kind, condition, interval, timeout, note),
-            )
+            val watcher = try {
+                service.create(
+                    agent,
+                    session,
+                    WatcherRequest(tool.trim(), arguments, kind, condition, interval, timeout, note),
+                )
+            } catch (already: WatcherAlreadyMatches) {
+                return answer(
+                    linkedMapOf(
+                        "set" to false,
+                        "alreadyMatches" to already.matched,
+                        "result" to already.result,
+                        "note" to "Called $tool once now, and the condition already matches what it returned, so " +
+                            "no watcher was set. If this is what you were waiting for, it has happened. If not, " +
+                            "the condition is too broad: a regex is searched in the whole result text above, " +
+                            "status and headers included, so name the field - a jsonpath such as " +
+                            "\$[?(@.body == '0')], or a regex anchored to it - and set it again.",
+                    ),
+                )
+            }
             return answer(
                 linkedMapOf(
                     "watcher" to watcher.id,
