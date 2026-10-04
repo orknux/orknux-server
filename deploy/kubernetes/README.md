@@ -244,8 +244,10 @@ an emergency, and it can wait for a convenient moment:
 
 ## Why the server is one replica
 
-Most of the server is happy with more than one, and it is worth knowing which
-parts, because the thing that stops it is smaller than it looks:
+Since 0.9.9.12 the server itself runs as several replicas on one Postgres. The
+example stays at one because of its storage, not because of the server.
+
+What already holds with more than one:
 
 - **Sessions are rows in the database**, so signing in survives whichever pod
   answers next, and a restart does not sign anybody out.
@@ -253,17 +255,29 @@ parts, because the thing that stops it is smaller than it looks:
   however many are running; that is what it is for.
 - **More Temporal workers is how Temporal is meant to be scaled.** Two servers
   polling the same task queue is the normal arrangement, not a conflict.
+- **What must run once runs on one pod.** A lease in the database (`shedlock`)
+  is held by one replica and renewed every third of
+  `ORKNUX_CLUSTER_LEASE_SECONDS`; that replica runs the sweeps and the checks
+  and opens the Slack sockets, and when it dies another takes over within one
+  lease. The Doctor (`orkx doctor`) says which pod holds it.
 
-**Slack is what stops it.** `SlackListener` opens one websocket per workspace
-connection *per process*. Two pods is two deliveries of every mention — two runs
-from one message, not one run twice as fast — and nothing downstream
-de-duplicates them, because nothing was ever asked to.
+What has to move before `replicas: 2`:
 
-So `replicas: 2` is safe only where no workspace has a Slack connection and none
-will. Two other things have to move first if you go there anyway: the
-attachments claim has to become `ReadWriteMany` or an object store, since
-`ReadWriteOnce` will not mount on two nodes; and the strategy can go back to
-`RollingUpdate` once nothing owns a claim exclusively.
+- **The attachments claim** has to become `ReadWriteMany` (NFS, EFS, a CSI
+  driver that offers it), since `ReadWriteOnce` will not mount on two nodes and
+  attachments are files on that volume. Then the strategy can go back to
+  `RollingUpdate`.
+- **Cookie affinity at the Ingress**, on the session cookie: the Stop button on
+  a chat answer and a workspace copy's progress are held by the pod doing the
+  work. With ingress-nginx that is `nginx.ingress.kubernetes.io/affinity:
+  cookie`.
+- **Temporal stays on.** With `ORKNUX_TEMPORAL_ENABLED=false` a second server
+  refuses to start: the inline engine carries a run on the pod that started it,
+  and a second one would take the first one's runs for abandoned work.
+
+An update activated from Admin -> Updates restarts every replica within the
+follow interval, together rather than one at a time. What is not done yet is
+written down in `docs/horizontal-scaling.md` in the server repository.
 
 The interface is served by the same pods, so it scales with the server and has
 no replica count of its own.

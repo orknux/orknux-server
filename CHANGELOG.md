@@ -15,6 +15,17 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- Several server replicas can share one Postgres: a lease in the database (`shedlock`, renewed every third of `ORKNUX_CLUSTER_LEASE_SECONDS`, thirty unless set, with an Admin Settings field) decides which replica runs the sweeps, the model, connection and MCP checks and the Slack sockets, and another takes over within one lease when it dies. The Doctor says which replica holds it. Attachments still need one volume every replica mounts, and the load balancer needs cookie affinity; `docs/horizontal-scaling.md` lists what is and is not covered.
+
+### 🔧 Changed
+
+- On the inline engine (`ORKNUX_TEMPORAL_ENABLED=false`) a second server started on the same database waits one lease and then refuses to start, instead of picking up the first server's runs and tasks as abandoned and running them again. A server restarted after a crash waits up to forty seconds for its predecessor's lease to run out; a clean stop lets go at once.
+- A Slack connection seen from a replica that does not hold the lease says it is listened to by another server, instead of "not connected yet".
+
 ## 0.9.9.11
 
 ### ✨ Added
