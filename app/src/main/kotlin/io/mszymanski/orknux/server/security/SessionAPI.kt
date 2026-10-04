@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.server.ResponseStatusException
 import io.mszymanski.orknux.server.user.AppUserRepository
 import io.mszymanski.orknux.server.user.InternalAuthentication
+import io.mszymanski.orknux.server.user.UserType
 import org.springframework.security.authentication.AuthenticationManager
 
 /**
@@ -323,6 +324,13 @@ class SessionAPI(
              * with no row yet, which is what the column defaults to.
              */
             chatCostShown = held?.chatCostShown ?: false,
+            /*
+             * Whether Preferences offers them access tokens of their own. Only
+             * an internal user may hold one - see `UserAPI.createUserToken` -
+             * and a section that can only answer with a refusal is worse than
+             * one that is not drawn. Issue #2.
+             */
+            tokensAllowed = held?.type == UserType.INTERNAL,
         )
     }
 
@@ -375,6 +383,8 @@ data class SessionUser @JsonCreator constructor(
      * its own on a screen that already has one open.
      */
     @JsonProperty("chatCostShown") val chatCostShown: Boolean = false,
+    /** Whether they may make access tokens for themselves: internal users only. Issue #2. */
+    @JsonProperty("tokensAllowed") val tokensAllowed: Boolean = false,
 ) {
     constructor(authentication: Authentication) : this(
         username = authentication.name,

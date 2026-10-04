@@ -3,6 +3,8 @@ package io.mszymanski.orknux.server.user
 import io.mszymanski.orknux.server.security.RoleRepository
 import org.springframework.security.crypto.password.PasswordEncoder
 import io.mszymanski.orknux.server.security.WorkspaceAccess
+import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
+import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.graphql.data.method.annotation.Argument
 import org.springframework.graphql.data.method.annotation.MutationMapping
@@ -33,6 +35,7 @@ class UserAPI(
     private val internal: InternalAuthentication,
     private val encoder: PasswordEncoder,
     private val access: WorkspaceAccess,
+    private val audit: WorkspaceAuditRecorder,
 ) {
 
     @QueryMapping
@@ -287,20 +290,33 @@ class UserAPI(
             access.requireAdmin()
             users.findByIdOrNull(id) ?: throw UserNotFoundException(id)
         }
-        if (held.type != UserType.INTERNAL) throw PasswordNotSettableException(held.username)
+        if (held.type != UserType.INTERNAL) throw TokenNotIssuableException(held.username)
 
         val (stored, secret) = internal.mint(held, name.trim().ifEmpty { "Token" })
+        audit.record(null, WorkspaceAuditCategory.WORKSPACE, "Access token ${stored.name} created for ${held.username}")
         return NewTokenView(describe(stored), secret)
     }
 
+    /**
+     * Yours to revoke, or an administrator's.
+     *
+     * Somebody else's token answers as though it did not exist rather than as
+     * forbidden, so the ids of other people's tokens cannot be found by trying
+     * them from Preferences.
+     */
     @MutationMapping
     @Transactional
     fun deleteUserToken(@Argument id: Long): Boolean {
         val held = tokens.findByIdOrNull(id) ?: throw TokenNotFoundException(id)
         val owner = users.findByIdOrNull(held.userId)
-        // Yours to remove, or an administrator's.
-        if (owner?.username != editor()) access.requireAdmin()
+        val yours = owner != null && owner.username.equals(editor(), ignoreCase = true)
+        if (!yours && !access.isAdmin()) throw TokenNotFoundException(id)
         tokens.delete(held)
+        audit.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "Access token ${held.name} revoked for ${owner?.username ?: "a removed user"}",
+        )
         return true
     }
 

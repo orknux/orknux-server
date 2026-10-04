@@ -79,6 +79,8 @@ class SessionAPITest(
         assertThat(current.body?.username).isEqualTo("bob")
         assertThat(current.body?.roles).containsExactlyInAnyOrder("ROLE_USERS", "ROLE_BACKEND")
         assertThat(current.body?.admin).isFalse()
+        // A directory user's tokens would outlive what the directory says about them. Issue #2.
+        assertThat(current.body?.tokensAllowed).isFalse()
         assertThat(current.body?.email).isEqualTo("bob@orknux.io")
 
         client.delete().uri("/api/session")

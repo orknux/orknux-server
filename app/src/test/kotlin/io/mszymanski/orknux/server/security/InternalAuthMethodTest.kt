@@ -98,6 +98,8 @@ class InternalSignInTest(
 
         assertThat(answer.statusCode).isEqualTo(HttpStatus.OK)
         assertThat(answer.body?.username).isEqualTo(INTERNAL_USER)
+        // And is told Preferences may make access tokens for them. Issue #2.
+        assertThat(answer.body?.tokensAllowed).isTrue()
     }
 
     @Test

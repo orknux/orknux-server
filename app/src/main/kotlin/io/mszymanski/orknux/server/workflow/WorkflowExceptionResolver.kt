@@ -55,6 +55,7 @@ import io.mszymanski.orknux.server.user.EmailInvalidException
 import io.mszymanski.orknux.server.user.PasswordTooShortException
 import io.mszymanski.orknux.server.user.PasswordWrongException
 import io.mszymanski.orknux.server.user.TokenNotFoundException
+import io.mszymanski.orknux.server.user.TokenNotIssuableException
 import io.mszymanski.orknux.server.user.UserExternallyManagedException
 import io.mszymanski.orknux.server.user.UserNameInvalidException
 import io.mszymanski.orknux.server.user.UserNameTakenException
@@ -212,6 +213,7 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is PasswordTooShortException,
             is PasswordWrongException,
             is PasswordNotSettableException,
+            is TokenNotIssuableException,
             is EmailInvalidException,
             is RoleBuiltInException,
             is WorkflowNotPublishedException,

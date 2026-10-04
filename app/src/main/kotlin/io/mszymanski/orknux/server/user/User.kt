@@ -305,6 +305,20 @@ class PasswordNotSettableException(val username: String) : RuntimeException(
     override val arguments get() = mapOf("username" to username)
 }
 
+/**
+ * Somebody asked for an access token for a user the identity provider owns.
+ *
+ * A token would outlive whatever the provider decides about them - disabled
+ * there, still signing in here - which is the one thing an installation must
+ * not let a token do.
+ */
+class TokenNotIssuableException(val username: String) : RuntimeException(
+    "\"$username\" signs in through the identity provider, so no access token can be made for them here",
+), Refusal {
+
+    override val arguments get() = mapOf("username" to username)
+}
+
 class TokenNotFoundException(val id: Long) : RuntimeException("No token with id $id"), Refusal {
 
     override val arguments get() = mapOf("id" to id)
