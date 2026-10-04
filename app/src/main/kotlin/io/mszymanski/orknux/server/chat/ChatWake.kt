@@ -61,7 +61,7 @@ class ChatWake(
         val chat = chats.findById(id).orElse(null) ?: return
         // Followable like a turn somebody asked for, so a page open on this chat
         // - or opened on it while this is being written - sees it arrive (#201).
-        val generation = ChatGeneration()
+        val generation = ChatGeneration(woken = true)
         val watch = generation.watch()
         generations.register(id, generation)
         try {

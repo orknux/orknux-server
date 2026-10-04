@@ -450,22 +450,44 @@ class ChatStreamAPI(
      * turn it is: following is looking, and Stop is [interrupt].
      */
     @GetMapping("/api/chats/{id}/follow", produces = [MediaType.TEXT_EVENT_STREAM_VALUE])
-    fun follow(@PathVariable id: Long, response: HttpServletResponse): StreamingResponseBody {
+    fun follow(
+        @PathVariable id: Long,
+        response: HttpServletResponse,
+        @RequestParam(defaultValue = "false") wait: Boolean = false,
+    ): StreamingResponseBody {
         if (!settings.chatEnabled()) throw ChatDisabledException()
         val session = chats.session(id) ?: throw ChatSessionNotFoundException(id)
         requireOwn(session)
         response.setHeader("Cache-Control", "no-cache, no-transform")
         response.setHeader("X-Accel-Buffering", "no")
 
-        val generation = generations.current(id)
+        val current = generations.current(id)
         return StreamingResponseBody { _ ->
             val stream = ServerSentEvents(response, mapper)
+            val generation = if (wait) awaitWoken(stream, id) ?: return@StreamingResponseBody else current
             if (generation == null) {
                 runCatching { stream.send("idle", mapOf<String, Any>()) }
                 return@StreamingResponseBody
             }
             if (runCatching { stream.send("following", mapOf<String, Any>()) }.isFailure) return@StreamingResponseBody
             relay(stream, generation) {}
+        }
+    }
+
+    /**
+     * `wait`: a page open on an idle chat, waiting for the server to start a turn
+     * on it by itself - a watcher firing, a reminder coming due. Without it such
+     * an answer was written to the history and shown to nobody until a reload.
+     * `waiting` says so at once, pings keep the connection and notice the page
+     * leaving, and the turn is then followed exactly as an asked one.
+     */
+    private fun awaitWoken(stream: ServerSentEvents, id: Long): ChatGeneration? {
+        if (runCatching { stream.send("waiting", mapOf<String, Any>()) }.isFailure) return null
+        val gone = java.util.concurrent.atomic.AtomicBoolean(false)
+        return try {
+            readers.whileReading(stream, gone = { gone.set(true) }) { generations.awaitWoken(id) { gone.get() } }
+        } catch (_: InterruptedException) {
+            null
         }
     }
 

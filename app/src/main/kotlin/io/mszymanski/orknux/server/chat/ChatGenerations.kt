@@ -29,6 +29,12 @@ class ChatFrame(val event: String, val payload: Any)
 class ChatGeneration(
     /** How this answer is stopped on purpose: Stop, or a voice reader leaving. */
     val hangup: Hangup = Hangup(),
+    /**
+     * Started by the server rather than by somebody sending - [ChatWake]. A page
+     * open on the chat did not ask for it and so has no stream reading it; it
+     * waits for one of these instead ([ChatGenerations.awaitWoken]).
+     */
+    val woken: Boolean = false,
 ) {
     private val lock = Object()
     private val frames = ArrayList<ChatFrame>()
@@ -42,6 +48,9 @@ class ChatGeneration(
             lock.notifyAll()
         }
     }
+
+    /** Whether the answer has ended, so there is nothing left to follow. */
+    fun isOver(): Boolean = synchronized(lock) { over }
 
     /** Says there will be no more frames, however the answer ended. */
     fun finish() {
@@ -93,11 +102,36 @@ class ChatGenerations {
 
     private val inFlight = ConcurrentHashMap<Long, MutableList<ChatGeneration>>()
 
+    /** Told of every [register], for pages waiting on a woken turn. */
+    private val arrivals = Object()
+
     /** Notes that a turn on this chat is being answered, until [release]. */
     fun register(chatId: Long, generation: ChatGeneration) {
         inFlight.compute(chatId) { _, held ->
             (held ?: java.util.concurrent.CopyOnWriteArrayList()).apply { add(generation) }
         }
+        synchronized(arrivals) { arrivals.notifyAll() }
+    }
+
+    /**
+     * The next turn the server starts on this chat by itself - a watcher firing,
+     * an agent it asked answering - waiting until there is one, or null once
+     * [given] says the reader waiting for it has gone.
+     *
+     * Only a woken turn: one somebody sent is already being read by the page that
+     * sent it, and a second reader on the same page would draw it twice. And not
+     * one that has already ended, which the history now holds.
+     */
+    @Throws(InterruptedException::class)
+    fun awaitWoken(chatId: Long, given: () -> Boolean): ChatGeneration? {
+        synchronized(arrivals) {
+            while (!given()) {
+                inFlight[chatId]?.lastOrNull { it.woken && !it.isOver() }?.let { return it }
+                // Bounded, so a reader that left is noticed without a register to wake this.
+                arrivals.wait(1_000)
+            }
+        }
+        return null
     }
 
     /**

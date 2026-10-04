@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.chat
 
+import java.time.Duration
+import org.awaitility.Awaitility.await
 import com.sun.net.httpserver.HttpServer
 import io.mszymanski.orknux.connector.model.LlmModelRepository
 import io.mszymanski.orknux.connector.model.ModelProviderRepository
@@ -73,6 +75,7 @@ import java.util.concurrent.atomic.AtomicInteger
 class ChatStreamInterruptTest(
     @Autowired val graphQlTester: ExecutionGraphQlServiceTester,
     @Autowired val streaming: ChatStreamAPI,
+    @Autowired val generations: ChatGenerations,
     @Autowired val sessions: ChatSessionRepository,
     @Autowired val history: ChatMemoryRepository,
     @Autowired val agents: AgentRepository,
@@ -298,6 +301,41 @@ class ChatStreamInterruptTest(
         streaming.follow(chatId, response).writeTo(response.outputStream)
 
         assertThat(response.contentAsString).isEqualTo("event: idle\ndata: {}\n\n")
+    }
+
+    /**
+     * A page open on an idle chat waits, and is handed the turn the server starts
+     * there by itself - a watcher firing - but not one somebody sent, which the
+     * page that sent it is already reading. Before, a woken answer reached the
+     * history and nobody's screen until a reload.
+     */
+    @Test
+    fun `a page waiting on an idle chat is handed the turn the server starts by itself`() {
+        server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0).apply { start() }
+        val chatId = chatWithAgent(model("http://stub.invalid"))
+        val back = MockHttpServletResponse()
+        val body = streaming.follow(chatId, back, wait = true)
+        val pool = Executors.newSingleThreadExecutor()
+        val read = pool.submit { body.writeTo(back.outputStream) }
+
+        val sent = ChatGeneration()
+        generations.register(chatId, sent)
+        Thread.sleep(1_500)
+        assertThat(read.isDone).describedAs("a sent turn is not this reader's").isFalse()
+
+        val woken = ChatGeneration(woken = true)
+        generations.register(chatId, woken)
+        await().atMost(Duration.ofSeconds(5)).until { back.contentAsString.contains("event: following") }
+        woken.post("chunk", mapOf("text" to "Build 41 is done."))
+        generations.release(chatId, woken)
+        generations.release(chatId, sent)
+        read.get(10, TimeUnit.SECONDS)
+        pool.shutdownNow()
+
+        assertThat(back.contentAsString)
+            .startsWith("event: waiting")
+            .contains("event: following")
+            .contains("Build 41 is done.")
     }
 
     /**
