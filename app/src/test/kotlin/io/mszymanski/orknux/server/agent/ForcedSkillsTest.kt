@@ -278,7 +278,7 @@ class ForcedSkillsTest(
             ", skillCatalogs: [" + catalogs.findByWorkspaceIdOrderByNameAsc(workspaceId).joinToString(", ") { "\"${it.name}\"" } + "]"
         }
         graphQlTester.document(
-            """mutation { updateAgent(id: $id, input: { name: "Reviewer", modelId: $modelId, systemPrompt: "You review."$granted }) { id } }""",
+            """mutation { updateAgent(id: $id, input: { name: "Reviewer", modelId: $modelId, systemPrompt: "You review."$granted, requiredSkills: [] }) { id } }""",
         ).execute()
         return id
     }

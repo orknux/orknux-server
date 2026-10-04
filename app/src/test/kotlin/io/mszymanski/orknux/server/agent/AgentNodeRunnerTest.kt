@@ -972,7 +972,7 @@ class AgentNodeRunnerTest(
             if (prompt != null) append(""", systemPrompt: "$prompt"""")
         }
         graphQlTester.document(
-            """mutation { updateAgent(id: $id, input: { name: "$name"$settings }) { id } }""",
+            """mutation { updateAgent(id: $id, input: { name: "$name"$settings, requiredSkills: [] }) { id } }""",
         ).execute()
         return id
     }

@@ -165,7 +165,7 @@ class ChatAgentTest(
         // so granting a catalog on its own would wipe the instructions.
         graphQlTester.document(
             """mutation { updateAgent(id: $agentId, input: {
-                 name: "Reviewer", systemPrompt: "You review code carefully.", skillCatalogs: ["Reviews"]
+                 name: "Reviewer", systemPrompt: "You review code carefully.", skillCatalogs: ["Reviews"], requiredSkills: []
                }) { skillCatalogs } }""",
         ).execute()
 
@@ -314,7 +314,7 @@ class ChatAgentTest(
             if (prompt != null) append(""", systemPrompt: "$prompt"""")
         }
         graphQlTester.document(
-            """mutation { updateAgent(id: $id, input: { name: "$name"$settings }) { id } }""",
+            """mutation { updateAgent(id: $id, input: { name: "$name"$settings, requiredSkills: [] }) { id } }""",
         ).execute()
         return id
     }
