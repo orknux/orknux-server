@@ -74,6 +74,16 @@ class AgentAPI(
      * because V302's agents held them by not hiding them; a catalog is held by
      * being named.
      */
+    /**
+     * The skills a fresh agent has in front of it every turn rather than on
+     * offer. Watchers, because the user asked for it to be Always: checking
+     * something periodically is a choice an agent makes in the middle of a
+     * task, and one that has to decide to read the skill first reaches for
+     * finish_answer with a wake-up instead. V338 gives it to the agents that
+     * predate this.
+     */
+    private val STARTING_ALWAYS_SKILLS = listOf("watchers")
+
     private fun startingCatalogs(): MutableList<String> =
         (listOf(BuiltInSkills.CATALOG) + pluginSkills.catalogs().map { it.name }).distinct().toMutableList()
 
@@ -200,6 +210,7 @@ class AgentAPI(
                 // commands to tell anybody about. Issue #471. With every
                 // plugin's catalog beside them; see startingCatalogs. Issue #4.
                 skillCatalogs = startingCatalogs(),
+                requiredSkills = STARTING_ALWAYS_SKILLS.toMutableList(),
                 lastModifiedBy = currentUser(),
             ),
         )
@@ -271,6 +282,7 @@ class AgentAPI(
                 // paragraph above is about: these catalogs are the
                 // installation's, and a skill runs nothing. Issues #471 and #4.
                 skillCatalogs = startingCatalogs(),
+                requiredSkills = STARTING_ALWAYS_SKILLS.toMutableList(),
                 lastModifiedBy = currentUser(),
             ),
         )

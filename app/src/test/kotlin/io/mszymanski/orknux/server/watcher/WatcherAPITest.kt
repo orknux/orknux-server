@@ -21,6 +21,7 @@ import org.springframework.boot.graphql.test.autoconfigure.tester.AutoConfigureG
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.graphql.test.tester.ExecutionGraphQlServiceTester
 import org.springframework.security.test.context.support.WithMockUser
+import org.springframework.jdbc.core.JdbcTemplate
 import java.time.OffsetDateTime
 
 /**
@@ -40,6 +41,7 @@ class WatcherAPITest(
     @Autowired val events: SessionEventRepository,
     @Autowired val audit: WorkspaceAuditRepository,
     @Autowired val stored: InstallationSettingRepository,
+    @Autowired val jdbc: JdbcTemplate,
     @Autowired val agents: AgentRepository,
     @Autowired val skills: SkillTool,
 ) {
@@ -192,5 +194,37 @@ class WatcherAPITest(
             assertThat(page.content).contains("`watcher_set`")
             assertThat(skills.search(agent, "watcher jsonpath").map { it.name }).contains("Watchers")
         }
+    }
+
+    /**
+     * Always, not only offered: the user asked for it, because an agent that
+     * has to decide to read the skill first reaches for finish_answer with a
+     * wake-up instead. A new agent starts marked, and V338 marks every agent
+     * that predates it - but not one that hid the skill on purpose.
+     */
+    @Test
+    fun `the Watchers skill is Always for a new agent and for one written before it existed`() {
+        val created = graphQlTester.document(
+            """mutation { createAgent(input: { workspaceId: $workspaceId, name: "Fresh", type: LLM }) { id } }""",
+        ).execute().path("createAgent.id").entity(Long::class.java).get()
+        assertThat(agents.findById(created).orElseThrow().requiredSkills).contains("watchers")
+
+        val older = agents.save(Agent(workspaceId = workspaceId, name = "Older", type = AgentType.LLM))
+        val hiding = agents.save(
+            Agent(workspaceId = workspaceId, name = "Hiding", type = AgentType.LLM).apply { hiddenSkills = mutableListOf("watchers") },
+        )
+        assertThat(agents.findById(older.id!!).orElseThrow().requiredSkills).doesNotContain("watchers")
+
+        val engine = if (jdbc.dataSource!!.connection.use { it.metaData.databaseProductName }.contains("SQLite", true)) "sqlite" else "postgresql"
+        val migration = if (engine == "sqlite") "V16__watchers_skill_always.sql" else "V338__watchers_skill_always.sql"
+        val sql = requireNotNull(javaClass.getResource("/db/migration/$engine/$migration")).readText()
+            .lines().filterNot { it.trimStart().startsWith("--") }.joinToString(" ")
+        jdbc.execute(sql)
+
+        assertThat(agents.findById(older.id!!).orElseThrow().requiredSkills).containsOnlyOnce("watchers")
+        assertThat(agents.findById(hiding.id!!).orElseThrow().requiredSkills).doesNotContain("watchers")
+        // Run again, it adds nothing twice.
+        jdbc.execute(sql)
+        assertThat(agents.findById(older.id!!).orElseThrow().requiredSkills).containsOnlyOnce("watchers")
     }
 }

@@ -23,6 +23,7 @@ have failed.
 
 ### 🔧 Changed
 
+- The Watchers skill is Always for every agent - its page is in front of the model each turn - new agents and existing ones alike, except an agent that hid it.
 - Admin -> Updates: every offered release's changes start closed, the newest included; a version opens on a click, and one somebody opened or closed stays that way.
 - A new token's secret is shown with a copy button beside it instead of a Done link, on Preferences and on the admin user page.
 - An agent's Tools count no longer counts `http_allowList` beside the HTTP tool that brought it, so granting one HTTP tool moves "n of m granted" by one; its row now says it is granted by the HTTP tools.
