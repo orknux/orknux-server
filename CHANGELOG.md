@@ -15,6 +15,22 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- Admin -> Settings -> Server updates: how many broken attempts in a row a server jar download gets before it is given up on (default 5, counted only for attempts that brought nothing), and the wait before it resumes (2 seconds at first, doubling to 60).
+
+### 🔧 Changed
+
+- Update (official server) and Fetch (a URL) on Admin -> Updates answer at once and the server downloads the jar in the background: the page shows a bar with bytes of total and the speed, then verifying, storing, restarting and back on the version, and the reason if a step fails. Leaving the page and coming back - or asking another replica - finds the download where it got to. The jar is verified exactly as before, on the complete file. `installServerRelease` and `installServerReleaseFromUrl` now answer a `ServerReleaseDownload` instead of the started or stored release; anything scripting them should poll `serverReleaseDownload` until it is `DONE` or `FAILED`.
+- A broken download resumes from the bytes it has (HTTP Range) instead of starting again, also from the official server. Admin -> Settings' download time limit is now how long a connection may go without a byte (default 60 seconds, was a 600-second limit on the whole download from a URL); an installation that changed it keeps its number with the new meaning.
+
+### 🐛 Fixed
+
+- An update through a proxy that cuts long requests (nginx and Ingress at 60 seconds, Cloudflare at 100) failed with a bare "Failed to fetch" while the download carried on unseen; a request that gets no answer now says in a sentence that the server could not be reached, everywhere in the interface.
+- The install key sent with an official server jar download followed redirects to other hosts; it now goes to the marketplace's own host only. That download also had no time limit, so a stalled one waited for ever.
+
 ## 0.9.9.11
 
 ### ✨ Added

@@ -114,6 +114,11 @@ type Query {
     """
     serverUpdates: ServerUpdates!
     """
+    The newest server release download nobody has put away: under way, or how
+    it ended. Null where there is none. Administrators only. Issue #602.
+    """
+    serverReleaseDownload: ServerReleaseDownload
+    """
     What releases.json in a repository directory lists newer than what runs -
     the directory ends in /, and its jarUrls may be relative to it. Reads only.
     Administrators only. Issue #589.
@@ -1289,11 +1294,15 @@ type Mutation {
     "How long a step of a workspace copy may wait for a lock, 1 to 3600 seconds. Administrators only. Issue #581."
     setWorkspaceCopyLockWaitSeconds(seconds: Int!): InstallationSettings!
     """
-    Downloads a server release orknux.ai offers, checks it against the listing
-    and the release key, stores it and restarts into it. Administrators only.
-    Issue #584.
+    Starts downloading a server release orknux.ai offers, and answers at once.
+    In the background it is checked against the listing and the release key,
+    stored, and restarted into; `serverReleaseDownload` says where it stands.
+    Refused while another download is under way. Administrators only. Issues
+    #584 and #602.
     """
-    installServerRelease(version: String!): ServerUpdateStarted!
+    installServerRelease(version: String!): ServerReleaseDownload!
+    "Puts away how a server release download ended, so the page stops showing it. Administrators only. Issue #602."
+    dismissServerReleaseDownload(id: ID!): Boolean!
     """
     Restarts into a server release the database holds - a rollback, or forward
     again. Refused where the schema has moved past what that jar can run on.
@@ -1322,16 +1331,24 @@ type Mutation {
     setReleaseMaxMb(mb: Int!): InstallationSettings!
     "How long a server waits after an update before restarting, between 0 and 60 seconds. Administrators only."
     setReleaseRestartDelaySeconds(seconds: Int!): InstallationSettings!
-    "How long a server jar fetched from a URL may take, between 10 and 3600 seconds. Administrators only. Issue #589."
+    "How long one connection for a server jar may go without a byte, between 10 and 3600 seconds. Administrators only. Issues #589 and #602."
     setReleaseDownloadSeconds(seconds: Int!): InstallationSettings!
+    "How many broken attempts in a row that bring nothing a server jar download gets, between 1 and 100. Administrators only. Issue #602."
+    setReleaseDownloadAttempts(count: Int!): InstallationSettings!
+    "The first wait before a broken server jar download resumes, between 1 and 3600 seconds. Administrators only. Issue #602."
+    setReleaseDownloadBackoffSeconds(seconds: Int!): InstallationSettings!
+    "The longest wait before a broken server jar download resumes, between 1 and 3600 seconds. Administrators only. Issue #602."
+    setReleaseDownloadBackoffMaxSeconds(seconds: Int!): InstallationSettings!
     """
     Fetches a server jar from a URL - a company's own repository - checks it
     against the release key exactly as an upload is checked, and stores it
     without starting it. Only http and https; the credential, a bearer token or
     user:password, is sent as Authorization to that host and is never stored or
-    logged. Administrators only. Issue #589.
+    logged. Administrators only. Issue #589. Since #602 it answers at once and
+    the jar is fetched in the background; `serverReleaseDownload` says where it
+    stands.
     """
-    installServerReleaseFromUrl(url: String!, credential: String): StoredServerRelease!
+    installServerReleaseFromUrl(url: String!, credential: String): ServerReleaseDownload!
     """
     Whether a conversation may be thrown away. Administrators only.
 
@@ -6830,9 +6847,18 @@ type InstallationSettings {
     "How long a server waits after an update before restarting, in seconds."
     releaseRestartDelaySeconds: Int!
     releaseRestartDelaySecondsConfigured: Int!
-    "How long a server jar fetched from a URL may take, in seconds."
+    "How long one connection for a server jar may go without a byte, in seconds, before the download resumes on another."
     releaseDownloadSeconds: Int!
     releaseDownloadSecondsConfigured: Int!
+    "Broken attempts in a row that brought nothing, before a server jar download is given up on. Issue #602."
+    releaseDownloadAttempts: Int!
+    releaseDownloadAttemptsConfigured: Int!
+    "The first wait before a broken server jar download resumes, in seconds; it doubles after each."
+    releaseDownloadBackoffSeconds: Int!
+    releaseDownloadBackoffSecondsConfigured: Int!
+    "The longest that doubling wait grows to, in seconds."
+    releaseDownloadBackoffMaxSeconds: Int!
+    releaseDownloadBackoffMaxSecondsConfigured: Int!
 }
 
 "Server updates as an administrator sees them. Issue #584."
@@ -6942,6 +6968,61 @@ type StoredServerRelease {
     "Whether it may be started; see refusal where not."
     activatable: Boolean!
     refusal: String
+}
+
+"Where a server release download stands. Issue #602."
+enum ServerReleaseDownloadState {
+    "Bytes are arriving."
+    DOWNLOADING
+    "A connection broke; waiting to resume from the bytes already held."
+    WAITING
+    "The whole jar is here and its signature, structure and digest are being checked."
+    VERIFYING
+    "Passed, and being written into the database."
+    STORING
+    "Stored and chosen; the server is restarting into it."
+    RESTARTING
+    "Finished: stored, or for an update, running."
+    DONE
+    "Given up on; `failure` says why."
+    FAILED
+}
+
+"A server jar on its way in, written by the server downloading it about once a second. Issue #602."
+type ServerReleaseDownload {
+    id: ID!
+    "ORKNUX_AI for Update, URL for Fetch."
+    source: ServerReleaseSource!
+    "The version listed, or read from the jar once verified; null until known."
+    version: String
+    "Where it comes from."
+    host: String!
+    state: ServerReleaseDownloadState!
+    "Bytes held so far."
+    received: Float!
+    "The jar's length, once the far end has said."
+    total: Float
+    "Over the last few seconds."
+    bytesPerSecond: Float!
+    "Connections opened."
+    attempts: Int!
+    "Of those, the ones that went on from bytes already held (HTTP Range) rather than from the start."
+    resumed: Int!
+    "Broken connections in a row that brought nothing; it gives up at the Admin Settings limit."
+    failedInRow: Int!
+    "While WAITING, when the next connection is made."
+    nextAttemptAt: String
+    "Why the last connection broke, while it is being retried."
+    lastError: String
+    "Whether the release is started once stored: true for Update, false for Fetch."
+    activate: Boolean!
+    "The stored release it became."
+    releaseId: ID
+    "Why it was given up on."
+    failure: String
+    startedBy: String!
+    startedAt: String!
+    finishedAt: String
 }
 
 "An update or rollback, accepted."

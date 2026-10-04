@@ -44,7 +44,7 @@ class ServerUpdatesDisabledTest(
 
         graphQlTester.document("mutation { activateServerRelease(id: 1) { restarting } }").execute()
             .errors().satisfy { errors -> assertThat(errors.single().extensions["code"]).isEqualTo("ServerUpdatesDisabled") }
-        graphQlTester.document("""mutation { installServerRelease(version: "9.9.9") { restarting } }""").execute()
+        graphQlTester.document("""mutation { installServerRelease(version: "9.9.9") { id } }""").execute()
             .errors().satisfy { errors -> assertThat(errors.single().extensions["code"]).isEqualTo("ServerUpdatesDisabled") }
         // Refused before anything is fetched: the address cannot even resolve.
         graphQlTester.document("""mutation { installServerReleaseFromUrl(url: "https://artifactory.invalid/orknux.jar") { id } }""")

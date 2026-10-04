@@ -46,6 +46,7 @@ abstract class ServerReleaseSourceSwitchTest(private val off: ServerReleaseSourc
     @Autowired lateinit var updates: ServerReleases
     @Autowired lateinit var releases: ServerReleaseRepository
     @Autowired lateinit var dataSource: DataSource
+    @Autowired lateinit var downloads: ServerReleaseDownloadRepository
 
     private lateinit var mockMvc: MockMvc
 
@@ -55,6 +56,13 @@ abstract class ServerReleaseSourceSwitchTest(private val off: ServerReleaseSourc
         val jdbc = JdbcTemplate(dataSource)
         jdbc.update("DELETE FROM server_release_part")
         jdbc.update("DELETE FROM server_release")
+        jdbc.update("DELETE FROM server_release_download")
+    }
+
+    /** The two that download do it in the background since #602; what a test reads is where they ended. */
+    private fun settled(response: Any?): Any? {
+        downloads.findAll().filter { it.state.working }.forEach { ReleaseDownloadsAwait.finished(downloads, it.id!!) }
+        return response
     }
 
     /** Each source, asked to bring in a jar of [version]; true where it was stored. */
@@ -62,7 +70,7 @@ abstract class ServerReleaseSourceSwitchTest(private val off: ServerReleaseSourc
         served = TestReleaseJars.signed(Shape(version = version))
         return when (source) {
             ServerReleaseSource.ORKNUX_AI ->
-                graphQlTester.document("""mutation { installServerRelease(version: "$version") { restarting } }""").execute()
+                settled(graphQlTester.document("""mutation { installServerRelease(version: "$version") { id } }""").execute())
             ServerReleaseSource.UPLOAD -> {
                 // MockMvc clears the signed-in user on its way out; the GraphQL calls after it need alice back.
                 val signedIn = org.springframework.security.core.context.SecurityContextHolder.getContext()
@@ -71,8 +79,10 @@ abstract class ServerReleaseSourceSwitchTest(private val off: ServerReleaseSourc
                 ).also { org.springframework.security.core.context.SecurityContextHolder.setContext(signedIn) }
             }
             ServerReleaseSource.URL ->
-                graphQlTester.document("""mutation { installServerReleaseFromUrl(url: "http://${where()}/jar/$version.jar") { id } }""")
-                    .execute()
+                settled(
+                    graphQlTester.document("""mutation { installServerReleaseFromUrl(url: "http://${where()}/jar/$version.jar") { id } }""")
+                        .execute(),
+                )
         }
     }
 

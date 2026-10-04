@@ -46,6 +46,7 @@ class ServerReleaseUrlTest(
     @Autowired val settings: InstallationSettings,
     @Autowired val audit: WorkspaceAuditRepository,
     @Autowired val dataSource: DataSource,
+    @Autowired val downloads: ServerReleaseDownloadRepository,
 ) {
 
     private val jdbc = JdbcTemplate(dataSource)
@@ -54,6 +55,7 @@ class ServerReleaseUrlTest(
     fun reset() {
         jdbc.update("DELETE FROM server_release_part")
         jdbc.update("DELETE FROM server_release")
+        jdbc.update("DELETE FROM server_release_download")
         jdbc.update("DELETE FROM installation_setting WHERE name LIKE 'release%'")
         audit.deleteAll()
         served = TestReleaseJars.signed(Shape(version = "9.8.1"))
@@ -64,43 +66,63 @@ class ServerReleaseUrlTest(
     private fun fetch(url: String, credential: String? = null) = graphQlTester.document(
         """
         mutation(${'$'}url: String!, ${'$'}credential: String) {
-          installServerReleaseFromUrl(url: ${'$'}url, credential: ${'$'}credential) {
-            version source sourceUrl state activatable
-          }
+          installServerReleaseFromUrl(url: ${'$'}url, credential: ${'$'}credential) { id source host state activate }
         }
         """,
     ).variable("url", url).variable("credential", credential).execute()
 
+    /** Started, and waited out in the background: where the row ended. */
+    private fun fetched(url: String, credential: String? = null): ServerReleaseDownload {
+        val id = fetch(url, credential).path("installServerReleaseFromUrl.id").entity(String::class.java).get().toLong()
+        return ReleaseDownloadsAwait.finished(downloads, id)
+    }
+
+    private fun stored(url: String, credential: String? = null): ServerRelease {
+        val row = fetched(url, credential)
+        assertThat(row.failure).isNull()
+        assertThat(row.state).isEqualTo(ServerReleaseDownloadState.DONE)
+        return releases.findById(row.releaseId!!).get()
+    }
+
+    private fun failedWith(url: String, failure: String, credential: String? = null) {
+        val row = fetched(url, credential)
+        assertThat(row.state).isEqualTo(ServerReleaseDownloadState.FAILED)
+        assertThat(row.failure).isEqualTo(failure)
+    }
+
+    /** Refused at the door, before anything is started. */
     private fun refusedWith(url: String, code: String, credential: String? = null) =
         fetch(url, credential).errors().satisfy { errors -> assertThat(errors.single().extensions["code"]).isEqualTo(code) }
 
     @Test
-    fun `a signed jar at a URL is fetched, verified and stored, not started, and audited by its host`() {
+    fun `a signed jar at a URL is fetched in the background, verified and stored, not started, and audited by its host`() {
         fetch("http://${where()}/public/orknux-server.jar?token=not-kept#also-not")
-            .path("installServerReleaseFromUrl.version").entity(String::class.java).isEqualTo("9.8.1")
             .path("installServerReleaseFromUrl.source").entity(String::class.java).isEqualTo("URL")
-            .path("installServerReleaseFromUrl.sourceUrl").entity(String::class.java)
-            .isEqualTo("http://${where()}/public/orknux-server.jar")
-            .path("installServerReleaseFromUrl.state").entity(String::class.java).isEqualTo("STORED")
-            .path("installServerReleaseFromUrl.activatable").entity(Boolean::class.java).isEqualTo(true)
+            .path("installServerReleaseFromUrl.host").entity(String::class.java).isEqualTo("127.0.0.1")
+            .path("installServerReleaseFromUrl.activate").entity(Boolean::class.java).isEqualTo(false)
+        val done = ReleaseDownloadsAwait.newest(downloads)
+        assertThat(done.state).isEqualTo(ServerReleaseDownloadState.DONE)
+        assertThat(done.version).isEqualTo("9.8.1")
+        assertThat(done.sourceUrl).isEqualTo("http://${where()}/public/orknux-server.jar")
 
         val row = releases.findAll().single()
+        assertThat(row.id).isEqualTo(done.releaseId)
+        assertThat(row.version).isEqualTo("9.8.1")
+        assertThat(row.state).isEqualTo(ServerReleaseState.STORED)
+        assertThat(row.sourceUrl).isEqualTo("http://${where()}/public/orknux-server.jar")
         assertThat(row.sha256).isEqualTo(ReleaseJarVerifier.sha256(served))
         assertThat(row.source).isEqualTo(ServerReleaseSource.URL)
         assertThat(audit.findAll().map { it.message }).containsExactly("Server release 9.8.1 fetched from 127.0.0.1")
 
         // Stored is stored: the same jar again is refused like a second upload.
-        refusedWith("http://${where()}/public/orknux-server.jar", "ServerReleaseAlreadyStored")
+        failedWith("http://${where()}/public/orknux-server.jar", "That jar is already stored, as release 9.8.1.")
     }
 
     @Test
     fun `an unsigned jar is refused exactly as an upload would be, and nothing is kept`() {
         served = TestReleaseJars.unsigned(Shape(version = "9.8.2"))
 
-        fetch("http://${where()}/public/orknux-server.jar").errors().satisfy { errors ->
-            assertThat(errors.single().extensions["code"]).isEqualTo("ReleaseJarRefused")
-            assertThat(errors.single().message).isEqualTo("This jar cannot be used: it is not signed.")
-        }
+        failedWith("http://${where()}/public/orknux-server.jar", "This jar cannot be used: it is not signed.")
         assertThat(releases.findAll()).isEmpty()
     }
 
@@ -108,27 +130,31 @@ class ServerReleaseUrlTest(
     fun `a release older than in-place updates is refused from a URL too`() {
         served = TestReleaseJars.signed(Shape(version = "0.9.9.7"))
 
-        fetch("http://${where()}/public/orknux-server.jar").errors().satisfy { errors ->
-            assertThat(errors.single().message).contains("it predates in-place updates (0.9.9.8)")
-        }
+        assertThat(fetched("http://${where()}/public/orknux-server.jar").failure).contains("it predates in-place updates (0.9.9.8)")
         assertThat(releases.findAll()).isEmpty()
     }
 
     @Test
     fun `a repository that wants a credential is answered with it, and it is kept nowhere`(output: CapturedOutput) {
-        refusedWith("http://${where()}/private/orknux-server.jar", "ServerReleaseFetchFailed")
-        refusedWith("http://${where()}/private/orknux-server.jar", "ServerReleaseFetchFailed", credential = "deploy:wrong")
+        failedWith(
+            "http://${where()}/private/orknux-server.jar",
+            "Nothing was fetched from 127.0.0.1: it answered 401; it wants a credential.",
+        )
+        failedWith(
+            "http://${where()}/private/orknux-server.jar",
+            "Nothing was fetched from 127.0.0.1: it answered 401; check the credential.",
+            credential = "deploy:wrong",
+        )
 
-        fetch("http://${where()}/private/orknux-server.jar", credential = "$USER:$PASSWORD")
-            .path("installServerReleaseFromUrl.version").entity(String::class.java).isEqualTo("9.8.1")
+        assertThat(stored("http://${where()}/private/orknux-server.jar", credential = "$USER:$PASSWORD").version).isEqualTo("9.8.1")
 
         // And as a token, the other shape a repository takes.
         served = TestReleaseJars.signed(Shape(version = "9.8.3"))
-        fetch("http://${where()}/token/orknux-server.jar", credential = TOKEN)
-            .path("installServerReleaseFromUrl.version").entity(String::class.java).isEqualTo("9.8.3")
+        assertThat(stored("http://${where()}/token/orknux-server.jar", credential = TOKEN).version).isEqualTo("9.8.3")
 
         val secrets = listOf(PASSWORD, TOKEN, Base64.getEncoder().encodeToString("$USER:$PASSWORD".toByteArray()))
-        val rows = jdbc.queryForList("SELECT * FROM server_release").joinToString { it.toString() }
+        val rows = jdbc.queryForList("SELECT * FROM server_release").joinToString { it.toString() } +
+            jdbc.queryForList("SELECT * FROM server_release_download").joinToString { it.toString() }
         val audited = audit.findAll().joinToString { "${it.message} ${it.toString()}" }
         for (secret in secrets) {
             assertThat(rows).doesNotContain(secret)
@@ -143,8 +169,7 @@ class ServerReleaseUrlTest(
 
     @Test
     fun `the credential goes to the host it was given for and is dropped at a redirect elsewhere`() {
-        fetch("http://${where()}/elsewhere/orknux-server.jar", credential = TOKEN)
-            .path("installServerReleaseFromUrl.version").entity(String::class.java).isEqualTo("9.8.1")
+        assertThat(stored("http://${where()}/elsewhere/orknux-server.jar", credential = TOKEN).version).isEqualTo("9.8.1")
 
         assertThat(authorizationAtTheOtherHost).isEqualTo("none")
     }
@@ -155,11 +180,10 @@ class ServerReleaseUrlTest(
         refusedWith("jar:file:/app/app.jar!/BOOT-INF/classes/application.yml", "ServerReleaseUrlRefused")
         refusedWith("ftp://${where()}/orknux-server.jar", "ServerReleaseUrlRefused")
         refusedWith("http://deploy:secret@${where()}/public/orknux-server.jar", "ServerReleaseUrlRefused")
+        assertThat(downloads.findAll()).isEmpty()
 
-        fetch("http://${where()}/to-file/orknux-server.jar").errors().satisfy { errors ->
-            assertThat(errors.single().extensions["code"]).isEqualTo("ServerReleaseUrlRefused")
-            assertThat(errors.single().message).contains("file:")
-        }
+        assertThat(fetched("http://${where()}/to-file/orknux-server.jar").failure)
+            .startsWith("That URL cannot be used:").contains("file:")
         assertThat(releases.findAll()).isEmpty()
     }
 
@@ -167,7 +191,7 @@ class ServerReleaseUrlTest(
     fun `a body larger than this installation takes is cut off and refused`() {
         settings.setReleaseMaxMb(64, "alice")
 
-        refusedWith("http://${where()}/huge/orknux-server.jar", "ServerReleaseTooLarge")
+        failedWith("http://${where()}/huge/orknux-server.jar", "That jar is larger than the 64 MB this installation takes.")
         assertThat(releases.findAll()).isEmpty()
     }
 
@@ -193,11 +217,11 @@ class ServerReleaseUrlTest(
     }
 
     @Test
-    fun `how long a download may take is an Admin Setting, refused out of range`() {
+    fun `how long a download may go silent is an Admin Setting, refused out of range`() {
         graphQlTester.document("mutation { setReleaseDownloadSeconds(seconds: 120) { releaseDownloadSeconds releaseDownloadSecondsConfigured } }")
             .execute()
             .path("setReleaseDownloadSeconds.releaseDownloadSeconds").entity(Int::class.java).isEqualTo(120)
-            .path("setReleaseDownloadSeconds.releaseDownloadSecondsConfigured").entity(Int::class.java).isEqualTo(600)
+            .path("setReleaseDownloadSeconds.releaseDownloadSecondsConfigured").entity(Int::class.java).isEqualTo(60)
         graphQlTester.document("mutation { setReleaseDownloadSeconds(seconds: 5) { releaseDownloadSeconds } }").execute()
             .errors().satisfy { assertThat(it.single().extensions["code"]).isEqualTo("ReleaseDownloadOutOfRange") }
         assertThat(settings.releaseDownloadSeconds()).isEqualTo(120)

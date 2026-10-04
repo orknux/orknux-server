@@ -54,6 +54,7 @@ class ServerReleasesTest(
     @Autowired val settings: InstallationSettings,
     @Autowired val audit: WorkspaceAuditRepository,
     @Autowired val dataSource: DataSource,
+    @Autowired val downloads: ServerReleaseDownloadRepository,
 ) {
 
     private val jdbc = JdbcTemplate(dataSource)
@@ -64,6 +65,7 @@ class ServerReleasesTest(
         mockMvc = MockMvcBuilders.webAppContextSetup(context).apply<DefaultMockMvcBuilder>(springSecurity()).build()
         jdbc.update("DELETE FROM server_release_part")
         jdbc.update("DELETE FROM server_release")
+        jdbc.update("DELETE FROM server_release_download")
         jdbc.update("DELETE FROM installation_setting WHERE name LIKE 'release%'")
         audit.deleteAll()
         listedSha = null
@@ -172,14 +174,30 @@ class ServerReleasesTest(
         listedJar = TestReleaseJars.signed(Shape(version = "9.9.6"))
 
         graphQlTester.document(
-            """mutation { installServerRelease(version: "9.9.6") { restarting release { version source state } } }""",
+            """mutation { installServerRelease(version: "9.9.6") { id source version state activate total } }""",
         ).execute()
-            .path("installServerRelease.restarting").entity(Boolean::class.java).isEqualTo(false)
-            .path("installServerRelease.release.source").entity(String::class.java).isEqualTo("ORKNUX_AI")
-            .path("installServerRelease.release.state").entity(String::class.java).isEqualTo("ACTIVATING")
+            .path("installServerRelease.source").entity(String::class.java).isEqualTo("ORKNUX_AI")
+            .path("installServerRelease.version").entity(String::class.java).isEqualTo("9.9.6")
+            .path("installServerRelease.activate").entity(Boolean::class.java).isEqualTo(true)
+            .path("installServerRelease.total").entity(Long::class.java).isEqualTo(Files.size(listedJar))
 
-        assertThat(releases.findAll().single().sha256).isEqualTo(ReleaseJarVerifier.sha256(listedJar))
+        // Not restartable here, so it ends chosen and DONE rather than RESTARTING.
+        val done = ReleaseDownloadsAwait.newest(downloads)
+        assertThat(done.state).isEqualTo(ServerReleaseDownloadState.DONE)
+        assertThat(done.failure).isNull()
+        assertThat(done.received).isEqualTo(Files.size(listedJar))
+        val release = releases.findAll().single()
+        assertThat(release.sha256).isEqualTo(ReleaseJarVerifier.sha256(listedJar))
+        assertThat(release.source).isEqualTo(ServerReleaseSource.ORKNUX_AI)
+        assertThat(release.state).isEqualTo(ServerReleaseState.ACTIVATING)
+        assertThat(done.releaseId).isEqualTo(release.id)
         assertThat(audit.findAll().map { it.message }).contains("Server updated to 9.9.6")
+
+        graphQlTester.document("{ serverReleaseDownload { state version received total } }").execute()
+            .path("serverReleaseDownload.state").entity(String::class.java).isEqualTo("DONE")
+        graphQlTester.document("mutation { dismissServerReleaseDownload(id: ${done.id}) }").execute()
+        graphQlTester.document("{ serverReleaseDownload { state } }").execute()
+            .path("serverReleaseDownload").valueIsNull()
     }
 
     @Test
@@ -187,10 +205,11 @@ class ServerReleasesTest(
         listedJar = TestReleaseJars.signed(Shape(version = "9.9.7"))
         listedSha = "0".repeat(64)
 
-        graphQlTester.document("""mutation { installServerRelease(version: "9.9.7") { restarting } }""").execute()
-            .errors().satisfy { errors ->
-                assertThat(errors.single().extensions["code"]).isEqualTo("ServerReleaseDownloadMismatch")
-            }
+        graphQlTester.document("""mutation { installServerRelease(version: "9.9.7") { id } }""").execute()
+            .errors().verify()
+        val failed = ReleaseDownloadsAwait.newest(downloads)
+        assertThat(failed.state).isEqualTo(ServerReleaseDownloadState.FAILED)
+        assertThat(failed.failure).isEqualTo("The download of 9.9.7 does not match what orknux.ai listed for it; nothing was stored.")
         assertThat(releases.findAll()).isEmpty()
     }
 
