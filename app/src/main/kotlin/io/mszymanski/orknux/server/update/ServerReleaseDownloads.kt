@@ -207,7 +207,7 @@ class ServerReleaseDownloads(
     private fun launch(row: ServerReleaseDownload, work: (Job, Path) -> Unit) {
         val job = Job(row)
         Thread.ofVirtual().name("orknux-release-download-${row.id}").start {
-            val file = Files.createTempFile("orknux-release-", ".jar")
+            var file: Path? = null
             val heartbeat = Thread.ofVirtual().name("orknux-release-download-heartbeat-${row.id}").start {
                 // Verifying and storing a third of a gigabyte take a while and report nothing.
                 try {
@@ -220,7 +220,10 @@ class ServerReleaseDownloads(
                 }
             }
             try {
-                work(job, file)
+                // Inside the try, so a temporary directory that refuses a file is a reason on the row.
+                val temporary = Files.createTempFile("orknux-release-", ".jar")
+                file = temporary
+                work(job, temporary)
             } catch (failure: Exception) {
                 val why = failure.message ?: failure.javaClass.simpleName
                 if (failure is Refusal || failure is io.mszymanski.orknux.server.plugin.MarketplaceUnreachableException) {
@@ -231,7 +234,7 @@ class ServerReleaseDownloads(
                 job.finish(ServerReleaseDownloadState.FAILED, failure = why)
             } finally {
                 heartbeat.interrupt()
-                runCatching { Files.deleteIfExists(file) }
+                file?.let { runCatching { Files.deleteIfExists(it) } }
             }
         }
     }

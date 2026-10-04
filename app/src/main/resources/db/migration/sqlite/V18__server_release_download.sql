@@ -1,4 +1,4 @@
--- A server jar on its way in, #602. The postgres copy, V338, carries the
+-- A server jar on its way in, #602. The postgres copy, V340, carries the
 -- reasoning.
 
 CREATE TABLE server_release_download
