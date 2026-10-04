@@ -1,6 +1,9 @@
 package io.mszymanski.orknux.server.transfer
 
 import io.mszymanski.orknux.connector.connection.McpServerRepository
+import io.mszymanski.orknux.server.action.FunctionScope
+import io.mszymanski.orknux.server.action.WorkflowActionRepository
+import io.mszymanski.orknux.server.action.WorkflowFunctionRepository
 import io.mszymanski.orknux.server.agent.AgentRepository
 import io.mszymanski.orknux.server.agent.AgentToolRepository
 import io.mszymanski.orknux.server.agent.SkillCatalogRepository
@@ -57,6 +60,8 @@ class ImportChoicesTest(
     @Autowired val audit: WorkspaceAuditRepository,
     @Autowired val mapper: ObjectMapper,
     @Autowired val mcpServers: McpServerRepository,
+    @Autowired val actions: WorkflowActionRepository,
+    @Autowired val functions: WorkflowFunctionRepository,
 ) {
 
     private var from: Long = 0
@@ -64,6 +69,7 @@ class ImportChoicesTest(
 
     @BeforeEach
     fun reset() {
+        actions.deleteAll()
         agents.deleteAll()
         tools.deleteAll()
         catalogs.deleteAll()
@@ -104,6 +110,72 @@ class ImportChoicesTest(
 
         assertThat(agents.findByWorkspaceIdAndName(into, "Triage bot")!!.skillCatalogs).containsExactly("greeter_plugin")
         assertThat(catalogs.findByWorkspaceIdAndName(into, "greeter_plugin")).isNull()
+    }
+
+    /**
+     * Issue #3: an action calling a plugin's function was refused on import as
+     * calling a function "this file does not carry and this workspace does not
+     * have", though the plugin was installed. A plugin's function is in every
+     * workspace, so it is reused by name, as a plugin's tool is.
+     */
+    @Test
+    fun `an action calling a plugin's function reuses it where the plugin is installed`() {
+        loadPlugin()
+        val function = requireNotNull(functions.findByScopeAndName(FunctionScope.PLUGIN, "greeter_greet"))
+        val actionId = graphQlTester.document(
+            """mutation { createAction(input: { workspaceId: $from, name: "Greet them", type: EXECUTE,
+                 subtype: FUNCTION, functionId: ${function.id} }) { id } }""",
+        ).execute().path("createAction.id").entity(Long::class.java).get()
+        val json = export(from, "ACTION", actionId, "DEEP")
+
+        val plan = plan(into, json)
+
+        assertThat(plan.importable).describedAs(plan.problems.joinToString()).isTrue()
+        val row = plan.entries.single { it.kind == "FUNCTION" && it.name == "greeter_greet" }
+        assertThat(row.disposition).isEqualTo("REUSE")
+        assertThat(row.detail).contains("plugin")
+
+        import(into, json)
+        val arrived = actions.findAllByWorkspaceIdAndName(into, "Greet them").single()
+        assertThat(arrived.functionId).isEqualTo(function.id)
+        assertThat(functions.findByWorkspaceIdAndName(into, "greeter_greet")).describedAs("no copy made").isNull()
+    }
+
+    /**
+     * Issue #3: leaving out a tool the file carries left out every agent that
+     * held it, silently. The agent now arrives without that grant, and the
+     * tool's row says which agents that is.
+     */
+    @Test
+    fun `leaving out a carried tool lands its agent without the grant rather than leaving it out`() {
+        createTool(from, "lookup")
+        val agentId = createAgent(from, "Triage bot", tools = listOf("lookup"))
+        val json = export(from, "AGENT", agentId, "DEEP")
+
+        val planned = plan(into, json, exclude = """[{ kind: TOOL, name: "lookup" }]""")
+
+        assertThat(planned.importable).describedAs(planned.problems.joinToString()).isTrue()
+        val tool = planned.entries.single { it.kind == "TOOL" && it.name == "lookup" }
+        assertThat(tool.disposition).isEqualTo("EXCLUDE")
+        assertThat(tool.detail).contains("Triage bot arrives without it")
+        assertThat(planned.entries.single { it.kind == "AGENT" }.disposition).isEqualTo("CREATE")
+
+        import(into, json, exclude = """[{ kind: TOOL, name: "lookup" }]""")
+        assertThat(agents.findByWorkspaceIdAndName(into, "Triage bot")!!.tools).isEmpty()
+        assertThat(tools.findByWorkspaceIdAndName(into, "lookup")).isNull()
+    }
+
+    /** And where this workspace has a tool of that name, the agent points at it, as before. */
+    @Test
+    fun `leaving out a carried tool this workspace has points the agent at the one here`() {
+        createTool(from, "lookup")
+        val here = createTool(into, "lookup")
+        val agentId = createAgent(from, "Triage bot", tools = listOf("lookup"))
+
+        import(into, export(from, "AGENT", agentId, "DEEP"), exclude = """[{ kind: TOOL, name: "lookup" }]""")
+
+        assertThat(agents.findByWorkspaceIdAndName(into, "Triage bot")!!.tools).containsExactly("lookup")
+        assertThat(tools.findByWorkspaceIdAndName(into, "lookup")!!.id).isEqualTo(here)
     }
 
     /* ----------------------------------------------- leaving a tool out ---- */
@@ -358,6 +430,16 @@ class ImportChoicesTest(
             export default class Greeter extends OrknuxPlugin {
               id() { return 'greeter'; }
               apiVersion() { return 1; }
+              functions() {
+                return [
+                  new OrknuxFunction({
+                    name: 'greet',
+                    params: [{ name: 'name', type: 'string' }],
+                    returnType: 'string',
+                    run: (name) => 'hello, ' + name,
+                  }),
+                ];
+              }
               tools() {
                 return [
                   new OrknuxTool({

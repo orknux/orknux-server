@@ -21,7 +21,13 @@ have failed.
 
 - Admin -> Settings -> Agents: how long to wait out a rate limit that arrives inside a streaming answer and names no time (5 seconds by default, doubled on the next attempt, 1 to 60), read on every call.
 
+### 🔧 Changed
+
+- Importing components: leaving out a tool the file carries no longer leaves out every agent that holds it (and every workflow using those agents); the agents arrive without that grant, and the tool's row says which. Where the workspace has a tool of that name, the agents point at it, as before.
+
 ### 🐛 Fixed
+
+- Importing an action, condition or trigger that calls a plugin's function (`slack_toSlack`) no longer refuses it as missing where the plugin is installed: the plugin's function is reused, as a plugin's tool already was.
 
 - A model's usage is no longer lost when two answers are the first of the day at the same moment, or under-counted when two land together: each call is added to the day's row in one statement. On Postgres the lost call also logged `HHH000099: an assertion failure occurred`.
 - Clicking a label on the issues page shows the issues carrying that label, exactly and in any case, and no longer those that merely mention it in their title or description; it combines with the search box, and several labels mean all of them. `workspaceIssues` takes the same filter as a `labels` argument.
