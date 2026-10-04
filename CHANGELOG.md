@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🐛 Fixed
+
+- A chat left while the agent is still thinking and opened again before it has finished now picks the answer up: the thinking and lookups so far are drawn, the rest arrives live, and Stop still stops it. It used to show the question and nothing else until the page was reloaded after the answer was done.
+
 ## 0.9.9.11
 
 ### ✨ Added
