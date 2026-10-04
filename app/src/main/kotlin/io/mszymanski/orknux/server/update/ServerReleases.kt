@@ -215,7 +215,14 @@ class ServerReleases(
      * checked before a row exists, so a refused jar leaves nothing behind;
      * the same bytes stored twice are refused rather than kept twice.
      */
-    fun store(file: Path, source: ServerReleaseSource, by: String, sourceUrl: String? = null): ServerRelease {
+    fun store(
+        file: Path,
+        source: ServerReleaseSource,
+        by: String,
+        sourceUrl: String? = null,
+        /** Told once the jar has passed and is about to be written: a download's "storing" step, #602. */
+        onVerified: (VerifiedReleaseJar) -> Unit = {},
+    ): ServerRelease {
         requireSource(source)
         val size = Files.size(file)
         val limit = settings.releaseMaxMb() * 1024L * 1024L
@@ -224,6 +231,7 @@ class ServerReleases(
         val verified = verifier.verify(file)
         val sha256 = ReleaseJarVerifier.sha256(file)
         releases.findBySha256(sha256)?.let { throw ServerReleaseAlreadyStoredException(it.version) }
+        onVerified(verified)
 
         val stored = transaction.execute {
             val row = releases.saveAndFlush(

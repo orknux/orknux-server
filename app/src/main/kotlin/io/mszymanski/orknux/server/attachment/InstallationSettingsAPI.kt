@@ -118,6 +118,12 @@ class InstallationSettingsAPI(
         releaseRestartDelaySecondsConfigured = settings.releaseRestartDelaySecondsConfigured(),
         releaseDownloadSeconds = settings.releaseDownloadSeconds(),
         releaseDownloadSecondsConfigured = settings.releaseDownloadSecondsConfigured(),
+        releaseDownloadAttempts = settings.releaseDownloadAttempts(),
+        releaseDownloadAttemptsConfigured = settings.releaseDownloadAttemptsConfigured(),
+        releaseDownloadBackoffSeconds = settings.releaseDownloadBackoffSeconds(),
+        releaseDownloadBackoffSecondsConfigured = settings.releaseDownloadBackoffSecondsConfigured(),
+        releaseDownloadBackoffMaxSeconds = settings.releaseDownloadBackoffMaxSeconds(),
+        releaseDownloadBackoffMaxSecondsConfigured = settings.releaseDownloadBackoffMaxSecondsConfigured(),
     )
 
     /** How many server jars are kept for rolling back to. Issue #584. */
@@ -165,12 +171,39 @@ class InstallationSettingsAPI(
         return installationSettings()
     }
 
-    /** How long a server jar fetched from a URL may take. Issue #589. */
+    /** How long a server jar download may go without a byte before it resumes. Issues #589 and #602. */
     @MutationMapping
     fun setReleaseDownloadSeconds(@Argument seconds: Int): InstallationSettingsView {
         access.requireAdmin()
         settings.setReleaseDownloadSeconds(seconds, currentUser())
-        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "A server jar download may take $seconds seconds")
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "A server jar download may go $seconds seconds without a byte")
+        return installationSettings()
+    }
+
+    /** How many broken attempts in a row that brought nothing a server jar download gets. Issue #602. */
+    @MutationMapping
+    fun setReleaseDownloadAttempts(@Argument count: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setReleaseDownloadAttempts(count, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "A server jar download gives up after $count attempts that bring nothing")
+        return installationSettings()
+    }
+
+    /** The first wait before resuming a broken server jar download. Issue #602. */
+    @MutationMapping
+    fun setReleaseDownloadBackoffSeconds(@Argument seconds: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setReleaseDownloadBackoffSeconds(seconds, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "A broken server jar download first waits $seconds seconds")
+        return installationSettings()
+    }
+
+    /** The longest wait before resuming a broken server jar download. Issue #602. */
+    @MutationMapping
+    fun setReleaseDownloadBackoffMaxSeconds(@Argument seconds: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setReleaseDownloadBackoffMaxSeconds(seconds, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "A broken server jar download waits at most $seconds seconds")
         return installationSettings()
     }
 
@@ -992,7 +1025,16 @@ data class InstallationSettingsView(
     /** How long a server waits after an update before restarting, in seconds. */
     val releaseRestartDelaySeconds: Int,
     val releaseRestartDelaySecondsConfigured: Int,
-    /** How long a server jar fetched from a URL may take, in seconds. */
+    /** How long a server jar download may go without a byte, in seconds. */
     val releaseDownloadSeconds: Int,
     val releaseDownloadSecondsConfigured: Int,
+    /** Broken attempts in a row that brought nothing, before a download is given up on. */
+    val releaseDownloadAttempts: Int,
+    val releaseDownloadAttemptsConfigured: Int,
+    /** The first wait before resuming, in seconds; it doubles. */
+    val releaseDownloadBackoffSeconds: Int,
+    val releaseDownloadBackoffSecondsConfigured: Int,
+    /** The longest that wait grows to, in seconds. */
+    val releaseDownloadBackoffMaxSeconds: Int,
+    val releaseDownloadBackoffMaxSecondsConfigured: Int,
 )

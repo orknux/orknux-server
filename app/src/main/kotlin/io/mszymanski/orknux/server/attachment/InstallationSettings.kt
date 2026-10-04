@@ -152,6 +152,11 @@ object SettingNames {
     const val RELEASE_RESTART_DELAY_SECONDS = "release.restart.delay.seconds"
     const val RELEASE_DOWNLOAD_SECONDS = "release.download.seconds"
 
+    /** How a broken server jar download is retried, #602. */
+    const val RELEASE_DOWNLOAD_ATTEMPTS = "release.download.attempts"
+    const val RELEASE_DOWNLOAD_BACKOFF_SECONDS = "release.download.backoff.seconds"
+    const val RELEASE_DOWNLOAD_BACKOFF_MAX_SECONDS = "release.download.backoff.max.seconds"
+
     /**
      * The newest migration this database cannot be rolled back past, raised by
      * every release that starts on it. Written by the server, never by a screen.
@@ -1317,10 +1322,13 @@ class InstallationSettings(
     }
 
     /**
-     * The longest a server jar fetched from a URL may take, in seconds: to
-     * connect, to answer, and to arrive in full. Issue #589. A third of a
-     * gigabyte over a slow company network is minutes, and a stalled download
-     * would otherwise hold an administrator's request for ever.
+     * The longest one connection for a server jar may go without a byte, in
+     * seconds: to connect, to answer, or between two reads. Past it the
+     * connection counts as broken and the download resumes on a new one.
+     * Issue #589, and since #602 a silence rather than a total: a download now
+     * runs in the background and resumes, so a slow link that keeps delivering
+     * is not a failure, and a stalled one is noticed without waiting out the
+     * whole length of a third of a gigabyte.
      */
     fun releaseDownloadSeconds(): Int = ranged(
         SettingNames.RELEASE_DOWNLOAD_SECONDS,
@@ -1336,6 +1344,62 @@ class InstallationSettings(
             throw ReleaseDownloadOutOfRangeException(seconds)
         }
         write(SettingNames.RELEASE_DOWNLOAD_SECONDS, seconds.toString(), by)
+    }
+
+    /**
+     * How many times in a row a server jar download may break without bringing
+     * a single new byte before it is given up on. #602. Counted in a row, and
+     * only for attempts that brought nothing: a link that drops every fifty
+     * megabytes still finishes, and one that delivers nothing stops.
+     */
+    fun releaseDownloadAttempts(): Int = ranged(
+        SettingNames.RELEASE_DOWNLOAD_ATTEMPTS,
+        MIN_RELEASE_DOWNLOAD_ATTEMPTS..MAX_RELEASE_DOWNLOAD_ATTEMPTS,
+        DEFAULT_RELEASE_DOWNLOAD_ATTEMPTS,
+    )
+
+    fun releaseDownloadAttemptsConfigured(): Int = DEFAULT_RELEASE_DOWNLOAD_ATTEMPTS
+
+    @Transactional
+    fun setReleaseDownloadAttempts(count: Int, by: String) {
+        if (count !in MIN_RELEASE_DOWNLOAD_ATTEMPTS..MAX_RELEASE_DOWNLOAD_ATTEMPTS) {
+            throw ReleaseDownloadAttemptsOutOfRangeException(count)
+        }
+        write(SettingNames.RELEASE_DOWNLOAD_ATTEMPTS, count.toString(), by)
+    }
+
+    /** The first wait before a broken server jar download is resumed, in seconds; it doubles after each. #602. */
+    fun releaseDownloadBackoffSeconds(): Int = ranged(
+        SettingNames.RELEASE_DOWNLOAD_BACKOFF_SECONDS,
+        MIN_RELEASE_DOWNLOAD_BACKOFF..MAX_RELEASE_DOWNLOAD_BACKOFF,
+        DEFAULT_RELEASE_DOWNLOAD_BACKOFF,
+    )
+
+    fun releaseDownloadBackoffSecondsConfigured(): Int = DEFAULT_RELEASE_DOWNLOAD_BACKOFF
+
+    @Transactional
+    fun setReleaseDownloadBackoffSeconds(seconds: Int, by: String) {
+        if (seconds !in MIN_RELEASE_DOWNLOAD_BACKOFF..MAX_RELEASE_DOWNLOAD_BACKOFF) {
+            throw ReleaseDownloadBackoffOutOfRangeException(seconds)
+        }
+        write(SettingNames.RELEASE_DOWNLOAD_BACKOFF_SECONDS, seconds.toString(), by)
+    }
+
+    /** The longest that doubling wait grows to, in seconds. #602. */
+    fun releaseDownloadBackoffMaxSeconds(): Int = ranged(
+        SettingNames.RELEASE_DOWNLOAD_BACKOFF_MAX_SECONDS,
+        MIN_RELEASE_DOWNLOAD_BACKOFF..MAX_RELEASE_DOWNLOAD_BACKOFF,
+        DEFAULT_RELEASE_DOWNLOAD_BACKOFF_MAX,
+    )
+
+    fun releaseDownloadBackoffMaxSecondsConfigured(): Int = DEFAULT_RELEASE_DOWNLOAD_BACKOFF_MAX
+
+    @Transactional
+    fun setReleaseDownloadBackoffMaxSeconds(seconds: Int, by: String) {
+        if (seconds !in MIN_RELEASE_DOWNLOAD_BACKOFF..MAX_RELEASE_DOWNLOAD_BACKOFF) {
+            throw ReleaseDownloadBackoffMaxOutOfRangeException(seconds)
+        }
+        write(SettingNames.RELEASE_DOWNLOAD_BACKOFF_MAX_SECONDS, seconds.toString(), by)
     }
 
     /** The schema floor this database has recorded; 0 before any release recorded one. */
@@ -2093,10 +2157,46 @@ const val MIN_RELEASE_RESTART_DELAY = 0
 const val MAX_RELEASE_RESTART_DELAY = 60
 const val DEFAULT_RELEASE_RESTART_DELAY = 3
 
-/** Ten seconds to an hour for a jar fetched from a URL; ten minutes unless somebody says otherwise. */
+/**
+ * Ten seconds to an hour of silence on a release download's connection. A
+ * minute by default since #602, when it stopped being the length of the whole
+ * download: a stall is noticed in a minute and resumed, rather than waited out.
+ */
 const val MIN_RELEASE_DOWNLOAD_SECONDS = 10
 const val MAX_RELEASE_DOWNLOAD_SECONDS = 3600
-const val DEFAULT_RELEASE_DOWNLOAD_SECONDS = 600
+const val DEFAULT_RELEASE_DOWNLOAD_SECONDS = 60
+
+/** Broken attempts in a row that brought nothing, before a release download is given up on. #602. */
+const val MIN_RELEASE_DOWNLOAD_ATTEMPTS = 1
+const val MAX_RELEASE_DOWNLOAD_ATTEMPTS = 100
+const val DEFAULT_RELEASE_DOWNLOAD_ATTEMPTS = 5
+
+/** The wait before resuming, doubling from the first value to the most. #602. */
+const val MIN_RELEASE_DOWNLOAD_BACKOFF = 1
+const val MAX_RELEASE_DOWNLOAD_BACKOFF = 3600
+const val DEFAULT_RELEASE_DOWNLOAD_BACKOFF = 2
+const val DEFAULT_RELEASE_DOWNLOAD_BACKOFF_MAX = 60
+
+class ReleaseDownloadAttemptsOutOfRangeException(val count: Int) : RuntimeException(
+    "$count is not a number of attempts to give a server jar download. " +
+        "Choose between $MIN_RELEASE_DOWNLOAD_ATTEMPTS and $MAX_RELEASE_DOWNLOAD_ATTEMPTS.",
+), Refusal {
+    override val arguments get() = mapOf("count" to count)
+}
+
+class ReleaseDownloadBackoffOutOfRangeException(val seconds: Int) : RuntimeException(
+    "$seconds is not a number of seconds to wait before resuming a server jar download. " +
+        "Choose between $MIN_RELEASE_DOWNLOAD_BACKOFF and $MAX_RELEASE_DOWNLOAD_BACKOFF.",
+), Refusal {
+    override val arguments get() = mapOf("seconds" to seconds)
+}
+
+class ReleaseDownloadBackoffMaxOutOfRangeException(val seconds: Int) : RuntimeException(
+    "$seconds is not a number of seconds the wait before resuming a server jar download may grow to. " +
+        "Choose between $MIN_RELEASE_DOWNLOAD_BACKOFF and $MAX_RELEASE_DOWNLOAD_BACKOFF.",
+), Refusal {
+    override val arguments get() = mapOf("seconds" to seconds)
+}
 
 class ReleasesKeptOutOfRangeException(val count: Int) : RuntimeException(
     "$count is not a number of server releases to keep. Choose between $MIN_RELEASES_KEPT and $MAX_RELEASES_KEPT.",
@@ -2125,7 +2225,7 @@ class ReleaseMaxOutOfRangeException(val mb: Int) : RuntimeException(
 }
 
 class ReleaseDownloadOutOfRangeException(val seconds: Int) : RuntimeException(
-    "$seconds is not a number of seconds a server jar download may take. " +
+    "$seconds is not a number of seconds a server jar download may go silent. " +
         "Choose between $MIN_RELEASE_DOWNLOAD_SECONDS and $MAX_RELEASE_DOWNLOAD_SECONDS.",
 ), Refusal {
     override val arguments get() = mapOf("seconds" to seconds)

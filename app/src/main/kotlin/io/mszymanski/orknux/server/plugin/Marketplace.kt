@@ -214,40 +214,37 @@ class Marketplace(
     }
 
     /**
-     * A server jar, fetched into [to] through the same client and the same key
-     * as everything else this class asks for. Refused past [maxBytes], counted
-     * as it arrives rather than trusted from a header.
+     * What fetching a server jar the catalog listed asks of the download: the
+     * install key, sent to the marketplace's own host and to nothing a redirect
+     * leads to - the jar used to follow redirects with the key attached - and
+     * the marketplace's own sentences for a refusal. Issue #602: the download
+     * itself runs in the background and resumes, see `ResumableDownload`.
      */
-    fun downloadServerJar(url: String, to: java.nio.file.Path, maxBytes: Long) {
+    fun serverJarRequest(
+        url: String,
+        maxBytes: Long,
+        tooLarge: () -> RuntimeException,
+    ): io.mszymanski.orknux.server.update.DownloadRequest {
         if (!configured) throw MarketplaceUnreachableException("this installation has no marketplace configured")
-        val key = installKey.today() ?: throw MarketplaceUnreachableException(MarketplaceInstallKey.MISSING)
-        val request = HttpRequest.newBuilder(URI.create(url))
-            .header(MarketplaceInstallKey.HEADER, key)
-            .GET()
-            .build()
-        val answer = try {
-            http.send(request, HttpResponse.BodyHandlers.ofInputStream())
-        } catch (failure: java.io.IOException) {
-            throw MarketplaceUnreachableException(failure.message ?: "it could not be reached")
-        } catch (failure: InterruptedException) {
-            Thread.currentThread().interrupt()
-            throw MarketplaceUnreachableException("the request was interrupted")
-        }
-        answer.body().use { body ->
-            if (answer.statusCode() == 401) throw MarketplaceUnreachableException(MarketplaceInstallKey.REFUSED)
-            if (answer.statusCode() != 200) throw MarketplaceUnreachableException("it answered ${answer.statusCode()}")
-            java.nio.file.Files.newOutputStream(to).use { out ->
-                val buffer = ByteArray(1 shl 16)
-                var total = 0L
-                while (true) {
-                    val read = body.read(buffer)
-                    if (read < 0) break
-                    total += read
-                    if (total > maxBytes) throw MarketplaceUnreachableException("the jar is larger than this installation takes")
-                    out.write(buffer, 0, read)
+        if (installKey.today() == null) throw MarketplaceUnreachableException(MarketplaceInstallKey.MISSING)
+        val start = runCatching { URI.create(url) }.getOrNull()
+            ?.takeIf { it.scheme?.lowercase() in setOf("http", "https") && !it.host.isNullOrBlank() }
+            ?: throw MarketplaceUnreachableException("it listed a jar at an address that is not one")
+        return io.mszymanski.orknux.server.update.DownloadRequest(
+            start = start,
+            // Computed per request: the key is the day's, and a download can outlive a day.
+            headersFor = { at -> if (installKey.own(at)) installKey.today()?.let { mapOf(MarketplaceInstallKey.HEADER to it) }.orEmpty() else emptyMap() },
+            limit = maxBytes,
+            tooLarge = tooLarge,
+            refused = { status, at ->
+                when {
+                    status == 401 && installKey.own(at) -> MarketplaceUnreachableException(MarketplaceInstallKey.REFUSED)
+                    status == 401 -> MarketplaceUnreachableException(installKey.elsewhere(at))
+                    status == 404 -> MarketplaceUnreachableException("it does not have that jar any more (404)")
+                    else -> MarketplaceUnreachableException("it answered $status for the jar")
                 }
-            }
-        }
+            },
+        )
     }
 
     private fun read(node: tools.jackson.databind.JsonNode) = MarketplaceOffering(

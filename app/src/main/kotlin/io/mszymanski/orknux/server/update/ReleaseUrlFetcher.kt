@@ -3,7 +3,6 @@ package io.mszymanski.orknux.server.update
 import io.mszymanski.orknux.connector.proxy.ProxyRouter
 import io.mszymanski.orknux.server.attachment.InstallationSettings
 import io.mszymanski.orknux.server.graphql.Refusal
-import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import tools.jackson.databind.ObjectMapper
 import java.net.URI
@@ -44,9 +43,12 @@ data class ListedServerRelease(val version: String, val jarUrl: String)
  * - **Through [ProxyRouter]**, so the installation's proxy rules and trusted
  *   authorities decide what this server may reach, as for every outbound call.
  * - **Bounded twice:** by the Admin Settings jar size, counted as it arrives
- *   rather than trusted from a header, and by the download time, which covers
- *   connecting, answering and the whole body - a stalled stream would
- *   otherwise hold the administrator's request for ever.
+ *   rather than trusted from a header, and by how long a connection may go
+ *   silent.
+ *
+ * The jar itself is fetched by [ResumableDownload] in the background since
+ * #602, from the [jarRequest] this class builds; what is fetched here, in the
+ * administrator's request, is only `releases.json`, which is small.
  */
 @Component
 class ReleaseUrlFetcher(
@@ -55,18 +57,30 @@ class ReleaseUrlFetcher(
     private val mapper: ObjectMapper,
 ) {
 
-    private val log = LoggerFactory.getLogger(javaClass)
-
     /**
-     * Fetches [url] into [to], following up to [MAX_REDIRECTS] redirects.
-     * Answers the URL as it may be written down.
+     * What fetching the jar at [url] asks of [ResumableDownload]: the
+     * credential on the host it was typed for and nowhere else, and this
+     * class's refusals for a status that asking again will not change. Issue
+     * #602 - the download itself now runs in the background and resumes.
      */
-    fun fetch(url: String, credential: String?, to: Path): String {
+    fun jarRequest(url: String, credential: String?): DownloadRequest {
         val start = checked(url)
-        val limit = settings.releaseMaxMb() * 1024L * 1024L
-        get(start, credential, limit, to) { ServerReleaseTooLargeException(settings.releaseMaxMb()) }
-        log.info("Server release jar fetched from {}", cleaned(start))
-        return cleaned(start)
+        val authorization = credential?.trim()?.ifEmpty { null }?.let(::authorization)
+        return DownloadRequest(
+            start = start,
+            headersFor = { at -> if (authorization != null && sameOrigin(at, start)) mapOf("Authorization" to authorization) else emptyMap() },
+            limit = settings.releaseMaxMb() * 1024L * 1024L,
+            tooLarge = { ServerReleaseTooLargeException(settings.releaseMaxMb()) },
+            refused = { status, at ->
+                when (status) {
+                    401, 403 -> ServerReleaseFetchFailedException(
+                        at.host,
+                        if (authorization == null) "it answered $status; it wants a credential" else "it answered $status; check the credential",
+                    )
+                    else -> ServerReleaseFetchFailedException(at.host, "it answered $status")
+                }
+            },
+        )
     }
 
     /**

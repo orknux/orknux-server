@@ -51,6 +51,7 @@ class ServerReleaseAPI(
     private val audit: WorkspaceAuditRecorder,
     private val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
     private val fetcher: ReleaseUrlFetcher,
+    private val background: ServerReleaseDownloads,
 ) {
 
     @QueryMapping
@@ -138,60 +139,55 @@ class ServerReleaseAPI(
     }
 
     /**
-     * Downloads [version] from orknux.ai, checks it against the listing and
-     * the release key, stores it, and starts it.
+     * Starts downloading [version] from orknux.ai, and answers at once. In the
+     * background it is checked against the listing and the release key,
+     * stored, and started - see [ServerReleaseDownloads]. Issue #602: it used
+     * to do all of that inside this request, and a proxy that cuts long
+     * requests cut the update with it.
      */
     @MutationMapping
-    fun installServerRelease(@Argument version: String): ServerUpdateStarted {
+    fun installServerRelease(@Argument version: String): ServerReleaseDownloadView {
         access.requireAdmin()
         updates.requireSource(ServerReleaseSource.ORKNUX_AI)
         val listed: OfferedServerRelease = marketplace.serverReleases(after = null)
             ?.firstOrNull { it.version == version }
             ?: throw ServerReleaseNotOfferedException(version)
-
-        val release = updates.bySha256(listed.sha256) ?: run {
-            val limit = settings.releaseMaxMb() * 1024L * 1024L
-            if (listed.size > limit) throw ServerReleaseTooLargeException(settings.releaseMaxMb())
-            val file = Files.createTempFile("orknux-release-", ".jar")
-            try {
-                marketplace.downloadServerJar(listed.jarUrl, file, limit)
-                if (Files.size(file) != listed.size || ReleaseJarVerifier.sha256(file) != listed.sha256) {
-                    throw ServerReleaseDownloadMismatchException(version)
-                }
-                updates.store(file, ServerReleaseSource.ORKNUX_AI, currentUser())
-            } finally {
-                Files.deleteIfExists(file)
-            }
-        }
-        return started(release.id!!)
+        return ServerReleaseDownloadView.of(background.startOfficial(listed, currentUser()))
     }
 
     /**
-     * A jar at a URL - a company's Artifactory, which a platform team fills
-     * with the releases it has approved. Issue #589. Fetched through the
-     * proxy rules, then verified and stored exactly as an upload is, and not
-     * started: starting is the same button as for any other stored release.
+     * Starts fetching a jar at a URL - a company's Artifactory, which a
+     * platform team fills with the releases it has approved. Issue #589.
+     * Fetched through the proxy rules in the background (#602), then verified
+     * and stored exactly as an upload is, and not started: starting is the
+     * same button as for any other stored release.
      *
      * [credential] is sent to that host and to nothing else, and is never
      * written anywhere: not the row, not the audit, not a log line.
      */
     @MutationMapping
-    fun installServerReleaseFromUrl(@Argument url: String, @Argument credential: String?): StoredServerReleaseView {
+    fun installServerReleaseFromUrl(@Argument url: String, @Argument credential: String?): ServerReleaseDownloadView {
         access.requireAdmin()
         updates.requireSource(ServerReleaseSource.URL)
-        val file = Files.createTempFile("orknux-fetched-", ".jar")
-        try {
-            val from = fetcher.fetch(url, credential, file)
-            val release = updates.store(file, ServerReleaseSource.URL, currentUser(), sourceUrl = from)
-            audit.record(
-                null,
-                WorkspaceAuditCategory.WORKSPACE,
-                "Server release ${release.version} fetched from ${java.net.URI(from).host}",
-            )
-            return view(release, updates.runningReleaseId(), updates.schemaFloor())
-        } finally {
-            Files.deleteIfExists(file)
-        }
+        return ServerReleaseDownloadView.of(background.startUrl(url, credential, currentUser()))
+    }
+
+    /**
+     * The newest server release download nobody has put away: under way, or
+     * how it ended. What Admin -> Updates polls while one runs. Issue #602.
+     */
+    @QueryMapping
+    fun serverReleaseDownload(): ServerReleaseDownloadView? {
+        access.requireAdmin()
+        return background.current()?.let(ServerReleaseDownloadView::of)
+    }
+
+    /** Puts away how a download ended, so the page stops showing it. Issue #602. */
+    @MutationMapping
+    fun dismissServerReleaseDownload(@Argument id: Long): Boolean {
+        access.requireAdmin()
+        background.dismiss(id)
+        return true
     }
 
     /**
@@ -381,6 +377,53 @@ data class StoredServerReleaseView(
     val refusal: String?,
 )
 
+/** A server jar on its way in, as the page draws it. Issue #602. */
+data class ServerReleaseDownloadView(
+    val id: Long,
+    val source: ServerReleaseSource,
+    val version: String?,
+    val host: String,
+    val state: ServerReleaseDownloadState,
+    val received: Long,
+    val total: Long?,
+    val bytesPerSecond: Long,
+    val attempts: Int,
+    val resumed: Int,
+    val failedInRow: Int,
+    val nextAttemptAt: String?,
+    val lastError: String?,
+    val activate: Boolean,
+    val releaseId: Long?,
+    val failure: String?,
+    val startedBy: String,
+    val startedAt: String,
+    val finishedAt: String?,
+) {
+    companion object {
+        fun of(row: ServerReleaseDownload) = ServerReleaseDownloadView(
+            id = row.id!!,
+            source = row.source,
+            version = row.version,
+            host = row.host,
+            state = row.state,
+            received = row.received,
+            total = row.total,
+            bytesPerSecond = row.bytesPerSecond,
+            attempts = row.attempts,
+            resumed = row.resumed,
+            failedInRow = row.failedInRow,
+            nextAttemptAt = row.nextAttemptAt?.toString(),
+            lastError = row.lastError,
+            activate = row.activate,
+            releaseId = row.releaseId,
+            failure = row.failure,
+            startedBy = row.startedBy,
+            startedAt = row.startedAt.toString(),
+            finishedAt = row.finishedAt?.toString(),
+        )
+    }
+}
+
 data class ServerUpdateStarted(
     /** Null when going back to the image's own jar, which is not a stored release. */
     val release: StoredServerReleaseView?,
@@ -404,9 +447,12 @@ class ServerReleaseExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ReleaseJarRefusedException,
             is ServerReleaseUrlRefusedException,
             is ServerReleaseFetchFailedException,
+            is ServerReleaseDownloadRunningException,
             -> ErrorType.BAD_REQUEST
 
-            is ServerReleaseNotFoundException -> ErrorType.NOT_FOUND
+            is ServerReleaseNotFoundException,
+            is ServerReleaseDownloadNotFoundException,
+            -> ErrorType.NOT_FOUND
             else -> return null
         }
         return refused(exception, errorType, environment)
