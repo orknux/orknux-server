@@ -559,8 +559,8 @@ whatever runs the containers. [`kubernetes/README.md`](kubernetes/README.md) is
 what is different because it is Kubernetes: the secret key as an object the
 manifest deliberately does not carry, an init container in place of
 `depends_on`, probes that ask for a URL because kubelet is the one asking rather
-than something inside an image that has no curl in it, why the server is one
-replica and what Slack has to do with that, and what an ingress controller has
+than something inside an image that has no curl in it, why the example is one
+replica and what has to change for more, and what an ingress controller has
 to be told before a 25MB attachment can be uploaded through it.
 
 ## This is not the development stack

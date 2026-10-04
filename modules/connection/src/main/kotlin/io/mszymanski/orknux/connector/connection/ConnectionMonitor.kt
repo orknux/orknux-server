@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.connector.connection
 
+import io.mszymanski.orknux.connector.cluster.ClusterLeader
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.properties.ConfigurationProperties
@@ -47,6 +48,8 @@ class ConnectionMonitor(
     private val connections: WorkspaceConnectionRepository,
     private val service: WorkspaceConnectionService,
     private val properties: ConnectionCheckProperties,
+    /** Which replica sweeps; alone where nothing says otherwise. Issue #597. */
+    private val leader: ClusterLeader = ClusterLeader.alone(),
 ) : SmartLifecycle {
 
     /**
@@ -65,7 +68,7 @@ class ConnectionMonitor(
             Thread(runnable, "connection-check").apply { isDaemon = true }
         }
         executor.scheduleWithFixedDelay(
-            { runCatching(::sweep).onFailure { log.warn("Could not check the workspace connections", it) } },
+            { runCatching(::timedPass).onFailure { log.warn("Could not check the workspace connections", it) } },
             properties.initialDelay.toSeconds(),
             properties.interval.toSeconds(),
             TimeUnit.SECONDS,
@@ -97,6 +100,17 @@ class ConnectionMonitor(
             runCatching { check(event.connectionId) }
                 .onFailure { log.warn("Could not check workspace connection {}", event.connectionId, it) }
         }
+    }
+
+    /**
+     * What the timer calls: a pass, on the one replica that leads. Issue #597.
+     * Every replica keeps its timer, so the work moves when the leader dies;
+     * a test asks [sweep] directly, or this to see the gate.
+     */
+    fun timedPass(): Boolean {
+        if (!leader.leads()) return false
+        sweep()
+        return true
     }
 
     /**

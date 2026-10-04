@@ -48,6 +48,9 @@ have failed.
 - A broken download resumes from the bytes it has (HTTP Range) instead of starting again, also from the official server. Admin -> Settings' download time limit is now how long a connection may go without a byte (default 60 seconds, was a 600-second limit on the whole download from a URL); an installation that changed it keeps its number with the new meaning.
 - An update through a proxy that cuts long requests (nginx and Ingress at 60 seconds, Cloudflare at 100) failed with a bare "Failed to fetch" while the download carried on unseen; a request that gets no answer now says in a sentence that the server could not be reached, everywhere in the interface.
 - The install key sent with an official server jar download followed redirects to other hosts; it now goes to the marketplace's own host only. That download also had no time limit, so a stalled one waited for ever.
+- Several server replicas can share one Postgres: a lease in the database (`shedlock`, renewed every third of `ORKNUX_CLUSTER_LEASE_SECONDS`, thirty unless set, with an Admin Settings field) decides which replica runs the sweeps, the model, connection and MCP checks and the Slack sockets, and another takes over within one lease when it dies. The Doctor says which replica holds it. Attachments still need one volume every replica mounts, and the load balancer needs cookie affinity; `docs/horizontal-scaling.md` lists what is and is not covered.
+- On the inline engine (`ORKNUX_TEMPORAL_ENABLED=false`) a second server started on the same database waits one lease and then refuses to start, instead of picking up the first server's runs and tasks as abandoned and running them again. A server restarted after a crash waits up to forty seconds for its predecessor's lease to run out; a clean stop lets go at once.
+- A Slack connection seen from a replica that does not hold the lease says it is listened to by another server, instead of "not connected yet".
 
 ## 0.9.9.11
 

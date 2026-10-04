@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.connector.connection
 
+import io.mszymanski.orknux.connector.cluster.ClusterLeader
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.properties.ConfigurationProperties
@@ -49,6 +50,8 @@ class McpServerMonitor(
     private val servers: McpServerRepository,
     private val service: McpServerService,
     private val properties: McpServerCheckProperties,
+    /** Which replica sweeps; alone where nothing says otherwise. Issue #597. */
+    private val leader: ClusterLeader = ClusterLeader.alone(),
 ) : SmartLifecycle {
 
     /*
@@ -65,7 +68,7 @@ class McpServerMonitor(
             Thread(runnable, "mcp-server-check").apply { isDaemon = true }
         }
         pool.scheduleWithFixedDelay(
-            { runCatching(::sweep).onFailure { log.warn("Could not check the MCP servers", it) } },
+            { runCatching(::timedPass).onFailure { log.warn("Could not check the MCP servers", it) } },
             properties.initialDelay.toSeconds(),
             properties.interval.toSeconds(),
             TimeUnit.SECONDS,
@@ -83,6 +86,17 @@ class McpServerMonitor(
     }
 
     override fun isRunning(): Boolean = running
+
+    /**
+     * What the timer calls: a pass, on the one replica that leads. Issue #597.
+     * Every replica keeps its timer, so the work moves when the leader dies;
+     * a test asks [sweep] directly, or this to see the gate.
+     */
+    fun timedPass(): Boolean {
+        if (!leader.leads()) return false
+        sweep()
+        return true
+    }
 
     /** One pass over every registered server. */
     fun sweep() {

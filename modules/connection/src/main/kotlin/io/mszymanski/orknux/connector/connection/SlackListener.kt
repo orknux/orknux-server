@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.connector.connection
 
+import io.mszymanski.orknux.connector.cluster.ClusterLeader
 import com.google.gson.JsonParser
 import com.slack.api.bolt.App
 import com.slack.api.model.event.AppMentionEvent
@@ -69,6 +70,13 @@ class SlackListener(
     private val sockets: SlackSockets = SocketModeSockets(slackClients),
     /** The Reconnect presses every replica reads; see [SlackReconnectRequests]. */
     private val reconnects: SlackReconnectRequests = InMemorySlackReconnectRequests(),
+    /**
+     * Which replica holds the sockets. Issue #597: every replica used to open
+     * its own, and a redelivery Slack sent to the second one was a second run,
+     * because the record of what was delivered is this process's. Alone where
+     * nothing says otherwise.
+     */
+    private val leader: ClusterLeader = ClusterLeader.alone(),
 ) {
 
     /** Open sockets by workspace connection id. */
@@ -131,6 +139,22 @@ class SlackListener(
      */
     private val delivered = ConcurrentHashMap<String, Long>()
 
+    /*
+     * Losing the lease closes every socket at once, rather than at the next
+     * pass up to half a minute later, while another replica is already opening
+     * its own. Taking it opens them now rather than then. Here rather than in
+     * [start], so a listener built by hand hears it too.
+     */
+    init {
+        leader.onChange { leading ->
+            if (leading) {
+                runCatching { reconciler.execute { runCatching(::reconcile) } }
+            } else {
+                synchronized(lock) { sessions.keys.toList().forEach(::close) }
+            }
+        }
+    }
+
     @EventListener(ApplicationReadyEvent::class)
     fun start() {
         reconciler.scheduleWithFixedDelay(
@@ -148,6 +172,12 @@ class SlackListener(
      * would rather not wait for the timer.
      */
     fun reconcile() = synchronized(lock) {
+        if (!leader.leads()) {
+            // Another replica holds the sockets; whatever this one still has is
+            // a second listener on the same app, and goes.
+            sessions.keys.toList().forEach(::close)
+            return@synchronized
+        }
         /*
          * The app-level token is what decides this, not the type: a Slack
          * connection given one listens, one left without it only sends.
@@ -203,6 +233,9 @@ class SlackListener(
      */
     fun reconnect(connectionId: Long): SlackSocketState {
         val generation = reconnects.request(connectionId)
+        // Recorded above for the replica that holds the sockets, which honours
+        // it on its next pass; opening one here would be the second listener.
+        if (!leader.leads()) return stateOf(connectionId)
         synchronized(lock) {
             close(connectionId)
             failures.remove(connectionId)
@@ -229,6 +262,12 @@ class SlackListener(
         val failure = lastFailures[connectionId]
         val status = when {
             session != null -> SlackSocketStatus.CONNECTED
+            !leader.leads() ->
+                if (workspaceConnections.findById(connectionId).orElse(null)?.let(::listening) != null) {
+                    SlackSocketStatus.ELSEWHERE
+                } else {
+                    SlackSocketStatus.NOT_LISTENING
+                }
             failures.containsKey(connectionId) -> SlackSocketStatus.FAILED
             workspaceConnections.findById(connectionId).orElse(null)?.let(::listening) != null ->
                 SlackSocketStatus.CONNECTING

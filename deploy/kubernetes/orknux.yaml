@@ -565,18 +565,15 @@ metadata:
   name: orknux-server
   namespace: orknux
 spec:
-  # One, and not only because the claim below is ReadWriteOnce.
+  # One, because the claim below is ReadWriteOnce.
   #
-  # Most of the server is happy with more: sessions are rows in the database, so
-  # signing in survives whichever pod answers next; db-scheduler keeps its state
-  # there too, so one instance fires a schedule however many are running; and
-  # more Temporal workers is how Temporal is meant to be scaled.
-  #
-  # Slack is what stops it. SlackListener opens one websocket per workspace
-  # connection *per process*, so a second pod is a second delivery of every
-  # mention - two runs from one message, not one run twice as fast. Raise this
-  # only where no workspace has a Slack connection, and see README.md for the
-  # other two things to move first.
+  # The server itself runs as several replicas: sessions are rows in the
+  # database, db-scheduler fires a schedule once however many are running, more
+  # Temporal workers is how Temporal is meant to be scaled, and since 0.9.9.12 a
+  # lease in the database decides which pod runs the sweeps and opens the Slack
+  # sockets. What stops it here is storage: attachments are files on the claim,
+  # and a second pod on another node cannot mount it. See README.md, "Why the
+  # server is one replica", for the three things to change first.
   replicas: 1
   selector:
     matchLabels:

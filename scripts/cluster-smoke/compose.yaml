@@ -1,0 +1,78 @@
+# Two servers on one Postgres, for scripts/cluster-smoke/run.sh. Issue #597.
+#
+# Its own project name and no published database or Temporal port, so it runs
+# beside the development stack without touching it. The server image is the
+# one run.sh builds: a released image with the jar under test copied over its
+# own, so the launcher, PID 1 and the shutdown path are the real ones.
+name: orknux-cluster-smoke
+
+x-server: &server
+  image: orknux-cluster-smoke:local
+  depends_on:
+    postgres:
+      condition: service_healthy
+    temporal:
+      condition: service_healthy
+  environment: &env
+    ORKNUX_DB_URL: jdbc:postgresql://postgres:5432/orknux
+    ORKNUX_DB_USERNAME: orknux
+    ORKNUX_DB_PASSWORD: orknux
+    ORKNUX_TEMPORAL_ENABLED: "true"
+    ORKNUX_TEMPORAL_TARGET: temporal:7233
+    ORKNUX_SECRET_KEY: b3JrbnV4LXRlc3Qta2V5LTMyLWJ5dGVzLWV4YWN0bHk=
+    ORKNUX_AUTH_METHOD: INTERNAL
+    ORKNUX_BOOTSTRAP_ADMIN_USERNAME: alice
+    ORKNUX_BOOTSTRAP_ADMIN_PASSWORD: password-for-alice
+    ORKNUX_SELF_UPDATE: "false"
+    # Short, so failover and the timers are seen in seconds rather than minutes.
+    ORKNUX_CLUSTER_LEASE_SECONDS: "10"
+    ORKNUX_MODEL_CHECK_INTERVAL: 5s
+    ORKNUX_MODEL_CHECK_INITIAL_DELAY: 5s
+    ORKNUX_SLACK_RECONCILE_SECONDS: "5"
+    # The model check's one line per pass, which is what says which server
+    # swept. The package and not the class: a variable's name is lower-cased on
+    # the way in, and a logger's name is not.
+    LOGGING_LEVEL_IO_MSZYMANSKI_ORKNUX_CONNECTOR_MODEL: DEBUG
+    JAVA_OPTS: -Xmx640m
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: orknux
+      POSTGRES_USER: orknux
+      POSTGRES_PASSWORD: orknux
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U orknux -d orknux" ]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  temporal:
+    image: temporalio/auto-setup:1.29.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_SEEDS: postgres
+      POSTGRES_USER: orknux
+      POSTGRES_PWD: orknux
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+    healthcheck:
+      test: [ "CMD", "temporal", "operator", "cluster", "health", "--address", "temporal:7233" ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  server-a:
+    <<: *server
+    ports:
+      - "18191:8080"
+
+  server-b:
+    <<: *server
+    ports:
+      - "18192:8080"

@@ -153,6 +153,17 @@ db-scheduler:
 orknux:
   # Filled in from the build, and reported on the monitoring screen.
   version: "@project.version@"
+  cluster:
+    # How long the lease lasts that decides which server, of however many share
+    # this database, runs what must run once - the sweeps, the checks, the Slack
+    # sockets. Renewed every third of it; when its holder dies another server
+    # takes over within this long. On the inline engine a second server waits
+    # one lease and then refuses to start. Admin -> Settings overrides it.
+    lease-seconds: ${ORKNUX_CLUSTER_LEASE_SECONDS:30}
+    # False takes no lease and makes this process its own leader. The suite sets
+    # it, because one JVM there holds several contexts on one database; a
+    # deployment should not.
+    lease-enabled: true
   update:
     # Whether an administrator may update this server in place, from the Admin
     # Updates page: a release orknux.ai offers, or a jar they upload, stored in

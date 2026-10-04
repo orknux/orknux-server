@@ -77,7 +77,9 @@ class DoctorOnSqliteTest {
         val checks = doctor.doctor()
 
         assertThat(checks.map { it.name })
-            .containsExactly("Secret key", "Stored secrets", "Authentication", "Attachments", "Schema", "Allowed origins")
+            .containsExactly(
+                "Secret key", "Stored secrets", "Authentication", "Attachments", "Schema", "Allowed origins", "Replicas",
+            )
 
         // Not merely present: actually answered. A check that threw now reports
         // itself as unanswered, and that would pass a test which only counted.
@@ -117,7 +119,7 @@ class DoctorOnSqliteTest {
 
         val checks = withoutADatabase.doctor()
 
-        assertThat(checks).hasSize(6)
+        assertThat(checks).hasSize(7)
         assertThat(checks.first { it.name == "Stored secrets" }.detail).contains("Could not be checked")
         // The ones that never needed the database are untouched, which is the
         // whole claim being made.

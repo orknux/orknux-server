@@ -193,7 +193,7 @@ the step runs. The README's **Publishing** has the rest.
 
 | Variable | What it does | Default | Required |
 | --- | --- | --- | --- |
-| `ORKNUX_TEMPORAL_ENABLED` | `false` runs a workflow on the calling thread with no retries or resumption, for a single-process installation with no Temporal. | `true` | No |
+| `ORKNUX_TEMPORAL_ENABLED` | `false` runs workflows on the calling thread, without retries or resumption, on one server only. A deployment should not. | `true` | No |
 | `ORKNUX_TEMPORAL_TARGET` | Host and port of the Temporal frontend. | `localhost:7233` | **Yes** in a deployment, unless Temporal is off |
 | `ORKNUX_TEMPORAL_NAMESPACE` | The Temporal namespace to run in. | `default` | No |
 | `ORKNUX_TEMPORAL_TASK_QUEUE` | The queue workers take work from. Change it to run two installations against one Temporal. | `orknux-workflow` | No |
@@ -204,14 +204,15 @@ the step runs. The README's **Publishing** has the rest.
 | `ORKNUX_TEMPORAL_UI_URL` | Temporal's own web interface, linked out to from a run. Empty offers no links. | `http://localhost:8233` | No |
 | `ORKNUX_INLINE_RESTART_ATTEMPTS` | Inline only: goes an agent step cut short by restarts gets; Admin Settings overrides. | `3` | No |
 | `ORKNUX_INLINE_MAX_WAIT` | Inline engine only: how long a run may stay parked before the step fails. A Temporal wait is bounded by the run timeout. | `5m` | No |
-| `ORKNUX_TASK_MAX_TURNS` | How often a task's agent may be asked before stopping, unless the workspace sets its own. Copied onto a task when made, so a change spares one running. | `40` | No |
+| `ORKNUX_TASK_MAX_TURNS` | How often a task's agent may be asked before stopping, unless the workspace sets its own. | `40` | No |
 | `ORKNUX_TASK_WORKING_TIME` | The longest a task may be *working*. Not wall clock: time parked waiting to be approved counts for none. | `2h` | No |
 | `ORKNUX_TASK_PATIENCE` | How long a parked task waits for a person. | `7d` | No |
-| `ORKNUX_TASK_SWEEP_MINUTES` | How long a task may sit at Queued before being handed over again, so a restart strands nothing; Admin -> Settings overrides it. | `5` | No |
+| `ORKNUX_TASK_SWEEP_MINUTES` | How long a task may sit at Queued before being handed over again; Admin -> Settings overrides it. | `5` | No |
 | `ORKNUX_EXECUTION_RETENTION_DAYS` | How long a finished run is kept, with its steps. Admin -> Settings is the switch; this is the floor. | `90` | No |
 | `ORKNUX_EXECUTION_SWEEP_ENABLED` | `false` sweeps nothing on a timer. | `true` | No |
 | `ORKNUX_REVISION_RETENTION_DAYS` | How long a replaced version of a function, tool, skill or agent is kept, from when it stopped being current. Admin -> Settings is the switch. | `14` | No |
-| `ORKNUX_SCHEDULER_ENABLED` | The clock behind scheduled triggers. Its state is in the database, so one instance fires a schedule however many are running. | `true` | No |
+| `ORKNUX_SCHEDULER_ENABLED` | The clock behind scheduled triggers; one instance fires a schedule however many run. | `true` | No |
+| `ORKNUX_CLUSTER_LEASE_SECONDS` | Replicas on one Postgres: the lease holder runs the sweeps and Slack; a dead one's work moves within this. Admin Settings overrides. | `30` | No |
 | `ORKNUX_SCHEDULER_TICK_INTERVAL` | How often scheduled triggers and watchers are looked at: the finest schedule either keeps. | `10s` | No |
 
 ## What a workspace's code may do
@@ -278,7 +279,7 @@ must be signed with the release key this image carries. **On by default.**
 | `ORKNUX_CONNECTION_CHECK_INTERVAL` | How often connections are checked. | `5m` | No |
 | `ORKNUX_CONNECTION_PROBE_TIMEOUT_SECONDS` | How long a check may take to find out whether anything is listening. | `5` | No |
 | `ORKNUX_CONNECTION_ALLOW_LINK_LOCAL` | Link-local addresses reach cloud instance metadata, so they are refused unless this is on. Private and loopback are reachable either way. | `false` | No |
-| `ORKNUX_CONNECTION_ENTRA_AUTHORITY` | Where an Entra ID token is asked for. The worldwide cloud - a tenant in a sovereign cloud has an address of its own. | `https://login.microsoftonline.com` | No |
+| `ORKNUX_CONNECTION_ENTRA_AUTHORITY` | Where an Entra ID token is asked for; a sovereign cloud has its own. | `https://login.microsoftonline.com` | No |
 | `ORKNUX_SLACK_ENABLED` | One Socket Mode websocket per Slack connection holding an app-level token. | `true` | No |
 | `ORKNUX_SLACK_RECONCILE_SECONDS` | How often open sockets are compared with stored connections, so a new token listens without a restart. | `30` | No |
 | `ORKNUX_SLACK_RETRY_FAILED_SECONDS` | How long a connection Slack refused is left alone; a new token or Reconnect clears it. | `300` | No |
@@ -324,7 +325,7 @@ and ORKNUX_WATCHER_MAX_PER_AGENT are in
 | --- | --- | --- | --- |
 | `ORKNUX_PORT` | The port this server listens on inside the container. | `8080` | No |
 | `ORKNUX_ALLOWED_ORIGINS` | Where the interface is served from, when it is not this server. Comma separated; empty allows none. | `http://localhost:5173` | **Yes** where the interface is elsewhere |
-| `ORKNUX_BASE_URL` | Where a browser reaches the interface: the host of a mailed reset link and of every picture link handed to a model. Not read off the `Host` header, which a caller writes. | `http://localhost:5173` | **Yes** for password resets |
+| `ORKNUX_BASE_URL` | Where a browser reaches the interface: the host of a reset link and of picture links given to a model. Never read off the `Host` header. | `http://localhost:5173` | **Yes** for password resets |
 | `ORKNUX_WEBHOOK_MAX_BODY_SIZE` | The most a webhook caller may post to `/api/webhooks/…`. More is refused with 413 before any trigger runs. | `1MB` | No |
 | `ORKNUX_ASYNC_REQUEST_TIMEOUT` | How long a request answered with a promise may stay open. | `330s` | No |
 | `ORKNUX_SESSION_TIMEOUT` | How long a session survives without being used. A fortnight suits a self-hosted tool behind an identity provider; shorten it otherwise. | `14d` | No |

@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.connector.model
 
+import io.mszymanski.orknux.connector.cluster.ClusterLeader
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.properties.ConfigurationProperties
@@ -61,6 +62,8 @@ class ModelProviderMonitor(
     private val providers: ModelProviderRepository,
     private val models: ModelService,
     private val properties: ModelProviderCheckProperties,
+    /** Which replica sweeps; alone where nothing says otherwise. Issue #597. */
+    private val leader: ClusterLeader = ClusterLeader.alone(),
 ) : SmartLifecycle {
 
     /*
@@ -77,7 +80,7 @@ class ModelProviderMonitor(
             Thread(runnable, "model-provider-check").apply { isDaemon = true }
         }
         pool.scheduleWithFixedDelay(
-            { runCatching(::sweep).onFailure { log.warn("Could not check the model providers", it) } },
+            { runCatching(::timedPass).onFailure { log.warn("Could not check the model providers", it) } },
             properties.initialDelay.toSeconds(),
             properties.interval.toSeconds(),
             TimeUnit.SECONDS,
@@ -85,6 +88,17 @@ class ModelProviderMonitor(
         sweeper = pool
         running = true
         log.info("Checking model providers every {}", properties.interval)
+    }
+
+    /**
+     * What the timer calls: a pass, on the one replica that leads. Issue #597.
+     * Every replica keeps its timer, so the work moves when the leader dies;
+     * a test asks [sweep] directly, or this to see the gate.
+     */
+    fun timedPass(): Boolean {
+        if (!leader.leads()) return false
+        sweep()
+        return true
     }
 
     override fun stop() {

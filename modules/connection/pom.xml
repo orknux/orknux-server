@@ -58,6 +58,20 @@
             <groupId>org.springframework</groupId>
             <artifactId>spring-web</artifactId>
         </dependency>
+        <!--
+            Which replica runs what must run once (#597): the timers, the Slack
+            sockets. ShedLock's JDBC provider rather than a lock written here,
+            because a lease is a protocol with corners - two writers racing for
+            an expired row, a holder extending a row it has already lost, whose
+            clock the expiry is measured on - and this library has had them
+            pointed out for years. ClusterLeader is the only caller, and only of
+            lock, extend and unlock.
+        -->
+        <dependency>
+            <groupId>net.javacrumbs.shedlock</groupId>
+            <artifactId>shedlock-provider-jdbc-template</artifactId>
+            <version>${shedlock.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>

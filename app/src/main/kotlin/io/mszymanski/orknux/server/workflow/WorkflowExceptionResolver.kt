@@ -277,6 +277,8 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             /* How a step a dead server was in is recovered. Issue #601. */
             is io.mszymanski.orknux.server.attachment.StepHeartbeatOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.RestartAttemptsOutOfRangeException,
+            /* How long the cluster lease lasts. Issue #597. */
+            is io.mszymanski.orknux.server.attachment.ClusterLeaseOutOfRangeException,
             /* How many findable tools find_tools names outright. Issue #442. */
             is io.mszymanski.orknux.server.attachment.ToolsNamedOutOfRangeException,
             /* How long a session counts as active after its last line. Issue #448. */

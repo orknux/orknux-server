@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.connector.shell
 
+import io.mszymanski.orknux.connector.cluster.ClusterLeader
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.SmartLifecycle
@@ -50,6 +51,8 @@ class ShellSessionSweeper(
     private val service: ShellService,
     private val sessionService: ShellSessionService,
     private val properties: ShellProperties,
+    /** Which replica sweeps; alone where nothing says otherwise. Issue #597. */
+    private val leader: ClusterLeader = ClusterLeader.alone(),
 ) : SmartLifecycle {
 
     /**
@@ -69,7 +72,7 @@ class ShellSessionSweeper(
             Thread(runnable, "shell-sweep").apply { isDaemon = true }
         }
         executor.scheduleWithFixedDelay(
-            { runCatching(::sweep).onFailure { log.warn("The shell sweep did not finish", it) } },
+            { runCatching(::timedPass).onFailure { log.warn("The shell sweep did not finish", it) } },
             properties.sweepInitialDelay.toSeconds(),
             properties.sweepInterval.toSeconds(),
             TimeUnit.SECONDS,
@@ -91,6 +94,17 @@ class ShellSessionSweeper(
     }
 
     override fun isRunning(): Boolean = running
+
+    /**
+     * What the timer calls: a pass, on the one replica that leads. Issue #597.
+     * Every replica keeps its timer, so the work moves when the leader dies;
+     * a test asks [sweep] directly, or this to see the gate.
+     */
+    fun timedPass(): Boolean {
+        if (!leader.leads()) return false
+        sweep()
+        return true
+    }
 
     /** One pass. A shell that will not answer must not end it for the others. */
     fun sweep() {
