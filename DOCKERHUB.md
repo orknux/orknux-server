@@ -193,7 +193,7 @@ the step runs. The README's **Publishing** has the rest.
 
 | Variable | What it does | Default | Required |
 | --- | --- | --- | --- |
-| `ORKNUX_TEMPORAL_ENABLED` | `false` runs a workflow on the calling thread with no retries or resumption, for a single-process installation with no Temporal. A deployment should not. | `true` | No |
+| `ORKNUX_TEMPORAL_ENABLED` | `false` runs a workflow on the calling thread with no retries or resumption, for a single-process installation with no Temporal. | `true` | No |
 | `ORKNUX_TEMPORAL_TARGET` | Host and port of the Temporal frontend. | `localhost:7233` | **Yes** in a deployment, unless Temporal is off |
 | `ORKNUX_TEMPORAL_NAMESPACE` | The Temporal namespace to run in. | `default` | No |
 | `ORKNUX_TEMPORAL_TASK_QUEUE` | The queue workers take work from. Change it to run two installations against one Temporal. | `orknux-workflow` | No |
@@ -212,7 +212,7 @@ the step runs. The README's **Publishing** has the rest.
 | `ORKNUX_EXECUTION_SWEEP_ENABLED` | `false` sweeps nothing on a timer. | `true` | No |
 | `ORKNUX_REVISION_RETENTION_DAYS` | How long a replaced version of a function, tool, skill or agent is kept, from when it stopped being current. Admin -> Settings is the switch. | `14` | No |
 | `ORKNUX_SCHEDULER_ENABLED` | The clock behind scheduled triggers. Its state is in the database, so one instance fires a schedule however many are running. | `true` | No |
-| `ORKNUX_SCHEDULER_TICK_INTERVAL` | How often scheduled triggers are looked at: the finest schedule this installation keeps. A cron of seconds still fires only on a tick. | `10s` | No |
+| `ORKNUX_SCHEDULER_TICK_INTERVAL` | How often scheduled triggers and watchers are looked at: the finest schedule either keeps. | `10s` | No |
 
 ## What a workspace's code may do
 
@@ -313,8 +313,9 @@ ORKNUX_CHAT_MAX_ROUNDS, ORKNUX_CHAT_MAX_SUBAGENTS, ORKNUX_CHAT_TOOLS_NAMED_IN_SE
 ORKNUX_COMMAND_MARKER, ORKNUX_LDAP_GROUP_SEARCH_SUBTREE, ORKNUX_MODEL_CHECK_INITIAL_DELAY,
 ORKNUX_CONNECTION_CHECK_INITIAL_DELAY, ORKNUX_SCHEDULER_THREADS, ORKNUX_SCHEDULER_POLLING_INTERVAL,
 ORKNUX_REVISION_SWEEP_ENABLED, ORKNUX_REVISION_SWEEP_INTERVAL,
-ORKNUX_SESSIONS_ACTIVE_WINDOW_SECONDS, ORKNUX_SESSIONS_DUE_SWEEP, ORKNUX_TASK_SWEEP_ENABLED
-and ORKNUX_TASK_SWEEP_INITIAL_DELAY are in
+ORKNUX_SESSIONS_ACTIVE_WINDOW_SECONDS, ORKNUX_SESSIONS_DUE_SWEEP, ORKNUX_TASK_SWEEP_ENABLED,
+ORKNUX_TASK_SWEEP_INITIAL_DELAY, ORKNUX_WATCHER_MAX_SECONDS, ORKNUX_WATCHER_MIN_INTERVAL_SECONDS
+and ORKNUX_WATCHER_MAX_PER_AGENT are in
 [the README](https://github.com/orknux/orknux-server/blob/main/README.md#more-settings).
 
 ## Sessions, HTTP and logging
@@ -339,7 +340,7 @@ and ORKNUX_TASK_SWEEP_INITIAL_DELAY are in
 | `ORKNUX_LOG_TOTAL_SIZE_CAP` | The ceiling on all of them together. | `1GB` | No |
 | `ORKNUX_METRICS_ANONYMOUS` | Whether `/actuator/prometheus` answers an unauthenticated caller. `true` only where the scraper alone is on that network. | `false` | No |
 | `JAVA_OPTS` | Passed to the JVM. One that sizes the heap (`-Xmx`, `MaxRAMPercentage`) replaces the two below. | *none* | No |
-| `ORKNUX_HEAP_PERCENT` `ORKNUX_NATIVE_MEMORY_MB` | Heap: the smaller of the percent of the memory limit and the limit less the MB the JVM needs beside it. 2 GB gets 1 GB. | `75` `1024` | No |
+| `ORKNUX_HEAP_PERCENT` `ORKNUX_NATIVE_MEMORY_MB` | Heap: the smaller of the percent of the memory limit and the limit less the MB the JVM needs beside it. | `75` `1024` | No |
 | `ORKNUX_MALLOC_ARENAS` `ORKNUX_NIO_BUFFER_CACHE_KB` | glibc's arenas, eight per host core otherwise; the largest direct buffer a thread keeps for I/O. | `2` `256` | No |
 
 Sessions are kept in the database, so signing in outlives a restart and more

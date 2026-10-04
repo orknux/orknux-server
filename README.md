@@ -418,6 +418,9 @@ installation starts from.
 | `ORKNUX_SESSIONS_DUE_SWEEP` | How often a reminder that came due after its agent finished is delivered. | `1s` |
 | `ORKNUX_TASK_SWEEP_ENABLED` | Whether stuck tasks are picked up again. | `true` |
 | `ORKNUX_TASK_SWEEP_INITIAL_DELAY` | How long after start the first sweep runs. | `1m` |
+| `ORKNUX_WATCHER_MAX_SECONDS` | The longest a watcher may run. Admin -> Settings overrides it. | `604800` (a week) |
+| `ORKNUX_WATCHER_MIN_INTERVAL_SECONDS` | The shortest interval between a watcher's checks. Admin -> Settings overrides it. | `15` |
+| `ORKNUX_WATCHER_MAX_PER_AGENT` | How many watchers one agent may have running; `0` switches them off. Admin -> Settings overrides it. | `10` |
 
 ### Access
 

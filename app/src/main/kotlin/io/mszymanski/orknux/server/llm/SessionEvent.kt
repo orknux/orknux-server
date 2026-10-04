@@ -61,6 +61,9 @@ enum class SessionEventKind {
 
     /** A timer this session's agent set has come due. */
     TIMER,
+
+    /** A watcher this session's agent set has fired, timed out or been stopped. Issue #606. */
+    WATCHER,
 }
 
 interface SessionEventRepository : JpaRepository<SessionEvent, Long> {

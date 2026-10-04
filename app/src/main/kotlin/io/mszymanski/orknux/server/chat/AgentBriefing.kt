@@ -493,8 +493,10 @@ class AgentBriefing(
                 "a wake-up you set comes due. When it ends you stop completely - nothing carries on in the " +
                 "background and nothing reminds you. So never say you will do something later, check back " +
                 "or follow up unless you make it happen: do it now, in this turn, or, where you have to wait " +
-                "for something, wait before you finish - or end your turn with a wake-up, where one is " +
-                "offered, and say when you will be back. Where you can do neither, say so plainly rather " +
-                "than promising."
+                "for something one of your tools can see, set a watcher with watcher_set, where you have " +
+                "it - it calls the tool for you and starts a turn when the result matches. Otherwise wait " +
+                "before you finish, or, as a last resort, end your turn with a wake-up, where one is " +
+                "offered, and say when you will be back. Where you can do none of these, say so plainly " +
+                "rather than promising."
     }
 }

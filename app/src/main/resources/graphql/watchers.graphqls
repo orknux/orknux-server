@@ -1,0 +1,96 @@
+# Watchers, issue #606: a tool an agent asked the server to call on an interval
+# until its result matches a condition, which then wakes the agent. The
+# workspace's Watchers page reads and stops them; Admin -> Settings -> Watchers
+# bounds them.
+
+extend type Query {
+    """
+    A workspace's watchers, newest first: the running ones by default, or with
+    `finished: true` every one that has ended, however it ended - most recently
+    ended first. Anybody who can see the workspace.
+    """
+    watchers(workspaceId: ID!, finished: Boolean = false, page: Int = 0, size: Int = 50): WatcherPage!
+    "The three limits on what an agent may ask a watcher to do. Administrators only."
+    watcherSettings: WatcherSettings!
+}
+
+extend type Mutation {
+    """
+    Ends a running watcher. Its agent is told, in its conversation, that it
+    was stopped. Refused for one that has already ended.
+    """
+    stopWatcher(id: ID!): Watcher!
+    "The longest a watcher may run, in seconds. Administrators only."
+    setWatcherMaxSeconds(seconds: Int!): WatcherSettings!
+    "The shortest interval between two checks, in seconds. Administrators only."
+    setWatcherMinIntervalSeconds(seconds: Int!): WatcherSettings!
+    "How many watchers one agent may have running at once; zero switches watchers off. Administrators only."
+    setWatcherMaxPerAgent(count: Int!): WatcherSettings!
+}
+
+type WatcherPage {
+    content: [Watcher!]!
+    page: Int!
+    size: Int!
+    totalElements: Int!
+    totalPages: Int!
+}
+
+type Watcher {
+    id: ID!
+    "The conversation it wakes, which is the one it was set in."
+    sessionId: ID!
+    "That conversation's title, where it has one."
+    sessionTitle: String
+    "The agent that set it, as it was called then."
+    agentName: String!
+    tool: String!
+    "The JSON object the tool is called with."
+    arguments: String!
+    conditionKind: WatcherConditionKind!
+    condition: String!
+    intervalSeconds: Int!
+    timeoutSeconds: Int!
+    "What the agent said it was waiting for."
+    note: String
+    status: WatcherStatus!
+    "How many times the tool has been called."
+    checks: Int!
+    "What matched, for one that fired."
+    matched: String
+    "How it ended, in a sentence; null while it runs."
+    outcome: String
+    createdAt: String!
+    "When it gives up if nothing matches."
+    expiresAt: String!
+    "When it is next due; meaningful only while it runs."
+    nextCheckAt: String!
+    lastCheckedAt: String
+    finishedAt: String
+}
+
+enum WatcherConditionKind {
+    JSONPATH
+    REGEX
+}
+
+enum WatcherStatus {
+    ACTIVE
+    FIRED
+    TIMED_OUT
+    FINISHED
+    STOPPED
+    FAILED
+}
+
+type WatcherSettings {
+    maxSeconds: Int!
+    "What a fresh installation allows - ORKNUX_WATCHER_MAX_SECONDS."
+    maxSecondsConfigured: Int!
+    minIntervalSeconds: Int!
+    "What a fresh installation allows - ORKNUX_WATCHER_MIN_INTERVAL_SECONDS."
+    minIntervalSecondsConfigured: Int!
+    maxPerAgent: Int!
+    "What a fresh installation allows - ORKNUX_WATCHER_MAX_PER_AGENT."
+    maxPerAgentConfigured: Int!
+}

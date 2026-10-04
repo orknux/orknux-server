@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.agent
 
+import io.mszymanski.orknux.server.watcher.WatcherTools
+
 import io.mszymanski.orknux.connector.model.ToolCall
 import io.mszymanski.orknux.connector.model.ToolParameterSpec
 import io.mszymanski.orknux.connector.model.ToolSpec
@@ -182,13 +184,22 @@ class FinishAnswerTools(private val mapper: ObjectMapper) {
     private fun waking(sleeping: Sleeping): ToolSpec = FINISHING.copy(
         description = FINISHING.description +
             " This is also how you come back later, and the only way: saying you will check back does " +
-            "nothing unless you pass `$WAKE`. You can use it to wait: pass `$WAKE` and this step stops here and is " +
-            "started again when that time is up, with the note you left yourself. Wait when the " +
-            "thing you need has not happened yet - a build is running, somebody has been asked, a " +
-            "job lands later - rather than holding this turn open or answering as though it had. " +
+            "nothing unless you pass `$WAKE`. " +
+            /*
+             * A watcher before a wake, where a tool can see the thing. #606: a
+             * wake to call the same tool again is a model call per look; a
+             * watcher looks without one and wakes the agent on the match.
+             */
+            "To wait for something one of your tools can see - a build finishing, a status changing, a " +
+            "reply arriving - set a watcher with ${WatcherTools.SET} first: it calls the tool for you on an " +
+            "interval and starts you again when the result matches, so you finish with `$WAKE` $NEVER. " +
+            "Use a wake to wait only as the last resort, where no tool can observe the thing or the " +
+            "condition cannot be written as a JSONPath or a regular expression: pass `$WAKE` and this step " +
+            "stops here and is started again when that time is up, with the note you left yourself, " +
+            "rather than holding this turn open or answering as though it had happened. " +
             // And to repeat, which it is just as much. Issue #568.
             "It is also how you do something on a timer: act, wait, and act again when you are started - " +
-            "a message every few seconds, a check every minute. Keep the count in a note to yourself. " +
+            "a message every few seconds. Keep the count in a note to yourself. " +
             // The note is read by the agent that wakes, not by anybody else. A note saying what was
             // done read, on waking, as a job finished; say what to do next instead.
             "When you wait, `answer` is that note: you are the one who reads it when you are started " +
@@ -240,7 +251,9 @@ class FinishAnswerTools(private val mapper: ObjectMapper) {
                 "already sent; that is what this is for. `answer` is optional and is only for something " +
                 "a later step in this workflow needs to read. Ending your turn is final: you are not run " +
                 "again unless somebody writes to you. There is no \"later\" you can check back in - if " +
-                "something you need has not happened yet, wait for it before you finish.",
+                "something you need has not happened yet, wait for it before you finish, or, where one of " +
+                "your tools can see it, set a watcher with ${WatcherTools.SET}, which starts you again when " +
+                "it happens.",
             parameters = listOf(
                 ToolParameterSpec(
                     name = "answer",

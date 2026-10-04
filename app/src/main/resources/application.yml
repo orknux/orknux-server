@@ -249,6 +249,20 @@ orknux:
     # Up to how many findable tools find_tools names outright in its own
     # description, so a model asks for one by name. Admin -> Settings overrides it.
     tools-named-in-search: ${ORKNUX_CHAT_TOOLS_NAMED_IN_SEARCH:40}
+  watchers:
+    # What bounds a watcher - a tool an agent asks the server to call on an
+    # interval until its result matches a condition, which then wakes it. #606.
+    # Where a fresh installation starts; Admin -> Settings -> Watchers is the
+    # switch and what it holds wins. A watcher is checked on the scheduler's
+    # tick (ORKNUX_SCHEDULER_TICK_INTERVAL), so that is the finest interval it
+    # is really kept to.
+    #
+    # The longest one may run, in seconds: a week.
+    max-seconds: ${ORKNUX_WATCHER_MAX_SECONDS:604800}
+    # The shortest interval between two calls of its tool, in seconds.
+    min-interval-seconds: ${ORKNUX_WATCHER_MIN_INTERVAL_SECONDS:15}
+    # How many one agent may have running at once; 0 switches watchers off.
+    max-per-agent: ${ORKNUX_WATCHER_MAX_PER_AGENT:10}
   sessions:
     # How long a session counts as active after its last line, in seconds. The
     # sessions list's dot lights for a line written this recently, so an agent

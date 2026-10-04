@@ -41,9 +41,12 @@ class TimerTools(
                 name = SET,
                 description = "Sets a reminder for yourself and returns at once, so you carry on with what you " +
                     "are doing. When the time is up you are told, with the note you left: between two steps " +
-                    "if you are still working, or by being started again if you have finished. Use it when " +
-                    "you need to check something later - whether a build finished, whether somebody replied - " +
-                    "without stopping now. Up to ${settings.agentSleepSeconds()} seconds ahead.",
+                    "if you are still working, or by being started again if you have finished. Use it for " +
+                    "something to do at a time - follow up at nine, look at a report in an hour - without " +
+                    "stopping now. To wait until something one of your tools can see changes - a build " +
+                    "finishing, a reply arriving - set a watcher with ${io.mszymanski.orknux.server.watcher.WatcherTools.SET} " +
+                    "instead: it checks for you and tells you when it happens. Up to " +
+                    "${settings.agentSleepSeconds()} seconds ahead.",
                 parameters = listOf(
                     ToolParameterSpec(SECONDS, "How many seconds from now to be reminded.", required = true),
                     ToolParameterSpec(NOTE, "What to remind yourself of, in your own words.", required = true),
