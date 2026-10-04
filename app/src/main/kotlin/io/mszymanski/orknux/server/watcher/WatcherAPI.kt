@@ -155,6 +155,7 @@ data class WatcherView(
     val expiresAt: String,
     val nextCheckAt: String,
     val lastCheckedAt: String?,
+    val lastResult: String?,
     val finishedAt: String?,
 ) {
     companion object {
@@ -179,6 +180,7 @@ data class WatcherView(
             expiresAt = watcher.expiresAt.toString(),
             nextCheckAt = watcher.nextCheckAt.toString(),
             lastCheckedAt = watcher.lastCheckedAt?.toString(),
+            lastResult = watcher.lastResult,
             finishedAt = watcher.finishedAt?.toString(),
         )
     }

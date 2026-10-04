@@ -68,6 +68,8 @@ type Watcher {
     "When it is next due; meaningful only while it runs."
     nextCheckAt: String!
     lastCheckedAt: String
+    "What the tool returned on the last check, as the condition was held against it."
+    lastResult: String
     finishedAt: String
 }
 
