@@ -370,7 +370,7 @@ upgrade happens to you rather than being something you did. Set
 `ORKNUX_SERVER_TAG` to move deliberately, and to `sha-<commit>` if you want to
 be certain to the commit.
 
-Both repositories are at `0.9`/`0.9.9.11`, released together, and that is what
+Both repositories are at `0.9`/`0.9.9.12`, released together, and that is what
 this file uses. The interface is built into the server image, so one tag is the
 whole product and the two halves cannot be pinned apart. Check what exists
 before reaching for a different one:
@@ -490,7 +490,7 @@ in earlier can no longer be started; the image's own jar always can.
 To take releases only from your own repository, point
 `ORKNUX_RELEASE_SOURCE_URL` at a generic Artifactory repository the platform team
 fills - a jar's URL, or a directory ending in `/` with a `releases.json` beside
-the jars (`[{"version": "0.9.9.11", "jarUrl": "orknux-server-0.9.9.11.jar"}]`) -
+the jars (`[{"version": "0.9.9.12", "jarUrl": "orknux-server-0.9.9.12.jar"}]`) -
 and set `ORKNUX_SELF_UPDATE_OFFICIAL` and `ORKNUX_SELF_UPDATE_UPLOAD` to
 `"false"`. The page fills its URL field from it; a token or `user:password` typed
 beside it is sent to that host and stored nowhere. The fetch goes through the
