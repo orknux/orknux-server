@@ -23,6 +23,7 @@ have failed.
 
 ### 🔧 Changed
 
+- A new agent starts with every enabled plugin's skill catalog granted, beside the server's own, and can have any of them switched off on its page. Agents that already exist are left as they were, and so is every existing agent when a plugin is installed later: grant the catalog on those by hand if they should have it.
 - Importing components: leaving out a tool the file carries no longer leaves out every agent that holds it (and every workflow using those agents); the agents arrive without that grant, and the tool's row says which. Where the workspace has a tool of that name, the agents point at it, as before.
 
 ### 🐛 Fixed
