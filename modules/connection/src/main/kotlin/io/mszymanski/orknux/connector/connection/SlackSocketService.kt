@@ -20,6 +20,12 @@ enum class SlackSocketStatus {
 
     /** This server listens to no Slack at all - `orknux.slack.enabled` is false. */
     DISABLED,
+
+    /**
+     * Listened to by another server of this installation: the one holding the
+     * cluster lease, which is the only one that opens sockets. Issue #597.
+     */
+    ELSEWHERE,
 }
 
 /**

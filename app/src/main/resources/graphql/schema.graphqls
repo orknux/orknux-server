@@ -4969,6 +4969,8 @@ enum SlackSocketStatus {
     NOT_LISTENING
     "This server listens to no Slack at all."
     DISABLED
+    "Listened to by another server of this installation, the one holding the cluster lease. Issue #597."
+    ELSEWHERE
 }
 
 "What the workspace screen reports about a connection."
