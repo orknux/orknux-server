@@ -15,6 +15,19 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- Watchers: an agent can ask the server to call one of its own tools on an interval and wake it, in the same conversation, when the result matches a JSONPath or a regular expression - with what matched and the whole result in the message. New built-ins `watcher_set`, `watcher_list` (the agent's own watchers only, running by default, ended ones with `include_finished`) and `watcher_finish`, on by default for every agent (Always, like the other built-ins), and a Watchers skill offered to every agent explaining how to write the condition. A watcher fires once and ends; it is told to its agent when it times out, is stopped, or its tool is taken away. Watchers live in the database and are checked on the scheduler's tick, so they survive a restart. The session log records when one is set, fires, times out, is finished or stopped.
+- AI -> Watchers lists a workspace's running watchers - session, agent, tool call, condition, interval, timeout, set and finished - with Stop, and the ended ones under the Finished filter.
+- Admin -> Settings -> Watchers: the longest a watcher may run (a week), the shortest interval (15 seconds) and how many one agent may have running (10; 0 switches watchers off). Defaults from `ORKNUX_WATCHER_MAX_SECONDS`, `ORKNUX_WATCHER_MIN_INTERVAL_SECONDS` and `ORKNUX_WATCHER_MAX_PER_AGENT`. An interval is kept only to `ORKNUX_SCHEDULER_TICK_INTERVAL` (10 s).
+
+### 🔧 Changed
+
+- Agents are told to wait for something a tool can see with a watcher rather than by ending the turn with `finish_answer` and `wake_after_ms` and checking again: the briefing, `finish_answer`, the note a woken agent reads and `timer_set` now name `watcher_set` first, and a wake-up only as the last resort. Timed jobs ("a message every few minutes") still use the wake-up.
+- A workflow agent step whose agent finishes with a watcher still running parks, like one with an ask still running, and is woken when the watcher fires - within the installation's longest wait and number of waits.
+
 ## 0.9.9.11
 
 ### ✨ Added

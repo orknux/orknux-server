@@ -58,6 +58,17 @@
         </dependency>
 
         <!--
+            JSONPath, for a watcher's condition (#606): whether what a tool
+            returned matches the path an agent wrote. Jayway is the reference
+            implementation and the one Boot's BOM manages; a path language is
+            exactly the kind of thing not to write by hand.
+        -->
+        <dependency>
+            <groupId>com.jayway.jsonpath</groupId>
+            <artifactId>json-path</artifactId>
+        </dependency>
+
+        <!--
             The SVG renderer, for the RENDER_PNG capability.
 
             Here rather than in the execution module on purpose: that module is

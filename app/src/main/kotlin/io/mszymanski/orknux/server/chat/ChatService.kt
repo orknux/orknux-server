@@ -65,6 +65,8 @@ class ChatService(
     private val scratchpads: ScratchpadTools,
     /** A reminder the chat's agent sets and carries on; see [TimerTools]. */
     private val timers: TimerTools,
+    /** Watchers the chat's agent sets, which wake the chat; see [io.mszymanski.orknux.server.watcher.WatcherTools]. #606. */
+    private val watchers: io.mszymanski.orknux.server.watcher.WatcherTools,
     transactions: PlatformTransactionManager,
 ) {
 
@@ -734,7 +736,13 @@ class ChatService(
              * them. Lent here rather than by each door, so the two doors cannot
              * come to lend different things. Issue #445.
              */
-            val lent = sheds(shed, scratchpads.shed(start.llmSessionId), timers.shed(start.llmSessionId))
+            val agent = agents.findByIdOrNull(start.agentId)
+            val lent = sheds(
+                shed,
+                scratchpads.shed(start.llmSessionId),
+                timers.shed(start.llmSessionId),
+                agent?.let { watchers.shed(it, start.llmSessionId) },
+            )
             conversation.answer(start.modelId, start.agentId, start.turns, start.llmSessionId, lent, watch, hangup)
         }
 

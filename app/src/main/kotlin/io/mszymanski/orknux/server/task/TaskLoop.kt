@@ -75,6 +75,8 @@ class TaskLoop(
     private val dates: io.mszymanski.orknux.server.chat.DateTools,
     /** A reminder the agent sets for itself; see [io.mszymanski.orknux.server.chat.TimerTools]. */
     private val timers: io.mszymanski.orknux.server.chat.TimerTools,
+    /** Watchers the agent sets, which wake its session; see [io.mszymanski.orknux.server.watcher.WatcherTools]. #606. */
+    private val watchers: io.mszymanski.orknux.server.watcher.WatcherTools,
     /** save_artifact whatever the agent's list says; see [TaskArtifacts]. */
     private val artifacts: TaskArtifacts,
     /** The agent's setup, written into the log where it changes; see [AgentDetails]. #391, #441. */
@@ -202,6 +204,8 @@ class TaskLoop(
             dates.shed(),
             // A reminder it sets and carries on; delivered to the session.
             timers.shed(session),
+            // A tool of its own called on an interval until its result matches; wakes this session. #606.
+            watchers.shed(agent, session),
             // Somewhere a finished file goes, whatever the agent's list says.
             artifacts.shed(agent, session),
         )

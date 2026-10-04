@@ -150,6 +150,14 @@ class BuiltInTools(
             DateTools.NOW,
             TimerTools.SET,
             /*
+             * Watchers, #606: on by default like the timer beside them, since
+             * a watcher calls only the agent's own tools with its own grants,
+             * bounded by Admin Settings -> Watchers. See WatcherTools.
+             */
+            io.mszymanski.orknux.server.watcher.WatcherTools.SET,
+            io.mszymanski.orknux.server.watcher.WatcherTools.LIST,
+            io.mszymanski.orknux.server.watcher.WatcherTools.FINISH,
+            /*
              * The skill tools are built-ins like the rest rather than a view of
              * the catalog grants: the skills the server brings reach every agent
              * whatever it was granted, and without these an agent with no catalog
