@@ -104,6 +104,9 @@ object SettingNames {
     /** How a step a dead server was in the middle of is recovered. Issue #601. */
     const val WORKFLOW_STEP_HEARTBEAT_SECONDS = "workflow.step.heartbeat.seconds"
     const val WORKFLOW_RESTART_ATTEMPTS = "workflow.restart.attempts"
+
+    /** How long the lease that decides which replica runs the timers lasts. Issue #597. */
+    const val CLUSTER_LEASE_SECONDS = "cluster.lease.seconds"
     const val COMMAND_MARKER = "command.marker"
     const val SESSIONS_REMOVABLE = "sessions.removable"
     const val SCRATCHPAD_BUDGET_BYTES = "scratchpad.budget.bytes"
@@ -203,6 +206,9 @@ class InstallationSettings(
     private val stepHeartbeatSecondsFile: Long = DEFAULT_STEP_HEARTBEAT_SECONDS,
     @Value("\${orknux.execution.inline.restart-attempts:$DEFAULT_RESTART_ATTEMPTS}")
     private val restartAttemptsFile: Int = DEFAULT_RESTART_ATTEMPTS,
+    /** Where a fresh installation starts on the cluster lease - ORKNUX_CLUSTER_LEASE_SECONDS. Issue #597. */
+    @Value("\${orknux.cluster.lease-seconds:$DEFAULT_CLUSTER_LEASE_SECONDS}")
+    private val clusterLeaseSecondsFile: Long = DEFAULT_CLUSTER_LEASE_SECONDS,
 ) {
 
     /**
@@ -589,6 +595,37 @@ class InstallationSettings(
     fun setWorkflowRestartAttempts(count: Int, by: String) {
         if (count !in MIN_RESTART_ATTEMPTS..MAX_RESTART_ATTEMPTS) throw RestartAttemptsOutOfRangeException(count)
         write(SettingNames.WORKFLOW_RESTART_ATTEMPTS, count.toString(), by)
+    }
+
+    /**
+     * How long the cluster lease lasts, in seconds. Issue #597.
+     *
+     * One replica holds it and runs what must run once - the sweeps, the
+     * checks, the Slack sockets - renewing it every third of this. When that
+     * replica dies another takes over within this long. Shorter fails over
+     * sooner and writes the row oftener; it must stay well above the longest
+     * pause a server takes, or two can both believe they lead for the length
+     * of that pause. Read at every renewal, so a change reaches every replica
+     * at its next one.
+     */
+    fun clusterLeaseSeconds(): Long {
+        val held = settings.findByIdOrNull(SettingNames.CLUSTER_LEASE_SECONDS)
+            ?: return clusterLeaseSecondsConfigured()
+        return held.value.toLongOrNull()?.takeIf { it in MIN_CLUSTER_LEASE_SECONDS..MAX_CLUSTER_LEASE_SECONDS }
+            ?: clusterLeaseSecondsConfigured()
+    }
+
+    /** What the file says - ORKNUX_CLUSTER_LEASE_SECONDS, thirty unless set. */
+    fun clusterLeaseSecondsConfigured(): Long =
+        clusterLeaseSecondsFile.takeIf { it in MIN_CLUSTER_LEASE_SECONDS..MAX_CLUSTER_LEASE_SECONDS }
+            ?: DEFAULT_CLUSTER_LEASE_SECONDS
+
+    @Transactional
+    fun setClusterLeaseSeconds(seconds: Long, by: String) {
+        if (seconds !in MIN_CLUSTER_LEASE_SECONDS..MAX_CLUSTER_LEASE_SECONDS) {
+            throw ClusterLeaseOutOfRangeException(seconds)
+        }
+        write(SettingNames.CLUSTER_LEASE_SECONDS, seconds.toString(), by)
     }
 
     /**
@@ -1710,6 +1747,15 @@ const val MAX_STEP_HEARTBEAT_SECONDS = 600L
 /** About how long a restarted server takes to come back. */
 const val DEFAULT_STEP_HEARTBEAT_SECONDS = 30L
 
+/** Below this a renewal is a write every couple of seconds and a long GC pause is a lost lease. Issue #597. */
+const val MIN_CLUSTER_LEASE_SECONDS = 5L
+
+/** Ten minutes; past that a dead replica's sweeps and sockets are gone for longer than anybody would wait. */
+const val MAX_CLUSTER_LEASE_SECONDS = 600L
+
+/** Thirty: a dead replica's work moves within half a minute, and a renewal every ten seconds is nothing. */
+const val DEFAULT_CLUSTER_LEASE_SECONDS = 30L
+
 /** One is the go that died: an agent step a restart cut short is then failed, as any other step is. */
 const val MIN_RESTART_ATTEMPTS = 1
 
@@ -1778,6 +1824,15 @@ class RepeatWindowOutOfRangeException(val seconds: Int) : RuntimeException(
 class StepHeartbeatOutOfRangeException(val seconds: Long) : RuntimeException(
     "$seconds is not a step heartbeat. " +
         "Choose between $MIN_STEP_HEARTBEAT_SECONDS and $MAX_STEP_HEARTBEAT_SECONDS seconds; 0 turns it off.",
+), Refusal {
+
+    override val arguments get() = mapOf("seconds" to seconds)
+}
+
+/** Issue #597. */
+class ClusterLeaseOutOfRangeException(val seconds: Long) : RuntimeException(
+    "$seconds is not a cluster lease. " +
+        "Choose between $MIN_CLUSTER_LEASE_SECONDS and $MAX_CLUSTER_LEASE_SECONDS seconds.",
 ), Refusal {
 
     override val arguments get() = mapOf("seconds" to seconds)

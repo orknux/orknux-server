@@ -478,6 +478,12 @@
                         <orknux.security.secret-key>b3JrbnV4LXRlc3Qta2V5LTMyLWJ5dGVzLWV4YWN0bHk=</orknux.security.secret-key>
                         <!-- No websockets out to Slack from a test run. -->
                         <orknux.slack.enabled>false</orknux.slack.enabled>
+                        <!-- No cluster lease. One JVM here holds several contexts
+                             on one database, and they are not replicas of each
+                             other: on the inline engine the second would wait a
+                             lease and refuse to start. ClusterLeaderTest builds
+                             leaders of its own. -->
+                        <orknux.cluster.lease-enabled>false</orknux.cluster.lease-enabled>
                         <!-- No sweep calls a provider while a suite is running. -->
                         <orknux.model.check.enabled>false</orknux.model.check.enabled>
                         <orknux.connection.check.enabled>false</orknux.connection.check.enabled>

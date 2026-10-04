@@ -65,6 +65,8 @@ class InstallationSettingsAPI(
         workflowStepHeartbeatSecondsConfigured = settings.workflowStepHeartbeatSecondsConfigured().toInt(),
         workflowRestartAttempts = settings.workflowRestartAttempts(),
         workflowRestartAttemptsConfigured = settings.workflowRestartAttemptsConfigured(),
+        clusterLeaseSeconds = settings.clusterLeaseSeconds().toInt(),
+        clusterLeaseSecondsConfigured = settings.clusterLeaseSecondsConfigured().toInt(),
         maxRepeatedToolCalls = settings.maxRepeatedToolCalls(),
         maxRepeatedToolCallsConfigured = settings.maxRepeatedToolCallsConfigured(),
         repeatedToolCallsWindowSeconds = settings.repeatedToolCallsWindowSeconds(),
@@ -537,6 +539,23 @@ class InstallationSettingsAPI(
         return installationSettings()
     }
 
+    /**
+     * How long the lease that decides which replica runs the timers lasts.
+     * Issue #597. Every replica reads it at its next renewal.
+     */
+    @MutationMapping
+    fun setClusterLeaseSeconds(@Argument seconds: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setClusterLeaseSeconds(seconds.toLong(), currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "Cluster lease set to ${seconds}s",
+        )
+        return installationSettings()
+    }
+
     /** How many goes an agent step cut short by restarts gets. Issue #601. */
     @MutationMapping
     fun setWorkflowRestartAttempts(@Argument count: Int): InstallationSettingsView {
@@ -869,6 +888,9 @@ data class InstallationSettingsView(
     /** How many goes an agent step cut short by restarts gets, on the inline engine. Issue #601. */
     val workflowRestartAttempts: Int,
     val workflowRestartAttemptsConfigured: Int,
+    /** How long the lease that decides which replica runs the timers lasts. Issue #597. */
+    val clusterLeaseSeconds: Int,
+    val clusterLeaseSecondsConfigured: Int,
     /**
      * The loop guard. Issue #516: how many identical calls, how close together
      * they have to be to count, and how often a turn is told before it ends.

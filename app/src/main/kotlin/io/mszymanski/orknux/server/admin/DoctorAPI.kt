@@ -40,6 +40,9 @@ class DoctorAPI(
     private val jdbc: JdbcTemplate,
     private val attachments: AttachmentProperties,
     private val secrets: SecretColumns,
+    /** Which replica runs what must run once. Issue #597. */
+    private val leader: io.mszymanski.orknux.connector.cluster.ClusterLeader =
+        io.mszymanski.orknux.connector.cluster.ClusterLeader.alone(),
 ) {
 
     @QueryMapping
@@ -52,6 +55,7 @@ class DoctorAPI(
             "Attachments" to ::attachmentsLocation,
             "Schema" to ::schema,
             "Allowed origins" to ::origins,
+            "Replicas" to ::replicas,
         ).map { (name, check) -> attempt(name, check) }
     }
 
@@ -387,6 +391,36 @@ class DoctorAPI(
             }
         } catch (failure: Exception) {
             fail("Attachments", "$path could not be created: ${failure.message}")
+        }
+    }
+
+    /**
+     * Which server runs what must run once - the sweeps, the checks, the Slack
+     * sockets - and whether it is this one. Issue #597.
+     *
+     * Asked on whichever replica answered, so the sentence says which that was:
+     * somebody reading it behind a load balancer would otherwise not know.
+     */
+    private fun replicas(): DoctorCheckView {
+        if (!leader.isEnabled()) {
+            return ok("Replicas", "No cluster lease: this server takes itself to be the only one on its database.")
+        }
+        val holder = leader.holder()
+        return when {
+            leader.leads() -> ok(
+                "Replicas",
+                "This server (${leader.instance}) holds the cluster lease, so it runs the sweeps, the checks and the Slack sockets.",
+            )
+            holder != null -> ok(
+                "Replicas",
+                "$holder holds the cluster lease and runs the sweeps, the checks and the Slack sockets; this server " +
+                    "(${leader.instance}) takes over if it stops.",
+            )
+            else -> warn(
+                "Replicas",
+                "Nobody holds the cluster lease right now, so no server is running the sweeps or the Slack sockets. " +
+                    "It is taken again at the next renewal; if this stays, the database is refusing the lease.",
+            )
         }
     }
 

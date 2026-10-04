@@ -1230,6 +1230,12 @@ type Mutation {
     """
     setWorkflowStepHeartbeatSeconds(seconds: Int!): InstallationSettings!
     """
+    How long the lease that decides which server runs the timers and the Slack
+    sockets lasts, in seconds. Issue #597. Administrators only; every server reads
+    it at its next renewal.
+    """
+    setClusterLeaseSeconds(seconds: Int!): InstallationSettings!
+    """
     How many goes in all an agent step gets on the inline engine when restarts
     keep cutting it short. Issue #601. Administrators only.
     """
@@ -6656,6 +6662,15 @@ type InstallationSettings {
     workflowStepHeartbeatSeconds: Int!
     "What the file says: ORKNUX_TEMPORAL_STEP_HEARTBEAT_SECONDS, thirty unless set."
     workflowStepHeartbeatSecondsConfigured: Int!
+    """
+    How long the cluster lease lasts, in seconds. Issue #597.
+
+    One server holds it and runs what must run once; when that server dies,
+    another takes over within this long.
+    """
+    clusterLeaseSeconds: Int!
+    "What the file says: ORKNUX_CLUSTER_LEASE_SECONDS, thirty unless set."
+    clusterLeaseSecondsConfigured: Int!
     """
     Inline engine: how many goes in all an agent step gets when restarts keep
     cutting it short, the ones that died included. Issue #601.
