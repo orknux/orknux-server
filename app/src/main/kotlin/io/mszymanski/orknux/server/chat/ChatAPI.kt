@@ -198,12 +198,12 @@ class ChatAPI(
         // Registered as being answered, like the streaming door's turn, so
         // something arriving meanwhile is read by this turn rather than waking
         // a second one beside it. See ChatWake.
-        val hangup = io.mszymanski.orknux.connector.model.Hangup()
-        generations.register(id, hangup)
+        val generation = ChatGeneration()
+        generations.register(id, generation)
         val said = try {
-            chats.ask(start, shed = chatTools.shed(session), hangup = hangup)
+            chats.ask(start, shed = chatTools.shed(session), hangup = generation.hangup)
         } finally {
-            generations.release(id, hangup)
+            generations.release(id, generation)
         }
         val answer = when (said) {
             is ChatCompletion.Failed -> throw ChatModelUnusableException(said.reason)

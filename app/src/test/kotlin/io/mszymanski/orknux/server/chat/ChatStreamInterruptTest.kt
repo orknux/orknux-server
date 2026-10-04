@@ -236,6 +236,147 @@ class ChatStreamInterruptTest(
     }
 
     /**
+     * A text turn whose reader leaves *while the model is thinking* is finished
+     * and kept, and a page that comes back while it is still being written
+     * picks it up from its first frame. Issue #201.
+     *
+     * The reader here is a real one for a while - it reads the stream until the
+     * model's first piece of thinking arrives - and then goes, which is somebody
+     * navigating away or closing the tab mid-thinking. A second reader then
+     * follows the chat, as the page that comes back does, and must get the
+     * thinking it missed, the answer and the `done` frame, while the provider
+     * runs to the end unhung-up and the history ends on the answer.
+     */
+    @Test
+    fun `a text turn left mid-thinking is finished, kept and can be followed from the start`() {
+        val chatId = chatWithAgent(model(serve(thinking = true)))
+        val asked = Leaving()
+        val body = streaming.stream(chatId, ChatStreamRequest("Think about it", voice = false), asked)
+        val pool = Executors.newCachedThreadPool()
+        val relayed = pool.submit { runCatching { body.writeTo(asked.outputStream) } }
+
+        // Leave on the first piece of thinking: the model is mid-thought.
+        assertThat(asked.thinkingSeen.await(10, TimeUnit.SECONDS)).isTrue()
+        asked.leave()
+        relayed.get(10, TimeUnit.SECONDS)
+        assertThat(written.get()).isLessThan(FRAMES)
+
+        // Back on the page while it is still being written.
+        val back = MockHttpServletResponse()
+        val following = streaming.follow(chatId, back)
+        pool.submit { following.writeTo(back.outputStream) }.get(20, TimeUnit.SECONDS)
+        pool.shutdownNow()
+
+        assertThat(done.await(10, TimeUnit.SECONDS)).isTrue()
+        assertThat(torn.get()).isFalse()
+        assertThat(written.get()).isEqualTo(FRAMES)
+
+        val frames = back.contentAsString
+        assertThat(frames).startsWith("event: following")
+        // From the first frame, not from where the reader joined.
+        assertThat(frames).contains("""event: thinking${"\n"}data: {"text":"hmm "}""")
+        assertThat(frames.split("event: thinking").size - 1).isEqualTo(FRAMES / 2)
+        assertThat(frames).contains("event: chunk").contains("event: done")
+
+        graphQlTester.document("{ chatMessages(id: $chatId) { role content } }")
+            .execute()
+            .path("chatMessages[*].role").entityList(String::class.java)
+            .containsExactly("user", "assistant")
+    }
+
+    /**
+     * Following a chat with nothing being written says so and ends, rather than
+     * holding the page open on an answer that will never come.
+     */
+    @Test
+    fun `following an idle chat says idle and ends`() {
+        // Nothing is asked of it; it is only here for the clean-up to stop.
+        server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0).apply { start() }
+        val chatId = chatWithAgent(model("http://stub.invalid"))
+        val response = MockHttpServletResponse()
+
+        streaming.follow(chatId, response).writeTo(response.outputStream)
+
+        assertThat(response.contentAsString).isEqualTo("event: idle\ndata: {}\n\n")
+    }
+
+    /**
+     * And Stop still stops a turn that is only being followed: the follower's
+     * stream ends, the provider is hung up on and nothing is kept.
+     */
+    @Test
+    fun `stopping a followed turn stops it and keeps nothing`() {
+        val chatId = chatWithAgent(model(serve(thinking = true)))
+        val asked = Leaving()
+        val body = streaming.stream(chatId, ChatStreamRequest("Think about it", voice = false), asked)
+        val pool = Executors.newCachedThreadPool()
+        val relayed = pool.submit { runCatching { body.writeTo(asked.outputStream) } }
+        assertThat(asked.thinkingSeen.await(10, TimeUnit.SECONDS)).isTrue()
+        asked.leave()
+        relayed.get(10, TimeUnit.SECONDS)
+
+        val back = MockHttpServletResponse()
+        // Asked on this thread, which is the one signed in; read on another.
+        val follow = streaming.follow(chatId, back)
+        val following = pool.submit { follow.writeTo(back.outputStream) }
+        Thread.sleep(INTERRUPT_AFTER_MILLIS)
+        streaming.interrupt(chatId)
+        following.get(10, TimeUnit.SECONDS)
+        pool.shutdownNow()
+
+        assertThat(done.await(10, TimeUnit.SECONDS)).isTrue()
+        assertThat(torn.get()).isTrue()
+        assertThat(back.contentAsString).doesNotContain("event: done")
+        graphQlTester.document("{ chatMessages(id: $chatId) { role } }")
+            .execute()
+            .path("chatMessages[*].role").entityList(String::class.java)
+            .containsExactly("user")
+    }
+
+    /**
+     * A response read by somebody until [leave], and gone after it.
+     *
+     * Writes land in the buffer while the reader is there, the way a browser
+     * reading the stream takes them; after [leave] every write and flush fails,
+     * which is what a container does once the connection has closed under it.
+     * [thinkingSeen] opens on the first thinking frame, so the test can leave at
+     * exactly the moment the issue is about.
+     */
+    private class Leaving : MockHttpServletResponse() {
+        val thinkingSeen = CountDownLatch(1)
+
+        @Volatile
+        private var gone = false
+
+        private val seen = StringBuilder()
+
+        private val stream = object : ServletOutputStream() {
+            override fun write(b: Int) = write(byteArrayOf(b.toByte()), 0, 1)
+
+            override fun write(b: ByteArray, off: Int, len: Int) {
+                if (gone) throw IOException("Broken pipe")
+                synchronized(seen) {
+                    seen.append(String(b, off, len, StandardCharsets.UTF_8))
+                    if (seen.contains("event: thinking")) thinkingSeen.countDown()
+                }
+            }
+
+            override fun isReady() = true
+            override fun setWriteListener(listener: WriteListener?) = Unit
+        }
+
+        fun leave() {
+            gone = true
+        }
+
+        override fun getOutputStream(): ServletOutputStream = stream
+
+        override fun flushBuffer() {
+            if (gone) throw IOException("Broken pipe")
+        }
+    }
+
+    /**
      * The streaming door, run with a reader that has walked away already.
      *
      * `voice` is what a lost reader means: a voice turn is stopped by it (#299),
@@ -282,7 +423,7 @@ class ChatStreamInterruptTest(
      * hundred frames in a millisecond is over before anything could stop it,
      * which would make this pass for the wrong reason.
      */
-    private fun serve(): String {
+    private fun serve(thinking: Boolean = false): String {
         server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
         server.executor = Executors.newCachedThreadPool()
         server.createContext("/chat/completions") { exchange ->
@@ -293,8 +434,12 @@ class ChatStreamInterruptTest(
             exchange.sendResponseHeaders(200, 0)
             try {
                 exchange.responseBody.use { out ->
-                    repeat(FRAMES) {
-                        out.write("""data: {"choices":[{"delta":{"content":"word "}}]}$BLANK""".toByteArray())
+                    repeat(FRAMES) { at ->
+                        // The first half thought rather than said, where it is
+                        // a model that thinks before it answers.
+                        val delta = if (thinking && at < FRAMES / 2) "reasoning_content" else "content"
+                        val piece = if (delta == "content") "word " else "hmm "
+                        out.write("""data: {"choices":[{"delta":{"$delta":"$piece"}}]}$BLANK""".toByteArray())
                         out.flush()
                         written.incrementAndGet()
                         Thread.sleep(FRAME_MILLIS)

@@ -1,7 +1,6 @@
 package io.mszymanski.orknux.server.chat
 
 import io.mszymanski.orknux.connector.model.ChatCompletion
-import io.mszymanski.orknux.connector.model.Hangup
 import io.mszymanski.orknux.server.llm.SessionEventDue
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
@@ -60,18 +59,24 @@ class ChatWake(
     private fun answer(id: Long) {
         val start = service.beginWake(id) ?: return
         val chat = chats.findById(id).orElse(null) ?: return
-        val hangup = Hangup()
-        generations.register(id, hangup)
+        // Followable like a turn somebody asked for, so a page open on this chat
+        // - or opened on it while this is being written - sees it arrive (#201).
+        val generation = ChatGeneration()
+        val watch = generation.watch()
+        generations.register(id, generation)
         try {
-            when (val said = service.ask(start, shed = chatTools.shed(chat), hangup = hangup)) {
-                is ChatCompletion.Answered -> service.finishSend(
-                    id, said.content, said.reasoning, said.reasoningMillis, said.inputTokens, said.outputTokens,
-                )
+            when (val said = service.ask(start, watch, chatTools.shed(chat, watch), generation.hangup)) {
+                is ChatCompletion.Answered -> {
+                    service.finishSend(
+                        id, said.content, said.reasoning, said.reasoningMillis, said.inputTokens, said.outputTokens,
+                    )
+                    generation.post("chunk", mapOf("text" to said.content))
+                }
                 is ChatCompletion.Failed -> log.warn("Chat {} woke and could not answer: {}", id, said.reason)
                 is ChatCompletion.CalledTools -> Unit
             }
         } finally {
-            generations.release(id, hangup)
+            generations.release(id, generation)
         }
     }
 }

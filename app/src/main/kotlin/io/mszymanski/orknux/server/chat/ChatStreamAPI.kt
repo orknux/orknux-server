@@ -3,7 +3,6 @@ package io.mszymanski.orknux.server.chat
 import com.fasterxml.jackson.annotation.JsonCreator
 import com.fasterxml.jackson.annotation.JsonProperty
 import io.mszymanski.orknux.connector.model.ChatCompletion
-import io.mszymanski.orknux.connector.model.Hangup
 import io.mszymanski.orknux.connector.model.ModelChatClient
 import io.mszymanski.orknux.connector.model.ModelService
 import io.mszymanski.orknux.server.attachment.ChatAttachments
@@ -14,6 +13,7 @@ import jakarta.servlet.http.HttpServletResponse
 import org.slf4j.LoggerFactory
 import org.springframework.http.MediaType
 import org.springframework.security.core.context.SecurityContextHolder
+import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
@@ -258,26 +258,24 @@ class ChatStreamAPI(
              * that was lost. So the work now runs where the container cannot
              * reach it, and what the interrupt kills is only the relay.
              *
-             * Frames cross on a queue. The worker never touches the response -
-             * a thread writing into a response the container has completed and
-             * recycled could land bytes in somebody else's request, which is a
-             * worse bug than the one being fixed - and the queue is unbounded
-             * because what accumulates after the reader leaves is one answer's
-             * worth of frames, which is also what the memory was holding anyway.
+             * Frames cross through the [ChatGeneration]. The worker never
+             * touches the response - a thread writing into a response the
+             * container has completed and recycled could land bytes in
+             * somebody else's request, which is a worse bug than the one being
+             * fixed - and the generation keeps every frame, because what
+             * accumulates after the reader leaves is one answer's worth, and
+             * because a page that comes back while the answer is still being
+             * written reads it from there, from the first frame (#201).
+             *
+             * Its [io.mszymanski.orknux.connector.model.Hangup] is what the
+             * model call is stopped by on purpose: the Stop button (through
+             * [ChatGenerations]) and a voice turn's lost reader both reach for
+             * it.
              */
-            val frames = java.util.concurrent.LinkedBlockingQueue<Frame>()
-            fun send(event: String, payload: Any) {
-                frames.offer(Frame(event, payload))
-            }
-
-            /*
-             * The handle the model call is stopped by on purpose: the Stop
-             * button (through [ChatGenerations]) and a voice turn's lost
-             * reader both reach for it. Held by the worker, hung up from
-             * wherever.
-             */
-            val hangup = Hangup()
-            generations.register(id, hangup)
+            val generation = ChatGeneration()
+            val hangup = generation.hangup
+            fun send(event: String, payload: Any) = generation.post(event, payload)
+            generations.register(id, generation)
 
             val worker = Thread.ofPlatform().name("chat-$id-answer").daemon().start {
                 // The person who asked, carried onto this thread so the turn's
@@ -336,7 +334,7 @@ class ChatStreamAPI(
                          * something to announce - a picture it wrote into the
                          * thread, which the open chat learns about no other way.
                          */
-                        val watch = watching { event, payload -> send(event, payload) }
+                        val watch = generation.watch()
                         chats.ask(start, watch, chatTools.shed(session, watch), hangup)
                             .also { whole ->
                                 if (whole is ChatCompletion.Answered) send("chunk", mapOf("text" to whole.content))
@@ -418,84 +416,122 @@ class ChatStreamAPI(
                     log.warn("Chat {} could not finish its answer", id, failure)
                     if (!kept) runCatching(giveUp).onFailure { log.warn("Chat {} could not be put back", id, it) }
                 } finally {
-                    generations.release(id, hangup)
-                    frames.offer(OVER)
+                    generations.release(id, generation)
                     SecurityContextHolder.clearContext()
                 }
             }
 
-            /*
-             * The relay: frames to the browser until the answer is over or the
-             * reader is gone.
-             *
-             * [ReaderWatch] pings between frames, because between the question
-             * and the first piece of the answer there is nothing else to write
-             * and the container reports nothing on its own - see issue #299.
-             * A failed write, a failed ping and the container's interrupt all
-             * mean the same person left; what that means depends on the turn.
-             * A voice turn is spoken and gone, so leaving hangs the model up.
-             * A text turn is a record: the worker goes on composing, unreached
-             * by any of this, and writes the history for whoever comes back.
-             */
-            readers.whileReading(stream, gone = { if (interruptOnLeave) hangup.hangUp() }) {
-                while (true) {
-                    val frame = try {
-                        frames.take()
-                    } catch (left: InterruptedException) {
-                        if (interruptOnLeave) hangup.hangUp()
-                        break
-                    }
-                    if (frame === OVER) break
-                    val wrote = runCatching { stream.send(frame.event, frame.payload) }
-                    if (wrote.isFailure) {
-                        if (interruptOnLeave) hangup.hangUp()
-                        break
-                    }
-                }
-            }
+            // The relay, which reads this answer exactly as a page that comes
+            // back to it does. Only what leaving means differs: see [relay].
+            relay(stream, generation) { if (interruptOnLeave) hangup.hangUp() }
             // Left holding nothing: the response is the container's again the
             // moment this returns, and the worker was built to never touch it.
             if (!worker.isAlive) log.debug("Chat {} answered before its reader left", id)
         }
     }
 
-    /** One server-sent frame, crossing from the answering thread to the relay. */
-    private class Frame(val event: String, val payload: Any)
+    /**
+     * Picks up the answer being written on this chat, for a page that has come
+     * back to it.
+     *
+     * Issue #201. Somebody sent a message, left while the agent was thinking,
+     * and came back: the answer was being written into the history all along
+     * (#335), but the page that came back read the history once, found only the
+     * question, and had no way to hear about the answer still being composed -
+     * so from where they sat it was lost. This is that way. It reads the
+     * [ChatGeneration] from its first frame, so the page draws the thinking and
+     * the lookups it missed and then carries on live, in the same vocabulary as
+     * [stream] - the page reads both with one reader.
+     *
+     * The first frame says which it is: `following` where an answer is being
+     * written, `idle` where none is - and then the stream ends, because there is
+     * nothing to wait for and the history the page already read is the whole of
+     * the chat. Leaving this stream never stops the answer, whatever kind of
+     * turn it is: following is looking, and Stop is [interrupt].
+     */
+    @GetMapping("/api/chats/{id}/follow", produces = [MediaType.TEXT_EVENT_STREAM_VALUE])
+    fun follow(@PathVariable id: Long, response: HttpServletResponse): StreamingResponseBody {
+        if (!settings.chatEnabled()) throw ChatDisabledException()
+        val session = chats.session(id) ?: throw ChatSessionNotFoundException(id)
+        requireOwn(session)
+        response.setHeader("Cache-Control", "no-cache, no-transform")
+        response.setHeader("X-Accel-Buffering", "no")
+
+        val generation = generations.current(id)
+        return StreamingResponseBody { _ ->
+            val stream = ServerSentEvents(response, mapper)
+            if (generation == null) {
+                runCatching { stream.send("idle", mapOf<String, Any>()) }
+                return@StreamingResponseBody
+            }
+            if (runCatching { stream.send("following", mapOf<String, Any>()) }.isFailure) return@StreamingResponseBody
+            relay(stream, generation) {}
+        }
+    }
 
     /**
-     * The agent's round, turned into frames for whoever is reading.
+     * Frames to one reader until the answer is over or the reader is gone.
      *
-     * A thin adapter and deliberately nothing more: [RoundWatch] is told these
-     * things beside the [io.mszymanski.orknux.server.llm.LlmSessionRecorder]
-     * calls that keep them, so nothing here decides what is recorded and
-     * nothing here can lose a record by failing. What it does decide is the
-     * vocabulary, which is the chat's own — a task's stream says `step` about
-     * the same facts, because a task page is following a durable log and this
-     * is following one answer being composed.
+     * [ReaderWatch] pings between frames, because between the question and the
+     * first piece of the answer there is nothing else to write and the container
+     * reports nothing on its own - see issue #299. A failed write, a failed ping
+     * and the container's interrupt all mean the same person left, and [left]
+     * says what that means for the turn: a voice turn is spoken and gone, so its
+     * asker leaving hangs the model up; a text turn is a record, and the worker
+     * goes on composing, unreached by any of this, for whoever comes back.
      *
-     * `call` carries `at`, which is where the call came in the round. `called`
-     * carries the same `at` and is how the browser finds the line to fill in.
-     * See [RoundWatch] for why it is a counter rather than the provider's own
-     * call id or the session line's.
+     * A reader is only a position in the [ChatGeneration], so any number of them
+     * can read one answer and none of them takes a frame from another.
      */
-    private fun watching(send: (String, Any) -> Unit) = object : RoundWatch {
-        override fun thinking(text: String) = send("thinking", mapOf("text" to text))
-
-        override fun drew(markdown: String) = send("drew", mapOf("markdown" to markdown))
-
-        override fun called(at: Int, tool: String, arguments: String) =
-            send("call", mapOf("at" to at, "tool" to tool, "arguments" to arguments))
-
-        override fun returned(at: Int, result: String, failed: Boolean) =
-            send("called", mapOf("at" to at, "result" to result, "failed" to failed))
+    private fun relay(stream: ServerSentEvents, generation: ChatGeneration, left: () -> Unit) {
+        readers.whileReading(stream, gone = left) {
+            var at = 0
+            while (true) {
+                val frame = try {
+                    generation.frameAt(at++)
+                } catch (_: InterruptedException) {
+                    left()
+                    break
+                } ?: break
+                if (runCatching { stream.send(frame.event, frame.payload) }.isFailure) {
+                    left()
+                    break
+                }
+            }
+        }
     }
 
     private fun requireOwn(session: ChatSession) = ownership.requireOwn(session)
 
     private companion object {
         val log = LoggerFactory.getLogger(ChatStreamAPI::class.java)
-
-        /** The frame after the last one; its identity is the whole signal. */
-        val OVER = Frame("", Unit)
     }
+}
+
+/**
+ * The agent's round, turned into frames for whoever is reading.
+ *
+ * A thin adapter and deliberately nothing more: [RoundWatch] is told these
+ * things beside the [io.mszymanski.orknux.server.llm.LlmSessionRecorder]
+ * calls that keep them, so nothing here decides what is recorded and
+ * nothing here can lose a record by failing. What it does decide is the
+ * vocabulary, which is the chat's own — a task's stream says `step` about
+ * the same facts, because a task page is following a durable log and this
+ * is following one answer being composed.
+ *
+ * `call` carries `at`, which is where the call came in the round. `called`
+ * carries the same `at` and is how the browser finds the line to fill in.
+ * See [RoundWatch] for why it is a counter rather than the provider's own
+ * call id or the session line's.
+ */
+internal fun ChatGeneration.watch(): RoundWatch = object : RoundWatch {
+    override fun thinking(text: String) = post("thinking", mapOf("text" to text))
+
+    override fun drew(markdown: String) = post("drew", mapOf("markdown" to markdown))
+
+    override fun called(at: Int, tool: String, arguments: String) =
+        post("call", mapOf("at" to at, "tool" to tool, "arguments" to arguments))
+
+    override fun returned(at: Int, result: String, failed: Boolean) =
+        post("called", mapOf("at" to at, "result" to result, "failed" to failed))
 }

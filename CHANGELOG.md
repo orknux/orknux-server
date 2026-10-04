@@ -30,6 +30,7 @@ have failed.
 ### 🐛 Fixed
 
 - Copy buttons copied nothing on an installation reached over plain http at a LAN address, where the browser offers no clipboard API; they fall back to the older copy command and say Copied, or that it could not copy.
+- A chat left while the agent is still thinking and opened again before it has finished now picks the answer up: the thinking and lookups so far are drawn, the rest arrives live, and Stop still stops it. It used to show the question and nothing else until the page was reloaded after the answer was done.
 
 ## 0.9.9.11
 
