@@ -36,9 +36,10 @@ import java.util.function.Supplier
  *
  * **Why the clients are cached.** An [OpenAIClient] carries an OkHttp connection
  * pool and its dispatcher threads, so one per request would open a new pool for
- * every message. The key is everything that decides who is being called and as
- * whom, so pointing a provider somewhere else - or rotating its secret - stops
- * using the old client rather than going on with the old connections.
+ * every message. One per provider and surface, built for everything that decides
+ * who is being called and as whom, so pointing a provider somewhere else - or
+ * rotating its secret - builds a new client and closes the old one rather than
+ * going on with the old connections.
  *
  * **Why the proxy is passed in explicitly.** [ProxyRouter]'s guarantee is that
  * a client it did not build is a client the rules do not reach, and this is one
@@ -50,7 +51,19 @@ import java.util.function.Supplier
 @Component
 class ModelClients(private val proxies: ProxyRouter) {
 
-    private val cache = ConcurrentHashMap<ClientKey, OpenAIClient>()
+    /**
+     * The client each provider is called through, by provider and surface.
+     *
+     * Issue #616: keyed only by what the client was built for, a provider
+     * whose address or secret changed got a new entry and its old client stayed
+     * beside it - pool, dispatcher threads and all - for the life of the
+     * process. Keyed by the provider, a change has an old client to replace,
+     * and the one replaced is closed. It also stops two providers sharing a
+     * client because they share an address: a plain API key's client was keyed
+     * as "bearer", so a second workspace at the same base was called with the
+     * first one's key.
+     */
+    private val cache = ConcurrentHashMap<Slot, Held>()
 
     /**
      * The client for this provider, built once.
@@ -61,10 +74,7 @@ class ModelClients(private val proxies: ProxyRouter) {
      * than exceptions to throw here.
      */
     fun clientFor(provider: ModelProvider, credential: Credential): OpenAIClient {
-        val base = provider.openAiBase()
-        return cache.computeIfAbsent(ClientKey(base, provider.type, identity(credential))) {
-            build(base, provider, credential)
-        }
+        return held(provider.openAiBase(), provider, credential)
     }
 
     /**
@@ -81,10 +91,38 @@ class ModelClients(private val proxies: ProxyRouter) {
      * layout and builds the path itself. See [responsesBase].
      */
     fun responsesClientFor(provider: ModelProvider, credential: Credential): OpenAIClient {
-        val base = responsesBase(provider)
-        return cache.computeIfAbsent(ClientKey(base, provider.type, identity(credential))) {
-            build(base, provider, credential)
+        return held(responsesBase(provider), provider, credential)
+    }
+
+    /**
+     * The provider's client for this base: the one held where it was built for
+     * the same thing, otherwise a new one, closing whatever it replaces.
+     *
+     * Closed outside the map's lock, since closing waits on nothing here but is
+     * still the SDK's code. A call already under way on the old client finishes
+     * - closing stops its dispatcher taking new work and drops idle connections -
+     * and the next call asks for the client again, as every caller does.
+     */
+    private fun held(base: String, provider: ModelProvider, credential: Credential): OpenAIClient {
+        val key = ClientKey(base, provider.type, identity(credential))
+        // A provider not saved yet - one being tried before it is - has no id to
+        // keep a slot by, so what it was built for is the slot.
+        val slot = Slot(provider.id, base, if (provider.id == null) key else null)
+        var replaced: OpenAIClient? = null
+        val held = cache.compute(slot) { _, was ->
+            if (was?.key == key) {
+                was
+            } else {
+                replaced = was?.client
+                Held(key, build(base, provider, credential))
+            }
         }
+        replaced?.let(::closeQuietly)
+        return requireNotNull(held).client
+    }
+
+    private fun closeQuietly(client: OpenAIClient) {
+        runCatching { client.close() }.onFailure { log.debug("A replaced model client did not close cleanly", it) }
     }
 
     /**
@@ -116,8 +154,17 @@ class ModelClients(private val proxies: ProxyRouter) {
         call()
     }
 
-    /** Forget every built client, so the next call reads the rules again. */
-    fun reload() = cache.clear()
+    /** Forget every built client, so the next call reads the rules again - closing each one forgotten. */
+    fun reload() {
+        cache.keys.toList().forEach { slot -> cache.remove(slot)?.let { closeQuietly(it.client) } }
+    }
+
+    /** And every one of them when the application stops. */
+    @jakarta.annotation.PreDestroy
+    fun close() = reload()
+
+    /** How many clients are held, for the test that a replaced one is not. Issue #616. */
+    internal fun held(): Int = cache.size
 
     private fun build(base: String, provider: ModelProvider, credential: Credential): OpenAIClient {
         val builder = OpenAIOkHttpClient.builder()
@@ -179,12 +226,19 @@ class ModelClients(private val proxies: ProxyRouter) {
      * of this.
      */
     private fun identity(credential: Credential): String = when (credential) {
-        is AzureApiKeyCredential -> "azure-key:${credential.apiKey()}"
-        is BearerTokenCredential -> "bearer"
+        is AzureApiKeyCredential -> "azure-key:${digest(credential.apiKey())}"
+        // A key made by [apiKey] is a fixed token, so a different one is a different caller; a
+        // supplier's token is meant to change, and is never asked for here because asking fetches one.
+        is BearerTokenCredential -> keys[credential] ?: "bearer"
         else -> credential.javaClass.name
     }
 
     private data class ClientKey(val base: String, val type: ProviderType, val credential: String)
+
+    /** Where a client is kept: a saved provider's surface, or for one not saved, what it was built for. */
+    private data class Slot(val provider: Long?, val base: String, val unsaved: ClientKey?)
+
+    private class Held(val key: ClientKey, val client: OpenAIClient)
 
     companion object {
         private val log = LoggerFactory.getLogger(ModelClients::class.java)
@@ -223,7 +277,24 @@ class ModelClients(private val proxies: ProxyRouter) {
         /** Azure's own key header, which is not `Authorization`. */
         fun azureKey(key: String): Credential = AzureApiKeyCredential.create(key)
 
-        /** Every other provider: a key sent as a bearer token. */
-        fun apiKey(key: String): Credential = BearerTokenCredential.create(key)
+        /**
+         * Every other provider: a key sent as a bearer token.
+         *
+         * Remembered by a digest beside the credential, because the SDK's bearer
+         * credential cannot say whether it holds a fixed key or a supplier, and
+         * only a fixed key may be read to tell two callers apart. Weakly, so the
+         * credential going is the entry going.
+         */
+        fun apiKey(key: String): Credential =
+            BearerTokenCredential.create(key).also { keys[it] = "key:${digest(key)}" }
+
+        private val keys: MutableMap<Credential, String> =
+            java.util.Collections.synchronizedMap(java.util.WeakHashMap())
+
+        /** A key's fingerprint, so the key itself is not kept a second time in a map key. */
+        private fun digest(key: String): String =
+            java.util.HexFormat.of().formatHex(
+                java.security.MessageDigest.getInstance("SHA-256").digest(key.toByteArray(Charsets.UTF_8)),
+            )
     }
 }
