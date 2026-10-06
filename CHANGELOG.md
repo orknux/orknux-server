@@ -15,6 +15,22 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- Admin → Settings → Bulkheads: walls that keep one agent turn from taking the server down - how many turns run at once and how long one more waits, a limit on the heap left after a collection beyond which a turn stops with a sentence saying why, and how much one turn may hold of tool results. Each can be switched off, which restores exactly what happened before.
+- `ORKNUX_DB_POOL_SIZE`, `ORKNUX_DB_POOL_WAIT_MS` and `ORKNUX_DB_POOL_LEAK_MS` size the database connection pool, and can log whoever holds a connection too long.
+
+### 🔧 Changed
+
+- The bulkheads are on by default: four agent turns at once, a turn stopped above 85% of the heap after a collection, 48 MB of tool results per turn. Raise or switch them off in Admin → Settings → Bulkheads if a busy installation needs more.
+- The images exit when the JVM runs out of heap, so the container restarts instead of limping on half-broken. `ORKNUX_EXIT_ON_OOM=false` keeps the old behaviour, for taking a heap dump.
+
+### 🐛 Fixed
+
+- Resolving an agent's skills - on every briefing and every `skill_load` - read every installed plugin whole, source and icons, to look at the skills they declare. An agent with several skills set to Always did that over and over in one turn. It reads only the declarations now, and only when a plugin has changed.
+
 ## 0.9.9.15
 
 ### 🐛 Fixed
