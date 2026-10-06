@@ -322,7 +322,46 @@ interface PluginRepository : JpaRepository<Plugin, Long> {
         """,
     )
     fun enabledToolDeclarations(): List<PluginToolDeclarations>
+
+    /**
+     * Which plugins there are and which bundle each holds, and nothing else -
+     * enough to tell whether anything a plugin declares can have changed since
+     * this was last asked. A re-upload changes the hash; switching one on or
+     * off changes `enabled`. Issue #616.
+     */
+    @Query(
+        """
+        select new io.mszymanski.orknux.server.plugin.PluginFingerprint(p.id, p.sha256, p.enabled)
+        from Plugin p order by p.id
+        """,
+    )
+    fun fingerprints(): List<PluginFingerprint>
+
+    /**
+     * Every switched-on plugin's skills as it declared them, without the
+     * plugin: skills are resolved for every briefing and every `skill_load`,
+     * and answering that with `findAllByOrderByNameAsc()` read every bundle
+     * and both icons of every plugin each time. Issue #616.
+     */
+    @Query(
+        """
+        select new io.mszymanski.orknux.server.plugin.PluginSkillDeclarations(p.id, p.key, p.name, p.declaredSkills)
+        from Plugin p where p.enabled = true order by p.name
+        """,
+    )
+    fun enabledSkillDeclarations(): List<PluginSkillDeclarations>
 }
+
+/** A plugin's identity and bundle hash. See [PluginRepository.fingerprints]. */
+data class PluginFingerprint(val id: Long, val sha256: String, val enabled: Boolean)
+
+/** A switched-on plugin's skills as it declared them. See [PluginRepository.enabledSkillDeclarations]. */
+data class PluginSkillDeclarations(
+    val id: Long,
+    val key: String,
+    val name: String,
+    val declaredSkills: String,
+)
 
 /** A switched-on plugin's tools as it declared them, and enough of the plugin to name them. See [PluginRepository.enabledToolDeclarations]. */
 data class PluginToolDeclarations(

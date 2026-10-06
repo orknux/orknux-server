@@ -47,14 +47,31 @@ class PluginSkills(
 ) {
 
     /**
+     * The plugins' catalogs as last read, and the fingerprints they were read
+     * under. Skills are resolved on every briefing and every `skill_load`, so an
+     * agent with several skills set to Always resolved them over and over in
+     * one turn - and each time used to read every plugin whole, bundle and
+     * icons, and parse every skill afresh. A busy turn churned enough of it to
+     * take a 3 GiB server down. Issue #616.
+     */
+    @Volatile
+    private var cached: Pair<List<io.mszymanski.orknux.server.plugin.PluginFingerprint>, List<PluginSkillCatalog>>? = null
+
+    /**
      * Every catalog the loaded plugins offer, by name.
      *
      * A plugin that declares no skills offers no catalog: an empty folder in
      * the picker is a thing somebody grants and then wonders about.
+     *
+     * Read again only when a plugin was added, removed, re-uploaded or
+     * switched on or off, which one small query over three columns says.
      */
-    fun catalogs(): List<PluginSkillCatalog> = builtIn.catalogs() + plugins.findAllByOrderByNameAsc()
-        .filter { it.enabled }
-        .mapNotNull { plugin ->
+    fun catalogs(): List<PluginSkillCatalog> = builtIn.catalogs() + fromPlugins()
+
+    private fun fromPlugins(): List<PluginSkillCatalog> {
+        val now = plugins.fingerprints()
+        cached?.takeIf { it.first == now }?.let { return it.second }
+        val read = plugins.enabledSkillDeclarations().mapNotNull { plugin ->
             val held = declarations.readSkills(plugin.declaredSkills)
             if (held.isEmpty()) {
                 null
@@ -76,6 +93,9 @@ class PluginSkills(
                 )
             }
         }
+        cached = now to read
+        return read
+    }
 
     /** The skills in the plugin catalogs among these granted names. */
     fun granted(names: Collection<String>): List<GrantedSkill> {

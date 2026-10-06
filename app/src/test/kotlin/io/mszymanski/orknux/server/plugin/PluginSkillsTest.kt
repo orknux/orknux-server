@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.plugin
 
+import io.mszymanski.orknux.server.EntityLoads
 import io.mszymanski.orknux.server.agent.Agent
 import io.mszymanski.orknux.server.agent.AgentAPI
 import io.mszymanski.orknux.server.agent.CreateAgentInput
@@ -49,6 +50,7 @@ class PluginSkillsTest(
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val audit: WorkspaceAuditRepository,
     @Autowired val agentApi: AgentAPI,
+    @Autowired val entityManagerFactory: jakarta.persistence.EntityManagerFactory,
 ) {
 
     private var workspaceId: Long = 0
@@ -97,6 +99,33 @@ class PluginSkillsTest(
             skillCatalogs = granted.toMutableList(),
         ),
     )
+
+    /**
+     * Issue #616. Skills are resolved for every briefing and every skill_load,
+     * so an agent with several set to Always resolved them over and over in a
+     * turn - and each time read every plugin whole, bundle and icons. Resolving
+     * them again must read no plugin at all, and a plugin switched off must
+     * still be noticed.
+     */
+    @Test
+    fun `resolving skills again reads no plugin, and still notices a change`() {
+        load()
+        val granted = agent("deploys_plugin")
+        val loads = EntityLoads(entityManagerFactory)
+
+        val first = loads.of(Plugin::class) { granted(granted) }
+        assertThat(first.answer).hasSize(2)
+        assertThat(first.loaded).describedAs("plugins read to resolve skills the first time").isZero()
+
+        val again = loads.of(Plugin::class) { (1..20).map { granted(granted) } }
+        assertThat(again.answer).allSatisfy { assertThat(it).hasSize(2) }
+        assertThat(again.loaded).describedAs("plugins read to resolve them twenty more times").isZero()
+
+        val plugin = plugins.findByKey("deploys")!!
+        plugin.enabled = false
+        plugins.save(plugin)
+        assertThat(granted(granted)).isEmpty()
+    }
 
     @Test
     fun `a plugin's skills are read from the code and kept`() {
