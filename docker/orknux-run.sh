@@ -108,6 +108,21 @@ case " $JAVA_OPTS " in
         ;;
 esac
 
+# A JVM that has run out of heap is not a server that recovers. Every thread that
+# next allocates fails on its own, so what follows is a process that answers
+# health checks and drops whatever it was doing (#616) - exiting lets the
+# container restart and, through the launcher, a release roll back. On by
+# default; ORKNUX_EXIT_ON_OOM=false leaves the JVM to limp, for somebody taking
+# a heap dump with -XX:+HeapDumpOnOutOfMemoryError who wants it to stay up.
+case " $JAVA_OPTS " in
+    *"OnOutOfMemoryError"*) ;;
+    *)
+        if [ "${ORKNUX_EXIT_ON_OOM:-true}" != "false" ]; then
+            JAVA_OPTS="-XX:+ExitOnOutOfMemoryError $JAVA_OPTS"
+        fi
+        ;;
+esac
+
 if [ "${ORKNUX_SELF_UPDATE:-true}" = "false" ]; then
     if [ -n "${ORKNUX_RELEASE_PIN:-}" ]; then
         echo "orknux: ERROR ORKNUX_RELEASE_PIN is $ORKNUX_RELEASE_PIN and ORKNUX_SELF_UPDATE is false; the pin is ignored and the image's own jar runs" >&2

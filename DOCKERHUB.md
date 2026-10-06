@@ -333,7 +333,7 @@ and ORKNUX_WATCHER_MAX_PER_AGENT are in
 | `ORKNUX_SESSION_COOKIE_HTTP_ONLY` | Keeps the session cookie out of reach of scripts. | `true` | No |
 | `OPENAI_LOG` | What the model SDK prints to stderr: `info` each call's method and URL, `debug` headers and bodies, credentials redacted. | *none* | No |
 | `ORKNUX_LOG_LEVEL` | How much this application says: `TRACE` to `ERROR`. Its own code only - triggers, model calls, task handover - and not the frameworks. | `INFO` | No |
-| `ORKNUX_LOG_LEVEL_ROOT` | The same for everything else on the classpath, for when what is wrong is underneath this application. `DEBUG` here is very loud. | `INFO` | No |
+| `ORKNUX_LOG_LEVEL_ROOT` | The same for everything else on the classpath. `DEBUG` here is very loud. | `INFO` | No |
 | `ORKNUX_LOG_FORMAT` | `plain` reads well in a terminal; `json` (one ECS object per line) is what a collector wants. Applies to console and file alike. | `plain` | No |
 | `ORKNUX_LOG_FILE` | Console always; name a file here and it is written to as well. Use an absolute path. | *none* (stdout only) | No |
 | `ORKNUX_LOG_MAX_FILE_SIZE` | When the log file rolls. Only consulted when a file is being written. | `10MB` | No |
@@ -343,6 +343,7 @@ and ORKNUX_WATCHER_MAX_PER_AGENT are in
 | `JAVA_OPTS` | Passed to the JVM. One that sizes the heap (`-Xmx`, `MaxRAMPercentage`) replaces the two below. | *none* | No |
 | `ORKNUX_HEAP_PERCENT` `ORKNUX_NATIVE_MEMORY_MB` | Heap: the smaller of the percent of the memory limit and the limit less the MB the JVM needs beside it. | `75` `1024` | No |
 | `ORKNUX_MALLOC_ARENAS` `ORKNUX_NIO_BUFFER_CACHE_KB` | glibc's arenas, eight per host core otherwise; the largest direct buffer a thread keeps for I/O. | `2` `256` | No |
+| `ORKNUX_EXIT_ON_OOM` | Exit on running out of heap, so the container restarts. | `true` | No |
 
 Sessions are kept in the database, so signing in outlives a restart and more
 than one replica.
