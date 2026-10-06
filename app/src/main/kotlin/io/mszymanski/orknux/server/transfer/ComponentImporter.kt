@@ -731,9 +731,13 @@ class ComponentImporter(
             // web_search is a built-in kept off until granted, not a tool of
             // this workspace's, and asking the target for one refused every
             // agent that could search. Issue #570.
-            ComponentKind.AGENT -> node.names("toolRefs")
-                .filter { it !in pluginToolNames() && !BuiltInTools.switchable(it) }
-                .map { ComponentKind.TOOL to it }
+            ComponentKind.AGENT -> {
+                // Once per agent rather than once per name on its list.
+                val pluginTools = pluginToolNames()
+                node.names("toolRefs")
+                    .filter { it !in pluginTools && !BuiltInTools.switchable(it) }
+                    .map { ComponentKind.TOOL to it }
+            }
 
             ComponentKind.WORKFLOW -> node.path("nodes").values().flatMap { drawn ->
                 listOfNotNull(
@@ -1176,13 +1180,15 @@ class ComponentImporter(
                      * here. Dropping them with the others took web search away
                      * from every agent that crossed. Issue #570.
                      */
-                    tools = node.names("toolRefs")
-                        .filter { it !in dropped && (!BuiltInTools.switchable(it) || BuiltInTools.reaches(it)) }
-                        .map {
-                            if (it in pluginToolNames() || BuiltInTools.reaches(it)) it
-                            else toolNameFor(workspaceId, it, resolved)
-                        }
-                        .toMutableList(),
+                    tools = pluginToolNames().let { pluginTools ->
+                        node.names("toolRefs")
+                            .filter { it !in dropped && (!BuiltInTools.switchable(it) || BuiltInTools.reaches(it)) }
+                            .map {
+                                if (it in pluginTools || BuiltInTools.reaches(it)) it
+                                else toolNameFor(workspaceId, it, resolved)
+                            }
+                            .toMutableList()
+                    },
                     // And the built-ins among them the other way round: the file
                     // says what the agent holds, the row keeps what it does not,
                     // so a built-in this file has never heard of arrives on -
@@ -1486,12 +1492,12 @@ class ComponentImporter(
      * them under - `<key>_<function>`. Every workspace of the installation has
      * them, so a grant naming one is neither carried nor missing. Issue #383.
      */
-    private fun pluginToolNames(): Set<String> = plugins.findAll().filter { it.enabled }.flatMap { plugin ->
+    private fun pluginToolNames(): Set<String> = plugins.enabledToolDeclarations().flatMap { plugin ->
         declarations.readTools(plugin.declaredTools).map { "${plugin.key}_${it.name}" }
     }.toSet()
 
-    private fun pluginNameOf(toolName: String): String = plugins.findAll()
-        .firstOrNull { it.enabled && toolName.startsWith("${it.key}_") }?.name ?: "a"
+    private fun pluginNameOf(toolName: String): String = plugins.enabledToolDeclarations()
+        .firstOrNull { toolName.startsWith("${it.key}_") }?.name ?: "a"
 
     /** Whether this skill catalog grant names a plugin's catalog rather than a folder here. */
     private fun pluginCatalog(name: String): Boolean =

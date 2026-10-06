@@ -7,6 +7,7 @@ import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.Table
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Query
 import java.time.OffsetDateTime
 
 /**
@@ -304,7 +305,32 @@ interface PluginRepository : JpaRepository<Plugin, Long> {
 
     /** By what the plugin calls itself, which is what a re-upload replaces. */
     fun findByKey(key: String): Plugin?
+
+    /**
+     * What every switched-on plugin offers an agent, without the plugin.
+     *
+     * A question asked on every round of every agent, and of every agent an
+     * import carries, and all it needs is the key and the tool declarations.
+     * The entity is the bundle and both icons besides - a few hundred
+     * kilobytes a plugin - so answering it with `findAll()` read every loaded
+     * plugin's source into memory to look at its list of names. Issue #616.
+     */
+    @Query(
+        """
+        select new io.mszymanski.orknux.server.plugin.PluginToolDeclarations(p.id, p.key, p.name, p.declaredTools)
+        from Plugin p where p.enabled = true
+        """,
+    )
+    fun enabledToolDeclarations(): List<PluginToolDeclarations>
 }
+
+/** A switched-on plugin's tools as it declared them, and enough of the plugin to name them. See [PluginRepository.enabledToolDeclarations]. */
+data class PluginToolDeclarations(
+    val id: Long,
+    val key: String,
+    val name: String,
+    val declaredTools: String,
+)
 
 /**
  * What the screen is told about a plugin.

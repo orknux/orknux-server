@@ -7,7 +7,10 @@ import io.mszymanski.orknux.server.action.WorkflowFunctionRepository
 import io.mszymanski.orknux.server.agent.AgentRepository
 import io.mszymanski.orknux.server.agent.AgentToolRepository
 import io.mszymanski.orknux.server.agent.SkillCatalogRepository
+import io.mszymanski.orknux.server.EntityLoads
+import io.mszymanski.orknux.server.plugin.Plugin
 import io.mszymanski.orknux.server.plugin.PluginRepository
+import jakarta.persistence.EntityManagerFactory
 import io.mszymanski.orknux.server.plugin.PluginUploadAPI
 import io.mszymanski.orknux.server.workspace.Workspace
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRepository
@@ -62,6 +65,7 @@ class ImportChoicesTest(
     @Autowired val mcpServers: McpServerRepository,
     @Autowired val actions: WorkflowActionRepository,
     @Autowired val functions: WorkflowFunctionRepository,
+    @Autowired val factory: EntityManagerFactory,
 ) {
 
     private var from: Long = 0
@@ -89,14 +93,19 @@ class ImportChoicesTest(
         val agentId = createAgent(from, "Triage bot", tools = listOf("greeter_shout"))
 
         val json = export(from, "AGENT", agentId, "DEEP")
-        val plan = plan(into, json)
+        // Knowing a name is a plugin's needs its declarations, not its bundle. Issue #616.
+        val loads = EntityLoads(factory)
+        val planned = loads.of(Plugin::class) { plan(into, json) }
+        val plan = planned.answer
+        assertThat(planned.loaded).describedAs("plugins read to plan the import").isZero()
 
         assertThat(plan.importable).describedAs(plan.problems.joinToString()).isTrue()
         val row = plan.entries.single { it.kind == "TOOL" && it.name == "greeter_shout" }
         assertThat(row.disposition).isEqualTo("REUSE")
         assertThat(row.droppable).isTrue()
 
-        import(into, json)
+        assertThat(loads.of(Plugin::class) { import(into, json) }.loaded)
+            .describedAs("plugins read to import").isZero()
         assertThat(agents.findByWorkspaceIdAndName(into, "Triage bot")!!.tools).containsExactly("greeter_shout")
         assertThat(tools.findByWorkspaceIdAndName(into, "greeter_shout")).describedAs("no workspace tool made for it").isNull()
     }

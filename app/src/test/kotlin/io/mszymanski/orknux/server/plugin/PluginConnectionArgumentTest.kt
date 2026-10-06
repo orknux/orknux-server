@@ -1,6 +1,8 @@
 package io.mszymanski.orknux.server.plugin
 
 import io.mszymanski.orknux.connector.connection.WorkspaceConnectionRepository
+import io.mszymanski.orknux.server.EntityLoads
+import jakarta.persistence.EntityManagerFactory
 import io.mszymanski.orknux.server.action.WorkflowActionRepository
 import io.mszymanski.orknux.server.action.WorkflowFunctionRepository
 import io.mszymanski.orknux.server.agent.AgentRepository
@@ -73,6 +75,7 @@ class PluginConnectionArgumentTest(
     @Autowired val audit: WorkspaceAuditRepository,
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val mapper: ObjectMapper,
+    @Autowired val factory: EntityManagerFactory,
 ) {
 
     private var workspaceId: Long = 0
@@ -124,6 +127,30 @@ class PluginConnectionArgumentTest(
         // And a tool with a run of its own, down the other dispatch, as a number.
         val own = call(agent, "monitors_probe", """{"prometheus":$prod}""")
         assertHandle(own.get("handed"), prod)
+    }
+
+    /**
+     * Offering an agent its plugin tools reads no plugin. Issue #616.
+     *
+     * The list is asked for on every round of every agent, and the entity is
+     * the plugin's whole bundle; the names and declarations are all the list
+     * needs. The plugin is read when a tool is dispatched, and not before.
+     */
+    @Test
+    fun `offering plugin tools does not read the plugins' bundles`() {
+        val agent = agent("monitors_query", "monitors_probe")
+        val loads = EntityLoads(factory)
+
+        val offered = loads.of(Plugin::class) { pluginTools.granted(agent, except = emptySet()).map { it.name } }
+
+        assertThat(offered.answer).containsExactlyInAnyOrder("monitors_query", "monitors_probe")
+        assertThat(offered.loaded).describedAs("plugins read to offer their tools").isZero()
+
+        val dispatched = loads.of(Plugin::class) {
+            requireNotNull(pluginTools.resolve(agent, "monitors_probe")).plugin.key
+        }
+        assertThat(dispatched.answer).isEqualTo("monitors")
+        assertThat(dispatched.loaded).describedAs("read once, for the tool that needed it").isEqualTo(1)
     }
 
     /**

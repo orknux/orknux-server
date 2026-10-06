@@ -71,14 +71,22 @@ class PluginToolCaller(
      * [name] carries the plugin's key prefix - it is the name on the grant list
      * and the name the model calls - while [declared] keeps the plugin's own
      * spelling for the dispatch.
+     *
+     * The plugin itself is read only when something needs more of it than its
+     * key - a dispatch, or a connection argument to describe - and once for
+     * all of its tools. Offering a list of tools is every round of every agent,
+     * and the entity carries the whole bundle. Issue #616.
      */
-    data class PluginTool(
+    class PluginTool(
         val name: String,
         val description: String?,
         val params: List<FunctionParam>,
-        val plugin: Plugin,
+        val pluginKey: String,
+        private val loaded: Lazy<Plugin>,
         val declared: io.mszymanski.orknux.server.plugin.PluginToolView,
-    )
+    ) {
+        val plugin: Plugin get() = loaded.value
+    }
 
     /**
      * The plugin tools this agent may call: its granted names that resolve to
@@ -102,7 +110,8 @@ class PluginToolCaller(
      * them stay on the agents — switching it back on is meant to put things
      * back, not to leave somebody re-granting what they never revoked.
      */
-    fun all(): List<PluginTool> = plugins.findAll().filter { it.enabled }.flatMap { plugin ->
+    fun all(): List<PluginTool> = plugins.enabledToolDeclarations().flatMap { plugin ->
+        val loaded = lazy { plugins.findById(plugin.id).orElseThrow() }
         declarations.readTools(plugin.declaredTools).map { declared ->
             PluginTool(
                 name = "${plugin.key}_${declared.name}",
@@ -115,7 +124,8 @@ class PluginToolCaller(
                         defaultJson = it.default,
                     )
                 },
-                plugin = plugin,
+                pluginKey = plugin.key,
+                loaded = loaded,
                 declared = declared,
             )
         }
@@ -152,7 +162,7 @@ class PluginToolCaller(
              * keeps, run down the one path a function runs on. An edit to the
              * function is an edit to the tool, which is the point of the proxy.
              */
-            val qualified = "${tool.plugin.key}_${tool.declared.proxyOf}"
+            val qualified = "${tool.pluginKey}_${tool.declared.proxyOf}"
             val function = functions.findByScopeAndName(FunctionScope.PLUGIN, qualified)
                 ?: return mapper.writeValueAsString(
                     mapOf("error" to "This tool fronts $qualified, which is no longer provided"),
