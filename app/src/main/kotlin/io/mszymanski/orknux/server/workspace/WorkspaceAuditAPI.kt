@@ -94,16 +94,24 @@ class WorkspaceAuditAPI(
         return WorkspaceAuditPage(repository.findAll(filter, pageable))
     }
 
-    /** The users who appear in the admin audit log, for the filter. */
+    /**
+     * The users who appear in the admin audit log, for the filter.
+     *
+     * Admin-level entries carry no workspace, so they stay with administrators,
+     * and so do entries of a workspace that is gone: nobody else can be matched
+     * to it. Sorted here rather than by the database, so the order is the same
+     * on both engines whatever collation either was set up with.
+     */
     @QueryMapping
-    fun auditUsers(): List<String> = repository.findAll()
-        .filter { entry ->
-            // Admin-level entries carry no workspace, so they stay with administrators.
-            access.isAdmin() || entry.workspaceId?.let { workspaces.findByIdOrNull(it)?.let(access::canSee) } == true
+    fun auditUsers(): List<String> {
+        val users = if (access.isAdmin()) {
+            repository.findAllUserIds()
+        } else {
+            val visible = workspaces.findAll().filter(access::canSee).mapNotNull { it.id }
+            if (visible.isEmpty()) emptyList() else repository.findUserIdsIn(visible)
         }
-        .map { it.userId }
-        .distinct()
-        .sorted()
+        return users.distinct().sorted()
+    }
 
     /** The workspace audit view: everything that happened inside one workspace. */
     @QueryMapping

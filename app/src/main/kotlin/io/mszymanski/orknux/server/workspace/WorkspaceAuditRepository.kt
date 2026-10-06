@@ -15,6 +15,20 @@ interface WorkspaceAuditRepository : JpaRepository<WorkspaceAudit, Long>, JpaSpe
 
     @Query("SELECT DISTINCT a.userId FROM WorkspaceAudit a WHERE a.workspaceId = :workspaceId ORDER BY a.userId")
     fun findUserIds(@Param("workspaceId") workspaceId: Long): List<String>
+
+    /**
+     * Everybody who appears anywhere in the log, for an administrator's filter.
+     *
+     * Asked of the database rather than worked out from the rows: the log only
+     * grows, and reading every entry of it to name a handful of people was a
+     * whole table held in memory on every load of the filter. Issue #616.
+     */
+    @Query("SELECT DISTINCT a.userId FROM WorkspaceAudit a")
+    fun findAllUserIds(): List<String>
+
+    /** Everybody who appears in the logs of [workspaceIds], for a filter somebody short of administrator sees. */
+    @Query("SELECT DISTINCT a.userId FROM WorkspaceAudit a WHERE a.workspaceId IN :workspaceIds")
+    fun findUserIdsIn(@Param("workspaceIds") workspaceIds: Collection<Long>): List<String>
 }
 
 /**

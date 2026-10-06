@@ -1,5 +1,9 @@
 package io.mszymanski.orknux.server.workspace
 
+import io.mszymanski.orknux.server.EntityLoads
+import io.mszymanski.orknux.server.security.Role
+import io.mszymanski.orknux.server.security.RoleRepository
+import jakarta.persistence.EntityManagerFactory
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -17,6 +21,8 @@ class WorkspaceAuditAPITest(
     @Autowired val graphQlTester: ExecutionGraphQlServiceTester,
     @Autowired val repository: WorkspaceAuditRepository,
     @Autowired val workspaces: WorkspaceRepository,
+    @Autowired val roles: RoleRepository,
+    @Autowired val factory: EntityManagerFactory,
 ) {
 
     private val start = OffsetDateTime.parse("2026-08-14T09:00:00+02:00")
@@ -29,6 +35,8 @@ class WorkspaceAuditAPITest(
     fun seedAudit() {
         repository.deleteAll()
         workspaces.deleteAll()
+        // The roles these tests make; the built-in one is the whole suite's.
+        roles.deleteAll(roles.findAll().filterNot { it.builtin })
         workspaceId = requireNotNull(workspaces.save(Workspace(name = "backend")).id)
         otherWorkspaceId = requireNotNull(workspaces.save(Workspace(name = "research")).id)
         repository.saveAll(
@@ -180,5 +188,54 @@ class WorkspaceAuditAPITest(
             .execute()
             .path("workspaceAudit.content[*].operationType").entityList(String::class.java)
             .containsExactly("ADD")
+    }
+
+    /**
+     * The people the filter offers: everybody in the log, to an administrator,
+     * named once each and in order - the entry of no workspace and the entry of
+     * a workspace since deleted included. Issue #616.
+     *
+     * And named without reading the log: the answer was always right, and it
+     * was worked out from every entry ever written, on every load of the
+     * filter. The count of entries loaded is what a regression changes.
+     */
+    @Test
+    fun `the users in the log are asked of the database, not read off every entry`() {
+        repository.saveAll(
+            listOf(
+                WorkspaceAudit(workspaceId = null, message = "Default connection changed", date = start, userId = "carol"),
+                WorkspaceAudit(workspaceId = 999_999, message = "seeded", date = start, userId = "dave"),
+            ),
+        )
+
+        val measured = EntityLoads(factory).of(WorkspaceAudit::class) {
+            graphQlTester.document("""query { auditUsers }""")
+                .execute().path("auditUsers").entityList(String::class.java).get()
+        }
+
+        assertThat(measured.answer).containsExactly("alice", "bob", "carol", "dave")
+        assertThat(measured.loaded).describedAs("audit entries read to name the users").isZero()
+    }
+
+    /**
+     * Somebody short of administrator is offered the people of the workspaces
+     * they can open, and nobody from an entry that belongs to none.
+     */
+    @Test
+    @WithMockUser(username = "erin", roles = ["BACKEND"])
+    fun `the users in the log are only those of the workspaces the reader can open`() {
+        val backend = roles.save(Role(name = "backend"))
+        val visible = requireNotNull(workspaces.save(Workspace(name = "visible", roles = mutableSetOf(backend))).id)
+        repository.saveAll(
+            listOf(
+                WorkspaceAudit(workspaceId = visible, message = "seeded", date = start, userId = "zed"),
+                WorkspaceAudit(workspaceId = visible, message = "seeded", date = start, userId = "erin"),
+                WorkspaceAudit(workspaceId = visible, message = "seeded again", date = start, userId = "zed"),
+                WorkspaceAudit(workspaceId = null, message = "Default connection changed", date = start, userId = "carol"),
+            ),
+        )
+
+        graphQlTester.document("""query { auditUsers }""")
+            .execute().path("auditUsers").entityList(String::class.java).containsExactly("erin", "zed")
     }
 }
