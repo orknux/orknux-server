@@ -15,7 +15,7 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
-## Unreleased
+## 0.9.9.14
 
 ### 🔧 Changed
 
@@ -23,14 +23,13 @@ have failed.
 
 ### 🐛 Fixed
 
+- Every request an agent's HTTP tools, a web search or a function's `orknux.http` made built an HTTP client of its own, each keeping a thread and native buffers until a full collection - a long run of requests held hundreds. They share one client now. The Slack SDK's own record of every call it makes, kept for rate-limit numbers nothing reads, is switched off too.
 - Two providers at the same address - two workspaces on api.openai.com, say - shared one client, so the second was called with the first one's key, and a rotated key was not picked up until a restart. Each provider has its own client now, rebuilt when its key changes.
 - More memory a long-running server kept for good: every agent's answer to `ask_agent`, a lock per conversation, a seven-day timer each time a task parked, a Slack client each time a Socket Mode connection reopened, and model clients replaced without being closed.
 
 ## 0.9.9.13
 
-### 🐛 Fixed
-
-- A server for one person ran out of memory answering a Slack prompt. Every request a plugin or a function made through `orknux.http` built an HTTP client of its own, each holding a thread and native buffers until a full collection, and a Slack search pages through history one request at a time - hundreds in one search. They share one client now. The Slack SDK's own record of every call it makes, kept for rate-limit numbers nothing reads, is switched off too.
+Tagged and never published: its build stopped on a test that expected a call the release had removed. Everything it held is in 0.9.9.14.
 
 ## 0.9.9.12
 
