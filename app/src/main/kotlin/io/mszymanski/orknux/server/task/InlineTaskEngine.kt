@@ -10,7 +10,8 @@ import org.springframework.transaction.support.TransactionSynchronization
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
-import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.ThreadFactory
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -57,8 +58,22 @@ class InlineTaskEngine(
      * spend the whole of its model allowance on whichever four were started
      * first anyway.
      */
-    private val workers: ScheduledExecutorService =
-        Executors.newScheduledThreadPool(THREADS, named("orknux-task"))
+    private val workers = ScheduledThreadPoolExecutor(THREADS, named("orknux-task")).apply {
+        // A cancelled wake leaves the queue at once rather than sitting there until it was due. Issue #616.
+        removeOnCancelPolicy = true
+    }
+
+    /**
+     * The one wake each parked task has on the clock. Issue #616.
+     *
+     * Every park used to schedule a callback a week out and forget it, so a
+     * task nudged twenty times while waiting left twenty callbacks queued for
+     * next week, each holding its closure - and a busy installation never got
+     * to next week before it ran out of memory. Now a task has at most one: a
+     * new park replaces it, and picking the task up or the task being over
+     * cancels it.
+     */
+    private val wakes = ConcurrentHashMap<Long, ScheduledFuture<*>>()
 
     /**
      * Which tasks are already in hand, so a second `begin` or a nudge that
@@ -117,7 +132,11 @@ class InlineTaskEngine(
     override fun stop() {
         running = false
         workers.shutdownNow()
+        wakes.clear()
     }
+
+    /** How many callbacks are on the clock, for the test that a task holds one at most. Issue #616. */
+    internal fun queued(): Int = workers.queue.size
 
     override fun isRunning(): Boolean = running
 
@@ -167,6 +186,8 @@ class InlineTaskEngine(
      */
     private fun pickUp(taskId: Long): Boolean {
         if (!inHand.add(taskId)) return false
+        // Being worked on now; a turn that parks it again sets a fresh wake.
+        wakes.remove(taskId)?.cancel(false)
         return try {
             workers.execute { work(taskId) }
             true
@@ -192,9 +213,13 @@ class InlineTaskEngine(
             while (running) {
                 when (loop.advance(taskId)) {
                     is TaskTurn.Working -> Unit
-                    is TaskTurn.Over -> return
+                    is TaskTurn.Over -> {
+                        wakes.remove(taskId)?.cancel(false)
+                        return
+                    }
                     is TaskTurn.Parked -> {
-                        workers.schedule({ submit(taskId) }, properties.patience.toSeconds(), TimeUnit.SECONDS)
+                        val wake = workers.schedule({ submit(taskId) }, properties.patience.toSeconds(), TimeUnit.SECONDS)
+                        wakes.put(taskId, wake)?.cancel(false)
                         return
                     }
                 }
