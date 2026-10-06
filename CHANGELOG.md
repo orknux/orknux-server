@@ -15,6 +15,17 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🔧 Changed
+
+- `agent_asks` counts an ask as still working only while its transcript has an open line. A finished ask no longer shows as working for a while after it answered.
+
+### 🐛 Fixed
+
+- Two providers at the same address - two workspaces on api.openai.com, say - shared one client, so the second was called with the first one's key, and a rotated key was not picked up until a restart. Each provider has its own client now, rebuilt when its key changes.
+- More memory a long-running server kept for good: every agent's answer to `ask_agent`, a lock per conversation, a seven-day timer each time a task parked, a Slack client each time a Socket Mode connection reopened, and model clients replaced without being closed.
+
 ## 0.9.9.13
 
 ### 🐛 Fixed
