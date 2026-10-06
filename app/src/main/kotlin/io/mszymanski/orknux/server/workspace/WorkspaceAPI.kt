@@ -123,6 +123,13 @@ class WorkspaceAPI(
      */
     @MutationMapping
     fun duplicateWorkspace(@Argument id: Long, @Argument name: String?, @Argument progressKey: String?): WorkspaceCopyView {
+        /*
+         * Before anything else, so a copy that never got as far as the
+         * duplicator's own "creating the workspace" still left a line: one was
+         * reported stuck with nothing in the log, and nothing said whether the
+         * request had arrived at all.
+         */
+        log.info("Copy of workspace {} asked for (name {}, progress key {})", id, name ?: "chosen by the server", progressKey ?: "none")
         access.requireAdmin()
         /*
          * Named by the server when the caller names nothing. Reported: the page
