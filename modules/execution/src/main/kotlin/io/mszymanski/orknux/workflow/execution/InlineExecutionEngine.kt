@@ -119,6 +119,8 @@ class InlineExecutionEngine(
             return if (plan.splits.isEmpty()) walk(plan, executionId) else walkSideBySide(plan, executionId)
         } finally {
             driving.remove(executionId)
+            // A wake no sleep took is dropped with the run, not kept for ever. Issue #616.
+            woken.remove(executionId)
         }
     }
 
@@ -388,12 +390,29 @@ class InlineExecutionEngine(
         }
     }
 
-    /** Runs asked to stop waiting; see [wake]. */
+    /**
+     * Runs asked to stop waiting; see [wake].
+     *
+     * Only ever runs this process is carrying. Issue #616: an id stayed here
+     * until its run slept again, so a wake for a run that never would - one
+     * already finished, or carried by nobody - was kept for the life of the
+     * process, one id for every answer that arrived.
+     */
     private val woken = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
 
+    /**
+     * Added, then let go of again unless a thread is carrying the run. In that
+     * order so that a run ending at the same moment cannot leave it behind: its
+     * `finally` stops driving before it forgets the wake, so either it removes
+     * the id or this sees it is no longer driving and does.
+     */
     override fun wake(executionId: Long) {
         woken += executionId
+        if (!isDriving(executionId)) woken.remove(executionId)
     }
+
+    /** Whether a wake is held for the run - for the test that none outlives it. Issue #616. */
+    fun holdsWake(executionId: Long): Boolean = executionId in woken
 
     private companion object {
         val log = LoggerFactory.getLogger(InlineExecutionEngine::class.java)

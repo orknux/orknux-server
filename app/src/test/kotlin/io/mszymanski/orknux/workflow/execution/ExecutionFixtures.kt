@@ -78,6 +78,11 @@ class ScriptedNodeRunner : NodeRunner {
             Thread.sleep(NAP.toMillis())
             StepResult(StepStatus.COMPLETED, """{"${step.nodeKey}":"${step.name}"}""")
         }
+        // Whatever the test wants done from inside a running step, then done.
+        step.name.startsWith("during") -> {
+            during(step)
+            StepResult(StepStatus.COMPLETED, "${step.name} did the work")
+        }
         step.name.startsWith("put") -> StepResult(StepStatus.COMPLETED, """{"${step.nodeKey}":"${step.name}"}""")
         step.name.startsWith("wait") -> park(step)
         else -> UnimplementedNodeRunner().run(step, input)
@@ -95,6 +100,10 @@ class ScriptedNodeRunner : NodeRunner {
     }
 
     companion object {
+        /** What a `during` node does while its run is being carried; set by the test that uses one. */
+        @Volatile
+        var during: (ExecutionStep) -> Unit = {}
+
         /** How long a `nap` node works: long enough to tell side by side from one after the other. */
         val NAP: Duration = Duration.ofSeconds(1)
 

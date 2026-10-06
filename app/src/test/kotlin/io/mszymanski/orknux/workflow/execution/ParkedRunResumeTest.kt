@@ -206,6 +206,29 @@ class ParkedRunResumeTest(
         assertThat(after.getValue("ok-after").status).isEqualTo(StepStatus.PENDING)
     }
 
+    /**
+     * A wake is not kept past its run. Issue #616: one that no sleep took - the
+     * run was not parked when it came, or nobody was carrying it at all - stayed
+     * in memory for as long as the server ran.
+     */
+    @Test
+    fun `a wake no wait took is not held once the run is over, nor for a run nobody carries`() {
+        graph(nodes = listOf(node("during-it"), node("ok-after")), edges = listOf(GraphEdge("during-it", "ok-after")))
+        ScriptedNodeRunner.during = { step -> engine.wake(step.executionId) }
+        val run = try {
+            engine.start(WORKSPACE, WORKFLOW, ExecutionTrigger.API, INPUT)
+        } finally {
+            ScriptedNodeRunner.during = {}
+        }
+
+        assertThat(run.status).isEqualTo(ExecutionStatus.COMPLETED)
+        assertThat(engine.holdsWake(requireNotNull(run.id))).describedAs("woken mid-step, then finished").isFalse()
+
+        val stranded = requireNotNull(executions.save(running()).id)
+        engine.wake(stranded)
+        assertThat(engine.holdsWake(stranded)).describedAs("woken while nobody carries it").isFalse()
+    }
+
     /** A node, a wait, a node - the shape a run parks in the middle of. */
     private fun straightLineThroughAWait() = graph(
         nodes = listOf(node("ok-before"), node("wait-there"), node("ok-after")),
