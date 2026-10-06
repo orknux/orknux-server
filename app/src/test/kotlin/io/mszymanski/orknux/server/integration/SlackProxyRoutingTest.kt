@@ -142,12 +142,10 @@ class SlackProxyRoutingTest {
         // The whole URL on the request line is what tells a proxy where to go,
         // and being asked to fetch it is the only thing that could have put it
         // there. Before this change the SDK's own client sent it straight out.
-        // `auth.test` is the SDK's own doing - it resolves the team behind a
-        // token before it posts - and it is here for the same reason the post
-        // is: every call the client makes is now routed, not the one this test
-        // asked for.
+        // The SDK used to call `auth.test` first as well, to file the post under
+        // a team in its call statistics; those are switched off (#616), so the
+        // calls here are the ones this application makes.
         assertThat(proxied).contains(
-            "${slackUrl()}/api/auth.test",
             // Where the message was addressed is looked up before it is sent,
             // so this is a third call the test never asked for and a third one
             // that has to be routed.
@@ -164,7 +162,7 @@ class SlackProxyRoutingTest {
         val delivery = messages.send(CONNECTION_ID, "#general", "no rule for this")
 
         assertThat(delivery).isInstanceOf(Delivery.Sent::class.java)
-        assertThat(direct).contains("/api/auth.test", "/api/conversations.list", "/api/chat.postMessage")
+        assertThat(direct).contains("/api/conversations.list", "/api/chat.postMessage")
         assertThat(proxied).isEmpty()
     }
 
