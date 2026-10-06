@@ -84,6 +84,28 @@ class HttpToolsPolicedTest(
 
     private fun pattern(path: String) = Regex.escape(base) + path
 
+    /**
+     * Issue #616. Each request used to build a client of its own, and every one
+     * keeps a selector thread until a full collection finds it unreachable - so
+     * a Slack search paging through history held hundreds of them. Counted by
+     * the threads, which is what a client leaves behind.
+     */
+    @Test
+    fun `requests one after another share a client rather than starting one each`() {
+        val fetcher = agent("http_get")
+        val before = selectors()
+
+        repeat(40) { at ->
+            assertThat(call(fetcher, "http_get", mapOf("url" to "$base/page/$at")).path("status").asInt()).isEqualTo(200)
+        }
+
+        assertThat(selectors() - before).hasSizeLessThanOrEqualTo(1)
+        assertThat(arrived).hasSize(40)
+    }
+
+    private fun selectors() =
+        Thread.getAllStackTraces().keys.filter { it.isAlive && it.name.contains("SelectorManager") }.map { it.name }.toSet()
+
     @Test
     fun `under a list, a matching URL and method goes through and anything else is refused unsent`() {
         val fetcher = agent("http_get", "http_request")

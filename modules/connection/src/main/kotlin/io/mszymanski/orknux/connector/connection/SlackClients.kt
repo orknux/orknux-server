@@ -75,6 +75,12 @@ class SlackClients(private val router: ProxyRouter) {
         // note above on why the environment's proxy is not this application's
         // business.
         config.proxyUrl = null
+        // The SDK keeps a record of every call it makes, for rate-limit numbers
+        // nothing here reads, and runs a maintenance job over them that was the
+        // second-largest allocator in a profile of a busy server - more than
+        // any code of ours. Every Slack built here, the Socket Mode ones too,
+        // would start its own. Issue #616.
+        config.isStatsEnabled = false
         // The SDK's own client, so its user agent, its redirect handling and
         // whatever it adds next are kept, with the rules attached on top. At
         // this moment the config names no proxy - a RoutedConfig has not been

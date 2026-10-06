@@ -221,7 +221,7 @@ class SearchCapability(
      * and trusted certificates like every other outbound call here.
      */
     private fun sent(request: HttpRequest): String {
-        val answered = router.builder().build()
+        val answered = router.client()
             .send(router.authorized(request), HttpResponse.BodyHandlers.ofString())
         if (answered.statusCode() >= 400) {
             /*

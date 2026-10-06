@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🐛 Fixed
+
+- A server for one person ran out of memory answering a Slack prompt. Every request a plugin or a function made through `orknux.http` built an HTTP client of its own, each holding a thread and native buffers until a full collection, and a Slack search pages through history one request at a time - hundreds in one search. They share one client now. The Slack SDK's own record of every call it makes, kept for rate-limit numbers nothing reads, is switched off too.
+
 ## 0.9.9.12
 
 ### ✨ Added

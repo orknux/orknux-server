@@ -149,6 +149,34 @@ class ProxyRouter(
         return RoutedBuilder(base, this)
     }
 
+    private val shared = java.util.concurrent.atomic.AtomicReference<Pair<Int, HttpClient>?>()
+
+    /**
+     * One client built from [builder] with its defaults, for a caller that sends
+     * one request after another and has nothing of its own to configure.
+     *
+     * A client is not a cheap object: each owns a selector thread, a connection
+     * pool and native buffers, and they go only when a full collection finds the
+     * client unreachable. A script's `orknux.http` used to build one per request,
+     * so a Slack search paging through a year of history built hundreds inside
+     * one call - and on a heap big enough to put off the full collection, they
+     * all stayed. Issue #616.
+     *
+     * Rebuilt when the trusted certificates change, which the context's identity
+     * says: the trust hands back the same instance until something is added or
+     * removed. The one replaced is shut down rather than left for a collection -
+     * shut down and not closed, because closing waits for whatever another
+     * thread is still sending through it, and this caller has a request to make.
+     */
+    fun client(): HttpClient {
+        val generation = System.identityHashCode(trusted.context())
+        shared.get()?.takeIf { it.first == generation }?.let { return it.second }
+        val made = generation to builder().build()
+        val before = shared.getAndSet(made)
+        before?.second?.takeIf { it !== made.second }?.let { replaced -> runCatching { replaced.shutdown() } }
+        return made.second
+    }
+
     /**
      * The rules as a [ProxySelector], for a client this cannot build.
      *

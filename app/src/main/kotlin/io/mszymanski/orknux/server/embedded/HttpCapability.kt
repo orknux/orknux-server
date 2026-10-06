@@ -238,7 +238,7 @@ class HttpCapability(
             }
             .build()
 
-        val answered = router.builder().build()
+        val answered = router.client()
             .send(router.authorized(request), HttpResponse.BodyHandlers.ofString())
 
         val text = answered.body().orEmpty()
@@ -267,7 +267,7 @@ class HttpCapability(
             .GET()
             .build()
 
-        val answered = router.builder().build()
+        val answered = router.client()
             .send(router.authorized(request), HttpResponse.BodyHandlers.ofByteArray())
         val bytes = answered.body() ?: ByteArray(0)
         if (bytes.size > MOST_DOWNLOAD_BYTES) {
