@@ -65,6 +65,8 @@ class AgentNodeRunner(
     private val sessions: LlmSessionRecorder,
     /** For the pictures on a message; see [picturesFor]. */
     private val slackFiles: io.mszymanski.orknux.connector.connection.SlackFiles,
+    /** Whether the heap can take reading a session back at all; see [Bulkheads]. Issue #616. */
+    private val bulkheads: Bulkheads,
     /** What lets an agent inside a run draw; see [io.mszymanski.orknux.server.workflow.StepPictureTools]. */
     private val drawings: io.mszymanski.orknux.server.workflow.StepPictureTools,
     /** What lets it stop when the work is already delivered; see [FinishAnswerTools]. */
@@ -444,6 +446,16 @@ class AgentNodeRunner(
          * answered as though Monday had not happened. This reads them once and
          * keeps a summary of them instead.
          */
+        /*
+         * Before a session is read back, not only before the model is asked: a
+         * long session is the largest thing this step reads, and reading it into
+         * a heap already near full is how the run that was meant to be refused
+         * became the one that brought the server down. Unsettled, so the node's
+         * retry asks again once the server is less busy. Issue #616.
+         */
+        bulkheads.heapRefusal()?.let { why ->
+            throw StepFailedException(step.nodeKey, "${step.name} could not start: $why", permanent = false)
+        }
         session?.let { held ->
             runCatching {
                 compaction.compactIfNeeded(held, workspaces.findByIdOrNull(agent.workspaceId), modelId)

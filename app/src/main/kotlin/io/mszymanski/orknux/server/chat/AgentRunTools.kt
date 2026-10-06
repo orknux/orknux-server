@@ -647,7 +647,7 @@ class AgentRunTools(
          * the workflow node, where there is no turn to carry on with either.
          */
         if (into == null) {
-            return answerOf(wanted, conversations.getObject().answer(modelId, sub, turns, into = null, shed = lent), parent, null)
+            return answerOf(wanted, conversations.getObject().answer(modelId, sub, turns, into = null, shed = lent, gated = false), parent, null)
         }
 
         val gateKey = parent ?: into
@@ -669,7 +669,7 @@ class AgentRunTools(
                  */
                 val thinking = io.mszymanski.orknux.server.llm.SessionThinking(into, wanted.name, sessions)
                 val said = try {
-                    conversations.getObject().answer(modelId, sub, turns, into = into, shed = lent, watch = thinking)
+                    conversations.getObject().answer(modelId, sub, turns, into = into, shed = lent, watch = thinking, gated = false)
                 } finally {
                     thinking.settle()
                 }

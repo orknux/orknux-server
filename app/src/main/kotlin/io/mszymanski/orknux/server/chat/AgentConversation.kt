@@ -186,6 +186,8 @@ class AgentConversation(
     private val compaction: ChatCompaction,
     /** What arrived for the session while it worked: answers, timers; see [SessionInbox]. */
     private val inbox: io.mszymanski.orknux.server.llm.SessionInbox,
+    /** The walls between one turn and the rest of the server; see [io.mszymanski.orknux.server.agent.Bulkheads]. #616. */
+    private val bulkheads: io.mszymanski.orknux.server.agent.Bulkheads,
 ) {
 
     /**
@@ -313,6 +315,31 @@ class AgentConversation(
         watch: RoundWatch? = null,
         hangup: Hangup? = null,
         interjections: Interjections? = null,
+        /**
+         * Whether this turn takes a place among the turns the server runs at once.
+         * False for a subagent, which runs inside the turn that asked for it: a
+         * parent holding the last place would otherwise wait on a child waiting
+         * on it. Issue #616.
+         */
+        gated: Boolean = true,
+    ): ChatCompletion {
+        fun refused(why: String) = ChatCompletion.Failed(why, permanent = false).also { record(into, agent, it) }
+        val run = {
+            bulkheads.heapRefusal()?.let { refused(it) }
+                ?: held(modelId, agent, turns, into, shed, watch, hangup, interjections)
+        }
+        return if (gated) bulkheads.turn(::refused, run) else run()
+    }
+
+    private fun held(
+        modelId: Long,
+        agent: Agent,
+        turns: List<ChatTurn>,
+        into: Long?,
+        shed: ToolShed?,
+        watch: RoundWatch?,
+        hangup: Hangup?,
+        interjections: Interjections?,
     ): ChatCompletion {
         val holding = tools.offeringFor(agent)
 
@@ -629,6 +656,20 @@ class AgentConversation(
              * never found at all. Under the ceiling this is the same list every
              * time and the work is a list concatenation.
              */
+            /*
+             * The walls again, every round: the heap may have filled since the
+             * turn began, and the results gathered so far are held to what one
+             * turn may keep before they are sent once more. Issue #616.
+             */
+            bulkheads.heapRefusal()?.let { why ->
+                into?.let { session -> sessions.note(session, "The turn was stopped: $why.") }
+                return ChatCompletion.Failed(why, permanent = false).also { record(into, agent, it) }
+            }
+            if (bulkheads.bound(conversation) > 0) {
+                into?.let { session ->
+                    sessions.note(session, "Older tool results in this turn were cut to keep it within its memory.")
+                }
+            }
             offered = offering()
             // What this round found, written down before the next turn asks.
             // Only where it moved: most rounds find nothing, and a session row

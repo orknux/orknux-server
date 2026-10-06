@@ -114,6 +114,8 @@ type Query {
     components: [Component!]!
     "The switches that belong to the installation rather than to a workspace."
     installationSettings: InstallationSettings!
+    "Admin, Settings, Bulkheads: what keeps one agent turn from taking the server down. Admins only. Issue #616."
+    bulkheads: Bulkheads!
     """
     What this server runs, what orknux.ai offers newer than it, and the jars the
     database keeps to roll back to. Administrators only. Issue #584.
@@ -1255,6 +1257,8 @@ type Mutation {
     setMaxRepeatedToolCalls(count: Int!): InstallationSettings!
     "How many tool calls one message may ask for at once. Issue #518."
     setMaxToolCallsAtOnce(count: Int!): InstallationSettings!
+    "Sets every bulkhead at once; a value out of range refuses the lot. Issue #616."
+    setBulkheads(input: BulkheadsInput!): Bulkheads!
     "How long one stored value is kept, in characters. Issue #519."
     setLongestStoredValue(characters: Int!): InstallationSettings!
     "How many times its own size a drawn picture is made. Issue #529."
@@ -9321,4 +9325,44 @@ type WorkspaceCopyProgress {
 type DuplicatedComponent {
     kind: ComponentKind!
     name: String!
+}
+
+"""
+The walls between one agent turn and the rest of the server. Issue #616.
+
+Each has a switch, and off restores what happened before it existed. Read when
+a turn needs them, so a change applies to the next turn without a restart.
+"""
+type Bulkheads {
+    "Whether agent turns - workflow steps, chats and tasks together - are limited in number."
+    turnsEnabled: Boolean!
+    "How many may run at once in this server. Subagents run inside their parent's place."
+    turnsAtOnce: Int!
+    "How long one more waits for a place before it is refused."
+    turnWaitSeconds: Int!
+    "Whether a turn is stopped when the heap is too full after a collection."
+    heapEnabled: Boolean!
+    "The old generation, in percent full after its last collection, above which a turn stops."
+    heapPercent: Int!
+    "Whether what one turn holds in tool results is bounded."
+    memoryEnabled: Boolean!
+    "Tool results one turn may hold together, in MB; the oldest are dropped first."
+    turnMemoryMb: Int!
+    "The longest single tool result a turn keeps, in KB."
+    toolResultKb: Int!
+    "How many turns hold a place right now."
+    runningTurns: Int!
+    "The old generation as full as its last collection left it, in percent; null where the JVM does not say."
+    heapAfterGcPercent: Int
+}
+
+input BulkheadsInput {
+    turnsEnabled: Boolean!
+    turnsAtOnce: Int!
+    turnWaitSeconds: Int!
+    heapEnabled: Boolean!
+    heapPercent: Int!
+    memoryEnabled: Boolean!
+    turnMemoryMb: Int!
+    toolResultKb: Int!
 }
