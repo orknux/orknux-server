@@ -15,12 +15,13 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
-## Unreleased
+## 0.9.9.17
 
 ### 🐛 Fixed
 
 - Pages listing plugins read every plugin's code; they read it only where it runs. A workspace's or an agent's settings no longer loads a multi-megabyte plugin bundle to draw a list.
 - Thirty-six foreign keys had no index on their referencing side, so deleting an agent, a function, a session or an issue scanned whole tables, and lookups like the chats of an agent or the actions calling a function had nothing to use. They are all indexed now.
+- A plugin installed from the marketplace and later dropped from it - PlantUML, which moved into the server - could not be unloaded: its only bin was on a listing that no longer exists. Admin → Plugins → Local now lists it with its bin.
 
 ## 0.9.9.16
 
