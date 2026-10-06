@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🐛 Fixed
+
+- Pages listing plugins read every plugin's code; they read it only where it runs. A workspace's or an agent's settings no longer loads a multi-megabyte plugin bundle to draw a list.
+
 ## 0.9.9.16
 
 ### ✨ Added

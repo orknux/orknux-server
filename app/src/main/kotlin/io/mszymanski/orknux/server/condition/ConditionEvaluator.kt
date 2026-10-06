@@ -304,7 +304,7 @@ class ConditionEvaluator(
         // and the plugin never agreed to answer to it.
         val declared = function.name.removePrefix("${plugin.key}_")
         return pluginRunner.call(
-            plugin.source,
+            pluginSources.sourceOf(plugin),
             declared,
             arguments,
             pluginParameters.settingsFor(plugin, condition.workspaceId),

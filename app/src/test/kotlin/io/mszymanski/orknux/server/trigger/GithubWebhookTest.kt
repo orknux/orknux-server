@@ -64,6 +64,7 @@ import javax.crypto.spec.SecretKeySpec
 @AutoConfigureGraphQlTester
 @WithMockUser(username = "alice", roles = ["ADMINS"])
 class GithubWebhookTest(
+    @Autowired val pluginSources: io.mszymanski.orknux.server.plugin.PluginSources,
     @Autowired val graphQlTester: ExecutionGraphQlServiceTester,
     @Autowired val context: WebApplicationContext,
     @Autowired val upload: PluginUploadAPI,
@@ -323,7 +324,7 @@ class GithubWebhookTest(
         val plugin = requireNotNull(plugins.findById(pluginId).orElse(null))
         val headers = """{"x-github-event":"$event","x-github-delivery":"d-1"}"""
         val answered = pluginRunner.call(
-            plugin.source,
+            pluginSources.sourceOf(plugin),
             "describe",
             listOf(headers, body),
             pluginParameters.settingsFor(plugin, workspaceId),

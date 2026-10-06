@@ -67,6 +67,8 @@ class PluginUploadAPI(
     private val overrides: PluginOverrides,
     /** The library files a plugin ships with, stored beside its row. */
     private val libraryRows: PluginLibraryRepository,
+    /** The bundle and its TypeScript, which the row's entity does not carry. */
+    private val code: PluginCodeRepository,
     /** The proxy rules, which govern this outbound caller like every other. */
     proxies: io.mszymanski.orknux.connector.proxy.ProxyRouter,
     /** Where the source-size cap lives now that an administrator can set it. */
@@ -234,12 +236,12 @@ class PluginUploadAPI(
                 .body(folded)
         }
 
-        val typescript = plugin.typescript
-        val extension = if (typescript == null) "js" else "ts"
+        val written = code.codeOf(id) ?: throw PluginNotFoundException(id)
+        val extension = if (written.typescript == null) "js" else "ts"
         return ResponseEntity.ok()
             .contentType(MediaType.valueOf("text/plain"))
             .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"${plugin.key}.$extension\"")
-            .body(typescript ?: plugin.source)
+            .body(written.typescript ?: written.source)
     }
 
     @PostMapping("/api/plugins")
@@ -826,8 +828,6 @@ class PluginUploadAPI(
         val plugin = existing?.apply {
             this.name = name
             this.filename = filename.takeLast(MAX_NAME)
-            this.source = source
-            this.typescript = typescript?.ifBlank { null }
             this.sizeBytes = totalBytes
             this.apiVersion = apiVersion
             this.declaredFunctions = declared
@@ -902,6 +902,9 @@ class PluginUploadAPI(
         )
 
         val saved = plugins.save(plugin)
+        // A new row was inserted with its code; an existing one is written
+        // here, since the entity never writes the code after its insert.
+        if (existing != null) code.replace(requireNotNull(saved.id), source, typescript?.ifBlank { null })
         /*
          * The files, replaced whole beside the row - a re-upload's library set
          * is whatever it shipped this time, in declaration order. Their whole

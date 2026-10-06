@@ -30,6 +30,7 @@ import java.util.zip.ZipOutputStream
 @SpringBootTest
 @WithMockUser(username = "alice", roles = ["ADMINS"])
 class PluginLibrariesTest(
+    @Autowired val pluginSources: PluginSources,
     @Autowired val upload: PluginUploadAPI,
     @Autowired val plugins: PluginRepository,
     @Autowired val libraries: PluginLibraryRepository,
@@ -324,7 +325,7 @@ class PluginLibrariesTest(
         assertThat(libraries.findByPluginIdOrderByPositionAsc(requireNotNull(stored.id)).map { it.path })
             .describedAs("the code, and only the code")
             .containsExactly("lib/format.js", "lib/names.js")
-        assertThat(stored.source).doesNotContain("What this plugin does.")
+        assertThat(pluginSources.sourceOf(stored)).doesNotContain("What this plugin does.")
     }
 
     /**

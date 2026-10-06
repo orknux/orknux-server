@@ -136,7 +136,7 @@ class PluginTypes(
     ): JsonNode? {
         val told = argumentsJson(type, workspaceId, arguments)
         val result = runner.call(
-            plugin.source,
+            sources.sourceOf(plugin),
             type.name,
             listOf(mapper.writeValueAsString(subject), told),
             parameters.settingsFor(plugin, workspaceId),

@@ -21,7 +21,10 @@ import org.springframework.stereotype.Service
  * cannot be found, and that is refused in words rather than exported broken.
  */
 @Service
-class PluginOverrides(private val functions: WorkflowFunctionRepository) {
+class PluginOverrides(
+    private val functions: WorkflowFunctionRepository,
+    private val sources: PluginSources,
+) {
 
     /** The plugin's functions somebody edited; empty for a plugin nobody touched. */
     fun editedOf(plugin: Plugin): List<WorkflowFunction> =
@@ -29,7 +32,7 @@ class PluginOverrides(private val functions: WorkflowFunctionRepository) {
 
     /** The bundle with [edited] folded over it, or null where it cannot be. */
     fun folded(plugin: Plugin, edited: List<WorkflowFunction>): String? {
-        val source = plugin.source
+        val source = sources.sourceOf(plugin)
         val at = source.indexOf(EXPORTED)
         if (at < 0) return null
 

@@ -6,6 +6,7 @@ import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.Table
+import org.hibernate.annotations.ColumnTransformer
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
 import java.time.OffsetDateTime
@@ -21,6 +22,11 @@ import java.time.OffsetDateTime
  *
  * Installation-level, so there is no workspace on the row. An operator loads a
  * plugin once; which workspaces may use it is a later question.
+ *
+ * The code itself is on the same row but not on this entity: it is read
+ * through [PluginCodeRepository], by whoever is about to run, show or export
+ * it. Everything else that looks a plugin up - every list, picker and lookup
+ * by key - gets the row without it. Issue #616.
  */
 @Entity
 @Table(name = "plugin")
@@ -46,18 +52,19 @@ class Plugin(
     @Column(nullable = false, length = 255)
     var filename: String,
 
-    @Column(nullable = false, columnDefinition = "text")
-    var source: String,
+    /*
+     * The code is a constructor argument and not a property: see [PluginCode].
+     * It is what a new row is inserted with, because `source` is NOT NULL and
+     * the insert is this entity's; after that this entity never sees it again.
+     */
+    source: String,
 
     /**
-     * What it was written in, or null when it was written in JavaScript.
-     *
-     * Never evaluated — [source] is what runs, always. This is kept so the plugin can
-     * be downloaded as the thing somebody actually wrote: hand back the compiled
-     * output instead and the annotations are gone, with no way to recover them.
+     * What it was written in, or null when it was written in JavaScript. Kept
+     * so the plugin can be downloaded as the thing somebody wrote; read it, and
+     * the source, through [PluginCodeRepository].
      */
-    @Column(columnDefinition = "text")
-    var typescript: String? = null,
+    typescript: String? = null,
 
     @Column(name = "size_bytes", nullable = false)
     var sizeBytes: Long,
@@ -297,7 +304,26 @@ class Plugin(
      */
     @Column(length = 32)
     var version: String? = null,
-)
+) {
+
+    /*
+     * Written by the insert and read by nothing. `updatable = false` keeps a
+     * flush from ever writing them back, and the read transformer has every
+     * select fetch a null in their place - so a lookup by id or key, a list
+     * for a screen, a dirty-check copy, none of them carry megabytes of
+     * bundle. Changing the code later is [PluginCodeRepository.replace].
+     * Issue #616.
+     */
+    @Column(name = "source", updatable = false, columnDefinition = "text")
+    @ColumnTransformer(read = "null")
+    @Suppress("unused")
+    private var insertedSource: String? = source
+
+    @Column(name = "typescript", updatable = false, columnDefinition = "text")
+    @ColumnTransformer(read = "null")
+    @Suppress("unused")
+    private var insertedTypescript: String? = typescript
+}
 
 interface PluginRepository : JpaRepository<Plugin, Long> {
 

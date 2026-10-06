@@ -48,11 +48,20 @@ interface PluginLibraryRepository : JpaRepository<PluginLibrary, Long> {
 }
 
 /**
- * The one place a stored plugin's files are read for the runner, so every
- * caller hands the sandbox the same bundle the load accepted.
+ * The one place a stored plugin's code is read for the runner, so every
+ * caller hands the sandbox the same bundle the load accepted - and so the
+ * bundle is read by somebody about to run it, and not by whoever happened to
+ * look the plugin up. Issue #616.
  */
 @Component
-class PluginSources(private val libraries: PluginLibraryRepository) {
+class PluginSources(
+    private val libraries: PluginLibraryRepository,
+    private val code: PluginCodeRepository,
+) {
+
+    /** What runs. Read on each call rather than kept: it is the row's, and a re-upload replaces it. */
+    fun sourceOf(plugin: Plugin): String =
+        checkNotNull(code.sourceOf(requireNotNull(plugin.id))) { "plugin ${plugin.key} has no row" }
 
     fun librariesOf(plugin: Plugin): List<PluginLibraryFile> =
         libraries.findByPluginIdOrderByPositionAsc(requireNotNull(plugin.id))

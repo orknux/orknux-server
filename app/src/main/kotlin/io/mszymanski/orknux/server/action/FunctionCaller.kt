@@ -220,7 +220,7 @@ class FunctionCaller(
         }
 
         return pluginRunner.call(
-            plugin.source,
+            pluginSources.sourceOf(plugin),
             toolName,
             handed,
             pluginParameters.settingsFor(plugin, workspaceId),
@@ -284,7 +284,7 @@ class FunctionCaller(
         }
 
         return pluginRunner.call(
-            plugin.source,
+            pluginSources.sourceOf(plugin),
             actionName,
             listOf(input, context),
             pluginParameters.settingsFor(plugin, workspaceId),
@@ -359,7 +359,7 @@ class FunctionCaller(
         }
 
         return pluginRunner.call(
-            plugin.source,
+            pluginSources.sourceOf(plugin),
             declared,
             handed,
             pluginParameters.settingsFor(plugin, workspaceId),

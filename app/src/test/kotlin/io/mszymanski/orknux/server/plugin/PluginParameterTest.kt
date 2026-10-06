@@ -33,6 +33,7 @@ import org.springframework.security.test.context.support.WithMockUser
 @AutoConfigureGraphQlTester
 @WithMockUser(username = "alice", roles = ["ADMINS"])
 class PluginParameterTest(
+    @Autowired val pluginSources: PluginSources,
     @Autowired val graphQlTester: ExecutionGraphQlServiceTester,
     @Autowired val plugins: PluginRepository,
     @Autowired val settings: PluginParameterSettingRepository,
@@ -94,7 +95,7 @@ class PluginParameterTest(
         // Through the sandbox, not only through the resolver: what a workspace
         // typed has to be readable as `this.settings` inside the plugin.
         val answered = runner.call(
-            plugin.source,
+            pluginSources.sourceOf(plugin),
             "addressOf",
             listOf(""""ORK-14""""),
             parameters.settingsFor(plugin, workspaceId),
