@@ -18,10 +18,9 @@ reached that at this container and remove it. Until then it keeps working.
 
 ## What it needs
 
-A database - Postgres, or SQLite and no second container - something to sign in
-against (a directory, an OIDC provider, or its own accounts), and Temporal. By
-default it **refuses to start** without Temporal, so one brought up before its
-Temporal restarts until that service answers.
+A database (Postgres or SQLite), something to sign in against (a directory,
+OIDC, or its own accounts), and Temporal - without which it **refuses to start**
+by default, restarting until Temporal answers.
 
 ```yaml
 services:
@@ -40,10 +39,10 @@ services:
       - orknux-data:/home/orknux   # only if attachments are on
 ```
 
-The volume is on the server user's home on purpose: a named volume on a path
-the image lacks is created owned by root, which `orknux` cannot write to.
+The volume is on the server user's home: a path the image lacks is created
+owned by root.
 
-A whole installation - database, directory, Temporal - is
+A whole installation is
 [`deploy/compose.yaml`](https://github.com/michjak-szymanski/orknux-server/blob/main/deploy/compose.yaml)
 in the source repository.
 
@@ -88,6 +87,8 @@ ORKNUX_DB_URL: jdbc:sqlite:/data/orknux.db
 | `ORKNUX_DB_POOL_SIZE` | Connections in the pool. Every turn, step and page holds one while it works. | `10` | No |
 | `ORKNUX_DB_POOL_WAIT_MS` | How long a request waits for a free connection before it fails. | `30000` | No |
 | `ORKNUX_DB_POOL_LEAK_MS` | Logs any connection held longer than this, with the stack that took it. `0` is off. | `0` | No |
+| `ORKNUX_GRAPHQL_LOG_SLOW_MS` | Logs a slower request by name, time, size. `0` off. | `3000` | No |
+| `ORKNUX_GRAPHQL_LOG_LARGE_KB` | The same for a larger answer. | `0` | No |
 
 ## Signing in
 

@@ -40,7 +40,8 @@ class PluginActions(
         return all()
     }
 
-    fun all(): List<PluginActionView> = plugins.findAllByOrderByNameAsc()
+    // Declarations only: the entity is the bundle, megabytes for some. #616.
+    fun all(): List<PluginActionView> = plugins.declared()
         .filter { it.enabled }
         .flatMap { declarations.readActions(it.declaredActions, it.key, it.name) }
 

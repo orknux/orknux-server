@@ -350,7 +350,35 @@ interface PluginRepository : JpaRepository<Plugin, Long> {
         """,
     )
     fun enabledSkillDeclarations(): List<PluginSkillDeclarations>
+
+    /**
+     * Every plugin with what it declares, and none of what it is: no source, no
+     * typescript, no icons. The pickers - an agent's tools, a workflow's
+     * actions, a connection's kinds - ask on every page that draws one, and a
+     * plugin carrying a bundled renderer is megabytes of source. Reading that
+     * whole, twice over for Hibernate's dirty check, to look at a list of names
+     * is how an agent's settings page ran a server out of memory. Issue #616.
+     */
+    @Query(
+        """
+        select new io.mszymanski.orknux.server.plugin.PluginDeclared(
+            p.id, p.key, p.name, p.enabled, p.declaredTools, p.declaredActions, p.declaredConnectionTypes)
+        from Plugin p order by p.name
+        """,
+    )
+    fun declared(): List<PluginDeclared>
 }
+
+/** A plugin's declarations without its bundle. See [PluginRepository.declared]. */
+data class PluginDeclared(
+    val id: Long,
+    val key: String,
+    val name: String,
+    val enabled: Boolean,
+    val declaredTools: String,
+    val declaredActions: String,
+    val declaredConnectionTypes: String,
+)
 
 /** A plugin's identity and bundle hash. See [PluginRepository.fingerprints]. */
 data class PluginFingerprint(val id: Long, val sha256: String, val enabled: Boolean)

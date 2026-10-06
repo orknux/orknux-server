@@ -21,6 +21,7 @@ have failed.
 
 - Admin → Settings → Bulkheads: walls that keep one agent turn from taking the server down - how many turns run at once and how long one more waits, a limit on the heap left after a collection beyond which a turn stops with a sentence saying why, and how much one turn may hold of tool results. Each can be switched off, which restores exactly what happened before.
 - `ORKNUX_DB_POOL_SIZE`, `ORKNUX_DB_POOL_WAIT_MS` and `ORKNUX_DB_POOL_LEAK_MS` size the database connection pool, and can log whoever holds a connection too long.
+- A GraphQL request slower than `ORKNUX_GRAPHQL_LOG_SLOW_MS` (3 s) is logged by its name, time and size, never its content - so a page that takes the server down says which of its requests did it. `ORKNUX_GRAPHQL_LOG_LARGE_KB` does the same for size, off by default.
 
 ### 🔧 Changed
 
@@ -30,6 +31,7 @@ have failed.
 ### 🐛 Fixed
 
 - Resolving an agent's skills - on every briefing and every `skill_load` - read every installed plugin whole, source and icons, to look at the skills they declare. An agent with several skills set to Always did that over and over in one turn. It reads only the declarations now, and only when a plugin has changed.
+- An agent's settings page could run the server out of memory on an installation with a large plugin - PlantUML's bundle is about 4 MB. Its tool, action and connection pickers read every plugin whole, source and icons, to look at what each declares; they read only the declarations now.
 
 ## 0.9.9.15
 

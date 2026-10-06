@@ -2135,7 +2135,8 @@ class PluginAPI(
      */
     @QueryMapping
     fun pluginTools(): List<PluginAgentToolView> =
-        plugins.findAllByOrderByNameAsc().flatMap { plugin ->
+        // Declarations only: the entity is the bundle, megabytes for some. #616.
+        plugins.declared().flatMap { plugin ->
             declarations.readTools(plugin.declaredTools).map { tool ->
                 PluginAgentToolView(
                     name = "${plugin.key}_${tool.name}",

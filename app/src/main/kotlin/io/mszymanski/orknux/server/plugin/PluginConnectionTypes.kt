@@ -27,7 +27,8 @@ class PluginConnectionTypes(
     @QueryMapping
     fun pluginConnectionTypes(): List<PluginConnectionTypeView> = all()
 
-    fun all(): List<PluginConnectionTypeView> = plugins.findAllByOrderByNameAsc()
+    // Declarations only: the entity is the bundle, megabytes for some. #616.
+    fun all(): List<PluginConnectionTypeView> = plugins.declared()
         .filter { it.enabled }
         .flatMap { declarations.readConnectionTypes(it.declaredConnectionTypes, it.key, it.name) }
 

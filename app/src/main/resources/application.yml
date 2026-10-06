@@ -163,6 +163,13 @@ db-scheduler:
 orknux:
   # Filled in from the build, and reported on the monitoring screen.
   version: "@project.version@"
+  # A GraphQL operation slower or larger than these is logged by name, time and
+  # size, never content - how a page that took the server down says which of
+  # its requests did it. Size is off by default: measuring it writes every
+  # answer out twice. Zero switches either off.
+  graphql:
+    log-slower-than-ms: ${ORKNUX_GRAPHQL_LOG_SLOW_MS:3000}
+    log-larger-than-kb: ${ORKNUX_GRAPHQL_LOG_LARGE_KB:0}
   cluster:
     # How long the lease lasts that decides which server, of however many share
     # this database, runs what must run once - the sweeps, the checks, the Slack
