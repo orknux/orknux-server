@@ -399,8 +399,7 @@ class IssueAPI(
     @MutationMapping
     @Transactional
     fun editIssueComment(@Argument id: Long, @Argument content: String): IssueView {
-        val issue = issues.findAll()
-            .firstOrNull { held -> held.comments.any { it.id == id } }
+        val issue = issues.findByCommentId(id)
             ?.takeIf { access.canSee(it.workspaceId) }
             ?: throw IssueCommentNotFoundException(id)
 
@@ -448,8 +447,7 @@ class IssueAPI(
     @MutationMapping
     @Transactional
     fun removeIssueComment(@Argument id: Long): IssueView {
-        val issue = issues.findAll()
-            .firstOrNull { held -> held.comments.any { it.id == id } }
+        val issue = issues.findByCommentId(id)
             ?.takeIf { access.canSee(it.workspaceId) }
             ?: throw IssueCommentNotFoundException(id)
 

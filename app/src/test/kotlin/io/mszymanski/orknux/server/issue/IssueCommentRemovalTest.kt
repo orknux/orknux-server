@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.issue
 
+import io.mszymanski.orknux.server.EntityLoads
 import io.mszymanski.orknux.server.attachment.AttachmentProperties
 import io.mszymanski.orknux.server.attachment.InstallationSettingRepository
 import io.mszymanski.orknux.server.mcp.OrknuxScope
@@ -12,6 +13,7 @@ import io.mszymanski.orknux.server.user.UserType
 import io.mszymanski.orknux.server.workspace.Workspace
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRepository
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
+import jakarta.persistence.EntityManagerFactory
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -69,6 +71,7 @@ class IssueCommentRemovalTest(
     @Autowired val settings: InstallationSettingRepository,
     @Autowired val tools: OrknuxTools,
     @Autowired val jdbc: JdbcTemplate,
+    @Autowired val factory: EntityManagerFactory,
 ) {
 
     /** Where bob can see and cannot administer. */
@@ -433,5 +436,41 @@ class IssueCommentRemovalTest(
 
         // And a name invented by a model is refused rather than dispatched.
         assertThat(tools.run(scope, "orknux_remove_issue_comment", "{}")).contains("orknux_remove_issue_comment")
+    }
+
+    /**
+     * A comment is found by its id, not by reading the tracker. Issue #616.
+     *
+     * Editing or removing one used to load every issue in the installation and
+     * every comment on each, to find the one thread the comment was on. The
+     * answer was right; what it read to get there grew with every issue ever
+     * filed. So this counts the issues loaded while the thread it is on is
+     * changed, with others beside it that have nothing to do with it.
+     */
+    @Test
+    fun `a comment is found without reading every issue`() {
+        repeat(4) { at ->
+            val other = file("Unrelated $at")
+            graphQlTester.document("""mutation { commentOnIssue(id: $other, content: "Noise $at") { id } }""").execute()
+        }
+        val id = file()
+        val comment = graphQlTester.document(
+            """mutation { commentOnIssue(id: $id, content: "Looking") { comments { id } } }""",
+        ).execute().path("commentOnIssue.comments[0].id").entity(Long::class.java).get()
+        val loads = EntityLoads(factory)
+
+        val edited = loads.of(Issue::class) {
+            graphQlTester.document("""mutation { editIssueComment(id: $comment, content: "Looking, and fixed") { comments { content } } }""")
+                .execute().path("editIssueComment.comments[0].content").entity(String::class.java).get()
+        }
+        assertThat(edited.answer).isEqualTo("Looking, and fixed")
+        assertThat(edited.loaded).describedAs("issues read to edit one comment").isEqualTo(1)
+
+        val removed = loads.of(Issue::class) {
+            graphQlTester.document("""mutation { removeIssueComment(id: $comment) { comments { id } } }""")
+                .execute().path("removeIssueComment.comments").entityList(Any::class.java).get()
+        }
+        assertThat(removed.answer).isEmpty()
+        assertThat(removed.loaded).describedAs("issues read to remove one comment").isEqualTo(1)
     }
 }

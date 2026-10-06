@@ -202,6 +202,14 @@ interface IssueRepository : JpaRepository<Issue, Long>, JpaSpecificationExecutor
 
     fun findByWorkspaceIdAndNumber(workspaceId: Long, number: Int): Issue?
 
+    /**
+     * The issue a comment is on. A comment knows its issue only through the
+     * join column, so this is the one way from a comment id to its thread that
+     * does not read every issue and every comment to find it. Issue #616.
+     */
+    @Query("select i from Issue i join i.comments c where c.id = :commentId")
+    fun findByCommentId(commentId: Long): Issue?
+
     /** The highest number used here, so the next one follows it. */
     @Query("select coalesce(max(i.number), 0) from Issue i where i.workspaceId = :workspaceId")
     fun lastNumber(workspaceId: Long): Int
