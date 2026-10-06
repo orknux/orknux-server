@@ -56,6 +56,16 @@ spring:
     # Both empty under SQLite; a file has nobody to authenticate to.
     username: ${ORKNUX_DB_USERNAME:orknux}
     password: ${ORKNUX_DB_PASSWORD:orknux}
+    # The connection pool, at Hikari's own defaults. Every agent turn, run step
+    # and page holds a connection while it works, so a busy installation can
+    # wait on the pool rather than on the database - which reads as something
+    # stuck with nothing in the log, until the wait times out. The leak
+    # threshold, off by default, logs any connection held longer than it, with
+    # the stack that took it: the way to find what is holding one.
+    hikari:
+      maximum-pool-size: ${ORKNUX_DB_POOL_SIZE:10}
+      connection-timeout: ${ORKNUX_DB_POOL_WAIT_MS:30000}
+      leak-detection-threshold: ${ORKNUX_DB_POOL_LEAK_MS:0}
   jpa:
     hibernate:
       ddl-auto: validate

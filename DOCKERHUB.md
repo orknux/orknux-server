@@ -68,27 +68,26 @@ length, and whether every stored secret still reads with it.
 
 ## Database
 
-Postgres or SQLite. `ORKNUX_DB_URL` decides which and nothing else does: the
-driver, dialect and migrations follow from it. Postgres is for a deployment;
-SQLite is one file with nothing else to run, for an installation of one or a
-few. What that costs is in the README's **The database**.
+Postgres or SQLite: `ORKNUX_DB_URL` decides, and driver, dialect and
+migrations follow. Postgres for a deployment; SQLite is one file, for one or a
+few people - the README's **The database** says what that costs.
 
-Under SQLite, put the file on a volume that outlives the container and make the
-directory yourself: the server creates the file, not the directory.
+Under SQLite, keep the file on a volume, and create its directory yourself:
+the server makes only the file.
 
 ```
 ORKNUX_DB_URL: jdbc:sqlite:/data/orknux.db
 ```
 
-The schema is Flyway's either way, and the migrations are the only thing that
-ever changes it.
-
 | Variable | What it does | Default | Required |
 | --- | --- | --- | --- |
-| `ORKNUX_DB_URL` | The JDBC URL, and what picks the database. `jdbc:postgresql://host:5432/orknux` or `jdbc:sqlite:/data/orknux.db`. | `jdbc:postgresql://localhost:5432/orknux` | **Yes** in a deployment |
+| `ORKNUX_DB_URL` | The JDBC URL; it picks the database. | `jdbc:postgresql://localhost:5432/orknux` | **Yes** in a deployment |
 | `ORKNUX_DB_USERNAME` | The user it connects as. Ignored under SQLite. | `orknux` | **Yes** in a Postgres deployment |
 | `ORKNUX_DB_PASSWORD` | That user's password. Ignored under SQLite. | `orknux` | **Yes** in a Postgres deployment |
-| `ORKNUX_DB_MIGRATE` | Whether Flyway migrates on start. Turn it off only where something else owns the schema, which this build expects at its own version. | `true` | No |
+| `ORKNUX_DB_MIGRATE` | Whether Flyway migrates on start. Off only where something else owns the schema. | `true` | No |
+| `ORKNUX_DB_POOL_SIZE` | Connections in the pool. Every turn, step and page holds one while it works. | `10` | No |
+| `ORKNUX_DB_POOL_WAIT_MS` | How long a request waits for a free connection before it fails. | `30000` | No |
+| `ORKNUX_DB_POOL_LEAK_MS` | Logs any connection held longer than this, with the stack that took it. `0` is off. | `0` | No |
 
 ## Signing in
 
