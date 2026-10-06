@@ -50,7 +50,17 @@ import kotlin.concurrent.withLock
  * Off restores exactly what happened before each wall existed.
  */
 @Component
-class Bulkheads(private val settings: InstallationSettingRepository) {
+class Bulkheads(
+    private val settings: InstallationSettingRepository,
+    /**
+     * Whether the real heap is read at all. Off only in the test build, whose
+     * one JVM holds a cache of Spring contexts and sits above any sensible line
+     * for reasons that have nothing to do with a turn - 0.9.9.18's build had the
+     * guard refuse the turns of a test that was not about it. The tests of the
+     * guard hand it their own readings.
+     */
+    @org.springframework.beans.factory.annotation.Value("\${orknux.bulkheads.read-heap:true}") readHeap: Boolean = true,
+) {
 
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -60,7 +70,7 @@ class Bulkheads(private val settings: InstallationSettingRepository) {
     private val freed = lock.newCondition()
 
     /** Where the heap reading comes from; replaced in tests, which cannot fill a real heap on purpose. */
-    internal var heapAfterGc: () -> Int? = ::oldGenerationAfterGcPercent
+    internal var heapAfterGc: () -> Int? = if (readHeap) ::oldGenerationAfterGcPercent else { -> null }
 
     /** What is set now, each value at its default where nobody has set it. */
     fun values(): BulkheadValues {

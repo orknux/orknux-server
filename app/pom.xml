@@ -489,6 +489,8 @@
                         <orknux.security.secret-key>b3JrbnV4LXRlc3Qta2V5LTMyLWJ5dGVzLWV4YWN0bHk=</orknux.security.secret-key>
                         <!-- No websockets out to Slack from a test run. -->
                         <orknux.slack.enabled>false</orknux.slack.enabled>
+                        <!-- One JVM full of cached contexts reads high for nothing a turn did; BulkheadsTest feeds its own readings. -->
+                        <orknux.bulkheads.read-heap>false</orknux.bulkheads.read-heap>
                         <!-- No cluster lease. One JVM here holds several contexts
                              on one database, and they are not replicas of each
                              other: on the inline engine the second would wait a
