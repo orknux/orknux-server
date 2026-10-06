@@ -225,6 +225,33 @@ class SubagentSessionTest(
     }
 
     /**
+     * A finished ask is let go of. Issue #616: its future, holding the whole
+     * answer, and its conversation's permits stayed in memory for as long as
+     * the server ran. What `agent_asks` says afterwards is read from the
+     * transcript and the store, so it must not change.
+     */
+    @Test
+    fun `a finished ask holds nothing in memory, and is still read back whole`() {
+        val (asker, _) = pair()
+        val main = recorder.open(workspaceId, "chat", "planning")
+
+        asking.run(asker, """{"agent":"Librarian","question":"What is the answer?"}""", parent = main)
+        val child = requireNotNull(sessions.findByParentSessionIdOrderByCreatedAtAscIdAsc(main).single().id)
+        asking.waited(asker, main, """{"seconds":10}""")
+
+        // The future is let go just after it is marked done, on the ask's own thread.
+        val until = System.nanoTime() + 5_000_000_000L
+        while ((asking.holdsAsk(child) || asking.holdsGate(main)) && System.nanoTime() < until) Thread.sleep(20)
+        assertThat(asking.holdsAsk(child)).describedAs("the ask's future").isFalse()
+        assertThat(asking.holdsGate(main)).describedAs("the conversation's permits").isFalse()
+
+        val answered = mapper.readTree(asking.asked(asker, main)).path("asks").single()
+        assertThat(answered.path("working").asBoolean()).isFalse()
+        assertThat(answered.path("answer").stringValue()).isEqualTo("Forty-two.")
+        assertThat(answered.path("contentKey").stringValue()).isEqualTo("answer.$child")
+    }
+
+    /**
      * What the asked agent's own tools kept comes up with the answer: a key
      * its answer names has to work in the conversation that asked. The
      * asker's own keys win, and the ceiling is the ceiling.

@@ -143,7 +143,34 @@ class AgentRunTools(
      * words - the failure mode this whole feature keeps running into - and the
      * wait is invisible to it anyway, because it was never going to block.
      */
-    private val atOnce = java.util.concurrent.ConcurrentHashMap<Long, java.util.concurrent.Semaphore>()
+    private val atOnce = java.util.concurrent.ConcurrentHashMap<Long, Gate>()
+
+    /**
+     * One conversation's permits, and how many of its asks still hold a claim on
+     * them - waiting or working. Issue #616: the semaphore used to stay in
+     * [atOnce] for ever, one per conversation that had ever asked anything. It
+     * goes when the last of its asks is over; `users` is only ever read and
+     * written inside the map's `compute`, so the count and the removal cannot
+     * race an ask arriving for the same conversation.
+     */
+    private class Gate(permits: Int) {
+        val permits = java.util.concurrent.Semaphore(permits)
+        var users = 0
+    }
+
+    /** An ask of this conversation is over; the last one out takes the gate with it. */
+    private fun letGo(conversation: Long) {
+        atOnce.computeIfPresent(conversation) { _, held ->
+            held.users--
+            if (held.users > 0) held else null
+        }
+    }
+
+    /** Whether this process still holds an ask's future - for the test that it lets go. Issue #616. */
+    internal fun holdsAsk(session: Long): Boolean = running.containsKey(session)
+
+    /** Whether a conversation still has permits kept for it - for the test that they go. Issue #616. */
+    internal fun holdsGate(conversation: Long): Boolean = atOnce.containsKey(conversation)
 
     /**
      * Whether this agent has anybody to ask. A grant list of none offers
@@ -348,11 +375,11 @@ class AgentRunTools(
      * about what came of it - so `::agents` was a question nobody could answer
      * and a person asking what the subagents were doing got a guess.
      *
-     * Still working is read the way the sessions list reads it: a line opened
-     * and not finished, or something written within the installation's own
-     * window. Deliberately the same rule and deliberately not the same code -
-     * the screen's copy checks a run is running, which needs two more
-     * repositories than this tool has any business holding.
+     * Still working is read off the future this process holds for it, and
+     * with none, off a line opened and not finished. Not the sessions list's
+     * other half - something written within the installation's window - since
+     * #616: an ask's future goes the moment it is done, and that half would
+     * then call a finished ask working for a minute after it answered.
      */
     fun asked(agent: Agent, parent: Long?): String {
         if (parent == null) {
@@ -363,18 +390,19 @@ class AgentRunTools(
         val children = held.findByParentSessionIdOrderByCreatedAtAscIdAsc(parent)
         val ids = children.mapNotNull { it.id }
         val open = if (ids.isEmpty()) emptySet() else lines.unfinishedAmong(ids).toSet()
-        val window = installation.sessionsActiveWindowSeconds().toLong()
-        val recently = java.time.OffsetDateTime.now().minusSeconds(window)
 
         val listed = children.map { session ->
             val id = session.id
             val future = id?.let { running[it] }
-            // Still going where its future says so; otherwise by the transcript, as before.
-            val working = if (future != null) {
-                !future.isDone
-            } else {
-                id in open || session.lastEventAt?.isAfter(recently) == true
-            }
+            /*
+             * Still going where its future says so. With no future it is not
+             * running here, and asks run nowhere else: either it finished - its
+             * future is dropped the moment it is done (#616) - or a restart
+             * took it. So only a line left open counts then, and not a line
+             * written recently, which would call an ask that has just answered
+             * still working for the whole of the window.
+             */
+            val working = if (future != null) !future.isDone else id in open
             linkedMapOf<String, Any?>(
                 "asked" to (nameIn(session.agentDetails) ?: "an agent"),
                 "about" to session.title,
@@ -391,7 +419,7 @@ class AgentRunTools(
                  * a future nothing read, so the asking agent was told to read
                  * what came back and nothing came back.
                  */
-                if (!working && id != null) putAll(cameBack(id, future))
+                if (!working && id != null) putAll(cameBack(parent, id, future))
             }
         }
         val allowed = limitFor(agent)
@@ -411,7 +439,7 @@ class AgentRunTools(
      * where it did not - after a restart, the future is gone and the answer is
      * still written down.
      */
-    private fun cameBack(child: Long, future: java.util.concurrent.Future<*>?): Map<String, Any?> {
+    private fun cameBack(parent: Long, child: Long, future: java.util.concurrent.Future<*>?): Map<String, Any?> {
         val held = future?.let { runCatching { it.get() as? String }.getOrNull() }
         if (held != null) {
             val read = runCatching { mapper.readTree(held) }.getOrNull()
@@ -441,9 +469,19 @@ class AgentRunTools(
             val answered = lines.latest(
                 child, listOf(io.mszymanski.orknux.server.llm.LlmSessionEventKind.AGENT), org.springframework.data.domain.PageRequest.of(0, 1),
             ).firstOrNull()?.content?.takeIf { it.isNotBlank() } ?: return emptyMap()
-            return mapOf("answer" to answered)
+            return withKey(parent, child, mapOf("answer" to answered))
         }
-        return mapOf("answer" to said)
+        return withKey(parent, child, mapOf("answer" to said))
+    }
+
+    /**
+     * The key the answer was kept under, where it still is. The future that
+     * named it is gone once the ask is over (#616), and the key is the one
+     * [keyFor] always writes, so the store is what says whether it was kept.
+     */
+    private fun withKey(parent: Long, child: Long, answer: Map<String, Any?>): Map<String, Any?> {
+        val key = "answer.$child"
+        return if (scratch.get(parent, key) != null) answer + ("contentKey" to key) else answer
     }
 
     /**
@@ -612,11 +650,15 @@ class AgentRunTools(
             return answerOf(wanted, conversations.getObject().answer(modelId, sub, turns, into = null, shed = lent), parent, null)
         }
 
-        val permits = atOnce.computeIfAbsent(parent ?: into) {
-            java.util.concurrent.Semaphore(installation.agentMaxSubagentsAtOnce())
-        }
-        // A Callable by name: a bare lambda resolves to submit(Runnable), whose future holds null. Issue #536.
-        val started = asking?.submit(java.util.concurrent.Callable {
+        val gateKey = parent ?: into
+        val gate = requireNotNull(
+            atOnce.compute(gateKey) { _, held ->
+                (held ?: Gate(installation.agentMaxSubagentsAtOnce())).apply { users++ }
+            },
+        )
+        // A Callable by name: a bare lambda resolves to the Runnable constructor, whose future holds null. Issue #536.
+        val work = java.util.concurrent.Callable {
+            val permits = gate.permits
             permits.acquire()
             runCatching {
                 /*
@@ -666,9 +708,31 @@ class AgentRunTools(
                 .also { permits.release() }
                 // The answer itself, for agent_asks to hand back - not the Result around it. Issue #536.
                 .getOrNull()
-        })
-        if (started == null) return refusal("Asks are not running just now; try again in a moment.")
+        }
+        /*
+         * Forgotten the moment it is over, finished or cancelled. Issue #616:
+         * the future held the whole answer and nothing ever took it out, so a
+         * server that answered asks for a week held every answer of the week.
+         * Once it is done the answer is in the asker's store and the asked
+         * agent's transcript, which is where [asked] reads it from.
+         *
+         * `done()` rather than a `finally` in the work, because it runs after
+         * the future is marked done and also for a task cancelled before it
+         * ever ran - and registered before it is handed over, so even an ask
+         * that is over at once cannot finish before it is in the map.
+         */
+        val started = object : java.util.concurrent.FutureTask<String?>(work) {
+            override fun done() {
+                running.remove(into, this)
+                letGo(gateKey)
+            }
+        }
         running[into] = started
+        val handed = runCatching { requireNotNull(asking).execute(started) }.isSuccess
+        if (!handed) {
+            started.cancel(false)
+            return refusal("Asks are not running just now; try again in a moment.")
+        }
 
         return mapper.writeValueAsString(
             linkedMapOf(
