@@ -15,6 +15,10 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## 0.9.9.19
+
+What 0.9.9.18 was to be: that tag was never published, its build having stopped on a test the new memory guard refused. Everything below under 0.9.9.18 is in this release.
+
 ## 0.9.9.18
 
 ### 🔧 Changed
