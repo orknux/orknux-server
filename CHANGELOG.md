@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🐛 Fixed
+
+- Screens and timers that read a whole growing table to answer something small read only what they need: the audit page's user filter, editing or removing an issue comment, the nightly scratchpad sweep, and offering an agent its plugin tools, which loaded every plugin's bundle. A deleted Slack connection and a model nobody calls any more are no longer remembered in memory for good.
+
 ## 0.9.9.14
 
 ### 🔧 Changed
