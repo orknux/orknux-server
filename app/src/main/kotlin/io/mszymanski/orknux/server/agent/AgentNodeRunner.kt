@@ -128,7 +128,20 @@ class AgentNodeRunner(
      */
     override fun asksAgainAfterRestart(step: ExecutionStep): Boolean = true
 
-    override fun run(step: ExecutionStep, input: String?, trigger: String?): StepResult {
+    /*
+     * The place among the turns the server runs at once is taken here, before
+     * anything is read, rather than where the model is asked: the pictures on
+     * the message and the session are read first, and a step waiting for a
+     * place with three screenshots already in hand was holding the memory the
+     * wall exists to protect. Unsettled when refused, so the node's retry asks
+     * again later. Issue #616.
+     */
+    override fun run(step: ExecutionStep, input: String?, trigger: String?): StepResult =
+        bulkheads.turn({ why ->
+            throw StepFailedException(step.nodeKey, "${step.name} could not start: $why", permanent = false)
+        }) { held(step, input, trigger) }
+
+    private fun held(step: ExecutionStep, input: String?, trigger: String?): StepResult {
         // A node pointing at nothing is not configured, which is not a failure:
         // a graph is drawn before it is finished, and a run should say what it
         // found rather than stopping the workflow over it.
@@ -609,7 +622,10 @@ class AgentNodeRunner(
         val hangup = Hangup()
         val answer = try {
             stoppable(hangup) {
-                conversation.answer(modelId, agent, turns, session, shed = shed, watch = watching, hangup = hangup)
+                // gated = false: this step took its place in [run], before it read anything.
+                conversation.answer(
+                    modelId, agent, turns, session, shed = shed, watch = watching, hangup = hangup, gated = false,
+                )
             }
         } catch (finished: AnswerFinished) {
             val wake = finished.wake
