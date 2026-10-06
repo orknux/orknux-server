@@ -20,6 +20,7 @@ have failed.
 ### 🐛 Fixed
 
 - Pages listing plugins read every plugin's code; they read it only where it runs. A workspace's or an agent's settings no longer loads a multi-megabyte plugin bundle to draw a list.
+- Thirty-six foreign keys had no index on their referencing side, so deleting an agent, a function, a session or an issue scanned whole tables, and lookups like the chats of an agent or the actions calling a function had nothing to use. They are all indexed now.
 
 ## 0.9.9.16
 
