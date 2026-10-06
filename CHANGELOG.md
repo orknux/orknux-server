@@ -21,6 +21,10 @@ have failed.
 
 - The Temporal worker keeps 50 runs in memory between steps instead of Temporal's default of 600, and holds up to 100 workflow threads instead of 600. A cached run keeps its input, every step's output and a thread of its own, and one that parks stays cached for hours - so an idle server filled its heap. A run that is not cached replays from history at its next step, which costs a moment and nothing else. `ORKNUX_TEMPORAL_WORKFLOW_CACHE` and `ORKNUX_TEMPORAL_WORKFLOW_THREADS` set them.
 
+### 🐛 Fixed
+
+- An agent's settings page could take most of a minute to open or save. An agent was read in one query that joined all ten of its lists, so one with a few names in each came back as every combination of them; "where is this used" read and parsed every workflow in the workspace; and a save rewrote every list it had not changed. Each list is now read on its own, the dependants come from three queries whatever the number of workflows, the history lists without its snapshots, and the agents and workspaces lists no longer ask once a row.
+
 ## 0.9.9.17
 
 ### 🐛 Fixed

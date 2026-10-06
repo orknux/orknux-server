@@ -16,6 +16,8 @@ import jakarta.persistence.JoinColumn
 import jakarta.persistence.OrderColumn
 import jakarta.persistence.Table
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Query
+import org.springframework.data.repository.query.Param
 
 enum class WorkflowStatus {
     DRAFT,
@@ -591,6 +593,48 @@ interface WorkflowNodeRepository : JpaRepository<WorkflowNode, Long> {
 
     /** Which nodes run this agent, so it cannot be deleted from under them. */
     fun findByAgentId(agentId: Long): List<WorkflowNode>
+
+    /*
+     * Which of a workspace's workflows have a draft node naming a definition:
+     * the draft half of WorkflowReferences, one statement per question rather
+     * than every node of every workflow read to look at one column. Issue #616.
+     */
+
+    @Query(
+        """
+        SELECT DISTINCT n.workflowId FROM WorkflowNode n
+        WHERE n.agentId = :id
+          AND n.workflowId IN (SELECT a.workflow.id FROM WorkspaceWorkflow a WHERE a.workspaceId = :workspaceId)
+        """,
+    )
+    fun draftsNamingAgent(@Param("workspaceId") workspaceId: Long, @Param("id") id: Long): List<Long>
+
+    @Query(
+        """
+        SELECT DISTINCT n.workflowId FROM WorkflowNode n
+        WHERE n.actionId = :id
+          AND n.workflowId IN (SELECT a.workflow.id FROM WorkspaceWorkflow a WHERE a.workspaceId = :workspaceId)
+        """,
+    )
+    fun draftsNamingAction(@Param("workspaceId") workspaceId: Long, @Param("id") id: Long): List<Long>
+
+    @Query(
+        """
+        SELECT DISTINCT n.workflowId FROM WorkflowNode n
+        WHERE n.conditionId = :id
+          AND n.workflowId IN (SELECT a.workflow.id FROM WorkspaceWorkflow a WHERE a.workspaceId = :workspaceId)
+        """,
+    )
+    fun draftsNamingCondition(@Param("workspaceId") workspaceId: Long, @Param("id") id: Long): List<Long>
+
+    @Query(
+        """
+        SELECT DISTINCT n.workflowId FROM WorkflowNode n
+        WHERE n.triggerId = :id
+          AND n.workflowId IN (SELECT a.workflow.id FROM WorkspaceWorkflow a WHERE a.workspaceId = :workspaceId)
+        """,
+    )
+    fun draftsNamingTrigger(@Param("workspaceId") workspaceId: Long, @Param("id") id: Long): List<Long>
 }
 
 interface WorkflowEdgeRepository : JpaRepository<WorkflowEdge, Long> {

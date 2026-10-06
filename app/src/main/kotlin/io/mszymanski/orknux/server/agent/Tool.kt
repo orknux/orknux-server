@@ -18,6 +18,8 @@ import jakarta.persistence.Id
 import jakarta.persistence.JoinColumn
 import jakarta.persistence.OrderColumn
 import jakarta.persistence.Table
+import org.hibernate.annotations.Fetch
+import org.hibernate.annotations.FetchMode
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
@@ -133,7 +135,11 @@ class AgentTool(
      * So it is stored, like a function's. Existing tools were given the one
      * parameter they always had, which is why nothing about them changed.
      */
+    // Each list in a select of its own, batched across rows, rather than joined:
+    // joining several eager lists into one select returns every combination of
+    // their rows, and an agent with a handful in each took a minute. Issue #616.
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @CollectionTable(name = "agent_tool_param", joinColumns = [JoinColumn(name = "tool_id")])
     @OrderColumn(name = "position")
     var params: MutableList<AgentToolParam> = mutableListOf(),
@@ -151,6 +157,7 @@ class AgentTool(
      * builds out of.
      */
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @CollectionTable(name = "agent_tool_import", joinColumns = [JoinColumn(name = "tool_id")])
     @OrderColumn(name = "position")
     var imports: MutableList<ScriptImport> = mutableListOf(),
@@ -166,6 +173,7 @@ class AgentTool(
      * happened to have that number.
      */
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @CollectionTable(name = "agent_tool_library", joinColumns = [JoinColumn(name = "tool_id")])
     @OrderColumn(name = "position")
     var libraries: MutableList<ScriptImport> = mutableListOf(),
@@ -180,6 +188,7 @@ class AgentTool(
      * credential without the credential passing through a conversation.
      */
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @CollectionTable(name = "agent_tool_external", joinColumns = [JoinColumn(name = "tool_id")])
     @OrderColumn(name = "position")
     var externals: MutableList<FunctionExternal> = mutableListOf(),

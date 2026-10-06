@@ -15,6 +15,8 @@ import jakarta.persistence.Id
 import jakarta.persistence.JoinColumn
 import jakarta.persistence.OrderColumn
 import jakarta.persistence.Table
+import org.hibernate.annotations.Fetch
+import org.hibernate.annotations.FetchMode
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.Query
@@ -331,7 +333,11 @@ class WorkflowFunction(
     @Column(name = "return_object_id")
     var returnObjectId: Long? = null,
 
+    // Each list in a select of its own, batched across rows, rather than joined:
+    // joining several eager lists into one select returns every combination of
+    // their rows, and an agent with a handful in each took a minute. Issue #616.
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @CollectionTable(name = "workflow_function_param", joinColumns = [JoinColumn(name = "function_id")])
     @OrderColumn(name = "position")
     var params: MutableList<FunctionParam> = mutableListOf(),
@@ -341,6 +347,7 @@ class WorkflowFunction(
      * receives them — after everything it declares.
      */
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @CollectionTable(name = "workflow_function_external", joinColumns = [JoinColumn(name = "function_id")])
     @OrderColumn(name = "position")
     var externals: MutableList<FunctionExternal> = mutableListOf(),
@@ -355,6 +362,7 @@ class WorkflowFunction(
      * functions it could reach.
      */
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @CollectionTable(name = "workflow_function_import", joinColumns = [JoinColumn(name = "function_id")])
     @OrderColumn(name = "position")
     var imports: MutableList<ScriptImport> = mutableListOf(),
@@ -370,6 +378,7 @@ class WorkflowFunction(
      * happened to have that number.
      */
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @CollectionTable(name = "workflow_function_library", joinColumns = [JoinColumn(name = "function_id")])
     @OrderColumn(name = "position")
     var libraries: MutableList<ScriptImport> = mutableListOf(),

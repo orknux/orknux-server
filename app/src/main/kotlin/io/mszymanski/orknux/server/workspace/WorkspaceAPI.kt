@@ -38,6 +38,7 @@ import org.springframework.data.repository.findByIdOrNull
 import org.springframework.graphql.data.method.annotation.Argument
 import org.springframework.graphql.data.method.annotation.MutationMapping
 import org.springframework.graphql.data.method.annotation.QueryMapping
+import org.springframework.graphql.data.method.annotation.BatchMapping
 import org.springframework.graphql.data.method.annotation.SchemaMapping
 import org.springframework.stereotype.Controller
 import io.mszymanski.orknux.connector.model.ModelKind
@@ -443,33 +444,42 @@ class WorkspaceAPI(
     @SchemaMapping(typeName = "Workspace")
     fun taskMaxTurnsDefault(workspace: Workspace): Int = taskProperties.maxTurns
 
+    /*
+     * The installation's numbers below are read once for a list of workspaces
+     * rather than once a row: each is a settings row, and seven of them a
+     * workspace made a list of forty workspaces three hundred selects for the
+     * same seven values. Issue #616.
+     */
+
     /** What an agent here may ask when the workspace has said nothing: Admin -> Settings. Issue #380. */
-    @SchemaMapping(typeName = "Workspace")
-    fun agentMaxSubagentsDefault(workspace: Workspace): Int = installation.agentMaxSubagents()
+    @BatchMapping(typeName = "Workspace")
+    fun agentMaxSubagentsDefault(workspaces: List<Workspace>): List<Int> =
+        installation.agentMaxSubagents().let { value -> workspaces.map { value } }
 
     /** How many calls one message may ask for when the workspace has said nothing. Issue #518. */
-    @SchemaMapping(typeName = "Workspace")
-    fun maxToolCallsAtOnceDefault(workspace: Workspace): Int = installation.maxToolCallsAtOnce()
+    @BatchMapping(typeName = "Workspace")
+    fun maxToolCallsAtOnceDefault(workspaces: List<Workspace>): List<Int> =
+        installation.maxToolCallsAtOnce().let { value -> workspaces.map { value } }
 
     /** How long a session here may grow before it is compacted. Issue #523. */
-    @SchemaMapping(typeName = "Workspace")
-    fun sessionCompactAfterTokensDefault(workspace: Workspace): Int =
-        installation.sessionCompactAfterTokens()
+    @BatchMapping(typeName = "Workspace")
+    fun sessionCompactAfterTokensDefault(workspaces: List<Workspace>): List<Int> =
+        installation.sessionCompactAfterTokens().let { value -> workspaces.map { value } }
 
     /** What a compacted turn keeps here when the workspace has said nothing. Issue #522. */
-    @SchemaMapping(typeName = "Workspace")
-    fun sessionCompactionKeepTurnsDefault(workspace: Workspace): Int =
-        installation.sessionCompactionKeepTurns()
+    @BatchMapping(typeName = "Workspace")
+    fun sessionCompactionKeepTurnsDefault(workspaces: List<Workspace>): List<Int> =
+        installation.sessionCompactionKeepTurns().let { value -> workspaces.map { value } }
 
     /** And how long its summary may run. Issue #522. */
-    @SchemaMapping(typeName = "Workspace")
-    fun sessionCompactionSummaryTokensDefault(workspace: Workspace): Int =
-        installation.sessionCompactionSummaryTokens()
+    @BatchMapping(typeName = "Workspace")
+    fun sessionCompactionSummaryTokensDefault(workspaces: List<Workspace>): List<Int> =
+        installation.sessionCompactionSummaryTokens().let { value -> workspaces.map { value } }
 
     /** And how many times one turn may be compacted. Issue #522. */
-    @SchemaMapping(typeName = "Workspace")
-    fun sessionCompactionAttemptsDefault(workspace: Workspace): Int =
-        installation.sessionCompactionAttempts()
+    @BatchMapping(typeName = "Workspace")
+    fun sessionCompactionAttemptsDefault(workspaces: List<Workspace>): List<Int> =
+        installation.sessionCompactionAttempts().let { value -> workspaces.map { value } }
 
     /**
      * The installation's script timeout, in seconds, for the same box: the
@@ -829,8 +839,9 @@ class WorkspaceAPI(
     }
 
     /** What marks a command here when the workspace has said nothing: the installation's. Issue #402. */
-    @SchemaMapping(typeName = "Workspace")
-    fun commandMarkerDefault(workspace: Workspace): String = installation.commandMarker()
+    @BatchMapping(typeName = "Workspace")
+    fun commandMarkerDefault(workspaces: List<Workspace>): List<String> =
+        installation.commandMarker().let { value -> workspaces.map { value } }
 
     /**
      * How many other agents one agent in this workspace may ask in one

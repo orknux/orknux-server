@@ -12,6 +12,7 @@ import jakarta.persistence.Table
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
+import org.springframework.data.repository.query.Param
 import java.time.OffsetDateTime
 
 /**
@@ -137,16 +138,29 @@ interface ComponentRevisionRepository : JpaRepository<ComponentRevision, Long> {
 
     /**
      * One component's history, newest first and only as much of it as was
-     * asked for.
+     * asked for, without what each revision held.
      *
      * Paged rather than whole, because a tool edited fifty times in an
-     * afternoon has fifty rows of source in it and a screen shows ten.
+     * afternoon has fifty rows of source in it and a screen shows ten. And a
+     * list is read for its dates and its names, while every row of it read as
+     * an entity carried the whole snapshot - an agent's prompt, a tool's source -
+     * for a screen that shows none of it. The snapshot is read when one row is
+     * opened. Issue #616.
      */
-    fun findByKindAndComponentIdOrderByRecordedAtDescIdDesc(
-        kind: ComponentRevisionKind,
-        componentId: Long,
+    @Query(
+        """
+        SELECT new io.mszymanski.orknux.server.revision.RevisionSummary(
+          r.id, r.kind, r.componentId, r.name, r.savedAt, r.savedBy, r.recordedAt)
+        FROM ComponentRevision r
+        WHERE r.kind = :kind AND r.componentId = :componentId
+        ORDER BY r.recordedAt DESC, r.id DESC
+        """,
+    )
+    fun summaries(
+        @Param("kind") kind: ComponentRevisionKind,
+        @Param("componentId") componentId: Long,
         pageable: Pageable,
-    ): List<ComponentRevision>
+    ): List<RevisionSummary>
 
     /** Everything kept about a component, which is what deleting it removes. */
     fun deleteByKindAndComponentId(kind: ComponentRevisionKind, componentId: Long)
@@ -184,3 +198,14 @@ class RevisionNotRestorableException(val name: String) :
     override val arguments get() = mapOf("name" to name)
 }
 
+
+/** One line of a component's history, as read for a list: everything but the snapshot. */
+data class RevisionSummary(
+    val id: Long,
+    val kind: ComponentRevisionKind,
+    val componentId: Long,
+    val name: String,
+    val savedAt: OffsetDateTime,
+    val savedBy: String,
+    val recordedAt: OffsetDateTime,
+)

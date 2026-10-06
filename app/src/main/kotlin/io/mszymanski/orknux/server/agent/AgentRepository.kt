@@ -9,6 +9,15 @@ import org.springframework.data.repository.query.Param
 
 interface AgentRepository : JpaRepository<Agent, Long> {
 
+    /**
+     * The workspace an agent is in, without the agent.
+     *
+     * What an access check needs, asked before anything else on every screen
+     * about one agent. Loading the agent for it reads its ten lists. Issue #616.
+     */
+    @Query("SELECT a.workspaceId FROM Agent a WHERE a.id = :id")
+    fun workspaceIdOf(@Param("id") id: Long): Long?
+
     fun findByWorkspaceId(workspaceId: Long, pageable: Pageable): Page<Agent>
 
     /**

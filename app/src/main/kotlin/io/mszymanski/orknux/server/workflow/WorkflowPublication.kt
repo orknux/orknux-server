@@ -11,6 +11,7 @@ import org.hibernate.type.SqlTypes
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
+import org.springframework.data.repository.query.Param
 import java.time.OffsetDateTime
 
 /**
@@ -109,7 +110,28 @@ interface WorkflowPublicationRepository : JpaRepository<WorkflowPublication, Lon
 
     @Query("select p.id from WorkflowPublication p where p.publishedAt < :before")
     fun idsPublishedBefore(before: OffsetDateTime): List<Long>
+
+    /**
+     * What each of a workspace's workflows runs: the newest publication of
+     * every one it has assigned, in one statement, and only the graph of it.
+     * Issue #616 - this used to be seven statements and a parse per workflow.
+     */
+    @Query(
+        """
+        SELECT new io.mszymanski.orknux.server.workflow.CurrentGraph(p.workflowId, p.graph)
+        FROM WorkflowPublication p
+        WHERE p.id IN (
+          SELECT MAX(q.id) FROM WorkflowPublication q
+          WHERE q.workflowId IN (SELECT a.workflow.id FROM WorkspaceWorkflow a WHERE a.workspaceId = :workspaceId)
+          GROUP BY q.workflowId
+        )
+        """,
+    )
+    fun currentInWorkspace(@Param("workspaceId") workspaceId: Long): List<CurrentGraph>
 }
+
+/** The snapshot a workflow runs, without the rest of its publication row. */
+data class CurrentGraph(val workflowId: Long, val graph: String)
 
 /** What a workflow runs now, said in one place so nothing has to spell it. */
 fun WorkflowPublicationRepository.current(workflowId: Long): WorkflowPublication? =

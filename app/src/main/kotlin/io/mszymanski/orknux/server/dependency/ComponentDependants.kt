@@ -112,7 +112,7 @@ class ComponentDependants(
         DependencyKind.TOOL -> tools.findByIdOrNull(id)?.workspaceId
         DependencyKind.SKILL_CATALOG -> skillCatalogs.findByIdOrNull(id)?.workspaceId
         DependencyKind.MEMORY_CATALOG -> memoryCatalogs.findByIdOrNull(id)?.workspaceId
-        DependencyKind.AGENT -> agents.findByIdOrNull(id)?.workspaceId
+        DependencyKind.AGENT -> agents.workspaceIdOf(id)
         DependencyKind.ACTION -> actions.findByIdOrNull(id)?.workspaceId
         DependencyKind.CONDITION -> conditions.findByIdOrNull(id)?.workspaceId
         DependencyKind.TRIGGER -> triggers.findByIdOrNull(id)?.workspaceId
@@ -171,11 +171,10 @@ class ComponentDependants(
     fun callersOfFunction(id: Long): List<Dependant> {
         val function = functions.findByIdOrNull(id) ?: return emptyList()
         val asking = function.workspaceId
-            ?.let { conditions.findByWorkspaceId(it) }
-            ?: conditions.findAll()
+            ?.let { conditions.findByWorkspaceIdAndFunctionId(it, id) }
+            ?: conditions.findByFunctionId(id)
         return actions.findByFunctionId(id).map { plain(DependencyKind.ACTION, it.id, it.name, it.workspaceId) } +
             asking
-                .filter { it.functionId == id }
                 .map { plain(DependencyKind.CONDITION, it.id, it.name, it.workspaceId) } +
             triggers.findByAuthFunctionId(id)
                 .map { qualified(DependencyKind.TRIGGER, it.id, it.name, it.workspaceId, "the webhook ${it.name}") }
@@ -203,8 +202,8 @@ class ComponentDependants(
     }
 
     private fun ofAgent(id: Long): List<Dependant> {
-        val agent = agents.findByIdOrNull(id) ?: return emptyList()
-        return references.toAgent(agent.workspaceId, id)
+        val workspaceId = agents.workspaceIdOf(id) ?: return emptyList()
+        return references.toAgent(workspaceId, id)
     }
 
     private fun ofAction(id: Long): List<Dependant> {
@@ -216,11 +215,9 @@ class ComponentDependants(
     private fun ofCondition(id: Long): List<Dependant> {
         val condition = conditions.findByIdOrNull(id) ?: return emptyList()
         val workspaceId = condition.workspaceId
-        return actions.findByWorkspaceId(workspaceId)
-            .filter { it.conditionId == id }
+        return actions.findByWorkspaceIdAndConditionId(workspaceId, id)
             .map { plain(DependencyKind.ACTION, it.id, it.name, it.workspaceId) } +
-            conditions.findByWorkspaceId(workspaceId)
-                .filter { id in it.members }
+            conditions.groupsHolding(workspaceId, id)
                 .map { plain(DependencyKind.CONDITION, it.id, it.name, it.workspaceId) } +
             references.toCondition(workspaceId, id) +
             triggers.findByConditionId(id).map { plain(DependencyKind.TRIGGER, it.id, it.name, it.workspaceId) }

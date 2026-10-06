@@ -22,6 +22,7 @@ import io.mszymanski.orknux.server.workflow.StepPictureTools
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import io.mszymanski.orknux.server.workspace.pageRequest
 import io.mszymanski.orknux.server.workspace.sortBy
+import kotlin.reflect.KMutableProperty1
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Sort
 import org.springframework.data.repository.findByIdOrNull
@@ -168,14 +169,28 @@ class AgentAPI(
         val pageable = pageRequest(page, size, sortBy(order, ascending, AGENT_ORDERS, "NAME"))
         val looking = search?.trim().orEmpty()
 
-        return AgentPage(
-            if (looking.isEmpty()) {
-                agents.findByWorkspaceId(workspaceId, pageable)
-            } else {
-                agents.searching(workspaceId, looking, pageable)
-            },
-            ::describe,
-        )
+        val found = if (looking.isEmpty()) {
+            agents.findByWorkspaceId(workspaceId, pageable)
+        } else {
+            agents.searching(workspaceId, looking, pageable)
+        }
+        /*
+         * What every row would otherwise ask for itself, asked once for the page:
+         * the orknux_* names are the same list for every agent and building it
+         * reads the tracker's statuses, and the model names are one workspace's
+         * models. A model found elsewhere is still named, by the lookup a single
+         * agent uses. Issue #616.
+         */
+        val orknuxNames = builtIns.orknuxNames()
+        val modelNames = if (found.content.any { it.modelId != null }) {
+            models.models(workspaceId).associate { it.id to it.name }
+        } else {
+            emptyMap()
+        }
+        return AgentPage(found) { agent ->
+            val modelName = agent.modelId?.let { modelNames[it] ?: models.model(it)?.name }
+            AgentView(agent, modelName, orknuxNames)
+        }
     }
 
     @QueryMapping
@@ -331,6 +346,7 @@ class AgentAPI(
         // What it is about to stop being. An agent has no draft, so a save is a
         // version; the recorder holds that rule, this door only reports.
         revisions.saved(agent)
+        val loaded = AgentLists.of(agent)
 
         val previousName = agent.name
         val previousDescription = agent.description
@@ -573,6 +589,7 @@ class AgentAPI(
                     ?: throw AgentUnreachableException(id)
             }.toMutableList()
         }
+        loaded.keepUnchanged(agent)
         agent.lastModifiedAt = OffsetDateTime.now()
         agent.lastModifiedBy = currentUser()
 
@@ -1031,6 +1048,36 @@ data class SessionMemoryBudgetView(
         toolResults = resolved.budget.results,
         refusal = resolved.refusal,
     )
+}
+
+/**
+ * The ten lists an agent was loaded with, so a save can hand back the ones it
+ * did not change. Issue #616.
+ *
+ * The form sends every list on every save, and each was assigned as a new list -
+ * which Hibernate can only read as "replaced", deleting every row of it and
+ * inserting them again. A save that changed a prompt rewrote ten tables. Putting
+ * the loaded list back wherever the new one holds the same names leaves those
+ * tables alone, and is right even where the loaded one was changed in place on
+ * the way: what Hibernate writes is the difference from what it read.
+ */
+private class AgentLists(private val loaded: List<Pair<KMutableProperty1<Agent, MutableList<*>>, MutableList<*>>>) {
+
+    fun keepUnchanged(agent: Agent) = loaded.forEach { (property, list) ->
+        val now = property.get(agent)
+        if (now !== list && now == list) property.set(agent, list)
+    }
+
+    companion object {
+        @Suppress("UNCHECKED_CAST")
+        private val LISTS = listOf(
+            Agent::mcpServers, Agent::memoryCatalogs, Agent::skillCatalogs, Agent::hiddenSkills,
+            Agent::requiredSkills, Agent::tools, Agent::requiredTools, Agent::hiddenTools,
+            Agent::connections, Agent::agents,
+        ) as List<KMutableProperty1<Agent, MutableList<*>>>
+
+        fun of(agent: Agent) = AgentLists(LISTS.map { it to it.get(agent) })
+    }
 }
 
 data class AgentPage(

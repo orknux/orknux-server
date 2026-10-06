@@ -87,12 +87,15 @@ class DependencyAPI(
     /**
      * The rows this reader may be told the names of, and a count of the rest.
      *
-     * The workspace names are read once rather than once a row. A dependant with
-     * no workspace at all is an organisation function, which every workspace can
-     * already see and reach, so it is named.
+     * The workspace names are read once rather than once a row, and only for the
+     * workspaces the rows are in - not every workspace of the installation with
+     * its roles, to name one. A dependant with no workspace at all is an
+     * organisation function, which every workspace can already see and reach,
+     * so it is named.
      */
     fun visible(found: List<Dependant>): DependantsView {
-        val named = workspaces.findAll().associate { it.id to it.name }
+        val unnamed = found.filter { it.workspaceName == null }.mapNotNull { it.workspaceId }.toSet()
+        val named = if (unnamed.isEmpty()) emptyMap() else workspaces.findAllById(unnamed).associate { it.id to it.name }
         val seen = mutableMapOf<Long, Boolean>()
         fun mayName(workspaceId: Long?): Boolean =
             workspaceId == null || seen.getOrPut(workspaceId) { access.canSee(workspaceId) }

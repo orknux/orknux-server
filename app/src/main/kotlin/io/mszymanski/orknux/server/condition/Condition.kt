@@ -16,6 +16,8 @@ import jakarta.persistence.Id
 import jakarta.persistence.JoinColumn
 import jakarta.persistence.OrderColumn
 import jakarta.persistence.Table
+import org.hibernate.annotations.Fetch
+import org.hibernate.annotations.FetchMode
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
@@ -180,7 +182,11 @@ class WorkflowCondition(
     var functionId: Long? = null,
 
     /** What the check compares against; empty for one that needs nothing. */
+    // Each list in a select of its own, batched across rows, rather than joined:
+    // joining several eager lists into one select returns every combination of
+    // their rows, and an agent with a handful in each took a minute. Issue #616.
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @CollectionTable(name = "workflow_condition_value", joinColumns = [JoinColumn(name = "condition_id")])
     @OrderColumn(name = "position")
     @Column(name = "value", length = 500)
@@ -202,12 +208,14 @@ class WorkflowCondition(
      * arrived on, and those are fields of the run rather than constants.
      */
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @CollectionTable(name = "workflow_condition_argument", joinColumns = [JoinColumn(name = "condition_id")])
     @OrderColumn(name = "position")
     var arguments: MutableList<ConditionArgument> = mutableListOf(),
 
     /** The conditions a composite is made of, in the order they were added. */
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @CollectionTable(name = "workflow_condition_member", joinColumns = [JoinColumn(name = "condition_id")])
     @OrderColumn(name = "position")
     @Column(name = "member_id")
@@ -272,6 +280,25 @@ interface WorkflowConditionRepository : JpaRepository<WorkflowCondition, Long> {
     fun findByWorkspaceId(workspaceId: Long): List<WorkflowCondition>
 
     fun findByWorkspaceIdAndName(workspaceId: Long, name: String): WorkflowCondition?
+
+    /*
+     * The conditions that call a function, and the groups that hold a
+     * condition: asked of the database rather than by reading every condition
+     * of a workspace - or of the installation - with its three lists, to keep
+     * the few that match. Issue #616.
+     */
+
+    fun findByFunctionId(functionId: Long): List<WorkflowCondition>
+
+    fun findByWorkspaceIdAndFunctionId(workspaceId: Long, functionId: Long): List<WorkflowCondition>
+
+    @Query(
+        """
+        SELECT DISTINCT c FROM WorkflowCondition c JOIN c.members m
+        WHERE c.workspaceId = :workspaceId AND m = :memberId
+        """,
+    )
+    fun groupsHolding(@Param("workspaceId") workspaceId: Long, @Param("memberId") memberId: Long): List<WorkflowCondition>
 
     /**
      * Every one of that name here: a definition a workflow owns may share a

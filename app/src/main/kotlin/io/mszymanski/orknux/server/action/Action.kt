@@ -365,6 +365,9 @@ interface WorkflowActionRepository : JpaRepository<WorkflowAction, Long> {
     fun findByWorkspaceIdAndWorkflowIdIsNullAndName(workspaceId: Long, name: String): WorkflowAction?
 
     fun findByFunctionId(functionId: Long): List<WorkflowAction>
+
+    /** The actions a condition guards, rather than every action of the workspace sieved. Issue #616. */
+    fun findByWorkspaceIdAndConditionId(workspaceId: Long, conditionId: Long): List<WorkflowAction>
 }
 
 class ActionNotFoundException(val id: Long) : RuntimeException("No action with id $id"), Refusal {

@@ -48,6 +48,22 @@ interface WorkspaceWorkflowRepository : JpaRepository<WorkspaceWorkflow, Long> {
      */
     fun findByWorkspaceId(workspaceId: Long): List<WorkspaceWorkflow>
 
+    /**
+     * The same list, as the three columns a "where is this used" answer reads.
+     *
+     * One statement. Read as entities, every assignment fetched its workflow
+     * with a select of its own and its last run with a subquery. Issue #616.
+     */
+    @Query(
+        """
+        SELECT new io.mszymanski.orknux.server.workflow.AssignedWorkflow(w.id, w.name, w.status)
+        FROM WorkspaceWorkflow a JOIN a.workflow w
+        WHERE a.workspaceId = :workspaceId
+        ORDER BY a.id
+        """,
+    )
+    fun assignedTo(@Param("workspaceId") workspaceId: Long): List<AssignedWorkflow>
+
     fun existsByWorkspaceIdAndWorkflowId(workspaceId: Long, workflowId: Long): Boolean
 
     /**
@@ -67,3 +83,6 @@ interface WorkspaceWorkflowRepository : JpaRepository<WorkspaceWorkflow, Long> {
      */
     fun findByWorkspaceIdAndWorkflowId(workspaceId: Long, workflowId: Long): WorkspaceWorkflow?
 }
+
+/** A workflow a workspace has, as much of it as [WorkflowReferences] needs. */
+data class AssignedWorkflow(val id: Long, val name: String, val status: WorkflowStatus)

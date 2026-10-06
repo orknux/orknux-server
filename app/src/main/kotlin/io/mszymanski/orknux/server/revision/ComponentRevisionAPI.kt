@@ -211,7 +211,7 @@ class ComponentRevisionAPI(
         ComponentRevisionKind.FUNCTION -> functions.findByIdOrNull(componentId)?.workspaceId
         ComponentRevisionKind.TOOL -> tools.findByIdOrNull(componentId)?.workspaceId
         ComponentRevisionKind.SKILL -> skills.findByIdOrNull(componentId)?.workspaceId
-        ComponentRevisionKind.AGENT -> agents.findByIdOrNull(componentId)?.workspaceId
+        ComponentRevisionKind.AGENT -> agents.workspaceIdOf(componentId)
         ComponentRevisionKind.WORKFLOW -> null
     } ?: throw RevisionComponentGoneException(kind, componentId)
 
@@ -243,8 +243,8 @@ data class ComponentRevisionView(
     /** When it stopped being current, which is what retention counts from. */
     val recordedAt: String,
 ) {
-    constructor(revision: ComponentRevision) : this(
-        id = requireNotNull(revision.id),
+    constructor(revision: RevisionSummary) : this(
+        id = revision.id,
         kind = revision.kind,
         componentId = revision.componentId,
         name = revision.name,

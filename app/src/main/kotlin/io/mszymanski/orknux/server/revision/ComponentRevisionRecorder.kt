@@ -179,11 +179,11 @@ class ComponentRevisionRecorder(
     }
 
     /** One component's history, newest first, no more than [limit] of it. */
-    fun history(kind: ComponentRevisionKind, componentId: Long, limit: Int): List<ComponentRevision> =
+    fun history(kind: ComponentRevisionKind, componentId: Long, limit: Int): List<RevisionSummary> =
         if (!kind.stored) {
             emptyList()
         } else {
-            revisions.findByKindAndComponentIdOrderByRecordedAtDescIdDesc(
+            revisions.summaries(
                 kind,
                 componentId,
                 PageRequest.of(0, limit.coerceIn(1, MOST)),

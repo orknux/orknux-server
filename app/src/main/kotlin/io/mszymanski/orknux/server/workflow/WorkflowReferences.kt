@@ -2,9 +2,8 @@ package io.mszymanski.orknux.server.workflow
 
 import io.mszymanski.orknux.server.dependency.Dependant
 import io.mszymanski.orknux.server.dependency.DependencyKind
-import io.mszymanski.orknux.workflow.execution.GraphNode
-import io.mszymanski.orknux.workflow.execution.GraphVersion
 import org.springframework.stereotype.Component
+import tools.jackson.databind.ObjectMapper
 
 /**
  * Which of a workspace's workflows name a definition, and in which copy.
@@ -30,12 +29,18 @@ import org.springframework.stereotype.Component
  * longer be edited or published from it, so counting it would be a refusal with
  * nothing anybody could do about it.
  *
- * The published half is asked through [AppWorkflowGraphSource] rather than by
- * reading the publication row, because the question is "what would a run
- * resolve", not "what is in that table". The two differ for a workflow that was
- * live before snapshots existed - it has a status and no snapshot, and what runs
- * is the draft - and the door that answers it is the one the runner uses, so
- * they cannot drift apart.
+ * The published half reads what a run would resolve, which is not quite "what
+ * is in the publication table": a workflow that was live before snapshots
+ * existed has a status and no snapshot, and what runs for it is the draft. The
+ * rule is [AppWorkflowGraphSource]'s - the newest publication, else the draft
+ * for a workflow marked published - and is followed here without going through
+ * it, because going through it was a workspace lookup, two assignment checks,
+ * a workflow lookup, a publication lookup and a whole graph parsed, for every
+ * workflow the workspace has, to look at one column. On an agent's settings
+ * page that took 49 seconds. Now it is three statements however many workflows
+ * there are: the assignments, the draft nodes naming the id, and the newest
+ * snapshot of each - and a snapshot is only parsed when its text holds the id
+ * at all. Issue #616.
  *
  * What the runnable graph carries is the whole of the published half: it keeps
  * `agentId`, `actionId` and `conditionId` and nothing else, so those three are
@@ -53,20 +58,21 @@ import org.springframework.stereotype.Component
 class WorkflowReferences(
     private val assignments: WorkspaceWorkflowRepository,
     private val nodes: WorkflowNodeRepository,
-    private val graphs: AppWorkflowGraphSource,
+    private val publications: WorkflowPublicationRepository,
+    private val mapper: ObjectMapper,
 ) {
 
     /** Which of the workspace's workflows run this action. */
     fun toAction(workspaceId: Long, actionId: Long): List<Dependant> =
-        using(workspaceId, { it.actionId == actionId }, { it.actionId == actionId })
+        using(workspaceId, nodes.draftsNamingAction(workspaceId, actionId), "actionId", actionId)
 
     /** Which of the workspace's workflows instance this agent. */
     fun toAgent(workspaceId: Long, agentId: Long): List<Dependant> =
-        using(workspaceId, { it.agentId == agentId }, { it.agentId == agentId })
+        using(workspaceId, nodes.draftsNamingAgent(workspaceId, agentId), "agentId", agentId)
 
     /** Which of the workspace's workflows ask this condition. */
     fun toCondition(workspaceId: Long, conditionId: Long): List<Dependant> =
-        using(workspaceId, { it.conditionId == conditionId }, { it.conditionId == conditionId })
+        using(workspaceId, nodes.draftsNamingCondition(workspaceId, conditionId), "conditionId", conditionId)
 
     /**
      * Which of the workspace's workflows start from this trigger.
@@ -78,7 +84,7 @@ class WorkflowReferences(
      * which is the quieter half of the same bug.
      */
     fun toTrigger(workspaceId: Long, triggerId: Long): List<Dependant> =
-        using(workspaceId, { it.triggerId == triggerId }, { false })
+        using(workspaceId, nodes.draftsNamingTrigger(workspaceId, triggerId), null, triggerId)
 
     /**
      * The workflows naming it, said the way a refusal has to say them.
@@ -89,69 +95,90 @@ class WorkflowReferences(
      * Answer" would do exactly that and be refused again. That preference is what
      * [Dependant.published] carries, so a screen can mark the row the same way the
      * sentence does.
+     *
+     * [field] is the snapshot's name for the id, or null where a published copy
+     * never carries one - a trigger.
      */
     private fun using(
         workspaceId: Long,
-        inDraft: (WorkflowNode) -> Boolean,
-        inPublished: (GraphNode) -> Boolean,
-    ): List<Dependant> = assignments.findByWorkspaceId(workspaceId)
-        .map { it.workflow }
-        .distinctBy { it.id }
-        .mapNotNull { workflow ->
-            val workflowId = workflow.id ?: return@mapNotNull null
-            val published = when {
-                published(workspaceId, workflowId).any(inPublished) -> true
-                nodes.findByWorkflowId(workflowId).any(inDraft) -> false
-                else -> return@mapNotNull null
+        inDraft: List<Long>,
+        field: String?,
+        id: Long,
+    ): List<Dependant> {
+        val drafted = inDraft.toSet()
+        val held = if (field == null) emptyMap() else current(workspaceId)
+        return assignments.assignedTo(workspaceId)
+            .distinctBy { it.id }
+            .mapNotNull { workflow ->
+                val published = when {
+                    field != null && publishedNames(workflow, held, drafted, field, id) -> true
+                    workflow.id in drafted -> false
+                    else -> return@mapNotNull null
+                }
+                Dependant(
+                    kind = DependencyKind.WORKFLOW,
+                    id = workflow.id,
+                    name = workflow.name,
+                    workspaceId = workspaceId,
+                    workspaceName = null,
+                    published = published,
+                    phrase = if (published) {
+                        "the published workflow ${workflow.name}"
+                    } else {
+                        "the workflow ${workflow.name}"
+                    },
+                )
             }
-            Dependant(
-                kind = DependencyKind.WORKFLOW,
-                id = workflowId,
-                name = workflow.name,
-                workspaceId = workspaceId,
-                workspaceName = null,
-                published = published,
-                phrase = if (published) {
-                    "the published workflow ${workflow.name}"
-                } else {
-                    "the workflow ${workflow.name}"
-                },
-            )
-        }
+    }
 
     /**
-     * The nodes a run of the published copy would resolve, or none.
+     * Whether a run of the published copy would resolve [id].
      *
-     * Asked in two steps, and the first is not an optimisation. A workflow that
-     * has never been published answers by raising, and raising out of a
-     * transactional method that has joined this delete's transaction marks that
-     * transaction rollback-only - catching it afterwards does not unmark it, so
-     * the delete would fail on commit having refused nothing. The question of
-     * whether there is anything published is therefore asked as a question,
-     * which is what [AppWorkflowGraphSource.published] is for, and the graph is
-     * only fetched once the answer is yes.
+     * The newest publication where there is one. Where there is none and the
+     * workflow is marked published, it predates snapshots and a run takes the
+     * draft - so the draft's answer is the published answer. The copy a run
+     * takes leaves out session and folded object nodes, and neither of those
+     * ever holds an agent, action or condition, so the draft query answers for
+     * it unchanged. A workflow with neither has nothing published.
      *
-     * Nothing is caught here. Everything that would have thrown ordinarily has
-     * been asked first, and swallowing what is left would mean deleting against
-     * a transaction already doomed.
-     *
-     * **The assignment is asked again, and that is the point.** The list this
-     * walks was read a moment ago, and `graph` checks the assignment for itself
-     * - so a workflow unassigned in between made the graph raise "Workflow 424
-     * is not assigned to workspace 9" out of a *condition* delete, naming a
-     * workflow the caller had never mentioned. Intermittent, and only under a
-     * concurrent `removeWorkflow`, which is exactly what a browser check
-     * tidying up does. Issue #194.
-     *
-     * A workflow that has stopped being this workspace's is not a workflow
-     * using this condition, so the answer is no nodes rather than an exception.
-     * Asked as a question rather than caught, for the reason above: catching
-     * what a transactional method threw does not unmark the transaction it
-     * doomed on the way out.
+     * **Every statement asks the workspace's assignments for itself, and that is
+     * the point.** The list read a moment ago and the snapshots read now can
+     * disagree when another transaction removes a workflow in between - which
+     * once made a *condition* delete raise "Workflow 424 is not assigned to
+     * workspace 9", naming a workflow the caller had never mentioned. Issue
+     * #194. A workflow that has stopped being this workspace's has no rows in
+     * the later statements, so it is not a dependant and nothing is raised: a
+     * workflow that is no longer this workspace's is not a workflow using this.
      */
-    private fun published(workspaceId: Long, workflowId: Long): List<GraphNode> {
-        if (!graphs.published(workflowId)) return emptyList()
-        if (!assignments.existsByWorkspaceIdAndWorkflowId(workspaceId, workflowId)) return emptyList()
-        return graphs.graph(workspaceId, workflowId, GraphVersion.PUBLISHED).nodes
+    private fun publishedNames(
+        workflow: AssignedWorkflow,
+        held: Map<Long, String>,
+        drafted: Set<Long>,
+        field: String,
+        id: Long,
+    ): Boolean {
+        val graph = held[workflow.id]
+            ?: return workflow.status == WorkflowStatus.PUBLISHED && workflow.id in drafted
+        return names(graph, field, id)
+    }
+
+    /** The snapshot each assigned workflow runs, by workflow. */
+    private fun current(workspaceId: Long): Map<Long, String> =
+        publications.currentInWorkspace(workspaceId).associate { it.workflowId to it.graph }
+
+    /**
+     * Whether a snapshot has a node whose [field] is [id].
+     *
+     * The text is looked at before it is parsed. A snapshot that does not hold
+     * the digits anywhere cannot hold the id, and that is most of them; one
+     * that does is read as a tree - not as a graph - and its nodes asked, since
+     * the digits may as easily be a coordinate or a word in a prompt. The id is
+     * read the way [WorkflowSnapshot.read] reads it: a number, or nothing.
+     */
+    private fun names(graph: String, field: String, id: Long): Boolean {
+        if (!graph.contains(id.toString())) return false
+        return mapper.readTree(graph).path("nodes").values().any { node ->
+            node.path(field).let { it.isNumber && it.asLong() == id }
+        }
     }
 }

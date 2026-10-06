@@ -316,6 +316,55 @@ class ComponentDependantsTest(
     }
 
     /**
+     * What guards with a condition and what groups it, and what calls a
+     * workspace's function from a condition.
+     *
+     * Since #616 each is asked of the database - the actions with this
+     * condition, the groups with it as a member, the conditions calling this
+     * function - rather than sieved out of every action and condition the
+     * workspace has, each read with its lists. The neighbours here are what a
+     * narrower question could get wrong: a group holding only another
+     * condition, an action guarded by another.
+     */
+    @Test
+    @WithMockUser(username = "alice", roles = ["ADMINS"])
+    fun `a condition's dependants are the actions it guards and the groups that hold it`() {
+        val checked = function(backendId, "isUrgent")
+        val asked = requireNotNull(conditions.save(condition(backendId, "Urgent", checked)).id)
+        val other = requireNotNull(conditions.save(condition(backendId, "Quiet", checked)).id)
+        conditions.save(group("Either", other, asked))
+        conditions.save(group("Only quiet", other))
+        actions.save(guarded("Page", asked))
+        actions.save(guarded("Ignore", other))
+
+        graphQlTester.document(dependants("CONDITION", asked)).execute()
+            .path("componentDependants.entries[*].kind").entityList(String::class.java)
+            .containsExactly("ACTION", "CONDITION")
+            .path("componentDependants.entries[*].name").entityList(String::class.java)
+            .containsExactly("Page", "Either")
+
+        graphQlTester.document(dependants("FUNCTION", checked)).execute()
+            .path("componentDependants.entries[*].name").entityList(String::class.java)
+            .containsExactly("Urgent", "Quiet")
+    }
+
+    private fun group(name: String, vararg members: Long) = WorkflowCondition(
+        workspaceId = backendId,
+        name = name,
+        type = ConditionType.ANY_OF,
+        members = members.toMutableList(),
+    )
+
+    private fun guarded(name: String, conditionId: Long) = WorkflowAction(
+        workspaceId = backendId,
+        name = name,
+        type = ActionType.WAIT,
+        subtype = ActionSubtype.TIME,
+        durationSeconds = 1,
+        conditionId = conditionId,
+    )
+
+    /**
      * A component in a workspace the reader cannot see is not there.
      *
      * The same answer an id that never existed gets, which is the line

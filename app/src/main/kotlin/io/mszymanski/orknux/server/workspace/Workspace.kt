@@ -13,6 +13,8 @@ import jakarta.persistence.JoinColumn
 import jakarta.persistence.JoinTable
 import jakarta.persistence.ManyToMany
 import jakarta.persistence.Table
+import org.hibernate.annotations.Fetch
+import org.hibernate.annotations.FetchMode
 
 @Entity
 @Table(name = "workspace")
@@ -37,7 +39,11 @@ class Workspace(
      * Eagerly fetched because every access check needs them, and the set is small
      * by construction — a workspace has an audience, not a directory.
      */
+    // Each list in a select of its own, batched across rows, rather than joined:
+    // joining several eager lists into one select returns every combination of
+    // their rows, and an agent with a handful in each took a minute. Issue #616.
     @ManyToMany(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @JoinTable(
         name = "workspace_role",
         joinColumns = [JoinColumn(name = "workspace_id")],
@@ -60,6 +66,7 @@ class Workspace(
      * smaller still.
      */
     @ManyToMany(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @JoinTable(
         name = "workspace_admin_role",
         joinColumns = [JoinColumn(name = "workspace_id")],

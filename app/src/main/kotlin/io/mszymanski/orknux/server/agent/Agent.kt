@@ -14,6 +14,8 @@ import jakarta.persistence.JoinColumn
 import jakarta.persistence.OrderColumn
 import jakarta.persistence.Table
 import java.time.OffsetDateTime
+import org.hibernate.annotations.Fetch
+import org.hibernate.annotations.FetchMode
 
 /**
  * There is one kind of agent.
@@ -158,7 +160,11 @@ class Agent(
     var shellAccess: Boolean = false,
 
     /** MCP servers this agent may connect to, in the order they were added. */
+    // Each list in a select of its own, batched across rows, rather than joined:
+    // joining several eager lists into one select returns every combination of
+    // their rows, and an agent with a handful in each took a minute. Issue #616.
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @CollectionTable(name = "agent_mcp_server", joinColumns = [JoinColumn(name = "agent_id")])
     @OrderColumn(name = "position")
     @Column(name = "name", nullable = false)
@@ -172,6 +178,7 @@ class Agent(
      * grant — what an agent may look in, not everything the workspace knows.
      */
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @CollectionTable(name = "agent_memory_catalog", joinColumns = [JoinColumn(name = "agent_id")])
     @OrderColumn(name = "position")
     @Column(name = "name", nullable = false)
@@ -185,6 +192,7 @@ class Agent(
      * expected to know is a decision worth making once, not once per skill.
      */
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @CollectionTable(name = "agent_skill_catalog", joinColumns = [JoinColumn(name = "agent_id")])
     @OrderColumn(name = "position")
     @Column(name = "name", nullable = false)
@@ -205,6 +213,7 @@ class Agent(
      * them", which is also what every agent had before this existed.
      */
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @CollectionTable(name = "agent_hidden_skill", joinColumns = [JoinColumn(name = "agent_id")])
     @OrderColumn(name = "position")
     @Column(name = "name", nullable = false)
@@ -228,6 +237,7 @@ class Agent(
      * mark only decides how.
      */
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @CollectionTable(name = "agent_required_skill", joinColumns = [JoinColumn(name = "agent_id")])
     @OrderColumn(name = "position")
     @Column(name = "name", nullable = false)
@@ -252,6 +262,7 @@ class Agent(
      * for how every agent that predates the list kept what it had.
      */
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @CollectionTable(name = "agent_granted_tool", joinColumns = [JoinColumn(name = "agent_id")])
     @OrderColumn(name = "position")
     @Column(name = "name", nullable = false)
@@ -274,6 +285,7 @@ class Agent(
      * so marking one has to be too or the two come apart at the first rename.
      */
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @CollectionTable(name = "agent_required_tool", joinColumns = [JoinColumn(name = "agent_id")])
     @OrderColumn(name = "position")
     @Column(name = "name", nullable = false)
@@ -299,6 +311,7 @@ class Agent(
      * qualifies a tool that is on and says nothing about whether it is.
      */
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @CollectionTable(name = "agent_hidden_tool", joinColumns = [JoinColumn(name = "agent_id")])
     @OrderColumn(name = "position")
     @Column(name = "name", nullable = false)
@@ -319,6 +332,7 @@ class Agent(
      * default. A grant is permission, not encouragement.
      */
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @CollectionTable(name = "agent_connection", joinColumns = [JoinColumn(name = "agent_id")])
     @OrderColumn(name = "position")
     @Column(name = "connection_id", nullable = false)
@@ -345,6 +359,7 @@ class Agent(
      * be got round, and two specialists in a ring is the failure it prevents.
      */
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @CollectionTable(name = "agent_agent", joinColumns = [JoinColumn(name = "agent_id")])
     @OrderColumn(name = "position")
     @Column(name = "granted_id", nullable = false)

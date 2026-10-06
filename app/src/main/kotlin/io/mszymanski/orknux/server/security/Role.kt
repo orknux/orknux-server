@@ -13,6 +13,8 @@ import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.JoinColumn
 import jakarta.persistence.Table
+import org.hibernate.annotations.Fetch
+import org.hibernate.annotations.FetchMode
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
 import java.time.OffsetDateTime
@@ -56,7 +58,11 @@ class Role(
     @Column(length = 500)
     var description: String? = null,
 
+    // Each list in a select of its own, batched across rows, rather than joined:
+    // joining several eager lists into one select returns every combination of
+    // their rows, and an agent with a handful in each took a minute. Issue #616.
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @CollectionTable(name = "security_role_scope", joinColumns = [JoinColumn(name = "role_id")])
     @Enumerated(EnumType.STRING)
     @Column(name = "scope", nullable = false, length = 16)
@@ -80,6 +86,7 @@ class Role(
      * should not lose it by upgrading.
      */
     @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
     @CollectionTable(name = "security_role_match", joinColumns = [JoinColumn(name = "role_id")])
     @Column(name = "value", nullable = false, length = 500)
     var matches: MutableSet<String> = mutableSetOf(),
