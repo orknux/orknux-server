@@ -684,6 +684,10 @@ orknux:
     # else's code, and debugging one should not mean turning up every function
     # this installation wrote itself.
     log-level: ${ORKNUX_PLUGIN_LOG_LEVEL:info}
+    # A plugin bigger than this many KB of code gets a throwaway engine per call
+    # rather than the shared one, which keeps every script it parses: a 4 MB
+    # bundle held 340 MB that way from its first call. Issue #616.
+    shared-engine-max-kb: ${ORKNUX_PLUGIN_SHARED_ENGINE_MAX_KB:1024}
   execution:
     retention:
       # How long a finished run is kept. Ninety days rather than the fourteen a

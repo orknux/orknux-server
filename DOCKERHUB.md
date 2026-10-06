@@ -202,6 +202,7 @@ the step runs. The README's **Publishing** has the rest.
 | `ORKNUX_TEMPORAL_STEP_ATTEMPTS` | Tries of a failing step; a node's own retry is separate. | `3` | No |
 | `ORKNUX_TEMPORAL_WORKFLOW_CACHE` | Runs kept in memory between steps, with their outputs. | `50` | No |
 | `ORKNUX_TEMPORAL_WORKFLOW_THREADS` | Workflow threads they may hold. | `100` | No |
+| `ORKNUX_PLUGIN_SHARED_ENGINE_MAX_KB` | Bigger plugins get a throwaway engine per call. | `1024` | No |
 | `ORKNUX_TEMPORAL_STEP_HEARTBEAT_SECONDS` | How soon a dead server's step moves to a live one; Admin Settings overrides. | `30` | No |
 | `ORKNUX_TEMPORAL_UI_URL` | Temporal's own web interface, linked out to from a run. Empty offers no links. | `http://localhost:8233` | No |
 | `ORKNUX_INLINE_RESTART_ATTEMPTS` | Inline only: goes an agent step cut short by restarts gets; Admin Settings overrides. | `3` | No |
@@ -212,7 +213,7 @@ the step runs. The README's **Publishing** has the rest.
 | `ORKNUX_TASK_SWEEP_MINUTES` | How long a task may sit at Queued before being handed over again; Admin -> Settings overrides it. | `5` | No |
 | `ORKNUX_EXECUTION_RETENTION_DAYS` | How long a finished run is kept, with its steps. Admin -> Settings is the switch; this is the floor. | `90` | No |
 | `ORKNUX_EXECUTION_SWEEP_ENABLED` | `false` sweeps nothing on a timer. | `true` | No |
-| `ORKNUX_REVISION_RETENTION_DAYS` | How long a replaced version of a function, tool, skill or agent is kept, from when it stopped being current. Admin -> Settings is the switch. | `14` | No |
+| `ORKNUX_REVISION_RETENTION_DAYS` | Days a replaced version of a component is kept. Also in Admin -> Settings. | `14` | No |
 | `ORKNUX_SCHEDULER_ENABLED` | The clock behind scheduled triggers; one instance fires a schedule however many run. | `true` | No |
 | `ORKNUX_CLUSTER_LEASE_SECONDS` | Replicas on one Postgres: the lease holder runs the sweeps and Slack; a dead one's work moves within this. Admin Settings overrides. | `30` | No |
 | `ORKNUX_SCHEDULER_TICK_INTERVAL` | How often scheduled triggers and watchers are looked at: the finest schedule either keeps. | `10s` | No |
@@ -326,7 +327,7 @@ and ORKNUX_WATCHER_MAX_PER_AGENT are in
 | Variable | What it does | Default | Required |
 | --- | --- | --- | --- |
 | `ORKNUX_PORT` | The port this server listens on inside the container. | `8080` | No |
-| `ORKNUX_ALLOWED_ORIGINS` | Where the interface is served from, when it is not this server. Comma separated; empty allows none. | `http://localhost:5173` | **Yes** where the interface is elsewhere |
+| `ORKNUX_ALLOWED_ORIGINS` | Where the interface is served from, if not here. Comma separated. | `http://localhost:5173` | **Yes** where the interface is elsewhere |
 | `ORKNUX_BASE_URL` | Where a browser reaches the interface, for reset and picture links. Never read off `Host`. | `http://localhost:5173` | **Yes** for password resets |
 | `ORKNUX_WEBHOOK_MAX_BODY_SIZE` | The most a webhook caller may post to `/api/webhooks/…`. More is refused with 413 before any trigger runs. | `1MB` | No |
 | `ORKNUX_ASYNC_REQUEST_TIMEOUT` | How long a request answered with a promise may stay open. | `330s` | No |

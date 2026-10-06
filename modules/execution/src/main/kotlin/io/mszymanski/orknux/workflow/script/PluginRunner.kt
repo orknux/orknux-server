@@ -162,7 +162,7 @@ class PluginRunner(
              * Intl at the top level cannot be loaded here. That is the safe
              * direction to be wrong in, and the template says so.
              */
-            guard.bounded(stopped, { newContext(emptySet()) }, timeoutMillis) { read(it, source, libraries) }
+            guard.bounded(stopped, { newContext(emptySet(), sizeOf(source, libraries)) }, timeoutMillis) { read(it, source, libraries) }
         } catch (failure: PolyglotException) {
             PluginInspection.Unreadable(describe(failure, stopped = stopped.get(), timeoutMillis = timeoutMillis))
         } catch (failure: ScriptBusyException) {
@@ -240,7 +240,7 @@ class PluginRunner(
         val started = System.nanoTime()
         val stopped = AtomicReference<Overrun?>(null)
         return try {
-            guard.bounded(stopped, { newContext(permissions) }, timeoutMillis) {
+            guard.bounded(stopped, { newContext(permissions, sizeOf(source, libraries)) }, timeoutMillis) {
                 ScriptResult.Returned(
                     invoke(it, source, functionName, arguments, settings, capabilities, on, surface, sessionId, libraries),
                     millis(started),
@@ -1137,8 +1137,25 @@ class PluginRunner(
         bindings.putMember(HOST, ProxyObject.fromMap(granted))
     }
 
-    private fun newContext(permissions: Set<PluginPermission>): Context = Context.newBuilder("js")
-        .engine(engine)
+    /** A plugin's code, its libraries included, in characters. */
+    private fun sizeOf(source: String, libraries: List<PluginLibraryFile>): Long =
+        source.length.toLong() + libraries.sumOf { it.source.length.toLong() }
+
+    /**
+     * A context on the shared engine, or - for a plugin bigger than
+     * [PluginProperties.sharedEngineMaxKb] - on an engine of its own that is
+     * closed with the context, so the scripts it parsed go with it.
+     */
+    private fun newContext(permissions: Set<PluginPermission>, size: Long): Context = Context.newBuilder("js")
+        .let { builder ->
+            if (size <= properties.sharedEngineMaxKb * 1024) {
+                builder.engine(engine)
+            } else {
+                // No engine named: GraalJS makes one bound to this context and
+                // closes it when the context is closed.
+                builder.option("engine.WarnInterpreterOnly", "false")
+            }
+        }
         .allowExperimentalOptions(true)
         .allowHostAccess(hostAccess)
         .allowHostClassLookup { false }
@@ -2367,4 +2384,18 @@ data class PluginProperties(
 
     /** How much JSON one call may hand back, for the server to carry and store. */
     val resultLimitChars: Long = 4L * 1024 * 1024,
+
+    /**
+     * The largest plugin, in kilobytes of code, that shares the engine and its
+     * cache of parsed scripts. A larger one gets an engine of its own for each
+     * load or call, thrown away with it. Issue #616.
+     *
+     * The shared engine keeps every script it has parsed, for good, and on a
+     * JVM without Graal's compiler a parsed script is objects on the heap. A
+     * 4 MB bundle - PlantUML's, with its renderer inside - held 340 MB from
+     * its first call after every start, on a server with 1.5 GB to give. Below
+     * this the cache is the point: a small plugin parsed once is cheap to call
+     * again. Above it, parsing on every call costs time and keeps no memory.
+     */
+    val sharedEngineMaxKb: Long = 1024,
 )
