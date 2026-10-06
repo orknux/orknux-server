@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.connector.connection
 
+import com.slack.api.Slack
 import com.slack.api.bolt.App
 import com.slack.api.bolt.AppConfig
 import com.slack.api.bolt.socket_mode.SocketModeApp
@@ -71,41 +72,65 @@ class SocketModeSockets(private val slackClients: SlackClients) : SlackSockets {
         // Giving it one that consults the proxy rules is what puts Slack
         // under the same rules as everything else outbound.
         val routed = slackClients.forSocketMode()
-        val app = App(
-            AppConfig.builder()
-                .singleTeamBotToken(request.botToken)
-                .slack(routed.slack)
-                .build(),
-        )
-        request.register(app)
+        // A session that fails to open is retried, so the Slack built for it is closed
+        // here rather than left behind once per attempt. Issue #616.
+        var socket: SocketModeApp? = null
+        try {
+            val app = App(
+                AppConfig.builder()
+                    .singleTeamBotToken(request.botToken)
+                    .slack(routed.slack)
+                    .build(),
+            )
+            request.register(app)
 
-        // Tyrus is the websocket client the standalone bundle provides; the
-        // JDK has none of its own. It takes a proxy, but only one address
-        // and only when it connects, so it is pointed at the URL Slack has
-        // by then issued this session rather than at a rule chosen now.
-        val socket = SocketModeApp(request.appToken, SocketModeClient.Backend.Tyrus, app)
-        routed.routeAgainst { socket.client?.wssUri?.toString() }
-        socket.startAsync()
-        // Every frame, the `hello` Slack sends on each connect among them, is a
-        // sign of life; the silence detector and the shared-app count read them.
-        // Added once the client exists, which is just after the handshake: the
-        // first `hello` is sent by Slack after that and goes through a queue the
-        // client drains every few milliseconds, so it lands behind this line in
-        // all but a freak of scheduling - and every one after one of Slack's
-        // periodic refreshes arrives with the listener long in place.
-        socket.client?.addWebSocketMessageListener { frame -> request.heard(frame) }
-        return OpenSocket(socket)
+            // Tyrus is the websocket client the standalone bundle provides; the
+            // JDK has none of its own. It takes a proxy, but only one address
+            // and only when it connects, so it is pointed at the URL Slack has
+            // by then issued this session rather than at a rule chosen now.
+            val opened = SocketModeApp(request.appToken, SocketModeClient.Backend.Tyrus, app)
+            socket = opened
+            routed.routeAgainst { opened.client?.wssUri?.toString() }
+            opened.startAsync()
+            // Every frame, the `hello` Slack sends on each connect among them, is a
+            // sign of life; the silence detector and the shared-app count read them.
+            // Added once the client exists, which is just after the handshake: the
+            // first `hello` is sent by Slack after that and goes through a queue the
+            // client drains every few milliseconds, so it lands behind this line in
+            // all but a freak of scheduling - and every one after one of Slack's
+            // periodic refreshes arrives with the listener long in place.
+            opened.client?.addWebSocketMessageListener { frame -> request.heard(frame) }
+            return OpenSocket(opened, routed.slack)
+        } catch (failed: Exception) {
+            runCatching { socket?.close() }
+            runCatching { routed.slack.close() }
+            throw failed
+        }
     }
+}
 
-    private class OpenSocket(private val socket: SocketModeApp) : SlackSocket {
+/**
+ * A session, and the [Slack] built for it alone.
+ *
+ * The Slack is held so that it can be closed with the socket. Issue #616:
+ * every session is given a Slack of its own - its own OkHttp connection pool
+ * and dispatcher - and closing the socket closed only the socket, so each
+ * reconnect left one more pool and dispatcher behind for good.
+ */
+internal class OpenSocket(private val socket: SocketModeApp, private val slack: Slack) : SlackSocket {
 
-        /**
-         * A ping, and up to three seconds for its pong - the same question the
-         * client's own session monitor asks, put once more by somebody who has
-         * stopped believing it.
-         */
-        override fun alive(): Boolean = socket.client?.verifyConnection() ?: false
+    /**
+     * A ping, and up to three seconds for its pong - the same question the
+     * client's own session monitor asks, put once more by somebody who has
+     * stopped believing it.
+     */
+    override fun alive(): Boolean = socket.client?.verifyConnection() ?: false
 
-        override fun close() = socket.close()
+    override fun close() {
+        try {
+            socket.close()
+        } finally {
+            slack.close()
+        }
     }
 }
