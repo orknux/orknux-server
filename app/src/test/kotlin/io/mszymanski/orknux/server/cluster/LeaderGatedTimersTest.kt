@@ -144,7 +144,7 @@ class LeaderGatedTimersTest {
 
     @Test
     fun `the scratchpad sweep runs on the leader only`() {
-        gated(SessionScratchpadRepository::class.java, { it.findByUpdatedAtBefore(anyOf()) }) { repo, leader ->
+        gated(SessionScratchpadRepository::class.java, { it.deleteUpdatedBefore(anyOf()) }) { repo, leader ->
             ScratchpadSweeper(repo, settings(), ScratchpadSweepProperties(), leader)::timedPass
         }
     }

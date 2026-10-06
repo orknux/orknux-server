@@ -129,12 +129,9 @@ class ScratchpadSweeper(
         if (days <= 0) return 0
 
         val cutoff = OffsetDateTime.now().minusDays(days.toLong())
-        val old = pads.findByUpdatedAtBefore(cutoff)
-        if (old.isEmpty()) return 0
-
-        pads.deleteAll(old)
-        log.info("Removed {} scratchpads nobody had touched for {} days", old.size, days)
-        return old.size
+        val removed = pads.deleteUpdatedBefore(cutoff)
+        if (removed > 0) log.info("Removed {} scratchpads nobody had touched for {} days", removed, days)
+        return removed
     }
 
     private companion object {

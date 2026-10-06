@@ -8,6 +8,7 @@ import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.Table
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
@@ -113,8 +114,23 @@ interface SessionScratchpadRepository : JpaRepository<SessionScratchpad, Long> {
 
     fun countBySessionId(sessionId: Long): Long
 
-    /** Everything nobody has touched since then, for the sweeper. Issue #492. */
-    fun findByUpdatedAtBefore(cutoff: java.time.OffsetDateTime): List<SessionScratchpad>
+    /**
+     * Removes everything nobody has touched since then, for the sweeper, and
+     * answers how many. Issue #492.
+     *
+     * One statement rather than a read and a delete per row: the pads this
+     * finds are the old ones, and the old ones are where the pictures are -
+     * reading them in to delete them held every expired megabyte in memory at
+     * once, for no better reason than to throw it away. Issue #616. Nothing
+     * hangs off a pad for a cascade to miss.
+     *
+     * Its own transaction, because the timer's pass reaches the sweeper from
+     * inside the same bean and so past its `@Transactional`.
+     */
+    @Modifying
+    @Transactional
+    @Query("delete from SessionScratchpad p where p.updatedAt < :cutoff")
+    fun deleteUpdatedBefore(cutoff: OffsetDateTime): Int
 
     /**
      * The characters this session's own text pads already occupy, for the text
