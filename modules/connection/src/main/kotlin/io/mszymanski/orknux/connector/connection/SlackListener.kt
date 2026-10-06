@@ -172,6 +172,21 @@ class SlackListener(
      * would rather not wait for the timer.
      */
     fun reconcile() = synchronized(lock) {
+        val slack = workspaceConnections.findByType(ConnectionType.SLACK)
+
+        /*
+         * What is remembered about a connection goes when the connection does.
+         * Both maps are kept past a session on purpose - the page still says
+         * when the last event came and why the last attempt failed - and
+         * nothing else ever took an entry out, so every Slack connection ever
+         * deleted stayed in them. Issue #616. By existence rather than by
+         * listening: one that has only lost its app-level token is still there
+         * to show its history.
+         */
+        val present = slack.mapNotNull { it.id }.toSet()
+        lastEvents.keys.retainAll(present)
+        lastFailures.keys.retainAll(present)
+
         if (!leader.leads()) {
             // Another replica holds the sockets; whatever this one still has is
             // a second listener on the same app, and goes.
@@ -188,7 +203,7 @@ class SlackListener(
          * old value - fingerprinting the columns instead would leave a socket
          * running on a token nobody uses any more, silently, until a restart.
          */
-        val wanted = workspaceConnections.findByType(ConnectionType.SLACK)
+        val wanted = slack
             .mapNotNull { connection -> listening(connection)?.let { requireNotNull(connection.id) to it } }
             .toMap()
 

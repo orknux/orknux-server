@@ -44,6 +44,16 @@ import java.util.concurrent.ConcurrentHashMap
  * A model with no limits and no active block reserves nothing and waits not at
  * all: `reserveMillis` returns now, and the maps hold only what a throttled
  * model put there.
+ *
+ * ### Forgetting
+ *
+ * A model's state is dropped once it holds nothing back - no block still
+ * running, no tokens in the window, no request spacing still to serve -
+ * because a state like that answers exactly what no state answers. That is
+ * what keeps the map from holding every model that was ever throttled: a model
+ * deleted, or simply no longer called, goes idle within a window and is gone at
+ * the next look. Issue #616. The look is taken at most once a window, from
+ * whichever call comes along, so there is no timer of its own to tune.
  */
 @Component
 class ModelThrottle(private val clock: Clock = Clock.systemUTC()) {
@@ -77,14 +87,33 @@ class ModelThrottle(private val clock: Clock = Clock.systemUTC()) {
         /** When the last request was cleared to fire, so the next is spaced from it. */
         var lastRequestAt: Long = 0
 
+        /**
+         * The spacing that request was cleared under, so whether it still holds
+         * the next one back can be told without the model's limits to hand.
+         */
+        var spacing: Long = 0
+
         /** (millis, tokens) the model spent, kept for the last [WINDOW_MILLIS]. */
         val tokens = ArrayDeque<Pair<Long, Long>>()
 
         /** A Retry-After block: nothing fires before this. */
         var blockedUntil: Long = 0
+
+        /**
+         * Taken out of the map. A caller that picked it up just before goes
+         * back for the live one, or two callers would be spaced on two states.
+         */
+        var retired = false
+
+        /** Holding nothing back: what a model with no state at all would answer. Call with [tokens] pruned. */
+        fun idle(now: Long): Boolean = blockedUntil <= now && tokens.isEmpty() && lastRequestAt + spacing <= now
     }
 
     private val states = ConcurrentHashMap<Long, State>()
+
+    /** When idle states were last looked for; see "Forgetting" above. */
+    @Volatile
+    private var forgotAt = 0L
 
     /**
      * Waits as long as [modelId] is due before its next call is made.
@@ -111,22 +140,19 @@ class ModelThrottle(private val clock: Clock = Clock.systemUTC()) {
      */
     fun reserveMillis(modelId: Long, limits: Limits): Long {
         val now = clock.millis()
-        val existing = states[modelId]
+        forgetIdle(now)
         // Nothing to hold it: no limits set, and no state means no lingering
         // block or history either. The common case, and it touches nothing.
-        if (!limits.throttled && existing == null) return now
+        if (!limits.throttled && states[modelId] == null) return now
 
-        val state = existing ?: states.getOrPut(modelId) { State() }
-        synchronized(state) {
+        return withState(modelId) { state ->
             prune(state, now)
 
             // Off, but a State exists: only a Retry-After block can still hold it.
-            if (!limits.throttled) return maxOf(now, state.blockedUntil)
+            if (!limits.throttled) return@withState maxOf(now, state.blockedUntil)
 
-            val requestFloor = limits.requestsPerSecond
-                ?.takeIf { it > 0.0 }
-                ?.let { maxOf(now, state.lastRequestAt + spacingMillis(it)) }
-                ?: now
+            val spacing = limits.requestsPerSecond?.takeIf { it > 0.0 }?.let(::spacingMillis) ?: 0
+            val requestFloor = if (spacing > 0) maxOf(now, state.lastRequestAt + spacing) else now
 
             val tokenSum = state.tokens.sumOf { it.second }.toDouble()
             val tokenWait = limits.tokensPerSecond
@@ -136,7 +162,8 @@ class ModelThrottle(private val clock: Clock = Clock.systemUTC()) {
 
             val fireAt = maxOf(requestFloor, tokenWait, state.blockedUntil)
             state.lastRequestAt = fireAt
-            return fireAt
+            state.spacing = spacing
+            fireAt
         }
     }
 
@@ -144,8 +171,8 @@ class ModelThrottle(private val clock: Clock = Clock.systemUTC()) {
     fun recordUsage(modelId: Long, tokens: Long) {
         if (tokens <= 0) return
         val now = clock.millis()
-        val state = states.getOrPut(modelId) { State() }
-        synchronized(state) {
+        forgetIdle(now)
+        withState(modelId) { state ->
             prune(state, now)
             state.tokens.addLast(now to tokens)
         }
@@ -157,12 +184,45 @@ class ModelThrottle(private val clock: Clock = Clock.systemUTC()) {
      * 429. Only where the model accepts it - the caller checks [Limits].
      */
     fun blockFor(modelId: Long, wait: Duration) {
-        val until = clock.millis() + wait.toMillis().coerceAtLeast(0)
-        val state = states.getOrPut(modelId) { State() }
-        synchronized(state) {
+        val now = clock.millis()
+        forgetIdle(now)
+        val until = now + wait.toMillis().coerceAtLeast(0)
+        withState(modelId) { state ->
             if (until > state.blockedUntil) {
                 state.blockedUntil = until
                 log.debug("Model {} is held for {}ms by a Retry-After", modelId, wait.toMillis())
+            }
+        }
+    }
+
+    /** How many models have state held, for the test that an idle one is let go. Issue #616. */
+    internal fun held(): Int = states.size
+
+    /**
+     * Runs [block] under the lock of [modelId]'s live state, made if there is
+     * none. A state retired between being looked up and being locked is not
+     * live, so the lookup is made again.
+     */
+    private fun <T> withState(modelId: Long, block: (State) -> T): T {
+        while (true) {
+            val state = states.computeIfAbsent(modelId) { State() }
+            synchronized(state) {
+                if (!state.retired) return block(state)
+            }
+        }
+    }
+
+    /** Drops every state that holds nothing back, at most once a window. */
+    private fun forgetIdle(now: Long) {
+        if (now - forgotAt < WINDOW_MILLIS) return
+        forgotAt = now
+        for ((id, state) in states) {
+            synchronized(state) {
+                prune(state, now)
+                if (state.idle(now)) {
+                    state.retired = true
+                    states.remove(id, state)
+                }
             }
         }
     }

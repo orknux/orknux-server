@@ -149,6 +149,40 @@ class ModelThrottleTest {
         assertThat(limits.requestsPerSecond).isEqualTo(10.0)
     }
 
+    /* ------------------------------------------------- forgetting ---------- */
+
+    /**
+     * A model deleted, or no longer called, is not held for ever. Issue #616:
+     * the map was keyed by model id and nothing ever took an entry out.
+     */
+    @Test
+    fun `a model that holds nothing back any more is forgotten`() {
+        waitFor(1, limits(tokens = 1000, requests = 2.0))
+        throttle.recordUsage(1, 900)
+        throttle.blockFor(2, Duration.ofSeconds(1))
+        assertThat(throttle.held()).isEqualTo(2)
+
+        // Past the spacing, the token window and the block: nothing left to serve.
+        clock.advance(Duration.ofSeconds(2))
+        waitFor(3, limits())
+
+        assertThat(throttle.held()).isZero()
+    }
+
+    /** And forgetting is never early: what still holds a model back stays. */
+    @Test
+    fun `a model still held back is kept, and still waits`() {
+        throttle.blockFor(1, Duration.ofSeconds(30))
+        waitFor(2, limits(requests = 0.1))
+
+        clock.advance(Duration.ofSeconds(2))
+        waitFor(3, limits())
+
+        assertThat(throttle.held()).isEqualTo(2)
+        assertThat(waitFor(1, limits())).isEqualTo(28_000)
+        assertThat(waitFor(2, limits(requests = 0.1))).isEqualTo(8_000)
+    }
+
     private fun provider() = ModelProvider(workspaceId = 1, name = "p", endpoint = "https://example.test")
     private fun model() = LlmModel(providerId = 1, name = "m", modelId = "gpt-x")
 

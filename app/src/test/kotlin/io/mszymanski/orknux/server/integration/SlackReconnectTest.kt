@@ -236,6 +236,44 @@ class SlackReconnectTest {
         assertThat(state.status).isEqualTo(SlackSocketStatus.NOT_LISTENING)
     }
 
+    /**
+     * What is remembered about a connection goes with it. Issue #616: the last
+     * event and the last failure are kept past a session on purpose, and
+     * nothing ever took them out, so every connection deleted stayed held.
+     */
+    @Test
+    fun `a deleted connection's last failure is forgotten at the next pass`() {
+        val sockets = Factory().apply { refuseWith = "invalid_auth" }
+        val repository = connections("xapp-not-a-real-token")
+        val listener = listener(sockets, repository = repository)
+        listener.reconcile()
+        assertThat(listener.stateOf(CONNECTION_ID).lastFailure).isEqualTo("invalid_auth")
+
+        `when`(repository.findById(CONNECTION_ID)).thenReturn(Optional.empty())
+        `when`(repository.findByType(ConnectionType.SLACK)).thenReturn(emptyList())
+        listener.reconcile()
+
+        val state = listener.stateOf(CONNECTION_ID)
+        assertThat(state.status).isEqualTo(SlackSocketStatus.NOT_LISTENING)
+        assertThat(state.lastFailure).isNull()
+        assertThat(state.lastFailureAt).isNull()
+    }
+
+    /** But one that only stopped listening is still there, and so is its history. */
+    @Test
+    fun `a connection that lost its app-level token keeps its last failure`() {
+        val sockets = Factory().apply { refuseWith = "invalid_auth" }
+        val repository = connections("xapp-not-a-real-token")
+        val listener = listener(sockets, repository = repository)
+        listener.reconcile()
+
+        val connection = repository.findById(CONNECTION_ID).orElseThrow()
+        connection.appToken = null
+        listener.reconcile()
+
+        assertThat(listener.stateOf(CONNECTION_ID).lastFailure).isEqualTo("invalid_auth")
+    }
+
     private fun hello(connections: Int) =
         """{"type":"hello","num_connections":$connections,"connection_info":{"app_id":"A0000000001"},""" +
             """"debug_info":{"host":"applink-1"}}"""
@@ -245,9 +283,9 @@ class SlackReconnectTest {
         reconnects: SlackReconnectRequests = InMemorySlackReconnectRequests(),
         quiet: Duration = Duration.ofMinutes(10),
         appToken: String? = "xapp-not-a-real-token",
+        repository: WorkspaceConnectionRepository = connections(appToken),
     ): SlackListener {
         val clients = SlackClients(ProxyRouter(ProxyRuleSource { emptyList() }))
-        val repository = connections(appToken)
         return SlackListener(
             repository,
             ApplicationEventPublisher { },
