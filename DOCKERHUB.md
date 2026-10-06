@@ -199,7 +199,9 @@ the step runs. The README's **Publishing** has the rest.
 | `ORKNUX_TEMPORAL_TASK_QUEUE` | The queue workers take work from. Change it to run two installations against one Temporal. | `orknux-workflow` | No |
 | `ORKNUX_TEMPORAL_RUN_TIMEOUT_HOURS` | How long a whole run may take, waits included. | `24` | No |
 | `ORKNUX_TEMPORAL_STEP_TIMEOUT_SECONDS` | How long one step's own work may take. It does not bound a *wait*, which parks the step. | `300` | No |
-| `ORKNUX_TEMPORAL_STEP_ATTEMPTS` | How many times the platform tries a failing step. A node's own retry policy is separate. | `3` | No |
+| `ORKNUX_TEMPORAL_STEP_ATTEMPTS` | Tries of a failing step; a node's own retry is separate. | `3` | No |
+| `ORKNUX_TEMPORAL_WORKFLOW_CACHE` | Runs kept in memory between steps, with their outputs. | `50` | No |
+| `ORKNUX_TEMPORAL_WORKFLOW_THREADS` | Workflow threads they may hold. | `100` | No |
 | `ORKNUX_TEMPORAL_STEP_HEARTBEAT_SECONDS` | How soon a dead server's step moves to a live one; Admin Settings overrides. | `30` | No |
 | `ORKNUX_TEMPORAL_UI_URL` | Temporal's own web interface, linked out to from a run. Empty offers no links. | `http://localhost:8233` | No |
 | `ORKNUX_INLINE_RESTART_ATTEMPTS` | Inline only: goes an agent step cut short by restarts gets; Admin Settings overrides. | `3` | No |
@@ -233,7 +235,7 @@ stopped.
 | `ORKNUX_PLUGIN_TIMEOUT_MILLIS` | The same for a plugin, which is a bundle and takes longer to load. The floor: Admin -> Settings is the switch, 1 to 300 seconds. | `30000` | No |
 | `ORKNUX_PLUGIN_STATEMENT_LIMIT` | The same, for a plugin. | `10000000` | No |
 | `ORKNUX_HTTP_REQUEST_TIMEOUT_SECONDS` | How long a workflow's own HTTP request may take. | `30` | No |
-| `ORKNUX_LIBRARY_REGISTRY_URL` | Where installing a library by name fetches from - once, into the database, through the proxy rules. Empty offers the upload alone. | `https://registry.npmjs.org` | No |
+| `ORKNUX_LIBRARY_REGISTRY_URL` | Where a library installed by name is fetched from. Empty: upload only. | `https://registry.npmjs.org` | No |
 | `ORKNUX_LIBRARY_REGISTRY_TIMEOUT` | How long it has to answer. | `30s` | No |
 
 ## Plugins and the marketplace
@@ -302,7 +304,7 @@ a rule at all.
 | --- | --- | --- | --- |
 | `ORKNUX_CHAT_ENABLED` | Whether this installation has a chat at all. `false` is final: the screen can turn it off but not back on. | `true` | No |
 | `ORKNUX_ATTACHMENTS_ENABLED` | Whether files may be attached - to a chat message, an issue or a comment. `false` is final likewise. | `true` | No |
-| `ORKNUX_ATTACHMENTS_LOCATION` | Where the bytes go, a directory per workspace. **Give an absolute path on a volume**: a relative one resolves against the working directory. | `data/attachments` | **Yes** if attachments are on |
+| `ORKNUX_ATTACHMENTS_LOCATION` | Where the bytes go, a directory per workspace. **An absolute path on a volume.** | `data/attachments` | **Yes** if attachments are on |
 | `ORKNUX_ATTACHMENTS_MAX_FILE_SIZE_MB` | The largest file that will be accepted. | `25` | No |
 | `ORKNUX_UPLOAD_MAX_FILE_SIZE` | The servlet's own cap on one uploaded file. Keep it at or above the attachment cap, or the larger limit is never reached. | `25MB` | No |
 | `ORKNUX_UPLOAD_MAX_REQUEST_SIZE` | The cap on a whole upload request. | `26MB` | No |
@@ -325,7 +327,7 @@ and ORKNUX_WATCHER_MAX_PER_AGENT are in
 | --- | --- | --- | --- |
 | `ORKNUX_PORT` | The port this server listens on inside the container. | `8080` | No |
 | `ORKNUX_ALLOWED_ORIGINS` | Where the interface is served from, when it is not this server. Comma separated; empty allows none. | `http://localhost:5173` | **Yes** where the interface is elsewhere |
-| `ORKNUX_BASE_URL` | Where a browser reaches the interface: the host of a reset link and of picture links given to a model. Never read off the `Host` header. | `http://localhost:5173` | **Yes** for password resets |
+| `ORKNUX_BASE_URL` | Where a browser reaches the interface, for reset and picture links. Never read off `Host`. | `http://localhost:5173` | **Yes** for password resets |
 | `ORKNUX_WEBHOOK_MAX_BODY_SIZE` | The most a webhook caller may post to `/api/webhooks/…`. More is refused with 413 before any trigger runs. | `1MB` | No |
 | `ORKNUX_ASYNC_REQUEST_TIMEOUT` | How long a request answered with a promise may stay open. | `330s` | No |
 | `ORKNUX_SESSION_TIMEOUT` | How long a session survives without being used. A fortnight suits a self-hosted tool behind an identity provider; shorten it otherwise. | `14d` | No |

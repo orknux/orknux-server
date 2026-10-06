@@ -70,6 +70,15 @@ spring:
     hibernate:
       ddl-auto: validate
     open-in-view: false
+    properties:
+      hibernate:
+        # A list of entities loads their collections a batch at a time rather
+        # than one query per row and per collection. An agent has ten eager
+        # lists, so a page of thirty agents was three hundred selects before
+        # this; a workspace's roles, a condition's values and a node's mappings
+        # went the same way. Not an operator's setting: it changes how many
+        # round trips a page costs, never what it answers. Issue #616.
+        default_batch_fetch_size: 64
   flyway:
     # Off only where something else owns the schema; the application expects it
     # to be at the version this build ships.
@@ -766,6 +775,12 @@ orknux:
     # step and answers, so it is the run timeout that bounds a long wait.
     step-timeout-seconds: ${ORKNUX_TEMPORAL_STEP_TIMEOUT_SECONDS:300}
     step-attempts: ${ORKNUX_TEMPORAL_STEP_ATTEMPTS:3}
+    # Runs kept in memory between steps, and the workflow threads they may hold.
+    # Temporal's own default is 600 of each, and every cached run keeps its
+    # input and every step's output: a parked run held that for hours. A run
+    # not cached replays from history at its next step. Issue #616.
+    workflow-cache-size: ${ORKNUX_TEMPORAL_WORKFLOW_CACHE:50}
+    max-workflow-threads: ${ORKNUX_TEMPORAL_WORKFLOW_THREADS:100}
     # How long a step may go without its worker saying it is alive before it is
     # handed to another. A killed server says nothing, and without this a run sat
     # on the step it was in until step-timeout-seconds ran out. The step says it

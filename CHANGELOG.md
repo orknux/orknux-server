@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🔧 Changed
+
+- The Temporal worker keeps 50 runs in memory between steps instead of Temporal's default of 600, and holds up to 100 workflow threads instead of 600. A cached run keeps its input, every step's output and a thread of its own, and one that parks stays cached for hours - so an idle server filled its heap. A run that is not cached replays from history at its next step, which costs a moment and nothing else. `ORKNUX_TEMPORAL_WORKFLOW_CACHE` and `ORKNUX_TEMPORAL_WORKFLOW_THREADS` set them.
+
 ## 0.9.9.17
 
 ### 🐛 Fixed

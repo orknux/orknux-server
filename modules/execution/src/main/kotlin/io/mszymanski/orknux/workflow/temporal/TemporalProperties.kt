@@ -38,4 +38,17 @@ data class TemporalProperties(
     val stepAttempts: Int = 3,
     /** How long a whole run may take, including anything it waits for. */
     val runTimeoutHours: Long = 24,
+    /**
+     * How many runs the worker keeps in memory between their steps, and how
+     * many workflow threads it may hold. Issue #616.
+     *
+     * Temporal's defaults are 600 of each. A cached run keeps its plan - the
+     * trigger's input - every step's output and a thread of its own, and a run
+     * that parks for hours stays cached for those hours: a server for one
+     * person sat at a full old generation with no turn running. A run that is
+     * not cached is not lost; its next step replays it from history, which
+     * costs a little time and nothing else.
+     */
+    val workflowCacheSize: Int = 50,
+    val maxWorkflowThreads: Int = 100,
 )

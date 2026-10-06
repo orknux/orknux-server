@@ -72,7 +72,13 @@ class TemporalConfig {
         properties: TemporalProperties,
         registrars: List<TemporalRegistrar>,
     ): WorkerFactory {
-        val factory = WorkerFactory.newInstance(client)
+        val factory = WorkerFactory.newInstance(
+            client,
+            io.temporal.worker.WorkerFactoryOptions.newBuilder()
+                .setWorkflowCacheSize(properties.workflowCacheSize)
+                .setMaxWorkflowThreadCount(properties.maxWorkflowThreads)
+                .build(),
+        )
         val worker = factory.newWorker(properties.taskQueue)
 
         registerExecutionWorkflow(worker, activityOptions(properties))
