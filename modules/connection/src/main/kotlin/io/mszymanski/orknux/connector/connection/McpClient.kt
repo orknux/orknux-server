@@ -221,7 +221,7 @@ class McpClient(
         log.debug("MCP handshake with {} at {}, asking for protocol {}", server.name, server.address, PROTOCOL_VERSION)
 
         val response = post(server, session = null, body = request("initialize", params, id = 1))
-            ?: return McpHandshake.Refused(lastRefusal.get() ?: "${server.address} could not be reached")
+            ?: return McpHandshake.Refused(takeRefusal() ?: "${server.address} could not be reached")
 
         if (response.statusCode() !in 200..299) {
             /*
@@ -275,6 +275,7 @@ class McpClient(
         // them ignored it is worth being able to find out.
         runCatching {
             post(server, session, request("notifications/initialized", mapper.createObjectNode(), id = null))
+                ?: takeRefusal()
         }.onFailure { log.debug("MCP server {} did not take notifications/initialized", server.name, it) }
 
         return McpHandshake.Open(session, named, spoke, isolated)
@@ -368,7 +369,7 @@ class McpClient(
     }
 
     private fun send(server: McpServer, session: String, method: String, params: ObjectNode, id: Int): JsonNode? {
-        val response = post(server, session, request(method, params, id)) ?: return null
+        val response = post(server, session, request(method, params, id)) ?: return null.also { takeRefusal() }
         if (response.statusCode() !in 200..299) {
             log.warn(
                 "MCP server {} answered {} to {}: {}",
@@ -412,8 +413,18 @@ class McpClient(
      * prints would be a worse shape than this. Set on the way out of the catch
      * and read immediately by the caller that is about to refuse, on the same
      * thread, inside the same call.
+     *
+     * And taken, not only read - see [takeRefusal]. Issue #616.
      */
     private val lastRefusal = ThreadLocal<String?>()
+
+    /**
+     * The refusal, cleared as it is read. Every caller [post] answered with
+     * nothing takes it, the ones that do not print it as well: left set, the
+     * sentence stayed on the pooled thread that made the call for as long as
+     * that thread lived.
+     */
+    private fun takeRefusal(): String? = lastRefusal.get().also { lastRefusal.remove() }
 
     /**
      * What to say about a request that never got an answer.
