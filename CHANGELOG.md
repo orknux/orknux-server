@@ -15,6 +15,18 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## 0.9.9.20
+
+### ✨ Added
+
+- An agent can read the documents an MCP server it was granted offers as resources: two more tools appear under the server's name, `list_resources` and `read_resource`, where the server advertises any. A document that is not text comes back as a key, like a drawn picture.
+- An MCP server's prompts are skills: granting the server puts them in a `<server>_mcp` catalog, listed and loaded like any other skill, and `skill_load` passes the arguments a prompt takes.
+- The MCP endpoint offers the workspace's skills to outside clients, as prompts and as resources - so Claude Code and similar tools can use them as slash commands or attach them as documents.
+
+### 🐛 Fixed
+
+- An MCP server whose tools have a parameter with no description no longer loses all of its tools: listing them failed outright.
+
 ## 0.9.9.19
 
 What 0.9.9.18 was to be: that tag was never published, its build having stopped on a test the new memory guard refused. Everything below under 0.9.9.18 is in this release.
