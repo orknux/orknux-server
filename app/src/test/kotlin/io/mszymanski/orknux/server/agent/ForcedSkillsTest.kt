@@ -208,7 +208,7 @@ class ForcedSkillsTest(
         // syntax shown with the first of them - those are listed first.
         assertThat(received.single())
             .containsPattern("You have \\d+ skills")
-            .contains("call skill_list only when a request needs one")
+            .contains(io.mszymanski.orknux.server.chat.AgentBriefing.LOOK_FOR_SKILLS)
             .contains("like !")
             .contains("write one anywhere in a message")
             .contains("how to use")

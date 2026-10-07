@@ -158,11 +158,21 @@ class AgentBriefing(
                      * skill_list calls. Listing is for when a request needs a
                      * skill or somebody asks what the agent can do.
                      */
+                    /*
+                     * And then the other way. Issue #620: "call skill_list only
+                     * when a request needs one" left the judgement to the model,
+                     * and a model asked to do something judged that it did not -
+                     * agents answered from what they already believed and
+                     * read a skill only when it was marked Always. So it is told
+                     * when, the way memory_search is below: before the work,
+                     * not before every message. What made #493 list eighty-nine
+                     * times was an invitation with no bound; this one excludes
+                     * a greeting and is said to happen once.
+                     */
                     append("You have ").append(instructions.size)
                     append(if (instructions.size == 1) " skill" else " skills")
-                    append(" - pages describing how this workspace goes about things. You do not need ")
-                    append("them to answer; call skill_list only when a request needs one or somebody asks ")
-                    appendLine("what you can do.")
+                    appendLine(" - pages describing how this workspace goes about things.")
+                    appendLine(LOOK_FOR_SKILLS)
                 } else {
                     /*
                      * Every one of them, and said as an instruction rather than
@@ -193,14 +203,16 @@ class AgentBriefing(
                     append("\n- ").append(skill.name).append(" (").append(marker).append(skill.key).append(")")
                     skill.description?.takeIf { it.isNotBlank() }?.let { append(": ").append(it) }
                 }
-                if (named.isNotEmpty()) appendLine()
-                /*
-                 * The rest are not counted or pointed at. "There are 24 other
-                 * skills - call skill_list for them" is the same invitation as
-                 * above, and the model accepted it. They are reachable through
-                 * skill_list when a request needs one, which the paragraph on
-                 * commands below already says.
-                 */
+                if (named.isNotEmpty()) {
+                    appendLine()
+                    /*
+                     * The rest are still not counted - "there are 24 other
+                     * skills" was an invitation with no bound, and the model
+                     * accepted it. What it is given instead is when to look,
+                     * the same rule as an agent with none marked. Issue #620.
+                     */
+                    appendLine(LOOK_FOR_SKILLS)
+                }
                 append("\nEvery skill has a command: the marker and its id, like ")
                 append(marker).append(instructions.first().id).append(". ")
                 append("Anybody can write one anywhere in a message to have you load and follow that skill. ")
@@ -486,6 +498,17 @@ class AgentBriefing(
     }
 
     companion object {
+        /**
+         * When to look at the skills it was not told to load. Issue #620; see
+         * where [grants] says it.
+         */
+        const val LOOK_FOR_SKILLS =
+            "Before you start on a piece of work - anything more than a greeting, a thanks or a question " +
+                "about what was just said - call skill_list, and load with skill_load every skill whose " +
+                "description covers what you were asked, then follow it. A skill is how this workspace wants " +
+                "that kind of work done, and it beats what you would otherwise assume. Do this once per " +
+                "conversation: the list does not change, so for later requests choose from the one you read."
+
 
         /** How a turn works; see [grants]. */
         const val HOW_YOU_RUN =

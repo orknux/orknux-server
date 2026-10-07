@@ -176,7 +176,7 @@ class ChatAgentTest(
          * three states meaning for a skill what they mean for a tool. And never
          * spelled out, whatever its state: the body arrives through skill_load.
          */
-        assertThat(said).contains("call skill_list only when a request needs one")
+        assertThat(said).contains(io.mszymanski.orknux.server.chat.AgentBriefing.LOOK_FOR_SKILLS)
         assertThat(said).doesNotContain("Read the diff twice.")
         // Not granted, so not even named.
         assertThat(said).doesNotContain("handling").doesNotContain("hunter2")
@@ -252,7 +252,7 @@ class ChatAgentTest(
          * none of is the workspace's, which is what having no grants means.
          */
         assertThat(said).containsPattern("""You have \d+ skills?""")
-        assertThat(said).contains("call skill_list only when a request needs one")
+        assertThat(said).contains(io.mszymanski.orknux.server.chat.AgentBriefing.LOOK_FOR_SKILLS)
         // Counted once. With nothing named it also said "there are N other
         // skills", which is the same number twice and reads as two groups.
         assertThat(said).doesNotContain("other skill")

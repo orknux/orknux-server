@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🔧 Changed
+
+- An agent now checks its skills before starting a piece of work: its briefing tells it to call skill_list once per conversation and load the ones that fit, where it used to say to look only when a request needed one - which agents almost never decided it did.
+
 ## 0.9.9.22
 
 ### 🐛 Fixed

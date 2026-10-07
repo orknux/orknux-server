@@ -596,7 +596,7 @@ class AgentNodeRunnerTest(
         assertThat(prompt).describedAs("then the grants briefing, which is what #454 found missing")
             // Counted rather than named since #521: an Offered skill is reachable
             // through skill_list, and only Always ones cost a line here.
-            .containsPattern("""You have \d+ skills?""").contains("call skill_list only when a request needs one")
+            .containsPattern("""You have \d+ skills?""").contains(io.mszymanski.orknux.server.chat.AgentBriefing.LOOK_FOR_SKILLS)
         // And where to ask for that list again, hours into the conversation,
         // which is what an agent asked for its commands was guessing at. #471.
         assertThat(prompt).describedAs("the briefing names the tool that lists the skills")

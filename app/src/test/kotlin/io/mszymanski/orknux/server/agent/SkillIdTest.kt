@@ -36,6 +36,7 @@ class SkillIdTest(
     @Autowired val audit: WorkspaceAuditRepository,
     /** For the ids a model types back at it; see the load test. Issue #435. */
     @Autowired val skillTool: SkillTool,
+    @Autowired val briefing: io.mszymanski.orknux.server.chat.AgentBriefing,
 ) {
 
     private var workspaceId: Long = 0
@@ -316,6 +317,11 @@ class SkillIdTest(
         // And the marked one is in force, with its page.
         assertThat(skillTool.always(narrowed).map { it.name }).containsExactly("Answering in a thread")
         assertThat(skillTool.always(narrowed).single().content).isNotBlank()
+        // And the ones left at Offer are still looked for before the work,
+        // not left to a judgement the model kept making against them. #620.
+        assertThat(briefing.grants(narrowed))
+            .contains("Answering in a thread")
+            .contains(io.mszymanski.orknux.server.chat.AgentBriefing.LOOK_FOR_SKILLS)
 
         // A mark on a skill the agent cannot see does nothing: the grant
         // decides whether, the mark only decides how.
