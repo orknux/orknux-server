@@ -27,7 +27,16 @@ class SkillTool(
     private val catalogs: SkillCatalogRepository,
     private val skills: AgentSkillRepository,
     private val fromPlugins: PluginSkills,
+    /** A granted MCP server's prompts, as a third source. Issue #617. */
+    private val fromServers: McpSkills,
 ) {
+
+    /**
+     * A skill's page. The page itself for everything but an MCP prompt, which
+     * the server produces when asked, from [arguments]. Issue #617.
+     */
+    fun read(skill: GrantedSkill, arguments: Map<String, String> = emptyMap()): String =
+        skill.prompt?.let { fromServers.read(it, arguments) } ?: skill.content
 
     fun descriptors(): List<ToolDescriptor> = listOf(LIST, LOAD, SEARCH)
 
@@ -174,6 +183,23 @@ class SkillTool(
     }
 
     /**
+     * The skills a workspace offers somebody outside it, over its MCP endpoint.
+     * Issue #617.
+     *
+     * Its own skills that are switched on, and the plugins'. Not the server's
+     * built-in catalog: those pages describe how an Orknux agent uses tools an
+     * outside client does not have, and handed to one they are instructions
+     * for a loop it is not running.
+     */
+    fun offeredOutside(workspaceId: Long): List<GrantedSkill> {
+        val named = catalogs.findByWorkspaceIdOrderByNameAsc(workspaceId).associate { it.id to it.name }
+        val own = skills.findByWorkspaceIdAndEnabledTrue(workspaceId)
+            .map { GrantedSkill(it.name, it.key, it.description, named[it.catalogId].orEmpty(), it.content) }
+            .sortedBy { it.name }
+        return own + fromPlugins.catalogs().filter { it.name != BuiltInSkills.CATALOG }.flatMap { it.skills }
+    }
+
+    /**
      * The other catalogs holding a skill with this one's id. Issue #473.
      *
      * For the answer `skill_load` gives: an agent that asked for a shared id got
@@ -246,7 +272,7 @@ class SkillTool(
          * name, which is the same rule an ungranted catalog has always had.
          */
         val unwanted = agent.hiddenSkills.map { it.lowercase() }.toSet()
-        val offered = (own + fromPlugins.granted(held))
+        val offered = (own + fromPlugins.granted(held) + fromServers.granted(agent))
             .filterNot { it.key.lowercase() in unwanted }
         return offered
     }
@@ -266,9 +292,26 @@ class SkillTool(
         return granted(agent)
             .filter { it.key.lowercase() in wanted }
             .distinctBy { it.catalog + "/" + it.key }
+            /*
+             * An MCP prompt's page read now, since Always means it is in front
+             * of the model with nothing to load. One the server will not give
+             * without arguments, or will not give at all, is left out of this
+             * turn rather than failing it. Issue #617.
+             */
+            .mapNotNull { skill ->
+                if (skill.prompt == null) {
+                    skill
+                } else {
+                    runCatching { skill.copy(content = read(skill)) }
+                        .onFailure { log.warn("MCP prompt {} could not be read for Always: {}", skill.key, it.message) }
+                        .getOrNull()
+                }
+            }
     }
 
     companion object {
+        private val log = org.slf4j.LoggerFactory.getLogger(SkillTool::class.java)
+
         val LIST = ToolDescriptor(
             name = "skill_list",
             description =
@@ -303,6 +346,14 @@ class SkillTool(
                     name = "name",
                     description = "The skill's id from skill_list, such as answering-in-a-thread. Its name works too.",
                     required = true,
+                ),
+                // For a skill whose description says it takes arguments - an
+                // MCP server's prompt. Issue #617.
+                ToolParameter(
+                    name = "arguments",
+                    description = "Only for a skill whose description says it takes arguments: " +
+                        "a JSON object of them, like {\"language\": \"kotlin\"}.",
+                    required = false,
                 ),
             ),
         )

@@ -550,7 +550,9 @@ class AgentTools(
                     val answer = linkedMapOf<String, Any>(
                         "name" to found.name,
                         "catalog" to found.catalog,
-                        "content" to found.content,
+                        // Read now: an MCP server's prompt is produced when
+                        // asked, from the arguments passed. Issue #617.
+                        "content" to skills.read(found, promptArguments(call)),
                     )
                     if (also.isNotEmpty()) {
                         answer["shared"] =
@@ -605,7 +607,7 @@ class AgentTools(
                     tool != null -> workspaceTools.call(agent, tool, call.arguments, sessionId)
                     // An MCP tool takes its own named arguments, so the whole
                     // object goes through rather than being unwrapped.
-                    remote != null -> mcpTools.call(remote.first, remote.second, call.arguments)
+                    remote != null -> mcpTools.call(remote.first, remote.second, call.arguments, sessionId)
                     declared != null -> pluginTools.call(agent, declared, call.arguments, sessionId)
                     else -> mapper.writeValueAsString(mapOf("error" to "There is no tool called ${call.name}"))
                 }
@@ -631,6 +633,21 @@ class AgentTools(
     private fun argument(call: ToolCall, name: String): String? = runCatching {
         mapper.readTree(call.arguments).path(name).stringValue()?.takeIf { it.isNotBlank() }
     }.getOrNull()
+
+    /**
+     * `skill_load`'s `arguments`, as an object or as the text of one - every
+     * parameter reaches the model typed as a string, so either may arrive.
+     * Values that are not text are passed as their JSON. Issue #617.
+     */
+    private fun promptArguments(call: ToolCall): Map<String, String> = runCatching {
+        val given = mapper.readTree(call.arguments).path("arguments")
+        val held = if (given.isTextual) mapper.readTree(given.stringValue()) else given
+        if (!held.isObject) return@runCatching emptyMap()
+        held.propertyNames().associateWith { name ->
+            val value = held.path(name)
+            if (value.isTextual) value.stringValue() else value.toString()
+        }
+    }.getOrDefault(emptyMap())
 
     private fun spec(descriptor: ToolDescriptor) = ToolSpec(
         name = descriptor.name,

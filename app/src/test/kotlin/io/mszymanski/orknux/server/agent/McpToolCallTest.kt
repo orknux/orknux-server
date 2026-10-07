@@ -66,7 +66,9 @@ class McpToolCallTest(
         // Namespaced, because two servers offering `search` is the ordinary case.
         val offered = tools.specsFor(agent).single { it.name == "brave_search__web_search" }
         assertThat(offered.description).isEqualTo("Search the web")
-        assertThat(offered.parameters.map { it.name }).containsExactly("query")
+        // A parameter with no description is still a parameter; Jackson 3 used
+        // to throw reading the missing field, and the whole listing went with it.
+        assertThat(offered.parameters.map { it.name }).containsExactly("query", "limit")
 
         val answer = tools.run(
             agent,
@@ -121,8 +123,72 @@ class McpToolCallTest(
         assertThat(fromServers(agent)).isEmpty()
     }
 
+    /**
+     * A server that advertises resources is read through two tools under its
+     * name; text comes back as text, and bytes as a key. Issue #617.
+     */
+    @Test
+    fun `a server's resources are listed and read through two tools under its name`() {
+        val address = serve(capabilities = """{"tools":{},"resources":{}}""")
+        mcpServer("Brave Search", address)
+        val agent = agent("Researcher", granted = "Brave Search")
+
+        assertThat(fromServers(agent).map { it.name })
+            .contains("brave_search__list_resources", "brave_search__read_resource")
+
+        val listed = tools.run(agent, ToolCall(id = "c1", name = "brave_search__list_resources", arguments = "{}"))
+        assertThat(listed).contains("file:///notes.md").contains("Release notes")
+
+        val read = tools.run(
+            agent,
+            ToolCall(id = "c2", name = "brave_search__read_resource", arguments = """{"uri":"file:///notes.md"}"""),
+        )
+        assertThat(read).contains("Shipped on Tuesday")
+        assertThat(methods).contains("resources/list", "resources/read")
+    }
+
+    /** One that does not advertise them is not offered the pair: a tool that cannot run is not a tool. */
+    @Test
+    fun `a server that offers no resources gets no reading tools`() {
+        val address = serve()
+        mcpServer("Brave Search", address)
+        val agent = agent("Researcher", granted = "Brave Search")
+
+        assertThat(fromServers(agent).map { it.name }).containsExactly("brave_search__web_search")
+        assertThat(methods).doesNotContain("resources/list")
+    }
+
+    /**
+     * A server's prompts are skills in a catalog of its own, granted with the
+     * server, and loading one asks the server for it with the arguments given.
+     * Issue #617.
+     */
+    @Test
+    fun `a server's prompts are skills, loaded with their arguments`() {
+        val address = serve(capabilities = """{"tools":{},"prompts":{}}""")
+        mcpServer("Brave Search", address)
+        val agent = agent("Researcher", granted = "Brave Search")
+
+        val listed = tools.run(agent, ToolCall(id = "c1", name = "skill_list", arguments = "{}"))
+        assertThat(listed).contains("brave_search_mcp").contains("code-review").contains("Takes arguments: language")
+
+        val missing = tools.run(agent, ToolCall(id = "c2", name = "skill_load", arguments = """{"name":"code-review"}"""))
+        assertThat(missing).contains("error").contains("needs language")
+
+        val loaded = tools.run(
+            agent,
+            ToolCall(
+                id = "c3",
+                name = "skill_load",
+                arguments = """{"name":"brave_search_mcp:code-review","arguments":{"language":"kotlin"}}""",
+            ),
+        )
+        assertThat(loaded).contains("Review this kotlin change carefully")
+        assertThat(methods).contains("prompts/list", "prompts/get")
+    }
+
     /** Answers initialize, tools/list and tools/call, as the protocol describes. */
-    private fun serve(): String {
+    private fun serve(capabilities: String = "{}"): String {
         server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
         server.createContext("/rpc") { exchange ->
             val body = exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
@@ -131,14 +197,34 @@ class McpToolCallTest(
 
             val answer = when (method) {
                 "initialize" ->
-                    """{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{},
+                    """{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":$capabilities,
                        "serverInfo":{"name":"stub","version":"1"}}}"""
+
+                "resources/list" ->
+                    """{"jsonrpc":"2.0","id":2,"result":{"resources":[
+                       {"uri":"file:///notes.md","name":"notes","description":"Release notes","mimeType":"text/markdown"}]}}"""
+
+                "resources/read" ->
+                    """{"jsonrpc":"2.0","id":2,"result":{"contents":[
+                       {"uri":"file:///notes.md","mimeType":"text/markdown","text":"Shipped on Tuesday"}]}}"""
+
+                "prompts/list" ->
+                    """{"jsonrpc":"2.0","id":2,"result":{"prompts":[
+                       {"name":"code-review","description":"Reviews a change",
+                        "arguments":[{"name":"language","description":"Which language","required":true}]}]}}"""
+
+                "prompts/get" -> {
+                    val language = Regex("\"language\"\\s*:\\s*\"([^\"]+)\"").find(body)?.groupValues?.get(1)
+                    """{"jsonrpc":"2.0","id":2,"result":{"messages":[
+                       {"role":"user","content":{"type":"text","text":"Review this $language change carefully"}}]}}"""
+                }
 
                 "tools/list" ->
                     """{"jsonrpc":"2.0","id":2,"result":{"tools":[
                        {"name":"web_search","description":"Search the web",
                         "inputSchema":{"type":"object","properties":{
-                          "query":{"type":"string","description":"What to search for"}},"required":["query"]}}]}}"""
+                          "query":{"type":"string","description":"What to search for"},
+                          "limit":{"type":"integer"}},"required":["query"]}}]}}"""
 
                 "tools/call" ->
                     """{"jsonrpc":"2.0","id":3,"result":{"content":[

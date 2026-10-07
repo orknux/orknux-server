@@ -141,5 +141,21 @@ data class GrantedSkill(
     val description: String?,
     /** The folder it came from: a workspace catalog's name, or a plugin's key. */
     val catalog: String,
+    /** The page; empty for an MCP prompt until it is read - see [prompt]. */
     val content: String,
+    /**
+     * Where an MCP server's prompt is fetched from, for a skill that is one.
+     * Issue #617. Its page is not held here because it is the server's to
+     * produce when asked, possibly from arguments, so [SkillTool.read] asks for
+     * it at the moment it is loaded rather than every time the list is drawn.
+     */
+    val prompt: McpPromptSource? = null,
+)
+
+/** The server and prompt an MCP skill is read from, and what it takes. Issue #617. */
+data class McpPromptSource(
+    val serverId: Long,
+    val server: String,
+    val prompt: String,
+    val arguments: List<io.mszymanski.orknux.connector.connection.McpParameter>,
 )

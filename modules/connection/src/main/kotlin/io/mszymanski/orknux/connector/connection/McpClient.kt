@@ -32,8 +32,40 @@ data class McpParameter(val name: String, val description: String, val required:
 
 /** What a server said it can do, or why it could not be asked. */
 sealed interface McpListing {
-    data class Tools(val tools: List<McpTool>) : McpListing
+    data class Tools(
+        val tools: List<McpTool>,
+        /**
+         * Whether the handshake advertised `resources`. Carried here so whoever
+         * lists the tools learns it from the session that listed them, rather
+         * than by opening a second one to ask. Issue #617.
+         */
+        val resources: Boolean = false,
+    ) : McpListing
     data class Failed(val reason: String) : McpListing
+}
+
+/** One document an MCP server offers to be read, as `resources/list` describes it. Issue #617. */
+data class McpResource(val uri: String, val name: String, val description: String, val mimeType: String?)
+
+/**
+ * One piece of what `resources/read` answered: text where the server sent text,
+ * base64 where it sent a blob. A read may answer several, so a caller gets a list.
+ */
+data class McpResourceContent(val uri: String, val mimeType: String?, val text: String?, val blob: String?)
+
+/** One prompt an MCP server offers, as `prompts/list` describes it. Issue #617. */
+data class McpPrompt(val name: String, val title: String?, val description: String, val arguments: List<McpParameter>)
+
+/**
+ * What a server answered, or why it did not.
+ *
+ * The resource and prompt calls answer with a value a caller goes on to shape,
+ * unlike [McpClient.call], whose answer is handed to a model as it stands - so
+ * the failure is a case rather than a JSON string to be parsed back apart.
+ */
+sealed interface McpAnswer<out T> {
+    data class Got<T>(val value: T) : McpAnswer<T>
+    data class Failed(val reason: String) : McpAnswer<Nothing>
 }
 
 /**
@@ -68,6 +100,10 @@ sealed interface McpHandshake {
          * that does not say so, which reads as "no jail here". See issue #337.
          */
         val sessionIsolation: Boolean,
+        /** Whether `capabilities` named `resources`. Issue #617. */
+        val resources: Boolean = false,
+        /** Whether `capabilities` named `prompts`. Issue #617. */
+        val prompts: Boolean = false,
     ) : McpHandshake
 
     /** Why it did not open, in a sentence somebody can act on. */
@@ -165,7 +201,161 @@ class McpClient(
 
         val listed = answer.path("result").path("tools") as? ArrayNode
             ?: return McpListing.Failed("The server answered tools/list without any tools")
-        return McpListing.Tools(listed.mapNotNull(::toolOf))
+        return McpListing.Tools(listed.mapNotNull(::toolOf), resources = opened.resources)
+    }
+
+    /**
+     * The documents this server offers to be read. Issue #617.
+     *
+     * A server that did not advertise `resources` offers none, and is not asked:
+     * a `resources/list` it never claimed to answer comes back as an error that
+     * would read as a fault, when all it means is that the server has no such
+     * thing.
+     */
+    fun resources(server: McpServer): McpAnswer<List<McpResource>> =
+        listed(server, "resources/list", "resources", { it.resources }) { node ->
+            val uri = node.path("uri").stringValue(null)?.takeIf { it.isNotBlank() } ?: return@listed null
+            McpResource(
+                uri = uri,
+                name = node.path("name").stringValue(null)?.takeIf { it.isNotBlank() } ?: uri,
+                description = node.path("description").stringValue(null).orEmpty(),
+                mimeType = node.path("mimeType").stringValue(null),
+            )
+        }
+
+    /** One document, as the server sent it. Issue #617. */
+    fun readResource(server: McpServer, uri: String): McpAnswer<List<McpResourceContent>> {
+        val params = mapper.createObjectNode().put("uri", uri)
+        return asked<List<McpResourceContent>>(server, "resources/read", params) { result ->
+            val contents = result.path("contents") as? ArrayNode
+                ?: return@asked McpAnswer.Failed("${server.name} answered resources/read without any contents")
+            McpAnswer.Got(
+                // toList first: a JsonNode's own map() is not the collection one.
+                contents.toList().map { block ->
+                    McpResourceContent(
+                        uri = block.path("uri").stringValue(null) ?: uri,
+                        mimeType = block.path("mimeType").stringValue(null),
+                        text = block.path("text").stringValue(null),
+                        blob = block.path("blob").stringValue(null),
+                    )
+                },
+            )
+        }
+    }
+
+    /** The prompts this server offers; none where it did not advertise `prompts`. Issue #617. */
+    fun prompts(server: McpServer): McpAnswer<List<McpPrompt>> =
+        listed(server, "prompts/list", "prompts", { it.prompts }) { node ->
+            val name = node.path("name").stringValue(null)?.takeIf { it.isNotBlank() } ?: return@listed null
+            val arguments = (node.path("arguments") as? ArrayNode)?.mapNotNull { argument ->
+                val called = argument.path("name").stringValue(null)?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                McpParameter(
+                    name = called,
+                    description = argument.path("description").stringValue(null).orEmpty(),
+                    required = argument.path("required").asBoolean(false),
+                )
+            }.orEmpty()
+            McpPrompt(
+                name = name,
+                title = node.path("title").stringValue(null)?.takeIf { it.isNotBlank() },
+                description = node.path("description").stringValue(null).orEmpty(),
+                arguments = arguments.sortedByDescending { it.required },
+            )
+        }
+
+    /**
+     * One prompt filled in, as the text a model reads. Issue #617.
+     *
+     * The messages are joined in order. A prompt is a few messages meant to
+     * open a conversation, and what an agent does with one is read it as
+     * instructions - the same use a skill's page is put to - so the roles are
+     * said only where a message is not the user's, which is the case where
+     * reading it as one would mislead. A resource embedded in a message is
+     * given as its text; anything that is not text is described rather than
+     * dropped, the way a tool's answer is.
+     */
+    fun prompt(server: McpServer, name: String, arguments: Map<String, String>): McpAnswer<String> {
+        val params = mapper.createObjectNode().put("name", name)
+        val given = params.putObject("arguments")
+        arguments.forEach { (key, value) -> given.put(key, value) }
+        return asked<String>(server, "prompts/get", params) { result ->
+            val messages = result.path("messages") as? ArrayNode
+                ?: return@asked McpAnswer.Failed("${server.name} answered prompts/get without any messages")
+            McpAnswer.Got(
+                messages.joinToString("\n\n") { message ->
+                    val role = message.path("role").stringValue(null) ?: "user"
+                    val content = message.path("content")
+                    val text = when (content.path("type").stringValue(null)) {
+                        "text" -> content.path("text").stringValue(null).orEmpty()
+                        "resource" -> content.path("resource").path("text").stringValue(null)
+                            ?: "[${content.path("resource").path("uri").stringValue(null) ?: "a resource"}, " +
+                            "which cannot be read as text]"
+                        else -> "[${content.path("type").stringValue(null) ?: "unknown"} content, " +
+                            "which cannot be read as text]"
+                    }
+                    if (role == "user") text else "($role) $text"
+                },
+            )
+        }
+    }
+
+    /**
+     * A paged listing, read to its end or to [MOST_PAGES] pages. The protocol
+     * pages `resources/list` and `prompts/list` by cursor; a server that keeps
+     * handing out cursors is stopped at a bound rather than followed for ever.
+     */
+    private fun <T : Any> listed(
+        server: McpServer,
+        method: String,
+        field: String,
+        advertised: (McpHandshake.Open) -> Boolean,
+        read: (JsonNode) -> T?,
+    ): McpAnswer<List<T>> {
+        refusal(server)?.let { return McpAnswer.Failed(it) }
+        val opened = when (val handshake = open(server)) {
+            is McpHandshake.Refused -> return McpAnswer.Failed(handshake.reason)
+            is McpHandshake.Open -> handshake
+        }
+        if (!advertised(opened)) return McpAnswer.Got(emptyList())
+
+        val found = mutableListOf<T>()
+        var cursor: String? = null
+        repeat(MOST_PAGES) { page ->
+            val params = mapper.createObjectNode()
+            cursor?.let { params.put("cursor", it) }
+            val answer = send(server, opened.session, method, params, id = 2 + page)
+                ?: return McpAnswer.Failed("${server.name} did not answer $method")
+            answer.path("error").takeIf { !it.isMissingNode }?.let { error ->
+                return McpAnswer.Failed(error.path("message").stringValue(null) ?: "${server.name} refused $method")
+            }
+            val result = answer.path("result")
+            val items = result.path(field) as? ArrayNode
+                ?: return McpAnswer.Failed("${server.name} answered $method without any $field")
+            found += items.mapNotNull(read)
+            cursor = result.path("nextCursor").stringValue(null)?.takeIf { it.isNotEmpty() }
+            if (cursor == null) return McpAnswer.Got(found)
+        }
+        return McpAnswer.Got(found)
+    }
+
+    /** One request after a handshake of its own, its result handed to [read]. */
+    private fun <T> asked(
+        server: McpServer,
+        method: String,
+        params: ObjectNode,
+        read: (JsonNode) -> McpAnswer<T>,
+    ): McpAnswer<T> {
+        refusal(server)?.let { return McpAnswer.Failed(it) }
+        val opened = when (val handshake = open(server)) {
+            is McpHandshake.Refused -> return McpAnswer.Failed("${server.name} could not be asked: ${handshake.reason}")
+            is McpHandshake.Open -> handshake
+        }
+        val answer = send(server, opened.session, method, params, id = 2)
+            ?: return McpAnswer.Failed("${server.name} did not answer $method")
+        answer.path("error").takeIf { !it.isMissingNode }?.let { error ->
+            return McpAnswer.Failed(error.path("message").stringValue(null) ?: "${server.name} refused $method")
+        }
+        return read(answer.path("result"))
     }
 
     /**
@@ -278,7 +468,17 @@ class McpClient(
                 ?: takeRefusal()
         }.onFailure { log.debug("MCP server {} did not take notifications/initialized", server.name, it) }
 
-        return McpHandshake.Open(session, named, spoke, isolated)
+        // What else it offers besides tools. A key present at all is the claim,
+        // whatever object it holds. Issue #617.
+        val capabilities = result.path("capabilities")
+        return McpHandshake.Open(
+            session,
+            named,
+            spoke,
+            isolated,
+            resources = capabilities.has("resources"),
+            prompts = capabilities.has("prompts"),
+        )
     }
 
     /**
@@ -477,10 +677,10 @@ class McpClient(
 
     /** A tool the server described well enough to offer; null when it did not. */
     private fun toolOf(node: JsonNode): McpTool? {
-        val name = node.path("name").stringValue()?.takeIf { it.isNotBlank() } ?: return null
+        val name = node.path("name").stringValue(null)?.takeIf { it.isNotBlank() } ?: return null
         val schema = node.path("inputSchema")
         val required = (schema.path("required") as? ArrayNode)
-            ?.mapNotNull { it.stringValue() }
+            ?.mapNotNull { it.stringValue(null) }
             .orEmpty()
             .toSet()
 
@@ -488,13 +688,13 @@ class McpClient(
         val parameters = properties.propertyNames().map { parameter ->
             McpParameter(
                 name = parameter,
-                description = properties.path(parameter).path("description").stringValue().orEmpty(),
+                description = properties.path(parameter).path("description").stringValue(null).orEmpty(),
                 required = parameter in required,
             )
         }
         return McpTool(
             name = name,
-            description = node.path("description").stringValue().orEmpty(),
+            description = node.path("description").stringValue(null).orEmpty(),
             parameters = parameters.sortedByDescending { it.required },
         )
     }
@@ -521,6 +721,9 @@ class McpClient(
 
         /** How much of a server's own words is worth repeating. */
         const val DETAIL_LENGTH = 300
+
+        /** How many pages of a listing are followed before the rest is left unread. */
+        const val MOST_PAGES = 20
         val WHITESPACE = Regex("\\s+")
 
         val log = LoggerFactory.getLogger(McpClient::class.java)

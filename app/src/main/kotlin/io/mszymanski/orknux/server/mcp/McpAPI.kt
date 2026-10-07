@@ -1,6 +1,8 @@
 package io.mszymanski.orknux.server.mcp
 
 import io.mszymanski.orknux.connector.model.ToolSpec
+import io.mszymanski.orknux.server.agent.GrantedSkill
+import io.mszymanski.orknux.server.agent.SkillTool
 import io.mszymanski.orknux.server.security.WorkspaceAccess
 import io.mszymanski.orknux.server.workspace.WorkspaceNotFoundException
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
@@ -15,6 +17,8 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.CompletableFuture
 
 /**
@@ -64,6 +68,7 @@ class McpAPI(
     private val tools: OrknuxTools,
     private val access: WorkspaceAccess,
     private val mapper: ObjectMapper,
+    private val skills: SkillTool,
 ) {
 
     @PostMapping("/mcp/{workspaceId}", produces = [MediaType.APPLICATION_JSON_VALUE])
@@ -106,9 +111,78 @@ class McpAPI(
             "tools/list" -> done(ok(id, mapOf("tools" to tools.specs(scope).map(::described))))
             "tools/call" -> call(scope, body.path("params")).thenApply { answered -> ok(id, answered) }
             "ping" -> done(ok(id, emptyMap<String, Any>()))
+            "prompts/list" -> done(ok(id, mapOf("prompts" to offered(workspaceId).map { (name, skill) -> prompt(name, skill) })))
+            "prompts/get" -> done(promptGot(id, workspaceId, body.path("params")))
+            "resources/list" -> done(ok(id, mapOf("resources" to offered(workspaceId).map { (_, skill) -> resource(skill) })))
+            // No templates: every skill is listed by its own address.
+            "resources/templates/list" -> done(ok(id, mapOf("resourceTemplates" to emptyList<Any>())))
+            "resources/read" -> done(resourceRead(id, workspaceId, body.path("params")))
             else -> done(ResponseEntity.ok(error(id, METHOD_NOT_FOUND, "This server does not do $method")))
         }
     }
+
+    /**
+     * The workspace's skills, each under the name a client asks for it by.
+     * Issue #617.
+     *
+     * A skill is what both a prompt and a resource are here: a page of
+     * instructions a client picks by name - as a slash command, or as a
+     * document to attach. The name is the skill's id; where two catalogs hold
+     * one id, the first keeps the bare id and the rest are `catalog:id`, which
+     * is the spelling `skill_load` already reads.
+     */
+    private fun offered(workspaceId: Long): List<Pair<String, GrantedSkill>> {
+        val taken = mutableSetOf<String>()
+        return skills.offeredOutside(workspaceId).map { skill ->
+            val bare = skill.key.lowercase()
+            val name = if (taken.add(bare)) skill.key else "${skill.catalog}:${skill.key}"
+            name to skill
+        }
+    }
+
+    private fun prompt(name: String, skill: GrantedSkill): Map<String, Any> = buildMap {
+        put("name", name)
+        put("title", skill.name)
+        skill.description?.takeIf { it.isNotBlank() }?.let { put("description", it) }
+        put("arguments", emptyList<Any>())
+    }
+
+    private fun resource(skill: GrantedSkill): Map<String, Any> = buildMap {
+        put("uri", uriOf(skill))
+        put("name", skill.key)
+        put("title", skill.name)
+        skill.description?.takeIf { it.isNotBlank() }?.let { put("description", it) }
+        put("mimeType", MARKDOWN)
+    }
+
+    private fun promptGot(id: JsonNode, workspaceId: Long, params: JsonNode): ResponseEntity<Any> {
+        val asked = params.path("name").stringValue(null).orEmpty()
+        val skill = offered(workspaceId).firstOrNull { it.first.equals(asked, ignoreCase = true) }?.second
+            ?: return ResponseEntity.ok(error(id, INVALID_PARAMS, "There is no prompt called $asked"))
+        return ok(
+            id,
+            buildMap {
+                skill.description?.takeIf { it.isNotBlank() }?.let { put("description", it) }
+                put(
+                    "messages",
+                    listOf(mapOf("role" to "user", "content" to mapOf("type" to "text", "text" to skill.content))),
+                )
+            },
+        )
+    }
+
+    private fun resourceRead(id: JsonNode, workspaceId: Long, params: JsonNode): ResponseEntity<Any> {
+        val asked = params.path("uri").stringValue(null).orEmpty()
+        val skill = offered(workspaceId).firstOrNull { uriOf(it.second) == asked }?.second
+            ?: return ResponseEntity.ok(error(id, RESOURCE_NOT_FOUND, "There is no resource at $asked"))
+        return ok(id, mapOf("contents" to listOf(mapOf("uri" to asked, "mimeType" to MARKDOWN, "text" to skill.content))))
+    }
+
+    /** `orknux://skills/<catalog>/<id>`, each part encoded, since a catalog is whatever somebody named a folder. */
+    private fun uriOf(skill: GrantedSkill): String =
+        "orknux://skills/" + encode(skill.catalog) + "/" + encode(skill.key)
+
+    private fun encode(part: String): String = URLEncoder.encode(part, StandardCharsets.UTF_8).replace("+", "%20")
 
     /** An answer that was ready before the method returned, which is most of them. */
     private fun done(answer: ResponseEntity<Any>): CompletableFuture<ResponseEntity<Any>> =
@@ -121,12 +195,18 @@ class McpAPI(
         // Answered with the version this was written against. A client asking
         // for a newer one is told what it is talking to and decides for itself.
         "protocolVersion" to PROTOCOL,
-        "capabilities" to mapOf("tools" to mapOf("listChanged" to false)),
+        "capabilities" to mapOf(
+            "tools" to mapOf("listChanged" to false),
+            // The workspace's skills, both ways a client may want them. Issue #617.
+            "prompts" to mapOf("listChanged" to false),
+            "resources" to mapOf("listChanged" to false, "subscribe" to false),
+        ),
         "serverInfo" to mapOf("name" to "orknux", "version" to VERSION),
         "instructions" to
             "Orknux, a workflow and agent platform. These tools read and operate one workspace: its " +
             "workflows, its runs and its agents. Everything that has a page comes back with a `url`; " +
-            "use it when you refer to something, and never invent one.",
+            "use it when you refer to something, and never invent one. The workspace's skills - how it " +
+            "goes about things - are offered as prompts and as resources.",
     )
 
     /**
@@ -137,7 +217,7 @@ class McpAPI(
      * all, and a model needs to read what went wrong to try something else.
      */
     private fun call(scope: OrknuxScope, params: JsonNode): CompletableFuture<Map<String, Any>> {
-        val name = params.path("name").stringValue().orEmpty()
+        val name = params.path("name").stringValue(null).orEmpty()
         if (!tools.handles(name)) {
             return CompletableFuture.completedFuture(content("There is no tool called $name", failed = true))
         }
@@ -189,5 +269,10 @@ class McpAPI(
 
         const val METHOD_NOT_FOUND = -32601
         const val INVALID_PARAMS = -32602
+
+        /** What the protocol answers a `resources/read` for an address nothing is at. */
+        const val RESOURCE_NOT_FOUND = -32002
+
+        const val MARKDOWN = "text/markdown"
     }
 }
