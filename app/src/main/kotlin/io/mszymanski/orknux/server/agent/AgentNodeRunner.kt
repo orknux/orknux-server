@@ -83,8 +83,6 @@ class AgentNodeRunner(
     private val timers: io.mszymanski.orknux.server.chat.TimerTools,
     /** Watchers the agent sets, which wake its session; see [io.mszymanski.orknux.server.watcher.WatcherTools]. #606. */
     private val watchers: io.mszymanski.orknux.server.watcher.WatcherTools,
-    /** Whether a watcher it set is still running, which a step parks for; see [stillOwed]. */
-    private val watcherService: org.springframework.beans.factory.ObjectProvider<io.mszymanski.orknux.server.watcher.WatcherService>,
     /** The agent's setup, written into the log where it changes; see [AgentDetails]. Issues #391, #441. */
     private val agentDetails: AgentDetails,
     /**
@@ -813,20 +811,23 @@ class AgentNodeRunner(
     private fun stillOwed(step: ExecutionStep, agent: Agent, session: Long?, said: String): StepResult? {
         if (session == null) return null
         val running = asks.getObject().stillWorking(session)
-        val coming = inbox.pending(session)
         /*
-         * A watcher it set is owed as much as an ask: when it fires it posts to
-         * this session's inbox, and only a parked step is woken by that. #606.
+         * Not a watcher. #606 parked the step for one as for an ask, and a
+         * watcher may run for a week: the run sat suspended and the node after
+         * this one never got the answer. The step completes; when the watcher
+         * ends, `WatcherFollowUp` wakes the agent in this session for a turn of
+         * its own. Its own unread events are left to that too. #618.
          */
-        val watching = watcherService.getObject().runningIn(session)
-        if (running == 0 && !coming && watching == 0L) return null
+        val coming = inbox.pending(session, io.mszymanski.orknux.server.llm.SessionEventKind.ANSWER) ||
+            inbox.pending(session, io.mszymanski.orknux.server.llm.SessionEventKind.TIMER)
+        if (running == 0 && !coming) return null
         if (step.agentSleeps >= settings.agentSleepTimes()) return null
 
         val longest = Duration.ofSeconds(settings.agentSleepSeconds().toLong())
         val due = inbox.nextDue(session)?.let { Duration.between(java.time.OffsetDateTime.now(), it) }
         // An answer wakes the step when it lands; a timer only when it is due.
         val wake = when {
-            running > 0 || watching > 0 -> longest
+            running > 0 -> longest
             due != null -> due.coerceIn(Duration.ofSeconds(1), longest)
             else -> longest
         }
@@ -840,7 +841,6 @@ class AgentNodeRunner(
         step.waitUntil = java.time.OffsetDateTime.now().plus(wake)
         val owed = when {
             running > 0 -> "$running ask(s) still running"
-            watching > 0 -> "$watching watcher(s) still running"
             else -> "a timer set"
         }
         val note = "${agent.name} ended its turn with $owed; " +

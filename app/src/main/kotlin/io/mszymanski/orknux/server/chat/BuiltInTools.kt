@@ -157,6 +157,8 @@ class BuiltInTools(
             io.mszymanski.orknux.server.watcher.WatcherTools.SET,
             io.mszymanski.orknux.server.watcher.WatcherTools.LIST,
             io.mszymanski.orknux.server.watcher.WatcherTools.FINISH,
+            // Changing one after a look at its result, #618; V344 marks it Always.
+            io.mszymanski.orknux.server.watcher.WatcherTools.UPDATE,
             /*
              * The skill tools are built-ins like the rest rather than a view of
              * the catalog grants: the skills the server brings reach every agent

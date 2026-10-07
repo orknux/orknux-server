@@ -149,15 +149,15 @@ class WatcherTest(
         lines.findAll().filter { it.sessionId == session && it.kind == LlmSessionEventKind.SYSTEM }.mapNotNull { it.content }
 
     @Test
-    fun `the three tools are built-ins every agent holds, an existing one included`() {
+    fun `the four tools are built-ins every agent holds, an existing one included`() {
         // An agent saved with no lists at all, as one written before watchers existed is.
-        listOf(WatcherTools.SET, WatcherTools.LIST, WatcherTools.FINISH).forEach {
+        listOf(WatcherTools.SET, WatcherTools.LIST, WatcherTools.FINISH, WatcherTools.UPDATE).forEach {
             assertThat(BuiltInTools.GRANTED).contains(it)
             assertThat(BuiltInTools.granted(agent, it)).isTrue()
         }
         val lent = requireNotNull(BuiltInTools.lentTo(agent, shed()))
         assertThat(lent.specs().map { it.name })
-            .containsExactly(WatcherTools.SET, WatcherTools.LIST, WatcherTools.FINISH)
+            .containsExactly(WatcherTools.SET, WatcherTools.UPDATE, WatcherTools.LIST, WatcherTools.FINISH)
 
         // Hidden on the agent's page, neither offered nor answered.
         agent.hiddenTools = mutableListOf(WatcherTools.SET)

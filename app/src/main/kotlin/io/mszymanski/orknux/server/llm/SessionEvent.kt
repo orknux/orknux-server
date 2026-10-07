@@ -76,6 +76,8 @@ interface SessionEventRepository : JpaRepository<SessionEvent, Long> {
 
     fun existsBySessionIdAndDeliveredAtIsNull(sessionId: Long): Boolean
 
+    fun existsBySessionIdAndKindAndDeliveredAtIsNull(sessionId: Long, kind: SessionEventKind): Boolean
+
     fun findFirstBySessionIdAndDeliveredAtIsNullOrderByDueAtAsc(sessionId: Long): SessionEvent?
 
     @Query("SELECT DISTINCT e.sessionId FROM SessionEvent e WHERE e.deliveredAt IS NULL AND e.dueAt <= :now")
@@ -136,6 +138,10 @@ class SessionInbox(
 
     /** Whether anything is still to come for this session, due or not. */
     fun pending(sessionId: Long): Boolean = events.existsBySessionIdAndDeliveredAtIsNull(sessionId)
+
+    /** Whether something of this kind is still unread here. #618. */
+    fun pending(sessionId: Long, kind: SessionEventKind): Boolean =
+        events.existsBySessionIdAndKindAndDeliveredAtIsNull(sessionId, kind)
 
     /** When the next thing is due, or null where nothing is waiting. */
     fun nextDue(sessionId: Long): OffsetDateTime? =

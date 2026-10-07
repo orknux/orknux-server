@@ -8,12 +8,6 @@ import io.mszymanski.orknux.server.agent.AgentRepository
 import io.mszymanski.orknux.server.agent.AgentTool
 import io.mszymanski.orknux.server.agent.AgentToolRepository
 import io.mszymanski.orknux.server.agent.AgentType
-import io.mszymanski.orknux.server.attachment.InstallationSettings
-import org.awaitility.Awaitility.await
-import java.time.Duration
-import java.time.OffsetDateTime
-import java.util.concurrent.CompletableFuture
-import java.util.concurrent.TimeUnit
 import io.mszymanski.orknux.server.llm.LlmSessionEventRepository
 import io.mszymanski.orknux.server.llm.LlmSessionRepository
 import io.mszymanski.orknux.server.llm.SessionEventRepository
@@ -24,6 +18,7 @@ import io.mszymanski.orknux.workflow.execution.ExecutionStatus
 import io.mszymanski.orknux.workflow.execution.ExecutionStepRepository
 import io.mszymanski.orknux.workflow.execution.WorkflowExecutionRepository
 import org.assertj.core.api.Assertions.assertThat
+import org.awaitility.Awaitility.await
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -35,18 +30,19 @@ import org.springframework.security.test.context.support.WithMockUser
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
+import java.time.Duration
+import java.time.OffsetDateTime
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * A workflow agent that set a watcher and finished is parked, and woken when
- * the watcher fires. Issue #606.
+ * A workflow agent that sets a watcher hands its answer on at once, and the
+ * watcher wakes it later for a turn of its own. Issue #618.
  *
- * A step that completed has nobody to wake: the firing would land in the
- * session's inbox and wait for whatever next runs there. So a step whose agent
- * ends its turn with a watcher still running parks, as one with an ask still
- * running does, and the firing - posted through the inbox - wakes it. The
- * step's wait is a minute, so a run that finishes in seconds is one the watcher
- * woke rather than the clock.
+ * #606 parked the step for as long as the watcher ran, so the node after it
+ * waited on something that could take a week. The step completes now, and when
+ * the watcher ends, `WatcherFollowUp` wakes the agent in the same session -
+ * told that nobody is waiting on the turn, so whatever it has to say it says
+ * with its tools.
  */
 @SpringBootTest
 @AutoConfigureGraphQlTester
@@ -63,18 +59,21 @@ class WatcherStepWakeTest(
     @Autowired val sessions: LlmSessionRepository,
     @Autowired val lines: LlmSessionEventRepository,
     @Autowired val inbox: SessionEventRepository,
-    @Autowired val settings: InstallationSettings,
     @Autowired val agentTools: AgentToolRepository,
     @Autowired val watchers: WatcherRepository,
     @Autowired val service: WatcherService,
+    @Autowired val watcherSettings: WatcherSettings,
 ) {
 
     private var workspaceId: Long = 0
     private var workflowId: Long = 0
     private lateinit var server: HttpServer
 
-    /** What the asker was sent, one body per call, in order. */
+    /** What the model was sent, one body per call, in order. */
     private val asked = CopyOnWriteArrayList<String>()
+
+    /** What watcher_set is called with beyond the basics; the agent-check test adds its interval. */
+    private var extra = ""
 
     @BeforeEach
     fun reset() {
@@ -91,8 +90,7 @@ class WatcherStepWakeTest(
         sessions.deleteAll()
         workspaces.deleteAll()
         asked.clear()
-        settings.setAgentSleepSeconds(60, "alice")
-        settings.setAgentSleepTimes(3, "alice")
+        extra = ""
 
         workspaceId = requireNotNull(workspaces.save(Workspace(name = "backend")).id)
         workflowId = graphQlTester.document(
@@ -103,55 +101,93 @@ class WatcherStepWakeTest(
     @AfterEach
     fun stop() {
         server.stop(0)
-        settings.setAgentSleepSeconds(settings.agentSleepSecondsConfigured(), "alice")
-        settings.setAgentSleepTimes(settings.agentSleepTimesConfigured(), "alice")
+        watcherSettings.setMinAgentCheckSeconds(watcherSettings.minAgentCheckSecondsConfigured(), "alice")
     }
 
     @Test
-    fun `a step whose agent finished with a watcher running is woken when it fires`() {
+    fun `the step hands its answer on at once, and the firing wakes the agent for a turn of its own`() {
+        val executionId = start()
+
+        // Completed with what the agent said, the watcher still running behind it.
+        assertThat(executions.findById(executionId).orElseThrow().status).isEqualTo(ExecutionStatus.COMPLETED)
+        val step = steps.findAll().single { it.nodeKey == "think" }
+        assertThat(step.output).contains("Watching the build.")
+        assertThat(step.agentSleeps).isZero()
+        assertThat(watchers.findAll().single().status).isEqualTo(WatcherStatus.ACTIVE)
+
+        buildIs("done")
+        due()
+        assertThat(service.tick()).isEqualTo(1)
+
+        await().atMost(Duration.ofSeconds(20)).untilAsserted {
+            assertThat(asked.last()).contains("fired. You asked").contains("nobody is waiting on this turn")
+        }
+        // The step is history; the follow-up changed nothing on it.
+        assertThat(steps.findAll().single { it.nodeKey == "think" }.output).contains("Watching the build.")
+    }
+
+    /**
+     * Shown the result while the condition has not matched, the agent changes
+     * the watcher - the condition it guessed at before it had seen a result.
+     */
+    @Test
+    fun `a look the agent asked for shows it the result, and it can change the watcher`() {
+        watcherSettings.setMinAgentCheckSeconds(15, "alice")
+        extra = ""","agent_check_interval_seconds":15"""
+        start()
+        val watcher = watchers.findAll().single()
+        assertThat(watcher.agentCheckIntervalSeconds).isEqualTo(15)
+
+        watcher.nextAgentCheckAt = OffsetDateTime.now().minusSeconds(1)
+        watchers.save(watcher)
+        due()
+        assertThat(service.tick()).isEqualTo(1)
+
+        await().atMost(Duration.ofSeconds(20)).untilAsserted {
+            assertThat(asked.any { "the look you asked for" in it && "running" in it }).isTrue()
+            assertThat(watchers.findAll().single().condition).isEqualTo("building")
+        }
+        assertThat(watchers.findAll().single().status).isEqualTo(WatcherStatus.ACTIVE)
+    }
+
+    /** Below the installation's floor is refused, in words the model can act on. */
+    @Test
+    fun `an agent check more often than the installation allows is refused`() {
+        watcherSettings.setMinAgentCheckSeconds(600, "alice")
+        extra = ""","agent_check_interval_seconds":30"""
+        start()
+        assertThat(watchers.findAll()).isEmpty()
+        assertThat(asked.any { "agent_check_interval_seconds must be at least 600" in it }).isTrue()
+    }
+
+    private fun start(): Long {
         val modelId = model(serve())
-        val status = "export default async function buildStatus() { return { status: 'running', build: 41 }; }"
-        agentTools.save(AgentTool(workspaceId = workspaceId, name = "buildStatus", source = status, typescript = status))
-        val watcherAgent = agents.save(
+        buildIs("running")
+        val agent = agents.save(
             Agent(
                 workspaceId = workspaceId, name = "Responder", type = AgentType.LLM, modelId = modelId,
                 systemPrompt = "You are the responder.", tools = mutableListOf("buildStatus"),
             ),
         )
-        graph(requireNotNull(watcherAgent.id))
+        graph(requireNotNull(agent.id))
+        return graphQlTester.document(
+            """mutation { startExecution(workspaceId: $workspaceId, workflowId: $workflowId, input: "{}") { id } }""",
+        ).execute().path("startExecution.id").entity(Long::class.java).get()
+    }
 
-        val began = System.nanoTime()
-        // On a thread of its own, since the inline engine waits a parked step out on the caller's - signed
-        // in there too, which the mock user is not by itself.
-        val signedIn = org.springframework.security.core.context.SecurityContextHolder.getContext()
-        val running = CompletableFuture.supplyAsync {
-            org.springframework.security.core.context.SecurityContextHolder.setContext(signedIn)
-            graphQlTester.document(
-                """mutation { startExecution(workspaceId: $workspaceId, workflowId: $workflowId, input: "{}") { id } }""",
-            ).execute().path("startExecution.id").entity(Long::class.java).get()
-        }
+    private fun buildIs(status: String) {
+        val source = "export default async function buildStatus() { return { status: '$status', build: 41 }; }"
+        val tool = agentTools.findAll().singleOrNull { it.name == "buildStatus" }
+            ?: AgentTool(workspaceId = workspaceId, name = "buildStatus", source = source, typescript = source)
+        tool.source = source
+        tool.typescript = source
+        agentTools.save(tool)
+    }
 
-        // The agent has set its watcher and finished; the step is parked on it.
-        await().atMost(Duration.ofSeconds(20)).untilAsserted {
-            assertThat(watchers.findAll()).hasSize(1)
-            assertThat(steps.findAll().singleOrNull { it.nodeKey == "think" }?.agentSleeps).isEqualTo(1)
-        }
-        // Done now, after the watcher was set while it was still running.
-        agentTools.findAll().single { it.name == "buildStatus" }.let {
-            it.source = "export default async function buildStatus() { return { status: 'done', build: 41 }; }"; it.typescript = "export default async function buildStatus() { return { status: 'done', build: 41 }; }"; agentTools.save(it)
-        }
+    private fun due() {
         val watcher = watchers.findAll().single()
         watcher.nextCheckAt = OffsetDateTime.now().minusSeconds(1)
         watchers.save(watcher)
-        assertThat(service.tick()).isEqualTo(1)
-
-        val id = running.get(40, TimeUnit.SECONDS)
-        val took = (System.nanoTime() - began) / 1_000_000_000
-        assertThat(executions.findById(id).orElseThrow().status).isEqualTo(ExecutionStatus.COMPLETED)
-        val step = steps.findAll().single { it.nodeKey == "think" }
-        assertThat(step.output).contains("Build 41 is done.")
-        assertThat(took).describedAs("seconds the run took").isLessThan(40)
-        assertThat(asked.last()).contains("fired. You asked")
     }
 
     private fun graph(agentId: Long) {
@@ -174,21 +210,30 @@ class WatcherStepWakeTest(
         ).execute()
     }
 
-    /** Sets a watcher on the build and finishes; handed the firing, says what the build did. */
+    /**
+     * Sets a watcher on the build and answers; woken by the firing, says what
+     * the build did; shown a look, changes the condition.
+     */
     private fun serve(): String {
         server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
         server.createContext("/chat/completions") { exchange ->
             val body = exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
             asked += body
             val reply = when {
+                body.contains("call_2") -> said("Changed it.")
+                body.contains("the look you asked for") -> called(
+                    "call_2",
+                    "watcher_update",
+                    """{\"watcher\":${watchers.findAll().single().id},\"condition_type\":\"regex\",\"condition\":\"building\"}""",
+                )
                 body.contains("fired. You asked") -> said("Build 41 is done.")
-                body.contains("\"tool_call_id\"") -> said("Watching the build.")
-                else -> """
-                    {"choices":[{"message":{"role":"assistant","content":null,
-                      "tool_calls":[{"id":"call_1","type":"function","function":{"name":"watcher_set",
-                        "arguments":"{\"tool\":\"buildStatus\",\"tool_result_path\":\"$\",\"condition_type\":\"regex\",\"condition\":\"done\",\"interval_seconds\":15,\"timeout_seconds\":600}"}}]}}],
-                     "usage":{"prompt_tokens":9,"completion_tokens":4}}
-                """.trimIndent()
+                body.contains("call_1") -> said("Watching the build.")
+                else -> called(
+                    "call_1",
+                    "watcher_set",
+                    """{\"tool\":\"buildStatus\",\"tool_result_path\":\"$\",\"condition_type\":\"regex\",""" +
+                        """\"condition\":\"done\",\"interval_seconds\":15,\"timeout_seconds\":600${extra.replace("\"", "\\\"")}}""",
+                )
             }.toByteArray(StandardCharsets.UTF_8)
             exchange.responseHeaders.add("Content-Type", "application/json")
             exchange.sendResponseHeaders(200, reply.size.toLong())
@@ -198,6 +243,12 @@ class WatcherStepWakeTest(
         server.start()
         return "http://${server.address.hostString}:${server.address.port}"
     }
+
+    private fun called(id: String, name: String, arguments: String) = """
+        {"choices":[{"message":{"role":"assistant","content":null,
+          "tool_calls":[{"id":"$id","type":"function","function":{"name":"$name","arguments":"$arguments"}}]}}],
+         "usage":{"prompt_tokens":9,"completion_tokens":4}}
+    """.trimIndent()
 
     private fun said(content: String) =
         """{"choices":[{"message":{"role":"assistant","content":"$content"}}],"usage":{"prompt_tokens":9,"completion_tokens":4}}"""

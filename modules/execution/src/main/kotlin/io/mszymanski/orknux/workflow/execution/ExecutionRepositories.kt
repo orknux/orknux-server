@@ -132,6 +132,9 @@ interface ExecutionStepRepository : JpaRepository<ExecutionStep, Long> {
     fun findByExecutionIdOrderByOrderAsc(executionId: Long): List<ExecutionStep>
     fun findByExecutionIdAndNodeKey(executionId: Long, nodeKey: String): ExecutionStep?
 
+    /** Whether a step writing into this session is in one of these states: mid-turn, or parked on it. */
+    fun existsBySessionIdAndStatusIn(sessionId: Long, statuses: Collection<StepStatus>): Boolean
+
     /**
      * The runs that wrote into one session: the distinct executions whose steps
      * name it. Issue #420.

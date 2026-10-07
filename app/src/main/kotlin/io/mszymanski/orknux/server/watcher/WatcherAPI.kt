@@ -98,6 +98,14 @@ class WatcherAPI(
     }
 
     @MutationMapping
+    fun setWatcherMinAgentCheckSeconds(@Argument seconds: Int): WatcherSettingsView {
+        access.requireAdmin()
+        settings.setMinAgentCheckSeconds(seconds, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.AGENT, "Shortest watcher agent check set to $seconds seconds")
+        return view()
+    }
+
+    @MutationMapping
     fun setWatcherMaxPerAgent(@Argument count: Int): WatcherSettingsView {
         access.requireAdmin()
         settings.setMaxPerAgent(count, currentUser())
@@ -112,6 +120,8 @@ class WatcherAPI(
         minIntervalSecondsConfigured = settings.minIntervalSecondsConfigured(),
         maxPerAgent = settings.maxPerAgent(),
         maxPerAgentConfigured = settings.maxPerAgentConfigured(),
+        minAgentCheckSeconds = settings.minAgentCheckSeconds(),
+        minAgentCheckSecondsConfigured = settings.minAgentCheckSecondsConfigured(),
     )
 
     private fun currentUser(): String =
@@ -145,6 +155,7 @@ data class WatcherView(
     val condition: String,
     val toolResultPath: String,
     val intervalSeconds: Int,
+    val agentCheckIntervalSeconds: Int?,
     val timeoutSeconds: Int,
     val note: String?,
     val status: WatcherStatus,
@@ -170,6 +181,7 @@ data class WatcherView(
             condition = watcher.condition,
             toolResultPath = watcher.toolResultPath ?: WatcherCondition.WHOLE,
             intervalSeconds = watcher.intervalSeconds,
+            agentCheckIntervalSeconds = watcher.agentCheckIntervalSeconds,
             timeoutSeconds = watcher.timeoutSeconds,
             note = watcher.note,
             status = watcher.status,
@@ -193,6 +205,8 @@ data class WatcherSettingsView(
     val minIntervalSecondsConfigured: Int,
     val maxPerAgent: Int,
     val maxPerAgentConfigured: Int,
+    val minAgentCheckSeconds: Int,
+    val minAgentCheckSecondsConfigured: Int,
 )
 
 @Component
@@ -205,6 +219,7 @@ class WatcherExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is WatcherMaxSecondsOutOfRangeException,
             is WatcherMinIntervalOutOfRangeException,
             is WatcherMaxPerAgentOutOfRangeException,
+            is WatcherMinAgentCheckOutOfRangeException,
             -> refused(exception, ErrorType.BAD_REQUEST, environment)
 
             else -> null

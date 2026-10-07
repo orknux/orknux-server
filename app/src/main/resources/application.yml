@@ -300,6 +300,9 @@ orknux:
     min-interval-seconds: ${ORKNUX_WATCHER_MIN_INTERVAL_SECONDS:15}
     # How many one agent may have running at once; 0 switches watchers off.
     max-per-agent: ${ORKNUX_WATCHER_MAX_PER_AGENT:10}
+    # The shortest interval at which one may wake its agent to look at the
+    # result itself, in seconds. Each look is a model turn.
+    min-agent-check-seconds: ${ORKNUX_WATCHER_MIN_AGENT_CHECK_SECONDS:300}
   sessions:
     # How long a session counts as active after its last line, in seconds. The
     # sessions list's dot lights for a line written this recently, so an agent

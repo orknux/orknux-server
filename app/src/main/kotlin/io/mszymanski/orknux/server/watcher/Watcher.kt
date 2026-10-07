@@ -61,14 +61,14 @@ class Watcher(
 
     /** The JSON object the tool is called with, as the agent wrote it. */
     @Column(nullable = false, columnDefinition = "text")
-    val arguments: String,
+    var arguments: String,
 
     @Enumerated(EnumType.STRING)
     @Column(name = "condition_kind", nullable = false, length = 16)
-    val conditionKind: WatcherConditionKind,
+    var conditionKind: WatcherConditionKind,
 
     @Column(nullable = false, columnDefinition = "text")
-    val condition: String,
+    var condition: String,
 
     /**
      * Which part of the tool's result the condition is held against: a JSONPath,
@@ -77,17 +77,17 @@ class Watcher(
      * set before it existed, which read as the whole result.
      */
     @Column(name = "tool_result_path", length = 500)
-    val toolResultPath: String? = null,
+    var toolResultPath: String? = null,
 
     @Column(name = "interval_seconds", nullable = false)
-    val intervalSeconds: Int,
+    var intervalSeconds: Int,
 
     @Column(name = "timeout_seconds", nullable = false)
     val timeoutSeconds: Int,
 
     /** What the agent wanted it for, in its own words, handed back when it fires. */
     @Column(columnDefinition = "text")
-    val note: String? = null,
+    var note: String? = null,
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
@@ -125,6 +125,19 @@ class Watcher(
 
     @Column(name = "finished_at")
     var finishedAt: OffsetDateTime? = null,
+
+    /**
+     * How often its agent is woken to look at the result itself while the
+     * condition has not matched, or null for never. The agent judges what the
+     * condition cannot - "is this done?" - and may change the watcher with
+     * `watcher_update` or end it. #618.
+     */
+    @Column(name = "agent_check_interval_seconds")
+    var agentCheckIntervalSeconds: Int? = null,
+
+    /** When it is next due to wake its agent for a look; null with no agent check. */
+    @Column(name = "next_agent_check_at")
+    var nextAgentCheckAt: OffsetDateTime? = null,
 )
 
 enum class WatcherConditionKind {
@@ -173,6 +186,9 @@ interface WatcherRepository : JpaRepository<Watcher, Long> {
     fun findByAgentIdOrderByCreatedAtAscIdAsc(agentId: Long): List<Watcher>
 
     fun findBySessionIdAndAgentIdIsNullOrderByCreatedAtAscIdAsc(sessionId: Long): List<Watcher>
+
+    /** The watcher in this session that looked last and has an agent to wake; see `WatcherFollowUp`. #618. */
+    fun findFirstBySessionIdAndAgentIdIsNotNullOrderByLastCheckedAtDescIdDesc(sessionId: Long): Watcher?
 
     fun findByWorkspaceIdAndStatusOrderByCreatedAtDescIdDesc(
         workspaceId: Long,

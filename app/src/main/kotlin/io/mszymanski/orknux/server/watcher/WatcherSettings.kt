@@ -24,6 +24,8 @@ data class WatcherProperties(
     val minIntervalSeconds: Int = DEFAULT_WATCHER_MIN_INTERVAL_SECONDS,
     /** How many watchers one agent may have running at once. */
     val maxPerAgent: Int = DEFAULT_WATCHER_MAX_PER_AGENT,
+    /** The shortest an agent may ask to be shown a watcher's result between checks. #618. */
+    val minAgentCheckSeconds: Int = DEFAULT_WATCHER_MIN_AGENT_CHECK_SECONDS,
 )
 
 @Configuration(proxyBeanMethods = false)
@@ -66,6 +68,17 @@ class WatcherSettings(
     /** What a fresh installation allows - ORKNUX_WATCHER_MAX_PER_AGENT. */
     fun maxPerAgentConfigured(): Int = properties.maxPerAgent.coerceIn(WATCHER_MAX_PER_AGENT_RANGE)
 
+    /**
+     * How often, at the most, a watcher may wake its agent to look at the result
+     * itself. Each look is a model turn, so this is what an agent asking to be
+     * shown every fifteen seconds for a week is held to. #618.
+     */
+    fun minAgentCheckSeconds(): Int =
+        held(MIN_AGENT_CHECK, WATCHER_MIN_AGENT_CHECK_RANGE) ?: minAgentCheckSecondsConfigured()
+
+    fun minAgentCheckSecondsConfigured(): Int =
+        properties.minAgentCheckSeconds.coerceIn(WATCHER_MIN_AGENT_CHECK_RANGE)
+
     @Transactional
     fun setMaxSeconds(seconds: Int, by: String) {
         if (seconds !in WATCHER_MAX_SECONDS_RANGE) throw WatcherMaxSecondsOutOfRangeException(seconds)
@@ -76,6 +89,12 @@ class WatcherSettings(
     fun setMinIntervalSeconds(seconds: Int, by: String) {
         if (seconds !in WATCHER_MIN_INTERVAL_RANGE) throw WatcherMinIntervalOutOfRangeException(seconds)
         write(MIN_INTERVAL, seconds, by)
+    }
+
+    @Transactional
+    fun setMinAgentCheckSeconds(seconds: Int, by: String) {
+        if (seconds !in WATCHER_MIN_AGENT_CHECK_RANGE) throw WatcherMinAgentCheckOutOfRangeException(seconds)
+        write(MIN_AGENT_CHECK, seconds, by)
     }
 
     @Transactional
@@ -100,6 +119,7 @@ class WatcherSettings(
         const val MAX_SECONDS = "watcher.max.seconds"
         const val MIN_INTERVAL = "watcher.min.interval.seconds"
         const val MAX_PER_AGENT = "watcher.max.per.agent"
+        const val MIN_AGENT_CHECK = "watcher.min.agent.check.seconds"
     }
 }
 
@@ -109,6 +129,9 @@ const val DEFAULT_WATCHER_MAX_SECONDS = 7 * 24 * 60 * 60
 const val DEFAULT_WATCHER_MIN_INTERVAL_SECONDS = 15
 
 const val DEFAULT_WATCHER_MAX_PER_AGENT = 10
+
+/** Five minutes: a look by the agent is a model turn, and a watcher exists so the agent does not take one per check. */
+const val DEFAULT_WATCHER_MIN_AGENT_CHECK_SECONDS = 300
 
 /**
  * A minute to a year. Below a minute a watcher is a timer with extra steps;
@@ -125,6 +148,8 @@ val WATCHER_MIN_INTERVAL_RANGE = 1..24 * 60 * 60
 
 /** None, which takes watcher_set off the table, to a thousand. */
 val WATCHER_MAX_PER_AGENT_RANGE = 0..1000
+
+val WATCHER_MIN_AGENT_CHECK_RANGE = 1..365 * 24 * 60 * 60
 
 class WatcherMaxSecondsOutOfRangeException(val seconds: Int) : RuntimeException(
     "$seconds is not a length of time a watcher can be allowed to run for. " +
@@ -145,4 +170,11 @@ class WatcherMaxPerAgentOutOfRangeException(val count: Int) : RuntimeException(
         "Choose between ${WATCHER_MAX_PER_AGENT_RANGE.first} and ${WATCHER_MAX_PER_AGENT_RANGE.last}.",
 ), Refusal {
     override val arguments get() = mapOf("count" to count)
+}
+
+class WatcherMinAgentCheckOutOfRangeException(val seconds: Int) : RuntimeException(
+    "$seconds is not an interval a watcher's agent check can be held to. " +
+        "Choose between ${WATCHER_MIN_AGENT_CHECK_RANGE.first} and ${WATCHER_MIN_AGENT_CHECK_RANGE.last}.",
+), Refusal {
+    override val arguments get() = mapOf("seconds" to seconds)
 }

@@ -10,7 +10,7 @@ extend type Query {
     ended first. Anybody who can see the workspace.
     """
     watchers(workspaceId: ID!, finished: Boolean = false, page: Int = 0, size: Int = 50): WatcherPage!
-    "The three limits on what an agent may ask a watcher to do. Administrators only."
+    "The limits on what an agent may ask a watcher to do. Administrators only."
     watcherSettings: WatcherSettings!
 }
 
@@ -24,6 +24,8 @@ extend type Mutation {
     setWatcherMaxSeconds(seconds: Int!): WatcherSettings!
     "The shortest interval between two checks, in seconds. Administrators only."
     setWatcherMinIntervalSeconds(seconds: Int!): WatcherSettings!
+    "The shortest interval at which a watcher may wake its agent to look at the result itself, in seconds. Administrators only."
+    setWatcherMinAgentCheckSeconds(seconds: Int!): WatcherSettings!
     "How many watchers one agent may have running at once; zero switches watchers off. Administrators only."
     setWatcherMaxPerAgent(count: Int!): WatcherSettings!
 }
@@ -52,6 +54,8 @@ type Watcher {
     "Which part of the tool's result the condition is held against, as a JSONPath; $ is the whole result."
     toolResultPath: String!
     intervalSeconds: Int!
+    "How often the agent is woken to look at the result itself while it has not matched; null for never."
+    agentCheckIntervalSeconds: Int
     timeoutSeconds: Int!
     "What the agent said it was waiting for."
     note: String
@@ -97,4 +101,7 @@ type WatcherSettings {
     maxPerAgent: Int!
     "What a fresh installation allows - ORKNUX_WATCHER_MAX_PER_AGENT."
     maxPerAgentConfigured: Int!
+    minAgentCheckSeconds: Int!
+    "What a fresh installation allows - ORKNUX_WATCHER_MIN_AGENT_CHECK_SECONDS."
+    minAgentCheckSecondsConfigured: Int!
 }

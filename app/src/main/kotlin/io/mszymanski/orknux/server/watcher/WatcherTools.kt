@@ -10,7 +10,8 @@ import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 
 /**
- * The three tools an agent sets, lists and ends its watchers with. Issue #606.
+ * The tools an agent sets, lists, changes and ends its watchers with. Issues
+ * #606 and #618.
  *
  * Lent per turn like `timer_set`, because a watcher belongs to a conversation:
  * it wakes the session it was set in, and without a session there is nowhere
@@ -46,6 +47,7 @@ class WatcherTools(
             if (most <= 0) return emptyList()
             val shortest = settings.minIntervalSeconds()
             val longest = settings.maxSeconds()
+            val looks = settings.minAgentCheckSeconds()
             return listOf(
                 ToolSpec(
                     name = SET,
@@ -86,6 +88,33 @@ class WatcherTools(
                         ToolParameterSpec(INTERVAL, "Seconds between two calls; at least $shortest.", required = true),
                         ToolParameterSpec(TIMEOUT, "Seconds before it gives up; at most $longest.", required = true),
                         ToolParameterSpec(NOTE, "What you are waiting for, in your own words; handed back when it fires."),
+                        ToolParameterSpec(
+                            AGENT_CHECK,
+                            "Optional. Seconds between looks of your own: while the condition has not matched, " +
+                                "you are woken this often with the latest result, to judge it yourself and change " +
+                                "the watcher with $UPDATE or end it. Use it when you are not sure your condition " +
+                                "will recognise what you are waiting for. At least $looks and at least " +
+                                "interval_seconds; each look costs you a turn.",
+                        ),
+                    ),
+                ),
+                ToolSpec(
+                    name = UPDATE,
+                    description = "Changes one of your running watchers, by its number: the arguments, the " +
+                        "condition, which part of the result it is held against, the interval, how often you are " +
+                        "shown the result, or the note. What you leave out stays as it was. Use it when a look " +
+                        "at the result shows the condition will never match what you are waiting for. The tool it " +
+                        "calls and how long it runs cannot change; set a new watcher for that.",
+                    summary = "change one of your running watchers",
+                    parameters = listOf(
+                        ToolParameterSpec(WATCHER, "The watcher's number.", required = true),
+                        ToolParameterSpec(ARGUMENTS, "New arguments for its tool, as a JSON object."),
+                        ToolParameterSpec(RESULT_PATH, "A new JSONPath into the result for the condition to be held against."),
+                        ToolParameterSpec(CONDITION_TYPE, "jsonpath or regex; give it with condition."),
+                        ToolParameterSpec(CONDITION, "A new condition, as for $SET."),
+                        ToolParameterSpec(INTERVAL, "New seconds between two calls; at least $shortest."),
+                        ToolParameterSpec(AGENT_CHECK, "New seconds between your own looks; at least $looks. 0 stops them."),
+                        ToolParameterSpec(NOTE, "A new note."),
                     ),
                 ),
                 ToolSpec(
@@ -121,6 +150,7 @@ class WatcherTools(
                     val mine = if (all) service.everyOneOf(agent, session) else service.runningFor(agent, session)
                     answer(mapOf("watchers" to mine.map(::described)))
                 }
+                UPDATE -> update(asked)
                 FINISH -> {
                     val id = whole(asked?.path(WATCHER))
                         ?: throw WatcherRefused("Say in $WATCHER the number of the watcher to end.")
@@ -153,12 +183,15 @@ class WatcherTools(
                 ?: throw WatcherRefused("$TIMEOUT must be a whole number of seconds.")
             val arguments = argumentsOf(asked?.path(ARGUMENTS))
             val note = text(asked?.path(NOTE))?.trim()?.ifEmpty { null }
+            val agentCheck = present(asked?.path(AGENT_CHECK))?.let {
+                whole(it) ?: throw WatcherRefused("$AGENT_CHECK must be a whole number of seconds.")
+            }?.takeIf { it > 0 }
 
             val watcher = try {
                 service.create(
                     agent,
                     session,
-                    WatcherRequest(tool.trim(), arguments, kind, condition, resultPath, interval, timeout, note),
+                    WatcherRequest(tool.trim(), arguments, kind, condition, resultPath, interval, timeout, note, agentCheck),
                 )
             } catch (already: WatcherAlreadyMatches) {
                 return answer(
@@ -181,6 +214,33 @@ class WatcherTools(
                     "note" to "Carry on, or finish; you will be woken when it matches, or told if it times out.",
                 ),
             )
+        }
+
+        private fun update(asked: JsonNode?): String {
+            val id = whole(asked?.path(WATCHER)) ?: throw WatcherRefused("Say in $WATCHER the number of the watcher to change.")
+            val kind = text(asked?.path(CONDITION_TYPE))?.lowercase()?.replace("_", "")?.let {
+                when (it) {
+                    "jsonpath" -> WatcherConditionKind.JSONPATH
+                    "regex", "regexp" -> WatcherConditionKind.REGEX
+                    else -> throw WatcherRefused("$CONDITION_TYPE must be jsonpath or regex.")
+                }
+            }
+            fun seconds(name: String): Int? = present(asked?.path(name))?.let {
+                whole(it) ?: throw WatcherRefused("$name must be a whole number of seconds.")
+            }
+            val change = WatcherChange(
+                arguments = present(asked?.path(ARGUMENTS))?.let { argumentsOf(it) },
+                kind = kind,
+                condition = text(asked?.path(CONDITION))?.takeIf { it.isNotBlank() },
+                toolResultPath = text(asked?.path(RESULT_PATH))?.trim()?.takeIf { it.isNotEmpty() },
+                intervalSeconds = seconds(INTERVAL),
+                agentCheckIntervalSeconds = seconds(AGENT_CHECK),
+                note = text(asked?.path(NOTE)),
+            )
+            if (change == WatcherChange()) {
+                throw WatcherRefused("Say what to change: $ARGUMENTS, $CONDITION, $RESULT_PATH, $INTERVAL, $AGENT_CHECK or $NOTE.")
+            }
+            return answer(mapOf("changed" to described(service.update(agent, session, id.toLong(), change))))
         }
 
         /** An object as given, or a string holding one; anything else is refused. */
@@ -207,6 +267,7 @@ class WatcherTools(
             "condition" to watcher.condition,
             "toolResultPath" to (watcher.toolResultPath ?: WatcherCondition.WHOLE),
             "intervalSeconds" to watcher.intervalSeconds,
+            "agentCheckIntervalSeconds" to watcher.agentCheckIntervalSeconds,
             "timeoutSeconds" to watcher.timeoutSeconds,
             "endsAt" to watcher.expiresAt.toString(),
             "state" to watcher.status.name.lowercase(),
@@ -227,6 +288,10 @@ class WatcherTools(
         else -> null
     }
 
+    /** The node where something was given, null where it was left out. */
+    private fun present(node: JsonNode?): JsonNode? =
+        node?.takeUnless { it.isMissingNode || it.isNull || (it.isTextual && it.stringValue().isBlank()) }
+
     private fun whole(node: JsonNode?): Int? = when {
         node == null -> null
         node.isIntegralNumber -> node.asLong().takeIf { it in Int.MIN_VALUE..Int.MAX_VALUE }?.toInt()
@@ -242,7 +307,8 @@ class WatcherTools(
         const val SET = "watcher_set"
         const val LIST = "watcher_list"
         const val FINISH = "watcher_finish"
-        val NAMES = setOf(SET, LIST, FINISH)
+        const val UPDATE = "watcher_update"
+        val NAMES = setOf(SET, LIST, FINISH, UPDATE)
 
         const val TOOL = "tool"
         const val ARGUMENTS = "arguments"
@@ -252,6 +318,7 @@ class WatcherTools(
         const val INTERVAL = "interval_seconds"
         const val TIMEOUT = "timeout_seconds"
         const val NOTE = "note"
+        const val AGENT_CHECK = "agent_check_interval_seconds"
         const val WATCHER = "watcher"
         const val FINISHED = "include_finished"
     }

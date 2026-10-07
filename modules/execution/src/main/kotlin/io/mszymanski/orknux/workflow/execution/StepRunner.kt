@@ -44,6 +44,17 @@ data class StepOutcome(
  */
 data class StepParked(val executionId: Long, val nodeKey: String, val sessionId: Long?)
 
+/**
+ * A step that wrote into a session has finished, however it finished.
+ *
+ * Something that arrived at the session while the step was mid-turn and after
+ * it last read its inbox would otherwise wait for nobody: the step is not parked
+ * to be woken, and whatever wakes a session with no step on it saw one running
+ * and stood aside. Told after the fact, as [StepParked] is. Published only for a
+ * step with a session, since nothing else listens.
+ */
+data class StepFinished(val executionId: Long, val nodeKey: String, val sessionId: Long)
+
 data class RetryPolicy(
     val attempts: Int,
     /** The wait before the second attempt, and the whole of it at [NO_GROWTH]. */
@@ -324,6 +335,7 @@ class StepRunner(
         step.branchOption = result.option.takeIf { result.branch == EdgeBranch.OPTION }
         step.finishedAt = OffsetDateTime.now()
         steps.save(step)
+        step.sessionId?.let { published.publishEvent(StepFinished(executionId, nodeKey, it)) }
 
         // What the run carries from here on. Written once, where it is read
         // from, so both engines carry the same thing and neither has to hand it

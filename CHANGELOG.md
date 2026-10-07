@@ -15,6 +15,16 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- A watcher can wake its agent to look at the result itself while the condition has not matched: `agent_check_interval_seconds` on `watcher_set`, and a new `watcher_update` tool to change the condition, arguments, interval or note afterwards. Admin Settings → Watchers sets how often, at most, an agent may be woken this way - five minutes unless `ORKNUX_WATCHER_MIN_AGENT_CHECK_SECONDS` says otherwise. The Watchers page shows it on the row.
+
+### 🔧 Changed
+
+- A workflow agent that sets a watcher no longer holds its step until the watcher ends: the step completes with the agent's answer and the run goes on to the next node. When the watcher fires, times out or is stopped, the agent is woken in the same session for a turn of its own and tells people with its tools.
+
 ## 0.9.9.20
 
 ### ✨ Added

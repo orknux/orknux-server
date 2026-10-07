@@ -25,6 +25,9 @@ wrote. You can carry on with other work or finish your turn in the meantime.
   with when they ended and why.
 - `watcher_finish` - ends one of yours by its number, when you no longer need
   what it waits for.
+- `watcher_update` - changes one of yours by its number: the arguments, the
+  condition, the result path, the interval, how often you are shown the
+  result, or the note. What you leave out stays.
 
 **Call `watcher_list` before setting a watcher.** You may already have one
 on the same thing from earlier in this conversation or another; two watchers
@@ -128,6 +131,24 @@ waits until it times out when the build breaks.
   watcher may run is set by the installation and stated in the `watcher_set`
   description - a week unless somebody changed it.
 - `interval_seconds` cannot be longer than `timeout_seconds`.
+
+## Looking for yourself
+
+A condition is a guess at what "done" will look like, written before you have
+seen a single result. When you are not sure it will recognise it - a status
+whose words you do not know, a page whose shape may change - also give
+`agent_check_interval_seconds`. While the condition has not matched, you are
+woken that often with a message starting "Watcher #N has not matched yet" and
+the latest result. Then:
+
+- if what you are waiting for has in fact happened, end it with
+  `watcher_finish` and act on it;
+- if the condition, the result path or the arguments are wrong, fix them with
+  `watcher_update`;
+- if it is simply not there yet, do nothing - it carries on.
+
+Each look costs you a turn, so ask for as few as will do: the installation
+sets the shortest allowed, and it can be no shorter than `interval_seconds`.
 
 ## The limit
 

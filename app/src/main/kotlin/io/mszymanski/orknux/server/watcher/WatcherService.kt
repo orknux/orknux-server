@@ -41,6 +41,25 @@ data class WatcherRequest(
     val intervalSeconds: Int,
     val timeoutSeconds: Int,
     val note: String?,
+    /** How often to wake the agent to look at the result itself; null for never. #618. */
+    val agentCheckIntervalSeconds: Int? = null,
+)
+
+/**
+ * What `watcher_update` is handed: only what is to change, null for what stays.
+ * The tool a watcher calls and how long it may run are not among it - a
+ * different tool is a different watcher, and a longer run is one more than the
+ * agent was allowed when it asked. #618.
+ */
+data class WatcherChange(
+    val arguments: String? = null,
+    val kind: WatcherConditionKind? = null,
+    val condition: String? = null,
+    val toolResultPath: String? = null,
+    val intervalSeconds: Int? = null,
+    /** 0 switches the agent's looks off. */
+    val agentCheckIntervalSeconds: Int? = null,
+    val note: String? = null,
 )
 
 /**
@@ -131,6 +150,8 @@ class WatcherService(
                 "interval_seconds is longer than timeout_seconds, so the watcher would end before it looked once.",
             )
         }
+        asked.agentCheckIntervalSeconds?.let { agentCheckProblem(it, asked.intervalSeconds, asked.timeoutSeconds) }
+            ?.let { throw WatcherRefused(it) }
 
         val running = agent.id?.let { watchers.countByAgentIdAndStatus(it, WatcherStatus.ACTIVE) }
             ?: watchers.countBySessionIdAndAgentIdIsNullAndStatus(sessionId, WatcherStatus.ACTIVE)
@@ -176,6 +197,8 @@ class WatcherService(
                     createdAt = now,
                     expiresAt = now.plusSeconds(asked.timeoutSeconds.toLong()),
                     nextCheckAt = now.plusSeconds(asked.intervalSeconds.toLong()),
+                    agentCheckIntervalSeconds = asked.agentCheckIntervalSeconds,
+                    nextAgentCheckAt = asked.agentCheckIntervalSeconds?.let { now.plusSeconds(it.toLong()) },
                 ),
             )
             recorder.note(
@@ -206,6 +229,88 @@ class WatcherService(
     fun everyOneOf(agent: Agent, sessionId: Long): List<Watcher> =
         agent.id?.let { watchers.findByAgentIdOrderByCreatedAtAscIdAsc(it) }
             ?: watchers.findBySessionIdAndAgentIdIsNullOrderByCreatedAtAscIdAsc(sessionId)
+
+    /**
+     * Changed by the agent that set it, usually after a look it asked for showed
+     * the condition was not the right one. What is not named stays; the change
+     * is held to the same rules a new watcher is, and written into the session
+     * so a person reading it sees the watcher it had become. #618.
+     */
+    fun update(agent: Agent, sessionId: Long, id: Long, change: WatcherChange): Watcher {
+        val watcher = watchers.findByIdOrNull(id)?.takeIf { ownedBy(it, agent, sessionId) }
+            ?: throw WatcherRefused("You have no watcher #$id. ${WatcherTools.LIST} lists the ones you have.")
+        if (watcher.status != WatcherStatus.ACTIVE) {
+            throw WatcherRefused("Watcher #$id has already ended: ${watcher.outcome ?: watcher.status.name}.")
+        }
+        val kind = change.kind ?: watcher.conditionKind
+        val condition = change.condition ?: watcher.condition
+        if (change.kind != null || change.condition != null) {
+            WatcherCondition.problemWith(kind, condition)?.let { throw WatcherRefused(it) }
+        }
+        change.toolResultPath?.let { path -> WatcherCondition.problemWithPath(path)?.let { throw WatcherRefused(it) } }
+        val interval = change.intervalSeconds ?: watcher.intervalSeconds
+        if (change.intervalSeconds != null) {
+            val shortest = settings.minIntervalSeconds()
+            if (interval < shortest) throw WatcherRefused("interval_seconds must be at least $shortest on this installation.")
+            if (interval > watcher.timeoutSeconds) {
+                throw WatcherRefused("interval_seconds is longer than the watcher's timeout of ${watcher.timeoutSeconds}s.")
+            }
+        }
+        val agentCheck = when (change.agentCheckIntervalSeconds) {
+            null -> watcher.agentCheckIntervalSeconds
+            0 -> null
+            else -> change.agentCheckIntervalSeconds
+        }
+        if (change.agentCheckIntervalSeconds != null && agentCheck != null) {
+            agentCheckProblem(agentCheck, interval, watcher.timeoutSeconds)?.let { throw WatcherRefused(it) }
+        }
+
+        return requireNotNull(
+            inTransaction.execute {
+                val held = watchers.findByIdOrNull(id)?.takeIf { it.status == WatcherStatus.ACTIVE }
+                    ?: throw WatcherRefused("Watcher #$id ended while it was being changed.")
+                val now = OffsetDateTime.now()
+                change.arguments?.let { held.arguments = it }
+                held.conditionKind = kind
+                held.condition = condition
+                change.toolResultPath?.let { held.toolResultPath = it }
+                change.note?.let { held.note = it.ifBlank { null } }
+                if (change.intervalSeconds != null) {
+                    held.intervalSeconds = interval
+                    val next = now.plusSeconds(interval.toLong())
+                    held.nextCheckAt = if (next.isAfter(held.expiresAt)) held.expiresAt else next
+                }
+                if (change.agentCheckIntervalSeconds != null) {
+                    held.agentCheckIntervalSeconds = agentCheck
+                    held.nextAgentCheckAt = agentCheck?.let { now.plusSeconds(it.toLong()) }
+                }
+                watchers.save(held)
+                recorder.note(
+                    sessionId,
+                    "Watcher #$id changed by ${agent.name}: ${held.tool} every ${held.intervalSeconds}s until " +
+                        "${describe(held)} matches" +
+                        (held.agentCheckIntervalSeconds?.let { ", shown to the agent every ${it}s" } ?: "") + ".",
+                )
+                held
+            },
+        )
+    }
+
+    /**
+     * Why an agent check this often cannot be had, or null where it can. At
+     * least the installation's floor - each look is a model turn - and no more
+     * often than the tool is called, since a look between two checks would show
+     * the same result twice; no longer than the watcher runs, or it never looks.
+     */
+    private fun agentCheckProblem(seconds: Int, interval: Int, timeout: Int): String? {
+        val floor = maxOf(settings.minAgentCheckSeconds(), interval)
+        return when {
+            seconds < floor -> "agent_check_interval_seconds must be at least $floor: no shorter than this " +
+                "installation allows (${settings.minAgentCheckSeconds()}s) and no shorter than interval_seconds."
+            seconds > timeout -> "agent_check_interval_seconds is longer than timeout_seconds, so you would never be shown it."
+            else -> null
+        }
+    }
 
     /** Ended by the agent that set it, which needs telling nothing. */
     fun finish(agent: Agent, sessionId: Long, id: Long): Watcher {
@@ -288,6 +393,7 @@ class WatcherService(
                 else -> {
                     val next = now.plusSeconds(held.intervalSeconds.toLong())
                     held.nextCheckAt = if (next.isAfter(held.expiresAt)) held.expiresAt else next
+                    lookDue(held, result, now)
                     watchers.save(held)
                 }
             }
@@ -310,6 +416,31 @@ class WatcherService(
                 "${describe(watcher)}; on check ${watcher.checks}, ${after}s after you set it, it did." +
                 noteOf(watcher) + " What matched: $matched. What ${watcher.tool} returned: $result " +
                 "The watcher has ended; set another with ${WatcherTools.SET} if you need to keep watching.",
+        )
+    }
+
+    /**
+     * The look the agent asked for, where one is due: the latest result handed
+     * to it while the watcher carries on. The condition is a guess at what
+     * "done" looks like, written before the agent saw a single result; this is
+     * where it finds out it guessed wrong, and can change it rather than wait
+     * a week for a match that was never coming. #618.
+     */
+    private fun lookDue(watcher: Watcher, result: String, now: OffsetDateTime) {
+        val every = watcher.agentCheckIntervalSeconds ?: return
+        val due = watcher.nextAgentCheckAt ?: return
+        if (now.isBefore(due)) return
+        watcher.nextAgentCheckAt = now.plusSeconds(every.toLong())
+        recorder.note(watcher.sessionId, "Watcher #${watcher.id} showed ${watcher.agentName} its result after ${watcher.checks} checks.")
+        inbox.post(
+            watcher.sessionId,
+            SessionEventKind.WATCHER,
+            "Watcher #${watcher.id} has not matched yet, and this is the look you asked for every ${every}s. " +
+                "You asked to be told when ${watcher.tool} returned something matching ${describe(watcher)}." +
+                noteOf(watcher) + " On check ${watcher.checks} it returned: $result " +
+                "Judge it yourself. If what you are waiting for has in fact happened, end the watcher with " +
+                "${WatcherTools.FINISH} and act on it. If the condition or the arguments are wrong, change them " +
+                "with ${WatcherTools.UPDATE}. If it is simply not there yet, do nothing: it carries on.",
         )
     }
 
