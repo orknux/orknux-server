@@ -191,6 +191,28 @@ class WatcherTest(
         assertThat(listed).contains("\"watcher\":$id").contains("buildStatus").contains("\"thisConversation\":true")
     }
 
+    /** A label for whoever is debugging, with its limit told up front. #621. */
+    @Test
+    fun `a watcher carries a short description, bounded in what the agent is told`() {
+        val offered = shed().specs().single { it.name == WatcherTools.SET }
+            .parameters.single { it.name == WatcherTools.DESCRIPTION }
+        assertThat(offered.description).startsWith("At most 100 characters")
+
+        val id = idIn(set(extra = ""","description":"  nightly build of main  """"))
+        assertThat(watchers.findById(id).orElseThrow().description).isEqualTo("nightly build of main")
+        assertThat(WatcherView.of(watchers.findById(id).orElseThrow(), null).description).isEqualTo("nightly build of main")
+        assertThat(call(WatcherTools.LIST, "{}")).contains("\"description\":\"nightly build of main\"")
+
+        assertThat(set(extra = ""","description":"${"x".repeat(101)}""""))
+            .contains("description is 101 characters")
+        assertThat(watchers.findAll()).hasSize(1)
+
+        call(WatcherTools.UPDATE, """{"watcher":$id,"description":"release branch"}""")
+        assertThat(watchers.findById(id).orElseThrow().description).isEqualTo("release branch")
+        call(WatcherTools.UPDATE, """{"watcher":$id,"description":""}""")
+        assertThat(watchers.findById(id).orElseThrow().description).isNull()
+    }
+
     @Test
     fun `watcher_set refuses what it cannot keep, saying why`() {
         assertThat(set(toolName = "deployProd")).contains("You have no tool called deployProd")

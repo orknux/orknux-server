@@ -89,6 +89,12 @@ class WatcherTools(
                         ToolParameterSpec(TIMEOUT, "Seconds before it gives up; at most $longest.", required = true),
                         ToolParameterSpec(NOTE, "What you are waiting for, in your own words; handed back when it fires."),
                         ToolParameterSpec(
+                            DESCRIPTION,
+                            "At most $LONGEST_DESCRIPTION characters: a short label shown on the Watchers " +
+                                "page, so whoever is debugging can tell your watchers apart - e.g. " +
+                                "\"nightly build of main\". Longer is refused.",
+                        ),
+                        ToolParameterSpec(
                             AGENT_CHECK,
                             "Optional. Seconds between looks of your own: while the condition has not matched, " +
                                 "you are woken this often with the latest result, to judge it yourself and change " +
@@ -102,7 +108,7 @@ class WatcherTools(
                     name = UPDATE,
                     description = "Changes one of your running watchers, by its number: the arguments, the " +
                         "condition, which part of the result it is held against, the interval, how often you are " +
-                        "shown the result, or the note. What you leave out stays as it was. Use it when a look " +
+                        "shown the result, the note or the description. What you leave out stays as it was. Use it when a look " +
                         "at the result shows the condition will never match what you are waiting for. The tool it " +
                         "calls and how long it runs cannot change; set a new watcher for that.",
                     summary = "change one of your running watchers",
@@ -115,6 +121,7 @@ class WatcherTools(
                         ToolParameterSpec(INTERVAL, "New seconds between two calls; at least $shortest."),
                         ToolParameterSpec(AGENT_CHECK, "New seconds between your own looks; at least $looks. 0 stops them."),
                         ToolParameterSpec(NOTE, "A new note."),
+                        ToolParameterSpec(DESCRIPTION, "A new description; at most $LONGEST_DESCRIPTION characters."),
                     ),
                 ),
                 ToolSpec(
@@ -183,6 +190,7 @@ class WatcherTools(
                 ?: throw WatcherRefused("$TIMEOUT must be a whole number of seconds.")
             val arguments = argumentsOf(asked?.path(ARGUMENTS))
             val note = text(asked?.path(NOTE))?.trim()?.ifEmpty { null }
+            val description = description(asked)?.ifEmpty { null }
             val agentCheck = present(asked?.path(AGENT_CHECK))?.let {
                 whole(it) ?: throw WatcherRefused("$AGENT_CHECK must be a whole number of seconds.")
             }?.takeIf { it > 0 }
@@ -191,7 +199,9 @@ class WatcherTools(
                 service.create(
                     agent,
                     session,
-                    WatcherRequest(tool.trim(), arguments, kind, condition, resultPath, interval, timeout, note, agentCheck),
+                    WatcherRequest(
+                        tool.trim(), arguments, kind, condition, resultPath, interval, timeout, note, agentCheck, description,
+                    ),
                 )
             } catch (already: WatcherAlreadyMatches) {
                 return answer(
@@ -236,11 +246,21 @@ class WatcherTools(
                 intervalSeconds = seconds(INTERVAL),
                 agentCheckIntervalSeconds = seconds(AGENT_CHECK),
                 note = text(asked?.path(NOTE)),
+                description = description(asked),
             )
             if (change == WatcherChange()) {
-                throw WatcherRefused("Say what to change: $ARGUMENTS, $CONDITION, $RESULT_PATH, $INTERVAL, $AGENT_CHECK or $NOTE.")
+                throw WatcherRefused(
+                    "Say what to change: $ARGUMENTS, $CONDITION, $RESULT_PATH, $INTERVAL, $AGENT_CHECK, $NOTE or $DESCRIPTION.",
+                )
             }
             return answer(mapOf("changed" to described(service.update(agent, session, id.toLong(), change))))
+        }
+
+        /** The description as given, trimmed; one too long for a line on a page is refused. #621. */
+        private fun description(asked: JsonNode?): String? = text(asked?.path(DESCRIPTION))?.trim()?.also {
+            if (it.length > LONGEST_DESCRIPTION) {
+                throw WatcherRefused("$DESCRIPTION is ${it.length} characters; keep it to one line of at most $LONGEST_DESCRIPTION.")
+            }
         }
 
         /** An object as given, or a string holding one; anything else is refused. */
@@ -277,6 +297,7 @@ class WatcherTools(
             "finishedAt" to watcher.finishedAt?.toString(),
             "why" to watcher.outcome,
             "note" to watcher.note,
+            "description" to watcher.description,
             "thisConversation" to (watcher.sessionId == session),
         )
     }
@@ -318,6 +339,10 @@ class WatcherTools(
         const val INTERVAL = "interval_seconds"
         const val TIMEOUT = "timeout_seconds"
         const val NOTE = "note"
+        const val DESCRIPTION = "description"
+
+        /** A line on a page, not a paragraph. #621. */
+        const val LONGEST_DESCRIPTION = 100
         const val AGENT_CHECK = "agent_check_interval_seconds"
         const val WATCHER = "watcher"
         const val FINISHED = "include_finished"

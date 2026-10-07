@@ -43,6 +43,8 @@ data class WatcherRequest(
     val note: String?,
     /** How often to wake the agent to look at the result itself; null for never. #618. */
     val agentCheckIntervalSeconds: Int? = null,
+    /** One line for the Watchers page saying what it is for. #621. */
+    val description: String? = null,
 )
 
 /**
@@ -60,6 +62,8 @@ data class WatcherChange(
     /** 0 switches the agent's looks off. */
     val agentCheckIntervalSeconds: Int? = null,
     val note: String? = null,
+    /** Blank clears it. #621. */
+    val description: String? = null,
 )
 
 /**
@@ -194,6 +198,7 @@ class WatcherService(
                     intervalSeconds = asked.intervalSeconds,
                     timeoutSeconds = asked.timeoutSeconds,
                     note = asked.note,
+                    description = asked.description,
                     createdAt = now,
                     expiresAt = now.plusSeconds(asked.timeoutSeconds.toLong()),
                     nextCheckAt = now.plusSeconds(asked.intervalSeconds.toLong()),
@@ -275,6 +280,7 @@ class WatcherService(
                 held.condition = condition
                 change.toolResultPath?.let { held.toolResultPath = it }
                 change.note?.let { held.note = it.ifBlank { null } }
+                change.description?.let { held.description = it.trim().ifBlank { null } }
                 if (change.intervalSeconds != null) {
                     held.intervalSeconds = interval
                     val next = now.plusSeconds(interval.toLong())

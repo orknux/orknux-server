@@ -27,7 +27,7 @@ wrote. You can carry on with other work or finish your turn in the meantime.
   what it waits for.
 - `watcher_update` - changes one of yours by its number: the arguments, the
   condition, the result path, the interval, how often you are shown the
-  result, or the note. What you leave out stays.
+  result, the note or the description. What you leave out stays.
 
 **Call `watcher_list` before setting a watcher.** You may already have one
 on the same thing from earlier in this conversation or another; two watchers
@@ -56,6 +56,10 @@ on one build wake you twice and use up your limit.
 - `note` - what you are waiting for and what you mean to do then, in your own
   words. It is handed back to you when the watcher fires, by which time you
   may have forgotten why you set it. Always write one.
+- `description` - **at most 100 characters**: a short label shown on the
+  Watchers page, so whoever is debugging can tell your watchers apart, e.g.
+  "nightly build of main". The note is for you; this is for them. Longer is
+  refused.
 
 Before setting a watcher, **call the tool once yourself** and look at what it
 returns. Write the condition against that real result, not against what you

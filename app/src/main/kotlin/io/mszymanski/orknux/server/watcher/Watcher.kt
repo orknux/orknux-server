@@ -89,6 +89,13 @@ class Watcher(
     @Column(columnDefinition = "text")
     var note: String? = null,
 
+    /**
+     * A short label for whoever is debugging, shown on the Watchers page -
+     * where the note is the agent talking to itself. Issue #621.
+     */
+    @Column(columnDefinition = "text")
+    var description: String? = null,
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     var status: WatcherStatus = WatcherStatus.ACTIVE,

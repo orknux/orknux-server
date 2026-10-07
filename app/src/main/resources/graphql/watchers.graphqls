@@ -59,6 +59,8 @@ type Watcher {
     timeoutSeconds: Int!
     "What the agent said it was waiting for."
     note: String
+    "A short label the agent gave it, at most 100 characters, for whoever is debugging."
+    description: String
     status: WatcherStatus!
     "How many times the tool has been called."
     checks: Int!

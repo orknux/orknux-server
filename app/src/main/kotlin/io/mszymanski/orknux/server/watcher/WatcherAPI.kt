@@ -158,6 +158,8 @@ data class WatcherView(
     val agentCheckIntervalSeconds: Int?,
     val timeoutSeconds: Int,
     val note: String?,
+    /** What it is for, in a line for a person. #621. */
+    val description: String?,
     val status: WatcherStatus,
     val checks: Int,
     val matched: String?,
@@ -184,6 +186,7 @@ data class WatcherView(
             agentCheckIntervalSeconds = watcher.agentCheckIntervalSeconds,
             timeoutSeconds = watcher.timeoutSeconds,
             note = watcher.note,
+            description = watcher.description,
             status = watcher.status,
             checks = watcher.checks,
             matched = watcher.matched,

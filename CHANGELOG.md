@@ -15,6 +15,16 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- A watcher can carry a short description, at most 100 characters, which the Watchers page shows above its tool call so whoever is debugging can tell watchers apart.
+
+### 🐛 Fixed
+
+- Switching workspace while on the variables page no longer fails with "No catalog with id"; it opens the other workspace's catalogs.
+
 ## 0.9.9.23
 
 ### 🔧 Changed
