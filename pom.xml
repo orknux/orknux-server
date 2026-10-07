@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <version>0.9.9.20</version>
+    <version>0.9.9.21</version>
     <groupId>io.mszymanski</groupId>
     <artifactId>orknux-server</artifactId>
     <packaging>pom</packaging>
