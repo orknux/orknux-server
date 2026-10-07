@@ -65,7 +65,7 @@ class McpToolCaller(
                         name = qualified(server, tool.name),
                         description = tool.description.ifBlank { "A tool offered by ${server.name}." },
                         parameters = tool.parameters.map {
-                            ToolParameterSpec(it.name, it.description, it.required)
+                            ToolParameterSpec(it.name, it.description, it.required, it.schema)
                         },
                     )
                 }
@@ -100,7 +100,23 @@ class McpToolCaller(
                 }
             is McpListing.Failed -> failure("${server.name} could not be asked: ${listing.reason}")
         }
-        else -> client.call(server, tool, arguments)
+        else -> client.call(server, tool, typed(server, tool, arguments))
+    }
+
+    /**
+     * The arguments, with a value sent as the text of an array or an object
+     * put back as one where the tool declares it so. Issue #619. Asks the
+     * server for its tools only where some value is text that looks like
+     * JSON, which is the only case there is anything to put back.
+     */
+    private fun typed(server: McpServer, tool: String, arguments: String): String {
+        val held = runCatching { mapper.readTree(arguments) }.getOrNull() ?: return arguments
+        val suspect = held.properties().any { (_, value) ->
+            value.isTextual && value.stringValue().trimStart().let { it.startsWith("[") || it.startsWith("{") }
+        }
+        if (!suspect) return arguments
+        val declared = (client.tools(server) as? McpListing.Tools)?.tools?.firstOrNull { it.name == tool } ?: return arguments
+        return client.coerced(arguments, declared)
     }
 
     private fun listResources(server: McpServer): String = when (val listed = client.resources(server)) {

@@ -106,7 +106,24 @@ data class ToolSpec(
     val summary: String? = null,
 )
 
-data class ToolParameterSpec(val name: String, val description: String, val required: Boolean = false)
+data class ToolParameterSpec(
+    val name: String,
+    val description: String,
+    val required: Boolean = false,
+    /**
+     * The parameter's own JSON Schema, where whoever declared the tool said
+     * more than "text" - an MCP server's array of items, an object of
+     * variables. Null for the ordinary parameter, which is a string. Issue
+     * #619: declared as a string, an array was sent as the text of one, and
+     * the server that wanted the array refused it.
+     */
+    val schema: Map<String, Any?>? = null,
+) {
+    /** What goes under `properties`, whichever request shape is being written. */
+    fun declared(): Map<String, Any?> = schema
+        ?.let { own -> if (own.containsKey("description") || description.isBlank()) own else own + ("description" to description) }
+        ?: mapOf("type" to "string", "description" to description)
+}
 
 /** What a model answered, or why it did not. */
 sealed interface ChatCompletion {
@@ -1184,7 +1201,7 @@ class ModelChatClient(
             schema.put("type", "object")
             val properties = schema.putObject("properties")
             tool.parameters.forEach { parameter ->
-                properties.putObject(parameter.name).put("type", "string").put("description", parameter.description)
+                properties.set(parameter.name, mapper.valueToTree<tools.jackson.databind.JsonNode>(parameter.declared()))
             }
             val required = schema.putArray("required")
             tool.parameters.filter { it.required }.forEach { required.add(it.name) }
@@ -1286,9 +1303,7 @@ class ModelChatClient(
                 schema.put("type", "object")
                 val properties = schema.putObject("properties")
                 tool.parameters.forEach { parameter ->
-                    properties.putObject(parameter.name)
-                        .put("type", "string")
-                        .put("description", parameter.description)
+                    properties.set(parameter.name, mapper.valueToTree<tools.jackson.databind.JsonNode>(parameter.declared()))
                 }
                 val required = schema.putArray("required")
                 tool.parameters.filter { it.required }.forEach { required.add(it.name) }

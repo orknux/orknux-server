@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🐛 Fixed
+
+- An MCP tool parameter that is not text - an array of items, an object of variables - reaches the model as what it is rather than as a string, so the model sends the array and the server stops refusing the call. One a model still sends as the text of an array or object is parsed back before the call.
+
 ## 0.9.9.21
 
 ### ✨ Added

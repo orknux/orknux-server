@@ -363,9 +363,7 @@ internal class OpenAiResponses(private val clients: ModelClients) {
      * not, so the whole request would be refused over one of them.
      */
     private fun declared(tool: ToolSpec): FunctionTool {
-        val properties = tool.parameters.associate { parameter ->
-            parameter.name to mapOf("type" to "string", "description" to parameter.description)
-        }
+        val properties = tool.parameters.associate { parameter -> parameter.name to parameter.declared() }
         val schema = FunctionTool.Parameters.builder()
             .putAdditionalProperty("type", JsonValue.from("object"))
             .putAdditionalProperty("properties", JsonValue.from(properties))

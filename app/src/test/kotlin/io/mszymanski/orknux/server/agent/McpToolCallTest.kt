@@ -45,6 +45,9 @@ class McpToolCallTest(
     private lateinit var server: HttpServer
     private val methods = CopyOnWriteArrayList<String>()
 
+    /** The bodies of the tools/call requests, as the server received them. */
+    private val calls = CopyOnWriteArrayList<String>()
+
     @BeforeEach
     fun reset() {
         agents.deleteAll()
@@ -52,6 +55,7 @@ class McpToolCallTest(
         workspaces.deleteAll()
         workspaceId = requireNotNull(workspaces.save(Workspace(name = "backend")).id)
         methods.clear()
+        calls.clear()
     }
 
     @AfterEach
@@ -92,6 +96,28 @@ class McpToolCallTest(
      */
     private fun fromServers(agent: io.mszymanski.orknux.server.agent.Agent) =
         tools.specsFor(agent).filter { "__" in it.name }
+
+    /**
+     * A parameter that is not text reaches the model as what it is, and one a
+     * model still sends as the text of an array reaches the server as the
+     * array. Issue #619: every parameter used to be declared a string.
+     */
+    @Test
+    fun `a server's array parameter keeps its schema, and arrives as an array`() {
+        val address = serve()
+        mcpServer("Orders", address)
+        val agent = agent("Clerk", granted = "Orders")
+
+        val items = tools.specsFor(agent).single { it.name == "orders__place_order" }.parameters.single()
+        assertThat(items.declared()["type"]).isEqualTo("array")
+        assertThat(items.declared()["description"]).isEqualTo("What to order")
+        // A string parameter is declared as it always was.
+        val query = tools.specsFor(agent).single { it.name == "orders__web_search" }.parameters.first()
+        assertThat(query.declared()).isEqualTo(mapOf("type" to "string", "description" to "What to search for"))
+
+        tools.run(agent, ToolCall(id = "c1", name = "orders__place_order", arguments = """{"items":"[\"a\",\"b\"]"}"""))
+        assertThat(calls.last()).contains(""""items":["a","b"]""")
+    }
 
     /** A server it was not granted is not listed and cannot be reached. */
     @Test
@@ -154,7 +180,7 @@ class McpToolCallTest(
         mcpServer("Brave Search", address)
         val agent = agent("Researcher", granted = "Brave Search")
 
-        assertThat(fromServers(agent).map { it.name }).containsExactly("brave_search__web_search")
+        assertThat(fromServers(agent).map { it.name }).containsExactly("brave_search__web_search", "brave_search__place_order")
         assertThat(methods).doesNotContain("resources/list")
     }
 
@@ -224,11 +250,16 @@ class McpToolCallTest(
                        {"name":"web_search","description":"Search the web",
                         "inputSchema":{"type":"object","properties":{
                           "query":{"type":"string","description":"What to search for"},
-                          "limit":{"type":"integer"}},"required":["query"]}}]}}"""
+                          "limit":{"type":"integer"}},"required":["query"]}},
+                       {"name":"place_order","description":"Places an order",
+                        "inputSchema":{"type":"object","properties":{
+                          "items":{"type":"array","items":{"type":"string"},"description":"What to order"}},
+                          "required":["items"]}}]}}"""
 
-                "tools/call" ->
+                "tools/call" -> calls.add(body).let {
                     """{"jsonrpc":"2.0","id":3,"result":{"content":[
                        {"type":"text","text":"Nothing found, which is the point"}]}}"""
+                }
 
                 // The initialized notification expects no reply.
                 else -> ""

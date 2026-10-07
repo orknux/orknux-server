@@ -28,7 +28,18 @@ data class McpTool(
     val parameters: List<McpParameter>,
 )
 
-data class McpParameter(val name: String, val description: String, val required: Boolean)
+data class McpParameter(
+    val name: String,
+    val description: String,
+    val required: Boolean,
+    /**
+     * The parameter's schema as the server declared it, for anything that is
+     * not plain text; null for a string, and for a schema that points into
+     * definitions elsewhere in the tool (`$ref`), which would dangle once the
+     * parameter is lifted out on its own. Issue #619.
+     */
+    val schema: Map<String, Any?>? = null,
+)
 
 /** What a server said it can do, or why it could not be asked. */
 sealed interface McpListing {
@@ -686,10 +697,12 @@ class McpClient(
 
         val properties = schema.path("properties")
         val parameters = properties.propertyNames().map { parameter ->
+            val declared = properties.path(parameter)
             McpParameter(
                 name = parameter,
-                description = properties.path(parameter).path("description").stringValue(null).orEmpty(),
+                description = declared.path("description").stringValue(null).orEmpty(),
                 required = parameter in required,
+                schema = schemaOf(declared),
             )
         }
         return McpTool(
@@ -697,6 +710,48 @@ class McpClient(
             description = node.path("description").stringValue(null).orEmpty(),
             parameters = parameters.sortedByDescending { it.required },
         )
+    }
+
+    /**
+     * A parameter's schema worth carrying: one that says something other than
+     * plain text, and stands on its own. Issue #619.
+     */
+    private fun schemaOf(declared: JsonNode): Map<String, Any?>? {
+        if (!declared.isObject) return null
+        if (declared.path("type").stringValue(null) == "string" && declared.size() <= 2) return null
+        if (declared.toString().contains("\"\$ref\"")) return null
+        @Suppress("UNCHECKED_CAST")
+        return mapper.convertValue(declared, Map::class.java) as Map<String, Any?>
+    }
+
+    /**
+     * The arguments with any value the schema says is not text, but which a
+     * model sent as the text of one, put back as what it is. Issue #619: a
+     * model told a parameter is an array mostly sends one, and the one that
+     * still sends `"[...]"` should not fail a call over a pair of quotes.
+     * Only where the text parses to the very type declared.
+     */
+    fun coerced(arguments: String, tool: McpTool): String {
+        val held = runCatching { mapper.readTree(arguments) as? ObjectNode }.getOrNull() ?: return arguments
+        var changed = false
+        tool.parameters.forEach { parameter ->
+            val wanted = parameter.schema?.get("type") as? String ?: return@forEach
+            val given = held.get(parameter.name)?.takeIf { it.isTextual } ?: return@forEach
+            val parsed = runCatching { mapper.readTree(given.stringValue()) }.getOrNull() ?: return@forEach
+            val fits = when (wanted) {
+                "array" -> parsed.isArray
+                "object" -> parsed.isObject
+                "number" -> parsed.isNumber
+                "integer" -> parsed.isIntegralNumber
+                "boolean" -> parsed.isBoolean
+                else -> false
+            }
+            if (fits) {
+                held.set(parameter.name, parsed)
+                changed = true
+            }
+        }
+        return if (changed) mapper.writeValueAsString(held) else arguments
     }
 
     private fun argumentsOf(arguments: String): ObjectNode =
