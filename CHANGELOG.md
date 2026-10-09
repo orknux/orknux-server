@@ -15,13 +15,7 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
-## Unreleased
-
-### 🐛 Fixed
-
-- A watcher set by an agent in a workflow run wakes that run's agent and reaches the run's next node - the Slack thread - even after somebody opened the conversation with **Continue in chat**; the chat took those over, so the agent's news answered into it and the thread never heard. Only a chat with no run behind it is woken as a chat.
-
-## 0.9.9.28
+## 0.9.9.29
 
 ### ✨ Added
 
@@ -31,6 +25,10 @@ have failed.
 
 - A fresh installation gives an agent 100 tool rounds rather than 8, and Tool Rounds - in Admin and on an agent - goes up to 10000 rather than 100. An installation that saved its own number in Admin keeps it; one relying on the default gets 100 unless `ORKNUX_CHAT_MAX_ROUNDS` says otherwise.
 - A watcher's description has a column of its own on the Watchers page.
+
+### 🐛 Fixed
+
+- A watcher set by an agent in a workflow run wakes that run's agent and reaches the run's next node - the Slack thread - even after somebody opened the conversation with **Continue in chat**; the chat took those over, so the agent's news answered into it and the thread never heard. Only a chat with no run behind it is woken as a chat.
 
 ## 0.9.9.26
 
