@@ -82,7 +82,21 @@ data class CarriedExit(val nodeKey: String, val branch: EdgeBranch? = null, val 
  * graph had produced by the time that node was reached, and the only place that
  * exists is the earlier run's record.
  */
-data class ResumePoint(val executionId: Long, val nodeKey: String)
+data class ResumePoint(
+    val executionId: Long,
+    val nodeKey: String,
+    /**
+     * Set to carry on *past* [nodeKey] rather than start at it: what that step
+     * answers now, laid over what it answered then. Only the nodes its answer
+     * leads to are run; everything else is carried over as it was.
+     *
+     * For an agent a watcher woke after its step had finished. Its answer from
+     * that step went to the nodes after it - the Slack reply that reached the
+     * person who asked - and the woken turn's answer had nowhere to go, so it
+     * was written into the session and read by nobody.
+     */
+    val answer: String? = null,
+)
 
 /**
  * Turns a request to run something into a recorded run: reads the graph from
@@ -154,7 +168,9 @@ class ExecutionPlanner(
 
         // Read and checked before anything is written down, so a re-run that
         // cannot honestly be started leaves no half-run behind to explain.
-        val earlier = resumeFrom?.let { earlierRun(it, graph, order) }
+        val earlier = resumeFrom?.let {
+            if (it.answer != null) continuedRun(it, graph, order) else earlierRun(it, graph, order)
+        }
 
         val execution = executions.save(
             WorkflowExecution(
@@ -234,7 +250,7 @@ class ExecutionPlanner(
                     startedAt = before?.startedAt,
                     finishedAt = before?.finishedAt,
                     input = before?.input,
-                    output = before?.output,
+                    output = earlier?.answers?.get(node.key) ?: before?.output,
                     error = before?.error,
                 )
             },
@@ -242,6 +258,8 @@ class ExecutionPlanner(
 
         val opening = if (resumeFrom == null) {
             "${graph.name} started by ${trigger.name.lowercase()}"
+        } else if (resumeFrom.answer != null) {
+            "${graph.name} carried on past ${resumeFrom.nodeKey} with its new answer, after run ${resumeFrom.executionId}"
         } else {
             "${graph.name} restarted at ${resumeFrom.nodeKey}, carrying what run ${resumeFrom.executionId} produced"
         }
@@ -475,6 +493,70 @@ class ExecutionPlanner(
     }
 
     /**
+     * What an earlier run leaves to a run carrying on past [point] with a new
+     * answer from it, or a refusal.
+     *
+     * The nodes that answer leads to - everything reachable from the node along
+     * the graph's edges - are what runs. Everything else happened already and is
+     * carried over, the node itself included with its answer replaced: a branch
+     * beside it did its work the first time, and running it again would be a
+     * second occurrence of it rather than a delivery of the answer.
+     */
+    private fun continuedRun(point: ResumePoint, graph: WorkflowGraph, order: List<GraphNode>): EarlierRun {
+        val earlier = executions.findByIdOrNull(point.executionId)
+            ?: throw ExecutionNotFoundException(point.executionId)
+        if (earlier.status == ExecutionStatus.RUNNING) throw ExecutionStillRunningException(point.executionId)
+
+        val recorded = steps.findByExecutionIdOrderByOrderAsc(point.executionId).associateBy { it.nodeKey }
+        if (order.none { it.key == point.nodeKey }) throw StepNotInWorkflowException(point.nodeKey)
+        val step = recorded[point.nodeKey] ?: throw StepNotInExecutionException(point.executionId, point.nodeKey)
+        if (step.status != StepStatus.COMPLETED) throw StepNotCompletedException(point.nodeKey)
+
+        val after = downstreamOf(point.nodeKey, graph.edges)
+        if (after.isEmpty()) throw NothingFollowsException(point.nodeKey)
+
+        val kept = order.filterNot { it.key in after }
+        kept.firstOrNull { it.key !in recorded }?.let { throw StepNotInExecutionException(point.executionId, it.key) }
+
+        // The earlier run's branching over everything kept, as earlierRun
+        // replays it; the node itself opens every edge out of it, as an
+        // answering agent does.
+        val gate = BranchGate(graph.edges)
+        val exits = mutableListOf<CarriedExit>()
+        for (node in kept) {
+            if (!gate.mayRun(node.key)) continue
+            val taken = recorded.getValue(node.key)
+            if (taken.status == StepStatus.PENDING) continue
+            if (taken.status == StepStatus.FAILED && taken.branch != EdgeBranch.FAILURE) continue
+            if (taken.branch == null && gate.branches(node.key)) throw BranchNotRecordedException(node.key)
+            gate.follow(node.key, taken.branch, taken.branchOption)
+            exits += CarriedExit(node.key, taken.branch, taken.branchOption)
+        }
+
+        return EarlierRun(
+            taken = kept.associate { it.key to recorded.getValue(it.key) },
+            // What the run held once the node had answered, as StepRunner
+            // carries it: the node's input with its answer laid over.
+            carried = Payloads.carry(step.input ?: earlier.input, point.answer),
+            exits = exits,
+            answers = mapOf(point.nodeKey to requireNotNull(point.answer)),
+        )
+    }
+
+    /** Every node reachable from [key] along the edges, [key] itself excluded. */
+    private fun downstreamOf(key: String, edges: List<GraphEdge>): Set<String> {
+        val reached = mutableSetOf<String>()
+        val waiting = ArrayDeque(listOf(key))
+        while (waiting.isNotEmpty()) {
+            val at = waiting.removeFirst()
+            edges.filter { it.source == at }.forEach { edge ->
+                if (edge.target != key && reached.add(edge.target)) waiting += edge.target
+            }
+        }
+        return reached
+    }
+
+    /**
      * The fields the chosen node reads that are not in what it would be handed.
      *
      * A reference names a path into the payload the run is carrying - or into
@@ -515,6 +597,8 @@ class ExecutionPlanner(
         /** What the earlier run was holding when it reached the chosen node. */
         val carried: String?,
         val exits: List<CarriedExit>,
+        /** Outputs that replace what the earlier run recorded, by node key: a continuation's new answer. */
+        val answers: Map<String, String> = emptyMap(),
     )
 
     private companion object {
@@ -555,6 +639,14 @@ class BranchNotRecordedException(nodeKey: String) :
 /** Asked to start at a step that reads something the earlier run never produced. */
 class StepInputMissingException(nodeKey: String, missing: List<String>) :
     RuntimeException("$nodeKey reads ${missing.joinToString()}, which the earlier run did not produce")
+
+/** Asked to carry on past a step that did not complete. */
+class StepNotCompletedException(nodeKey: String) :
+    RuntimeException("$nodeKey did not complete, so there is no answer of its to carry on from")
+
+/** Asked to carry on past a step that nothing follows. */
+class NothingFollowsException(nodeKey: String) :
+    RuntimeException("Nothing follows $nodeKey, so there is nowhere to hand its answer")
 
 /** Asked to re-run part of a run that has not finished. */
 class ExecutionStillRunningException(executionId: Long) :

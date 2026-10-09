@@ -81,6 +81,12 @@ class WatcherStepWakeTest(
     /** What the agent node carries beyond its agent; the retry test adds a policy. */
     private var policy = ""
 
+    /** Whether a reply node follows the agent, the way a Slack reply follows it in a real workflow. */
+    private var replying = false
+
+    /** Whether the woken agent ends with finish_answer rather than prose. */
+    private var quiet = false
+
     @BeforeEach
     fun reset() {
         watchers.deleteAll()
@@ -99,6 +105,8 @@ class WatcherStepWakeTest(
         extra = ""
         rateLimited = 0
         policy = ""
+        replying = false
+        quiet = false
 
         workspaceId = requireNotNull(workspaces.save(Workspace(name = "backend")).id)
         workflowId = graphQlTester.document(
@@ -128,7 +136,7 @@ class WatcherStepWakeTest(
         assertThat(service.tick()).isEqualTo(1)
 
         await().atMost(Duration.ofSeconds(20)).untilAsserted {
-            assertThat(asked.last()).contains("fired. You asked").contains("nobody is waiting on this turn")
+            assertThat(asked.last()).contains("fired. You asked").contains("Your answer is delivered")
         }
         // The step is history; the follow-up changed nothing on it.
         assertThat(steps.findAll().single { it.nodeKey == "think" }.output).contains("Watching the build.")
@@ -196,6 +204,56 @@ class WatcherStepWakeTest(
         assertThat(asked.count { "fired. You asked" in it }).isEqualTo(1)
     }
 
+    /**
+     * What the woken agent answers reaches whoever its step's answer reached:
+     * the run carries on past the agent with the new answer, and the reply node
+     * after it runs again. It was written into the session and read by nobody,
+     * which in Slack is a thread that never hears the build finished.
+     */
+    @Test
+    fun `a woken agent's answer is handed to the node after it`() {
+        replying = true
+        val first = start()
+        assertThat(steps.findAll().single { it.executionId == first && it.nodeKey == "reply" }.input)
+            .contains("Watching the build.")
+
+        buildIs("done")
+        due()
+        assertThat(service.tick()).isEqualTo(1)
+
+        await().atMost(Duration.ofSeconds(20)).untilAsserted {
+            val carried = executions.findAll().singleOrNull { it.id != first }
+            assertThat(carried).isNotNull
+            assertThat(carried!!.status).isEqualTo(ExecutionStatus.COMPLETED)
+            assertThat(carried.startedFrom).isEqualTo(first)
+            val run = steps.findAll().filter { it.executionId == carried.id }
+            assertThat(run.single { it.nodeKey == "reply" }.input).contains("Build 41 is done.")
+            assertThat(run.single { it.nodeKey == "reply" }.carriedOver).isFalse()
+            // The agent is not asked again: its new answer is laid over its step.
+            assertThat(run.single { it.nodeKey == "think" }.carriedOver).isTrue()
+            assertThat(run.single { it.nodeKey == "think" }.output).contains("Build 41 is done.")
+        }
+    }
+
+    /** Nothing worth saying is said with finish_answer, and then nothing is sent. */
+    @Test
+    fun `a woken agent that finishes with nothing sends nothing`() {
+        replying = true
+        quiet = true
+        val first = start()
+
+        buildIs("done")
+        due()
+        assertThat(service.tick()).isEqualTo(1)
+
+        await().atMost(Duration.ofSeconds(20)).untilAsserted {
+            assertThat(asked.any { "fired. You asked" in it && "finish_answer" in it }).isTrue()
+        }
+        Thread.sleep(1500)
+        assertThat(executions.findAll().map { it.id }).containsExactly(first)
+        assertThat(asked.none { "call_3" in it }).isTrue()
+    }
+
     /** Below the installation's floor is refused, in words the model can act on. */
     @Test
     fun `an agent check more often than the installation allows is refused`() {
@@ -215,7 +273,7 @@ class WatcherStepWakeTest(
                 systemPrompt = "You are the responder.", tools = mutableListOf("buildStatus"),
             ),
         )
-        graph(requireNotNull(agent.id))
+        graph(requireNotNull(agent.id), if (replying) replyAction() else null)
         return graphQlTester.document(
             """mutation { startExecution(workspaceId: $workspaceId, workflowId: $workflowId, input: "{}") { id } }""",
         ).execute().path("startExecution.id").entity(Long::class.java).get()
@@ -236,7 +294,33 @@ class WatcherStepWakeTest(
         watchers.save(watcher)
     }
 
-    private fun graph(agentId: Long) {
+    /** An action that records what it was handed, standing in for the Slack reply after the agent. */
+    private fun replyAction(): Long {
+        val source = "export default function deliver() { return { sent: true }; }"
+        val functionId = graphQlTester.document(
+            """
+            mutation {
+              createFunction(input: {
+                workspaceId: $workspaceId, name: "deliver", returnType: MAP,
+                source: ${'"'}${'"'}${'"'}$source${'"'}${'"'}${'"'}, typescript: ${'"'}${'"'}${'"'}$source${'"'}${'"'}${'"'}, params: []
+              }) { id }
+            }
+            """,
+        ).execute().path("createFunction.id").entity(Long::class.java).get()
+        return graphQlTester.document(
+            """
+            mutation {
+              createAction(input: {
+                workspaceId: $workspaceId, name: "Reply", type: EXECUTE, subtype: FUNCTION, functionId: $functionId
+              }) { id }
+            }
+            """,
+        ).execute().path("createAction.id").entity(Long::class.java).get()
+    }
+
+    private fun graph(agentId: Long, replyActionId: Long? = null) {
+        val reply = replyActionId?.let { """, { key: "reply", kind: ACTION, name: "Reply", actionId: $it, x: 400, y: 0 }""" }.orEmpty()
+        val replyEdge = if (replyActionId == null) "" else """, { source: "think", target: "reply" }"""
         graphQlTester.document(
             """
             mutation {
@@ -247,9 +331,9 @@ class WatcherStepWakeTest(
                       { name: "sessionKeyPrefix", expression: "node", mode: VALUE },
                       { name: "sessionKey", expression: "one", mode: VALUE }
                     ] },
-                  { key: "think", kind: AGENT, name: "Responder", agentId: $agentId, x: 200, y: 0${if (policy.isEmpty()) "" else ", $policy"} }
+                  { key: "think", kind: AGENT, name: "Responder", agentId: $agentId, x: 200, y: 0${if (policy.isEmpty()) "" else ", $policy"} }$reply
                 ],
-                edges: [{ source: "talk", target: "think" }]
+                edges: [{ source: "talk", target: "think" }$replyEdge]
               }) { nodes { key } problems { message } }
             }
             """,
@@ -281,6 +365,9 @@ class WatcherStepWakeTest(
                     "watcher_update",
                     """{\"watcher\":${watchers.findAll().single().id},\"condition_type\":\"regex\",\"condition\":\"building\"}""",
                 )
+                body.contains("fired. You asked") && quiet && !body.contains("call_3") ->
+                    called("call_3", "finish_answer", "{}")
+                body.contains("call_3") -> said("Done.")
                 body.contains("fired. You asked") -> said("Build 41 is done.")
                 body.contains("call_1") -> said("Watching the build.")
                 else -> called(

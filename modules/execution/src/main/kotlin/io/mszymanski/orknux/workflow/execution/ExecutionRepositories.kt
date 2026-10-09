@@ -138,6 +138,9 @@ interface ExecutionStepRepository : JpaRepository<ExecutionStep, Long> {
     /** The step that last wrote into this session. */
     fun findFirstBySessionIdOrderByIdDesc(sessionId: Long): ExecutionStep?
 
+    /** The step this agent last answered in, in this session: what a watcher it set there woke it from. */
+    fun findFirstBySessionIdAndAgentIdOrderByIdDesc(sessionId: Long, agentId: Long): ExecutionStep?
+
     /**
      * The runs that wrote into one session: the distinct executions whose steps
      * name it. Issue #420.

@@ -172,6 +172,11 @@ how long after you set it, your note, **what matched**, and **the whole result
 the tool returned**. Act on that result; you do not need to call the tool
 again to see it.
 
+If you had finished, what you answer when woken is delivered where your
+earlier answer went - the reply in the thread you were answering, say - so
+write it for whoever asked. If there is nothing they need to hear, end with
+`finish_answer` and no answer, and nothing is sent.
+
 You are also told, with a message about watcher #N, when:
 
 - it **timed out** without matching - with how many times it looked and the

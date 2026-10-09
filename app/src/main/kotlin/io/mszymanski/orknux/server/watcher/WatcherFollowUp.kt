@@ -4,6 +4,7 @@ import io.mszymanski.orknux.connector.model.ChatCompletion
 import io.mszymanski.orknux.connector.model.ChatTurn
 import io.mszymanski.orknux.server.agent.AgentRepository
 import io.mszymanski.orknux.server.agent.AnswerFinished
+import io.mszymanski.orknux.server.agent.FinishAnswerTools
 import io.mszymanski.orknux.server.chat.AgentBriefing
 import io.mszymanski.orknux.server.chat.AgentConversation
 import io.mszymanski.orknux.server.chat.ChatSessionRepository
@@ -20,6 +21,13 @@ import io.mszymanski.orknux.server.llm.SessionInbox
 import io.mszymanski.orknux.server.llm.SessionMemoryBudgets
 import io.mszymanski.orknux.server.llm.SessionThinking
 import io.mszymanski.orknux.server.task.TaskRepository
+import io.mszymanski.orknux.server.workflow.NodeExpressions
+import io.mszymanski.orknux.workflow.execution.ExecutionService
+import io.mszymanski.orknux.workflow.execution.ExecutionStep
+import io.mszymanski.orknux.workflow.execution.ExecutionTrigger
+import io.mszymanski.orknux.workflow.execution.GraphVersion
+import io.mszymanski.orknux.workflow.execution.ResumePoint
+import io.mszymanski.orknux.workflow.execution.StartExecutionInput
 import io.mszymanski.orknux.workflow.execution.ExecutionStepRepository
 import io.mszymanski.orknux.workflow.execution.StepStatus
 import io.mszymanski.orknux.workflow.execution.retryPolicy
@@ -44,9 +52,13 @@ import kotlin.random.Random
  * suspended and the node after it never got the answer. The step completes now,
  * and this is the half that keeps the watcher worth setting: when it fires, times
  * out or is stopped, the agent is woken in the session it set it from, outside
- * the graph, and acts with its own tools - replies in the thread it was working
- * in, files an issue. What it writes as prose goes into the session and nowhere
- * else, and the system turn tells it so.
+ * the graph. What it answers is handed on the way its answer from the step was:
+ * the run carries on past that step with the new answer, and only the nodes it
+ * leads to run again - so a reply that reached a Slack thread through the node
+ * after the agent reaches it again. It used to be told that nothing it wrote
+ * reached anyone and to post with its own tools, and it answered in prose all
+ * the same, into a session nobody in Slack could see. `finish_answer` is lent
+ * for the turn that has nothing to tell anyone.
  *
  * The third of the session's wakers, and only for what the other two do not own:
  * a chat's session is [io.mszymanski.orknux.server.chat.ChatWake]'s, a task's is
@@ -82,6 +94,9 @@ class WatcherFollowUp(
     private val dates: DateTools,
     private val timers: TimerTools,
     private val watcherTools: WatcherTools,
+    private val finishing: FinishAnswerTools,
+    private val expressions: NodeExpressions,
+    private val runs: ObjectProvider<ExecutionService>,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -185,6 +200,8 @@ class WatcherFollowUp(
             addAll(sessions.remembered(session, budget))
             addAll(sessions.recalled(session, budget))
         }
+        // The step the agent set the watcher from, which is where its answer goes.
+        val step = agent.id?.let { steps.findFirstBySessionIdAndAgentIdOrderByIdDesc(session, it) }
         val shed = sheds(
             notes.shed(session, agent.name),
             scratchpads.shed(session),
@@ -192,20 +209,66 @@ class WatcherFollowUp(
             dates.shed(),
             timers.shed(session),
             watcherTools.shed(agent, session),
+            finishing.shed(granted = agent.finishAccess, shaped = step?.outputObjectId != null),
         )
 
         if (!again) {
             sessions.note(session, "${agent.name} was woken by watcher #${watcher.id}, after the step that set it had finished.")
         }
         val thinking = SessionThinking(session, agent.name, sessions)
-        return try {
+        val answer = try {
             conversation.getObject().answer(modelId, agent, said, session, shed = shed, watch = thinking)
         } catch (finished: AnswerFinished) {
-            // finish_answer is not lent here, but a shed may still end the round;
-            // nothing waits on what it said.
-            null
+            // Nothing to tell anyone, or nothing more than what it passed.
+            finished.answer.takeIf { it.isNotBlank() }?.let { handOn(session, step, it) }
+            return null
         } finally {
             thinking.settle()
+        }
+        if (answer is ChatCompletion.Answered) handOn(session, step, answer.content)
+        return answer
+    }
+
+    /**
+     * Carries the step's run on past it with [answer], so it reaches whatever
+     * the step's own answer reached. Where it cannot, the session says why:
+     * the answer is in the transcript either way, and somebody reading it
+     * should not have to guess why it went no further.
+     */
+    private fun handOn(session: Long, step: ExecutionStep?, answer: String) {
+        if (answer.isBlank()) return
+        if (step == null) {
+            sessions.note(session, "This answer went no further: no workflow step of this agent's is in this session.")
+            return
+        }
+        if (step.outputObjectId != null) {
+            sessions.note(session, "This answer went no further: ${step.name} answers in a fixed shape, and prose is not it.")
+            return
+        }
+        val service = runs.getObject()
+        try {
+            val previous = service.execution(step.executionId) ?: return
+            val carried = service.startExecution(
+                StartExecutionInput(
+                    workspaceId = previous.workspaceId,
+                    workflowId = previous.workflowId,
+                    // The same event, so the run list does not show a person
+                    // pressing something nobody pressed.
+                    trigger = previous.trigger,
+                    payload = previous.input,
+                    // The graph the run used, as a re-run picks it.
+                    version = if (previous.trigger == ExecutionTrigger.MANUAL) GraphVersion.DRAFT else GraphVersion.PUBLISHED,
+                    resumeFrom = ResumePoint(
+                        step.executionId,
+                        step.nodeKey,
+                        answer = expressions.named(step.outputName, answer),
+                    ),
+                ),
+            )
+            sessions.note(session, "This answer was handed on past ${step.name} in run #${carried.id}.")
+        } catch (refused: RuntimeException) {
+            log.warn("Session {} could not hand its answer on past {}: {}", session, step.nodeKey, refused.message)
+            sessions.note(session, "This answer went no further: ${refused.message}.")
         }
     }
 
@@ -219,9 +282,10 @@ class WatcherFollowUp(
          * answer, and the model writes its news into a reply nobody receives.
          */
         const val FOLLOW_UP =
-            "You were woken because a watcher you set has ended; what it found is the next message. " +
-                "The step that set it has already finished and nobody is waiting on this turn: nothing you " +
-                "write as an answer reaches anyone. If somebody should hear about it, tell them with your " +
-                "tools - the same way you would have replied when you set the watcher - and then stop."
+            "You were woken by a watcher you set; what it found is the next message. Your answer is " +
+                "delivered the way your answer was when you set the watcher - it reaches whoever that one " +
+                "reached - so write it for them. If there is nothing they need to hear, or you have already " +
+                "told them with your tools, end with ${FinishAnswerTools.FINISH} and no answer, and nothing " +
+                "is sent."
     }
 }

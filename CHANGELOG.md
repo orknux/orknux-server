@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🔧 Changed
+
+- An agent woken by its watcher after its workflow step has finished now has its answer delivered the way the step's answer was: the run carries on past the agent with the new answer and the nodes after it run again, so a Slack reply reaches the thread. The agent can end with `finish_answer` and no answer to send nothing.
+
 ## 0.9.9.24
 
 ### ✨ Added
