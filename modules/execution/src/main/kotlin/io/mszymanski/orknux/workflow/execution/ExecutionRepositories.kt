@@ -135,6 +135,9 @@ interface ExecutionStepRepository : JpaRepository<ExecutionStep, Long> {
     /** Whether a step writing into this session is in one of these states: mid-turn, or parked on it. */
     fun existsBySessionIdAndStatusIn(sessionId: Long, statuses: Collection<StepStatus>): Boolean
 
+    /** Whether any workflow step has written into this session: a run's conversation, not only a chat's. */
+    fun existsBySessionId(sessionId: Long): Boolean
+
     /** The step that last wrote into this session. */
     fun findFirstBySessionIdOrderByIdDesc(sessionId: Long): ExecutionStep?
 

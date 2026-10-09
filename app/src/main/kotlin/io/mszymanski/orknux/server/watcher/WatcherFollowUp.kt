@@ -134,12 +134,14 @@ class WatcherFollowUp(
 
     /**
      * Whether this session is this class's to wake: a watcher's event unread in
-     * it, and nothing else that would read it - no chat, no task, no step mid-turn
-     * or parked on it.
+     * it, and nothing else that would read it - no task, no step mid-turn or
+     * parked on it, and no chat unless a run wrote here too. A run's watcher
+     * wakes the run's agent, whose answer goes on to the run's next node; a chat
+     * opened on that conversation with "Continue in chat" does not take it over.
      */
     fun owned(session: Long): Boolean =
         inbox.pending(session, SessionEventKind.WATCHER) &&
-            chats.findFirstByLlmSessionId(session) == null &&
+            (chats.findFirstByLlmSessionId(session) == null || steps.existsBySessionId(session)) &&
             tasks.findFirstBySessionId(session) == null &&
             !steps.existsBySessionIdAndStatusIn(session, BUSY)
 

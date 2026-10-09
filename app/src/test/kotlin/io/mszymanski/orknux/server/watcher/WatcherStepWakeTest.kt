@@ -235,6 +235,34 @@ class WatcherStepWakeTest(
         }
     }
 
+    /**
+     * A run's watcher wakes the run's agent even with a chat open on its
+     * conversation. "Continue in chat" on a Slack thread's session made the
+     * chat its owner, so the agent's news answered into the chat and the
+     * thread never heard it.
+     */
+    @Test
+    fun `a chat opened on a run's conversation does not take its watcher`() {
+        replying = true
+        val first = start()
+        val session = requireNotNull(steps.findAll().single { it.nodeKey == "think" }.sessionId)
+        graphQlTester.document(
+            """mutation { startChat(input: { workspaceId: $workspaceId, title: "thread", llmSessionId: $session }) { id } }""",
+        ).execute().path("startChat.id").hasValue()
+
+        buildIs("done")
+        due()
+        assertThat(service.tick()).isEqualTo(1)
+
+        await().atMost(Duration.ofSeconds(20)).untilAsserted {
+            val carried = executions.findAll().singleOrNull { it.id != first }
+            assertThat(carried).isNotNull
+            assertThat(steps.findAll().single { it.executionId == carried!!.id && it.nodeKey == "reply" }.input)
+                .contains("Build 41 is done.")
+        }
+        assertThat(lines.findAll().any { "was woken by watcher" in (it.content ?: "") }).isTrue()
+    }
+
     /** Nothing worth saying is said with finish_answer, and then nothing is sent. */
     @Test
     fun `a woken agent that finishes with nothing sends nothing`() {

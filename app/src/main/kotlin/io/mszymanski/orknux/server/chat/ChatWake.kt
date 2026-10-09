@@ -2,6 +2,9 @@ package io.mszymanski.orknux.server.chat
 
 import io.mszymanski.orknux.connector.model.ChatCompletion
 import io.mszymanski.orknux.server.llm.SessionEventDue
+import io.mszymanski.orknux.server.llm.SessionEventKind
+import io.mszymanski.orknux.server.llm.SessionInbox
+import io.mszymanski.orknux.workflow.execution.ExecutionStepRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import org.springframework.transaction.event.TransactionPhase
@@ -30,6 +33,8 @@ class ChatWake(
     private val service: ChatService,
     private val chatTools: ChatTools,
     private val generations: ChatGenerations,
+    private val inbox: SessionInbox,
+    private val steps: ExecutionStepRepository,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -43,6 +48,13 @@ class ChatWake(
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     fun due(event: SessionEventDue) {
         val chat = chats.findFirstByLlmSessionId(event.sessionId) ?: return
+        /*
+         * A watcher on a run's conversation is the run's, even with a chat open
+         * on it. "Continue in chat" on a Slack thread's session made the chat
+         * its owner, so watchers the run's agent had set answered into that
+         * chat and never reached the thread. WatcherFollowUp takes those.
+         */
+        if (inbox.pending(event.sessionId, SessionEventKind.WATCHER) && steps.existsBySessionId(event.sessionId)) return
         val id = requireNotNull(chat.id)
         if (generations.answering(id) || !waking.add(id)) return
         turns.execute {
