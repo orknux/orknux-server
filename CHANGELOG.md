@@ -23,6 +23,7 @@ have failed.
 
 ### 🐛 Fixed
 
+- An agent woken by its watcher after a rate limit or an outage is now asked again under the retry policy of the workflow node that set the watcher, instead of the turn being dropped.
 - Switching workspace while on the variables page no longer fails with "No catalog with id"; it opens the other workspace's catalogs.
 
 ## 0.9.9.23

@@ -22,15 +22,18 @@ import io.mszymanski.orknux.server.llm.SessionThinking
 import io.mszymanski.orknux.server.task.TaskRepository
 import io.mszymanski.orknux.workflow.execution.ExecutionStepRepository
 import io.mszymanski.orknux.workflow.execution.StepStatus
+import io.mszymanski.orknux.workflow.execution.retryPolicy
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
 import org.springframework.transaction.event.TransactionPhase
 import org.springframework.transaction.event.TransactionalEventListener
+import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlin.random.Random
 
 /**
  * A watcher that ends after the workflow step that set it has finished wakes its
@@ -53,6 +56,12 @@ import java.util.concurrent.Executors
  * agent to wake; an ask or a timer still holds its step, which is waiting for it.
  *
  * One turn at a time per session, off the thread that posted, as a chat's is.
+ *
+ * A turn the model could not answer for a reason that may pass - a rate limit,
+ * an outage - is asked again by the retry policy of the step that set the
+ * watcher, as that step's own turn would have been. It was answered once and
+ * dropped, so the agent a watcher woke into a rate limit never acted on what the
+ * watcher found.
  */
 @Component
 class WatcherFollowUp(
@@ -99,7 +108,7 @@ class WatcherFollowUp(
         if (!running.add(session)) return
         turns.execute {
             try {
-                follow(session)
+                followRetrying(session)
             } catch (failure: Exception) {
                 log.warn("Session {} could not be followed up after its watcher: {}", session, failure.message)
             } finally {
@@ -119,8 +128,39 @@ class WatcherFollowUp(
             tasks.findFirstBySessionId(session) == null &&
             !steps.existsBySessionIdAndStatusIn(session, BUSY)
 
+    /**
+     * The turn, and the turns again that the step's retry policy allows.
+     *
+     * The watcher's message is not lost between attempts: the first one took it
+     * from the inbox and wrote it into the session, which is what every later
+     * attempt is built from. Waited out on this thread, which is the follow-up's
+     * own and not a worker's; the session stays marked running meanwhile, so
+     * another event does not start a second turn beside it.
+     */
+    fun followRetrying(session: Long, pause: (Duration) -> Unit = { Thread.sleep(it.toMillis()) }): ChatCompletion? {
+        val policy = steps.findFirstBySessionIdOrderByIdDesc(session)?.retryPolicy()
+        val began = System.nanoTime()
+        var spent = 1
+        var answer = follow(session)
+        while (answer is ChatCompletion.Failed && !answer.permanent && policy != null && spent < policy.attempts) {
+            val wait = policy.waitAfter(spent, Random)
+            val budget = policy.budget
+            if (budget != null && Duration.ofNanos(System.nanoTime() - began) + wait > budget) break
+            log.info("Session {} follow-up failed ({}); trying again in {}s", session, answer.reason, wait.toSeconds())
+            sessions.note(
+                session,
+                "The turn could not be answered (${answer.reason}); attempt ${spent + 1} of ${policy.attempts} " +
+                    "in ${wait.toSeconds()}s.",
+            )
+            pause(wait)
+            spent++
+            answer = follow(session, again = true)
+        }
+        return answer
+    }
+
     /** The turn itself, on this thread. Public for a test that wants it now. */
-    fun follow(session: Long): ChatCompletion? {
+    fun follow(session: Long, again: Boolean = false): ChatCompletion? {
         // The one that looked last: what it posted - a firing, a timeout or a
         // look it was asked for - is what is waiting in the inbox.
         val watcher = watchers.findFirstBySessionIdAndAgentIdIsNotNullOrderByLastCheckedAtDescIdDesc(session)
@@ -154,7 +194,9 @@ class WatcherFollowUp(
             watcherTools.shed(agent, session),
         )
 
-        sessions.note(session, "${agent.name} was woken by watcher #${watcher.id}, after the step that set it had finished.")
+        if (!again) {
+            sessions.note(session, "${agent.name} was woken by watcher #${watcher.id}, after the step that set it had finished.")
+        }
         val thinking = SessionThinking(session, agent.name, sessions)
         return try {
             conversation.getObject().answer(modelId, agent, said, session, shed = shed, watch = thinking)

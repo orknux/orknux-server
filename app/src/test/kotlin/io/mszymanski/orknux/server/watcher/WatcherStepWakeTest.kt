@@ -75,6 +75,12 @@ class WatcherStepWakeTest(
     /** What watcher_set is called with beyond the basics; the agent-check test adds its interval. */
     private var extra = ""
 
+    /** How many times the woken turn is refused with a rate limit before it is answered. */
+    private var rateLimited = 0
+
+    /** What the agent node carries beyond its agent; the retry test adds a policy. */
+    private var policy = ""
+
     @BeforeEach
     fun reset() {
         watchers.deleteAll()
@@ -91,6 +97,8 @@ class WatcherStepWakeTest(
         workspaces.deleteAll()
         asked.clear()
         extra = ""
+        rateLimited = 0
+        policy = ""
 
         workspaceId = requireNotNull(workspaces.save(Workspace(name = "backend")).id)
         workflowId = graphQlTester.document(
@@ -150,6 +158,44 @@ class WatcherStepWakeTest(
         assertThat(watchers.findAll().single().status).isEqualTo(WatcherStatus.ACTIVE)
     }
 
+    /**
+     * A woken turn that meets a rate limit is asked again, as the step's would
+     * have been. It was answered once and dropped, so the agent never acted on
+     * what its watcher found.
+     */
+    @Test
+    fun `a woken turn refused by a rate limit is retried by the step's policy`() {
+        policy = "retryAttempts: 3, retryBackoffSeconds: 1"
+        rateLimited = 1
+        start()
+
+        buildIs("done")
+        due()
+        assertThat(service.tick()).isEqualTo(1)
+
+        await().atMost(Duration.ofSeconds(20)).untilAsserted {
+            assertThat(lines.findAll().any { "Build 41 is done." in (it.content ?: "") }).isTrue()
+        }
+        assertThat(rateLimited).isZero()
+    }
+
+    /** Without a policy on the node there is nothing to retry by: one attempt, as the step would get. */
+    @Test
+    fun `a woken turn on a node without a policy is asked once`() {
+        rateLimited = 1
+        start()
+
+        buildIs("done")
+        due()
+        assertThat(service.tick()).isEqualTo(1)
+
+        await().atMost(Duration.ofSeconds(20)).untilAsserted {
+            assertThat(asked.count { "fired. You asked" in it }).isEqualTo(1)
+        }
+        Thread.sleep(1500)
+        assertThat(asked.count { "fired. You asked" in it }).isEqualTo(1)
+    }
+
     /** Below the installation's floor is refused, in words the model can act on. */
     @Test
     fun `an agent check more often than the installation allows is refused`() {
@@ -201,7 +247,7 @@ class WatcherStepWakeTest(
                       { name: "sessionKeyPrefix", expression: "node", mode: VALUE },
                       { name: "sessionKey", expression: "one", mode: VALUE }
                     ] },
-                  { key: "think", kind: AGENT, name: "Responder", agentId: $agentId, x: 200, y: 0 }
+                  { key: "think", kind: AGENT, name: "Responder", agentId: $agentId, x: 200, y: 0${if (policy.isEmpty()) "" else ", $policy"} }
                 ],
                 edges: [{ source: "talk", target: "think" }]
               }) { nodes { key } problems { message } }
@@ -219,6 +265,15 @@ class WatcherStepWakeTest(
         server.createContext("/chat/completions") { exchange ->
             val body = exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
             asked += body
+            if (body.contains("fired. You asked") && !body.contains("call_2") && rateLimited > 0) {
+                rateLimited--
+                val refused = """{"error":{"message":"Rate limit reached","code":"429"}}""".toByteArray(StandardCharsets.UTF_8)
+                exchange.responseHeaders.add("Content-Type", "application/json")
+                exchange.sendResponseHeaders(429, refused.size.toLong())
+                exchange.responseBody.use { it.write(refused) }
+                exchange.close()
+                return@createContext
+            }
             val reply = when {
                 body.contains("call_2") -> said("Changed it.")
                 body.contains("the look you asked for") -> called(

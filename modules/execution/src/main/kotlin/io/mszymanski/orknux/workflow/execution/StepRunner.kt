@@ -157,6 +157,33 @@ data class RetryPolicy(
 }
 
 /**
+ * The node's retry policy, or null where it has none.
+ *
+ * One attempt is no policy at all rather than a policy of one, so a node
+ * carrying the number the editor shows by default costs nothing. Public because
+ * the step is not the only thing its agent answers in: a watcher it set wakes it
+ * after the step has finished, and that turn is retried by the same policy.
+ */
+fun ExecutionStep.retryPolicy(): RetryPolicy? = retryAttempts
+    ?.takeIf { it > 1 }
+    ?.let {
+        RetryPolicy(
+            attempts = it,
+            backoff = Duration.ofSeconds((retryBackoffSeconds ?: 0).coerceAtLeast(0).toLong()),
+            // Every null below is what the step meant before there was a
+            // field for it: a wait that does not grow, the engine's own
+            // ceiling, no jitter and no budget. So a step written by an
+            // older version, or by a node nobody has opened since, waits
+            // exactly what it waited then.
+            multiplier = retryMultiplier ?: RetryPolicy.NO_GROWTH,
+            maxWait = retryMaxWaitSeconds?.let { seconds -> Duration.ofSeconds(seconds.toLong()) }
+                ?: RetryPolicy.MAX_WAIT,
+            jitter = retryJitter ?: RetryPolicy.NO_JITTER,
+            budget = retryBudgetSeconds?.let { seconds -> Duration.ofSeconds(seconds.toLong()) },
+        )
+    }
+
+/**
  * Implemented by a failure that knows whether it is worth trying again.
  *
  * Declared here so a runner in another module can say so without the execution
@@ -416,7 +443,7 @@ class StepRunner(
         reason: String,
         permanent: Boolean,
     ): StepOutcome {
-        val policy = retryOf(step)
+        val policy = step.retryPolicy()
         if (policy != null && !permanent && step.attempts < policy.attempts) {
             // Worked out here rather than inside parkForRetry, because the
             // budget is a question about this particular wait: a policy with
@@ -482,31 +509,6 @@ class StepRunner(
             else -> null
         },
     )
-
-    /**
-     * The node's retry policy, or null where it has none.
-     *
-     * One attempt is no policy at all rather than a policy of one, so a node
-     * carrying the number the editor shows by default costs nothing.
-     */
-    private fun retryOf(step: ExecutionStep): RetryPolicy? = step.retryAttempts
-        ?.takeIf { it > 1 }
-        ?.let {
-            RetryPolicy(
-                attempts = it,
-                backoff = Duration.ofSeconds((step.retryBackoffSeconds ?: 0).coerceAtLeast(0).toLong()),
-                // Every null below is what the step meant before there was a
-                // field for it: a wait that does not grow, the engine's own
-                // ceiling, no jitter and no budget. So a step written by an
-                // older version, or by a node nobody has opened since, waits
-                // exactly what it waited then.
-                multiplier = step.retryMultiplier ?: RetryPolicy.NO_GROWTH,
-                maxWait = step.retryMaxWaitSeconds?.let { seconds -> Duration.ofSeconds(seconds.toLong()) }
-                    ?: RetryPolicy.MAX_WAIT,
-                jitter = step.retryJitter ?: RetryPolicy.NO_JITTER,
-                budget = step.retryBudgetSeconds?.let { seconds -> Duration.ofSeconds(seconds.toLong()) },
-            )
-        }
 
     /**
      * Parks a failed attempt instead of throwing, so the next one is asked for
