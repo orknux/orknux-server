@@ -128,10 +128,11 @@ class WatcherTest(
         timeout: Any = 600,
         toolName: String = "buildStatus",
         extra: String = "",
+        agentCheck: Any = 300,
     ): String = call(
         WatcherTools.SET,
         """{"tool":"$toolName","arguments":{},"tool_result_path":"$","condition_type":"$type","condition":${json(condition)},""" +
-            """"interval_seconds":$interval,"timeout_seconds":$timeout,"note":"tell the team"$extra}""",
+            """"interval_seconds":$interval,"timeout_seconds":$timeout,"agent_check_interval_seconds":$agentCheck,"note":"tell the team"$extra}""",
     )
 
     private fun json(text: String) = "\"" + text.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
@@ -192,6 +193,33 @@ class WatcherTest(
     }
 
     /** A label for whoever is debugging, with its limit told up front. #621. */
+    /**
+     * Every watcher looks for itself. A condition that never matched used to
+     * run silently to its timeout, a week by default, with nobody judging what
+     * came back.
+     */
+    @Test
+    fun `a watcher needs an agent check, and it cannot be switched off`() {
+        val offered = shed().specs().single { it.name == WatcherTools.SET }
+            .parameters.single { it.name == WatcherTools.AGENT_CHECK }
+        assertThat(offered.required).isTrue()
+
+        val refused = call(
+            WatcherTools.SET,
+            """{"tool":"buildStatus","arguments":{},"tool_result_path":"$","condition_type":"regex","condition":"done",""" +
+                """"interval_seconds":15,"timeout_seconds":600}""",
+        )
+        assertThat(refused).contains("agent_check_interval_seconds is required")
+        assertThat(watchers.findAll()).isEmpty()
+
+        // Longer than the timeout is allowed: a short watcher simply ends before its first look.
+        val id = idIn(set(timeout = 60))
+        assertThat(watchers.findById(id).orElseThrow().agentCheckIntervalSeconds).isEqualTo(300)
+        assertThat(call(WatcherTools.UPDATE, """{"watcher":$id,"agent_check_interval_seconds":0}"""))
+            .contains("cannot be switched off")
+        assertThat(watchers.findById(id).orElseThrow().agentCheckIntervalSeconds).isEqualTo(300)
+    }
+
     @Test
     fun `a watcher carries a short description, bounded in what the agent is told`() {
         val offered = shed().specs().single { it.name == WatcherTools.SET }
@@ -229,7 +257,7 @@ class WatcherTest(
         assertThat(
             call(
                 WatcherTools.SET,
-                """{"tool":"buildStatus","arguments":{},"condition_type":"regex","condition":"done","interval_seconds":15,"timeout_seconds":600}""",
+                """{"tool":"buildStatus","arguments":{},"condition_type":"regex","condition":"done","interval_seconds":15,"timeout_seconds":600,"agent_check_interval_seconds":300}""",
             ),
         ).describedAs("tool_result_path is required").contains("tool_result_path")
 
@@ -239,7 +267,7 @@ class WatcherTest(
         assertThat(set(interval = 60, timeout = 30)).contains("longer than timeout_seconds")
         assertThat(set(interval = "\"soon\"")).contains("whole number of seconds")
         assertThat(call(WatcherTools.SET, """{"tool":"buildStatus","tool_result_path":"$","arguments":"[1]","condition_type":"regex",
-            "condition":"done","interval_seconds":15,"timeout_seconds":60}""")).contains("must be a JSON object")
+            "condition":"done","interval_seconds":15,"timeout_seconds":60,"agent_check_interval_seconds":300}""")).contains("must be a JSON object")
 
         assertThat(watchers.count()).isZero()
     }
@@ -265,7 +293,7 @@ class WatcherTest(
             Agent(workspaceId = workspaceId, name = "Other", type = AgentType.LLM, tools = mutableListOf("buildStatus")),
         )
         assertThat(call(WatcherTools.SET, """{"tool":"buildStatus","tool_result_path":"$","condition_type":"regex","condition":"done",
-            "interval_seconds":30,"timeout_seconds":60}""", of = other)).contains("\"watcher\":")
+            "interval_seconds":30,"timeout_seconds":60,"agent_check_interval_seconds":300}""", of = other)).contains("\"watcher\":")
 
         // Zero switches them off, and a model is not offered what will not run.
         settings.setMaxPerAgent(0, "alice")
@@ -282,7 +310,7 @@ class WatcherTest(
             Agent(workspaceId = workspaceId, name = "Other", type = AgentType.LLM, tools = mutableListOf("buildStatus")),
         )
         val theirs = idIn(call(WatcherTools.SET, """{"tool":"buildStatus","tool_result_path":"$","condition_type":"regex","condition":"x",
-            "interval_seconds":15,"timeout_seconds":60}""", of = other))
+            "interval_seconds":15,"timeout_seconds":60,"agent_check_interval_seconds":300}""", of = other))
 
         val mine = call(WatcherTools.LIST, "{}")
         assertThat(mine).contains("\"watcher\":$running").doesNotContain("\"watcher\":$ended")

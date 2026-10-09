@@ -263,7 +263,6 @@ class WatcherService(
         }
         val agentCheck = when (change.agentCheckIntervalSeconds) {
             null -> watcher.agentCheckIntervalSeconds
-            0 -> null
             else -> change.agentCheckIntervalSeconds
         }
         if (change.agentCheckIntervalSeconds != null && agentCheck != null) {
@@ -313,7 +312,6 @@ class WatcherService(
         return when {
             seconds < floor -> "agent_check_interval_seconds must be at least $floor: no shorter than this " +
                 "installation allows (${settings.minAgentCheckSeconds()}s) and no shorter than interval_seconds."
-            seconds > timeout -> "agent_check_interval_seconds is longer than timeout_seconds, so you would never be shown it."
             else -> null
         }
     }

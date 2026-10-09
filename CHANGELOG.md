@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🔧 Changed
+
+- An agent setting a watcher must say how often it looks at the result itself (`agent_check_interval_seconds`), and can no longer switch that off with 0; a condition guessed wrong no longer runs silently to its timeout. Watchers already running are left as they are.
+
 ## 0.9.9.30
 
 ### 🔧 Changed

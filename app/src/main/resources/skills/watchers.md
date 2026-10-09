@@ -139,9 +139,8 @@ waits until it times out when the build breaks.
 ## Looking for yourself
 
 A condition is a guess at what "done" will look like, written before you have
-seen a single result. When you are not sure it will recognise it - a status
-whose words you do not know, a page whose shape may change - also give
-`agent_check_interval_seconds`. While the condition has not matched, you are
+seen a single result, so every watcher also takes
+`agent_check_interval_seconds` - it is required. While the condition has not matched, you are
 woken that often with a message starting "Watcher #N has not matched yet" and
 the latest result. Then:
 
@@ -151,8 +150,10 @@ the latest result. Then:
   `watcher_update`;
 - if it is simply not there yet, do nothing - it carries on.
 
-Each look costs you a turn, so ask for as few as will do: the installation
-sets the shortest allowed, and it can be no shorter than `interval_seconds`.
+Each look costs you a turn, so ask for as few as will do - the longest you can
+afford to be late by: the installation sets the shortest allowed, and it can be
+no shorter than `interval_seconds`. One longer than `timeout_seconds` simply
+never comes before the watcher ends.
 
 ## The limit
 

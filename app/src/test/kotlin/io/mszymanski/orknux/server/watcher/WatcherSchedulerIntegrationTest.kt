@@ -99,7 +99,7 @@ class WatcherSchedulerIntegrationTest(
             ToolCall(
                 "1", WatcherTools.SET,
                 """{"tool":"buildStatus","tool_result_path":"$","condition_type":"jsonpath","condition":"$[?(@.status == 'done')]",
-                   "interval_seconds":15,"timeout_seconds":600}""",
+                   "interval_seconds":15,"timeout_seconds":600,"agent_check_interval_seconds":300}""",
             ),
         )
         val id = Regex("\"watcher\":(\\d+)").find(answer)!!.groupValues[1].toLong()

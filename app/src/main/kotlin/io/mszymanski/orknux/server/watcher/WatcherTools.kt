@@ -96,11 +96,13 @@ class WatcherTools(
                         ),
                         ToolParameterSpec(
                             AGENT_CHECK,
-                            "Optional. Seconds between looks of your own: while the condition has not matched, " +
-                                "you are woken this often with the latest result, to judge it yourself and change " +
-                                "the watcher with $UPDATE or end it. Use it when you are not sure your condition " +
-                                "will recognise what you are waiting for. At least $looks and at least " +
-                                "interval_seconds; each look costs you a turn.",
+                            "Seconds between looks of your own: while the condition has not matched, you are " +
+                                "woken this often with the latest result, to judge it yourself and change the " +
+                                "watcher with $UPDATE or end it - so a condition that never recognises what you " +
+                                "are waiting for does not leave you waiting until the timeout. At least $looks, at " +
+                                "least interval_seconds; longer than timeout_seconds means no look before it ends. Each look costs you a turn, " +
+                                "so pick the longest you can afford to be late by.",
+                            required = true,
                         ),
                     ),
                 ),
@@ -119,7 +121,7 @@ class WatcherTools(
                         ToolParameterSpec(CONDITION_TYPE, "jsonpath or regex; give it with condition."),
                         ToolParameterSpec(CONDITION, "A new condition, as for $SET."),
                         ToolParameterSpec(INTERVAL, "New seconds between two calls; at least $shortest."),
-                        ToolParameterSpec(AGENT_CHECK, "New seconds between your own looks; at least $looks. 0 stops them."),
+                        ToolParameterSpec(AGENT_CHECK, "New seconds between your own looks; at least $looks."),
                         ToolParameterSpec(NOTE, "A new note."),
                         ToolParameterSpec(DESCRIPTION, "A new description; at most $LONGEST_DESCRIPTION characters."),
                     ),
@@ -191,9 +193,19 @@ class WatcherTools(
             val arguments = argumentsOf(asked?.path(ARGUMENTS))
             val note = text(asked?.path(NOTE))?.trim()?.ifEmpty { null }
             val description = description(asked)?.ifEmpty { null }
+            /*
+             * Required. A watcher whose condition never matched used to run
+             * silently to its timeout - a week by default - with nobody looking
+             * at what came back; a look of the agent's own is what notices a
+             * condition that was guessed wrong.
+             */
             val agentCheck = present(asked?.path(AGENT_CHECK))?.let {
                 whole(it) ?: throw WatcherRefused("$AGENT_CHECK must be a whole number of seconds.")
             }?.takeIf { it > 0 }
+                ?: throw WatcherRefused(
+                    "$AGENT_CHECK is required: how many seconds between looks of your own at the latest result, " +
+                        "at least ${settings.minAgentCheckSeconds()} and at least $INTERVAL.",
+                )
 
             val watcher = try {
                 service.create(
@@ -244,7 +256,9 @@ class WatcherTools(
                 condition = text(asked?.path(CONDITION))?.takeIf { it.isNotBlank() },
                 toolResultPath = text(asked?.path(RESULT_PATH))?.trim()?.takeIf { it.isNotEmpty() },
                 intervalSeconds = seconds(INTERVAL),
-                agentCheckIntervalSeconds = seconds(AGENT_CHECK),
+                agentCheckIntervalSeconds = seconds(AGENT_CHECK)?.also {
+                    if (it <= 0) throw WatcherRefused("$AGENT_CHECK cannot be switched off; give the seconds between your looks.")
+                },
                 note = text(asked?.path(NOTE)),
                 description = description(asked),
             )

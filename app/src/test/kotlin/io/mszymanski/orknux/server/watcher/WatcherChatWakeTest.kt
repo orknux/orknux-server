@@ -124,7 +124,7 @@ class WatcherChatWakeTest(
                 else -> """
                     {"choices":[{"message":{"role":"assistant","content":null,
                       "tool_calls":[{"id":"call_1","type":"function","function":{"name":"watcher_set",
-                        "arguments":"{\"tool\":\"buildStatus\",\"tool_result_path\":\"$\",\"condition_type\":\"regex\",\"condition\":\"done\",\"interval_seconds\":15,\"timeout_seconds\":600,\"note\":\"the build\"}"}}]}}],
+                        "arguments":"{\"tool\":\"buildStatus\",\"tool_result_path\":\"$\",\"condition_type\":\"regex\",\"condition\":\"done\",\"interval_seconds\":15,\"timeout_seconds\":600,\"agent_check_interval_seconds\":300,\"note\":\"the build\"}"}}]}}],
                      "usage":{"prompt_tokens":9,"completion_tokens":4}}
                 """.trimIndent()
             }.toByteArray(StandardCharsets.UTF_8)

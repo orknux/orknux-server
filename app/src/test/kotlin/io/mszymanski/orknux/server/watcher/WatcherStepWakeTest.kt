@@ -402,7 +402,7 @@ class WatcherStepWakeTest(
                     "call_1",
                     "watcher_set",
                     """{\"tool\":\"buildStatus\",\"tool_result_path\":\"$\",\"condition_type\":\"regex\",""" +
-                        """\"condition\":\"done\",\"interval_seconds\":15,\"timeout_seconds\":600${extra.replace("\"", "\\\"")}}""",
+                        """\"condition\":\"done\",\"interval_seconds\":15,\"timeout_seconds\":600${(extra.ifEmpty { ""","agent_check_interval_seconds":300""" }).replace("\"", "\\\"")}}""",
                 )
             }.toByteArray(StandardCharsets.UTF_8)
             exchange.responseHeaders.add("Content-Type", "application/json")
