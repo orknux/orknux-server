@@ -84,7 +84,7 @@ class ChatRoundsSettingTest(
 
     @Test
     fun `a number outside the bounds is refused rather than stored`() {
-        listOf(1, 101).forEach { asked ->
+        listOf(1, MAX_CHAT_ROUNDS + 1).forEach { asked ->
             graphQlTester.document("mutation { setChatMaxRounds(rounds: $asked) { chatMaxRounds } }")
                 .execute().errors().satisfy { errors ->
                     assertThat(errors).singleElement()
@@ -123,7 +123,7 @@ class ChatRoundsSettingTest(
     @Test
     fun `an agent's own number is held to the same bounds`() {
         graphQlTester.document(
-            """mutation { updateAgent(id: $agentId, input: { name: "Support", maxRounds: 500 }) { maxRounds } }""",
+            """mutation { updateAgent(id: $agentId, input: { name: "Support", maxRounds: ${MAX_CHAT_ROUNDS + 1} }) { maxRounds } }""",
         ).execute().errors().satisfy { errors ->
             assertThat(errors).singleElement()
                 .satisfies({ assertThat(it.message).contains("not a number of tool rounds") })

@@ -138,6 +138,7 @@ object SettingNames {
 
     /** The first wait for a rate limit inside a stream that named none. Issue #608. */
     const val RATE_LIMIT_BACKOFF_SECONDS = "model.rate.limit.backoff.seconds"
+    const val NOTE_MAX_CHARACTERS = "chat.note.max.characters"
 
     /**
      * Log levels set from the screen, #591: one row per logger, `log.level.<name>`,
@@ -1157,6 +1158,26 @@ class InstallationSettings(
         write(SettingNames.RATE_LIMIT_BACKOFF_SECONDS, seconds.toString(), by)
     }
 
+    /**
+     * How long one `note_to_self` may be, in characters. It was five hundred,
+     * fixed: an agent keeping track of a long review wrote seven hundred and was
+     * refused twice running, and spent the rounds shortening its own memory.
+     */
+    fun noteMaxCharacters(): Int {
+        val held = settings.findByIdOrNull(SettingNames.NOTE_MAX_CHARACTERS) ?: return noteMaxCharactersConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_NOTE_CHARACTERS..MAX_NOTE_CHARACTERS }
+            ?: noteMaxCharactersConfigured()
+    }
+
+    /** What a fresh installation allows: the built-in default. */
+    fun noteMaxCharactersConfigured(): Int = DEFAULT_NOTE_CHARACTERS
+
+    @Transactional
+    fun setNoteMaxCharacters(characters: Int, by: String) {
+        if (characters !in MIN_NOTE_CHARACTERS..MAX_NOTE_CHARACTERS) throw NoteLengthOutOfRangeException(characters)
+        write(SettingNames.NOTE_MAX_CHARACTERS, characters.toString(), by)
+    }
+
     @Transactional
     fun setWorkspaceCopyLockWaitSeconds(seconds: Int, by: String) {
         if (seconds !in MIN_COPY_LOCK_WAIT_SECONDS..MAX_COPY_LOCK_WAIT_SECONDS) {
@@ -1624,16 +1645,19 @@ const val MAX_SWEEP_MINUTES = 1440
  * is read whole on every call, so this number is also a statement about memory.
  */
 /**
- * Two rounds and a hundred, around whatever the file says.
+ * Two rounds and ten thousand, around whatever the file says.
  *
  * The floor is two because one round is an agent that cannot use the tools it
  * was given - it would call them and never get to speak about what came back.
- * The ceiling is a hundred because every round is a paid call to a model, and an
- * agent that has not finished after a hundred of them is not close: it is
- * looping, which is the thing this bound exists to stop.
+ * The ceiling was a hundred, on the reasoning that an agent still going after a
+ * hundred paid calls is looping. Agents doing real work through many small
+ * tools - a review across a large pull request, a migration file by file - ran
+ * into it while making progress, so it is ten thousand: a bound on a typo, not
+ * a judgement on how long work may take. The number the installation actually
+ * uses is the administrator's, a hundred until somebody changes it.
  */
 const val MIN_CHAT_ROUNDS = 2
-const val MAX_CHAT_ROUNDS = 100
+const val MAX_CHAT_ROUNDS = 10000
 
 class ChatRoundsOutOfRangeException(val rounds: Int) : RuntimeException(
     "$rounds is not a number of tool rounds an agent can be given. " +
@@ -2109,6 +2133,23 @@ const val DEFAULT_COPY_LOCK_WAIT_SECONDS = 60
  * on any wait past two minutes and hands the call to the node's own retry
  * policy anyway. Issue #608.
  */
+/**
+ * A note between a hundred characters and ten thousand, a thousand until somebody
+ * says otherwise. Every note is read back whole on every later turn, twenty of
+ * them at most, so the ceiling is what twenty of them cost a prompt.
+ */
+const val MIN_NOTE_CHARACTERS = 100
+const val MAX_NOTE_CHARACTERS = 10000
+const val DEFAULT_NOTE_CHARACTERS = 1000
+
+class NoteLengthOutOfRangeException(val characters: Int) : RuntimeException(
+    "$characters is not a length a note to self can be held to. " +
+        "Choose between $MIN_NOTE_CHARACTERS and $MAX_NOTE_CHARACTERS.",
+), Refusal {
+
+    override val arguments get() = mapOf("characters" to characters)
+}
+
 const val MIN_RATE_LIMIT_BACKOFF_SECONDS = 1
 const val MAX_RATE_LIMIT_BACKOFF_SECONDS = 60
 

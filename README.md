@@ -403,7 +403,7 @@ installation starts from.
 
 | Variable | What it sets | Default |
 |---|---|---|
-| `ORKNUX_CHAT_MAX_ROUNDS` | Tool rounds one chat answer may take. | `8` |
+| `ORKNUX_CHAT_MAX_ROUNDS` | Tool rounds one chat answer may take. | `100` |
 | `ORKNUX_CHAT_MAX_SUBAGENTS` | Other agents one conversation may ask. | `10` |
 | `ORKNUX_CHAT_TOOLS_NAMED_IN_SEARCH` | Findable tools `tool_find` names outright. | `40` |
 | `ORKNUX_COMMAND_MARKER` | What marks a skill command in a message. | `!` |

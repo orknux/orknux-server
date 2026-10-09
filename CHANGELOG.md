@@ -15,6 +15,17 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## 0.9.9.27
+
+### ✨ Added
+
+- How long a note an agent writes to itself may be is an Admin setting, **Note Length**, a thousand characters by default where it was a fixed five hundred; the tool tells the agent the limit before it writes.
+
+### 🔧 Changed
+
+- A fresh installation gives an agent 100 tool rounds rather than 8, and Tool Rounds - in Admin and on an agent - goes up to 10000 rather than 100. An installation that saved its own number in Admin keeps it; one relying on the default gets 100 unless `ORKNUX_CHAT_MAX_ROUNDS` says otherwise.
+- A watcher's description has a column of its own on the Watchers page.
+
 ## 0.9.9.26
 
 ### 🔧 Changed

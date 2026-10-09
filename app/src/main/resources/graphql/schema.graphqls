@@ -1311,6 +1311,8 @@ type Mutation {
     setWorkspaceCopyLockWaitSeconds(seconds: Int!): InstallationSettings!
     "The first wait for a rate limit inside a streaming answer that named no time, 1 to 60 seconds, doubled per attempt. Administrators only. Issue #608."
     setRateLimitBackoffSeconds(seconds: Int!): InstallationSettings!
+    "How long one note_to_self may be, 100 to 10000 characters. Administrators only."
+    setNoteMaxCharacters(characters: Int!): InstallationSettings!
     """
     Starts downloading a server release orknux.ai offers, and answers at once.
     In the background it is checked against the listing and the release key,
@@ -6860,6 +6862,10 @@ type InstallationSettings {
     rateLimitBackoffSeconds: Int!
     "What a fresh installation waits: the client's own default."
     rateLimitBackoffSecondsConfigured: Int!
+    "How long one note_to_self may be, in characters."
+    noteMaxCharacters: Int!
+    "What a fresh installation allows: the built-in default."
+    noteMaxCharactersConfigured: Int!
     """
     False where the installation runs Temporal, and the field is not offered.
 

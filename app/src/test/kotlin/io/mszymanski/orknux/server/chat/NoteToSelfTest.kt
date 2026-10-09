@@ -1,12 +1,16 @@
 package io.mszymanski.orknux.server.chat
 
 import io.mszymanski.orknux.connector.model.ToolCall
+import io.mszymanski.orknux.server.attachment.DEFAULT_NOTE_CHARACTERS
+import io.mszymanski.orknux.server.attachment.InstallationSettings
+import io.mszymanski.orknux.server.attachment.NoteLengthOutOfRangeException
 import io.mszymanski.orknux.server.llm.LlmSessionEventKind
 import io.mszymanski.orknux.server.llm.LlmSessionEventRepository
 import io.mszymanski.orknux.server.llm.LlmSessionRecorder
 import io.mszymanski.orknux.server.workspace.Workspace
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -35,6 +39,7 @@ class NoteToSelfTest(
     @Autowired val sessions: LlmSessionRecorder,
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val events: LlmSessionEventRepository,
+    @Autowired val settings: InstallationSettings,
 ) {
 
     private var session: Long = 0
@@ -138,11 +143,33 @@ class NoteToSelfTest(
      */
     @Test
     fun `a note too long to carry is refused, and says why`() {
-        val said = write("a".repeat(NoteTools.LONGEST + 1))
+        val said = write("a".repeat(DEFAULT_NOTE_CHARACTERS + 1))
 
-        assertThat(said).contains("too long to keep")
+        assertThat(said).contains("kept up to $DEFAULT_NOTE_CHARACTERS")
         assertThat(said).contains("paid for on every turn")
         assertThat(sessions.notesOf(session)).isEmpty()
+    }
+
+    /**
+     * The length is the installation's, and the agent is told it before it
+     * writes: a review agent wrote seven hundred characters against a fixed five
+     * hundred and was refused twice running.
+     */
+    @Test
+    fun `the longest note is an administrator's setting, and the tool says it up front`() {
+        try {
+            settings.setNoteMaxCharacters(2000, "alice")
+            val spec = requireNotNull(notes.shed(session, "Support responder")).specs().single()
+            assertThat(spec.parameters.single().description).contains("at most 2000 characters")
+
+            assertThat(write("a".repeat(1500))).contains("\"written\":true")
+            assertThat(write("a".repeat(2001))).contains("kept up to 2000")
+            assertThatThrownBy { settings.setNoteMaxCharacters(99, "alice") }
+                .isInstanceOf(NoteLengthOutOfRangeException::class.java)
+        } finally {
+            settings.setNoteMaxCharacters(settings.noteMaxCharactersConfigured(), "alice")
+        }
+        assertThat(settings.noteMaxCharacters()).isEqualTo(1000)
     }
 
     /**

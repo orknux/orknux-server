@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.chat
 
+import io.mszymanski.orknux.server.attachment.InstallationSettings
 import io.mszymanski.orknux.connector.model.ToolCall
 import io.mszymanski.orknux.connector.model.ToolParameterSpec
 import io.mszymanski.orknux.connector.model.ToolSpec
@@ -51,6 +52,7 @@ import tools.jackson.databind.ObjectMapper
 class NoteTools(
     private val sessions: LlmSessionRecorder,
     private val mapper: ObjectMapper,
+    private val settings: InstallationSettings,
 ) {
 
     /**
@@ -83,6 +85,9 @@ class NoteTools(
 
     private inner class Shed(private val session: Long, private val writtenBy: String) : ToolShed {
 
+        /** Read once per turn, so the limit the model is told is the one it is held to. */
+        private val longest = settings.noteMaxCharacters()
+
         override fun specs(): List<ToolSpec> = listOf(
             ToolSpec(
                 name = NOTE,
@@ -95,8 +100,8 @@ class NoteTools(
                 parameters = listOf(
                     ToolParameterSpec(
                         name = NOTE_TEXT,
-                        description = "The note, in a sentence or two. Write what you would need to " +
-                            "read to pick this up again, not a summary of the conversation.",
+                        description = "The note, at most $longest characters. Write what you would " +
+                            "need to read to pick this up again, not a summary of the conversation.",
                         required = true,
                     ),
                 ),
@@ -108,9 +113,10 @@ class NoteTools(
         override fun run(call: ToolCall): String {
             val said = argument(call).orEmpty().trim()
             if (said.isEmpty()) return refusal("There is nothing in that note: say what to write down.")
-            if (said.length > LONGEST) {
+            if (said.length > longest) {
                 return refusal(
-                    "That note is too long to keep; say it in under $LONGEST characters. " +
+                    "That note is ${said.length} characters, and one is kept up to $longest; say it in " +
+                        "fewer. " +
                         "A note is read back on every turn, so a long one is paid for on every turn.",
                 )
             }
@@ -154,8 +160,5 @@ class NoteTools(
          * asked to be re-read every round.
          */
         const val MOST = 20
-
-        /** As long as one may be, for the same reason there is a count at all. */
-        const val LONGEST = 500
     }
 }

@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpServer
 import io.mszymanski.orknux.connector.model.LlmModelRepository
 import io.mszymanski.orknux.connector.model.ModelProviderRepository
 import io.mszymanski.orknux.server.agent.AgentRepository
+import io.mszymanski.orknux.server.attachment.InstallationSettings
 import io.mszymanski.orknux.server.issue.IssueNewsKind
 import io.mszymanski.orknux.server.issue.IssueNewsRepository
 import io.mszymanski.orknux.server.llm.LlmSessionEvent
@@ -65,6 +66,7 @@ class TaskLoopTest(
     @Autowired val providers: ModelProviderRepository,
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val audit: WorkspaceAuditRepository,
+    @Autowired val settings: InstallationSettings,
 ) {
 
     private var workspaceId: Long = 0
@@ -92,7 +94,10 @@ class TaskLoopTest(
     }
 
     @AfterEach
-    fun stop() = server.stop(0)
+    fun stop() {
+        server.stop(0)
+        settings.setChatMaxRounds(settings.chatMaxRoundsConfigured(), "alice")
+    }
 
     /**
      * The ordinary ending: the agent works, says it is done, and what it said is
@@ -286,6 +291,9 @@ class TaskLoopTest(
                 if (body.contains("used all its tool rounds")) finishing("Made it.") else calling("current_time", "{}")
             },
         )
+        // A short allowance of its own, so the turn runs out of rounds rather
+        // than into whatever else stops a model asking the same thing at length.
+        settings.setChatMaxRounds(8, "alice")
 
         assertThat(loop.advance(taskId)).isEqualTo(TaskTurn.Working)
         assertThat(requireNotNull(tasks.findByIdOrNull(taskId)).status).isNotEqualTo(TaskStatus.FAILED)

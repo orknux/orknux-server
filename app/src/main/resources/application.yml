@@ -275,7 +275,7 @@ orknux:
     # asks for is run and handed back. This is where a fresh installation
     # starts; Admin -> Settings is the switch and what it holds wins, and an
     # agent may carry its own number on its page.
-    max-rounds: ${ORKNUX_CHAT_MAX_ROUNDS:8}
+    max-rounds: ${ORKNUX_CHAT_MAX_ROUNDS:100}
     # How many other agents one agent may ask in one conversation. Each ask is
     # a conversation of its own, so this bounds what one question fans out
     # into. Admin -> Settings overrides it, and a workspace may carry its own.

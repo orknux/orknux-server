@@ -108,6 +108,8 @@ class InstallationSettingsAPI(
         workspaceCopyLockWaitSecondsConfigured = settings.workspaceCopyLockWaitSecondsConfigured(),
         rateLimitBackoffSeconds = settings.rateLimitBackoffSeconds(),
         rateLimitBackoffSecondsConfigured = settings.rateLimitBackoffSecondsConfigured(),
+        noteMaxCharacters = settings.noteMaxCharacters(),
+        noteMaxCharactersConfigured = settings.noteMaxCharactersConfigured(),
         releasesKept = settings.releasesKept(),
         releasesKeptConfigured = settings.releasesKeptConfigured(),
         releaseBootAttempts = settings.releaseBootAttempts(),
@@ -305,6 +307,20 @@ class InstallationSettingsAPI(
      * copy on Postgres waited for ever, and an installation whose traffic holds
      * rows longer than a minute says so here.
      */
+    /** How long one note to self may be. */
+    @MutationMapping
+    fun setNoteMaxCharacters(@Argument characters: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setNoteMaxCharacters(characters, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "A note to self may be up to $characters characters",
+        )
+        return installationSettings()
+    }
+
     /**
      * The first wait for a rate limit inside a streaming answer that named no
      * time, doubled per attempt. Issue #608.
@@ -1022,6 +1038,10 @@ data class InstallationSettingsView(
     val rateLimitBackoffSeconds: Int,
     /** What a fresh installation waits: the client's own default. */
     val rateLimitBackoffSecondsConfigured: Int,
+    /** How long one note to self may be, in characters. */
+    val noteMaxCharacters: Int,
+    /** What a fresh installation allows: the built-in default. */
+    val noteMaxCharactersConfigured: Int,
     /** What a fresh installation allows: the built-in default. */
     val pluginMaxSourceKbConfigured: Int,
     /**
