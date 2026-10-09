@@ -154,7 +154,9 @@ class AgentToolCallTest(
         skill("codeReview", catalogId, "Read the diff twice.")
         val agentId = agentGranted("Looper", model(endpoint), "Reviews")
 
-        val agent = requireNotNull(agents.findByIdOrNull(agentId))
+        // A short allowance of its own, so it runs out of rounds rather than
+        // into the guard on asking the same thing again and again.
+        val agent = requireNotNull(agents.findByIdOrNull(agentId)).apply { maxRounds = 8 }
         val answer = conversation.answer(
             requireNotNull(agent.modelId),
             agent,
