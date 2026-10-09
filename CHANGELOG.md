@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🔧 Changed
+
+- How often a watcher's agent looks at the result itself has a column of its own on the Watchers page, a dash where it never does.
+
 ## 0.9.9.29
 
 ### ✨ Added
