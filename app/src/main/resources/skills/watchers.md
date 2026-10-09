@@ -174,8 +174,10 @@ again to see it.
 
 If you had finished, what you answer when woken is delivered where your
 earlier answer went - the reply in the thread you were answering, say - so
-write it for whoever asked. If there is nothing they need to hear, end with
-`finish_answer` and no answer, and nothing is sent.
+write it for whoever asked: what changed and what it means for them. Your own
+bookkeeping - watcher numbers, which tool you called, what you will check next -
+belongs in `note_to_self`. When nothing they would want to hear has happened,
+end with `finish_answer` and no answer, and nothing is sent.
 
 You are also told, with a message about watcher #N, when:
 

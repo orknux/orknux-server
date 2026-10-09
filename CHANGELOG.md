@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🔧 Changed
+
+- An agent woken by its watcher is told, last, that its answer goes to the person: news in plain words, its own bookkeeping kept in a note, and `finish_answer` when nothing has changed - so a thread no longer gets "still in_progress, watcher #66 active" on every look.
+
 ## 0.9.9.25
 
 ### 🔧 Changed

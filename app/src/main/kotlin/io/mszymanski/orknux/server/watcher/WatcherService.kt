@@ -446,7 +446,7 @@ class WatcherService(
                 noteOf(watcher) + " On check ${watcher.checks} it returned: $result " +
                 "Judge it yourself. If what you are waiting for has in fact happened, end the watcher with " +
                 "${WatcherTools.FINISH} and act on it. If the condition or the arguments are wrong, change them " +
-                "with ${WatcherTools.UPDATE}. If it is simply not there yet, do nothing: it carries on.",
+                "with ${WatcherTools.UPDATE}. If it is simply not there yet, there is nothing to tell anyone: it carries on by itself.",
         )
     }
 

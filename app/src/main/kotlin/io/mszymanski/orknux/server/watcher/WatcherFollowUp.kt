@@ -189,19 +189,29 @@ class WatcherFollowUp(
         val budget = budgets.budget(agent.memoryShare, agent.workspaceId, modelId)
         val system = listOfNotNull(
             briefing.of(agent),
-            FOLLOW_UP,
             notes.recalled(session).takeIf { it.isNotBlank() },
             todos.recalled(session).takeIf { it.isNotBlank() },
         ).joinToString("\n\n")
-        // The watcher's own message is not added here: the conversation takes it
-        // from the inbox as the first thing the model reads, and marks it read.
-        val said = buildList {
-            add(ChatTurn("system", system))
-            addAll(sessions.remembered(session, budget))
-            addAll(sessions.recalled(session, budget))
-        }
         // The step the agent set the watcher from, which is where its answer goes.
         val step = agent.id?.let { steps.findFirstBySessionIdAndAgentIdOrderByIdDesc(session, it) }
+        val mayFinish = agent.finishAccess && step?.outputObjectId == null
+        /*
+         * The watcher's message is taken here rather than by the conversation,
+         * so that what the agent is told about this turn comes after it - the
+         * last thing it reads. In the system prompt it was read past: the agent
+         * answered "Copilot is still in_progress; watcher #66 stays active",
+         * which then went to the Slack thread as though it were news. Taking
+         * writes it into the session, so a retry reads it from there; the
+         * reminder is said again on every attempt and recorded on none.
+         */
+        val history = sessions.remembered(session, budget) + sessions.recalled(session, budget)
+        val arrived = inbox.take(session)
+        val said = buildList {
+            add(ChatTurn("system", system))
+            addAll(history)
+            arrived.forEach { add(ChatTurn("user", it)) }
+            add(ChatTurn("user", followUp(mayFinish)))
+        }
         val shed = sheds(
             notes.shed(session, agent.name),
             scratchpads.shed(session),
@@ -209,7 +219,7 @@ class WatcherFollowUp(
             dates.shed(),
             timers.shed(session),
             watcherTools.shed(agent, session),
-            finishing.shed(granted = agent.finishAccess, shaped = step?.outputObjectId != null),
+            finishing.shed(granted = mayFinish),
         )
 
         if (!again) {
@@ -277,15 +287,26 @@ class WatcherFollowUp(
         private val BUSY = listOf(StepStatus.RUNNING, StepStatus.WAITING)
 
         /**
-         * What the woken agent is told about where it is. Without it the
-         * briefing reads as though a person or a workflow were waiting on the
-         * answer, and the model writes its news into a reply nobody receives.
+         * What the woken agent is told about this turn, after the watcher's
+         * message. The person is the reader: a watcher wakes the agent far more
+         * often than there is news, and a status line about a watcher number
+         * posted into their thread every few minutes is the agent talking to
+         * itself in public.
          */
-        const val FOLLOW_UP =
-            "You were woken by a watcher you set; what it found is the next message. Your answer is " +
-                "delivered the way your answer was when you set the watcher - it reaches whoever that one " +
-                "reached - so write it for them. If there is nothing they need to hear, or you have already " +
-                "told them with your tools, end with ${FinishAnswerTools.FINISH} and no answer, and nothing " +
-                "is sent."
+        fun followUp(mayFinish: Boolean): String =
+            "This turn was started by your watcher, not by a person. Whatever you answer is sent to the " +
+                "person you were answering before, in the same place, so write it for them: what changed and " +
+                "what it means for them. Leave your own bookkeeping out of it - watcher numbers, which tool " +
+                "you called, what you will look at next - and keep that with ${NoteTools.NOTE}. Say it the " +
+                "way a colleague would: \"The build failed in the tests - an import is missing; I've asked " +
+                "for a fix and will tell you when it's green.\" " +
+                if (mayFinish) {
+                    "When something they would want to hear has happened - it finished, it failed, it needs " +
+                        "them, or a real step forward - tell them. When nothing has, or you have already told " +
+                        "them with your tools, end with ${FinishAnswerTools.FINISH} and no answer, and nothing " +
+                        "is sent."
+                } else {
+                    "When nothing they would want to hear has happened, say so in one short sentence."
+                }
     }
 }

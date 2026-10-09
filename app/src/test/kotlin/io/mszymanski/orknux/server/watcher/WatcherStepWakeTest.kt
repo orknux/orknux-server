@@ -136,7 +136,7 @@ class WatcherStepWakeTest(
         assertThat(service.tick()).isEqualTo(1)
 
         await().atMost(Duration.ofSeconds(20)).untilAsserted {
-            assertThat(asked.last()).contains("fired. You asked").contains("Your answer is delivered")
+            assertThat(asked.last()).contains("fired. You asked").contains("started by your watcher, not by a person")
         }
         // The step is history; the follow-up changed nothing on it.
         assertThat(steps.findAll().single { it.nodeKey == "think" }.output).contains("Watching the build.")
