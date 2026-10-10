@@ -63,6 +63,9 @@ data class ChatTurn(
      * started over at "first, load the skill". Null wherever the model
      * produced none, which is every hosted model that does not return its
      * reasoning, so what they are sent does not change.
+     *
+     * Sent only to a provider with [ModelProvider.sendsReasoning] on, which is
+     * off by default: a turn always carries it, the wire decides.
      */
     val reasoning: String? = null,
     /**
@@ -73,7 +76,7 @@ data class ChatTurn(
      * reasoning model's thinking before a call is an encrypted item of the
      * response, and the next round reasons from it only if it is sent back in
      * front of the call it led to. Empty on every other road, and for every
-     * model that is not asked to reason.
+     * model that is not asked to reason. Sent only where [reasoning] is.
      */
     val reasoningItems: List<String> = emptyList(),
 )
@@ -353,7 +356,7 @@ class ModelChatClient(
         val limits = throttled(modelId)
         spoken(modelId)?.let { shape ->
             return through(modelId, shape, limits) {
-                openAi.stream(shape.provider, shape.model, turns, tools, onThinking, hangup, onChunk)
+                openAi.stream(shape.provider, shape.model, wire(shape.provider, turns), tools, onThinking, hangup, onChunk)
             }
         }
 
@@ -794,7 +797,7 @@ class ModelChatClient(
         if (hangup?.hungUp == true) return ChatCompletion.Failed(HUNG_UP, permanent = false)
         spoken(modelId)?.let { shape ->
             return through(modelId, shape, limits) {
-                openAi.complete(shape.provider, shape.model, turns, tools, hangup)
+                openAi.complete(shape.provider, shape.model, wire(shape.provider, turns), tools, hangup)
             }
         }
 
@@ -869,6 +872,30 @@ class ModelChatClient(
     }
 
     private data class Spoken(val provider: ModelProvider, val model: LlmModel)
+
+    /**
+     * The turns as [provider] is sent them: without the model's earlier
+     * thinking unless the provider is set to have it back.
+     *
+     * The one place [ModelProvider.sendsReasoning] is read, and every request
+     * either shape builds passes through it - a chat, a workflow step, a task,
+     * a watcher, a subagent, a compaction summary - so no caller can forget it.
+     * Both kinds go: [ChatTurn.reasoning], which the OpenAI shape carries as
+     * `reasoning_content`, and [ChatTurn.reasoningItems], the Responses API's
+     * own record. What the caller holds keeps them, which is why switching the
+     * setting on later applies to a session that already ran.
+     *
+     * A turn without either is handed over as it is, and a stripped turn is
+     * built exactly like one that never thought, so with the setting off a
+     * request is the same bytes whether or not the model had reasoned.
+     */
+    private fun wire(provider: ModelProvider, turns: List<ChatTurn>): List<ChatTurn> {
+        if (provider.sendsReasoning) return turns
+        return turns.map { turn ->
+            if (turn.reasoning == null && turn.reasoningItems.isEmpty()) turn
+            else turn.copy(reasoning = null, reasoningItems = emptyList())
+        }
+    }
 
     /**
      * The most tools this model's provider will accept on one request.
@@ -1045,10 +1072,11 @@ class ModelChatClient(
         }
 
         val body = try {
+            val sent = wire(provider, turns)
             if (anthropic) {
-                anthropicBody(provider, model, turns, streaming, tools)
+                anthropicBody(provider, model, sent, streaming, tools)
             } else {
-                openAiBody(provider, model, turns, streaming, tools)
+                openAiBody(provider, model, sent, streaming, tools)
             }
         } catch (refused: UnusableImage) {
             // A picture that cannot be carried is said out loud. Dropping it and

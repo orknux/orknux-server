@@ -784,10 +784,17 @@ class AgentConversation(
                         if (smaller != null) {
                             compactions += 1
                             into?.let { session ->
+                                /*
+                                 * With the summary itself: the steps it stands in for
+                                 * are gone from what the model sees, so what it was told
+                                 * instead is the one account of them a reader can check.
+                                 */
+                                val summary = smaller.getOrNull(2)?.content?.takeIf { it.isNotBlank() }
                                 sessions.note(
                                     session,
                                     "The turn outgrew the model's window, so its earlier steps were " +
-                                        "replaced by a summary and it carried on.",
+                                        "replaced by a summary and it carried on." +
+                                        (summary?.let { "\n\n$it" } ?: ""),
                                 )
                             }
                             conversation.clear()

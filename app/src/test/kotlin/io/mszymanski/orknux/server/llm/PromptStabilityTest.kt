@@ -85,7 +85,7 @@ class PromptStabilityTest(
 
     @Test
     fun `a chat's requests each extend the last, tool rounds and reasoning included, across turns`() {
-        val agentId = agent("Reviewer", model(serve()))
+        val agentId = agent("Reviewer", model(serve(), sendsReasoning = true))
         script += called("call_1", "I should see what skills I hold.")
         script += answered("I review code.")
         script += called("call_2", "Arithmetic; no tool needed, but let me check.")
@@ -124,6 +124,36 @@ class PromptStabilityTest(
     }
 
     /**
+     * The same with the provider not set to have its thinking back, which is
+     * the default: still a prefix, request after request, and no request
+     * carries the reasoning the model produced - in the turn or after it.
+     */
+    @Test
+    fun `without thinking sent back the requests still extend each other, and carry none`() {
+        val agentId = agent("Reviewer", model(serve()))
+        script += called("call_1", "I should see what skills I hold.")
+        script += answered("I review code.")
+        script += called("call_2", "Arithmetic; no tool needed, but let me check.")
+        script += answered("Four.")
+        script += answered("You're welcome.")
+
+        val chat = requireNotNull(chats.start(workspaceId, "alice", "Stable", agentId).id)
+        send(chat, "What can you do?")
+        send(chat, "And what is 2+2?")
+        send(chat, "Thanks.")
+
+        assertThat(received).hasSize(5)
+        extendsEachOther(received)
+        received.forEach { body ->
+            assertThat(body).doesNotContain("reasoning_content").doesNotContain("I should see what skills I hold.")
+                .doesNotContain("Arithmetic; no tool needed")
+        }
+        val second = messages(received[2])
+        assertThat(second[2].path("tool_calls")[0].path("id").asString()).isEqualTo("call_1")
+        assertThat(second[2].has("reasoning_content")).isFalse()
+    }
+
+    /**
      * What is said into a session between turns - a task's "carry on", a
      * person's message - is added after what was sent, never folded into it.
      */
@@ -145,6 +175,10 @@ class PromptStabilityTest(
 
         val sent = requireNotNull(prompts.history(session, Int.MAX_VALUE))
         assertThat(sent.last()).isEqualTo(ChatTurn("user", "Carry on."))
+        // Kept with its thinking, though the provider was not sent it: the
+        // wire decides, so turning the setting on later has it to send.
+        assertThat(sent.mapNotNull { it.reasoning }).contains("Look first.")
+        assertThat(received[1]).doesNotContain("Look first.")
         conversation.answer(modelId, agent, listOf(ChatTurn("system", "Work.")) + sent, session)
 
         assertThat(received).hasSize(4)
@@ -216,10 +250,11 @@ class PromptStabilityTest(
         return id
     }
 
-    private fun model(endpoint: String): Long {
+    private fun model(endpoint: String, sendsReasoning: Boolean = false): Long {
         val providerId = graphQlTester.document(
             """mutation { createModelProvider(input: {
-                 workspaceId: $workspaceId, name: "Stub", endpoint: "$endpoint", secret: "sk-test"
+                 workspaceId: $workspaceId, name: "Stub", endpoint: "$endpoint", secret: "sk-test",
+                 sendsReasoning: $sendsReasoning
                }) { id } }""",
         ).execute().path("createModelProvider.id").entity(Long::class.java).get()
 

@@ -311,6 +311,23 @@ class ModelProvider(
     var acceptRetryAfter: Boolean = true,
 
     /**
+     * Whether the model's own earlier thinking is sent back to this provider.
+     *
+     * Off by default, and off for every provider that predates it. When off,
+     * no request carries reasoning - no `reasoning_content` on an assistant
+     * turn, no Responses reasoning item - whichever path built the turns; the
+     * thinking is still captured, stored and shown. [ModelChatClient] is the
+     * one place that reads it, on the way to the wire, so a session prompt
+     * keeps its reasoning and switching this later applies to it too.
+     *
+     * Off suits a model whose chat template drops old thinking - Gemma on
+     * llama.cpp renders earlier turns without it, so echoing it changes only
+     * the text of the prompt. On is for a provider that reasons from it.
+     */
+    @Column(name = "send_reasoning", nullable = false)
+    var sendsReasoning: Boolean = false,
+
+    /**
      * Which API an Azure OpenAI provider's chats go through; null on every
      * other type, which speaks chat completions. Null on an Azure provider is
      * read as Responses, the default - see [OpenAiResponses.speaks].
@@ -473,6 +490,7 @@ fun ModelProvider.copied(workspaceId: Long, name: String): ModelProvider = Model
         throttleRequestsPerSecond = throttleRequestsPerSecond,
         acceptRetryAfter = acceptRetryAfter,
         chatApi = chatApi,
+        sendsReasoning = sendsReasoning,
 )
 
 /**

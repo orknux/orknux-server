@@ -1305,6 +1305,10 @@ type Mutation {
     setNoteMaxCharacters(characters: Int!): InstallationSettings!
     "How many notes to self one conversation keeps, 1 to 1000. Administrators only."
     setNoteMaxCount(count: Int!): InstallationSettings!
+    "How big one value in a session's store may be, 1 to 256 MB. Administrators only."
+    setSessionValueMaxMb(megabytes: Int!): InstallationSettings!
+    "How many keys one session's store may hold, 10 to 10000. Administrators only."
+    setSessionStoreMaxKeys(keys: Int!): InstallationSettings!
     """
     Starts downloading a server release orknux.ai offers, and answers at once.
     In the background it is checked against the listing and the release key,
@@ -5230,6 +5234,12 @@ type ModelProvider {
     acceptRetryAfter: Boolean!
     "Which API an Azure OpenAI provider's chats go through; null on every other type."
     chatApi: ChatApi
+    """
+    Whether the model's own earlier thinking is sent back in later requests.
+    False by default: no request then carries reasoning, though it is still
+    captured, stored and shown.
+    """
+    sendsReasoning: Boolean!
     status: ProviderStatus!
     "What the last check found, and when it ran."
     lastCheckMessage: String
@@ -5418,6 +5428,8 @@ input CreateModelProviderInput {
     acceptRetryAfter: Boolean
     "Azure OpenAI only, refused on any other type. Null is RESPONSES."
     chatApi: ChatApi
+    "Whether the model's earlier thinking is sent back. Null is false."
+    sendsReasoning: Boolean
 }
 
 input UpdateModelProviderInput {
@@ -5453,6 +5465,8 @@ input UpdateModelProviderInput {
     acceptRetryAfter: Boolean
     "Azure OpenAI only, refused on any other type. Null leaves it as it is."
     chatApi: ChatApi
+    "Whether the model's earlier thinking is sent back. Null leaves it as it is."
+    sendsReasoning: Boolean
 }
 
 
@@ -6686,6 +6700,14 @@ type InstallationSettings {
     noteMaxCount: Int!
     "What a fresh installation keeps: the built-in default."
     noteMaxCountConfigured: Int!
+    "How big one value in a session's store may be, in MB - what an exported archive or a drawn picture can come to."
+    sessionValueMaxMb: Int!
+    "What a fresh installation allows: the built-in default."
+    sessionValueMaxMbConfigured: Int!
+    "How many keys one session's store may hold."
+    sessionStoreMaxKeys: Int!
+    "What a fresh installation allows: the built-in default."
+    sessionStoreMaxKeysConfigured: Int!
     """
     False where the installation runs Temporal, and the field is not offered.
 

@@ -5,6 +5,7 @@ import io.mszymanski.orknux.connector.model.ChatCompletion
 import io.mszymanski.orknux.connector.model.ChatTurn
 import io.mszymanski.orknux.connector.model.LlmModelRepository
 import io.mszymanski.orknux.connector.model.ModelProviderRepository
+import io.mszymanski.orknux.connector.model.ToolCall
 import io.mszymanski.orknux.server.agent.AgentRepository
 import io.mszymanski.orknux.server.agent.AgentSkillRepository
 import io.mszymanski.orknux.server.agent.SkillCatalogRepository
@@ -211,7 +212,7 @@ class AgentToolCallTest(
         }
         val catalogId = catalog("Reviews")
         skill("codeReview", catalogId, "Read the diff twice before commenting.")
-        val agentId = agentGranted("Reviewer", azureReasoningModel(endpoint), "Reviews")
+        val agentId = agentGranted("Reviewer", azureReasoningModel(endpoint, sendsReasoning = true), "Reviews")
 
         val agent = requireNotNull(agents.findByIdOrNull(agentId))
         val answer = conversation.answer(
@@ -362,9 +363,9 @@ class AgentToolCallTest(
     }
 
     /**
-     * The model's thinking goes back with its calls. Issue #532: it never did,
-     * so round two saw round one as a bare call, and the model stopped thinking
-     * and started its plan over.
+     * The model's thinking goes back with its calls, where the provider is set
+     * to have it. Issue #532: it never did, so round two saw round one as a
+     * bare call, and the model stopped thinking and started its plan over.
      */
     @Test
     fun `what the model thought before its calls is sent back with them`() {
@@ -380,7 +381,7 @@ class AgentToolCallTest(
                    "usage":{"prompt_tokens":7,"completion_tokens":2}}"""
             }
         }
-        val agentId = agentGranted("Reviewer", model(endpoint), "Reviews")
+        val agentId = agentGranted("Reviewer", model(endpoint, sendsReasoning = true), "Reviews")
         catalog("Reviews")
         val agent = requireNotNull(agents.findByIdOrNull(agentId))
 
@@ -389,6 +390,97 @@ class AgentToolCallTest(
         assertThat(received[1]).contains("reasoning_content").contains("I need the review rules first.")
         // And not invented where the model said nothing.
         assertThat(received[0]).doesNotContain("reasoning_content")
+    }
+
+    /**
+     * And nothing of it goes back by default: not in the next tool round, and
+     * not in a later turn whose history carries it. The thinking is still read
+     * and kept - only the wire leaves it out, and a stripped turn is the same
+     * bytes as one that never thought.
+     */
+    @Test
+    fun `a provider not set to have thinking back is never sent it`() {
+        val endpoint = serve { body ->
+            if (body.contains("tool_call_id") || body.contains("Next question")) {
+                """{"choices":[{"message":{"role":"assistant","content":"Done."}}],
+                   "usage":{"prompt_tokens":9,"completion_tokens":1}}"""
+            } else {
+                """{"choices":[{"message":{"role":"assistant","content":null,
+                     "reasoning_content":"I need the review rules first.",
+                     "tool_calls":[{"id":"call_1","type":"function",
+                       "function":{"name":"skill_list","arguments":"{}"}}]}}],
+                   "usage":{"prompt_tokens":7,"completion_tokens":2}}"""
+            }
+        }
+        val agentId = agentGranted("Reviewer", model(endpoint), "Reviews")
+        catalog("Reviews")
+        val agent = requireNotNull(agents.findByIdOrNull(agentId))
+        val modelId = requireNotNull(agent.modelId)
+
+        val first = conversation.answer(modelId, agent, listOf(ChatTurn("user", "hi")))
+        assertThat(first).isInstanceOf(ChatCompletion.Answered::class.java)
+        assertThat(received).hasSize(2)
+        assertThat(received[1]).contains("call_1").doesNotContain("reasoning_content")
+            .doesNotContain("I need the review rules first.")
+
+        // A later turn, its history holding the round that thought.
+        val call = ToolCall("call_1", "skill_list", "{}")
+        fun history(reasoning: String?) = listOf(
+            ChatTurn("user", "hi"),
+            ChatTurn("assistant", "", asked = listOf(call), reasoning = reasoning),
+            ChatTurn("tool", "[]", respondingTo = "call_1"),
+            ChatTurn("assistant", "Done."),
+            ChatTurn("user", "Next question"),
+        )
+        conversation.answer(modelId, agent, history("I need the review rules first."))
+        conversation.answer(modelId, agent, history(null))
+        assertThat(received).hasSize(4)
+        assertThat(received[2]).contains("Next question").doesNotContain("reasoning_content")
+            .doesNotContain("I need the review rules first.")
+        // Byte for byte the request a turn that never thought would have made.
+        assertThat(received[2]).isEqualTo(received[3])
+    }
+
+    /**
+     * The Responses API's sealed reasoning is reasoning too: off, the second
+     * round carries the call and its output and no reasoning item.
+     */
+    @Test
+    fun `an Azure reasoning agent not set to have thinking back is not sent its reasoning items`() {
+        val endpoint = serve("/openai/v1/responses") { body ->
+            if (body.contains("function_call_output")) {
+                """{"id":"resp_2","object":"response","created_at":1,"model":"gpt-6-sol","status":"completed",
+                   "output":[{"type":"message","id":"msg_1","role":"assistant","status":"completed",
+                     "content":[{"type":"output_text","text":"Read the diff twice.","annotations":[]}]}],
+                   "usage":{"input_tokens":9,"output_tokens":4,"total_tokens":13}}"""
+            } else {
+                """{"id":"resp_1","object":"response","created_at":1,"model":"gpt-6-sol","status":"completed",
+                   "output":[
+                     {"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"The skill will say."}],
+                      "encrypted_content":"sealed-thought"},
+                     {"type":"function_call","id":"fc_1","call_id":"call_1","name":"skill_load",
+                      "arguments":"{\"name\":\"codeReview\"}","status":"completed"}],
+                   "usage":{"input_tokens":7,"output_tokens":2,"total_tokens":9}}"""
+            }
+        }
+        val catalogId = catalog("Reviews")
+        skill("codeReview", catalogId, "Read the diff twice before commenting.")
+        val agentId = agentGranted("Reviewer", azureReasoningModel(endpoint), "Reviews")
+        val agent = requireNotNull(agents.findByIdOrNull(agentId))
+
+        val answer = conversation.answer(
+            requireNotNull(agent.modelId),
+            agent,
+            listOf(ChatTurn("user", "How should I review this?")),
+        )
+
+        assertThat(answer).isInstanceOf(ChatCompletion.Answered::class.java)
+        assertThat(received).hasSize(2)
+        val input = tools.jackson.databind.ObjectMapper().readTree(received[1]).path("input").toList()
+        val types = input.map { it.path("type").asString("message") }
+        assertThat(types.takeLast(2)).containsExactly("function_call", "function_call_output")
+        assertThat(types).doesNotContain("reasoning")
+        assertThat(received[1]).doesNotContain("sealed-thought")
     }
 
     /**
@@ -475,10 +567,11 @@ class AgentToolCallTest(
         return id
     }
 
-    private fun model(endpoint: String): Long {
+    private fun model(endpoint: String, sendsReasoning: Boolean = false): Long {
         val providerId = graphQlTester.document(
             """mutation { createModelProvider(input: {
-                 workspaceId: $workspaceId, name: "Stub", endpoint: "$endpoint", secret: "sk-test"
+                 workspaceId: $workspaceId, name: "Stub", endpoint: "$endpoint", secret: "sk-test",
+                 sendsReasoning: $sendsReasoning
                }) { id } }""",
         ).execute().path("createModelProvider.id").entity(Long::class.java).get()
 
@@ -489,10 +582,11 @@ class AgentToolCallTest(
     }
 
     /** A reasoning deployment behind an Azure OpenAI provider, which speaks Responses by default. */
-    private fun azureReasoningModel(endpoint: String): Long {
+    private fun azureReasoningModel(endpoint: String, sendsReasoning: Boolean = false): Long {
         val providerId = graphQlTester.document(
             """mutation { createModelProvider(input: {
-                 workspaceId: $workspaceId, name: "Azure", type: AZURE_OPENAI, endpoint: "$endpoint", secret: "azure-test"
+                 workspaceId: $workspaceId, name: "Azure", type: AZURE_OPENAI, endpoint: "$endpoint", secret: "azure-test",
+                 sendsReasoning: $sendsReasoning
                }) { id } }""",
         ).execute().path("createModelProvider.id").entity(Long::class.java).get()
 

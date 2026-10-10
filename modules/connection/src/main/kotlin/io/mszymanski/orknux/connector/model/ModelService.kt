@@ -114,6 +114,7 @@ class ModelService(
         provider.throttleTokensPerSecond = input.throttleTokensPerSecond?.toLong()
         provider.throttleRequestsPerSecond = input.throttleRequestsPerSecond
         input.acceptRetryAfter?.let { provider.acceptRetryAfter = it }
+        provider.sendsReasoning = input.sendsReasoning ?: false
         provider.chatApi = chatApiFor(provider.type, input.chatApi, null)
         provider.forgetCheck()
         val saved = providers.save(provider)
@@ -184,6 +185,7 @@ class ModelService(
         provider.throttleTokensPerSecond = input.throttleTokensPerSecond?.toLong()
         provider.throttleRequestsPerSecond = input.throttleRequestsPerSecond
         input.acceptRetryAfter?.let { provider.acceptRetryAfter = it }
+        input.sendsReasoning?.let { provider.sendsReasoning = it }
         provider.chatApi = chatApiFor(provider.type, input.chatApi, provider.chatApi)
 
         provider.forgetCheck()
@@ -743,6 +745,8 @@ data class CreateProviderInput(
     val acceptRetryAfter: Boolean? = null,
     /** Azure OpenAI only; null is Responses. Refused on any other type. */
     val chatApi: ChatApi? = null,
+    /** Whether the model's earlier thinking is sent back; null is off. See [ModelProvider.sendsReasoning]. */
+    val sendsReasoning: Boolean? = null,
 )
 
 data class UpdateProviderInput(
@@ -779,6 +783,8 @@ data class UpdateProviderInput(
     val acceptRetryAfter: Boolean? = null,
     /** Azure OpenAI only; null leaves it as it is. Refused on any other type. */
     val chatApi: ChatApi? = null,
+    /** Whether the model's earlier thinking is sent back; null leaves it as it is. */
+    val sendsReasoning: Boolean? = null,
 )
 
 data class CreateModelInput(
@@ -888,6 +894,8 @@ data class ModelProviderView(
     val acceptRetryAfter: Boolean,
     /** Which API an Azure OpenAI provider's chats go through; null on every other type. */
     val chatApi: ChatApi?,
+    /** Whether the model's earlier thinking is sent back to this provider. */
+    val sendsReasoning: Boolean,
     val status: ProviderStatus,
     val lastCheckMessage: String?,
     /** ISO-8601, as `WorkspaceConnectionView` reports its own. */
@@ -928,6 +936,7 @@ data class ModelProviderView(
         throttleRequestsPerSecond = provider.throttleRequestsPerSecond,
         acceptRetryAfter = provider.acceptRetryAfter,
         chatApi = if (provider.type == ProviderType.AZURE_OPENAI) provider.chatApi ?: ChatApi.RESPONSES else null,
+        sendsReasoning = provider.sendsReasoning,
         status = provider.status,
         lastCheckMessage = provider.lastCheckMessage,
         lastCheckedAt = provider.lastCheckedAt?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),

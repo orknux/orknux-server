@@ -140,6 +140,8 @@ object SettingNames {
     const val RATE_LIMIT_BACKOFF_SECONDS = "model.rate.limit.backoff.seconds"
     const val NOTE_MAX_CHARACTERS = "chat.note.max.characters"
     const val NOTE_MAX_COUNT = "chat.note.max.count"
+    const val SESSION_VALUE_MAX_MB = "session.store.value.max.mb"
+    const val SESSION_STORE_MAX_KEYS = "session.store.max.keys"
 
     /**
      * Log levels set from the screen, #591: one row per logger, `log.level.<name>`,
@@ -1191,6 +1193,42 @@ class InstallationSettings(
         write(SettingNames.NOTE_MAX_COUNT, count.toString(), by)
     }
 
+    /**
+     * How big one value in a session's store may be, in MB of JSON. It was 8,
+     * fixed: an exported project of 26 MB could not be kept to hand to the tool
+     * that uploads it, which is the whole point of the store.
+     */
+    fun sessionValueMaxMb(): Int {
+        val held = settings.findByIdOrNull(SettingNames.SESSION_VALUE_MAX_MB) ?: return sessionValueMaxMbConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_SESSION_VALUE_MB..MAX_SESSION_VALUE_MB }
+            ?: sessionValueMaxMbConfigured()
+    }
+
+    /** What a fresh installation allows: the built-in default. */
+    fun sessionValueMaxMbConfigured(): Int = DEFAULT_SESSION_VALUE_MB
+
+    @Transactional
+    fun setSessionValueMaxMb(megabytes: Int, by: String) {
+        if (megabytes !in MIN_SESSION_VALUE_MB..MAX_SESSION_VALUE_MB) throw SessionValueSizeOutOfRangeException(megabytes)
+        write(SettingNames.SESSION_VALUE_MAX_MB, megabytes.toString(), by)
+    }
+
+    /** How many keys one session's store may hold. It was 200, fixed. */
+    fun sessionStoreMaxKeys(): Int {
+        val held = settings.findByIdOrNull(SettingNames.SESSION_STORE_MAX_KEYS) ?: return sessionStoreMaxKeysConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_SESSION_STORE_KEYS..MAX_SESSION_STORE_KEYS }
+            ?: sessionStoreMaxKeysConfigured()
+    }
+
+    /** What a fresh installation allows: the built-in default. */
+    fun sessionStoreMaxKeysConfigured(): Int = DEFAULT_SESSION_STORE_KEYS
+
+    @Transactional
+    fun setSessionStoreMaxKeys(keys: Int, by: String) {
+        if (keys !in MIN_SESSION_STORE_KEYS..MAX_SESSION_STORE_KEYS) throw SessionStoreKeysOutOfRangeException(keys)
+        write(SettingNames.SESSION_STORE_MAX_KEYS, keys.toString(), by)
+    }
+
     @Transactional
     fun setNoteMaxCharacters(characters: Int, by: String) {
         if (characters !in MIN_NOTE_CHARACTERS..MAX_NOTE_CHARACTERS) throw NoteLengthOutOfRangeException(characters)
@@ -2177,6 +2215,35 @@ class NoteLengthOutOfRangeException(val characters: Int) : RuntimeException(
 const val MIN_NOTE_COUNT = 1
 const val MAX_NOTE_COUNT = 1000
 const val DEFAULT_NOTE_COUNT = 100
+
+/**
+ * A session store value is a row read whole, so this is still a ceiling - on
+ * what one value may cost to read - rather than none. A megabyte at the least,
+ * 256 at the most, 8 until somebody says otherwise.
+ */
+const val MIN_SESSION_VALUE_MB = 1
+const val MAX_SESSION_VALUE_MB = 256
+const val DEFAULT_SESSION_VALUE_MB = 8
+
+class SessionValueSizeOutOfRangeException(val megabytes: Int) : RuntimeException(
+    "$megabytes MB is not a size a session store value can have. " +
+        "Choose between $MIN_SESSION_VALUE_MB and $MAX_SESSION_VALUE_MB.",
+), Refusal {
+
+    override val arguments get() = mapOf("megabytes" to megabytes)
+}
+
+const val MIN_SESSION_STORE_KEYS = 10
+const val MAX_SESSION_STORE_KEYS = 10000
+const val DEFAULT_SESSION_STORE_KEYS = 200
+
+class SessionStoreKeysOutOfRangeException(val keys: Int) : RuntimeException(
+    "$keys is not a number of keys a session's store can hold. " +
+        "Choose between $MIN_SESSION_STORE_KEYS and $MAX_SESSION_STORE_KEYS.",
+), Refusal {
+
+    override val arguments get() = mapOf("keys" to keys)
+}
 
 class NoteCountOutOfRangeException(val count: Int) : RuntimeException(
     "$count is not a number of notes to self a conversation can keep. " +

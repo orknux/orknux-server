@@ -290,6 +290,8 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             /* How long a note to self may be. */
             is io.mszymanski.orknux.server.attachment.NoteLengthOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.NoteCountOutOfRangeException,
+            is io.mszymanski.orknux.server.attachment.SessionValueSizeOutOfRangeException,
+            is io.mszymanski.orknux.server.attachment.SessionStoreKeysOutOfRangeException,
             /* The knobs of server updates. Issue #584. */
             is io.mszymanski.orknux.server.attachment.ReleasesKeptOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.ReleaseBootAttemptsOutOfRangeException,

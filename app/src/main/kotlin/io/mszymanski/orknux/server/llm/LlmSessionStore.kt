@@ -62,7 +62,10 @@ interface LlmSessionStoreRepository : JpaRepository<LlmSessionStoreEntry, LlmSes
  * the sandbox because this is the side that pays for them.
  */
 @Component
-class LlmSessionStore(private val entries: LlmSessionStoreRepository) : SessionScratch {
+class LlmSessionStore(
+    private val entries: LlmSessionStoreRepository,
+    private val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
+) : SessionScratch {
 
     @Transactional
     override fun put(sessionId: Long, key: String, json: String): String? = put(sessionId, key, json, null)
@@ -79,12 +82,15 @@ class LlmSessionStore(private val entries: LlmSessionStoreRepository) : SessionS
         if (key.length > MOST_KEY_CHARS) {
             return "a key is at most $MOST_KEY_CHARS characters, and that one is ${key.length}"
         }
-        if (json.length > MOST_VALUE_CHARS) {
-            return "a value is at most ${MOST_VALUE_CHARS / 1024} KB of JSON, and that one is ${json.length / 1024} KB"
+        val mostValue = settings.sessionValueMaxMb() * 1024 * 1024
+        if (json.length > mostValue) {
+            return "a value is at most ${mostValue / 1024} KB of JSON, and that one is ${json.length / 1024} KB " +
+                "(an administrator sets this as Session Value Size)"
         }
         val held = entries.findByIdOrNull(LlmSessionStoreKey(sessionId, key))
-        if (held == null && entries.countBySessionId(sessionId) >= MOST_KEYS) {
-            return "this session's store already holds $MOST_KEYS keys"
+        val mostKeys = settings.sessionStoreMaxKeys()
+        if (held == null && entries.countBySessionId(sessionId) >= mostKeys) {
+            return "this session's store already holds $mostKeys keys"
         }
 
         return runCatching {
@@ -130,7 +136,7 @@ class LlmSessionStore(private val entries: LlmSessionStoreRepository) : SessionS
     @Transactional
     fun copy(from: Long, into: Long): Int {
         if (from == into) return 0
-        var room = (MOST_KEYS - entries.countBySessionId(into)).coerceAtLeast(0)
+        var room = (settings.sessionStoreMaxKeys() - entries.countBySessionId(into)).coerceAtLeast(0)
         var copied = 0
         entries.findBySessionId(from).forEach { held ->
             if (room == 0L) return@forEach
@@ -143,22 +149,13 @@ class LlmSessionStore(private val entries: LlmSessionStoreRepository) : SessionS
     }
 
     private companion object {
-        const val MOST_KEYS = 200
-        const val MOST_KEY_CHARS = 200
-        /**
-         * As much as one key may hold: 8 MB of JSON, which is about 6 MB of
-         * bytes.
-         *
-         * It was 256 KB, which is smaller than the things this store exists to
-         * carry. A drawn picture is most of a megabyte of base64 and a PDF a
-         * plugin just wrote is more; both were refused, so the tool that made
-         * them had nothing to hand to the tool that uploads them - which is
-         * the whole point of the store.
-         *
-         * Still a ceiling, because the column is a row in a table read whole:
-         * what this stops is a plugin putting a video in a session, not a
-         * plugin putting its own output there.
+        /*
+         * How big a value and how many keys are Admin settings now - Session
+         * Value Size and Session Store Keys. The value size began at 256 KB,
+         * smaller than the pictures and PDFs this store exists to carry, then
+         * 8 MB, smaller than an exported project. Still a ceiling, because the
+         * column is a row in a table read whole.
          */
-        const val MOST_VALUE_CHARS = 8 * 1024 * 1024
+        const val MOST_KEY_CHARS = 200
     }
 }

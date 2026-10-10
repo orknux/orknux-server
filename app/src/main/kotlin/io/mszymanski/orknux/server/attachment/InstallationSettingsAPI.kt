@@ -112,6 +112,10 @@ class InstallationSettingsAPI(
         noteMaxCharactersConfigured = settings.noteMaxCharactersConfigured(),
         noteMaxCount = settings.noteMaxCount(),
         noteMaxCountConfigured = settings.noteMaxCountConfigured(),
+        sessionValueMaxMb = settings.sessionValueMaxMb(),
+        sessionValueMaxMbConfigured = settings.sessionValueMaxMbConfigured(),
+        sessionStoreMaxKeys = settings.sessionStoreMaxKeys(),
+        sessionStoreMaxKeysConfigured = settings.sessionStoreMaxKeysConfigured(),
         releasesKept = settings.releasesKept(),
         releasesKeptConfigured = settings.releasesKeptConfigured(),
         releaseBootAttempts = settings.releaseBootAttempts(),
@@ -320,6 +324,26 @@ class InstallationSettingsAPI(
             WorkspaceAuditCategory.WORKSPACE,
             "A conversation keeps up to $count notes to self",
         )
+        return installationSettings()
+    }
+
+    /** How big one value in a session's store may be. */
+    @MutationMapping
+    fun setSessionValueMaxMb(@Argument megabytes: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setSessionValueMaxMb(megabytes, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "A session store value may be up to $megabytes MB")
+        return installationSettings()
+    }
+
+    /** How many keys one session's store may hold. */
+    @MutationMapping
+    fun setSessionStoreMaxKeys(@Argument keys: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setSessionStoreMaxKeys(keys, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "A session's store may hold up to $keys keys")
         return installationSettings()
     }
 
@@ -1062,6 +1086,12 @@ data class InstallationSettingsView(
     val noteMaxCount: Int,
     /** What a fresh installation keeps: the built-in default. */
     val noteMaxCountConfigured: Int,
+    /** How big one value in a session's store may be, in MB. */
+    val sessionValueMaxMb: Int,
+    val sessionValueMaxMbConfigured: Int,
+    /** How many keys one session's store may hold. */
+    val sessionStoreMaxKeys: Int,
+    val sessionStoreMaxKeysConfigured: Int,
     /** What a fresh installation allows: the built-in default. */
     val pluginMaxSourceKbConfigured: Int,
     /**

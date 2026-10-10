@@ -225,6 +225,7 @@ internal val PROVIDER_FIELDS: List<FileField<ModelProvider, *>> = listOf(
     FileField("throttleRequestsPerSecond", { it.throttleRequestsPerSecond }, { p, v -> p.throttleRequestsPerSecond = v }, NUMBER_OR_NULL),
     FileField("acceptRetryAfter", { it.acceptRetryAfter }, { p, v -> p.acceptRetryAfter = v }, YES_NO),
     FileField("chatApi", { it.chatApi }, { p, v -> p.chatApi = v }, choiceOrNull<ChatApi>()),
+    FileField("sendsReasoning", { it.sendsReasoning }, { p, v -> p.sendsReasoning = v }, YES_NO),
 )
 
 internal val MODEL_FIELDS: List<FileField<LlmModel, *>> = listOf(

@@ -131,6 +131,13 @@ class ModelAPI(
         requireWorkspaceAccess(input.workspaceId)
         val created = models.createProvider(input)
         auditRecorder.record(input.workspaceId, WorkspaceAuditCategory.MODEL, "Provider ${created.name} added")
+        if (created.sendsReasoning) {
+            auditRecorder.record(
+                input.workspaceId,
+                WorkspaceAuditCategory.MODEL,
+                "Model provider ${created.name} sends thinking back",
+            )
+        }
         return created
     }
 
@@ -156,6 +163,12 @@ class ModelAPI(
                 WorkspaceAuditCategory.MODEL,
                 "Provider ${updated.name} chat API set to ${spoken(api)}",
             )
+        }
+        // Said on its own too: it changes what every later request to the
+        // provider carries, for sessions that already ran as much as new ones.
+        if (provider.sendsReasoning != updated.sendsReasoning) {
+            val now = if (updated.sendsReasoning) "sends thinking back" else "no longer sends thinking back"
+            auditRecorder.record(provider.workspaceId, WorkspaceAuditCategory.MODEL, "Model provider ${updated.name} $now")
         }
         return updated
     }
