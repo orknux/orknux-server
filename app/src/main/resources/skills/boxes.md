@@ -13,6 +13,18 @@ own, or a clone of a git repository, where you can run commands (`mvn test`,
 question is best answered by running something rather than by reasoning about
 it. You have the box tools only if you were granted a box.
 
+## Clone rather than browse
+
+When a question needs more than a handful of a repository's files - finding
+where something is defined, how it is used, what a bug touches - open a box
+session with `git_url` and work on the clone: `orkbox_search` across the whole
+tree, `orkbox_read` what it finds, `git log` and `git grep` with `orkbox_exec`.
+Fetching file after file, or search after search, through a code-hosting
+service's tools is slow, rate-limited and sees one file at a time; a clone
+answers every later question at once. Use those tools for what only the
+service knows - issues, pull requests, reviews - and for a single file you
+already know the path of.
+
 ## How to work
 
 1. `orkbox_list` - which boxes you may use, their runtimes, operating system and

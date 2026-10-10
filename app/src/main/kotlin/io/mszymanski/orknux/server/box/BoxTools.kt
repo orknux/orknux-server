@@ -821,7 +821,9 @@ class BoxTools(
                 "Opens a session on a box: an empty workspace directory of your own, or a clone of a git repository, " +
                     "where you can run commands and work with files. Answers with the session number every other " +
                     "box tool takes. Close it with orkbox_close when done; it also stops by itself when it expires or " +
-                    "sits idle.",
+                    "sits idle. To read or search more than a handful of a repository's files, clone it here with " +
+                    "git_url and use orkbox_search and orkbox_read rather than fetching files one at a time from a " +
+                    "code-hosting service: one clone answers every later search at once.",
                 listOf(
                     text("box", "Which box, by name from orkbox_list. May be left out when you may use only one."),
                     text("runtime", "docker or local, where the box offers both; its default otherwise."),
