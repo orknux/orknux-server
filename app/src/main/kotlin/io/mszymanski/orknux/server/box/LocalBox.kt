@@ -31,6 +31,7 @@ class LocalBox(private val settings: BoxSettings) : DisposableBean {
     private data class Shape(
         val runtime: String,
         val location: String?,
+        val owner: String,
         val maxSessions: Int,
         val defaultTtl: Int,
         val maxTtl: Int,
@@ -93,6 +94,7 @@ class LocalBox(private val settings: BoxSettings) : DisposableBean {
     private fun shape() = Shape(
         runtime = settings.localRuntime(),
         location = settings.localLocation() ?: settings.localLocationConfigured(),
+        owner = settings.localOwner(),
         maxSessions = settings.localMaxSessions(),
         defaultTtl = settings.localDefaultTtlSeconds(),
         maxTtl = settings.localMaxTtlSeconds(),
@@ -114,7 +116,7 @@ class LocalBox(private val settings: BoxSettings) : DisposableBean {
          * would have that one's sessions removed from under it.
          */
         docker = DockerConfig(cleanupOnStart = false),
-        local = shape.location?.let { LocalConfig(root = Path.of(it)) } ?: LocalConfig(),
+        local = shape.location?.let { LocalConfig(root = Path.of(it), owner = shape.owner) } ?: LocalConfig(owner = shape.owner),
     )
 
     private companion object {

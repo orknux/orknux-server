@@ -190,6 +190,17 @@ class BoxSettings(private val settings: InstallationSettingRepository) {
         write(REQUEST_TIMEOUT, seconds.toString(), by)
     }
 
+    /**
+     * This installation's name for the local box's workspaces, made once and
+     * kept. Orkbox's start-up clean-up removes only workspaces carrying it, so
+     * a second Orknux on the same machine - a test server beside a dev one -
+     * no longer deletes this one's live sessions when it starts.
+     */
+    @Transactional
+    fun localOwner(): String =
+        text(LOCAL_OWNER)?.takeIf { it.isNotBlank() }
+            ?: ("orknux-" + java.util.UUID.randomUUID().toString().take(8)).also { write(LOCAL_OWNER, it, "orknux") }
+
     private fun text(name: String): String? = settings.findByIdOrNull(name)?.value?.trim()
 
     private fun ranged(name: String, range: IntRange, default: Int): Int =
@@ -208,6 +219,7 @@ class BoxSettings(private val settings: InstallationSettingRepository) {
         // installation_setting, and renaming them would orphan what was set.
         const val LOCAL_ENABLED = "tin.local.enabled"
         const val LOCAL_LOCATION = "tin.local.location"
+        const val LOCAL_OWNER = "tin.local.owner"
         const val LOCAL_RUNTIME = "tin.local.runtime"
         const val LOCAL_MAX_SESSIONS = "tin.local.max.sessions"
         const val LOCAL_DEFAULT_TTL = "tin.local.ttl.default.seconds"

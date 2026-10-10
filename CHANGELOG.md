@@ -36,6 +36,7 @@ have failed.
 
 - A chat's thinking is now in its session's transcript, as a task's and a workflow step's always was.
 - When a turn outgrows the model's window and is summarised, the session's note of it carries the summary the model was given.
+- Two Orknux servers on one machine no longer delete each other's local box sessions when one starts: each cleans up only the workspaces it made, and a session whose workspace was removed says so instead of calling every path outside it.
 - Deleting a directory in a local box while a process still held files in it - a running jar in `target/` on Windows - reported success and left it there; it now says what was left and why.
 
 ## 0.9.9.32
