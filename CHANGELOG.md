@@ -28,6 +28,7 @@ have failed.
 ### 🔧 Changed
 
 - Shells are removed: agents can no longer open a shell on a machine, and the Admin → Shell pages are gone. Existing shell definitions stay in the database untouched, but nothing uses them any more.
+- A conversation's next turn now sends the model exactly what the last turn sent - every tool call, its reasoning and its result - and adds to it, so a provider with a prompt cache (llama.cpp, and hosted ones that bill cached input less) reads only the new message instead of the whole session again. What was sent is kept, encrypted, per session; once it outgrows half the model's context window it is started again from what was said, in one step. Notes, to-dos, a task's turn count and a memory count no longer sit in the system prompt, where they changed it every turn. Nothing to do on upgrade: existing sessions switch over on their next turn.
 
 ## 0.9.9.32
 

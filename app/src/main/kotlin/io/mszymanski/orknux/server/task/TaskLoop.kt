@@ -83,6 +83,8 @@ class TaskLoop(
     private val agentDetails: io.mszymanski.orknux.server.agent.AgentDetails,
     private val news: TaskNewsDesk,
     private val properties: TaskProperties,
+    /** What the task's model was sent, sent again as it was; see [io.mszymanski.orknux.server.llm.SessionPrompt]. */
+    private val prompt: io.mszymanski.orknux.server.llm.SessionPrompt,
 ) {
 
     /**
@@ -228,27 +230,43 @@ class TaskLoop(
 
         deliver(taskId, session)
 
+        /*
+         * What the task's model has already been sent, to send again exactly
+         * and add to - with what was said since, a person's message or the
+         * "carry on" between turns. Null where nothing is kept, and the turn is
+         * built from the log as it always was. See [SessionPrompt].
+         */
+        val sent = prompt.history(session, budgets.promptCeiling(agent.memoryShare, task.workspaceId, working.modelId))
+
         val turns = buildList {
             /*
-             * The briefing, and what this agent wrote down for itself. Issue
-             * #371: the conversation below is trimmed to a share of the window,
-             * so what turn three found is gone by turn thirty - and a task is
-             * the longest thing an agent does here. A note is what survives
-             * that, so it rides with the briefing rather than in the tail.
+             * The briefing, which is the same on every turn. The count of turns
+             * taken used to be in it, so the system turn changed on every turn
+             * and a provider caching the prompt by its prefix read the whole
+             * task again each time; it is said after the conversation instead.
              */
-            add(
-                ChatTurn(
-                    "system",
-                    listOfNotNull(
-                        briefing(instructions, task),
-                        notes.recalled(session).takeIf { it.isNotBlank() },
-                        // The plan it is working down, put back each turn. #405.
-                        todos.recalled(session).takeIf { it.isNotBlank() },
-                    ).joinToString(separator = "\n\n"),
-                ),
-            )
-            addAll(sessions.remembered(session, budget))
-            addAll(sessions.recalled(session, budget))
+            add(ChatTurn("system", briefing(instructions, task)))
+            if (sent != null) {
+                addAll(sent)
+            } else {
+                /*
+                 * What this agent wrote down for itself, at the head of a
+                 * conversation started from the log. Issue #371: the log is
+                 * trimmed to a share of the window, so what turn three found is
+                 * gone by turn thirty - and a note is what survives that. Not in
+                 * the system turn, where a note written changed every message
+                 * after it; a note written later is in what was sent, as the
+                 * call that wrote it.
+                 */
+                listOfNotNull(
+                    notes.recalled(session).takeIf { it.isNotBlank() },
+                    // The plan it is working down. #405.
+                    todos.recalled(session).takeIf { it.isNotBlank() },
+                ).takeIf { it.isNotEmpty() }?.let { add(ChatTurn("user", it.joinToString(separator = "\n\n"))) }
+                addAll(sessions.remembered(session, budget))
+                addAll(sessions.recalled(session, budget))
+            }
+            add(ChatTurn("user", turnsTaken(task)))
         }
 
         /*
@@ -409,10 +427,19 @@ class TaskLoop(
     private fun briefing(instructions: String, task: Task): String = buildString {
         append(instructions)
         appendLine(
-            "You have taken ${task.turnsSpent} of ${task.turnsAllowed} turns. When they run out the task stops " +
-                "unfinished, so if you are running short, finish what you can and say so.",
+            "You have ${task.turnsAllowed} turns. When they run out the task stops unfinished, so if you are " +
+                "running short, finish what you can and say so. How many you have taken is said at the start " +
+                "of each one.",
         )
     }
+
+    /**
+     * Where the task has got to, said as the newest message of a turn rather
+     * than in the briefing: a number that moves every turn, put in the system
+     * turn, changed the whole prompt every turn.
+     */
+    private fun turnsTaken(task: Task): String =
+        "You have taken ${task.turnsSpent} of ${task.turnsAllowed} turns."
 
     /** The standing half of the briefing: everything that is the same on every turn. */
     private fun instructions(agentBriefing: String?): String = buildString {

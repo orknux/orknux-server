@@ -67,6 +67,8 @@ class ChatService(
     private val timers: TimerTools,
     /** Watchers the chat's agent sets, which wake the chat; see [io.mszymanski.orknux.server.watcher.WatcherTools]. #606. */
     private val watchers: io.mszymanski.orknux.server.watcher.WatcherTools,
+    /** What the chat's model was sent, sent again as it was; see [io.mszymanski.orknux.server.llm.SessionPrompt]. */
+    private val prompt: io.mszymanski.orknux.server.llm.SessionPrompt,
     transactions: PlatformTransactionManager,
 ) {
 
@@ -90,6 +92,17 @@ class ChatService(
     private fun budget(chat: ChatSession): SessionMemoryBudget {
         val share = chat.agentId?.let { agents.findByIdOrNull(it)?.memoryShare }
         return budgets.budget(share, chat.workspaceId, chat.modelId)
+    }
+
+    /**
+     * What the chat's model has been sent so far, to send again exactly, or
+     * null where nothing is kept and the turn is built from the thread as it
+     * always was. See [io.mszymanski.orknux.server.llm.SessionPrompt].
+     */
+    private fun sentBefore(chat: ChatSession, into: Long?): List<ChatTurn>? {
+        val session = into ?: return null
+        val share = chat.agentId?.let { agents.findByIdOrNull(it)?.memoryShare }
+        return prompt.history(session, budgets.promptCeiling(share, chat.workspaceId, chat.modelId))
     }
 
     fun sessions(workspaceId: Long, userId: String): List<ChatSession> =
@@ -798,6 +811,15 @@ class ChatService(
         history.saveAll(session.conversationId, thread + UserMessage(message))
         session.lastMessageAt = OffsetDateTime.now()
         val into = recording(session)
+        /*
+         * A summary took the place of the thread's beginning, so what was sent
+         * before is not what the model is to read now: dropped, and the turn is
+         * built from the thread as it stands.
+         */
+        if (compacted != null) into?.let { prompt.reset(it) }
+        // Read before the message is written into the session, or it would come
+        // back as something said since and be sent twice.
+        val sent = sentBefore(session, into)
         recordSaid(session, into, message)
 
         return ChatSendStart(
@@ -809,8 +831,7 @@ class ChatService(
             // of the thread by its position, because it is no longer the last
             // thing in the list: what the tools returned goes between.
             turns = briefed(session) +
-                thread.map { ChatTurn(role(it), it.text.orEmpty()) } +
-                recalled(session, into) +
+                (sent ?: (thread.map { ChatTurn(role(it), it.text.orEmpty()) } + recalled(session, into))) +
                 ChatTurn("user", message, images),
             compacted = compacted,
         )
@@ -836,7 +857,8 @@ class ChatService(
             agentId = session.agentId,
             llmSessionId = into,
             conversationId = session.conversationId,
-            turns = briefed(session) + thread.map { ChatTurn(role(it), it.text.orEmpty()) } + recalled(session, into),
+            turns = briefed(session) +
+                (sentBefore(session, into) ?: (thread.map { ChatTurn(role(it), it.text.orEmpty()) } + recalled(session, into))),
         )
     }
 
@@ -895,14 +917,19 @@ class ChatService(
         history.saveAll(session.conversationId, asked)
 
         val into = recording(session)
+        /*
+         * And what the model was sent loses the answer too, with the rounds that
+         * led to it - but keeps the question, pictures and all, which is asked
+         * again exactly as it was.
+         */
+        into?.let { prompt.rewind(it) }
         return ChatSendStart(
             modelId = modelId,
             agentId = session.agentId,
             llmSessionId = into,
             conversationId = session.conversationId,
             turns = briefed(session) +
-                asked.map { ChatTurn(role(it), it.text.orEmpty()) } +
-                recalled(session, into),
+                (sentBefore(session, into) ?: (asked.map { ChatTurn(role(it), it.text.orEmpty()) } + recalled(session, into))),
         )
     }
 

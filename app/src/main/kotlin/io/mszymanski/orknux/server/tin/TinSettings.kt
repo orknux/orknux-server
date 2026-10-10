@@ -38,12 +38,26 @@ const val MIN_TIN_OUTPUT_BYTES = 1024
 const val MAX_TIN_OUTPUT_BYTES = 4194304
 const val DEFAULT_TIN_OUTPUT_BYTES = 65536
 
+/** How much of a finished local tin command's output is kept on this side; 0 keeps none. */
+const val MIN_LOCAL_TIN_OUTPUT_KEPT = 0
+const val MAX_LOCAL_TIN_OUTPUT_KEPT = 16777216
+const val DEFAULT_LOCAL_TIN_OUTPUT_KEPT = 1048576
+
+/** How much of one command's output the conversation's session view holds in the browser. */
+const val MIN_TIN_OUTPUT_SHOWN = 65536
+const val MAX_TIN_OUTPUT_SHOWN = 67108864
+const val DEFAULT_TIN_OUTPUT_SHOWN = 4194304
+
 const val MIN_TIN_REQUEST_TIMEOUT = 1
 const val MAX_TIN_REQUEST_TIMEOUT = 600
 const val DEFAULT_TIN_REQUEST_TIMEOUT = 30
 
-/** The label the local tin has until an administrator says otherwise. */
-const val DEFAULT_LOCAL_TIN_LABEL = "local"
+/**
+ * The local tin's label, which is fixed: there is one local tin on every
+ * installation, and an agent granted `local` should mean the same thing on all
+ * of them.
+ */
+const val LOCAL_TIN_LABEL = "local"
 
 /**
  * How the local tin is set up, and how every tin is spoken to.
@@ -89,17 +103,12 @@ class TinSettings(private val settings: InstallationSettingRepository) {
 
     fun outputBytes(): Int = ranged(OUTPUT_BYTES, MIN_TIN_OUTPUT_BYTES..MAX_TIN_OUTPUT_BYTES, DEFAULT_TIN_OUTPUT_BYTES)
 
+    fun localOutputKeptBytes(): Int = ranged(LOCAL_OUTPUT_KEPT, MIN_LOCAL_TIN_OUTPUT_KEPT..MAX_LOCAL_TIN_OUTPUT_KEPT, DEFAULT_LOCAL_TIN_OUTPUT_KEPT)
+
+    fun outputShownBytes(): Int = ranged(OUTPUT_SHOWN, MIN_TIN_OUTPUT_SHOWN..MAX_TIN_OUTPUT_SHOWN, DEFAULT_TIN_OUTPUT_SHOWN)
+
     fun requestTimeoutSeconds(): Int =
         ranged(REQUEST_TIMEOUT, MIN_TIN_REQUEST_TIMEOUT..MAX_TIN_REQUEST_TIMEOUT, DEFAULT_TIN_REQUEST_TIMEOUT)
-
-    /**
-     * The local tin's label. Absent is the default; an empty row is a label
-     * somebody cleared, which leaves the local tin to no agent at all.
-     */
-    fun localLabel(): String? {
-        val held = settings.findByIdOrNull(LOCAL_LABEL) ?: return DEFAULT_LOCAL_TIN_LABEL
-        return held.value.trim().ifEmpty { null }
-    }
 
     @Transactional
     fun setLocalEnabled(enabled: Boolean, by: String) = write(LOCAL_ENABLED, enabled.toString(), by)
@@ -164,14 +173,22 @@ class TinSettings(private val settings: InstallationSettingRepository) {
     }
 
     @Transactional
+    fun setLocalOutputKeptBytes(bytes: Int, by: String) {
+        if (bytes !in MIN_LOCAL_TIN_OUTPUT_KEPT..MAX_LOCAL_TIN_OUTPUT_KEPT) throw LocalTinOutputKeptOutOfRangeException(bytes)
+        write(LOCAL_OUTPUT_KEPT, bytes.toString(), by)
+    }
+
+    @Transactional
+    fun setOutputShownBytes(bytes: Int, by: String) {
+        if (bytes !in MIN_TIN_OUTPUT_SHOWN..MAX_TIN_OUTPUT_SHOWN) throw TinOutputShownOutOfRangeException(bytes)
+        write(OUTPUT_SHOWN, bytes.toString(), by)
+    }
+
+    @Transactional
     fun setRequestTimeoutSeconds(seconds: Int, by: String) {
         if (seconds !in MIN_TIN_REQUEST_TIMEOUT..MAX_TIN_REQUEST_TIMEOUT) throw TinRequestTimeoutOutOfRangeException(seconds)
         write(REQUEST_TIMEOUT, seconds.toString(), by)
     }
-
-    /** Null or blank clears it, which is stored as an empty row so it is not read as the default. */
-    @Transactional
-    fun setLocalLabel(label: String?, by: String) = write(LOCAL_LABEL, label?.trim().orEmpty(), by)
 
     private fun text(name: String): String? = settings.findByIdOrNull(name)?.value?.trim()
 
@@ -194,10 +211,11 @@ class TinSettings(private val settings: InstallationSettingRepository) {
         const val LOCAL_DEFAULT_TTL = "tin.local.ttl.default.seconds"
         const val LOCAL_MAX_TTL = "tin.local.ttl.max.seconds"
         const val LOCAL_IDLE = "tin.local.idle.seconds"
-        const val LOCAL_LABEL = "tin.local.label"
         const val COMMAND_WAIT = "tin.command.wait.seconds"
         const val COMMAND_TIMEOUT = "tin.command.timeout.seconds"
         const val OUTPUT_BYTES = "tin.output.bytes"
+        const val LOCAL_OUTPUT_KEPT = "tin.local.output.kept.bytes"
+        const val OUTPUT_SHOWN = "tin.output.shown.bytes"
         const val REQUEST_TIMEOUT = "tin.request.timeout.seconds"
 
         val RUNTIMES = setOf(Config.RUNTIME_LOCAL, Config.RUNTIME_DOCKER)

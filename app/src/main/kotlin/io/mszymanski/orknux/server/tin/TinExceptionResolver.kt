@@ -17,6 +17,8 @@ class TinExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is TinNameInvalidException,
             is TinAddressInvalidException,
             is LocalTinNotRemovableException,
+            is LocalTinNotEditableException,
+            is TinLabelRequiredException,
             is LocalTinRuntimeUnknownException,
             is LocalTinMaxSessionsOutOfRangeException,
             is LocalTinTtlOutOfRangeException,
@@ -24,6 +26,8 @@ class TinExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is TinCommandWaitOutOfRangeException,
             is TinCommandTimeoutOutOfRangeException,
             is TinOutputBytesOutOfRangeException,
+            is TinOutputShownOutOfRangeException,
+            is LocalTinOutputKeptOutOfRangeException,
             is TinRequestTimeoutOutOfRangeException,
             -> ErrorType.BAD_REQUEST
 

@@ -19,6 +19,7 @@ import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.stereotype.Controller
 import tools.jackson.databind.ObjectMapper
 import java.time.OffsetDateTime
+import java.time.temporal.ChronoUnit
 
 /**
  * The tins, for the Tins page, the local tin's Admin settings, and a
@@ -43,6 +44,7 @@ class TinAPI(
     private val access: WorkspaceAccess,
     private val auditRecorder: WorkspaceAuditRecorder,
     private val mapper: ObjectMapper,
+    private val sessionLog: TinSessionLog,
 ) {
 
     // ------------------------------------------------------------------ tins
@@ -71,18 +73,45 @@ class TinAPI(
         return TinInfoView.of(info)
     }
 
+    /**
+     * The sessions this installation recorded on [id], with the tin's own word
+     * for each where it can be asked, and the sessions the tin holds that
+     * nobody here opened - another client of a remote tin. The local tin holds
+     * its sessions in memory, so after a restart the record is all there is.
+     */
     @QueryMapping
     fun tinSessions(@Argument id: String): List<TinRemoteSessionView> {
         access.requireAdmin()
         val tin = tins.byId(id) ?: throw TinNotFoundException(id)
+        val recorded = sessionRows.findTop200ByTinKindAndTinIdOrderByCreatedAtDescIdDesc(tin.kind, tin.row?.id)
         // The local tin is not started to be told it holds nothing.
-        val client = tins.clientIfRunning(tin) ?: return emptyList()
-        val held = try {
-            client.sessions(null)
-        } catch (failed: TinCallException) {
-            throw TinUnreachableException(tin.name, failed.message)
+        val held = tins.clientIfRunning(tin)?.let { client ->
+            try {
+                client.sessions(null)
+            } catch (failed: TinCallException) {
+                // With nothing recorded to show, that it could not be asked is the answer.
+                if (recorded.isEmpty()) throw TinUnreachableException(tin.name, failed.message)
+                null
+            }
         }
-        return held.map { TinRemoteSessionView.of(it, mapper) }
+        val byRemoteId = held.orEmpty().associateBy { it.id }
+        val ours = recorded.map { row ->
+            val live = byRemoteId[row.remoteSessionId]
+            val status = when {
+                live != null -> remembered(row, live.status)
+                !row.open -> row.status
+                row.tinKind == TinKind.LOCAL && !localHolds(row) -> remembered(row, "stopped")
+                // Asked, and it no longer lists it.
+                held != null -> remembered(row, "stopped")
+                else -> row.status
+            }
+            TinRemoteSessionView.of(row, status, live, mapper)
+        }
+        val known = recorded.map { it.remoteSessionId }.toSet()
+        val others = held.orEmpty().filter { it.id !in known }.map { TinRemoteSessionView.of(it, mapper) }
+        return (ours + others)
+            .sortedByDescending { runCatching { OffsetDateTime.parse(it.createdAt).toInstant() }.getOrNull() }
+            .take(TIN_SESSIONS_LISTED)
     }
 
     /** What an agent's form suggests: every label a tin has, once each. */
@@ -94,10 +123,26 @@ class TinAPI(
 
     @SchemaMapping(typeName = "Tin", field = "health")
     fun health(tin: TinView): TinHealthView? {
-        val row = tin.known.row ?: return null
+        val row = tin.known.row ?: return localHealth(tin.known)
         val (up, detail) = tins.remote(row).health()
         return TinHealthView(if (up) TinHealthStatus.UP else TinHealthStatus.DOWN, detail)
     }
+
+    /**
+     * The local tin is healthy while the runtime it is set to can run a
+     * session - the docker runtime with no daemon reachable is the usual way
+     * it is not. Asking starts it, which is cheap, and is what the first
+     * session would do anyway.
+     */
+    private fun localHealth(tin: KnownTin): TinHealthView = runCatching {
+        val info = tins.client(tin).info()
+        val runtime = info.runtimes.firstOrNull { it.name == info.defaultRuntime }
+        when {
+            runtime == null -> TinHealthView(TinHealthStatus.DOWN, "It offers no runtime")
+            runtime.available -> TinHealthView(TinHealthStatus.UP, null)
+            else -> TinHealthView(TinHealthStatus.DOWN, runtime.unavailableReason ?: "The ${runtime.name} runtime is not available")
+        }
+    }.getOrElse { TinHealthView(TinHealthStatus.DOWN, it.message ?: "It did not start") }
 
     @SchemaMapping(typeName = "Tin", field = "activeSessions")
     fun activeSessions(tin: TinView): Int? {
@@ -118,7 +163,7 @@ class TinAPI(
         val row = rows.save(
             Tin(
                 name = name,
-                label = input.label?.trim()?.ifEmpty { null },
+                label = validLabel(input.label),
                 address = address,
                 token = input.token?.trim()?.ifEmpty { null },
                 lastModifiedBy = currentUser(),
@@ -131,26 +176,13 @@ class TinAPI(
     @MutationMapping
     fun updateTin(@Argument id: String, @Argument input: TinInput): TinView {
         access.requireAdmin()
-        if (id == LOCAL_TIN_ID) {
-            // Only its label is the screen's to change; the name sent back is ignored.
-            val before = settings.localLabel()
-            val label = input.label?.trim()?.ifEmpty { null }
-            settings.setLocalLabel(label, currentUser())
-            if (label != before) {
-                auditRecorder.record(
-                    null,
-                    WorkspaceAuditCategory.INTEGRATION,
-                    label?.let { "Local tin label set to $it" } ?: "Local tin label cleared",
-                )
-            }
-            return view(tins.byId(LOCAL_TIN_ID) ?: KnownTin(LOCAL_TIN_ID, LOCAL_TIN_NAME, TinKind.LOCAL, label))
-        }
+        if (id == LOCAL_TIN_ID) throw LocalTinNotEditableException()
 
         val row = id.toLongOrNull()?.let { rows.findByIdOrNull(it) } ?: throw TinNotFoundException(id)
         val before = Triple(row.name, row.label, row.address)
         val name = validName(input.name, row.id)
         val address = validAddress(input.address ?: row.address)
-        val label = input.label?.trim()?.ifEmpty { null }
+        val label = validLabel(input.label)
         val tokenChanged = input.token != null && input.token.trim().ifEmpty { null } != row.token
 
         row.name = name
@@ -182,6 +214,15 @@ class TinAPI(
             )
         }
         return view(tins.byId(id)!!)
+    }
+
+    /** The stored token, for the eye on the token box; written down, as every reveal is. */
+    @MutationMapping
+    fun revealTinToken(@Argument id: String): String? {
+        access.requireAdmin()
+        val row = id.toLongOrNull()?.let { rows.findByIdOrNull(it) } ?: throw TinNotFoundException(id)
+        auditRecorder.record(null, WorkspaceAuditCategory.INTEGRATION, "Token for tin ${row.name} revealed")
+        return row.token
     }
 
     @MutationMapping
@@ -221,46 +262,172 @@ class TinAPI(
         val session = llmSessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
         access.requireVisible(session.workspaceId)
         return sessionRows.findByLlmSessionIdOrderByCreatedAtDescIdDesc(sessionId).map { row ->
-            SessionTinView.of(row, liveStatus(row))
+            SessionTinView.of(row, liveStatus(row), labelOf(row))
         }
     }
 
+    /**
+     * A remote tin's log, read from the tin; unavailable once it cannot be
+     * asked. The local tin's as this side recorded it, brought up to date first
+     * where the tin can still be asked - and where it cannot, what was recorded
+     * is still the log, with a message saying why it may be short; unavailable
+     * only when nothing was ever recorded.
+     */
     @QueryMapping
     fun sessionTinLog(@Argument sessionId: Long, @Argument sessionTinId: Long, @Argument after: Int?): TinLogView {
         val session = llmSessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
         access.requireVisible(session.workspaceId)
         val row = sessionRows.findByIdOrNull(sessionTinId)?.takeIf { it.llmSessionId == sessionId }
             ?: throw TinNotFoundException(sessionTinId.toString())
-        val since = (after ?: 0).toLong()
-        val tin = tins.byId(row.tinRef)
-            ?: return TinLogView(emptyList(), since.toInt(), false, "Tin ${row.tinName} is no longer configured")
-        val client = tins.clientIfRunning(tin)
-            ?: return TinLogView(emptyList(), since.toInt(), false, "The local tin has restarted since this session")
-        return try {
-            val page = client.logs(row.remoteSessionId, since, LOG_PAGE, null)
-            TinLogView(
-                events = page.events.map { TinEventView(it.seq.toInt(), it.at, it.type, it.data) },
-                nextSeq = page.nextSeq.toInt(),
-                available = true,
-                message = null,
-            )
-        } catch (failed: TinCallException) {
-            val message = if (failed.code == "session_not_found") {
-                "Tin ${row.tinName} no longer has this session"
-            } else {
-                "Tin ${row.tinName} could not be asked: ${failed.message}"
-            }
-            TinLogView(emptyList(), since.toInt(), false, message)
+        val since = (after ?: 0).toLong().coerceAtLeast(0)
+        if (row.tinKind != TinKind.LOCAL) return remoteLog(row, since)
+        val id = requireNotNull(row.id)
+        val gone = recordLive(row)
+        val events = sessionLog.after(id, since, TIN_LOG_PAGE).map { TinEventView(it.seq.toInt(), it.at, it.type, it.data) }
+        val next = events.lastOrNull()?.seq ?: since.toInt()
+        return when {
+            gone == null -> TinLogView(events, next, true, null)
+            sessionLog.any(id) -> TinLogView(events, next, true, "${gone.reason}; this is the log as last recorded")
+            else -> TinLogView(emptyList(), since.toInt(), false, gone.alone)
         }
+    }
+
+    private fun remoteLog(row: TinSession, since: Long): TinLogView {
+        val (client, unreachable) = reach(row)
+        if (client == null) return TinLogView(emptyList(), since.toInt(), false, requireNotNull(unreachable).alone)
+        return try {
+            val page = client.logs(row.remoteSessionId, since, TIN_LOG_PAGE, null)
+            TinLogView(page.events.map { TinEventView(it.seq.toInt(), it.at, it.type, it.data) }, page.nextSeq.toInt(), true, null)
+        } catch (failed: TinCallException) {
+            TinLogView(emptyList(), since.toInt(), false, goneFrom(row, failed).alone)
+        }
+    }
+
+    /** Why a session's tin cannot be asked for its log: [reason] beside a recorded log, [alone] where there is none. */
+    private class Gone(val reason: String, val alone: String = reason)
+
+    /** Copies what the tin has of the session's log; null when that worked, why not when it did not. */
+    private fun recordLive(row: TinSession): Gone? {
+        val (client, gone) = reach(row)
+        if (client == null) return gone
+        return try {
+            sessionLog.record(row, client)
+            null
+        } catch (failed: TinCallException) {
+            goneFrom(row, failed)
+        }
+    }
+
+    /** A client for the tin [row] is on where it can still hold the session; why not where it cannot. */
+    private fun reach(row: TinSession): Pair<TinClient?, Gone?> {
+        val name = row.tinName
+        val tin = tins.byId(row.tinRef) ?: return null to if (row.tinKind == TinKind.LOCAL) {
+            Gone("Tin $name is switched off")
+        } else {
+            Gone("Tin $name is no longer configured")
+        }
+        if (row.tinKind == TinKind.LOCAL && !localHolds(row)) return null to restarted(row)
+        val client = tins.clientIfRunning(tin) ?: return null to restarted(row)
+        return client to null
+    }
+
+    private fun restarted(row: TinSession) =
+        Gone("Tin ${row.tinName} has restarted since", "Tin ${row.tinName} has restarted since this session")
+
+    private fun goneFrom(row: TinSession, failed: TinCallException): Gone = when {
+        failed.code == "execution_not_found" -> Gone("Tin ${row.tinName} no longer has this command")
+        failed.code != "session_not_found" -> Gone("Tin ${row.tinName} could not be asked: ${failed.message}")
+        // Started within the second the session was opened, which localHolds
+        // cannot tell apart.
+        row.tinKind == TinKind.LOCAL && local.runningSince()?.isAfter(row.createdAt) == true -> restarted(row)
+        else -> Gone("Tin ${row.tinName} no longer has this session")
+    }
+
+    /**
+     * What one command printed, the combined stream: from the tin while it can
+     * be asked, and on the local tin from what [TinSessionLog] kept of it once
+     * it cannot. A remote tin's is unavailable once it cannot be asked.
+     */
+    @QueryMapping
+    fun sessionTinOutput(
+        @Argument sessionId: Long,
+        @Argument sessionTinId: Long,
+        @Argument executionId: String,
+        @Argument offset: Int?,
+        @Argument limit: Int?,
+    ): TinOutputView = readOutput(sessionId, sessionTinId, executionId, offset, limit).copy(shownLimit = settings.outputShownBytes())
+
+    private fun readOutput(sessionId: Long, sessionTinId: Long, executionId: String, offset: Int?, limit: Int?): TinOutputView {
+        val session = llmSessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
+        access.requireVisible(session.workspaceId)
+        val row = sessionRows.findByIdOrNull(sessionTinId)?.takeIf { it.llmSessionId == sessionId }
+            ?: throw TinNotFoundException(sessionTinId.toString())
+        val from = (offset ?: 0).coerceAtLeast(0).toLong()
+        val most = (limit ?: TIN_OUTPUT_PAGE).coerceIn(1, settings.outputBytes())
+        val (client, unreachable) = reach(row)
+        val gone = if (client == null) {
+            requireNotNull(unreachable)
+        } else {
+            try {
+                val chunk = client.output(row.remoteSessionId, executionId, TinSessionLog.COMBINED, from, most)
+                val read = chunk.next - chunk.offset
+                return TinOutputView(
+                    text = chunk.text,
+                    offset = chunk.offset.toInt(),
+                    nextOffset = chunk.next.toInt(),
+                    done = chunk.status != null && chunk.status != RUNNING && read < most,
+                    available = true,
+                    message = null,
+                )
+            } catch (failed: TinCallException) {
+                goneFrom(row, failed)
+            }
+        }
+        if (row.tinKind != TinKind.LOCAL) return TinOutputView("", from.toInt(), from.toInt(), false, false, gone.alone)
+        val kept = sessionLog.output(requireNotNull(row.id), executionId)
+            ?: return TinOutputView("", from.toInt(), from.toInt(), false, false, "${gone.reason}, and this command's output was not kept")
+        val bytes = kept.text.toByteArray(Charsets.UTF_8)
+        val start = maxOf(from, kept.startOffset)
+        val index = (start - kept.startOffset).coerceAtMost(bytes.size.toLong()).toInt()
+        val slice = bytes.copyOfRange(index, minOf(bytes.size, index + most))
+        val end = index + slice.size >= bytes.size
+        return TinOutputView(
+            text = String(slice, Charsets.UTF_8),
+            offset = start.toInt(),
+            nextOffset = (start + slice.size).toInt(),
+            // Kept only once it finished, so the end of what was kept is the end.
+            done = end,
+            available = true,
+            message = if (end && kept.truncated) {
+                "${gone.reason}; this is the output as last recorded, and the rest of it was not kept"
+            } else {
+                "${gone.reason}; this is the output as last recorded"
+            },
+        )
+    }
+
+    /**
+     * Whether the running local tin can hold [row]: it keeps its sessions in
+     * memory, so one that is not running, or was started after the session was
+     * opened, holds none from before. To the second, as a stored time may have
+     * lost the rest; a restart within the same second is caught by the tin
+     * answering that it has no such session.
+     */
+    private fun localHolds(row: TinSession): Boolean {
+        val since = local.runningSince() ?: return false
+        return !since.truncatedTo(ChronoUnit.SECONDS).isAfter(row.createdAt)
     }
 
     /**
      * The tin's own word for a session, where it can be had; the one last
      * recorded where it cannot. A word that changed is written back, so the
-     * row is as fresh as the last time anybody looked.
+     * row is as fresh as the last time anybody looked. A session on the local
+     * tin that the running instance cannot hold is stopped, whatever was
+     * recorded: nothing it had in memory survived.
      */
     private fun liveStatus(row: TinSession): String {
         if (!row.open) return row.status
+        if (row.tinKind == TinKind.LOCAL && !localHolds(row)) return remembered(row, "stopped")
         val tin = tins.byId(row.tinRef) ?: return row.status
         val client = tins.clientIfRunning(tin) ?: return row.status
         val live = try {
@@ -268,6 +435,14 @@ class TinAPI(
         } catch (failed: TinCallException) {
             if (failed.code == "session_not_found") "stopped" else return row.status
         }
+        return remembered(row, live)
+    }
+
+    /** The tin's label as it is now: `local` for the local tin, null for a remote one since removed. */
+    private fun labelOf(row: TinSession): String? =
+        if (row.tinKind == TinKind.LOCAL) LOCAL_TIN_LABEL else row.tinId?.let { rows.findByIdOrNull(it) }?.label
+
+    private fun remembered(row: TinSession, live: String): String {
         if (live != row.status) {
             row.status = live
             if (live !in OPEN_STATUSES && row.closedAt == null) row.closedAt = OffsetDateTime.now()
@@ -332,6 +507,18 @@ class TinAPI(
     @SchemaMapping(typeName = "InstallationSettings", field = "tinOutputBytesConfigured")
     fun tinOutputBytesConfigured(source: InstallationSettingsView): Int = DEFAULT_TIN_OUTPUT_BYTES
 
+    @SchemaMapping(typeName = "InstallationSettings", field = "localTinOutputKeptBytes")
+    fun localTinOutputKeptBytes(source: InstallationSettingsView): Int = settings.localOutputKeptBytes()
+
+    @SchemaMapping(typeName = "InstallationSettings", field = "localTinOutputKeptBytesConfigured")
+    fun localTinOutputKeptBytesConfigured(source: InstallationSettingsView): Int = DEFAULT_LOCAL_TIN_OUTPUT_KEPT
+
+    @SchemaMapping(typeName = "InstallationSettings", field = "tinOutputShownBytes")
+    fun tinOutputShownBytes(source: InstallationSettingsView): Int = settings.outputShownBytes()
+
+    @SchemaMapping(typeName = "InstallationSettings", field = "tinOutputShownBytesConfigured")
+    fun tinOutputShownBytesConfigured(source: InstallationSettingsView): Int = DEFAULT_TIN_OUTPUT_SHOWN
+
     @SchemaMapping(typeName = "InstallationSettings", field = "tinRequestTimeoutSeconds")
     fun tinRequestTimeoutSeconds(source: InstallationSettingsView): Int = settings.requestTimeoutSeconds()
 
@@ -389,6 +576,16 @@ class TinAPI(
         changed("An agent is handed up to $bytes bytes of a tin command's output at once") { settings.setOutputBytes(bytes, it) }
 
     @MutationMapping
+    fun setLocalTinOutputKeptBytes(@Argument bytes: Int): InstallationSettingsView =
+        changed(
+            if (bytes == 0) "A local tin command's output is not kept" else "Up to $bytes bytes of a finished local tin command's output are kept",
+        ) { settings.setLocalOutputKeptBytes(bytes, it) }
+
+    @MutationMapping
+    fun setTinOutputShownBytes(@Argument bytes: Int): InstallationSettingsView =
+        changed("A conversation shows up to $bytes bytes of one tin command's output") { settings.setOutputShownBytes(bytes, it) }
+
+    @MutationMapping
     fun setTinRequestTimeoutSeconds(@Argument seconds: Int): InstallationSettingsView =
         changed("A request to a tin is given up on after $seconds seconds") { settings.setRequestTimeoutSeconds(seconds, it) }
 
@@ -411,17 +608,16 @@ class TinAPI(
         return name
     }
 
+    /** A tin with no label is no agent's, so one is required rather than allowed to be forgotten. */
+    private fun validLabel(given: String?): String =
+        given?.trim()?.takeIf { it.isNotEmpty() && it.length <= 255 } ?: throw TinLabelRequiredException()
+
     private fun validAddress(given: String?): String =
         given?.let(Tins::normalisedAddress) ?: throw TinAddressInvalidException(given.orEmpty())
 
     private fun view(tin: KnownTin) = TinView(tin)
 
     private fun currentUser(): String = SecurityContextHolder.getContext().authentication?.name ?: "system"
-
-    private companion object {
-        /** How many log events one page of a conversation's Tin panel carries. */
-        const val LOG_PAGE = 1000
-    }
 }
 
 class TinView(val known: KnownTin) {
@@ -503,16 +699,39 @@ data class TinInfoView(
 data class TinRemoteSessionView(
     val id: String,
     val status: String,
-    val runtime: String,
+    val runtime: String?,
     val image: String?,
     val labels: String,
     val createdAt: String,
     val lastActivityAt: String,
-    val expiresAt: String,
+    val expiresAt: String?,
     val runningExecutions: Int,
     val totalExecutions: Int,
+    val orknuxSessionId: Long? = null,
+    /** The conversation's page with this tin session open; relative, since the browser follows it. */
+    val orknuxSessionUrl: String? = null,
+    val agentName: String? = null,
+    val active: Boolean = status in OPEN_STATUSES,
 ) {
     companion object {
+        /** A session recorded here: the tin's own account of it where [live] is one, the record otherwise. */
+        fun of(row: TinSession, status: String, live: SessionDto?, mapper: ObjectMapper) = TinRemoteSessionView(
+            id = row.remoteSessionId,
+            status = status,
+            runtime = live?.runtime,
+            image = live?.image,
+            labels = live?.let { mapper.writeValueAsString(it.labels) } ?: "{}",
+            createdAt = row.createdAt.toString(),
+            lastActivityAt = live?.lastActivityAt ?: (row.lastUsedAt ?: row.createdAt).toString(),
+            expiresAt = live?.expiresAt,
+            runningExecutions = live?.executions?.running ?: 0,
+            totalExecutions = live?.executions?.total ?: 0,
+            orknuxSessionId = row.llmSessionId,
+            orknuxSessionUrl = "/workspace/${row.workspaceId}/sessions/${row.llmSessionId}?tin=${row.id}",
+            agentName = row.agentName,
+        )
+
+        /** A session the tin holds that nobody here opened. */
         fun of(session: SessionDto, mapper: ObjectMapper) = TinRemoteSessionView(
             id = session.id,
             status = session.status,
@@ -540,9 +759,10 @@ data class SessionTinView(
     val status: String,
     val createdAt: String,
     val lastUsedAt: String?,
+    val tinLabel: String?,
 ) {
     companion object {
-        fun of(row: TinSession, status: String) = SessionTinView(
+        fun of(row: TinSession, status: String, tinLabel: String?) = SessionTinView(
             id = requireNotNull(row.id),
             tinId = row.tinRef,
             tinName = row.tinName,
@@ -552,11 +772,31 @@ data class SessionTinView(
             status = status,
             createdAt = row.createdAt.toString(),
             lastUsedAt = row.lastUsedAt?.toString(),
+            tinLabel = tinLabel,
         )
     }
 }
 
 data class TinEventView(val seq: Int, val at: String, val type: String, val data: String)
+
+/** orktin's word for an execution that has not finished. */
+private const val RUNNING = "running"
+
+/** How many sessions the Tins page lists for one tin, newest first. */
+const val TIN_SESSIONS_LISTED = 200
+
+/** How many bytes of a command's output one read of the conversation's Tin panel asks for when it does not say. */
+const val TIN_OUTPUT_PAGE = 16384
+
+data class TinOutputView(
+    val text: String,
+    val offset: Int,
+    val nextOffset: Int,
+    val done: Boolean,
+    val available: Boolean,
+    val message: String?,
+    val shownLimit: Int = 0,
+)
 
 data class TinLogView(val events: List<TinEventView>, val nextSeq: Int, val available: Boolean, val message: String?)
 

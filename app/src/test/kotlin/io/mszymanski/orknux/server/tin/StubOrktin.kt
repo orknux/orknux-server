@@ -45,6 +45,19 @@ class StubOrktin(private val token: String = "change-me") : AutoCloseable {
             exchange.requestURI.path == "/v1/sessions" && exchange.requestMethod == "GET" ->
                 reply(exchange, 200, """{"items":[$SESSION,$SESSION]}""", "application/json")
 
+            exchange.requestURI.path == "/v1/sessions/ses_1/logs" -> {
+                val since = query(exchange, "since")?.toLongOrNull() ?: 0
+                val items = LOG.filter { it.first > since }.joinToString(",") { it.second }
+                reply(exchange, 200, """{"items":[$items],"nextSeq":${LOG.map { it.first }.filter { it > since }.maxOrNull() ?: since}}""", "application/json")
+            }
+
+            exchange.requestURI.path == "/v1/sessions/ses_1/executions/exe_1/output" -> {
+                val offset = (query(exchange, "offset")?.toIntOrNull() ?: 0).coerceAtMost(OUTPUT.length)
+                exchange.responseHeaders.add("X-Next-Offset", OUTPUT.length.toString())
+                exchange.responseHeaders.add("X-Execution-Status", "succeeded")
+                reply(exchange, 200, OUTPUT.substring(offset), "application/octet-stream")
+            }
+
             exchange.requestURI.path.startsWith("/v1/sessions/ses_gone") -> reply(
                 exchange,
                 404,
@@ -56,6 +69,10 @@ class StubOrktin(private val token: String = "change-me") : AutoCloseable {
         }
     }
 
+    private fun query(exchange: HttpExchange, name: String): String? =
+        exchange.requestURI.rawQuery?.split("&")?.map { it.substringBefore("=") to it.substringAfter("=", "") }
+            ?.firstOrNull { it.first == name }?.second
+
     private fun reply(exchange: HttpExchange, status: Int, body: String, type: String) {
         val bytes = body.toByteArray()
         exchange.responseHeaders.add("Content-Type", type)
@@ -66,6 +83,15 @@ class StubOrktin(private val token: String = "change-me") : AutoCloseable {
     override fun close() = server.stop(0)
 
     companion object {
+        /** ses_1's log: a session opened, and one command run in it. */
+        val LOG = listOf(
+            1L to """{"seq":1,"at":"2026-10-10T10:00:00Z","type":"session.created","data":{"runtime":"docker"}}""",
+            2L to """{"seq":2,"at":"2026-10-10T10:00:01Z","type":"execution.finished","data":{"executionId":"exe_1","status":"succeeded","exitCode":0}}""",
+        )
+
+        /** What exe_1 in ses_1 printed. */
+        const val OUTPUT = "hello\n"
+
         const val INFO = """{"name":"orktin","version":"9.9.9","defaultRuntime":"docker","runtimes":[
             {"name":"docker","available":true,"workdir":"/workspace","shell":["bash","-c"],"os":"linux",
              "images":["*"],"defaultImage":"orknux/orktin-toolchain:latest",

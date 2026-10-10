@@ -237,6 +237,28 @@ class SessionMemoryBudgets(
         resolve(share, workspaceId, modelId).budget
 
     /**
+     * How large what a session's model was sent may grow before it is started
+     * again from the log, in characters. See [SessionPrompt].
+     *
+     * Half the model's window where it has one recorded - [MAX_MEMORY_SHARE],
+     * the line above which this file already says there is no room for the
+     * instructions, the tools and the answer - and never less than twice the
+     * budget. The second half matters as much as the first: what a session is
+     * started again from is that budget, so a ceiling of twice it means a
+     * restart leaves at most half the room used, and the next restart is many
+     * turns away rather than on the next one. A ceiling equal to the budget
+     * would restart every turn, which is the instability this is here to stop.
+     */
+    fun promptCeiling(share: Int?, workspaceId: Long, modelId: Long?): Int {
+        val resolved = resolve(share, workspaceId, modelId)
+        val floor = resolved.budget.totalChars.toLong() * 2
+        val window = resolved.contextWindow?.takeIf { it > 0 }
+            ?.let { it.toLong() * CHARS_PER_TOKEN * MAX_MEMORY_SHARE / 100 }
+            ?: 0L
+        return maxOf(floor, window).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    }
+
+    /**
      * The whole answer: the numbers, and whether the share is one that can work.
      *
      * The one place the resolution order lives - the agent's own share, then

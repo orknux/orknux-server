@@ -242,6 +242,10 @@ class SecretMigrationTest(
     @Test
     fun `the sweep covers every field the converter encrypts`() {
         assertThat(columns.all.map { it.toString() }).containsExactlyInAnyOrder(
+            // What a session's model was sent, kept to send again exactly; a
+            // call's arguments are in it unredacted, which is why it is sealed.
+            // V349.
+            "llm_session_prompt.message",
             "mcp_server.secret",
             "model_provider.secret",
             // A plugin's secret parameter, typed in rather than pointed at a

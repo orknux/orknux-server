@@ -656,6 +656,26 @@ interface LlmSessionEventRepository : JpaRepository<LlmSessionEvent, Long> {
     fun latest(sessionId: Long, kinds: Collection<LlmSessionEventKind>, page: Pageable): List<LlmSessionEvent>
 
     /**
+     * What was said after a line, oldest first, for adding to a conversation
+     * that already holds everything up to it. See [SessionPrompt].
+     */
+    @Query(
+        """
+        select e from LlmSessionEvent e
+        where e.sessionId = :sessionId
+          and e.kind in :kinds
+          and e.id > :after
+          and e.superseded = false
+        order by e.id asc
+        """,
+    )
+    fun after(sessionId: Long, kinds: Collection<LlmSessionEventKind>, after: Long): List<LlmSessionEvent>
+
+    /** The newest line a session holds, or null for one with none. */
+    @Query("select max(e.id) from LlmSessionEvent e where e.sessionId = :sessionId")
+    fun lastId(sessionId: Long): Long?
+
+    /**
      * The same tail, as it stood before a moment.
      *
      * For reading a session the way something else read it earlier. A chat

@@ -345,6 +345,7 @@ interface PluginRepository : JpaRepository<Plugin, Long> {
         """
         select new io.mszymanski.orknux.server.plugin.PluginToolDeclarations(p.id, p.key, p.name, p.declaredTools)
         from Plugin p where p.enabled = true
+        order by p.key, p.id
         """,
     )
     fun enabledToolDeclarations(): List<PluginToolDeclarations>

@@ -180,13 +180,16 @@ class MemorySearchTest(
      * to find, so it searched when it was told to and never otherwise.
      */
     @Test
-    fun `the briefing says how much is written down and when to go and look`() {
+    fun `the briefing says something is written down and when to go and look`() {
         remember("Billing export", "The billing export runs at 02:00 UTC.")
-        remember("Status page", "The status page is written by hand.")
 
         val said = briefing.of(agent).orEmpty()
 
-        assertThat(said).contains("written 2 things down")
+        assertThat(said).contains("has written things down")
+        // Not counted: a count moved with every memory saved, which changed the
+        // system turn and made a prompt-caching provider read everything again.
+        remember("Status page", "The status page is written by hand.")
+        assertThat(briefing.of(agent).orEmpty()).isEqualTo(said)
         assertThat(said).contains(catalog.name)
         // Named, not listed: what the memories say is what the tool is for.
         assertThat(said).doesNotContain("02:00")

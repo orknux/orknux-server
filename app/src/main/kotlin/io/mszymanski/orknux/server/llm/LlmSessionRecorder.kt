@@ -469,6 +469,24 @@ class LlmSessionRecorder(
             .map { said -> ChatTurn(said.role, said.content) }
 
     /**
+     * What was said here after [after], oldest first, as turns - for a
+     * conversation that already holds everything up to that line. See
+     * [SessionPrompt]: a person's message to a task, the "carry on" a task is
+     * given between turns, a bare model's answer in a chat continuing a
+     * session. Unbounded, because it is only ever what one turn missed.
+     */
+    fun saidAfter(session: Long, after: Long): List<ChatTurn> =
+        runCatching { events.after(session, SAID, after) }
+            .onFailure { log.warn("What was said in session {} since line {} could not be read", session, after, it) }
+            .getOrDefault(emptyList())
+            .filter { !it.content.isNullOrBlank() }
+            .map(::turn)
+            .map { said -> ChatTurn(said.role, said.content) }
+
+    /** The newest line in the session, or null for one with none. */
+    fun lastEventId(session: Long): Long? = runCatching { events.lastId(session) }.getOrNull()
+
+    /**
      * The same tail as it stood before a moment, read the way a person reads
      * it: who said each line, and the calls made in between them.
      *

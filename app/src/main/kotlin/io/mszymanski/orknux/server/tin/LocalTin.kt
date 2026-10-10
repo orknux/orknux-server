@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.DisposableBean
 import org.springframework.stereotype.Component
 import java.nio.file.Path
+import java.time.OffsetDateTime
 
 /**
  * The local tin: one orktin embedded in this process, built from Admin
@@ -38,6 +39,9 @@ class LocalTin(private val settings: TinSettings) : DisposableBean {
 
     private var running: Pair<Shape, Orktin>? = null
 
+    /** When [running] was started; nothing it holds is older. */
+    private var startedAt: OffsetDateTime? = null
+
     fun enabled(): Boolean = settings.localEnabled()
 
     /** The local tin, started if it was not; [TinNotFoundException] while it is switched off. */
@@ -53,12 +57,21 @@ class LocalTin(private val settings: TinSettings) : DisposableBean {
         val started = Orktin(config(wanted)).start()
         log.info("Local tin started: {} runtime, sessions under {}", wanted.runtime, started.config.local.root)
         running = wanted to started
+        startedAt = OffsetDateTime.now()
         return EmbeddedTinClient(started)
     }
 
     /** The running instance, without starting one; null when nothing is running. */
     @Synchronized
     fun runningClient(): TinClient? = running?.takeIf { enabled() && it.first == shape() }?.second?.let(::EmbeddedTinClient)
+
+    /**
+     * When the running instance was started, where [runningClient] would answer
+     * one; null when nothing is running. Its sessions are in memory, so a
+     * session opened before this is one it cannot hold.
+     */
+    @Synchronized
+    fun runningSince(): OffsetDateTime? = startedAt?.takeIf { runningClient() != null }
 
     /** Closes the running instance where the settings no longer describe it. */
     @Synchronized
@@ -72,6 +85,7 @@ class LocalTin(private val settings: TinSettings) : DisposableBean {
     private fun stop() {
         val held = running ?: return
         running = null
+        startedAt = null
         runCatching { held.second.close() }.onFailure { log.warn("The local tin did not close cleanly", it) }
         log.info("Local tin stopped")
     }

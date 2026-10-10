@@ -176,15 +176,29 @@ class Bulkheads(
         val results = conversation.indices.filter { conversation[it].respondingTo != null }
         for (at in results) {
             val one = conversation[at]
-            if (one.content.length > longest) {
+            /*
+             * Not twice. A result already cut is longer than the limit by its
+             * own note, so it was cut again on every round - the same text with
+             * a different count in the note - and the request stopped extending
+             * the last one there, which is what a provider caching the prompt
+             * by its prefix needs it to do.
+             */
+            if (one.content.length > longest && CUT_MARK !in one.content) {
                 conversation[at] = one.copy(content = cut(one.content, longest))
                 changed += 1
             }
         }
         val budget = asked.turnMemoryMb.toLong() * 1024 * 1024
         var held = results.sumOf { conversation[it].content.length.toLong() }
+        /*
+         * Once over, down to half rather than just under. Dropping only what
+         * tipped it over drops one more result on every round from then on,
+         * each changing the request at a new place; dropping to half changes
+         * it once and leaves room for the rounds after.
+         */
+        val target = if (held > budget) budget / 2 else budget
         for (at in results.dropLast(1)) {
-            if (held <= budget) break
+            if (held <= target) break
             val one = conversation[at]
             if (one.content.startsWith(DROPPED)) continue
             val note = "$DROPPED ${one.content.length} characters, to keep this turn within the memory it may " +
@@ -197,7 +211,7 @@ class Bulkheads(
     }
 
     private fun cut(said: String, longest: Int): String =
-        said.take(longest) + "\n[${said.length - longest} more characters of this result were not kept: one " +
+        said.take(longest) + "\n[${said.length - longest}$CUT_MARK " +
             "tool result may hold ${longest / 1024} KB in a turn. Ask for less - a narrower query, fewer pages - " +
             "rather than calling it the same way again.]"
 
@@ -226,6 +240,9 @@ class Bulkheads(
             TURNS_ENABLED, TURNS_AT_ONCE, TURN_WAIT_SECONDS, HEAP_ENABLED, HEAP_PERCENT,
             MEMORY_ENABLED, TURN_MEMORY_MB, TOOL_RESULT_KB,
         )
+
+        /** What a cut result says, so a second pass leaves it alone. */
+        const val CUT_MARK = " more characters of this result were not kept: one"
 
         /** How a dropped result begins, so a second pass leaves it alone. */
         const val DROPPED = "[This tool result was dropped:"

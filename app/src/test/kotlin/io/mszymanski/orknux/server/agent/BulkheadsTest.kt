@@ -140,6 +140,12 @@ class BulkheadsTest(
         assertThat(turns[4].content).startsWith("y".repeat(100)).contains("more characters of this result were not kept")
         assertThat(turns.filter { it.respondingTo != null }.sumOf { it.content.length }).isLessThanOrEqualTo(1024 * 1024)
 
+        // And the next round leaves it as it was: a result cut once is not cut
+        // again with a new count, so the request still extends the last one.
+        val before = turns.toList()
+        assertThat(bulkheads.bound(turns)).isZero()
+        assertThat(turns).isEqualTo(before)
+
         // Off, nothing is touched.
         bulkheads.save(BulkheadValues.DEFAULT.copy(memoryEnabled = false), "alice")
         val untouched = mutableListOf(ChatTurn("user", "z".repeat(2 * 1024 * 1024), respondingTo = "e"))

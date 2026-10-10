@@ -18,6 +18,7 @@ import io.mszymanski.orknux.orktin.model.Source
 import io.mszymanski.orknux.orktin.model.UpdateSessionRequest
 import io.mszymanski.orknux.server.agent.Agent
 import io.mszymanski.orknux.server.llm.LlmSessionStore
+import io.mszymanski.orknux.server.security.WebProperties
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
 import io.mszymanski.orknux.workflow.script.StoredKind
@@ -66,6 +67,8 @@ class TinTools(
     private val store: LlmSessionStore,
     private val auditRecorder: WorkspaceAuditRecorder,
     private val mapper: ObjectMapper,
+    private val sessionLog: TinSessionLog,
+    private val web: WebProperties,
 ) {
 
     /** Offered while the agent holds any tin label. */
@@ -178,7 +181,7 @@ class TinTools(
         val request = CreateSessionRequest(
             runtime = args.text("runtime"),
             image = args.text("image"),
-            env = args.stringMap("env").orEmpty(),
+            env = args.stringMap("variables").orEmpty(),
             network = args.text("network"),
             caches = args.strings("caches").orEmpty(),
             ttlSeconds = args.long("ttl_seconds"),
@@ -190,7 +193,8 @@ class TinTools(
             ),
             source = gitUrl?.let { Source(GitSource(url = it, ref = args.text("git_ref"), depth = args.long("git_depth")?.toInt())) },
         )
-        val opened = tins.client(tin).create(request)
+        val client = tins.client(tin)
+        val opened = client.create(request)
         val row = sessions.save(
             TinSession(
                 workspaceId = agent.workspaceId,
@@ -212,6 +216,7 @@ class TinTools(
             "Tin session ${row.id} opened on ${tin.name} by ${agent.name}",
             agent.name,
         )
+        sessionLog.recordQuietly(row, client)
         return answer(
             described(row, opened) + buildMap {
                 if (opened.status == "failed") {
@@ -220,7 +225,13 @@ class TinTools(
                     put(
                         "note",
                         "Use session ${row.id} with the other tin tools. Paths are relative to the workspace root. " +
-                            "Close it with tin_close when you are done; it is stopped by itself when it expires or sits idle.",
+                            "Close it with tin_close when you are done; it is stopped by itself when it expires or sits idle. " +
+                            "In your next message to the person you are working for, once, send them `url` so they can " +
+                            "watch the commands as they run: one sentence in their language saying you started a tin session " +
+                            "and naming in a few words what you will do in it, the words for the session being the link - " +
+                            "\"I've started a [tin session](url) where I'll implement the requested changes.\", in Polish " +
+                            "\"Rozpocząłem [sesję w puszce](url), będę tam implementował wymagane zmiany projektowe.\" " +
+                            "In the thread they are following, as that place writes a link: in Slack <url|sesję w puszce>.",
                     )
                 }
             },
@@ -245,9 +256,13 @@ class TinTools(
 
     private fun close(agent: Agent, args: JsonNode, sessionId: Long?): String {
         val held = held(agent, args, sessionId)
+        // Before the stop, while the tin still has every event to give.
+        sessionLog.recordQuietly(held.row, held.client)
         val stopped = held.client.stop(held.row.remoteSessionId)
         held.row.closedAt = OffsetDateTime.now()
         remember(held.row, stopped.status)
+        // And after it, for what stopping it finished.
+        sessionLog.recordQuietly(held.row, held.client)
         auditRecorder.recordAutomated(
             agent.workspaceId,
             WorkspaceAuditCategory.AGENT,
@@ -265,6 +280,7 @@ class TinTools(
         if (ttl == null && idle == null) throw Refused("Say ttl_seconds, idle_timeout_seconds, or both")
         val updated = held.client.update(held.row.remoteSessionId, UpdateSessionRequest(ttlSeconds = ttl, idleTimeoutSeconds = idle))
         remember(held.row, updated.status)
+        sessionLog.recordQuietly(held.row, held.client)
         return answer(described(held.row, updated))
     }
 
@@ -280,7 +296,7 @@ class TinTools(
             command = command,
             argv = argv,
             cwd = args.text("cwd"),
-            env = args.stringMap("env").orEmpty(),
+            env = args.stringMap("variables").orEmpty(),
             stdin = args.rawText("stdin"),
             interactive = args.bool("interactive") ?: false,
             timeoutSeconds = args.long("timeout_seconds") ?: settings.commandTimeoutSeconds().toLong(),
@@ -289,7 +305,7 @@ class TinTools(
             maxOutputBytes = settings.outputBytes(),
         )
         val ran = held.client.execute(held.row.remoteSessionId, request)
-        touch(held.row)
+        touch(held)
         return answer(executed(held.row, ran))
     }
 
@@ -297,7 +313,7 @@ class TinTools(
         val held = held(agent, args, sessionId)
         val wait = args.long("wait_seconds")?.coerceIn(0, MOST_WAIT_SECONDS)
         val seen = held.client.execution(held.row.remoteSessionId, executionOf(args), wait, settings.outputBytes())
-        touch(held.row)
+        touch(held)
         return answer(executed(held.row, seen))
     }
 
@@ -312,7 +328,7 @@ class TinTools(
             args.long("offset")?.coerceAtLeast(0) ?: 0,
             (args.long("limit")?.toInt() ?: most).coerceIn(1, most),
         )
-        touch(held.row)
+        touch(held)
         return answer(
             mapOf(
                 "stream" to stream,
@@ -330,14 +346,14 @@ class TinTools(
         val text = args.rawText("text") ?: throw Refused("Say what text to send")
         val close = args.bool("close") ?: false
         held.client.stdin(held.row.remoteSessionId, executionOf(args), text, close)
-        touch(held.row)
+        touch(held)
         return answer(mapOf("sent" to text.toByteArray().size, "closed" to close))
     }
 
     private fun signal(agent: Agent, args: JsonNode, sessionId: Long?): String {
         val held = held(agent, args, sessionId)
         val signalled = held.client.signal(held.row.remoteSessionId, executionOf(args), args.text("signal") ?: "TERM")
-        touch(held.row)
+        touch(held)
         return answer(executed(held.row, signalled))
     }
 
@@ -353,7 +369,7 @@ class TinTools(
             args.bool("include_hidden") ?: false,
             (args.long("limit")?.toInt() ?: DEFAULT_LIST).coerceIn(1, MOST_LIST),
         )
-        touch(held.row)
+        touch(held)
         return answer(
             mapOf(
                 "path" to listing.path,
@@ -367,7 +383,7 @@ class TinTools(
         val held = held(agent, args, sessionId)
         val path = args.text("path") ?: throw Refused("Say which file to read")
         val file = held.client.read(held.row.remoteSessionId, path, args.long("start_line")?.toInt(), args.long("end_line")?.toInt())
-        touch(held.row)
+        touch(held)
         if (!file.text) {
             return answer(
                 mapOf(
@@ -400,7 +416,7 @@ class TinTools(
         val path = args.text("path") ?: throw Refused("Say which file to write")
         val content = args.rawText("content") ?: throw Refused("Say what to write; an empty string writes an empty file")
         val written = held.client.write(held.row.remoteSessionId, path, content.toByteArray(), args.text("mode"))
-        touch(held.row)
+        touch(held)
         return answer(mapOf("path" to written.path, "size" to written.size, "etag" to written.etag))
     }
 
@@ -420,14 +436,14 @@ class TinTools(
             }
             ?: throw Refused("Give edits: an array of {old_text, new_text, replace_all}")
         val result = held.client.edit(held.row.remoteSessionId, EditRequest(path, edits))
-        touch(held.row)
+        touch(held)
         return answer(mapOf("path" to result.path, "size" to result.size, "etag" to result.etag, "replacements" to result.replacements))
     }
 
     private fun stat(agent: Agent, args: JsonNode, sessionId: Long?): String {
         val held = held(agent, args, sessionId)
         val found = held.client.stat(held.row.remoteSessionId, args.text("path") ?: "")
-        touch(held.row)
+        touch(held)
         return answer(entry(found))
     }
 
@@ -435,7 +451,7 @@ class TinTools(
         val held = held(agent, args, sessionId)
         val path = args.text("path") ?: throw Refused("Say what to delete")
         held.client.delete(held.row.remoteSessionId, path, args.bool("recursive") ?: false)
-        touch(held.row)
+        touch(held)
         return answer(mapOf("path" to path, "deleted" to true))
     }
 
@@ -444,7 +460,7 @@ class TinTools(
         val from = args.text("from") ?: throw Refused("Say what to move: from")
         val to = args.text("to") ?: throw Refused("Say where to move it: to")
         held.client.move(held.row.remoteSessionId, MoveRequest(from, to, args.bool("overwrite") ?: false))
-        touch(held.row)
+        touch(held)
         return answer(mapOf("from" to from, "to" to to, "moved" to true))
     }
 
@@ -496,7 +512,7 @@ class TinTools(
         } else {
             held.client.search(held.row.remoteSessionId, request)
         }
-        touch(held.row)
+        touch(held)
         return answer(
             mapOf(
                 "matches" to found.matches.map { match ->
@@ -523,7 +539,7 @@ class TinTools(
             (args.long("limit")?.toInt() ?: DEFAULT_LOG).coerceIn(1, MOST_LOG),
             args.strings("types")?.takeIf { it.isNotEmpty() }?.toSet(),
         )
-        touch(held.row)
+        touch(held)
         return answer(
             mapOf(
                 "events" to page.events.map { event ->
@@ -542,7 +558,7 @@ class TinTools(
         val path = args.text("path")
         val key = args.text("key") ?: "tin.${held.row.id}.archive"
         val bytes = held.client.exportArchive(held.row.remoteSessionId, path)
-        touch(held.row)
+        touch(held)
         store.put(conversation, key, mapper.writeValueAsString(Base64.getEncoder().encodeToString(bytes)), StoredKind(ARCHIVE_TYPE, true))
             ?.let { throw Refused("The archive could not be kept: $it") }
         return answer(
@@ -566,7 +582,7 @@ class TinTools(
             ?: throw Refused("$key does not hold the bytes of a file")
         val path = args.text("path")
         held.client.importArchive(held.row.remoteSessionId, path, bytes)
-        touch(held.row)
+        touch(held)
         return answer(mapOf("key" to key, "bytes" to bytes.size, "unpackedInto" to (path ?: "the workspace root")))
     }
 
@@ -592,9 +608,16 @@ class TinTools(
         return tins.client(tin)
     }
 
-    private fun touch(row: TinSession) {
-        row.lastUsedAt = OffsetDateTime.now()
-        sessions.save(row)
+    /**
+     * Marks the session used, and copies what its log gained into this side's
+     * record of it - so a conversation can still show what was run after the
+     * tin has forgotten the session. A copy that fails fails quietly: the call
+     * that ran is the agent's answer, and the next call copies again.
+     */
+    private fun touch(held: Held) {
+        held.row.lastUsedAt = OffsetDateTime.now()
+        sessions.save(held.row)
+        sessionLog.recordQuietly(held.row, held.client)
     }
 
     private fun remember(row: TinSession, status: String) {
@@ -620,7 +643,17 @@ class TinTools(
             put("commandsRunning", session.executions.running)
         }
         put("openedAt", row.createdAt.toString())
+        put("url", linkOf(row))
     }
+
+    /**
+     * The conversation's page with this session open, where a person can
+     * watch its commands as they run. Absolute, because it is handed to a
+     * model that pastes it somewhere with no address of its own.
+     */
+    private fun linkOf(row: TinSession): String =
+        web.baseUrl.trim().trimEnd('/').ifEmpty { "http://localhost:5173" } +
+            "/workspace/${row.workspaceId}/sessions/${row.llmSessionId}?tin=${row.id}"
 
     private fun executed(row: TinSession, ran: ExecutionDto): Map<String, Any?> = buildMap {
         put("session", row.id)
@@ -798,7 +831,7 @@ class TinTools(
                     number("git_depth", "A shallow clone of this many commits; the full history otherwise."),
                     names("caches", "Shared dependency caches to mount, such as maven, gradle or npm (docker only)."),
                     text("network", "full or none (docker only)."),
-                    pairs("env", "Environment variables for every command in the session."),
+                    pairs("variables", "Environment variables set for every command in the session, as name: value."),
                     number("ttl_seconds", "How long the session may live; the tin's default otherwise."),
                     number("idle_timeout_seconds", "How long it may sit unused before it is stopped."),
                     pairs("labels", "Labels to put on the session, for your own bookkeeping."),
@@ -836,7 +869,7 @@ class TinTools(
                     text("command", "The command line, run through the runtime's shell, so pipes and && work."),
                     names("argv", "Or the program and its arguments, run without a shell."),
                     text("cwd", "The directory to run in, relative to the workspace root; the root otherwise."),
-                    pairs("env", "Environment variables for this command."),
+                    pairs("variables", "Environment variables set for this command only, as name: value."),
                     text("stdin", "Text written to its standard input, which is then closed."),
                     flag("interactive", "Keep standard input open for tin_stdin."),
                     number("timeout_seconds", "Stop it after this long; the installation's default otherwise."),

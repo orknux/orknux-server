@@ -97,6 +97,8 @@ class WatcherFollowUp(
     private val finishing: FinishAnswerTools,
     private val expressions: NodeExpressions,
     private val runs: ObjectProvider<ExecutionService>,
+    /** What the session's model was sent, sent again as it was; see [SessionPrompt]. */
+    private val prompt: io.mszymanski.orknux.server.llm.SessionPrompt,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -189,11 +191,11 @@ class WatcherFollowUp(
             ?: return null.also { log.info("{} has no model, so its watcher #{} wakes nobody", agent.name, watcher.id) }
 
         val budget = budgets.budget(agent.memoryShare, agent.workspaceId, modelId)
-        val system = listOfNotNull(
-            briefing.of(agent),
-            notes.recalled(session).takeIf { it.isNotBlank() },
-            todos.recalled(session).takeIf { it.isNotBlank() },
-        ).joinToString("\n\n")
+        // The briefing alone: notes and the plan go at the head of a
+        // conversation started from the log, not into the system turn, where
+        // writing one changed every message after it. See [SessionPrompt].
+        val system = briefing.of(agent).orEmpty()
+        val sent = prompt.history(session, budgets.promptCeiling(agent.memoryShare, agent.workspaceId, modelId))
         // The step the agent set the watcher from, which is where its answer goes.
         val step = agent.id?.let { steps.findFirstBySessionIdAndAgentIdOrderByIdDesc(session, it) }
         val mayFinish = agent.finishAccess && step?.outputObjectId == null
@@ -206,7 +208,14 @@ class WatcherFollowUp(
          * writes it into the session, so a retry reads it from there; the
          * reminder is said again on every attempt and recorded on none.
          */
-        val history = sessions.remembered(session, budget) + sessions.recalled(session, budget)
+        val history = sent ?: (
+            listOfNotNull(
+                listOfNotNull(
+                    notes.recalled(session).takeIf { it.isNotBlank() },
+                    todos.recalled(session).takeIf { it.isNotBlank() },
+                ).takeIf { it.isNotEmpty() }?.let { ChatTurn("user", it.joinToString("\n\n")) },
+            ) + sessions.remembered(session, budget) + sessions.recalled(session, budget)
+            )
         val arrived = inbox.take(session)
         val said = buildList {
             add(ChatTurn("system", system))

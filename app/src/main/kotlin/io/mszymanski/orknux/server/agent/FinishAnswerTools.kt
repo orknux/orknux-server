@@ -206,7 +206,14 @@ class FinishAnswerTools(private val mapper: ObjectMapper) {
             "again, so write what to do then - the next round, and when to stop - not what you have done. " +
             "Asked for something open-ended, like every five seconds, do it for as many waits as are left " +
             "and say where it will stop, rather than saying you cannot. " +
-            "This run has ${sleeping.left} of those left, and one may be up to " +
+            /*
+             * The run's allowance rather than what is left of it: a count that
+             * went down by one on every wake changed the tools array on every
+             * wake, and a provider caching the prompt by its prefix read the
+             * whole conversation again each time. Running out is still said -
+             * this tool stops offering the wait when none are left.
+             */
+            "A run allows ${sleeping.left + sleeping.spent} of those, and one may be up to " +
             "${sleeping.longest.toMillis()} ms. " +
             "Every call says which: `$WAKE` is $NEVER when the work is over, and a number whenever anything " +
             "you said you would do - a check, a follow-up, the next round - is still to come.",

@@ -144,10 +144,14 @@ fun interface Interjections {
  * conclusion and hands back the one thing the caller wanted — what the agent
  * finally said.
  *
- * The intermediate turns are deliberately not written to the history. What is
- * kept is the conversation somebody had; that an agent read three skills on the
- * way to an answer is how it worked, not what was said, and putting it in the
- * thread would mean every later round re-reads it and pays for it again.
+ * The intermediate turns are not written to a chat's thread, which is the
+ * conversation somebody had. They are kept for the model, though, where the
+ * round has a session: every request is written to
+ * [io.mszymanski.orknux.server.llm.SessionPrompt] just before it goes, so the
+ * next turn sends exactly what this one sent and adds to it. A later turn that
+ * re-reads three skill pages it already read costs a provider with a prompt
+ * cache next to nothing; a later turn that rebuilt the conversation without
+ * them made the provider read the whole of it again.
  *
  * No transaction is held while this runs. It calls a model repeatedly and can
  * take minutes; a database connection held for that long is one nobody else has.
@@ -188,6 +192,13 @@ class AgentConversation(
     private val inbox: io.mszymanski.orknux.server.llm.SessionInbox,
     /** The walls between one turn and the rest of the server; see [io.mszymanski.orknux.server.agent.Bulkheads]. #616. */
     private val bulkheads: io.mszymanski.orknux.server.agent.Bulkheads,
+    /**
+     * What the session's model was sent, kept so the next turn sends it again
+     * exactly; see [io.mszymanski.orknux.server.llm.SessionPrompt]. Written
+     * here and nowhere else, just before each call, so what is kept is what
+     * went.
+     */
+    private val prompt: io.mszymanski.orknux.server.llm.SessionPrompt,
 ) {
 
     /**
@@ -466,6 +477,13 @@ class AgentConversation(
         }
 
         var offered = offering()
+        /*
+         * This turn's record of what it sends, for a turn kept in a session.
+         * Every request below is written to it just before it goes, and the
+         * final answer after it lands, so the next turn starts from exactly
+         * what the model has already read rather than from a rebuild of it.
+         */
+        val kept = into?.let { prompt.turn(it) }
         /** How many finds were last written down; see the loop. */
         var recorded = found.size
         if (offered.isEmpty()) {
@@ -476,6 +494,7 @@ class AgentConversation(
              * Told at the end only where it was not streamed, or the thinking
              * would be drawn twice.
              */
+            kept?.sent(told)
             val once = if (watch == null) {
                 models.complete(modelId, told, hangup = hangup).also { told(watch, it) }
             } else {
@@ -486,7 +505,9 @@ class AgentConversation(
                     hangup = hangup,
                 ) { watch.answering() }
             }
-            return once.also { record(into, agent, it) }
+            record(into, agent, once)
+            if (once is ChatCompletion.Answered) kept?.sent(told + ChatTurn(role = "assistant", content = once.content))
+            return once
         }
 
         val conversation = told.toMutableList()
@@ -698,6 +719,8 @@ class AgentConversation(
              * chat — a task's loop, a workflow's agent — on the path they were
              * already on.
              */
+            // Kept as it goes: this request is the next turn's prefix.
+            kept?.sent(conversation)
             // The hangup reaches the blocking call as well as the stream: a
             // workflow's agent node is stopped this way, and most of them keep
             // no session and so nobody watching. Issue #440.
@@ -823,15 +846,21 @@ class AgentConversation(
                         arrived.forEach { conversation += ChatTurn(role = "user", content = it) }
                         return@repeat
                     }
-                    return answer
-                        .copy(
-                            millis = spent + answer.millis,
-                            inputTokens = input + answer.inputTokens,
-                            outputTokens = output + answer.outputTokens,
-                            reasoning = thinking.toString(),
-                            reasoningMillis = thoughtFor,
-                        )
-                        .also { record(into, agent, it) }
+                    val whole = answer.copy(
+                        millis = spent + answer.millis,
+                        inputTokens = input + answer.inputTokens,
+                        outputTokens = output + answer.outputTokens,
+                        reasoning = thinking.toString(),
+                        reasoningMillis = thoughtFor,
+                    )
+                    record(into, agent, whole)
+                    /*
+                     * And the answer onto what was sent, after it is recorded,
+                     * so the next turn starts where this one ended and adds
+                     * only what was said in the log after it.
+                     */
+                    kept?.sent(conversation + ChatTurn(role = "assistant", content = answer.content))
+                    return whole
                 }
 
                 is ChatCompletion.CalledTools -> {
@@ -1098,6 +1127,12 @@ class AgentConversation(
                             val ended = AuditRedaction.redactObvious(halted.message.orEmpty())
                             sessions.toolReturned(line, ended)
                             watch?.returned(here, ended, failed = false)
+                            /*
+                             * Kept with every call of the message answered: the
+                             * next turn sends this again, and a call with no
+                             * answer under it is a request providers refuse.
+                             */
+                            kept?.sent(closed(conversation, call.id, halted.message.orEmpty()))
                             throw halted
                         }
                         // Remembered only once it loaded: a refusal is not a page to point at.
@@ -1500,6 +1535,28 @@ class AgentConversation(
         // disagree about it. Issue #454.
         return turns.mapIndexed { index, turn ->
             if (index == system) turn.copy(content = requireNotNull(briefedWith(turn.content, advice))) else turn
+        }
+    }
+
+    /**
+     * The conversation with every call of its last assistant message answered,
+     * for a turn a lent tool ended part-way through a batch. The call that ended
+     * it answers with what it said; any after it were never run, and say so.
+     */
+    private fun closed(conversation: List<ChatTurn>, ending: String, said: String): List<ChatTurn> {
+        val asking = conversation.indexOfLast { it.asked.isNotEmpty() }
+        if (asking < 0) return conversation
+        val answered = conversation.drop(asking + 1).mapNotNull { it.respondingTo }.toSet()
+        return conversation + conversation[asking].asked.filter { it.id !in answered }.map { call ->
+            ChatTurn(
+                role = "user",
+                content = if (call.id == ending) {
+                    said
+                } else {
+                    refusalAnswer(call, "This call was not run: the turn ended before it.", emptyMap())
+                },
+                respondingTo = call.id,
+            )
         }
     }
 

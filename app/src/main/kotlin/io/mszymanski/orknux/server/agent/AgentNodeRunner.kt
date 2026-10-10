@@ -108,6 +108,8 @@ class AgentNodeRunner(
     private val inbox: io.mszymanski.orknux.server.llm.SessionInbox,
     /** Asks the step's agent made that are still running; through a provider for the usual cycle. */
     private val asks: org.springframework.beans.factory.ObjectProvider<io.mszymanski.orknux.server.chat.AgentRunTools>,
+    /** What the session's model was sent, sent again as it was; see [io.mszymanski.orknux.server.llm.SessionPrompt]. */
+    private val prompts: io.mszymanski.orknux.server.llm.SessionPrompt,
 ) : NodeRunner {
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
@@ -478,7 +480,20 @@ class AgentNodeRunner(
                         "This conversation had grown too long to carry, so its first " + done.replaced +
                             " turns were replaced by a summary of them.",
                     )
+                    // And what the model was sent goes with them: the summary
+                    // is where the next request starts.
+                    prompts.reset(held)
                 }
+        }
+
+        /*
+         * What this session's model has already been sent, to send again
+         * exactly and add to - or null, and the turns are built from the log
+         * below as they always were. See [SessionPrompt]: a provider caching
+         * the prompt by its prefix then reads only what is new.
+         */
+        val sent = session?.let {
+            prompts.history(it, budgets.promptCeiling(agent.memoryShare, agent.workspaceId, modelId))
         }
 
         /*
@@ -487,7 +502,7 @@ class AgentNodeRunner(
          * attempt recorded the question before asking, so the session already
          * ends with it, and the turns below add it again. Issue #601.
          */
-        val remembered = session?.let { sessions.remembered(it, budget) }.orEmpty().let { turns ->
+        val remembered = if (sent != null) emptyList() else session?.let { sessions.remembered(it, budget) }.orEmpty().let { turns ->
             val last = turns.lastOrNull()
             if (step.attempts > 1 && last?.role == "user" && last.content == question) turns.dropLast(1) else turns
         }
@@ -503,7 +518,7 @@ class AgentNodeRunner(
          * Last, so the freshest thing in the prompt is the thing most likely to
          * be what the question is about.
          */
-        val recalled = session?.let { sessions.recalled(it, budget) }.orEmpty()
+        val recalled = if (sent != null) emptyList() else session?.let { sessions.recalled(it, budget) }.orEmpty()
 
         /*
          * Pictures somebody attached to what is being answered.
@@ -524,22 +539,31 @@ class AgentNodeRunner(
         /*
          * And what it wrote down for itself, put back whole. Issue #371.
          *
-         * In the system turn beside the briefing rather than among the
-         * remembered turns, because those are what the budget trims and a note
-         * is the thing that must survive that. Empty where nothing was written,
-         * which is most turns.
+         * Where a conversation is started from the log, at its head - not in
+         * the system turn, where it was, because a note written changed the
+         * system turn and with it every message after it, which a provider
+         * caching the prompt by its prefix then read again. A note written in
+         * a turn is already in what was sent, as the call that wrote it; this
+         * puts them all back where what was sent had to be started again,
+         * which is where the turns that held them were dropped. Null where
+         * nothing was written, which is most turns.
          */
-        val written = notes.recalled(session)
-        // The plan it is working down, put back beside its notes. Issue #405.
-        val planned = todos.recalled(session)
+        val standing = if (sent != null) null else standingOf(session)
+
+        /*
+         * Not asked twice: another attempt at a step whose first attempt sent
+         * the question and got no further. Issue #601.
+         */
+        val askedAlready = step.attempts > 1 &&
+            sent?.lastOrNull()?.let { it.role == "user" && it.respondingTo == null && it.content == question } == true
 
         val turns = buildList {
-            listOfNotNull(instructed, written.takeIf { it.isNotBlank() }, planned.takeIf { it.isNotBlank() })
-                .takeIf { it.isNotEmpty() }
-                ?.let { add(ChatTurn("system", it.joinToString(separator = "\n\n"))) }
+            instructed?.let { add(ChatTurn("system", it)) }
+            standing?.let { add(ChatTurn("user", it)) }
+            sent?.let { addAll(it) }
             addAll(remembered)
             addAll(recalled)
-            add(ChatTurn("user", question, images = pictures))
+            if (!askedAlready) add(ChatTurn("user", question, images = pictures))
         }
 
         /*
@@ -715,6 +739,16 @@ class AgentNodeRunner(
             )
         }
     }
+
+    /**
+     * What the agent wrote down for itself and the plan it is working down, as
+     * one block, or null where there is neither. Issues #371, #405.
+     */
+    private fun standingOf(session: Long?): String? =
+        listOfNotNull(
+            notes.recalled(session).takeIf { it.isNotBlank() },
+            todos.recalled(session).takeIf { it.isNotBlank() },
+        ).takeIf { it.isNotEmpty() }?.joinToString(separator = "\n\n")
 
     /**
      * Runs [body] with [hangup] pulled if the run is asked to stop meanwhile.

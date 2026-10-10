@@ -83,7 +83,7 @@ class Tins(
     fun requestTimeout(): Duration = Duration.ofSeconds(settings.requestTimeoutSeconds().toLong())
 
     private fun localTin(): KnownTin? =
-        if (local.enabled()) KnownTin(LOCAL_TIN_ID, LOCAL_TIN_NAME, TinKind.LOCAL, settings.localLabel()) else null
+        if (local.enabled()) KnownTin(LOCAL_TIN_ID, LOCAL_TIN_NAME, TinKind.LOCAL, LOCAL_TIN_LABEL) else null
 
     private fun known(row: Tin) = KnownTin(requireNotNull(row.id).toString(), row.name, TinKind.REMOTE, row.label, row)
 

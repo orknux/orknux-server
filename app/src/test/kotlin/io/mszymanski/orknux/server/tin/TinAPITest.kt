@@ -35,6 +35,10 @@ class TinAPITest(
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val proxyRules: io.mszymanski.orknux.connector.proxy.ProxyRuleRepository,
     @Autowired val router: io.mszymanski.orknux.connector.proxy.ProxyRouter,
+    @Autowired val sessions: TinSessionRepository,
+    @Autowired val events: TinSessionEventRepository,
+    @Autowired val outputs: TinSessionOutputRepository,
+    @Autowired val recorder: io.mszymanski.orknux.server.llm.LlmSessionRecorder,
 ) {
 
     private val stub = StubOrktin()
@@ -152,26 +156,30 @@ class TinAPITest(
             "TinAddressInvalid", mapOf("address" to "ftp://somewhere"),
         )
         refusedWith("""mutation { createTin(input: { name: "other" }) { id } }""", "TinAddressInvalid")
+        refusedWith("""mutation { createTin(input: { name: "other", address: "http://other.invalid" }) { id } }""", "TinLabelRequired")
+        refusedWith("""mutation { createTin(input: { name: "other", address: "http://other.invalid", label: "  " }) { id } }""", "TinLabelRequired")
+
+        val held = create("revealed", token = "change-me")
+        graphQlTester.document("""mutation { revealTinToken(id: "$held") }""").execute()
+            .path("revealTinToken").entity(String::class.java).isEqualTo("change-me")
+        assertThat(messages()).contains("Token for tin revealed revealed")
         refusedWith("""mutation { updateTin(id: "999999", input: { name: "x" }) { id } }""", "TinNotFound", mapOf("id" to "999999"))
         refusedWith("""mutation { deleteTin(id: "local") }""", "LocalTinNotRemovable")
         refusedWith("""{ tinInfo(id: "999999") { name } }""", "TinNotFound")
     }
 
     @Test
-    fun `the local tin's label is the only thing the screen can change about it`() {
+    fun `the local tin cannot be changed, and its label is always local`() {
         graphQlTester.document(
-            """mutation { updateTin(id: "local", input: { name: "local", label: "sandbox", address: "http://x" }) { id name label address } }""",
-        ).execute().also {
-            it.path("updateTin.name").entity(String::class.java).isEqualTo("local")
-            it.path("updateTin.label").entity(String::class.java).isEqualTo("sandbox")
-            it.path("updateTin.address").valueIsNull()
+            """mutation { updateTin(id: "local", input: { name: "local", label: "sandbox" }) { id } }""",
+        ).execute().errors().satisfy { errors ->
+            assertThat(errors).hasSize(1)
+            assertThat(errors[0].extensions["code"]).isEqualTo("LocalTinNotEditable")
         }
+        graphQlTester.document("""{ tin(id: "local") { label } }""").execute().path("tin.label").entity(String::class.java)
+            .isEqualTo("local")
         graphQlTester.document("{ tinLabels }").execute().path("tinLabels").entityList(String::class.java)
-            .containsExactly("sandbox")
-
-        graphQlTester.document("""mutation { updateTin(id: "local", input: { name: "local", label: null }) { label } }""")
-            .execute().path("updateTin.label").valueIsNull()
-        assertThat(messages()).contains("Local tin label set to sandbox", "Local tin label cleared")
+            .containsExactly("local")
     }
 
     @Test
@@ -179,7 +187,6 @@ class TinAPITest(
         create("b", label = "zeta")
         create("c", label = "alpha")
         create("d", label = "zeta")
-        create("e", label = null)
         graphQlTester.document("{ tinLabels }").execute().path("tinLabels").entityList(String::class.java)
             .containsExactly("alpha", "local", "zeta")
     }
@@ -205,11 +212,13 @@ class TinAPITest(
         info.path("tinInfo.runtimes[0].defaultCpus").entity(Double::class.java).isEqualTo(2.0)
         info.path("tinInfo.runtimes[0].maxMemoryMb").entity(Int::class.java).isEqualTo(16384)
 
-        graphQlTester.document("""{ tinSessions(id: "$id") { id status labels runningExecutions totalExecutions } }""").execute()
+        graphQlTester.document("""{ tinSessions(id: "$id") { id status labels runningExecutions totalExecutions orknuxSessionId } }""").execute()
             .also {
                 it.path("tinSessions[0].id").entity(String::class.java).isEqualTo("ses_1")
                 it.path("tinSessions[0].labels").entity(String::class.java).isEqualTo("""{"orknux.agent":"7"}""")
                 it.path("tinSessions[0].runningExecutions").entity(Int::class.java).isEqualTo(1)
+                // Nobody here opened it.
+                it.path("tinSessions[0].orknuxSessionId").valueIsNull()
             }
         assertThat(stub.asked.filter { it.second.startsWith("/v1/") }).allMatch { it.third == "Bearer change-me" }
 
@@ -301,7 +310,8 @@ class TinAPITest(
                 localTinMaxSessions localTinMaxSessionsConfigured localTinDefaultTtlSeconds localTinDefaultTtlSecondsConfigured
                 localTinMaxTtlSeconds localTinMaxTtlSecondsConfigured localTinIdleTimeoutSeconds localTinIdleTimeoutSecondsConfigured
                 tinCommandWaitSeconds tinCommandWaitSecondsConfigured tinCommandTimeoutSeconds tinCommandTimeoutSecondsConfigured
-                tinOutputBytes tinOutputBytesConfigured tinRequestTimeoutSeconds tinRequestTimeoutSecondsConfigured } }""",
+                tinOutputBytes tinOutputBytesConfigured tinRequestTimeoutSeconds tinRequestTimeoutSecondsConfigured
+                localTinOutputKeptBytes localTinOutputKeptBytesConfigured tinOutputShownBytes tinOutputShownBytesConfigured } }""",
         ).execute()
         defaults.path("installationSettings.localTinEnabled").entity(Boolean::class.java).isEqualTo(true)
         defaults.path("installationSettings.localTinLocation").valueIsNull()
@@ -311,7 +321,8 @@ class TinAPITest(
         mapOf(
             "localTinMaxSessions" to 50, "localTinDefaultTtlSeconds" to 7200, "localTinMaxTtlSeconds" to 86400,
             "localTinIdleTimeoutSeconds" to 900, "tinCommandWaitSeconds" to 300, "tinCommandTimeoutSeconds" to 1800,
-            "tinOutputBytes" to 65536, "tinRequestTimeoutSeconds" to 30,
+            "tinOutputBytes" to 65536, "tinRequestTimeoutSeconds" to 30, "localTinOutputKeptBytes" to 1048576,
+            "tinOutputShownBytes" to 4194304,
         ).forEach { (field, value) ->
             defaults.path("installationSettings.$field").entity(Int::class.java).isEqualTo(value)
             defaults.path("installationSettings.${field}Configured").entity(Int::class.java).isEqualTo(value)
@@ -326,6 +337,8 @@ class TinAPITest(
             Knob("setTinCommandWaitSeconds", "seconds", "tinCommandWaitSeconds", 10, 0, 3601, "TinCommandWaitOutOfRange"),
             Knob("setTinCommandTimeoutSeconds", "seconds", "tinCommandTimeoutSeconds", 20, 0, 86401, "TinCommandTimeoutOutOfRange"),
             Knob("setTinOutputBytes", "bytes", "tinOutputBytes", 2048, 1023, 4194305, "TinOutputBytesOutOfRange"),
+            Knob("setLocalTinOutputKeptBytes", "bytes", "localTinOutputKeptBytes", 0, -1, 16777217, "LocalTinOutputKeptOutOfRange"),
+            Knob("setTinOutputShownBytes", "bytes", "tinOutputShownBytes", 65536, 65535, 67108865, "TinOutputShownOutOfRange"),
             Knob("setTinRequestTimeoutSeconds", "seconds", "tinRequestTimeoutSeconds", 5, 0, 601, "TinRequestTimeoutOutOfRange"),
         ).forEach { knob ->
             graphQlTester.document("mutation { ${knob.mutation}(${knob.argument}: ${knob.good}) { ${knob.field} ${knob.field}Configured } }")
@@ -350,6 +363,7 @@ class TinAPITest(
             "The local tin runs sessions with the docker runtime",
             "The local tin makes its sessions in /srv/tins",
             "A request to a tin is given up on after 5 seconds",
+            "A local tin command's output is not kept",
         )
     }
 
@@ -394,5 +408,88 @@ class TinAPITest(
         refusedWith("""mutation { testTinConnection(address: "http://x") { ok } }""", "AdminRequired")
         // The suggestions an agent's form makes are anybody's.
         graphQlTester.document("{ tinLabels }").execute().path("tinLabels").entityList(String::class.java).containsExactly("local")
+    }
+
+    @Test
+    fun `a remote tin's log and output are read live and nothing of them is kept here`() {
+        val tinId = create("builder").toLong()
+        val workspaceId = requireNotNull(workspaces.save(Workspace(name = "remote")).id)
+        val conversation = recorder.open(workspaceId, "chat", "build")
+        fun session(remote: String) = requireNotNull(
+            sessions.save(
+                TinSession(
+                    workspaceId = workspaceId,
+                    llmSessionId = conversation,
+                    tinKind = TinKind.REMOTE,
+                    tinId = tinId,
+                    tinName = "builder",
+                    agentName = "Builder",
+                    remoteSessionId = remote,
+                    status = "ready",
+                ),
+            ).id,
+        )
+        val held = session("ses_1")
+        val gone = session("ses_gone")
+        fun log(id: Long) = graphQlTester.document(
+            "{ sessionTinLog(sessionId: $conversation, sessionTinId: $id) { events { seq type } nextSeq available message } }",
+        ).execute()
+        fun output(id: Long, offset: Int = 0) = graphQlTester.document(
+            """{ sessionTinOutput(sessionId: $conversation, sessionTinId: $id, executionId: "exe_1", offset: $offset) """ +
+                "{ text offset nextOffset done available message shownLimit } }",
+        ).execute()
+
+        log(held).also {
+            it.path("sessionTinLog.events[*].type").entityList(String::class.java).containsExactly("session.created", "execution.finished")
+            it.path("sessionTinLog.nextSeq").entity(Int::class.java).isEqualTo(2)
+            it.path("sessionTinLog.available").entity(Boolean::class.java).isEqualTo(true)
+            it.path("sessionTinLog.message").valueIsNull()
+        }
+        output(held).also {
+            it.path("sessionTinOutput.text").entity(String::class.java).isEqualTo(StubOrktin.OUTPUT)
+            it.path("sessionTinOutput.nextOffset").entity(Int::class.java).isEqualTo(StubOrktin.OUTPUT.length)
+            it.path("sessionTinOutput.done").entity(Boolean::class.java).isEqualTo(true)
+            it.path("sessionTinOutput.available").entity(Boolean::class.java).isEqualTo(true)
+        }
+        output(held).path("sessionTinOutput.shownLimit").entity(Int::class.java).isEqualTo(DEFAULT_TIN_OUTPUT_SHOWN)
+        output(gone).path("sessionTinOutput.shownLimit").entity(Int::class.java).isEqualTo(DEFAULT_TIN_OUTPUT_SHOWN)
+        output(held, 3).path("sessionTinOutput.text").entity(String::class.java).isEqualTo(StubOrktin.OUTPUT.substring(3))
+        assertThat(events.findAll().filter { it.tinSessionId == held }).isEmpty()
+        assertThat(outputs.findAll().filter { it.tinSessionId == held }).isEmpty()
+
+        log(gone).also {
+            it.path("sessionTinLog.available").entity(Boolean::class.java).isEqualTo(false)
+            it.path("sessionTinLog.message").entity(String::class.java).isEqualTo("Tin builder no longer has this session")
+        }
+        output(gone).also {
+            it.path("sessionTinOutput.available").entity(Boolean::class.java).isEqualTo(false)
+            it.path("sessionTinOutput.message").entity(String::class.java).isEqualTo("Tin builder no longer has this session")
+        }
+
+        // The Tins page lists what was recorded on it, with the tin's word
+        // where it has one - ses_gone it no longer lists, so it is stopped.
+        graphQlTester.document(
+            """{ tinSessions(id: "$tinId") { id status active runtime orknuxSessionId agentName } }""",
+        ).execute().path("tinSessions").entityList(Map::class.java).get().also { listed ->
+            assertThat(listed.map { it["id"] }).containsExactlyInAnyOrder("ses_1", "ses_gone")
+            val live = listed.single { it["id"] == "ses_1" }
+            assertThat(live["status"]).isEqualTo("ready")
+            assertThat(live["active"]).isEqualTo(true)
+            assertThat(live["runtime"]).isEqualTo("docker")
+            assertThat(live["orknuxSessionId"]).isEqualTo(conversation.toString())
+            assertThat(live["agentName"]).isEqualTo("Builder")
+            val stopped = listed.single { it["id"] == "ses_gone" }
+            assertThat(stopped["status"]).isEqualTo("stopped")
+            assertThat(stopped["active"]).isEqualTo(false)
+            assertThat(stopped["runtime"]).isNull()
+        }
+        graphQlTester.document("{ sessionTins(sessionId: $conversation) { tinLabel } }").execute()
+            .path("sessionTins[*].tinLabel").entityList(String::class.java).containsExactly("build", "build")
+
+        graphQlTester.document("""mutation { deleteTin(id: "$tinId") }""").execute()
+        graphQlTester.document("{ sessionTins(sessionId: $conversation) { tinLabel } }").execute()
+            .path("sessionTins[0].tinLabel").valueIsNull()
+        log(held).path("sessionTinLog.message").entity(String::class.java).isEqualTo("Tin builder is no longer configured")
+        output(held).path("sessionTinOutput.available").entity(Boolean::class.java).isEqualTo(false)
     }
 }

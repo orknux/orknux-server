@@ -136,6 +136,7 @@ class TinSession(
 interface TinSessionRepository : JpaRepository<TinSession, Long> {
     fun findByLlmSessionIdOrderByCreatedAtDescIdDesc(llmSessionId: Long): List<TinSession>
     fun findByTinKindAndTinIdAndClosedAtIsNull(tinKind: TinKind, tinId: Long?): List<TinSession>
+    fun findTop200ByTinKindAndTinIdOrderByCreatedAtDescIdDesc(tinKind: TinKind, tinId: Long?): List<TinSession>
 }
 
 /** The id the local tin is listed under. */

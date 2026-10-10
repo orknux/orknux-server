@@ -50,6 +50,10 @@ class TinToolsTest(
     @Autowired val lines: LlmSessionEventRepository,
     @Autowired val audit: WorkspaceAuditRepository,
     @Autowired val mapper: ObjectMapper,
+    @Autowired val events: TinSessionEventRepository,
+    @Autowired val outputs: TinSessionOutputRepository,
+    @Autowired val web: io.mszymanski.orknux.server.security.WebProperties,
+    @Autowired val jdbc: org.springframework.jdbc.core.JdbcTemplate,
 ) {
 
     @TempDir
@@ -105,9 +109,9 @@ class TinToolsTest(
         assertThat(call("tin_list").path("tins").size()).isZero()
         assertThat(call("tin_open").path("error").stringValue()).contains("No tin you may use")
 
-        settings.setLocalLabel(null, "alice")
+        tins.save(Tin(name = "unlabelled", label = null, address = "http://unlabelled.invalid"))
         agent.tinLabels = listOf("local")
-        assertThat(call("tin_open", mapOf("tin" to "local")).path("error").stringValue()).contains("may not use")
+        assertThat(call("tin_open", mapOf("tin" to "unlabelled")).path("error").stringValue()).contains("may not use")
     }
 
     @Test
@@ -128,6 +132,11 @@ class TinToolsTest(
         assertThat(ran.path("status").stringValue()).describedAs(ran.toString()).isEqualTo("succeeded")
         assertThat(ran.path("exitCode").asInt()).isZero()
         assertThat(ran.path("stdout").stringValue()).contains("hello")
+
+        // Environment variables are `variables`, not `env`: the word env is the environment itself.
+        val reading = if (System.getProperty("os.name").startsWith("Windows")) "echo %GREETING%" else "echo \$GREETING"
+        val greeted = call("tin_exec", mapOf("session" to session, "command" to reading, "variables" to mapOf("GREETING" to "ahoy")))
+        assertThat(greeted.path("stdout").stringValue()).describedAs(greeted.toString()).contains("ahoy")
 
         val failed = call("tin_exec", mapOf("session" to session, "command" to "exit 3"))
         assertThat(failed.path("status").stringValue()).isEqualTo("failed")
@@ -244,7 +253,6 @@ class TinToolsTest(
         assertThat(call("tin_exec", mapOf("session" to session, "command" to "echo x")).path("error").stringValue())
             .contains("not been given any tins")
         agent.tinLabels = listOf("other")
-        settings.setLocalLabel("local", "alice")
         assertThat(call("tin_exec", mapOf("session" to session, "command" to "echo x")).path("error").stringValue())
             .contains("no longer use")
     }
@@ -256,12 +264,183 @@ class TinToolsTest(
         local.refresh()
         assertThat(call("tin_exec", mapOf("session" to session, "command" to "echo x")).path("error").stringValue())
             .contains("no longer configured")
+        // What was recorded while it ran is still the log.
         graphQlTester.document("{ sessionTinLog(sessionId: $conversation, sessionTinId: $session) { available message } }").execute()
-            .path("sessionTinLog.available").entity(Boolean::class.java).isEqualTo(false)
+            .also { it.path("sessionTinLog.available").entity(Boolean::class.java).isEqualTo(true) }
+            .path("sessionTinLog.message").entity(String::class.java)
+            .isEqualTo("Tin local is switched off; this is the log as last recorded")
 
         settings.setLocalEnabled(true, "alice")
         // A new instance, which never heard of the old session.
         assertThat(call("tin_exec", mapOf("session" to session, "command" to "echo x")).path("code").stringValue())
             .isEqualTo("session_not_found")
+    }
+
+    private fun logOf(session: Long, after: Int? = null) = graphQlTester.document(
+        "{ sessionTinLog(sessionId: $conversation, sessionTinId: $session${after?.let { ", after: $it" } ?: ""}) " +
+            "{ events { seq type data } nextSeq available message } }",
+    ).execute()
+
+    private fun outputOf(session: Long, execution: String, offset: Int = 0) = graphQlTester.document(
+        """{ sessionTinOutput(sessionId: $conversation, sessionTinId: $session, executionId: "$execution", offset: $offset) """ +
+            "{ text offset nextOffset done available message } }",
+    ).execute()
+
+    @Suppress("UNCHECKED_CAST")
+    private fun statusOf(session: Long): Map<String, Any?> = graphQlTester.document("{ sessionTins(sessionId: $conversation) { id active status tinLabel } }")
+        .execute().path("sessionTins").entityList(Map::class.java).get().single { it["id"].toString().toLong() == session } as Map<String, Any?>
+
+    @Test
+    fun `a session's log is recorded as it is used, and outlives a restart of the local tin`() {
+        val session = opened()
+        val execution = call("tin_exec", mapOf("session" to session, "command" to "echo hello")).let {
+            assertThat(it.path("exitCode").asInt()).describedAs(it.toString()).isZero()
+            it.path("execution").stringValue()
+        }
+        outputOf(session, execution).also {
+            it.path("sessionTinOutput.text").entity(String::class.java).satisfies({ text -> assertThat(text).contains("hello") })
+            it.path("sessionTinOutput.done").entity(Boolean::class.java).isEqualTo(true)
+            it.path("sessionTinOutput.available").entity(Boolean::class.java).isEqualTo(true)
+            it.path("sessionTinOutput.message").valueIsNull()
+        }
+        assertThat(outputs.findByTinSessionIdAndExecutionId(session, execution)?.text).contains("hello")
+        val recorded = events.findAll().filter { it.tinSessionId == session }.sortedBy { it.seq }
+        assertThat(recorded.map { it.type }).contains("session.created", "execution.started", "execution.finished")
+        assertThat(recorded.map { it.type }).doesNotContain("execution.output")
+        assertThat(recorded.map { it.seq }).doesNotHaveDuplicates()
+
+        // A setting the running instance was not built from closes it, and
+        // every session it held in memory with it.
+        settings.setLocalMaxSessions(settings.localMaxSessions() + 1, "alice")
+        local.refresh()
+        assertThat(local.runningSince()).isNull()
+
+        val restarted = logOf(session)
+        restarted.path("sessionTinLog.available").entity(Boolean::class.java).isEqualTo(true)
+        restarted.path("sessionTinLog.message").entity(String::class.java)
+            .isEqualTo("Tin local has restarted since; this is the log as last recorded")
+        restarted.path("sessionTinLog.events[*].seq").entityList(Int::class.java).containsExactly(*recorded.map { it.seq.toInt() }.toTypedArray())
+        restarted.path("sessionTinLog.events[0].type").entity(String::class.java).isEqualTo("session.created")
+        restarted.path("sessionTinLog.nextSeq").entity(Int::class.java).isEqualTo(recorded.last().seq.toInt())
+
+        // Past the end: nothing more, and still a log rather than an absence.
+        logOf(session, recorded.last().seq.toInt()).also {
+            it.path("sessionTinLog.events").entityList(Any::class.java).hasSize(0)
+            it.path("sessionTinLog.available").entity(Boolean::class.java).isEqualTo(true)
+            it.path("sessionTinLog.nextSeq").entity(Int::class.java).isEqualTo(recorded.last().seq.toInt())
+        }
+
+        assertThat(statusOf(session)).containsEntry("status", "stopped").containsEntry("active", false)
+        assertThat(sessions.findById(session).get().closedAt).isNotNull()
+        assertThat(statusOf(session)).containsEntry("tinLabel", "local")
+
+        // The Tins page still lists it, from the record, though the tin holds nothing.
+        graphQlTester.document("""{ tinSessions(id: "local") { id status active orknuxSessionId agentName } }""")
+            .execute().path("tinSessions").entityList(Map::class.java).get().also { listed ->
+                assertThat(listed).hasSize(1)
+                assertThat(listed.single()["id"]).isEqualTo(sessions.findById(session).get().remoteSessionId)
+                assertThat(listed.single()["status"]).isEqualTo("stopped")
+                assertThat(listed.single()["active"]).isEqualTo(false)
+                assertThat(listed.single()["orknuxSessionId"]).isEqualTo(conversation.toString())
+                assertThat(listed.single()["agentName"]).isEqualTo("Builder")
+            }
+
+        outputOf(session, execution).also {
+            it.path("sessionTinOutput.text").entity(String::class.java).satisfies({ text -> assertThat(text).contains("hello") })
+            it.path("sessionTinOutput.done").entity(Boolean::class.java).isEqualTo(true)
+            it.path("sessionTinOutput.available").entity(Boolean::class.java).isEqualTo(true)
+            it.path("sessionTinOutput.message").entity(String::class.java)
+                .isEqualTo("Tin local has restarted since; this is the output as last recorded")
+        }
+
+        // Started again, the local tin is a new instance that never held it.
+        val later = opened()
+        assertThat(local.runningSince()).isNotNull()
+        logOf(session).path("sessionTinLog.message").entity(String::class.java)
+            .isEqualTo("Tin local has restarted since; this is the log as last recorded")
+        assertThat(statusOf(session)).containsEntry("status", "stopped")
+        assertThat(statusOf(later)).containsEntry("status", "ready").containsEntry("active", true)
+        logOf(later).also {
+            it.path("sessionTinLog.message").valueIsNull()
+            it.path("sessionTinLog.events[0].type").entity(String::class.java).isEqualTo("session.created")
+        }
+    }
+
+    @Test
+    fun `a session the local tin no longer holds is stopped, and with nothing recorded its log is unavailable`() {
+        assertThat(local.runningSince()).isNull()
+        val row = sessions.save(
+            TinSession(
+                workspaceId = workspaceId,
+                llmSessionId = conversation,
+                agentId = agent.id,
+                agentName = agent.name,
+                tinKind = TinKind.LOCAL,
+                tinName = LOCAL_TIN_NAME,
+                remoteSessionId = "from-before-a-restart",
+                status = "ready",
+            ),
+        )
+        val session = requireNotNull(row.id)
+
+        logOf(session).also {
+            it.path("sessionTinLog.available").entity(Boolean::class.java).isEqualTo(false)
+            it.path("sessionTinLog.message").entity(String::class.java).isEqualTo("Tin local has restarted since this session")
+            it.path("sessionTinLog.events").entityList(Any::class.java).hasSize(0)
+        }
+        assertThat(statusOf(session)).containsEntry("status", "stopped").containsEntry("active", false)
+        assertThat(sessions.findById(session).get().closedAt).isNotNull()
+    }
+
+    @Test
+    fun `a session's recorded log goes with its conversation`() {
+        val session = opened()
+        assertThat(events.findAll().filter { it.tinSessionId == session }).isNotEmpty()
+        jdbc.update("DELETE FROM llm_session WHERE id = ?", conversation)
+        assertThat(sessions.findById(session)).isEmpty()
+        assertThat(events.findAll().filter { it.tinSessionId == session }).isEmpty()
+    }
+
+    @Test
+    fun `a local command's output is kept up to the setting, and says where the rest was not`() {
+        settings.setLocalOutputKeptBytes(3, "alice")
+        val session = opened()
+        val cut = call("tin_exec", mapOf("session" to session, "command" to "echo hello")).path("execution").stringValue()
+        assertThat(outputs.findByTinSessionIdAndExecutionId(session, cut)).satisfies({
+            assertThat(it!!.text).isEqualTo("hel")
+            assertThat(it.truncated).isTrue()
+        })
+        settings.setLocalOutputKeptBytes(0, "alice")
+        val none = call("tin_exec", mapOf("session" to session, "command" to "echo again")).path("execution").stringValue()
+        assertThat(outputs.findByTinSessionIdAndExecutionId(session, none)).isNull()
+
+        settings.setLocalMaxSessions(settings.localMaxSessions() + 1, "alice")
+        local.refresh()
+
+        outputOf(session, cut).also {
+            it.path("sessionTinOutput.text").entity(String::class.java).isEqualTo("hel")
+            it.path("sessionTinOutput.nextOffset").entity(Int::class.java).isEqualTo(3)
+            it.path("sessionTinOutput.done").entity(Boolean::class.java).isEqualTo(true)
+            it.path("sessionTinOutput.message").entity(String::class.java)
+                .isEqualTo("Tin local has restarted since; this is the output as last recorded, and the rest of it was not kept")
+        }
+        outputOf(session, cut, 1).path("sessionTinOutput.text").entity(String::class.java).isEqualTo("el")
+        outputOf(session, none).also {
+            it.path("sessionTinOutput.available").entity(Boolean::class.java).isEqualTo(false)
+            it.path("sessionTinOutput.done").entity(Boolean::class.java).isEqualTo(false)
+            it.path("sessionTinOutput.message").entity(String::class.java)
+                .isEqualTo("Tin local has restarted since, and this command's output was not kept")
+        }
+    }
+
+    @Test
+    fun `a session answers with an absolute link to the conversation with it open, and says to send it`() {
+        val answer = call("tin_open")
+        val session = answer.path("session").asLong()
+        val expected = web.baseUrl.trimEnd('/') + "/workspace/$workspaceId/sessions/$conversation?tin=$session"
+        assertThat(expected).startsWith("http")
+        assertThat(answer.path("url").stringValue()).isEqualTo(expected)
+        assertThat(answer.path("note").stringValue()).contains("url").contains("sesję w puszce").contains("<url|sesję w puszce>")
+        assertThat(call("tin_sessions").path("sessions")[0].path("url").stringValue()).isEqualTo(expected)
     }
 }

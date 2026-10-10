@@ -21,6 +21,10 @@ class TinNameInvalidException(val name: String) :
     override val arguments get() = mapOf("name" to name)
 }
 
+class TinLabelRequiredException : RuntimeException(
+    "A tin needs a label of 1 to 255 characters: it is what an agent is granted the tin by.",
+)
+
 class TinAddressInvalidException(val address: String) : RuntimeException(
     "\"$address\" is not an address a tin can be reached at. Give an http or https URL, such as http://orktin:8080.",
 ), Refusal {
@@ -29,6 +33,11 @@ class TinAddressInvalidException(val address: String) : RuntimeException(
 
 class LocalTinNotRemovableException : RuntimeException(
     "The local tin cannot be removed. Switch it off in Admin Settings instead.",
+)
+
+/** The local tin has nothing of its own to edit: its label is fixed, the rest is Admin Settings. */
+class LocalTinNotEditableException : RuntimeException(
+    "The local tin cannot be changed here. Its label is always local; its other settings are in Admin Settings.",
 )
 
 /** A tin that would not answer, or answered with something that is not orktin. */
@@ -82,6 +91,20 @@ class TinCommandTimeoutOutOfRangeException(val seconds: Int) : RuntimeException(
 class TinOutputBytesOutOfRangeException(val bytes: Int) : RuntimeException(
     "$bytes is not a number of bytes of a tin command's output to hand an agent. " +
         "Choose between $MIN_TIN_OUTPUT_BYTES and $MAX_TIN_OUTPUT_BYTES.",
+), Refusal {
+    override val arguments get() = mapOf("bytes" to bytes)
+}
+
+class LocalTinOutputKeptOutOfRangeException(val bytes: Int) : RuntimeException(
+    "$bytes is not a number of bytes of a local tin command's output to keep. " +
+        "Choose between $MIN_LOCAL_TIN_OUTPUT_KEPT and $MAX_LOCAL_TIN_OUTPUT_KEPT.",
+), Refusal {
+    override val arguments get() = mapOf("bytes" to bytes)
+}
+
+class TinOutputShownOutOfRangeException(val bytes: Int) : RuntimeException(
+    "$bytes is not a number of bytes of a tin command's output to show in a conversation. " +
+        "Choose between $MIN_TIN_OUTPUT_SHOWN and $MAX_TIN_OUTPUT_SHOWN.",
 ), Refusal {
     override val arguments get() = mapOf("bytes" to bytes)
 }

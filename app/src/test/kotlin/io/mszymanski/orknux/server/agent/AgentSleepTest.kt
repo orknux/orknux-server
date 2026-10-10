@@ -132,9 +132,14 @@ class AgentSleepTest(
 
         val waiting = finishing.shed(sleeping = sleeping(left = 2))!!.specs().single()
         assertThat(waiting.parameters.map { it.name }).containsExactly("answer", FinishAnswerTools.WAKE)
-        // Told what is left, so a model with two waits spends them on the two
-        // things worth waiting for rather than finding out by being refused.
-        assertThat(waiting.description).contains("2 of those left").contains("300000 ms")
+        // Told the run's allowance, so a model with two waits spends them on the
+        // two things worth waiting for rather than finding out by being refused.
+        // The allowance and not the count left: that moved on every wake and
+        // changed the tools array a provider caches the prompt by. How many are
+        // left is said in the note a woken step is asked again with.
+        assertThat(waiting.description).contains("allows 2 of those").contains("300000 ms")
+        val later = finishing.shed(sleeping = sleeping(left = 1, spent = 1))!!.specs().single()
+        assertThat(later.description).isEqualTo(waiting.description)
     }
 
     /* ---------------------------------------------------- what the model gets */

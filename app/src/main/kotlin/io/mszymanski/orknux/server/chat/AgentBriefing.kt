@@ -314,12 +314,15 @@ class AgentBriefing(
          */
         val remembered = memories.catalogsFor(agent).filter { it.memoryCount > 0 }
         if (remembered.isNotEmpty()) {
-            val held = remembered.sumOf { it.memoryCount }
+            /*
+             * Named but not counted. The counts were here, and they moved every
+             * time anybody in the workspace saved a memory - the agent itself
+             * included - which changed the system turn, and a provider caching
+             * the prompt by its prefix then read the whole conversation again.
+             */
             parts += buildString {
-                append("This workspace has written ").append(held)
-                append(if (held == 1) " thing down" else " things down")
-                append(" that you can read, in ")
-                append(remembered.joinToString(", ") { "${it.name} (${it.memoryCount})" })
+                append("This workspace has written things down that you can read, in ")
+                append(remembered.joinToString(", ") { it.name })
                 appendLine(".")
                 append("Search it with memory_search before answering anything about how this workspace ")
                 append("works, what it has decided, or who its customers are - what is written down there ")

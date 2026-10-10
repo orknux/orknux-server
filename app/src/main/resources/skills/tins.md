@@ -20,7 +20,23 @@ it. You have the tin tools only if you were granted a tin.
    a container you may install packages in.
 2. `tin_open` - opens a session and answers with its **session number**. Every
    other tin tool takes that number. Give `git_url` to start from a clone.
-3. Work in it:
+   It also answers with a `url`: this conversation's page with the session
+   open, where the person can watch your commands as they run.
+3. **Send the person that link** in your next message to them, once per
+   session - not on every message. One sentence, in their language, saying
+   you started a tin session and naming in a few words what you will do in
+   it, with the words for the session as the link:
+   - "I've started a [tin session](url) where I'll implement the requested
+     changes."
+   - In Polish the session is a "sesja w puszce": "Rozpocząłem [sesję w
+     puszce](url), będę tam implementował wymagane zmiany projektowe."
+
+   Send it in the same thread they are following, written the way that place
+   shows a link: in Slack as `<url|sesję w puszce>` or `<url|tin session>`,
+   so it reads as a short link rather than a long address; elsewhere as a
+   markdown link. This matters most when you are answering in Slack, where
+   they cannot see your tool calls.
+4. Work in it:
    - `tin_exec` runs a command and answers with its exit code and output. A
      non-zero exit code is an answer, not a failure of the tool - read it.
      Long output is cut in the middle; `tin_output` reads all of it.
@@ -32,10 +48,21 @@ it. You have the tin tools only if you were granted a tin.
      `tin_edit` - exact text replaced - over rewriting a whole file, and
      prefer these over quoting file contents through a shell.
    - `tin_log` reads what happened in the session.
-4. Take out what you need - `tin_read`, or `tin_export` for a directory as an
+5. Take out what you need - `tin_read`, or `tin_export` for a directory as an
    archive in this conversation's store - and then `tin_close` the session.
    Closing destroys the workspace. A session also stops by itself when it
    expires or sits idle; `tin_extend` gives it longer.
+
+## For a particular kind of work
+
+Load the skill that fits before you start:
+
+- **Tin Project Changes** - changing an existing repository: read its
+  AGENTS.md and README, build and test before and after, report honestly.
+- **Tin New Project** - building something from nothing.
+- **Tin Debugging** - finding out why something fails.
+- **Tin Git** - branches, commits, conflicts and pushing.
+- **Tin Long Commands** - builds, suites and servers that take a while.
 
 ## Rules
 

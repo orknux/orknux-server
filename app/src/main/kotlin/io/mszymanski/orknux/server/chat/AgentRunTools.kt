@@ -820,7 +820,9 @@ class AgentRunTools(
                     "edit rather than copy. Nothing has to be shared. So your answer says which pad the " +
                     "work is in and what is in it in a line or two, and never repeats the whole of it. " +
                     "What you write twice is paid for twice and cut off once.",
-            ).joinToString(separator = System.lineSeparator() + System.lineSeparator())
+            // Not the platform's line separator: a briefing that differs by
+            // machine is a prompt a cache cannot share between them.
+            ).joinToString(separator = "\n\n")
         }
     }
 
