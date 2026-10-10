@@ -1305,6 +1305,10 @@ type Mutation {
     setNoteMaxCharacters(characters: Int!): InstallationSettings!
     "How many notes to self one conversation keeps, 1 to 1000. Administrators only."
     setNoteMaxCount(count: Int!): InstallationSettings!
+    "How many times a round is asked again after the provider sent nothing back, 0 to 20. Administrators only."
+    setEmptyAnswerRetries(retries: Int!): InstallationSettings!
+    "How many times a reply that could not be used is put back to the model, 0 to 10. Administrators only."
+    setUnusableReplyRetries(retries: Int!): InstallationSettings!
     "How big one value in a session's store may be, 1 to 256 MB. Administrators only."
     setSessionValueMaxMb(megabytes: Int!): InstallationSettings!
     "How many keys one session's store may hold, 10 to 10000. Administrators only."
@@ -6700,6 +6704,14 @@ type InstallationSettings {
     noteMaxCount: Int!
     "What a fresh installation keeps: the built-in default."
     noteMaxCountConfigured: Int!
+    "How many times a round is asked again after the provider sent nothing back."
+    emptyAnswerRetries: Int!
+    "What a fresh installation allows: the built-in default."
+    emptyAnswerRetriesConfigured: Int!
+    "How many times a reply that could not be used is put back to the model."
+    unusableReplyRetries: Int!
+    "What a fresh installation allows: the built-in default."
+    unusableReplyRetriesConfigured: Int!
     "How big one value in a session's store may be, in MB - what an exported archive or a drawn picture can come to."
     sessionValueMaxMb: Int!
     "What a fresh installation allows: the built-in default."

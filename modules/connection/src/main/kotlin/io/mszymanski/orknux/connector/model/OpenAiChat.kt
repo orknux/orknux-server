@@ -112,6 +112,7 @@ class OpenAiChat(
             thought = reasoning(said?._additionalProperties()),
             inputTokens = usage?.promptTokens() ?: 0,
             outputTokens = usage?.completionTokens() ?: 0,
+            stopReason = runCatching { answer.choices().firstOrNull()?.finishReason()?.asString() }.getOrNull(),
         )
     }
 
@@ -159,6 +160,8 @@ class OpenAiChat(
         val gathered = sortedMapOf<Long, Gathering>()
         var input = 0L
         var output = 0L
+        /** Why the stream ended, from the frame that said. */
+        var stopped: String? = null
 
         /*
          * One splitter for the whole stream, because a tag arrives in pieces.
@@ -233,6 +236,8 @@ class OpenAiChat(
                  * not set" - which failed every streamed turn behind Azure. A
                  * choice with nothing said in it is skipped like an empty one.
                  */
+                runCatching { chunk.choices().firstOrNull()?.finishReason()?.orElse(null)?.asString() }.getOrNull()
+                    ?.let { stopped = it }
                 val delta = chunk.choices().firstOrNull()?._delta()?.asKnown()?.orElse(null) ?: return@forEach
                 // Thinking the provider named is thinking: it does not go
                 // through the tag splitter, which is only for the shape where
@@ -295,6 +300,7 @@ class OpenAiChat(
             thoughtMillis = if (!sawThought) 0L else (thoughtTo - started) / 1_000_000,
             inputTokens = input,
             outputTokens = output,
+            stopReason = stopped,
         )
     }
 
@@ -323,6 +329,8 @@ class OpenAiChat(
             val outputTokens: Long = 0,
             /** What the Responses API asked to be handed back next round; see [ChatTurn.reasoningItems]. */
             val reasoningItems: List<String> = emptyList(),
+            /** Why the provider stopped - `stop`, `length`, `tool_calls` - where it said. */
+            val stopReason: String? = null,
         ) : Outcome
 
         /**

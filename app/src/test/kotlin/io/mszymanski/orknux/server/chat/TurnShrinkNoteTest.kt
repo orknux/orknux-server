@@ -96,6 +96,37 @@ class TurnShrinkNoteTest(
         assertThat(note.content).contains("Three lookups listed the skills; nothing was built yet.")
     }
 
+    /**
+     * llama.cpp does not refuse a prompt that fills its window: it starts, runs
+     * out of room, and stops for length with nothing said. Read as the context
+     * being exceeded - well short of the model's own output limit - the turn is
+     * summarised and carries on, where asking the same round again only came
+     * back empty again, three times, and the turn failed.
+     */
+    @Test
+    fun `an empty reply cut off by a full context window is summarised, not asked again as it was`() {
+        val agentId = agent("Builder", model(serve()))
+        val agent = requireNotNull(agents.findByIdOrNull(agentId))
+        val session = recorder.open(workspaceId, "test", "full-${System.nanoTime()}")
+        script += 200 to called("call_1")
+        script += 200 to called("call_2")
+        script += 200 to called("call_3")
+        script += 200 to """{"choices":[{"message":{"role":"assistant","content":""},"finish_reason":"length"}],
+            "usage":{"prompt_tokens":65535,"completion_tokens":12}}"""
+        script += 200 to answered("Three lookups so far.")
+        script += 200 to answered("Done.")
+
+        val said = conversation.answer(
+            requireNotNull(agent.modelId), agent,
+            listOf(ChatTurn("system", "Work."), ChatTurn("user", "Build it.")), session,
+        )
+
+        assertThat(said).isInstanceOf(ChatCompletion.Answered::class.java)
+        val notes = events.findAll().filter { it.sessionId == session && it.kind == LlmSessionEventKind.SYSTEM }.mapNotNull { it.content }
+        assertThat(notes).anyMatch { it.startsWith("The turn outgrew the model's window") }
+        assertThat(notes).noneMatch { it.startsWith("The model answered with nothing") }
+    }
+
     private fun called(id: String) =
         """{"choices":[{"message":{"role":"assistant","content":null,
            "tool_calls":[{"id":"$id","type":"function","function":{"name":"skill_list","arguments":"{}"}}]}}],

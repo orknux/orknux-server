@@ -113,6 +113,10 @@ class InstallationSettingsAPI(
         noteMaxCount = settings.noteMaxCount(),
         noteMaxCountConfigured = settings.noteMaxCountConfigured(),
         sessionValueMaxMb = settings.sessionValueMaxMb(),
+        emptyAnswerRetries = settings.emptyAnswerRetries(),
+        emptyAnswerRetriesConfigured = settings.emptyAnswerRetriesConfigured(),
+        unusableReplyRetries = settings.unusableReplyRetries(),
+        unusableReplyRetriesConfigured = settings.unusableReplyRetriesConfigured(),
         sessionValueMaxMbConfigured = settings.sessionValueMaxMbConfigured(),
         sessionStoreMaxKeys = settings.sessionStoreMaxKeys(),
         sessionStoreMaxKeysConfigured = settings.sessionStoreMaxKeysConfigured(),
@@ -324,6 +328,26 @@ class InstallationSettingsAPI(
             WorkspaceAuditCategory.WORKSPACE,
             "A conversation keeps up to $count notes to self",
         )
+        return installationSettings()
+    }
+
+    /** How many times a round is asked again after an empty answer. */
+    @MutationMapping
+    fun setEmptyAnswerRetries(@Argument retries: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setEmptyAnswerRetries(retries, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "An empty answer is asked again up to $retries times")
+        return installationSettings()
+    }
+
+    /** How many times an unusable reply is put back to the model. */
+    @MutationMapping
+    fun setUnusableReplyRetries(@Argument retries: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setUnusableReplyRetries(retries, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "An unusable reply is put back up to $retries times")
         return installationSettings()
     }
 
@@ -1086,6 +1110,12 @@ data class InstallationSettingsView(
     val noteMaxCount: Int,
     /** What a fresh installation keeps: the built-in default. */
     val noteMaxCountConfigured: Int,
+    /** How many times a round is asked again after an empty answer. */
+    val emptyAnswerRetries: Int,
+    val emptyAnswerRetriesConfigured: Int,
+    /** How many times an unusable reply is put back to the model. */
+    val unusableReplyRetries: Int,
+    val unusableReplyRetriesConfigured: Int,
     /** How big one value in a session's store may be, in MB. */
     val sessionValueMaxMb: Int,
     val sessionValueMaxMbConfigured: Int,

@@ -216,6 +216,14 @@ sealed interface ChatCompletion {
          * has turns left and takes the next one.
          */
         val outOfRounds: Boolean = false,
+        /**
+         * What the provider said about how it stopped, for a reply with
+         * nothing in it: its stop reason and how many tokens it produced. Said
+         * in the session beside the failure, because "no message" alone does
+         * not tell a model that thought until its output limit ran out from a
+         * reply the server dropped.
+         */
+        val detail: String? = null,
     ) : ChatCompletion
 }
 
@@ -766,8 +774,15 @@ class ModelChatClient(
         val raw = (if (ready.anthropic) anthropicContent(body) else openAiContent(body))
             ?: return ChatCompletion.Failed("The provider answered with no message", permanent = false)
         val split = split(raw, named)
+        val stop = if (wasCutOff(body, ready.anthropic)) "length" else null
         if (split.said.isBlank()) {
-            return ChatCompletion.Failed("The provider answered with no message", permanent = false)
+            val detail = buildString {
+                append("it stopped with ").append(stop ?: "no stop reason")
+                append(" after ").append(output).append(" output tokens")
+                if (split.thought.isNotBlank()) append(", ").append(split.thought.length).append(" characters of them thinking")
+            }
+            log.warn("Model {} answered with no message: {}", modelId, detail)
+            return emptyReply(modelId, stop, output, split.thought.isNotBlank(), detail)
         }
         if (split.thought.isNotEmpty()) thought(split.thought)
         told(split.said)
@@ -988,6 +1003,38 @@ class ModelChatClient(
     private fun unreachable(request: HttpRequest, failure: Throwable): String =
         Unreachable.describe(request.uri().toString(), failure, request.timeout().orElse(null))
 
+    /**
+     * A reply with nothing said in it, named for what actually happened.
+     *
+     * Stopped for length well short of its own output limit, the model ran into
+     * the context window: the conversation filled it, and llama.cpp - unlike a
+     * hosted API - answers that with an empty reply rather than an error. Said
+     * as the context being exceeded, so the turn is summarised to fit and asked
+     * again, where asking the same oversized round again could only come back
+     * empty the same way. Stopped at its output limit, it thought the whole
+     * allowance away; that is the model's setting to raise, and not worth a
+     * retry either. Anything else stays the retryable silence it always was.
+     */
+    private fun emptyReply(modelId: Long, stop: String?, outputTokens: Long, thought: Boolean, detail: String): ChatCompletion.Failed {
+        if (stop != "length") {
+            return ChatCompletion.Failed("The provider answered with no message", permanent = false, detail = detail)
+        }
+        val ceiling = models.findByIdOrNull(modelId)?.maxOutput ?: DEFAULT_MAX_TOKENS
+        if (outputTokens < ceiling * 9L / 10) {
+            return ChatCompletion.Failed(
+                "The conversation filled the model's context window: it exceeds the available context size",
+                permanent = false,
+                detail = detail,
+            )
+        }
+        return ChatCompletion.Failed(
+            "The model used its whole output limit ($outputTokens tokens) " + (if (thought) "thinking " else "") +
+                "and said nothing. Raise the model's maximum output tokens.",
+            permanent = true,
+            detail = detail,
+        )
+    }
+
     private fun answered(modelId: Long, outcome: OpenAiChat.Outcome.Answered, millis: Long): ChatCompletion {
         val split = split(outcome.said, outcome.thought)
 
@@ -1009,7 +1056,13 @@ class ModelChatClient(
         }
 
         if (split.said.isBlank()) {
-            return ChatCompletion.Failed("The provider answered with no message", permanent = false)
+            val detail = buildString {
+                append("it stopped with ").append(outcome.stopReason ?: "no stop reason")
+                append(" after ").append(outcome.outputTokens).append(" output tokens")
+                if (split.thought.isNotBlank()) append(", ").append(split.thought.length).append(" characters of them thinking")
+            }
+            log.warn("Model {} answered with no message: {}", modelId, detail)
+            return emptyReply(modelId, outcome.stopReason, outcome.outputTokens, split.thought.isNotBlank(), detail)
         }
         return counted(
             modelId,

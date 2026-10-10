@@ -30,6 +30,7 @@ have failed.
 
 - Shells are removed: agents can no longer open a shell on a machine, and the Admin → Shell pages are gone. Existing shell definitions stay in the database untouched, but nothing uses them any more.
 - A conversation's next turn now sends the model exactly what the last turn sent - every tool call, its reasoning and its result - and adds to it, so a provider with a prompt cache (llama.cpp, and hosted ones that bill cached input less) reads only the new message instead of the whole session again. What was sent is kept, encrypted, per session; once it outgrows half the model's context window it is started again from what was said, in one step. Notes, to-dos, a task's turn count and a memory count no longer sit in the system prompt, where they changed it every turn. Nothing to do on upgrade: existing sessions switch over on their next turn.
+- An empty answer from the model is asked again up to 5 times by default rather than twice, and both that and how often an unusable reply goes back to the model are Admin settings, **Empty Answer Retries** and **Unusable Reply Retries**. Each retry now says which attempt it is and how the provider stopped.
 - A compacted turn's summary may run to 5,000 tokens by default rather than 500, so less of what the turn did is lost. An installation or workspace that saved its own number keeps it.
 - A model provider no longer gets the model's earlier thinking echoed back in later requests, for every existing provider too: a new **Send thinking back** switch on the provider's page, off by default, turns it back on; after upgrading, turn it on for any provider that relied on it, such as a reasoning model that loses its plan without it, or Azure's Responses API. The thinking is still captured and shown as before.
 
@@ -38,6 +39,7 @@ have failed.
 - A chat's thinking is now in its session's transcript, as a task's and a workflow step's always was.
 - When a turn outgrows the model's window and is summarised, the session's note of it carries the summary the model was given.
 - Two Orknux servers on one machine no longer delete each other's local box sessions when one starts: each cleans up only the workspaces it made, and a session whose workspace was removed says so instead of calling every path outside it.
+- A conversation that filled a llama.cpp model's context window failed with "no message" after empty retries, because llama.cpp stops for length rather than refusing; it is now summarised to fit and carries on.
 - Deleting a directory in a local box while a process still held files in it - a running jar in `target/` on Windows - reported success and left it there; it now says what was left and why.
 
 ## 0.9.9.32

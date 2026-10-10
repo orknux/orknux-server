@@ -141,6 +141,8 @@ object SettingNames {
     const val NOTE_MAX_CHARACTERS = "chat.note.max.characters"
     const val NOTE_MAX_COUNT = "chat.note.max.count"
     const val SESSION_VALUE_MAX_MB = "session.store.value.max.mb"
+    const val EMPTY_ANSWER_RETRIES = "chat.retries.empty"
+    const val UNUSABLE_REPLY_RETRIES = "chat.retries.unusable"
     const val SESSION_STORE_MAX_KEYS = "session.store.max.keys"
 
     /**
@@ -1213,6 +1215,41 @@ class InstallationSettings(
         write(SettingNames.SESSION_VALUE_MAX_MB, megabytes.toString(), by)
     }
 
+    /**
+     * How many times one round is asked again after the provider sent nothing
+     * back - a stream that closed before anything came, a dropped connection.
+     * It was two, fixed, which a busy local model ran through in seconds.
+     */
+    fun emptyAnswerRetries(): Int {
+        val held = settings.findByIdOrNull(SettingNames.EMPTY_ANSWER_RETRIES) ?: return emptyAnswerRetriesConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_EMPTY_RETRIES..MAX_EMPTY_RETRIES } ?: emptyAnswerRetriesConfigured()
+    }
+
+    /** What a fresh installation allows: the built-in default. */
+    fun emptyAnswerRetriesConfigured(): Int = DEFAULT_EMPTY_RETRIES
+
+    @Transactional
+    fun setEmptyAnswerRetries(retries: Int, by: String) {
+        if (retries !in MIN_EMPTY_RETRIES..MAX_EMPTY_RETRIES) throw EmptyAnswerRetriesOutOfRangeException(retries)
+        write(SettingNames.EMPTY_ANSWER_RETRIES, retries.toString(), by)
+    }
+
+    /** How many times one turn puts a reply that could not be used back to the model. Issue #465. */
+    fun unusableReplyRetries(): Int {
+        val held = settings.findByIdOrNull(SettingNames.UNUSABLE_REPLY_RETRIES) ?: return unusableReplyRetriesConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_UNUSABLE_RETRIES..MAX_UNUSABLE_RETRIES }
+            ?: unusableReplyRetriesConfigured()
+    }
+
+    /** What a fresh installation allows: the built-in default. */
+    fun unusableReplyRetriesConfigured(): Int = DEFAULT_UNUSABLE_RETRIES
+
+    @Transactional
+    fun setUnusableReplyRetries(retries: Int, by: String) {
+        if (retries !in MIN_UNUSABLE_RETRIES..MAX_UNUSABLE_RETRIES) throw UnusableReplyRetriesOutOfRangeException(retries)
+        write(SettingNames.UNUSABLE_REPLY_RETRIES, retries.toString(), by)
+    }
+
     /** How many keys one session's store may hold. It was 200, fixed. */
     fun sessionStoreMaxKeys(): Int {
         val held = settings.findByIdOrNull(SettingNames.SESSION_STORE_MAX_KEYS) ?: return sessionStoreMaxKeysConfigured()
@@ -2231,6 +2268,30 @@ class SessionValueSizeOutOfRangeException(val megabytes: Int) : RuntimeException
 ), Refusal {
 
     override val arguments get() = mapOf("megabytes" to megabytes)
+}
+
+const val MIN_EMPTY_RETRIES = 0
+const val MAX_EMPTY_RETRIES = 20
+const val DEFAULT_EMPTY_RETRIES = 5
+
+class EmptyAnswerRetriesOutOfRangeException(val retries: Int) : RuntimeException(
+    "$retries is not a number of times to ask again after an empty answer. " +
+        "Choose between $MIN_EMPTY_RETRIES and $MAX_EMPTY_RETRIES.",
+), Refusal {
+
+    override val arguments get() = mapOf("retries" to retries)
+}
+
+const val MIN_UNUSABLE_RETRIES = 0
+const val MAX_UNUSABLE_RETRIES = 10
+const val DEFAULT_UNUSABLE_RETRIES = 2
+
+class UnusableReplyRetriesOutOfRangeException(val retries: Int) : RuntimeException(
+    "$retries is not a number of times to put an unusable reply back to the model. " +
+        "Choose between $MIN_UNUSABLE_RETRIES and $MAX_UNUSABLE_RETRIES.",
+), Refusal {
+
+    override val arguments get() = mapOf("retries" to retries)
 }
 
 const val MIN_SESSION_STORE_KEYS = 10

@@ -813,15 +813,20 @@ class AgentConversation(
                      * fine. Nothing was said, so there is nothing to tell the
                      * model about: the same round goes back unchanged.
                      */
-                    if (answer.reason == NO_MESSAGE && !answer.permanent && emptied < MOST_RETRIES) {
+                    val emptyRetries = settings.emptyAnswerRetries()
+                    if (answer.reason == NO_MESSAGE && !answer.permanent && emptied < emptyRetries) {
                         emptied += 1
-                        log.warn("Agent {} got an empty answer; asking again ({} of {})", agent.name, emptied, MOST_RETRIES)
+                        log.warn("Agent {} got an empty answer; asking again ({} of {})", agent.name, emptied, emptyRetries)
                         into?.let { session ->
-                            sessions.note(session, "The model answered with nothing, so the same round was asked again.")
+                            sessions.note(
+                                session,
+                                "The model answered with nothing, so the same round was asked again ($emptied of $emptyRetries)." +
+                                    (answer.detail?.let { " The provider said $it." } ?: ""),
+                            )
                         }
                         return@repeat
                     }
-                    if (!answer.replyFault || answer.permanent || retried >= MOST_RETRIES) {
+                    if (!answer.replyFault || answer.permanent || retried >= settings.unusableReplyRetries()) {
                         return answer.also { record(into, agent, it) }
                     }
                     retried += 1
@@ -1706,13 +1711,6 @@ class AgentConversation(
 
     private companion object {
 
-        /**
-         * How many times one turn may put a refused reply back to the model.
-         * Twice: a model that has been told twice what was wrong with its last
-         * two replies is not about to get the third right, and every attempt is
-         * a paid call. Issue #465.
-         */
-        const val MOST_RETRIES = 2
 
         /**
          * What the client says when a provider sent back nothing. Matched here
