@@ -228,7 +228,7 @@ class AgentSettingsStatementsTest(
 
         /** What the interface asks of an agent: `AGENT_FIELDS` in orknux-ui/src/api/agents.ts. */
         const val AGENT_FIELDS = "id workspaceId name type description systemPrompt enabled modelId modelName " +
-            "mcpServers orknuxAccess shellAccess memoryCatalogs skillCatalogs hiddenSkills requiredSkills tools " +
+            "mcpServers orknuxAccess memoryCatalogs skillCatalogs hiddenSkills requiredSkills tools " +
             "connectionIds agentIds maxTools requiredTools icon memoryShare maxRounds"
 
         /** And of a workspace: `WORKSPACE_FIELDS` in orknux-ui/src/api/workspaces.ts. */

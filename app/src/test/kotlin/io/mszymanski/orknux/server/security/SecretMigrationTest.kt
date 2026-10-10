@@ -6,8 +6,6 @@ import io.mszymanski.orknux.connector.security.SecretCipher
 import io.mszymanski.orknux.connector.security.SecretColumns
 import io.mszymanski.orknux.connector.security.SecretConverter
 import io.mszymanski.orknux.connector.security.SecretMigration
-import io.mszymanski.orknux.connector.shell.Shell
-import io.mszymanski.orknux.connector.shell.ShellRepository
 import io.mszymanski.orknux.server.variable.VariableCatalog
 import io.mszymanski.orknux.server.variable.VariableCatalogRepository
 import io.mszymanski.orknux.server.variable.WorkspaceVariable
@@ -54,13 +52,11 @@ class SecretMigrationTest(
     @Autowired val mcpServers: McpServerRepository,
     @Autowired val variables: WorkspaceVariableRepository,
     @Autowired val catalogs: VariableCatalogRepository,
-    @Autowired val shells: ShellRepository,
     @Autowired val workspaces: WorkspaceRepository,
 ) {
 
     private var workspaceId: Long = 0
     private var catalogId: Long = 0
-    private val shellNames = mutableListOf<String>()
 
     @BeforeEach
     fun seed() {
@@ -80,8 +76,6 @@ class SecretMigrationTest(
         variables.findAll().filter { it.workspaceId == workspaceId }.forEach(variables::delete)
         catalogs.findByWorkspaceIdOrderByNameAsc(workspaceId).forEach(catalogs::delete)
         mcpServers.findAll().filter { it.workspaceId == workspaceId }.forEach(mcpServers::delete)
-        shells.findAll().filter { it.name in shellNames }.forEach(shells::delete)
-        shellNames.clear()
         workspaces.findById(workspaceId).ifPresent(workspaces::delete)
     }
 
@@ -167,19 +161,6 @@ class SecretMigrationTest(
             .isTrue()
     }
 
-    /** The headline of the audit: an SSH private key, as an upgrade leaves it. */
-    @Test
-    fun `a private key written before encryption is sealed by the sweep`() {
-        val id = plaintextShell("-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaA==\n", "hunter2")
-
-        migration().encryptStoredSecrets()
-
-        assertThat(cipher.isEncrypted(storedShellColumn(id, "private_key"))).isTrue()
-        assertThat(cipher.isEncrypted(storedShellColumn(id, "key_passphrase"))).isTrue()
-        // Sealed, and still the key it was: an unreadable key is not a fix.
-        assertThat(cipher.decrypt(storedShellColumn(id, "key_passphrase"))).isEqualTo("hunter2")
-    }
-
     /**
      * Run twice, which is what every boot after the first one is.
      *
@@ -255,7 +236,7 @@ class SecretMigrationTest(
      * `@Entity`, which is Spring's own scanner rather than the JPA metamodel the
      * production code asks, and counts the annotated fields it finds.
      *
-     * And it names the ten, because "ten of something" is not a review and
+     * And it names them, because "ten of something" is not a review and
      * this list is the one an auditor wants to read.
      */
     @Test
@@ -267,8 +248,6 @@ class SecretMigrationTest(
             // variable, V263.
             "plugin_parameter.secret_value",
             "proxy_rule.password",
-            "shell.key_passphrase",
-            "shell.private_key",
             "workspace_connection.app_token",
             "workspace_connection.secret",
             // The Slack user token search runs on, V247.
@@ -395,30 +374,12 @@ class SecretMigrationTest(
         return id
     }
 
-    private fun plaintextShell(privateKey: String, passphrase: String): Long {
-        val name = "secret-migration-${System.nanoTime()}"
-        shellNames += name
-        val id = requireNotNull(
-            shells.save(Shell(name = name, host = "build.internal", username = "deploy")).id,
-        )
-        jdbc.update(
-            "update shell set private_key = ?, key_passphrase = ? where id = ?",
-            privateKey,
-            passphrase,
-            id,
-        )
-        return id
-    }
-
     /** Read as the column holds it: through the entity it would come back decrypted. */
     private fun storedMcpSecret(id: Long): String? =
         jdbc.queryForObject("select secret from mcp_server where id = ?", String::class.java, id)
 
     private fun storedVariableValue(id: Long): String? =
         jdbc.queryForObject("select value from workspace_variable where id = ?", String::class.java, id)
-
-    private fun storedShellColumn(id: Long, column: String): String? =
-        jdbc.queryForObject("select $column from shell where id = ?", String::class.java, id)
 
     private companion object {
         const val REFUSING = "secret_migration_refuses_the_row"

@@ -51,7 +51,7 @@ class LlmSessionRedactionTest(
     fun `a password in a tool's arguments never reaches the row`() {
         recorder.toolCalled(
             session,
-            "shell_run",
+            "run_command",
             """{"command":"git push https://alice:s3cr3t@github.com/acme/repo.git main"}""",
         )
 
@@ -63,7 +63,7 @@ class LlmSessionRedactionTest(
     fun `a token in a tool's arguments never reaches the row`() {
         recorder.toolCalled(
             session,
-            "shell_run",
+            "run_command",
             """{"command":"curl -H 'Authorization: Bearer ghp_ZmFrZXRva2VuZm9yYXRlc3Q0Mg' https://api.example.com"}""",
         )
 
@@ -73,7 +73,7 @@ class LlmSessionRedactionTest(
 
     @Test
     fun `an exported secret in a tool's arguments never reaches the row`() {
-        recorder.toolCalled(session, "shell_run", """{"command":"PGPASSWORD=s3cr3t psql -h db -U alice"}""")
+        recorder.toolCalled(session, "run_command", """{"command":"PGPASSWORD=s3cr3t psql -h db -U alice"}""")
 
         assertThat(asked()).isEqualTo("""{"command":"PGPASSWORD=*** psql -h db -U alice"}""")
     }
@@ -88,7 +88,7 @@ class LlmSessionRedactionTest(
     @Test
     fun `a key a command printed never reaches the row`() {
         recorder.toolReturned(
-            recorder.toolCalled(session, "shell_run", """{"command":"cat id_rsa"}"""),
+            recorder.toolCalled(session, "run_command", """{"command":"cat id_rsa"}"""),
             "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAvJ8kZmFrZWtleWZvcmF0ZXN0\n-----END RSA PRIVATE KEY-----",
         )
 
@@ -98,7 +98,7 @@ class LlmSessionRedactionTest(
     @Test
     fun `a token a command printed never reaches the row`() {
         recorder.toolReturned(
-            recorder.toolCalled(session, "shell_run", """{"command":"env"}"""),
+            recorder.toolCalled(session, "run_command", """{"command":"env"}"""),
             "HOME=/home/alice\nGITHUB_TOKEN=ghp_ZmFrZXRva2VuZm9yYXRlc3Q0Mg\nSHELL=/bin/sh",
         )
 
@@ -116,7 +116,7 @@ class LlmSessionRedactionTest(
             "spring.datasource.password=hunter2\n" +
             "[INFO] BUILD FAILURE"
 
-        recorder.toolReturned(recorder.toolCalled(session, "shell_run", """{"command":"mvn test"}"""), log)
+        recorder.toolReturned(recorder.toolCalled(session, "run_command", """{"command":"mvn test"}"""), log)
 
         assertThat(answered()).isEqualTo(log)
     }

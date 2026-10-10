@@ -70,7 +70,7 @@ class StepPictureTools(
      * also the rule `AgentTools` states: a model is only ever offered tools
      * that will run.
      *
-     * @param granted the agent's own switch, from its form beside Shells.
+     * @param granted the agent's own switch, from its form.
      */
     fun shed(
         executionId: Long,

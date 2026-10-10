@@ -259,8 +259,7 @@ every start it is in effect. Never set them in a deployment.
   touch a `secret` field. A Slack connection also holds an `appToken`, which is
   what Socket Mode opens the websocket with, and an SMTP connection's password
   is that same `secret` column — a second password column would be a second one
-  to remember to encrypt, and a shell's private key and its passphrase are two
-  more of the same. Every one of them goes through `SecretConverter`, so a new
+  to remember to encrypt. Every one of them goes through `SecretConverter`, so a new
   credential is a `@Convert` on the entity and nothing else.
 - **A secret field chooses its own source, and the unit is the field.** Since
   #244 a stored credential is either its own encrypted copy or a reference to a
@@ -271,7 +270,7 @@ every start it is in effect. Never set them in a deployment.
   copy of the rule. Per field and not per row: a model provider has one secret
   column and a Slack connection has two, and one switch for a card cannot say
   that the bot token is a workspace secret while the app-level token is its own.
-  `shell` and `proxy_rule` are installation-wide and take no reference, because
+  `proxy_rule` is installation-wide and take no reference, because
   a variable belongs to a workspace.
 - **New configuration is a named `ORKNUX_` variable, and a row in
   `DOCKERHUB.md`.** Spring would let any property be overridden by a name derived
@@ -334,7 +333,7 @@ every start it is in effect. Never set them in a deployment.
   booleans this rule used to name (`artifactAccess`, `finishAccess`,
   `pictureLinkAccess`) are views of the list now, kept so the API still
   answers them. A built-in that comes with a wider grant - the skill tools, the
-  memories, `orknux_*`, the shells - is a row too, read-only, and is switched
+  memories, `orknux_*` - is a row too, read-only, and is switched
   where that grant is.
 - **A shed is how the loop is talked to, not a capability.** `finish_answer`
   ends the round because the work went somewhere the graph is not; `task_done`
@@ -579,17 +578,14 @@ the same process. Watch out for:
 - **A test the suite leaves out is tagged `slow`, and says why it is skipped.**
   Surefire excludes that tag by default - `orknux.test.excluded-groups` in
   `app/pom.xml` - and `./mvnw test -Dorknux.test.excluded-groups=` runs them.
-  There is one, `ShellCodingTaskTest`: it builds a JDK image, brings up three
-  containers and asks a real model to write a Spring application, push it to a
-  gitea in Docker and have a clone of it answer an HTTP request. Two rules come
-  with the tag. A tagged test still refuses to run without what it needs -
-  `@EnabledIfEnvironmentVariable` on `ORKNUX_TEST_MODEL_KEY` there, with a
-  `disabledReason` a surefire report prints - so clearing the exclusion on a
-  machine that has no key skips rather than fails. And it must not be made to
-  pass by standing something in for its subject: the point of that test is
-  whether a model can do the work over this product's three shell tools, and a
-  stub returning the commands a working agent would have run proves only that
-  the commands work.
+  There are none at the moment; the last, a real model coding over the shell
+  tools, went with the shells. Two rules come with the tag. A tagged test still
+  refuses to run without what it needs - `@EnabledIfEnvironmentVariable` on a
+  key it needs, with a `disabledReason` a surefire report prints - so clearing
+  the exclusion on a machine that has no key skips rather than fails. And it
+  must not be made to pass by standing something in for its subject: a test of
+  whether a model can do the work, given a stub returning the commands a working
+  agent would have run, proves only that the commands work.
 - **The suite has its own database.** `TestDatabase` is a JUnit
   `LauncherSessionListener`, found through `META-INF/services`, that starts a
   Postgres container and points `spring.datasource.*` at it before the first

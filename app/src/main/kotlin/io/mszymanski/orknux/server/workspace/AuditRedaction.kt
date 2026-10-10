@@ -79,11 +79,10 @@ package io.mszymanski.orknux.server.workspace
  *  - **anything past the length an audit message is cut to.** A long command is
  *    trimmed to fit the column, and a credential in the part that was cut was
  *    never at risk — but a credential straddling the cut leaves its first few
- *    characters behind unless the caller redacts before it trims, which is why
- *    `ShellTools` does;
- *  - **the output of a command.** Only the command line is audited today, but a
- *    caller that ever put output into a message would be handing this text a
- *    secret in no shape any of these rules would find.
+ *    characters behind unless the caller redacts before it trims;
+ *  - **the output of a command.** A caller that ever put output into a message
+ *    would be handing this text a secret in no shape any of these rules would
+ *    find.
  *
  * An administrator who believes this is airtight is worse off than one who
  * knows its edges: the first will let an agent run `./deploy.sh $PASSWORD` and

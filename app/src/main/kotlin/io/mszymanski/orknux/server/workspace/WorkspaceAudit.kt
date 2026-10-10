@@ -31,22 +31,19 @@ enum class WorkspaceAuditCategory {
     /**
      * Commands run on a machine over SSH, and the shells they ran on.
      *
-     * Its own category rather than folded into AGENT or INTEGRATION, because
-     * this is the one thing on the platform that acts outside it. "It is up to
-     * the administrator to secure the box" is only a fair thing to say if the
-     * administrator can go to one place and read every command that was run on
-     * it, and a filter that finds them among everything else is what makes that
-     * one place.
+     * Nothing writes it any more: shells were removed. It stays because the
+     * entries written while they existed hold it, and a row whose category no
+     * longer parses would take the whole audit page with it.
      */
     SHELL,
 
     /**
      * Tasks: one started, one stopped, and what a person let one of them do.
      *
-     * Its own category for the reason SHELL is. A capability granted to a task
-     * is the one decision in this application that widens what an agent may
-     * reach without changing the agent, and somebody auditing that has to be
-     * able to find those rows without reading every save of every agent.
+     * Its own category because a capability granted to a task is the one
+     * decision in this application that widens what an agent may reach without
+     * changing the agent, and somebody auditing that has to be able to find
+     * those rows without reading every save of every agent.
      */
     TASK,
 }

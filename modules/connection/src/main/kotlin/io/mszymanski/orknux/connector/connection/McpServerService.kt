@@ -59,8 +59,8 @@ class McpServerService(
         val server = servers.findByIdOrNull(id) ?: throw McpServerNotFoundException(id)
         val check = runCheck(server)
         record(server, check)
-        // One statement, after the network conversation rather than around it -
-        // the same reason ShellService.checkShell saves outside a transaction.
+        // One statement, after the network conversation rather than around it, so
+        // no transaction is held open while a remote server takes its time.
         servers.save(server)
         return check
     }

@@ -105,7 +105,6 @@ class AgentFromModelTest(
         assertThat(made.memoryCatalogs).isEmpty()
         assertThat(made.mcpServers).isEmpty()
         assertThat(made.orknuxAccess).isFalse()
-        assertThat(made.shellAccess).isFalse()
 
         // It is a change to the workspace's agents, so it is in the log the same
         // as one built by hand. A door that wrote nothing down would be a way of

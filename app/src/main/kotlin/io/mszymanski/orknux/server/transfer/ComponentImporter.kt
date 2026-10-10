@@ -851,9 +851,6 @@ class ComponentImporter(
         component.kind == ComponentKind.TRIGGER ->
             " It arrives switched off, so nothing it listens for starts anything until it is switched on here."
 
-        component.kind == ComponentKind.AGENT && component.node.path("shellAccess").asBoolean(false) ->
-            " It was granted shell access, which lets it run commands on one of this installation's machines."
-
         component.kind == ComponentKind.AGENT && component.node.path("orknuxAccess").asBoolean(false) ->
             " It was granted access to Orknux itself, which lets it read this installation and start workflows."
 
@@ -1155,7 +1152,8 @@ class ComponentImporter(
                     enabled = node.path("enabled").asBoolean(true),
                     modelId = boundId(externalIn(node.path("modelRef"), ExternalKind.MODEL)),
                     orknuxAccess = node.path("orknuxAccess").asBoolean(false),
-                    shellAccess = node.path("shellAccess").asBoolean(false),
+                    // A `shellAccess` in a file exported before shells were
+                    // removed is read by nothing: there is nothing left to grant.
                     // The bound server's name here, which is not always the name
                     // the file used: an agent holds the name, so binding "Jira"
                     // to this workspace's "Jira (staging)" has to write the

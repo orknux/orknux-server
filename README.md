@@ -260,7 +260,7 @@ validation looks straight through.
 
 Everything the test suite covers works: signing in, workspaces, issues, agents,
 workflows, executions, chat and its history, the MCP endpoint, attachments,
-sessions, password resets, proxy rules and the shells an agent runs commands on.
+sessions, password resets and proxy rules.
 The same suite runs against both, switched by a property rather than written
 twice — **Tests** below says what that run is worth at the moment. What differs
 is underneath.
@@ -364,7 +364,6 @@ away, and a real key has no business in a build file.
 | `model`          | The API over the workspace's LLM providers, the models reached through them, and what they were used for |
 | `llm`            | LLM sessions: a conversation an agent keeps across the runs that share its key, the transcript of what was said and called, and how much of it a turn carries back |
 | `mcp`            | The MCP endpoint this server serves, and the tools an outside assistant calls through it |
-| `shell`          | The tool an agent runs commands through, on the machines Admin -> Shell holds; the sessions themselves belong to `modules/connection` |
 | `mail`           | The installation's own relay, and the one thing it sends: a password reset link |
 | `database`       | What SQLite needs and Postgres does not - the dialect, the pragmas, and the SQL the scheduler ships no dialect for |
 | `plugin`         | Plugins loaded into the installation, the functions they declare, and the JavaScript they were granted |
@@ -545,7 +544,8 @@ person arriving from somewhere this installation cannot see.
 
 `WorkspaceAuditRecorder` writes one row per change, attributed to the username of the
 caller. Entries carry a category (`WORKSPACE`, `WORKFLOW`, `AGENT`, `INTEGRATION`,
-`MODEL`, `MEMORY`, `OBJECT`, `CHAT`, `SHELL`) and
+`MODEL`, `MEMORY`, `OBJECT`, `CHAT`, `TASK`, and `SHELL` on entries written
+before shells were removed) and
 a message ready to display. An entry with no workspace is an admin-level change
 and only appears in the admin audit log.
 

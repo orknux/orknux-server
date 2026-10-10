@@ -13,7 +13,6 @@ import io.mszymanski.orknux.server.agent.WorkspaceToolCaller
 import io.mszymanski.orknux.server.mcp.OrknuxScope
 import io.mszymanski.orknux.server.mcp.OrknuxTools
 import io.mszymanski.orknux.server.memory.MemoryTool
-import io.mszymanski.orknux.server.shell.ShellTools
 import io.mszymanski.orknux.server.workflow.SavedArtifacts
 import io.mszymanski.orknux.workflow.script.PluginCrypto
 import io.mszymanski.orknux.server.memory.ToolDescriptor
@@ -47,7 +46,6 @@ class AgentTools(
     private val pluginTools: PluginToolCaller,
     private val mcpTools: McpToolCaller,
     private val orknux: OrknuxTools,
-    private val shells: ShellTools,
     /** What lets an agent find a connection id it was granted; see [ConnectionTools]. */
     private val connectionTools: ConnectionTools,
     /** What lets an agent put a question to another; see [AgentRunTools]. */
@@ -105,8 +103,8 @@ class AgentTools(
      * not sending all of them is.
      *
      * [core] is what an agent uses constantly and what there are few of: the
-     * skills and memories it was granted, orknux itself, a shell, somewhere to
-     * put what it made. [searchable] is everything that scales - the workspace's
+     * skills and memories it was granted, orknux itself, somewhere to put what
+     * it made. [searchable] is everything that scales - the workspace's
      * own tools, what the granted MCP servers offer, the plugins' - which is
      * where three hundred tools come from and which an agent looks through
      * rather than carries.
@@ -141,7 +139,7 @@ class AgentTools(
          * the Tools list with the same Hide, Offer, Always control as everything
          * else, so under a ceiling one left at Offer is found rather than
          * carried - the rule every other tool already lived by. What comes with
-         * a wider grant - the skills, the memories, orknux, the shells - stays
+         * a wider grant - the skills, the memories, orknux - stays
          * where it was: it has no Always mark to read, and it is few.
          */
         val always = agent.requiredTools.toSet()
@@ -170,11 +168,6 @@ class AgentTools(
         // boundary — there is no session here to ask about anything wider.
         // Less the ones this agent has hidden: the grant is the set, the agent picks from it.
         if (agent.orknuxAccess) addAll(orknux.specs(scopeFor(agent)).filter { it.name !in agent.hiddenTools })
-
-        // The machines, for an agent granted them. Unnamed and plural, which is
-        // the design: an agent asks for a shell, not for a particular host, and
-        // which one it gets is decided when the session opens.
-        if (agent.shellAccess) addAll(shells.specs())
 
         /*
          * And the ids of the connections it was granted, however many: one
@@ -402,7 +395,7 @@ class AgentTools(
          * A built-in the agent's Tools list hides, refused before anything
          * would run it. Issue #444.
          *
-         * The rule orknux and the shells keep, applied once for every name the
+         * The rule orknux keeps, applied once for every name the
          * list governs: a model that guessed the name of a tool it was never
          * offered is refused by the thing that would otherwise run it, and not
          * only by the menu it was never shown. Said as the same sentence the
@@ -426,15 +419,6 @@ class AgentTools(
             } else {
                 mapper.writeValueAsString(mapOf("error" to "This agent has not been given access to orknux"))
             }
-        } else if (shells.handles(call.name)) {
-            /*
-             * The shells, checked by name for the same reason orknux is checked
-             * by prefix: a model that guessed the name of a tool it was never
-             * offered is refused by the thing that would otherwise run it, and
-             * not only by the menu it was never shown. ShellTools checks the
-             * grant itself and says so in the words the model needs.
-             */
-            shells.run(agent, call.name, call.arguments)
         } else if (call.name == VALIDATE) {
             validator.check(call.arguments)
         } else if (embedded.handles(call.name)) {
@@ -448,14 +432,14 @@ class AgentTools(
         } else if (agentTools.handles(call.name)) {
             /*
              * Asking another agent, checked here as well as left off the menu -
-             * the rule orknux and the shells keep - and by the thing that knows
+             * the rule orknux keeps - and by the thing that knows
              * which agents this one was granted.
              */
             agentTools.run(agent, call.arguments, sessionId)
         } else if (connectionTools.handles(call.name)) {
             /*
              * The connection finder, checked here as well as left off the menu:
-             * the rule orknux and the shells keep, and it is the thing that
+             * the rule orknux keeps, and it is the thing that
              * knows what this agent was granted.
              */
             connectionTools.run(agent, call.arguments)

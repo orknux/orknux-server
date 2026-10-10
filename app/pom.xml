@@ -457,13 +457,14 @@
                     <!--
                         Tests tagged `slow` are left out of the ordinary run.
 
-                        There is one so far - ShellCodingTaskTest - and what
-                        makes it slow is not a sleep to be tuned away: it builds
-                        a JDK image, brings up three containers and asks a real
-                        model to write an application, which is minutes even
-                        when everything goes right. A suite that takes that long
-                        is a suite people stop running, and the whole reason
-                        this one is worth having is that everybody runs it.
+                        There are none at the moment. The one there was - a real
+                        model writing an application on a machine brought up in
+                        containers - went with the shells it worked through, and
+                        what made it slow was not a sleep to be tuned away but
+                        minutes of real work even when everything went right. A
+                        suite that takes that long is a suite people stop
+                        running, and the whole reason this one is worth having
+                        is that everybody runs it.
 
                         Cleared to run them: `./mvnw test -Dorknux.test.excluded-groups=`.
                         Every such test also refuses to run without whatever it

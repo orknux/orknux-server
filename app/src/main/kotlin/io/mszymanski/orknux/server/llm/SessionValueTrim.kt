@@ -36,7 +36,7 @@ import tools.jackson.databind.node.ObjectNode
  * roughly how big, and is short enough not to be the thing that bloats the row.
  *
  * **Text that is not JSON is shortened whole**, on the same rule and with the
- * same marker. A tool that answers in plain text - a shell command's output, a
+ * same marker. A tool that answers in plain text - a command's output, a
  * `--help`, a stack trace - can carry exactly the same kilobyte of nothing, and
  * a rule that only applied to well-formed JSON would be a rule the noisiest
  * tools escape. This is the part with a real cost attached, and it should be

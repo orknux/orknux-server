@@ -251,16 +251,6 @@ type Query {
     beside the screen, so it cannot drift from what a real call would do.
     """
     proxyRoute(url: String!): ProxyRoute!
-    """
-    The machines this installation can run commands on, by name. Administrators
-    only.
-
-    Never carries a private key or its passphrase; `privateKeySet` and
-    `passphraseSet` are all that is said about either.
-    """
-    shells: [Shell!]!
-    "One shell. Administrators only, and still without its key."
-    shell(id: ID!): Shell
     connection(id: ID!): Connection
     "The connections one workspace holds, ordered by name."
     workspaceConnections(workspaceId: ID!): [WorkspaceConnection!]!
@@ -1776,7 +1766,7 @@ type Mutation {
 
     Named after the model, and where that name is taken, the same with a number
     after it. Granted nothing at all: no tools, no skills, no MCP servers, no
-    catalogues, no shell, no orknux access. Granting is what an agent's settings
+    catalogues, no orknux access. Granting is what an agent's settings
     page is for, and this is the bare agent you then dress - which is not a bare
     model, because it has a name, a page, a prompt it can be given, memory, and
     somewhere for every grant to go.
@@ -2033,34 +2023,6 @@ type Mutation {
     for the life of the process would go on accepting it.
     """
     untrustCertificate(id: ID!): Boolean!
-    "Adds a machine this installation can run commands on. Administrators only."
-    createShell(input: ShellInput!): Shell!
-    """
-    A null private key leaves the stored one alone; an empty one clears it. The
-    same rule holds for the passphrase.
-
-    Changing the host or the port forgets the stored host key, since it is no
-    longer about the machine this shell now names.
-    """
-    updateShell(id: ID!, input: ShellInput!): Shell!
-    "Turns a shell on or off without opening it."
-    setShellEnabled(id: ID!, enabled: Boolean!): Shell!
-    """
-    Asks a shell now whether it answers, rather than waiting for the sweep.
-
-    The check is a real connection: the handshake, the key accepted, and a
-    command actually run. A host that answers on port 22 and refuses every
-    account is a failure, which is the case worth catching.
-    """
-    checkShell(id: ID!): Shell!
-    """
-    Removes a shell.
-
-    Any sessions still open on it are closed first and their directories
-    removed. A machine that will not answer is removed anyway - a page nobody
-    can tidy up because the host is already gone would be worse.
-    """
-    deleteShell(id: ID!): Boolean!
     "Adds a connection that belongs to this workspace alone."
     createWorkspaceConnection(input: CreateWorkspaceConnectionInput!): WorkspaceConnection!
     "Saves the connection settings form; inherited fields are left to the default."
@@ -3246,14 +3208,6 @@ type Agent {
     one of the workspace's own and never appears among them.
     """
     orknuxAccess: Boolean!
-    """
-    Whether it may open a shell on one of the installation's machines and run
-    commands there.
-
-    Plural and unnamed: an agent asks for a shell rather than for a particular
-    host, and which one a session lands on is decided when it opens.
-    """
-    shellAccess: Boolean
     "Whether it may keep a file it made, on the workspace's Artifacts page. On by default."
     artifactAccess: Boolean!
     """
@@ -3757,14 +3711,17 @@ enum TaskStatus {
 """
 Something a task may be given that its agent was not.
 
-The same six things an agent's own page grants, named the same way, because
+The same things an agent's own page grants, named the same way, because
 approving one here is the same decision taken for one task instead of for ever.
-There is deliberately no seventh meaning \"everything\".
+There is deliberately none meaning \"everything\".
 """
 enum TaskCapability {
     "Asking orknux about orknux, and starting workflows, in this workspace."
     ORKNUX
-    "Opening a shell on one of the installation's machines and running commands."
+    """
+    Retired: shells were removed. Nothing offers it any more and granting it
+    widens nothing; kept so a request or grant recorded before still reads.
+    """
     SHELLS
     "One of the workspace's own tools, named in `subject`."
     TOOL
@@ -4481,8 +4438,6 @@ input UpdateAgentInput {
     mcpServers: [String!]
     "Whether it may ask orknux about orknux; null leaves the grant alone."
     orknuxAccess: Boolean
-    "Whether it may open a shell on a machine; null leaves the grant alone."
-    shellAccess: Boolean
     "Whether it may keep a file it made. On by default."
     artifactAccess: Boolean
     "Whether it may end its turn by saying so rather than writing prose. On by default."
@@ -4548,17 +4503,16 @@ enum WorkspaceAuditCategory {
     """
     Commands run on a machine over SSH, and the shells they ran on.
 
-    Its own category because this is the one thing on the platform that acts
-    outside it, and "the administrator secures the machine" is only a fair
-    bargain if they can afterwards read every command that was run on it.
+    Nothing writes it any more: shells were removed. Kept so the entries written
+    while they existed still read.
     """
     SHELL
     """
     Tasks: one started, one stopped, and what a person let one of them do.
 
-    Its own category for the reason SHELL is. Granting a capability to a task is
-    the one decision that widens what an agent may reach without changing the
-    agent, and somebody auditing that must be able to find those rows.
+    Its own category because granting a capability to a task is the one
+    decision that widens what an agent may reach without changing the agent,
+    and somebody auditing that must be able to find those rows.
     """
     TASK
 }
@@ -4742,155 +4696,6 @@ type ProxyRoute {
     refusedBecause: String
     "What the same guard thinks of the matched rule's own proxy address."
     proxyProblem: String
-}
-
-"""
-A machine this installation can run commands on, over SSH.
-
-Installation-wide and administrators only, because a host belongs to the
-infrastructure this process sits in rather than to the team whose agent asked
-about it.
-
-What contains a shell is the machine on the other end and nothing in this
-application. There is no list of forbidden commands and no classifier deciding
-which are safe: reading a shell command and saying what it will do is not a
-solvable problem, and a denylist that is nearly right is worse than none because
-it says an administrator is protected when they are not. The design is a virtual
-machine or a container the administrator chose, an account with exactly the
-privileges they meant to give away, and an audit entry for every command run.
-"""
-enum ShellKind { SSH, MCP }
-
-type Shell {
-    id: ID!
-    name: String!
-    "SSH or MCP - which list it appears in and what carries its commands."
-    kind: ShellKind!
-    "The MCP server an MCP shell speaks through, or null for an SSH shell."
-    mcpServerId: ID
-    "Blank for an MCP shell, whose reach is the server's, not a host of its own."
-    host: String!
-    port: Int!
-    """
-    The account on the far side, or null when none was given.
-
-    Optional in the way it is optional at `ssh build.internal`: leaving it out
-    means the account this server itself runs as. See `account` for what that
-    resolves to.
-    """
-    username: String
-    """
-    The account commands actually run as: `username` when there is one, and the
-    account this server process runs as when there is not.
-
-    Here rather than worked out by whatever is showing it, because nothing
-    outside this process knows what account it runs as, and a screen that
-    guessed would be guessing about privilege.
-    """
-    account: String!
-    "Whether a private key is stored. The key itself is never returned."
-    privateKeySet: Boolean!
-    "Whether the key has a passphrase. It is never returned either."
-    passphraseSet: Boolean!
-    """
-    The host key this shell was first seen with, as a `SHA256:` fingerprint, or
-    null until the first connection succeeds.
-
-    Trust on first use: what answered the first time is what has to answer from
-    now on, and a different key is refused rather than accepted quietly. Compare
-    it by eye with `ssh-keygen -lf` on the machine itself.
-    """
-    hostKey: String
-    enabled: Boolean!
-    """
-    How long one command on this machine may run, in seconds, or null when it
-    has no limit of its own and runs on `defaultCommandTimeoutSeconds`.
-
-    Per machine because the right number is a property of the machine. A
-    container built to compile things and a router that answers `show
-    interfaces` want opposite answers, and an installation with both had to pick
-    one.
-    """
-    commandTimeoutSeconds: Int
-    "How much of a command's output this machine keeps, per stream, in bytes. Null for the default."
-    maxOutputBytes: Int
-    """
-    What a shell with no limit of its own actually runs on.
-
-    Here for the same reason `account` is: the number lives in this
-    installation's configuration and nothing outside the process can work it
-    out. A screen showing an empty box and nothing beside it would be telling an
-    administrator that no limit applies, which is never true.
-    """
-    defaultCommandTimeoutSeconds: Int!
-    "The same, for the output allowance."
-    defaultMaxOutputBytes: Int!
-    status: ShellStatus!
-    "What the last check found, in words worth showing."
-    lastCheckMessage: String
-    lastCheckedAt: String
-    createdAt: String!
-    lastModifiedAt: String!
-}
-
-"What the last check of a shell found."
-enum ShellStatus {
-    "No private key is stored, so there is nothing to connect with."
-    NOT_CONFIGURED
-    "Configured, but nothing has reached the machine yet."
-    NOT_CHECKED
-    CONNECTED
-    FAILED
-}
-
-input ShellInput {
-    name: String!
-    "SSH or MCP. Absent is SSH, unchangeable after creation."
-    kind: ShellKind
-    "Required for an MCP shell, ignored for SSH."
-    mcpServerId: ID
-    "Required for an SSH shell, ignored for MCP."
-    host: String
-    port: Int! = 22
-    """
-    The account on the far side. Optional, and blank is the same as absent:
-    either way commands run as the account this server itself runs as, which is
-    what `ssh build.internal` does with no user in front of it.
-    """
-    username: String
-    """
-    The private key, in OpenSSH or PEM form. Null leaves the stored one alone;
-    an empty string clears it. Never read back.
-    """
-    privateKey: String
-    "The key's passphrase, if it has one. Same rule as the key."
-    keyPassphrase: String
-    "Defaults to on for a new shell; omitting it on an update leaves it as it is."
-    enabled: Boolean
-    """
-    How long one command on this machine may run, in seconds, or null to use
-    this installation's own limit.
-
-    Absent and null are the same thing, the way they are for `username` and
-    unlike the key: there is nothing secret about a timeout, so the screen always
-    has the current value to send back and an empty box is how somebody says
-    "whatever the installation says".
-
-    Between 1 and 86400. Outside that it is refused rather than clamped: a
-    number quietly moved to the nearest one this accepts is a form claiming to
-    have saved something it did not.
-    """
-    commandTimeoutSeconds: Int
-    "How much of a command's output to keep, per stream, in bytes. Between 1024 and 16777216. Same rule as above."
-    maxOutputBytes: Int
-    """
-    Forgets the host key this shell was first seen with, so the next connection
-    trusts whatever answers and records that instead.
-
-    What to tick after rebuilding a machine, and the only way past a key
-    mismatch - which is the point of having one.
-    """
-    forgetHostKey: Boolean
 }
 
 "A connection as one workspace holds it, with that workspace's credentials."
@@ -6420,8 +6225,6 @@ enum BuiltInToolGovernance {
     MEMORY_CATALOGS
     "Orknux access."
     ORKNUX_ACCESS
-    "Shell access."
-    SHELL_ACCESS
     "Any of the HTTP tools granted, while Admin Settings has them switched on."
     HTTP_TOOLS
 }

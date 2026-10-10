@@ -89,65 +89,6 @@
             <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
 
-        <!--
-            Running a command on a machine over SSH.
-
-            Apache MINA SSHD rather than sshj: an Apache Software Foundation
-            project under the same licence this is, released regularly, and what
-            Gerrit and Jenkins talk SSH with. What decided it is the dependency
-            list - sshd-core brings sshd-common and slf4j and nothing else,
-            where sshj brings a BouncyCastle requirement, and this application
-            has no other reason to put a second cryptography provider on the
-            classpath.
-        -->
-        <dependency>
-            <groupId>org.apache.sshd</groupId>
-            <artifactId>sshd-core</artifactId>
-            <version>${sshd.version}</version>
-            <exclusions>
-                <!--
-                    The one thing it brings that is worth refusing. Spring's own
-                    spring-jcl already publishes org.apache.commons.logging, and
-                    commons-logging itself is on the path behind another
-                    dependency; a third jar carrying those same classes means the
-                    logging this application does depends on classpath order,
-                    which is the kind of thing that behaves one way here and
-                    another way in a container. sshd logs through slf4j directly
-                    and needs none of it.
-                -->
-                <exclusion>
-                    <groupId>org.slf4j</groupId>
-                    <artifactId>jcl-over-slf4j</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-
-        <!--
-            Ed25519 keys, which is most of the keys anybody has.
-
-            MINA SSHD reads RSA and ECDSA with the JDK's own providers and needs
-            help for Ed25519: it will use either this or BouncyCastle, and
-            nothing else. That is a real choice rather than a formality. Ed25519
-            has been ssh-keygen's default since OpenSSH 9.5, so without one of
-            them an administrator pasting the key they actually have is told it
-            cannot be read.
-
-            This one over BouncyCastle because of what each costs. This is 85 KB
-            with no dependencies of its own, public domain, and registers a JCE
-            provider that does Ed25519 and nothing else. BouncyCastle is eight
-            megabytes and a general-purpose provider, and putting one of those
-            into a process that has none is a change to how every other piece of
-            cryptography in this application resolves - for a feature that needs
-            one curve. It is worth knowing that this library has not been
-            released since 0.3.0 in 2018; it is stable, it does one thing, and it
-            is the integration point the Apache project itself names.
-        -->
-        <dependency>
-            <groupId>net.i2p.crypto</groupId>
-            <artifactId>eddsa</artifactId>
-            <version>${eddsa.version}</version>
-        </dependency>
-
         <!-- Slack over Socket Mode: an outbound websocket, so no public URL and
              no inbound firewall rule for a development machine to arrange. -->
         <dependency>

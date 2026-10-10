@@ -99,7 +99,7 @@ class WorkspaceAccess(
      * What it grants is deliberately small - the workspace's own name and
      * description, putting somebody else on one of its issues as an observer, and
      * moving an issue in or out of it. It grants nothing installation-wide:
-     * connections, proxy rules, shells, users, roles and the installation settings
+     * connections, proxy rules, users, roles and the installation settings
      * are still [requireAdmin], and so are creating and deleting a workspace, since
      * neither is something a workspace can decide about itself.
      *

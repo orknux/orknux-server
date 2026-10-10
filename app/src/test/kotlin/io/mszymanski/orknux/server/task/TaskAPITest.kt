@@ -149,7 +149,7 @@ class TaskAPITest(
      */
     @Test
     fun `approving grants exactly what was asked and records who granted it`() {
-        val taskId = parked("Needs a shell")
+        val taskId = parked("Needs access")
         val requestId = requireNotNull(requests.findFirstByTaskIdAndDecisionIsNullOrderByAskedAtAscIdAsc(taskId)).id
 
         graphQlTester.document(
@@ -160,16 +160,32 @@ class TaskAPITest(
             .path("approveTaskRequest.requests[0].decision").entity(String::class.java).isEqualTo("GRANTED")
             .path("approveTaskRequest.requests[0].decidedBy").entity(String::class.java).isEqualTo("alice")
             .path("approveTaskRequest.grants").entityList(Any::class.java).hasSize(1)
-            .path("approveTaskRequest.grants[0].capability").entity(String::class.java).isEqualTo("SHELLS")
+            .path("approveTaskRequest.grants[0].capability").entity(String::class.java).isEqualTo("ORKNUX")
             .path("approveTaskRequest.grants[0].grantedBy").entity(String::class.java).isEqualTo("alice")
 
-        assertThat(audit.findAll().map { it.message }).anyMatch { it.contains("granted shells") }
+        assertThat(audit.findAll().map { it.message }).anyMatch { it.contains("granted orknux") }
+    }
+
+    /**
+     * A task that asked for shells before they were removed still reads.
+     *
+     * The capability is kept as a retired constant for exactly this: a stored
+     * value with no constant behind it fails to load, and takes the task page
+     * with it.
+     */
+    @Test
+    fun `a request for shells recorded before their removal still reads`() {
+        val taskId = parked("Asked for a shell", TaskCapability.SHELLS)
+
+        graphQlTester.document("""query { task(id: $taskId) { requests { capability } } }""")
+            .execute()
+            .path("task.requests[0].capability").entity(String::class.java).isEqualTo("SHELLS")
     }
 
     /** Two people pressing the same button: the second is told it has moved on. */
     @Test
     fun `a request that has been decided cannot be decided again`() {
-        val taskId = parked("Needs a shell")
+        val taskId = parked("Needs access")
         val requestId = requireNotNull(requests.findFirstByTaskIdAndDecisionIsNullOrderByAskedAtAscIdAsc(taskId)).id
 
         graphQlTester.document("""mutation { refuseTaskRequest(id: $requestId) { status } }""").execute()
@@ -187,7 +203,7 @@ class TaskAPITest(
      */
     @Test
     fun `a working task can be told something and the page can see it has not been read`() {
-        val taskId = parked("Needs a shell")
+        val taskId = parked("Needs access")
 
         graphQlTester.document(
             """mutation { sendTaskMessage(id: $taskId, said: "  Make it a table.  ")
@@ -203,7 +219,7 @@ class TaskAPITest(
         // words are in the task's transcript, where somebody reading the account
         // of the work will look for them.
         assertThat(audit.findAll().map { it.message })
-            .anyMatch { it.contains("Needs a shell") && it.contains("given a message") }
+            .anyMatch { it.contains("Needs access") && it.contains("given a message") }
     }
 
     /**
@@ -219,7 +235,7 @@ class TaskAPITest(
      */
     @Test
     fun `an empty message is refused, and one to a task that has ended sets it going again`() {
-        val taskId = parked("Needs a shell")
+        val taskId = parked("Needs access")
 
         graphQlTester.document("""mutation { sendTaskMessage(id: $taskId, said: "   ") { id } }""")
             .execute().errors().expect { it.message?.contains("needs something in it") == true }.verify()
@@ -245,7 +261,7 @@ class TaskAPITest(
     /** A running task is stopped deliberately, not as a side effect of tidying up. */
     @Test
     fun `a task is stopped before it can be removed`() {
-        val taskId = parked("Needs a shell")
+        val taskId = parked("Needs access")
 
         graphQlTester.document("""mutation { deleteTask(id: $taskId) }""")
             .execute().errors().expect { it.message?.contains("Stop the task") == true }.verify()
@@ -284,7 +300,7 @@ class TaskAPITest(
      * Not started through the API, because a started task runs on a thread of
      * its own and would be racing these assertions.
      */
-    private fun parked(title: String): Long {
+    private fun parked(title: String, capability: TaskCapability = TaskCapability.ORKNUX): Long {
         val task = tasks.save(
             Task(
                 workspaceId = workspaceId,
@@ -305,8 +321,8 @@ class TaskAPITest(
             TaskRequest(
                 taskId = id,
                 kind = TaskRequestKind.PERMISSION,
-                capability = TaskCapability.SHELLS,
-                asks = "I need to run the build",
+                capability = capability,
+                asks = "I need to start the build",
             ),
         )
         return id

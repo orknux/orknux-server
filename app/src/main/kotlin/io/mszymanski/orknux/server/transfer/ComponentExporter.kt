@@ -528,12 +528,11 @@ class ComponentExporter(
     /**
      * An agent: its instructions, what it may call, and what it thinks with.
      *
-     * The two access grants travel with it, and they are the reason the plan
-     * says so out loud. Neither is a secret — they are settings a workspace
-     * chose — but an agent that may open a shell is an agent that may run
-     * anything the account on the other end can, and somebody importing a file
-     * from elsewhere should be told that before pressing the button rather than
-     * after.
+     * Its access to Orknux travels with it, and is the reason the plan says so
+     * out loud. It is not a secret — it is a setting a workspace chose — but an
+     * agent that may reach Orknux may read this installation and start
+     * workflows, and somebody importing a file from elsewhere should be told
+     * that before pressing the button rather than after.
      */
     private fun describeAgent(workspaceId: Long, held: Agent): ObjectNode =
         start(ComponentKind.AGENT, held.name).apply {
@@ -542,7 +541,6 @@ class ComponentExporter(
             put("systemPrompt", held.systemPrompt)
             put("enabled", held.enabled)
             put("orknuxAccess", held.orknuxAccess)
-            put("shellAccess", held.shellAccess)
             put("icon", held.icon)
             putExternal("modelRef", externals.modelReference(workspaceId, held.modelId))
             val servers = putArray("mcpServerRefs")

@@ -199,8 +199,8 @@ class TaskLoopTest(
 
         val asked = requireNotNull(requests.findFirstByTaskIdAndDecisionIsNullOrderByAskedAtAscIdAsc(taskId))
         assertThat(asked.kind).isEqualTo(TaskRequestKind.PERMISSION)
-        assertThat(asked.capability).isEqualTo(TaskCapability.SHELLS)
-        assertThat(asked.asks).contains("run the build")
+        assertThat(asked.capability).isEqualTo(TaskCapability.ORKNUX)
+        assertThat(asked.asks).contains("start the build")
 
         // Whoever asked for the task hears about it. Nothing happens at all
         // until somebody looks, so this is the mechanism and not a courtesy.
@@ -218,11 +218,11 @@ class TaskLoopTest(
 
         val granted = grants.findByTaskIdOrderByGrantedAtAscIdAsc(taskId)
         assertThat(granted).hasSize(1)
-        assertThat(granted[0].capability).isEqualTo(TaskCapability.SHELLS)
+        assertThat(granted[0].capability).isEqualTo(TaskCapability.ORKNUX)
         assertThat(granted[0].grantedBy).isEqualTo("alice")
         // On the task, and not on the agent: an afternoon's approval must not
         // arm the agent in every chat for ever.
-        assertThat(agents.findAll().single().shellAccess).isFalse()
+        assertThat(agents.findAll().single().orknuxAccess).isFalse()
 
         assertThat(requireNotNull(tasks.findByIdOrNull(taskId)).status).isEqualTo(TaskStatus.RUNNING)
 
@@ -230,7 +230,7 @@ class TaskLoopTest(
         received.clear()
         loop.advance(taskId)
         assertThat(received).isNotEmpty()
-        assertThat(received.last()).contains("shell_open_session")
+        assertThat(received.last()).contains("orknux_workflows")
     }
 
     /** A question parks the same way, and the answer comes back as a turn. */
@@ -774,13 +774,13 @@ class TaskLoopTest(
         return id
     }
 
-    /** Asks for the shells first, and finishes once it has them. */
+    /** Asks for orknux first, and finishes once it has it. */
     private fun serveAsking(): String = serve { body ->
         when {
-            body.contains("has given you shells") -> finishing("Built it.")
+            body.contains("has given you orknux") -> finishing("Built it.")
             else -> calling(
                 "task_request_permission",
-                """{\"capability\":\"shells\",\"why\":\"I need to run the build\"}""",
+                """{\"capability\":\"orknux\",\"why\":\"I need to start the build\"}""",
             )
         }
     }

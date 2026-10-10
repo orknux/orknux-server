@@ -245,7 +245,7 @@ class TaskHandoverTest(
             TaskRequest(
                 taskId = id,
                 kind = TaskRequestKind.PERMISSION,
-                capability = TaskCapability.SHELLS,
+                capability = TaskCapability.ORKNUX,
                 asks = "I need to run the build",
             ),
         )

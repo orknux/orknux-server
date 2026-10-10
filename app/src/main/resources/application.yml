@@ -723,7 +723,7 @@ orknux:
     # What one task may spend before it is stopped and told so. An agent running
     # until it decides it is done is an unbounded bill, so there are two
     # ceilings: the turns bound how often the model is asked, and the working
-    # time bounds what happens between two of them - a shell command, an MCP
+    # time bounds what happens between two of them - a slow tool call, an MCP
     # server that takes its time - which no count of turns can express.
     #
     # Both are copied onto a task when it is created, so raising these does not

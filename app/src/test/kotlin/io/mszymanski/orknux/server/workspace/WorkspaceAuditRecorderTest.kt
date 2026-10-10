@@ -38,7 +38,7 @@ class WorkspaceAuditRecorderTest(
     fun `a command an agent ran is stored without its password`() {
         recorder.recordAutomated(
             workspaceId,
-            WorkspaceAuditCategory.SHELL,
+            WorkspaceAuditCategory.AGENT,
             "sre ran on box: git push https://alice:s3cr3t@github.com/acme/repo.git main (exit 0)",
             "sre",
         )
@@ -52,7 +52,7 @@ class WorkspaceAuditRecorderTest(
     fun `a message recorded for a person is stored without its token`() {
         recorder.record(
             workspaceId,
-            WorkspaceAuditCategory.SHELL,
+            WorkspaceAuditCategory.AGENT,
             "alice ran on box: curl -H 'Authorization: Bearer ghp_ZmFrZXRva2VuZm9yYXRlc3Q0Mg' https://api.example.com",
         )
 
@@ -62,9 +62,9 @@ class WorkspaceAuditRecorderTest(
 
     @Test
     fun `an admin-level message is redacted too`() {
-        recorder.record(null, WorkspaceAuditCategory.SHELL, "Shell box added with PGPASSWORD=s3cr3t")
+        recorder.record(null, WorkspaceAuditCategory.INTEGRATION, "Connection box added with PGPASSWORD=s3cr3t")
 
-        assertThat(stored()).isEqualTo("Shell box added with PGPASSWORD=***")
+        assertThat(stored()).isEqualTo("Connection box added with PGPASSWORD=***")
     }
 
     @Test

@@ -183,8 +183,6 @@ class BuiltInToolsTest(
         assertThat(listed.filter { it.governance == BuiltInGovernance.ORKNUX_ACCESS }.map { it.name })
             .isNotEmpty
             .allMatch { it.startsWith("orknux_") }
-        assertThat(listed.filter { it.governance == BuiltInGovernance.SHELL_ACCESS }.map { it.name })
-            .containsExactlyInAnyOrder("shell_open_session", "shell_run_command", "shell_close_session")
         // A name once, or the form draws two rows with one control between them.
         assertThat(listed.map { it.name }).doesNotHaveDuplicates()
     }
@@ -197,7 +195,7 @@ class BuiltInToolsTest(
             .path("builtInTools[*].name").entityList(String::class.java).get()
 
         assertThat(names).containsAll(BuiltInTools.GRANTED)
-        assertThat(names).contains("skill_load", "memory_save", "shell_run_command")
+        assertThat(names).contains("skill_load", "memory_save")
     }
 
     /**

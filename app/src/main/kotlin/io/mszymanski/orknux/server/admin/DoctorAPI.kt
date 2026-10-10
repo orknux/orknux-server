@@ -150,7 +150,7 @@ class DoctorAPI(
          * is the size of the problem — one credential lost is an afternoon, all of
          * them is a restore — and the names are where to go next, which is what this
          * screen exists to save somebody a database query for. A column holding
-         * several says so once, with how many: the seeded shells put the same column
+         * several says so once, with how many: a seeded table puts the same column
          * on the list a dozen times over, which reads as a dozen problems.
          *
          * Never the value, which cannot be read anyway and must not be shown if it

@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🔧 Changed
+
+- Shells are removed: agents can no longer open a shell on a machine, and the Admin → Shell pages are gone. Existing shell definitions stay in the database untouched, but nothing uses them any more.
+
 ## 0.9.9.32
 
 ### ✨ Added

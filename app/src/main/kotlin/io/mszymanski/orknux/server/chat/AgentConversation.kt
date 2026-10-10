@@ -966,8 +966,8 @@ class AgentConversation(
                          * One string, told to both, and that is the whole of
                          * issue #291.
                          *
-                         * The call's arguments are a command line - the shell
-                         * tool's literally so - and they leave this loop by two
+                         * The call's arguments can carry a command line, and
+                         * they leave this loop by two
                          * roads: into the session, where [LlmSessionRecorder]
                          * strips the credentials before the row is saved, and
                          * to the watcher, which the chat's stream forwards

@@ -9,8 +9,8 @@ import java.time.OffsetDateTime
  * Writes the audit trail. The user id is the LDAP uid of the authenticated
  * caller, so every entry is attributable.
  *
- * **Every message passes through [AuditRedaction] on the way in.** One of the
- * things this log carries is the shell commands agents run, and a command line
+ * **Every message passes through [AuditRedaction] on the way in.** A message
+ * can carry a command line or an address somebody typed, and a command line
  * is where a live credential most often ends up in the clear — a token in a git
  * remote, a password after `curl -u`. Redacting here rather than at each caller
  * is the point: this is the only place rows are written, so a caller added

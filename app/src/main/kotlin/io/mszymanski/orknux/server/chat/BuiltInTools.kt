@@ -8,7 +8,6 @@ import io.mszymanski.orknux.server.agent.SkillTool
 import io.mszymanski.orknux.server.mcp.OrknuxScope
 import io.mszymanski.orknux.server.mcp.OrknuxTools
 import io.mszymanski.orknux.server.memory.MemoryTool
-import io.mszymanski.orknux.server.shell.ShellTools
 import io.mszymanski.orknux.server.workflow.StepPictureTools
 import org.springframework.stereotype.Service
 
@@ -26,11 +25,11 @@ import org.springframework.stereotype.Service
  * [GRANT] is a tool switched on the Tools list like any other: by its name in
  * [Agent.tools], carried on every turn where it is in [Agent.requiredTools] and
  * findable otherwise, exactly as a workspace's or a plugin's tool is. Everything
- * an agent could once be handed without asking is this kind. The other four are
- * a tool that comes with a wider grant - the skill tools with the skill catalogs,
- * the memories with the memory catalogs, `orknux_*` with orknux access, the
- * shells with shell access - and is listed so the reader sees it, but switched
- * where the grant is switched: two switches for one thing is how they disagree.
+ * an agent could once be handed without asking is this kind. The others are a
+ * tool that comes with a wider grant - the skill tools with the skill catalogs,
+ * the memories with the memory catalogs, `orknux_*` with orknux access - and is
+ * listed so the reader sees it, but switched where the grant is switched: two
+ * switches for one thing is how they disagree.
  */
 enum class BuiltInGovernance {
     /** By its name in the agent's Tools list; carried or found per the Always mark. */
@@ -56,9 +55,6 @@ enum class BuiltInGovernance {
     /** Offered while the agent has orknux access. */
     ORKNUX_ACCESS,
 
-    /** Offered while the agent has shell access. */
-    SHELL_ACCESS,
-
     /**
      * Offered while the agent holds one of the HTTP tools and they are switched
      * on in Admin Settings. Issue #602: `http_allowList`, which answers where
@@ -80,7 +76,7 @@ data class BuiltInTool(val name: String, val governance: BuiltInGovernance)
  * fault the other way round, which is why the names here are the constants the
  * tools themselves are called by rather than a second spelling of them.
  *
- * The four grant-bound kinds are read off the services that own them, so a
+ * The grant-bound kinds are read off the services that own them, so a
  * tool added to the orknux surface is a row here without anybody remembering
  * to add it.
  */
@@ -89,7 +85,6 @@ class BuiltInTools(
     private val skills: SkillTool,
     private val memories: MemoryTool,
     private val orknux: OrknuxTools,
-    private val shells: ShellTools,
 ) {
 
     /**
@@ -120,7 +115,6 @@ class BuiltInTools(
         orknux.specs(OrknuxScope(workspaceId = 0, mayWrite = true)).forEach {
             add(BuiltInTool(it.name, BuiltInGovernance.ORKNUX_ACCESS))
         }
-        shells.specs().forEach { add(BuiltInTool(it.name, BuiltInGovernance.SHELL_ACCESS)) }
     }
 
     companion object {

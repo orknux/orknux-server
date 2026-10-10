@@ -25,8 +25,8 @@ import org.springframework.stereotype.Component
  * asking the question it already asks - "what is this agent allowed" - with no
  * second answer to keep in step.
  *
- * **The copy is never saved.** It carries the real agent's id because the shell
- * tools record sessions against it, and it must not reach a repository: it holds
+ * **The copy is never saved.** It carries the real agent's id because what it
+ * does is recorded against that agent, and it must not reach a repository: it holds
  * grants nobody gave the agent. Nothing here hands it to one, and nothing
  * should.
  */
@@ -96,7 +96,6 @@ class TaskWorker(
             modelId = modelId,
             memoryShare = agent?.memoryShare,
             orknuxAccess = agent?.orknuxAccess == true || TaskCapability.ORKNUX in held,
-            shellAccess = agent?.shellAccess == true || TaskCapability.SHELLS in held,
             mcpServers = merged(agent?.mcpServers, named(TaskCapability.MCP_SERVER)),
             memoryCatalogs = merged(agent?.memoryCatalogs, named(TaskCapability.MEMORY_CATALOG)),
             skillCatalogs = merged(agent?.skillCatalogs, named(TaskCapability.SKILL_CATALOG)),

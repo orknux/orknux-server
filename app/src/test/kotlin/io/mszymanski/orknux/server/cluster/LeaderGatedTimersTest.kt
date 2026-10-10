@@ -13,12 +13,6 @@ import io.mszymanski.orknux.connector.model.ModelProviderCheckProperties
 import io.mszymanski.orknux.connector.model.ModelProviderMonitor
 import io.mszymanski.orknux.connector.model.ModelProviderRepository
 import io.mszymanski.orknux.connector.model.ModelService
-import io.mszymanski.orknux.connector.shell.ShellProperties
-import io.mszymanski.orknux.connector.shell.ShellRepository
-import io.mszymanski.orknux.connector.shell.ShellService
-import io.mszymanski.orknux.connector.shell.ShellSessionRepository
-import io.mszymanski.orknux.connector.shell.ShellSessionService
-import io.mszymanski.orknux.connector.shell.ShellSessionSweeper
 import io.mszymanski.orknux.server.attachment.InstallationSettings
 import io.mszymanski.orknux.server.llm.ScratchpadSweepProperties
 import io.mszymanski.orknux.server.llm.ScratchpadSweeper
@@ -97,20 +91,6 @@ class LeaderGatedTimersTest {
     fun `the model provider checks run on the leader only`() {
         gated(ModelProviderRepository::class.java, { it.findAll() }) { repo, leader ->
             ModelProviderMonitor(repo, mock(ModelService::class.java), ModelProviderCheckProperties(), leader)::timedPass
-        }
-    }
-
-    @Test
-    fun `the shell sweep runs on the leader only`() {
-        gated(ShellRepository::class.java, { it.findAll() }) { repo, leader ->
-            ShellSessionSweeper(
-                repo,
-                mock(ShellSessionRepository::class.java),
-                mock(ShellService::class.java),
-                mock(ShellSessionService::class.java),
-                ShellProperties(),
-                leader,
-            )::timedPass
         }
     }
 

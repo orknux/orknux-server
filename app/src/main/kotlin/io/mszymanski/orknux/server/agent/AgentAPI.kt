@@ -244,7 +244,7 @@ class AgentAPI(
      * something to throw away.
      *
      * **What it is granted: nothing of the workspace's.** No tools of its own,
-     * no skills, no MCP servers, no catalogues, no shell, no orknux access.
+     * no skills, no MCP servers, no catalogues, no orknux access.
      * Granting is a deliberate act - it is what an agent's whole settings page
      * is for - and an action that quietly handed out capabilities because it
      * was convenient would be the worst possible place in this product to be
@@ -353,7 +353,6 @@ class AgentAPI(
         val previousPrompt = agent.systemPrompt
         val previousServers = agent.mcpServers.toList()
         val previousOrknux = agent.orknuxAccess
-        val previousShell = agent.shellAccess
         val previousCatalogs = agent.memoryCatalogs.toList()
         val previousSkillCatalogs = agent.skillCatalogs.toList()
         // Everything it could call before this save: its grants and the
@@ -417,7 +416,6 @@ class AgentAPI(
             agent.mcpServers = input.mcpServers.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
         }
         if (input.orknuxAccess != null) agent.orknuxAccess = input.orknuxAccess
-        if (input.shellAccess != null) agent.shellAccess = input.shellAccess
         if (input.memoryCatalogs != null) {
             agent.memoryCatalogs =
                 input.memoryCatalogs.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
@@ -600,7 +598,6 @@ class AgentAPI(
             previousPrompt,
             previousServers,
             previousOrknux,
-            previousShell,
         )
         if (agent.modelId != previousModel) {
             val named = agent.modelId?.let { models.model(it)?.name }
@@ -752,7 +749,6 @@ class AgentAPI(
         previousPrompt: String?,
         previousServers: List<String>,
         previousOrknux: Boolean,
-        previousShell: Boolean,
     ) {
         if (agent.name != previousName) {
             auditRecorder.record(agent.workspaceId, WorkspaceAuditCategory.AGENT, "Agent $previousName renamed to ${agent.name}")
@@ -777,24 +773,7 @@ class AgentAPI(
                 "MCP Server $server removed from ${agent.name}",
             )
         }
-        /*
-         * The widest grant on this screen, and the only one that reaches outside
-         * the application at all. Its own line for that reason: somebody reading
-         * the log later needs to know when an agent first became able to run
-         * commands on a machine, not merely that its settings were saved.
-         */
-        if (agent.shellAccess != previousShell) {
-            auditRecorder.record(
-                agent.workspaceId,
-                WorkspaceAuditCategory.AGENT,
-                if (agent.shellAccess) {
-                    "Shell access granted to ${agent.name}"
-                } else {
-                    "Shell access withdrawn from ${agent.name}"
-                },
-            )
-        }
-        // Worth a line of its own too: this is the grant that lets an agent start
+        // Worth a line of its own: this is the grant that lets an agent start
         // workflows, which is the widest thing an agent can be given inside.
         if (agent.orknuxAccess != previousOrknux) {
             auditRecorder.record(
@@ -873,8 +852,6 @@ data class UpdateAgentInput(
     val mcpServers: List<String>? = null,
     /** Whether it may ask orknux about orknux; null leaves the grant alone. */
     val orknuxAccess: Boolean? = null,
-    /** Whether it may open a shell on a machine; null leaves the grant alone. */
-    val shellAccess: Boolean? = null,
     /**
      * Whether it may keep a file it made: `save_artifact` and the two base64
      * tools in and out of `tools`, as a switch. Null leaves the list alone.
@@ -938,8 +915,6 @@ data class AgentView(
     val mcpServers: List<String>,
     /** Whether it may ask orknux about orknux. */
     val orknuxAccess: Boolean,
-    /** Whether it may open a shell on one of the installation's machines. */
-    val shellAccess: Boolean,
     /** Whether it may keep a file it made - `save_artifact` in `tools`; see [Agent.artifactAccess]. */
     val artifactAccess: Boolean,
     /** Whether it may end its turn by saying so - `finish_answer` in `tools`. */
@@ -980,7 +955,6 @@ data class AgentView(
         modelName = modelName,
         mcpServers = agent.mcpServers.toList(),
         orknuxAccess = agent.orknuxAccess,
-        shellAccess = agent.shellAccess,
         artifactAccess = agent.artifactAccess,
         finishAccess = agent.finishAccess,
         pictureLinkAccess = agent.pictureLinkAccess,

@@ -23,8 +23,8 @@ import java.util.concurrent.TimeUnit
  * whose owner cannot be woken is not announced again every tick for ever. On a
  * start, what came due while the server was down is announced, back a day.
  *
- * An executor built on each start rather than held, for the reason
- * ShellSessionSweeper writes down: a stopped one cannot be started again.
+ * An executor built on each start rather than held, because a stopped one
+ * cannot be started again.
  */
 @Component
 class SessionDueSweeper(

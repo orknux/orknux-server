@@ -140,13 +140,13 @@ class TaskTools(
 
             PERMISSION -> {
                 val asked = argument(call, "capability")
-                val capability = TaskCapability.entries.firstOrNull { it.name.equals(asked?.trim(), true) }
+                val capability = TaskCapability.offered.firstOrNull { it.name.equals(asked?.trim(), true) }
                 val name = argument(call, "name")?.trim()
                 val why = argument(call, "why")?.trim()
                 when {
                     capability == null -> refuse(
                         "There is nothing called $asked to ask for. It is one of: " +
-                            TaskCapability.entries.joinToString { it.name.lowercase() } + ".",
+                            TaskCapability.offered.joinToString { it.name.lowercase() } + ".",
                     )
 
                     capability.named && name.isNullOrBlank() -> refuse(
@@ -368,14 +368,13 @@ class TaskTools(
                 description =
                     "Stops and asks for something you have not been given, then waits for a decision. " +
                         "`capability` is one of: orknux (asking this application about itself and starting " +
-                        "workflows), shells (opening a session on one of this installation's machines and running " +
-                        "commands), tool (one of this workspace's own tools), mcp_server, skill_catalog, " +
+                        "workflows), tool (one of this workspace's own tools), mcp_server, skill_catalog, " +
                         "memory_catalog. The last four name one thing, which goes in `name`. Say in `why` what you " +
                         "need it for: a person reads that and decides, and they are deciding for this task only.",
                 parameters = listOf(
                     ToolParameterSpec(
                         "capability",
-                        "orknux, shells, tool, mcp_server, skill_catalog or memory_catalog.",
+                        "orknux, tool, mcp_server, skill_catalog or memory_catalog.",
                         required = true,
                     ),
                     ToolParameterSpec("name", "Which one, for the four that name something.", required = false),

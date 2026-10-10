@@ -9,7 +9,7 @@ import java.time.Duration
  * An agent running until it decides it is done is an unbounded bill, and the
  * reasoning here is the reasoning behind the retry policy's budget: a count of
  * goes bounds how often the model is asked, and it says nothing at all about
- * what happens between two of them. A shell command that sits there for a
+ * what happens between two of them. A tool call that sits there for a
  * minute, an MCP server that takes its time, a model that thinks for two -
  * five turns of that is not five model calls' worth of time, and no number of
  * turns can express it. So there are two ceilings and they bound different

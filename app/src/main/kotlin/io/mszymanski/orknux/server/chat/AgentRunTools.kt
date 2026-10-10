@@ -49,7 +49,7 @@ import tools.jackson.databind.ObjectMapper
  *
  * Not a way to reach an agent that was not granted. The names offered are the
  * grant list, and a name that is not in it is refused by the thing that would
- * otherwise run it - the rule the orknux tools and the shells already keep.
+ * otherwise run it - the rule the orknux tools already keep.
  *
  * Not a workflow either. This is a question and an answer inside one round of
  * one turn; a run that has to survive a restart, retry a step or be watched from
@@ -848,7 +848,6 @@ class AgentRunTools(
         maxRounds = agent.maxRounds,
         memoryShare = agent.memoryShare,
         orknuxAccess = agent.orknuxAccess,
-        shellAccess = agent.shellAccess,
         // The built-ins ride in these two like every other tool now (#444), so
         // the copy carries both or the specialist is offered a different set.
         tools = agent.tools.toMutableList(),

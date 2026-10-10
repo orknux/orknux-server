@@ -226,7 +226,7 @@ class IssueNewsMailer(
              * than a person - which is why these two read differently from every
              * other line here. What it is waiting for goes in the body: a subject
              * line is shown without anybody choosing to look at it, and a request
-             * for shell access is not something to put on a lock screen.
+             * for access is not something to put on a lock screen.
              */
             IssueNewsKind.TASK_WAITING -> "A task is waiting for you"
             IssueNewsKind.TASK_FINISHED -> "A task has finished"

@@ -138,27 +138,6 @@ class Agent(
     @Column(name = "orknux_access", nullable = false)
     var orknuxAccess: Boolean = false,
 
-    /**
-     * Whether this agent may open a shell on one of the installation's machines
-     * and run commands there.
-     *
-     * Plural and unnamed, which is the owner's design and the right one: from
-     * where an agent sits the question is "can I run a command somewhere", not
-     * "may I run one on build-box-3". Naming a machine here would make every
-     * agent's configuration stale the day that machine is replaced, and would
-     * put a decision about infrastructure in a workspace's settings when the
-     * shells themselves are installation-wide and an administrator's.
-     *
-     * Which shell a session lands on is decided at the moment it opens; see
-     * `ShellService.choose` for the rule and why it is that rule.
-     *
-     * Worth knowing before granting it: what contains this is the machine on
-     * the other end of the SSH connection, and nothing in this application. An
-     * agent given this can run any command the account on that machine can.
-     */
-    @Column(name = "shell_access", nullable = false)
-    var shellAccess: Boolean = false,
-
     /** MCP servers this agent may connect to, in the order they were added. */
     // Each list in a select of its own, batched across rows, rather than joined:
     // joining several eager lists into one select returns every combination of

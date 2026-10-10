@@ -223,8 +223,8 @@ class LlmSessionRecorder(
      * credentials taken out. What is being recorded is what the agent asked
      * for, and reformatting it would be this deciding what the model meant.
      *
-     * **Why anything is taken out.** A tool's arguments are a command line: the
-     * shell tool's are literally one, and the rest are flags and values. So
+     * **Why anything is taken out.** A tool's arguments are much like a command
+     * line - flags and values, and sometimes a command itself. So
      * `git push https://alice:s3cr3t@github.com/acme/repo.git` used to be
      * written into this transcript verbatim, where the chat and task pages
      * display it, everyone who can reach the database can read it, and every

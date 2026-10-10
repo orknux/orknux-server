@@ -57,9 +57,9 @@ enum class TaskStatus {
 /**
  * Something an agent may be given that it was not granted.
  *
- * The same six things an agent's own page grants, named the same way, because
+ * The same things an agent's own page grants, named the same way, because
  * approving one here is the same decision taken for one task instead of for
- * ever. There is deliberately no seventh meaning "everything": a blanket
+ * ever. There is deliberately none meaning "everything": a blanket
  * approval is not a decision anybody can be held to, and the whole point of
  * parking a task is that somebody looks at what was asked for.
  */
@@ -67,7 +67,15 @@ enum class TaskCapability {
     /** Asking orknux about orknux, scoped to the task's own workspace. */
     ORKNUX,
 
-    /** Opening a shell on one of the installation's machines and running commands. */
+    /**
+     * Retired: shells were removed. Nothing offers it, and a grant of it - a
+     * request from before the removal can still be answered - widens nothing.
+     *
+     * Kept because `task_request` and `task_grant` rows written before the
+     * removal may hold it, and a row whose enum constant no longer exists
+     * fails to load - which would take the whole task page with it. See
+     * [offered] for the list an agent may actually ask from.
+     */
     SHELLS,
 
     /** One of the workspace's own tools, by name. */
@@ -85,6 +93,11 @@ enum class TaskCapability {
 
     /** Whether this capability names one thing, or is the whole of itself. */
     val named: Boolean get() = this != ORKNUX && this != SHELLS
+
+    companion object {
+        /** What an agent may ask for: everything but the retired [SHELLS]. */
+        val offered: List<TaskCapability> get() = entries.filter { it != SHELLS }
+    }
 }
 
 /** What the agent stopped for. */
@@ -280,7 +293,7 @@ class TaskRequest(
  * Something a person let one task do that its agent may not.
  *
  * On the task rather than on the agent, and that is the safety argument in one
- * sentence: approving a shell for an afternoon's work must not arm the agent in
+ * sentence: approving a tool for an afternoon's work must not arm the agent in
  * every chat for ever. The row is read while this task runs and is thrown away
  * with it.
  */

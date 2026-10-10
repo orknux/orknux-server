@@ -71,7 +71,6 @@ call `sweep()` directly.
 | Timer | What doubling did | Status |
 |---|---|---|
 | `ModelProviderMonitor`, `ConnectionMonitor`, `McpServerMonitor` | N outbound checks per interval against every provider, connection and MCP server, and N writes of the same status. | **Fixed** |
-| `ShellSessionSweeper` | N SSH logins per host per pass, and two replicas expiring the same session at once. | **Fixed** |
 | `TaskSweeper` | Two replicas handing the same stranded task over at once. | **Fixed** |
 | `ExecutionSweeper`, `RevisionSweeper`, `ScratchpadSweeper` | Concurrent deletes of the same rows; harmless but wasteful. | **Fixed** |
 | `SessionDueSweeper` | Each reminder announced once per replica. A follower keeps its mark one lease behind now, so a replica that takes over re-reads the gap rather than skipping it. | **Fixed** |
