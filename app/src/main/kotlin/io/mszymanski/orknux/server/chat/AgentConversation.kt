@@ -1183,7 +1183,7 @@ class AgentConversation(
 
                         val signature = call.name + 0.toChar() + call.arguments + 0.toChar() + got
                         val now = System.currentTimeMillis()
-                        if (signature == lastCall) repeats += now else { repeats.clear(); repeats += now }
+                        repeats += now
                         lastCall = signature
                         /*
                          * Only the ones close enough together to be a cycle.
