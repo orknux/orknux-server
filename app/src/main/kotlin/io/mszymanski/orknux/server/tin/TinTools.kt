@@ -457,7 +457,8 @@ class TinTools(
      * a root search on any runtime with `rg` came back empty while the same
      * search under a folder found everything. Naming each top-level entry
      * gives ripgrep a path every time. Hidden entries are skipped, as ripgrep
-     * skips them itself. Remove this once orktin passes `.` for the root.
+     * skips them itself. The embedded orktin is past it, but a remote tin may
+     * run any orktin, so this stays while a 0.1.0 can still be registered.
      */
     private fun searchWorkspace(client: TinClient, id: String, request: SearchRequest): SearchResult {
         val top = client.files(id, null, 1, null, false, 1000)
