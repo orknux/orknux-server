@@ -145,8 +145,8 @@ object ComponentSnapshot {
             // and a restore has to be able to put it back to that.
             "memoryShare" to agent.memoryShare,
             "orknuxAccess" to agent.orknuxAccess,
-            // Which tins it may use, by label - a grant like the ones below.
-            "tinLabels" to agent.tinLabels,
+            // Which boxes it may use, by label - a grant like the ones below.
+            "boxLabels" to agent.boxLabels,
             "icon" to agent.icon,
             /*
              * The grants, as the agent holds them: by name.
@@ -301,8 +301,8 @@ object ComponentSnapshot {
         // agent saved then was actually running on.
         agent.memoryShare = number(held, "memoryShare")?.toInt()
         agent.orknuxAccess = held.path("orknuxAccess").asBoolean(false)
-        // A version written before tins held none, which is what it had.
-        agent.tinLabels = names(held, "tinLabels")
+        // A version written before boxes held none, which is what it had.
+        agent.boxLabels = names(held, "boxLabels")
         agent.icon = text(held, "icon")
         agent.mcpServers = names(held, "mcpServers")
         agent.memoryCatalogs = names(held, "memoryCatalogs")

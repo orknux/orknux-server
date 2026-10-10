@@ -64,13 +64,13 @@
             exactly the kind of thing not to write by hand.
         -->
         <!--
-            The local tin, embedded: orktin's sessions, files and runtimes in
-            this process. Remote tins are spoken to over HTTP by TinClient,
-            reusing this library's model classes; see the tin package.
+            The local box, embedded: orkbox's sessions, files and runtimes in
+            this process. Remote boxes are spoken to over HTTP by BoxClient,
+            reusing this library's model classes; see the box package.
         -->
         <dependency>
             <groupId>io.mszymanski.orknux</groupId>
-            <artifactId>orktin-core</artifactId>
+            <artifactId>orkbox-core</artifactId>
         </dependency>
 
         <dependency>

@@ -1,9 +1,9 @@
-package io.mszymanski.orknux.server.tin
+package io.mszymanski.orknux.server.box
 
-import io.mszymanski.orknux.orktin.Config
-import io.mszymanski.orknux.orktin.DockerConfig
-import io.mszymanski.orknux.orktin.LocalConfig
-import io.mszymanski.orknux.orktin.Orktin
+import io.mszymanski.orknux.orkbox.Config
+import io.mszymanski.orknux.orkbox.DockerConfig
+import io.mszymanski.orknux.orkbox.LocalConfig
+import io.mszymanski.orknux.orkbox.Orkbox
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.DisposableBean
 import org.springframework.stereotype.Component
@@ -11,21 +11,21 @@ import java.nio.file.Path
 import java.time.OffsetDateTime
 
 /**
- * The local tin: one orktin embedded in this process, built from Admin
+ * The local box: one orkbox embedded in this process, built from Admin
  * Settings.
  *
  * **Started on first use**, not with the application: most installations open
- * no session for hours, and an orktin that is running has a reaper ticking.
+ * no session for hours, and an orkbox that is running has a reaper ticking.
  *
  * **Rebuilt when its settings change.** Every use compares what the settings
  * say with what the running instance was built from, and a difference closes
  * it - stopping its sessions - and builds another. A settings mutation asks for
- * the same comparison at once through [refresh], so switching the tin off stops
+ * the same comparison at once through [refresh], so switching the box off stops
  * its sessions then rather than at the next use. Closed on shutdown, which
  * stops every session it holds.
  */
 @Component
-class LocalTin(private val settings: TinSettings) : DisposableBean {
+class LocalBox(private val settings: BoxSettings) : DisposableBean {
 
     /** What an instance is built from; two equal shapes are one instance. */
     private data class Shape(
@@ -37,33 +37,33 @@ class LocalTin(private val settings: TinSettings) : DisposableBean {
         val idle: Int,
     )
 
-    private var running: Pair<Shape, Orktin>? = null
+    private var running: Pair<Shape, Orkbox>? = null
 
     /** When [running] was started; nothing it holds is older. */
     private var startedAt: OffsetDateTime? = null
 
     fun enabled(): Boolean = settings.localEnabled()
 
-    /** The local tin, started if it was not; [TinNotFoundException] while it is switched off. */
+    /** The local box, started if it was not; [BoxNotFoundException] while it is switched off. */
     @Synchronized
-    fun client(): TinClient {
+    fun client(): BoxClient {
         if (!enabled()) {
             stop()
-            throw TinNotFoundException(LOCAL_TIN_ID)
+            throw BoxNotFoundException(LOCAL_BOX_ID)
         }
         val wanted = shape()
-        running?.takeIf { it.first == wanted }?.let { return EmbeddedTinClient(it.second) }
+        running?.takeIf { it.first == wanted }?.let { return EmbeddedBoxClient(it.second) }
         stop()
-        val started = Orktin(config(wanted)).start()
-        log.info("Local tin started: {} runtime, sessions under {}", wanted.runtime, started.config.local.root)
+        val started = Orkbox(config(wanted)).start()
+        log.info("Local box started: {} runtime, sessions under {}", wanted.runtime, started.config.local.root)
         running = wanted to started
         startedAt = OffsetDateTime.now()
-        return EmbeddedTinClient(started)
+        return EmbeddedBoxClient(started)
     }
 
     /** The running instance, without starting one; null when nothing is running. */
     @Synchronized
-    fun runningClient(): TinClient? = running?.takeIf { enabled() && it.first == shape() }?.second?.let(::EmbeddedTinClient)
+    fun runningClient(): BoxClient? = running?.takeIf { enabled() && it.first == shape() }?.second?.let(::EmbeddedBoxClient)
 
     /**
      * When the running instance was started, where [runningClient] would answer
@@ -86,8 +86,8 @@ class LocalTin(private val settings: TinSettings) : DisposableBean {
         val held = running ?: return
         running = null
         startedAt = null
-        runCatching { held.second.close() }.onFailure { log.warn("The local tin did not close cleanly", it) }
-        log.info("Local tin stopped")
+        runCatching { held.second.close() }.onFailure { log.warn("The local box did not close cleanly", it) }
+        log.info("Local box stopped")
     }
 
     private fun shape() = Shape(
@@ -109,8 +109,8 @@ class LocalTin(private val settings: TinSettings) : DisposableBean {
         defaultIdleTimeoutSeconds = shape.idle.toLong(),
         maxSessions = shape.maxSessions,
         /*
-         * Not on start: orktin's clean-up removes every container carrying its
-         * label, and a Docker host this server shares with a standalone orktin
+         * Not on start: orkbox's clean-up removes every container carrying its
+         * label, and a Docker host this server shares with a standalone orkbox
          * would have that one's sessions removed from under it.
          */
         docker = DockerConfig(cleanupOnStart = false),
@@ -118,6 +118,6 @@ class LocalTin(private val settings: TinSettings) : DisposableBean {
     )
 
     private companion object {
-        val log = LoggerFactory.getLogger(LocalTin::class.java)
+        val log = LoggerFactory.getLogger(LocalBox::class.java)
     }
 }

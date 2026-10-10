@@ -850,7 +850,7 @@ class AgentRunTools(
         maxRounds = agent.maxRounds,
         memoryShare = agent.memoryShare,
         orknuxAccess = agent.orknuxAccess,
-        tinLabelsText = agent.tinLabelsText,
+        boxLabelsText = agent.boxLabelsText,
         // The built-ins ride in these two like every other tool now (#444), so
         // the copy carries both or the specialist is offered a different set.
         tools = agent.tools.toMutableList(),

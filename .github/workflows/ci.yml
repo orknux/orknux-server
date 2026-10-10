@@ -49,7 +49,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        # orktin-core, which the local tin embeds, is built from a submodule.
+        # orkbox-core, which the local box embeds, is built from a submodule.
         with:
           submodules: true
       # Docker Hub takes 25,000 bytes of description and not one more. The
@@ -91,10 +91,10 @@ jobs:
       # at all. `TestDatabase` picks between them before any Spring context
       # exists. The encryption key comes from the surefire configuration in
       # app/pom.xml, so nothing secret is needed to run either.
-      # orktin-core is published nowhere; the submodule is its source, and
-      # its own tests are orktin's to run.
-      - name: Install orktin-core
-        run: ./mvnw -B -ntp -f orktin/pom.xml -pl orktin-core -am install -DskipTests
+      # orkbox-core is published nowhere; the submodule is its source, and
+      # its own tests are orkbox's to run.
+      - name: Install orkbox-core
+        run: ./mvnw -B -ntp -f orkbox/pom.xml -pl orkbox-core -am install -DskipTests
 
       - name: Build and test
         run: ./mvnw -B -ntp verify -Dorknux.test.database=${{ matrix.engine }}
@@ -548,10 +548,10 @@ jobs:
           npm ci --no-fund --no-audit
           npm run build
 
-      # orktin-core is published nowhere; the submodule is its source, and
-      # its own tests are orktin's to run.
-      - name: Install orktin-core
-        run: ./mvnw -B -ntp -f orktin/pom.xml -pl orktin-core -am install -DskipTests
+      # orkbox-core is published nowhere; the submodule is its source, and
+      # its own tests are orkbox's to run.
+      - name: Install orkbox-core
+        run: ./mvnw -B -ntp -f orkbox/pom.xml -pl orkbox-core -am install -DskipTests
 
       - name: Build the jar
         run: ./mvnw -B -ntp package -DskipTests -Pwith-ui

@@ -63,11 +63,11 @@ enum class BuiltInGovernance {
     HTTP_TOOLS,
 
     /**
-     * Offered while the agent holds any tin label. The tin tools are one
+     * Offered while the agent holds any box label. The box tools are one
      * family - opening a session is pointless without the tools that use it -
      * so the label grant switches them, and the rows are read-only.
      */
-    TIN_ACCESS,
+    BOX_ACCESS,
 }
 
 /** One of the server's own tools, and what switches it. */
@@ -92,7 +92,7 @@ class BuiltInTools(
     private val skills: SkillTool,
     private val memories: MemoryTool,
     private val orknux: OrknuxTools,
-    private val tins: io.mszymanski.orknux.server.tin.TinTools,
+    private val boxes: io.mszymanski.orknux.server.box.BoxTools,
 ) {
 
     /**
@@ -123,7 +123,7 @@ class BuiltInTools(
         orknux.specs(OrknuxScope(workspaceId = 0, mayWrite = true)).forEach {
             add(BuiltInTool(it.name, BuiltInGovernance.ORKNUX_ACCESS))
         }
-        tins.specs().forEach { add(BuiltInTool(it.name, BuiltInGovernance.TIN_ACCESS)) }
+        boxes.specs().forEach { add(BuiltInTool(it.name, BuiltInGovernance.BOX_ACCESS)) }
     }
 
     companion object {

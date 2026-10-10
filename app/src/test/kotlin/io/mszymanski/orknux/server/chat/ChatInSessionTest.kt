@@ -293,6 +293,29 @@ class ChatInSessionTest(
     }
 
     /**
+     * A chat's thinking is a line in its session, as a task's and a workflow
+     * step's is, so the session view shows what led to an answer and not only
+     * the answer. It used to go only to the chat's own page.
+     */
+    @Test
+    fun `what the model thought is written into the session`() {
+        val sessionId = session("issue", "43")
+        val endpoint = serve {
+            """{"choices":[{"message":{"role":"assistant","reasoning_content":"The pool is too small.","content":"Raise the pool size."}}],
+               "usage":{"prompt_tokens":11,"completion_tokens":6}}"""
+        }
+        val chatId = startChat(sessionId, agentId = agent("Reviewer", model(endpoint)))
+
+        send(chatId, "So what do we do about it?")
+
+        val thought = events.findAll().filter { it.sessionId == sessionId && it.kind == io.mszymanski.orknux.server.llm.LlmSessionEventKind.THINKING }
+        assertThat(thought).hasSize(1)
+        assertThat(thought.single().content).isEqualTo("The pool is too small.")
+        assertThat(thought.single().actor).isEqualTo("Reviewer")
+        assertThat(thought.single().millis).isNotNull()
+    }
+
+    /**
      * The model hears the session too, once - because the chat's own thread is
      * what was copied in.
      *

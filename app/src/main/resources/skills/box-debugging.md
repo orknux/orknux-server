@@ -1,9 +1,9 @@
 ---
-name: Tin Debugging
-description: Find out why a build, test or program fails in a tin - reproduce it, read all of the output, narrow it down, then fix the cause.
+name: Box Debugging
+description: Find out why a build, test or program fails in a box - reproduce it, read all of the output, narrow it down, then fix the cause.
 ---
 
-# Debugging in a tin
+# Debugging in a box
 
 ## Objective
 
@@ -16,8 +16,8 @@ symptom.
 1. **Reproduce it.** Run the exact command that fails and confirm you see the
    same failure. If you cannot reproduce it, say so and report what you ran -
    do not fix something you never saw break.
-2. **Read all of it.** `tin_exec` cuts long output in the middle; the real
-   error is often in the part cut out. Read the full text with `tin_output`
+2. **Read all of it.** `orkbox_exec` cuts long output in the middle; the real
+   error is often in the part cut out. Read the full text with `orkbox_output`
    and look for the *first* error, not the last one - later errors are often
    caused by the first.
 3. **Make it small.** Run only the failing test or module (`-Dtest=Name`,

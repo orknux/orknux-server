@@ -1,4 +1,4 @@
-package io.mszymanski.orknux.server.tin
+package io.mszymanski.orknux.server.box
 
 import io.mszymanski.orknux.connector.security.SECRET_COLUMN_LENGTH
 import io.mszymanski.orknux.connector.security.SecretConverter
@@ -14,23 +14,27 @@ import jakarta.persistence.Table
 import org.springframework.data.jpa.repository.JpaRepository
 import java.time.OffsetDateTime
 
-/** Whether a tin is the one embedded in this process or one reached over HTTP. */
-enum class TinKind { LOCAL, REMOTE }
+/** Whether a box is the one embedded in this process or one reached over HTTP. */
+enum class BoxKind { LOCAL, REMOTE }
 
 /**
- * A remote tin: an orktin server an administrator registered.
+ * A remote box: an orkbox server an administrator registered.
  *
- * The local tin has no row. It is configured in Admin Settings and lives in
+ * The local box has no row. It is configured in Admin Settings and lives in
  * this process, so a row for it would be a second place its settings could be
  * read from.
  *
  * The token is a credential and goes through [SecretConverter] like every
- * other; nothing outside [Tins] reads it, and nothing hands it to a browser -
+ * other; nothing outside [Boxes] reads it, and nothing hands it to a browser -
  * the API says only whether one is stored.
+ *
+ * The tables keep the name boxes had before they were boxes - `tin`,
+ * `tin_session` and the rest - because a stored name renamed is a migration
+ * that changes nothing anybody sees.
  */
 @Entity
 @Table(name = "tin")
-class Tin(
+class Box(
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     val id: Long? = null,
@@ -39,11 +43,11 @@ class Tin(
     @Column(nullable = false, length = 255)
     var name: String = "",
 
-    /** What an agent's grant names; null is a tin no agent may use. */
+    /** What an agent's grant names; null is a box no agent may use. */
     @Column(length = 255)
     var label: String? = null,
 
-    /** The orktin server's base URL, without a trailing slash. */
+    /** The orkbox server's base URL, without a trailing slash. */
     @Column(nullable = false, length = 1000)
     var address: String = "",
 
@@ -61,27 +65,27 @@ class Tin(
     var lastModifiedBy: String = "",
 )
 
-interface TinRepository : JpaRepository<Tin, Long> {
-    fun findByName(name: String): Tin?
-    fun findAllByOrderByNameAsc(): List<Tin>
+interface BoxRepository : JpaRepository<Box, Long> {
+    fun findByName(name: String): Box?
+    fun findAllByOrderByNameAsc(): List<Box>
 }
 
 /**
- * One sandbox session an agent opened on a tin, as this side remembers it.
+ * One sandbox session an agent opened on a box, as this side remembers it.
  *
- * orktin keeps the session itself - its files, its executions, its log - and
+ * orkbox keeps the session itself - its files, its executions, its log - and
  * forgets it a retention period after it stops. This is what lets a
  * conversation say which sessions it used after that, and what scopes a tool
  * call: an agent names a session by this row's id, and only the rows of its own
  * conversation answer.
  *
- * [tinId] and [agentId] carry no foreign key, as a watcher's agent does not: a
- * row is history, and a tin removed later should not take the record of what
+ * [boxId] and [agentId] carry no foreign key, as a watcher's agent does not: a
+ * row is history, and a box removed later should not take the record of what
  * was run on it with it.
  */
 @Entity
 @Table(name = "tin_session")
-class TinSession(
+class BoxSession(
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     val id: Long? = null,
@@ -100,20 +104,20 @@ class TinSession(
 
     @Enumerated(EnumType.STRING)
     @Column(name = "tin_kind", nullable = false, length = 16)
-    val tinKind: TinKind = TinKind.LOCAL,
+    val boxKind: BoxKind = BoxKind.LOCAL,
 
-    /** The remote tin's id; null for the local tin. */
+    /** The remote box's id; null for the local box. */
     @Column(name = "tin_id")
-    val tinId: Long? = null,
+    val boxId: Long? = null,
 
-    /** What the tin was called when the session was opened. */
+    /** What the box was called when the session was opened. */
     @Column(name = "tin_name", nullable = false, length = 255)
-    val tinName: String = "",
+    val boxName: String = "",
 
     @Column(name = "remote_session_id", nullable = false, length = 255)
     val remoteSessionId: String = "",
 
-    /** orktin's own word for it, as last seen: creating, ready, stopping, stopped, failed. */
+    /** orkbox's own word for it, as last seen: creating, ready, stopping, stopped, failed. */
     @Column(nullable = false, length = 32)
     var status: String = "",
 
@@ -126,24 +130,24 @@ class TinSession(
     @Column(name = "closed_at")
     var closedAt: OffsetDateTime? = null,
 ) {
-    /** The tin's id as the API spells it: `local`, or the row id. */
-    val tinRef: String get() = if (tinKind == TinKind.LOCAL) LOCAL_TIN_ID else tinId.toString()
+    /** The box's id as the API spells it: `local`, or the row id. */
+    val boxRef: String get() = if (boxKind == BoxKind.LOCAL) LOCAL_BOX_ID else boxId.toString()
 
-    /** Whether orktin's word for it, as last seen, is one a session can still be used in. */
+    /** Whether orkbox's word for it, as last seen, is one a session can still be used in. */
     val open: Boolean get() = status in OPEN_STATUSES
 }
 
-interface TinSessionRepository : JpaRepository<TinSession, Long> {
-    fun findByLlmSessionIdOrderByCreatedAtDescIdDesc(llmSessionId: Long): List<TinSession>
-    fun findByTinKindAndTinIdAndClosedAtIsNull(tinKind: TinKind, tinId: Long?): List<TinSession>
-    fun findTop200ByTinKindAndTinIdOrderByCreatedAtDescIdDesc(tinKind: TinKind, tinId: Long?): List<TinSession>
+interface BoxSessionRepository : JpaRepository<BoxSession, Long> {
+    fun findByLlmSessionIdOrderByCreatedAtDescIdDesc(llmSessionId: Long): List<BoxSession>
+    fun findByBoxKindAndBoxIdAndClosedAtIsNull(boxKind: BoxKind, boxId: Long?): List<BoxSession>
+    fun findTop200ByBoxKindAndBoxIdOrderByCreatedAtDescIdDesc(boxKind: BoxKind, boxId: Long?): List<BoxSession>
 }
 
-/** The id the local tin is listed under. */
-const val LOCAL_TIN_ID = "local"
+/** The id the local box is listed under. */
+const val LOCAL_BOX_ID = "local"
 
-/** The name an agent opens a session on the local tin by. */
-const val LOCAL_TIN_NAME = "local"
+/** The name an agent opens a session on the local box by. */
+const val LOCAL_BOX_NAME = "local"
 
-/** orktin's statuses for a session that still has a sandbox. */
+/** orkbox's statuses for a session that still has a sandbox. */
 val OPEN_STATUSES = setOf("creating", "ready")

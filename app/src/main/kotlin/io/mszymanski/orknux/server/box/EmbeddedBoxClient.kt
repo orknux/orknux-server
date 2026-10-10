@@ -1,44 +1,44 @@
-package io.mszymanski.orknux.server.tin
+package io.mszymanski.orknux.server.box
 
-import io.mszymanski.orknux.orktin.ApiException
-import io.mszymanski.orknux.orktin.Orktin
-import io.mszymanski.orknux.orktin.model.CreateSessionRequest
-import io.mszymanski.orknux.orktin.model.DirectoryListing
-import io.mszymanski.orknux.orktin.model.EditRequest
-import io.mszymanski.orknux.orktin.model.EditResult
-import io.mszymanski.orknux.orktin.model.ExecuteRequest
-import io.mszymanski.orknux.orktin.model.ExecutionDto
-import io.mszymanski.orknux.orktin.model.FileEntry
-import io.mszymanski.orknux.orktin.model.Info
-import io.mszymanski.orknux.orktin.model.MoveRequest
-import io.mszymanski.orknux.orktin.model.SearchRequest
-import io.mszymanski.orknux.orktin.model.SearchResult
-import io.mszymanski.orknux.orktin.model.SessionDto
-import io.mszymanski.orknux.orktin.model.UpdateSessionRequest
-import io.mszymanski.orknux.orktin.model.WriteResult
-import io.mszymanski.orknux.orktin.runtime.Signal
+import io.mszymanski.orknux.orkbox.ApiException
+import io.mszymanski.orknux.orkbox.Orkbox
+import io.mszymanski.orknux.orkbox.model.CreateSessionRequest
+import io.mszymanski.orknux.orkbox.model.DirectoryListing
+import io.mszymanski.orknux.orkbox.model.EditRequest
+import io.mszymanski.orknux.orkbox.model.EditResult
+import io.mszymanski.orknux.orkbox.model.ExecuteRequest
+import io.mszymanski.orknux.orkbox.model.ExecutionDto
+import io.mszymanski.orknux.orkbox.model.FileEntry
+import io.mszymanski.orknux.orkbox.model.Info
+import io.mszymanski.orknux.orkbox.model.MoveRequest
+import io.mszymanski.orknux.orkbox.model.SearchRequest
+import io.mszymanski.orknux.orkbox.model.SearchResult
+import io.mszymanski.orknux.orkbox.model.SessionDto
+import io.mszymanski.orknux.orkbox.model.UpdateSessionRequest
+import io.mszymanski.orknux.orkbox.model.WriteResult
+import io.mszymanski.orknux.orkbox.runtime.Signal
 import kotlinx.coroutines.runBlocking
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.util.Properties
 
 /**
- * The local tin: orktin-core in this process, behind the same [TinClient] as a
+ * The local box: orkbox-core in this process, behind the same [BoxClient] as a
  * remote one.
  *
- * What orktin's HTTP routes add on top of the library - waiting for an
+ * What orkbox's HTTP routes add on top of the library - waiting for an
  * execution, cutting its output to an excerpt, filtering the log - is done here
  * the way `Routes.kt` does it, so a call answers the same on either kind.
  */
-class EmbeddedTinClient(private val orktin: Orktin) : TinClient {
+class EmbeddedBoxClient(private val orkbox: Orkbox) : BoxClient {
 
-    private val manager get() = orktin.sessions
-    private val files get() = orktin.files
+    private val manager get() = orkbox.sessions
+    private val files get() = orkbox.files
 
     override fun info(): Info = call {
         val config = manager.config
         Info(
-            name = "orktin",
+            name = "orkbox",
             version = VERSION,
             defaultRuntime = config.defaultRuntime,
             runtimes = manager.runtimes.values.map { it.info(it.unavailableReason()) },
@@ -82,7 +82,7 @@ class EmbeddedTinClient(private val orktin: Orktin) : TinClient {
         execution.toDto(maxOutputBytes)
     }
 
-    override fun output(id: String, executionId: String, stream: String, offset: Long, limit: Int): TinOutput = call {
+    override fun output(id: String, executionId: String, stream: String, offset: Long, limit: Int): BoxOutput = call {
         val session = manager.get(id)
         session.touch()
         val execution = session.execution(executionId)
@@ -93,7 +93,7 @@ class EmbeddedTinClient(private val orktin: Orktin) : TinClient {
             else -> throw ApiException.badRequest("invalid_stream", "stream must be stdout, stderr or combined")
         }
         val chunk = buffer.read(offset, limit.coerceAtLeast(0))
-        TinOutput(chunk.offset, chunk.next, String(chunk.bytes, Charsets.UTF_8), execution.status)
+        BoxOutput(chunk.offset, chunk.next, String(chunk.bytes, Charsets.UTF_8), execution.status)
     }
 
     override fun stdin(id: String, executionId: String, input: String, close: Boolean) = call {
@@ -122,9 +122,9 @@ class EmbeddedTinClient(private val orktin: Orktin) : TinClient {
         files.list(manager.get(id), path, depth, glob, includeHidden, false, limit.coerceIn(1, 100_000))
     }
 
-    override fun read(id: String, path: String, startLine: Int?, endLine: Int?): TinFile = call {
+    override fun read(id: String, path: String, startLine: Int?, endLine: Int?): BoxFile = call {
         val content = files.read(manager.get(id), path, startLine, endLine)
-        TinFile(content.bytes, content.text, content.size.toLong(), content.lineCount, content.etag)
+        BoxFile(content.bytes, content.text, content.size.toLong(), content.lineCount, content.etag)
     }
 
     override fun write(id: String, path: String, content: ByteArray, mode: String?): WriteResult =
@@ -140,11 +140,11 @@ class EmbeddedTinClient(private val orktin: Orktin) : TinClient {
 
     override fun search(id: String, request: SearchRequest): SearchResult = call { files.search(manager.get(id), request) }
 
-    override fun logs(id: String, since: Long, limit: Int, types: Set<String>?): TinLogPage = call {
+    override fun logs(id: String, since: Long, limit: Int, types: Set<String>?): BoxLogPage = call {
         val include: (String) -> Boolean = { type -> if (types != null) type in types else type != "execution.output" }
         val items = manager.get(id).events.after(since, limit.coerceIn(1, 10_000), include)
-        TinLogPage(
-            events = items.map { TinLogEvent(it.seq, it.at, it.type, it.data.toString()) },
+        BoxLogPage(
+            events = items.map { BoxLogEvent(it.seq, it.at, it.type, it.data.toString()) },
             nextSeq = items.lastOrNull()?.seq ?: since,
         )
     }
@@ -158,30 +158,30 @@ class EmbeddedTinClient(private val orktin: Orktin) : TinClient {
     override fun importArchive(id: String, path: String?, archive: ByteArray) =
         call { files.importArchive(manager.get(id), path, ByteArrayInputStream(archive)) }
 
-    /** One library call, on this thread, with orktin's refusal turned into ours. */
+    /** One library call, on this thread, with orkbox's refusal turned into ours. */
     private fun <T> call(block: suspend () -> T): T = try {
         runBlocking { block() }
     } catch (refused: ApiException) {
-        throw TinCallException(refused.status, refused.code, refused.detail ?: refused.title)
-    } catch (refused: TinCallException) {
+        throw BoxCallException(refused.status, refused.code, refused.detail ?: refused.title)
+    } catch (refused: BoxCallException) {
         throw refused
     } catch (failed: Exception) {
-        // What orktin's server answers as a 500: something below the API broke.
-        throw TinCallException(500, "internal_error", failed.message ?: failed.javaClass.simpleName)
+        // What orkbox's server answers as a 500: something below the API broke.
+        throw BoxCallException(500, "internal_error", failed.message ?: failed.javaClass.simpleName)
     }
 
     companion object {
-        /** What orktin's routes default to, so the two kinds answer alike. */
+        /** What orkbox's routes default to, so the two kinds answer alike. */
         const val DEFAULT_WAIT_SECONDS = 300L
         const val MAX_WAIT_SECONDS = 3600L
         const val DEFAULT_MAX_OUTPUT = 65536
 
-        /** orktin-core's own version, from the jar Maven built it into. */
+        /** orkbox-core's own version, from the jar Maven built it into. */
         val VERSION: String by lazy {
             runCatching {
-                Orktin::class.java.getResourceAsStream("/META-INF/maven/io.mszymanski.orknux/orktin-core/pom.properties")
+                Orkbox::class.java.getResourceAsStream("/META-INF/maven/io.mszymanski.orknux/orkbox-core/pom.properties")
                     ?.use { stream -> Properties().apply { load(stream) }.getProperty("version") }
-            }.getOrNull() ?: Orktin::class.java.`package`?.implementationVersion ?: "unknown"
+            }.getOrNull() ?: Orkbox::class.java.`package`?.implementationVersion ?: "unknown"
         }
     }
 }

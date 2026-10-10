@@ -1,0 +1,329 @@
+# Boxes: orkbox instances an agent can open a sandbox session on - a workspace
+# filesystem and a way to run commands in it. The local box is embedded in this
+# server and configured in Admin Settings; remote boxes are orkbox servers an
+# administrator registered. An agent reaches a box through its label.
+
+extend type Query {
+    "Every box, the local one first while it is switched on. Administrators only."
+    boxes: [Box!]!
+    "One box by id - `local` for the local one - or null. Administrators only."
+    box(id: ID!): Box
+    """
+    What a box says it is: its version, runtimes, defaults and limits. Refused
+    with BoxUnreachable when it cannot be asked. Administrators only.
+    """
+    boxInfo(id: ID!): BoxInfo!
+    """
+    The sessions agents of this installation opened on a box, and those the
+    box holds that nobody here opened (another client of a remote box), newest
+    first, at most 200. Each carries the box's own status where it can be asked
+    and the one last recorded where it cannot - the local box holds its
+    sessions in memory, so after a restart its recorded sessions read stopped.
+    Refused with BoxUnreachable only when the box cannot be asked and nothing
+    was recorded. Administrators only.
+    """
+    boxSessions(id: ID!): [BoxRemoteSession!]!
+    "The labels in use on boxes, sorted, for suggesting an agent's box labels."
+    boxLabels: [String!]!
+    """
+    The box sessions a conversation's agents opened, newest first (by when they
+    were opened, then by id). `active` is the box's own word where it can be
+    asked now, and the last one recorded where it cannot.
+    """
+    sessionBoxes(sessionId: ID!): [SessionBox!]!
+    """
+    The event log of one of those sessions after the sequence number `after`.
+    A remote box's is read from the box, and is unavailable, with the reason in
+    `message`, once the box or its session is gone. The local box's is recorded
+    by this server and brought up to date first while the session is still
+    there, since the local box holds its sessions in memory; once it is gone
+    the recorded log is still served, with `message` saying why it may be
+    short, and is unavailable only where nothing was ever recorded.
+    """
+    sessionBoxLog(sessionId: ID!, sessionBoxId: ID!, after: Int): BoxLog!
+    """
+    What one command run in one of those sessions printed - the combined
+    stream - from the byte `offset` (0 when not given), at most `limit` bytes
+    (16384 when not given, and never more than boxOutputBytes). From the box
+    while it can be asked. Once the local box cannot be, from what this server
+    kept of a finished command - see localBoxOutputKeptBytes - with `message`
+    saying so; a remote box's is unavailable once the box cannot be asked.
+    """
+    sessionBoxOutput(sessionId: ID!, sessionBoxId: ID!, executionId: String!, offset: Int, limit: Int): BoxOutput!
+}
+
+extend type Mutation {
+    "Registers a remote box. Administrators only."
+    createBox(input: BoxInput!): Box!
+    """
+    Changes a remote box. Refused for the local box, whose label is always
+    `local` and whose settings are Admin Settings. Administrators only.
+    """
+    updateBox(id: ID!, input: BoxInput!): Box!
+    "A remote box's stored token, for showing it on its page. Audited. Administrators only."
+    revealBoxToken(id: ID!): String
+    "Removes a remote box; false where there was none. Refused for the local box. Administrators only."
+    deleteBox(id: ID!): Boolean!
+    """
+    Asks the orkbox at `address` for its /v1/info with `token`. With no token
+    and an `id`, the token stored for that box is used. Administrators only.
+    """
+    testBoxConnection(address: String!, token: String, id: ID): BoxConnectionTest!
+    "Switches the local box on or off; off stops every session it holds."
+    setLocalBoxEnabled(enabled: Boolean!): InstallationSettings!
+    "Where the local box makes its sessions; null or empty puts it back to the default."
+    setLocalBoxLocation(location: String): InstallationSettings!
+    "Which runtime the local box runs sessions with: local or docker."
+    setLocalBoxRuntime(runtime: String!): InstallationSettings!
+    "How many sessions the local box holds at once, 1 to 1000."
+    setLocalBoxMaxSessions(count: Int!): InstallationSettings!
+    "How long a local box session lasts unless it asks otherwise, 60 to 604800 seconds."
+    setLocalBoxDefaultTtlSeconds(seconds: Int!): InstallationSettings!
+    "The longest a local box session may last, 60 to 604800 seconds."
+    setLocalBoxMaxTtlSeconds(seconds: Int!): InstallationSettings!
+    "How long a local box session may sit idle before it is stopped, 60 to 86400 seconds."
+    setLocalBoxIdleTimeoutSeconds(seconds: Int!): InstallationSettings!
+    "How long an agent's box command is waited for before its answer says it is still running, 1 to 3600 seconds."
+    setBoxCommandWaitSeconds(seconds: Int!): InstallationSettings!
+    "How long an agent's box command may run before it is stopped, 1 to 86400 seconds."
+    setBoxCommandTimeoutSeconds(seconds: Int!): InstallationSettings!
+    "How much of a box command's output, per stream, an agent is handed at once, 1024 to 4194304 bytes."
+    setBoxOutputBytes(bytes: Int!): InstallationSettings!
+    """
+    How much of a finished local box command's output this server keeps, so
+    the conversation can show it after a restart has lost the session, 0 to
+    16777216 bytes; 0 keeps none. A remote box keeps its own.
+    """
+    setLocalBoxOutputKeptBytes(bytes: Int!): InstallationSettings!
+    "How much of one box command's output a conversation's session view holds, 65536 to 67108864 bytes."
+    setBoxOutputShownBytes(bytes: Int!): InstallationSettings!
+    "How long a request to a box may take before it is given up on, 1 to 600 seconds."
+    setBoxRequestTimeoutSeconds(seconds: Int!): InstallationSettings!
+}
+
+extend type InstallationSettings {
+    "Whether the local box exists. On by default."
+    localBoxEnabled: Boolean!
+    "Where the local box makes its sessions; null is the default."
+    localBoxLocation: String
+    "The default for that: the temporary directory's orknux-box folder."
+    localBoxLocationConfigured: String!
+    "Which runtime the local box runs sessions with: local or docker."
+    localBoxRuntime: String!
+    "How many sessions the local box holds at once."
+    localBoxMaxSessions: Int!
+    localBoxMaxSessionsConfigured: Int!
+    "How long a local box session lasts unless it asks otherwise, in seconds."
+    localBoxDefaultTtlSeconds: Int!
+    localBoxDefaultTtlSecondsConfigured: Int!
+    "The longest a local box session may last, in seconds."
+    localBoxMaxTtlSeconds: Int!
+    localBoxMaxTtlSecondsConfigured: Int!
+    "How long a local box session may sit idle before it is stopped, in seconds."
+    localBoxIdleTimeoutSeconds: Int!
+    localBoxIdleTimeoutSecondsConfigured: Int!
+    "How long an agent's box command is waited for, in seconds."
+    boxCommandWaitSeconds: Int!
+    boxCommandWaitSecondsConfigured: Int!
+    "How long an agent's box command may run, in seconds."
+    boxCommandTimeoutSeconds: Int!
+    boxCommandTimeoutSecondsConfigured: Int!
+    "How much of a box command's output, per stream, an agent is handed at once, in bytes."
+    boxOutputBytes: Int!
+    boxOutputBytesConfigured: Int!
+    "How much of a finished local box command's output is kept on this server, in bytes; 0 is none."
+    localBoxOutputKeptBytes: Int!
+    localBoxOutputKeptBytesConfigured: Int!
+    "How much of one box command's output a conversation's session view holds, in bytes."
+    boxOutputShownBytes: Int!
+    boxOutputShownBytesConfigured: Int!
+    "How long a request to a box may take, in seconds."
+    boxRequestTimeoutSeconds: Int!
+    boxRequestTimeoutSecondsConfigured: Int!
+}
+
+enum BoxKind {
+    "Embedded in this server, configured in Admin Settings."
+    LOCAL
+    "An orkbox server reached over HTTP."
+    REMOTE
+}
+
+enum BoxHealthStatus {
+    UP
+    DOWN
+}
+
+"Whether a remote box says it can create sessions, from its /readyz."
+type BoxHealth {
+    status: BoxHealthStatus!
+    "Why not, where it is DOWN."
+    detail: String
+}
+
+type Box {
+    "`local` for the local box."
+    id: ID!
+    "What an agent opens a session on it by."
+    name: String!
+    kind: BoxKind!
+    "What an agent's grant names; null is a box no agent may use."
+    label: String
+    "Remote boxes only."
+    address: String
+    "Whether a token is stored; the token itself is never sent."
+    hasToken: Boolean!
+    "Whether it can take sessions: a remote box asked over HTTP, the local box by its runtime. Asked when this field is."
+    health: BoxHealth
+    "Sessions ready on it now; null when it could not be asked."
+    activeSessions: Int
+    "Remote boxes only."
+    createdAt: String
+}
+
+type BoxRuntime {
+    name: String!
+    available: Boolean!
+    unavailableReason: String
+    os: String!
+    workdir: String
+    "How a command string is run."
+    shell: [String!]!
+    defaultImage: String
+    images: [String!]
+    networkModes: [String!]!
+    caches: [String!]!
+    defaultCpus: Float
+    defaultMemoryMb: Int
+    maxCpus: Float
+    maxMemoryMb: Int
+    diskLimitEnforced: Boolean
+}
+
+type BoxInfo {
+    name: String!
+    version: String!
+    defaultRuntime: String!
+    defaultTtlSeconds: Int!
+    maxTtlSeconds: Int!
+    defaultIdleTimeoutSeconds: Int!
+    maxSessions: Int!
+    runtimes: [BoxRuntime!]!
+}
+
+"One session a box holds, as the box describes it."
+type BoxRemoteSession {
+    "The session's id on the box."
+    id: String!
+    status: String!
+    "Null for a recorded session the box no longer holds."
+    runtime: String
+    image: String
+    "Its labels, as a JSON object in text."
+    labels: String!
+    createdAt: String!
+    "The box's word; for a recorded session it no longer holds, when an agent here last used it."
+    lastActivityAt: String!
+    "Null for a recorded session the box no longer holds."
+    expiresAt: String
+    "0 for a recorded session the box no longer holds."
+    runningExecutions: Int!
+    totalExecutions: Int!
+    "The conversation that opened it, for a link; null for a session nobody here opened."
+    orknuxSessionId: ID
+    "That conversation's page with this box session open, relative; null where orknuxSessionId is."
+    orknuxSessionUrl: String
+    "The agent that opened it, where an agent here did."
+    agentName: String
+    "Whether it still has a sandbox: creating or ready."
+    active: Boolean!
+}
+
+type BoxConnectionTest {
+    ok: Boolean!
+    "What happened, in English."
+    message: String!
+    "The orkbox version, where it answered."
+    version: String
+}
+
+"A box session one of a conversation's agents opened."
+type SessionBox {
+    id: ID!
+    "`local`, or the remote box's id."
+    boxId: ID!
+    "What the box was called when the session was opened."
+    boxName: String!
+    boxKind: BoxKind!
+    "The session's id on the box."
+    remoteSessionId: String!
+    "Whether it still has a sandbox: creating or ready."
+    active: Boolean!
+    "The box's word for it: creating, ready, stopping, stopped or failed."
+    status: String!
+    createdAt: String!
+    lastUsedAt: String
+    """
+    The box's label as it is now, not when the session was opened: always
+    `local` for the local box, null for a remote box since removed.
+    """
+    boxLabel: String
+}
+
+type BoxEvent {
+    seq: Int!
+    at: String!
+    type: String!
+    "The event's data, as a JSON object in text."
+    data: String!
+}
+
+type BoxLog {
+    events: [BoxEvent!]!
+    "Where the next page starts: pass it as `after`."
+    nextSeq: Int!
+    """
+    False where the box or its session can no longer be asked and nothing of
+    its log was recorded here - always the case for a remote box.
+    """
+    available: Boolean!
+    """
+    Why the box could not be asked. Beside `events` when what is shown is the
+    local box's log as last recorded; alone when it is unavailable. Null when the log is
+    up to date.
+    """
+    message: String
+}
+
+type BoxOutput {
+    text: String!
+    "The byte offset `text` starts at; later than asked where the head was not kept."
+    offset: Int!
+    "Where the next read starts: `offset` plus the bytes in `text`."
+    nextOffset: Int!
+    "The command has finished and there is nothing past `nextOffset`, or nothing more was kept."
+    done: Boolean!
+    "False where the output can be had from nowhere, with the reason in `message`."
+    available: Boolean!
+    """
+    Why the box could not be asked: beside `text` when it is the output as
+    last recorded, alone when it is unavailable. Null when read live.
+    """
+    message: String
+    """
+    How much of one command's output the session view should hold, in bytes:
+    boxOutputShownBytes, here because the view is not only an administrator's.
+    """
+    shownLimit: Int!
+}
+
+input BoxInput {
+    "Unique, and never `local`. Ignored for the local box."
+    name: String!
+    "Required: what an agent is granted the box by. Ignored for the local box, whose label is always local."
+    label: String
+    "An http or https URL. Ignored for the local box."
+    address: String
+    "On update: null keeps the stored token, empty clears it. Ignored for the local box."
+    token: String
+}

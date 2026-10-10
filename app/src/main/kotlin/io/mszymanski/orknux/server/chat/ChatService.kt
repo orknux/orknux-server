@@ -9,6 +9,7 @@ import io.mszymanski.orknux.connector.model.ModelChatClient
 import io.mszymanski.orknux.connector.model.ModelService
 import io.mszymanski.orknux.server.llm.LlmSessionKey
 import io.mszymanski.orknux.server.llm.LlmSessionRecorder
+import io.mszymanski.orknux.server.llm.SessionThinking
 import io.mszymanski.orknux.server.llm.LlmSessionRepository
 import io.mszymanski.orknux.server.llm.RememberedTurn
 import io.mszymanski.orknux.server.llm.SessionMemoryBudget
@@ -756,8 +757,65 @@ class ChatService(
                 timers.shed(start.llmSessionId),
                 agent?.let { watchers.shed(it, start.llmSessionId) },
             )
-            conversation.answer(start.modelId, start.agentId, start.turns, start.llmSessionId, lent, watch, hangup)
+            /*
+             * The thinking goes into the session too, as a task's and a
+             * workflow step's always has. A chat relayed it only to the page
+             * that asked and kept it with the chat's own message, so the
+             * session view - the one place every kind of turn is read the same
+             * way - showed a chat's tool calls and answers and never what led
+             * to them. A chat reads back only what was said and what tools
+             * did, so the line is not drawn in the chat twice.
+             *
+             * Beside a page that is watching, the line grows as the model
+             * thinks. Without one it is written once the answer is in: handing
+             * the loop a watch would turn a blocking request into a streaming
+             * one, which is a different request rather than a quieter one.
+             */
+            val session = start.llmSessionId
+            val name = agent?.name ?: "agent"
+            if (session != null && watch != null) {
+                val written = SessionThinking(session, name, recorder)
+                try {
+                    conversation.answer(start.modelId, start.agentId, start.turns, session, lent, Both(watch, written), hangup)
+                } finally {
+                    written.settle()
+                }
+            } else {
+                conversation.answer(start.modelId, start.agentId, start.turns, session, lent, watch, hangup).also { done ->
+                    if (session != null && done is ChatCompletion.Answered && done.reasoning.isNotBlank()) {
+                        recorder.thoughtFor(recorder.thinking(session, name, done.reasoning), done.reasoning, done.reasoningMillis)
+                    }
+                }
+            }
         }
+
+    /** A round watched twice: by the page that asked, and by the session it is written into. */
+    private class Both(private val first: RoundWatch?, private val second: RoundWatch) : RoundWatch {
+        override fun thinking(text: String) {
+            first?.thinking(text)
+            second.thinking(text)
+        }
+
+        override fun answering() {
+            first?.answering()
+            second.answering()
+        }
+
+        override fun drew(markdown: String) {
+            first?.drew(markdown)
+            second.drew(markdown)
+        }
+
+        override fun called(at: Int, tool: String, arguments: String) {
+            first?.called(at, tool, arguments)
+            second.called(at, tool, arguments)
+        }
+
+        override fun returned(at: Int, result: String, failed: Boolean) {
+            first?.returned(at, result, failed)
+            second.returned(at, result, failed)
+        }
+    }
 
     /**
      * The first half of a send: everything settled before the model is asked.

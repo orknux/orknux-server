@@ -1,6 +1,6 @@
-package io.mszymanski.orknux.server.tin
+package io.mszymanski.orknux.server.box
 
-import io.mszymanski.orknux.orktin.Config
+import io.mszymanski.orknux.orkbox.Config
 import io.mszymanski.orknux.server.attachment.InstallationSetting
 import io.mszymanski.orknux.server.attachment.InstallationSettingRepository
 import org.springframework.data.repository.findByIdOrNull
@@ -9,58 +9,58 @@ import org.springframework.transaction.annotation.Transactional
 import java.time.OffsetDateTime
 
 /*
- * The bounds of every tin setting, with the default each one starts at. Every
- * behavioural number about tins is one of these, set in Admin Settings; the
+ * The bounds of every box setting, with the default each one starts at. Every
+ * behavioural number about boxes is one of these, set in Admin Settings; the
  * constant is only what a fresh installation has.
  */
-const val MIN_LOCAL_TIN_SESSIONS = 1
-const val MAX_LOCAL_TIN_SESSIONS = 1000
-const val DEFAULT_LOCAL_TIN_SESSIONS = 50
+const val MIN_LOCAL_BOX_SESSIONS = 1
+const val MAX_LOCAL_BOX_SESSIONS = 1000
+const val DEFAULT_LOCAL_BOX_SESSIONS = 50
 
-const val MIN_LOCAL_TIN_TTL = 60
-const val MAX_LOCAL_TIN_TTL = 604800
-const val DEFAULT_LOCAL_TIN_TTL = 7200
-const val DEFAULT_LOCAL_TIN_MAX_TTL = 86400
+const val MIN_LOCAL_BOX_TTL = 60
+const val MAX_LOCAL_BOX_TTL = 604800
+const val DEFAULT_LOCAL_BOX_TTL = 7200
+const val DEFAULT_LOCAL_BOX_MAX_TTL = 86400
 
-const val MIN_LOCAL_TIN_IDLE = 60
-const val MAX_LOCAL_TIN_IDLE = 86400
-const val DEFAULT_LOCAL_TIN_IDLE = 900
+const val MIN_LOCAL_BOX_IDLE = 60
+const val MAX_LOCAL_BOX_IDLE = 86400
+const val DEFAULT_LOCAL_BOX_IDLE = 900
 
-const val MIN_TIN_COMMAND_WAIT = 1
-const val MAX_TIN_COMMAND_WAIT = 3600
-const val DEFAULT_TIN_COMMAND_WAIT = 300
+const val MIN_BOX_COMMAND_WAIT = 1
+const val MAX_BOX_COMMAND_WAIT = 3600
+const val DEFAULT_BOX_COMMAND_WAIT = 300
 
-const val MIN_TIN_COMMAND_TIMEOUT = 1
-const val MAX_TIN_COMMAND_TIMEOUT = 86400
-const val DEFAULT_TIN_COMMAND_TIMEOUT = 1800
+const val MIN_BOX_COMMAND_TIMEOUT = 1
+const val MAX_BOX_COMMAND_TIMEOUT = 86400
+const val DEFAULT_BOX_COMMAND_TIMEOUT = 1800
 
-const val MIN_TIN_OUTPUT_BYTES = 1024
-const val MAX_TIN_OUTPUT_BYTES = 4194304
-const val DEFAULT_TIN_OUTPUT_BYTES = 65536
+const val MIN_BOX_OUTPUT_BYTES = 1024
+const val MAX_BOX_OUTPUT_BYTES = 4194304
+const val DEFAULT_BOX_OUTPUT_BYTES = 65536
 
-/** How much of a finished local tin command's output is kept on this side; 0 keeps none. */
-const val MIN_LOCAL_TIN_OUTPUT_KEPT = 0
-const val MAX_LOCAL_TIN_OUTPUT_KEPT = 16777216
-const val DEFAULT_LOCAL_TIN_OUTPUT_KEPT = 1048576
+/** How much of a finished local box command's output is kept on this side; 0 keeps none. */
+const val MIN_LOCAL_BOX_OUTPUT_KEPT = 0
+const val MAX_LOCAL_BOX_OUTPUT_KEPT = 16777216
+const val DEFAULT_LOCAL_BOX_OUTPUT_KEPT = 1048576
 
 /** How much of one command's output the conversation's session view holds in the browser. */
-const val MIN_TIN_OUTPUT_SHOWN = 65536
-const val MAX_TIN_OUTPUT_SHOWN = 67108864
-const val DEFAULT_TIN_OUTPUT_SHOWN = 4194304
+const val MIN_BOX_OUTPUT_SHOWN = 65536
+const val MAX_BOX_OUTPUT_SHOWN = 67108864
+const val DEFAULT_BOX_OUTPUT_SHOWN = 4194304
 
-const val MIN_TIN_REQUEST_TIMEOUT = 1
-const val MAX_TIN_REQUEST_TIMEOUT = 600
-const val DEFAULT_TIN_REQUEST_TIMEOUT = 30
+const val MIN_BOX_REQUEST_TIMEOUT = 1
+const val MAX_BOX_REQUEST_TIMEOUT = 600
+const val DEFAULT_BOX_REQUEST_TIMEOUT = 30
 
 /**
- * The local tin's label, which is fixed: there is one local tin on every
+ * The local box's label, which is fixed: there is one local box on every
  * installation, and an agent granted `local` should mean the same thing on all
  * of them.
  */
-const val LOCAL_TIN_LABEL = "local"
+const val LOCAL_BOX_LABEL = "local"
 
 /**
- * How the local tin is set up, and how every tin is spoken to.
+ * How the local box is set up, and how every box is spoken to.
  *
  * Rows in `installation_setting`, like every other Admin setting, read through
  * here rather than added to the long list in `InstallationSettings`: these are
@@ -69,7 +69,7 @@ const val LOCAL_TIN_LABEL = "local"
  * default rather than failing a tool call.
  */
 @Service
-class TinSettings(private val settings: InstallationSettingRepository) {
+class BoxSettings(private val settings: InstallationSettingRepository) {
 
     fun localEnabled(): Boolean = text(LOCAL_ENABLED)?.toBooleanStrictOrNull() ?: true
 
@@ -77,38 +77,38 @@ class TinSettings(private val settings: InstallationSettingRepository) {
     fun localLocation(): String? = text(LOCAL_LOCATION)?.takeIf { it.isNotBlank() }
 
     /**
-     * Where they go when nobody says: the temporary directory's `orknux-tin`,
-     * and deliberately not orktin's own default `orktin` beside it. The local
+     * Where they go when nobody says: the temporary directory's `orknux-box`,
+     * and deliberately not orkbox's own default `orkbox` beside it. The local
      * runtime deletes every `ses_*` folder under its root when it starts, so a
-     * standalone orktin on the same machine sharing that root would lose its
-     * sessions each time this server's tin came up.
+     * standalone orkbox on the same machine sharing that root would lose its
+     * sessions each time this server's box came up.
      */
     fun localLocationConfigured(): String =
-        java.nio.file.Path.of(System.getProperty("java.io.tmpdir"), "orknux-tin").toString()
+        java.nio.file.Path.of(System.getProperty("java.io.tmpdir"), "orknux-box").toString()
 
     fun localRuntime(): String = text(LOCAL_RUNTIME)?.takeIf { it in RUNTIMES } ?: Config.RUNTIME_LOCAL
 
-    fun localMaxSessions(): Int = ranged(LOCAL_MAX_SESSIONS, MIN_LOCAL_TIN_SESSIONS..MAX_LOCAL_TIN_SESSIONS, DEFAULT_LOCAL_TIN_SESSIONS)
+    fun localMaxSessions(): Int = ranged(LOCAL_MAX_SESSIONS, MIN_LOCAL_BOX_SESSIONS..MAX_LOCAL_BOX_SESSIONS, DEFAULT_LOCAL_BOX_SESSIONS)
 
-    fun localDefaultTtlSeconds(): Int = ranged(LOCAL_DEFAULT_TTL, MIN_LOCAL_TIN_TTL..MAX_LOCAL_TIN_TTL, DEFAULT_LOCAL_TIN_TTL)
+    fun localDefaultTtlSeconds(): Int = ranged(LOCAL_DEFAULT_TTL, MIN_LOCAL_BOX_TTL..MAX_LOCAL_BOX_TTL, DEFAULT_LOCAL_BOX_TTL)
 
-    fun localMaxTtlSeconds(): Int = ranged(LOCAL_MAX_TTL, MIN_LOCAL_TIN_TTL..MAX_LOCAL_TIN_TTL, DEFAULT_LOCAL_TIN_MAX_TTL)
+    fun localMaxTtlSeconds(): Int = ranged(LOCAL_MAX_TTL, MIN_LOCAL_BOX_TTL..MAX_LOCAL_BOX_TTL, DEFAULT_LOCAL_BOX_MAX_TTL)
 
-    fun localIdleTimeoutSeconds(): Int = ranged(LOCAL_IDLE, MIN_LOCAL_TIN_IDLE..MAX_LOCAL_TIN_IDLE, DEFAULT_LOCAL_TIN_IDLE)
+    fun localIdleTimeoutSeconds(): Int = ranged(LOCAL_IDLE, MIN_LOCAL_BOX_IDLE..MAX_LOCAL_BOX_IDLE, DEFAULT_LOCAL_BOX_IDLE)
 
-    fun commandWaitSeconds(): Int = ranged(COMMAND_WAIT, MIN_TIN_COMMAND_WAIT..MAX_TIN_COMMAND_WAIT, DEFAULT_TIN_COMMAND_WAIT)
+    fun commandWaitSeconds(): Int = ranged(COMMAND_WAIT, MIN_BOX_COMMAND_WAIT..MAX_BOX_COMMAND_WAIT, DEFAULT_BOX_COMMAND_WAIT)
 
     fun commandTimeoutSeconds(): Int =
-        ranged(COMMAND_TIMEOUT, MIN_TIN_COMMAND_TIMEOUT..MAX_TIN_COMMAND_TIMEOUT, DEFAULT_TIN_COMMAND_TIMEOUT)
+        ranged(COMMAND_TIMEOUT, MIN_BOX_COMMAND_TIMEOUT..MAX_BOX_COMMAND_TIMEOUT, DEFAULT_BOX_COMMAND_TIMEOUT)
 
-    fun outputBytes(): Int = ranged(OUTPUT_BYTES, MIN_TIN_OUTPUT_BYTES..MAX_TIN_OUTPUT_BYTES, DEFAULT_TIN_OUTPUT_BYTES)
+    fun outputBytes(): Int = ranged(OUTPUT_BYTES, MIN_BOX_OUTPUT_BYTES..MAX_BOX_OUTPUT_BYTES, DEFAULT_BOX_OUTPUT_BYTES)
 
-    fun localOutputKeptBytes(): Int = ranged(LOCAL_OUTPUT_KEPT, MIN_LOCAL_TIN_OUTPUT_KEPT..MAX_LOCAL_TIN_OUTPUT_KEPT, DEFAULT_LOCAL_TIN_OUTPUT_KEPT)
+    fun localOutputKeptBytes(): Int = ranged(LOCAL_OUTPUT_KEPT, MIN_LOCAL_BOX_OUTPUT_KEPT..MAX_LOCAL_BOX_OUTPUT_KEPT, DEFAULT_LOCAL_BOX_OUTPUT_KEPT)
 
-    fun outputShownBytes(): Int = ranged(OUTPUT_SHOWN, MIN_TIN_OUTPUT_SHOWN..MAX_TIN_OUTPUT_SHOWN, DEFAULT_TIN_OUTPUT_SHOWN)
+    fun outputShownBytes(): Int = ranged(OUTPUT_SHOWN, MIN_BOX_OUTPUT_SHOWN..MAX_BOX_OUTPUT_SHOWN, DEFAULT_BOX_OUTPUT_SHOWN)
 
     fun requestTimeoutSeconds(): Int =
-        ranged(REQUEST_TIMEOUT, MIN_TIN_REQUEST_TIMEOUT..MAX_TIN_REQUEST_TIMEOUT, DEFAULT_TIN_REQUEST_TIMEOUT)
+        ranged(REQUEST_TIMEOUT, MIN_BOX_REQUEST_TIMEOUT..MAX_BOX_REQUEST_TIMEOUT, DEFAULT_BOX_REQUEST_TIMEOUT)
 
     @Transactional
     fun setLocalEnabled(enabled: Boolean, by: String) = write(LOCAL_ENABLED, enabled.toString(), by)
@@ -126,67 +126,67 @@ class TinSettings(private val settings: InstallationSettingRepository) {
     @Transactional
     fun setLocalRuntime(runtime: String, by: String) {
         val given = runtime.trim().lowercase()
-        if (given !in RUNTIMES) throw LocalTinRuntimeUnknownException(runtime)
+        if (given !in RUNTIMES) throw LocalBoxRuntimeUnknownException(runtime)
         write(LOCAL_RUNTIME, given, by)
     }
 
     @Transactional
     fun setLocalMaxSessions(count: Int, by: String) {
-        if (count !in MIN_LOCAL_TIN_SESSIONS..MAX_LOCAL_TIN_SESSIONS) throw LocalTinMaxSessionsOutOfRangeException(count)
+        if (count !in MIN_LOCAL_BOX_SESSIONS..MAX_LOCAL_BOX_SESSIONS) throw LocalBoxMaxSessionsOutOfRangeException(count)
         write(LOCAL_MAX_SESSIONS, count.toString(), by)
     }
 
     @Transactional
     fun setLocalDefaultTtlSeconds(seconds: Int, by: String) {
-        if (seconds !in MIN_LOCAL_TIN_TTL..MAX_LOCAL_TIN_TTL) throw LocalTinTtlOutOfRangeException(seconds)
+        if (seconds !in MIN_LOCAL_BOX_TTL..MAX_LOCAL_BOX_TTL) throw LocalBoxTtlOutOfRangeException(seconds)
         write(LOCAL_DEFAULT_TTL, seconds.toString(), by)
     }
 
     @Transactional
     fun setLocalMaxTtlSeconds(seconds: Int, by: String) {
-        if (seconds !in MIN_LOCAL_TIN_TTL..MAX_LOCAL_TIN_TTL) throw LocalTinTtlOutOfRangeException(seconds)
+        if (seconds !in MIN_LOCAL_BOX_TTL..MAX_LOCAL_BOX_TTL) throw LocalBoxTtlOutOfRangeException(seconds)
         write(LOCAL_MAX_TTL, seconds.toString(), by)
     }
 
     @Transactional
     fun setLocalIdleTimeoutSeconds(seconds: Int, by: String) {
-        if (seconds !in MIN_LOCAL_TIN_IDLE..MAX_LOCAL_TIN_IDLE) throw LocalTinIdleTimeoutOutOfRangeException(seconds)
+        if (seconds !in MIN_LOCAL_BOX_IDLE..MAX_LOCAL_BOX_IDLE) throw LocalBoxIdleTimeoutOutOfRangeException(seconds)
         write(LOCAL_IDLE, seconds.toString(), by)
     }
 
     @Transactional
     fun setCommandWaitSeconds(seconds: Int, by: String) {
-        if (seconds !in MIN_TIN_COMMAND_WAIT..MAX_TIN_COMMAND_WAIT) throw TinCommandWaitOutOfRangeException(seconds)
+        if (seconds !in MIN_BOX_COMMAND_WAIT..MAX_BOX_COMMAND_WAIT) throw BoxCommandWaitOutOfRangeException(seconds)
         write(COMMAND_WAIT, seconds.toString(), by)
     }
 
     @Transactional
     fun setCommandTimeoutSeconds(seconds: Int, by: String) {
-        if (seconds !in MIN_TIN_COMMAND_TIMEOUT..MAX_TIN_COMMAND_TIMEOUT) throw TinCommandTimeoutOutOfRangeException(seconds)
+        if (seconds !in MIN_BOX_COMMAND_TIMEOUT..MAX_BOX_COMMAND_TIMEOUT) throw BoxCommandTimeoutOutOfRangeException(seconds)
         write(COMMAND_TIMEOUT, seconds.toString(), by)
     }
 
     @Transactional
     fun setOutputBytes(bytes: Int, by: String) {
-        if (bytes !in MIN_TIN_OUTPUT_BYTES..MAX_TIN_OUTPUT_BYTES) throw TinOutputBytesOutOfRangeException(bytes)
+        if (bytes !in MIN_BOX_OUTPUT_BYTES..MAX_BOX_OUTPUT_BYTES) throw BoxOutputBytesOutOfRangeException(bytes)
         write(OUTPUT_BYTES, bytes.toString(), by)
     }
 
     @Transactional
     fun setLocalOutputKeptBytes(bytes: Int, by: String) {
-        if (bytes !in MIN_LOCAL_TIN_OUTPUT_KEPT..MAX_LOCAL_TIN_OUTPUT_KEPT) throw LocalTinOutputKeptOutOfRangeException(bytes)
+        if (bytes !in MIN_LOCAL_BOX_OUTPUT_KEPT..MAX_LOCAL_BOX_OUTPUT_KEPT) throw LocalBoxOutputKeptOutOfRangeException(bytes)
         write(LOCAL_OUTPUT_KEPT, bytes.toString(), by)
     }
 
     @Transactional
     fun setOutputShownBytes(bytes: Int, by: String) {
-        if (bytes !in MIN_TIN_OUTPUT_SHOWN..MAX_TIN_OUTPUT_SHOWN) throw TinOutputShownOutOfRangeException(bytes)
+        if (bytes !in MIN_BOX_OUTPUT_SHOWN..MAX_BOX_OUTPUT_SHOWN) throw BoxOutputShownOutOfRangeException(bytes)
         write(OUTPUT_SHOWN, bytes.toString(), by)
     }
 
     @Transactional
     fun setRequestTimeoutSeconds(seconds: Int, by: String) {
-        if (seconds !in MIN_TIN_REQUEST_TIMEOUT..MAX_TIN_REQUEST_TIMEOUT) throw TinRequestTimeoutOutOfRangeException(seconds)
+        if (seconds !in MIN_BOX_REQUEST_TIMEOUT..MAX_BOX_REQUEST_TIMEOUT) throw BoxRequestTimeoutOutOfRangeException(seconds)
         write(REQUEST_TIMEOUT, seconds.toString(), by)
     }
 
@@ -204,6 +204,8 @@ class TinSettings(private val settings: InstallationSettingRepository) {
     }
 
     companion object {
+        // Stored under `tin.`, the name boxes had first: the keys are rows in
+        // installation_setting, and renaming them would orphan what was set.
         const val LOCAL_ENABLED = "tin.local.enabled"
         const val LOCAL_LOCATION = "tin.local.location"
         const val LOCAL_RUNTIME = "tin.local.runtime"

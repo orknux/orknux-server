@@ -1,20 +1,20 @@
 ---
-name: Tin Project Changes
-description: Change an existing project in a tin - read how it is built and what it expects, make a focused change, compile it, run its tests, and report honestly.
+name: Box Project Changes
+description: Change an existing project in a box - read how it is built and what it expects, make a focused change, compile it, run its tests, and report honestly.
 ---
 
-# Changing an existing project in a tin
+# Changing an existing project in a box
 
 ## Objective
 
 Somebody asked for a change to a project that already exists: a fix, a
 feature, a dependency bump. Make that change the way the project's own
-maintainers would, and prove it builds and its tests pass, in a tin session.
-Load the Tins skill first if you have not used the tin tools before.
+maintainers would, and prove it builds and its tests pass, in a box session.
+Load the Boxes skill first if you have not used the box tools before.
 
 ## 1. Get the code
 
-- `tin_open` with `git_url` (and `git_ref` for a branch or tag). Pass
+- `orkbox_open` with `git_url` (and `git_ref` for a branch or tag). Pass
   `caches` for the build tool you expect (`maven`, `gradle`, `npm`, ...) so
   dependencies are not downloaded from scratch.
 - Never put a password or token in `git_url`. If the clone needs credentials,
@@ -36,7 +36,7 @@ directory you will change:
 5. CI configuration (`.github/workflows/`, `.gitlab-ci.yml`) - the exact
    commands the project trusts to build and test itself.
 
-Use `tin_search` and `tin_files` to find the code involved instead of reading
+Use `orkbox_search` and `orkbox_files` to find the code involved instead of reading
 the whole tree. Read the surrounding code and its tests before editing.
 
 ## 3. Establish a baseline
@@ -53,7 +53,7 @@ than changing code you cannot check.
 - Keep it focused: only what the request needs. No drive-by reformatting,
   renames or upgrades.
 - Match the code around it - naming, comment density, error handling, test
-  style. Use `tin_edit` for exact replacements; rewrite a whole file only when
+  style. Use `orkbox_edit` for exact replacements; rewrite a whole file only when
   it is new or tiny.
 - Add or update a test that fails without your change and passes with it,
   where the project has tests for that kind of code.
@@ -63,7 +63,7 @@ than changing code you cannot check.
 1. Compile first; fix every error you introduced.
 2. Run the tests closest to your change, then the full suite the project's CI
    runs. Long runs: start them with `wait: false` and follow with
-   `tin_execution` and `wait_seconds`.
+   `orkbox_execution` and `wait_seconds`.
 3. Run the formatter or linter only if the project uses one in CI, and only on
    files you touched.
 4. Read `git diff` end to end. Remove debug output and leftover experiments.
@@ -76,5 +76,5 @@ than changing code you cannot check.
   (tests passed / failed, with counts), anything you could not verify, and
   failures that were already there before you started. Never claim a build or
   test passed that you did not see pass.
-- If the session holds work somebody needs, export it (`tin_export`) before
-  `tin_close`; closing destroys the workspace.
+- If the session holds work somebody needs, export it (`orkbox_export`) before
+  `orkbox_close`; closing destroys the workspace.

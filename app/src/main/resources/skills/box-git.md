@@ -1,19 +1,19 @@
 ---
-name: Tin Git
-description: Work with git in a tin - clone, branch, commit, keep history clean, resolve conflicts, and push only when asked.
+name: Box Git
+description: Work with git in a box - clone, branch, commit, keep history clean, resolve conflicts, and push only when asked.
 ---
 
-# Git in a tin
+# Git in a box
 
 ## Objective
 
-Use git in a tin session the way a careful colleague would: changes on a
+Use git in a box session the way a careful colleague would: changes on a
 branch, small commits with clear messages, nothing destructive, nothing
 pushed without being asked.
 
 ## Getting the code
 
-- `tin_open` with `git_url`, `git_ref` (branch, tag or commit) and
+- `orkbox_open` with `git_url`, `git_ref` (branch, tag or commit) and
   `git_depth` for a shallow clone of a big repository. Deepen later with
   `git fetch --deepen=<n>` if history is needed.
 - Credentials never go in the URL or in a commit. If cloning or pushing needs

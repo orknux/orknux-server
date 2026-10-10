@@ -1,21 +1,21 @@
-package io.mszymanski.orknux.server.tin
+package io.mszymanski.orknux.server.box
 
 import io.mszymanski.orknux.connector.model.ToolParameterSpec
 import io.mszymanski.orknux.connector.model.ToolSpec
-import io.mszymanski.orknux.orktin.model.CreateSessionRequest
-import io.mszymanski.orknux.orktin.model.Edit
-import io.mszymanski.orknux.orktin.model.EditRequest
-import io.mszymanski.orknux.orktin.model.ExecuteRequest
-import io.mszymanski.orknux.orktin.model.ExecutionDto
-import io.mszymanski.orknux.orktin.model.FileEntry
-import io.mszymanski.orknux.orktin.model.GitSource
-import io.mszymanski.orknux.orktin.model.MoveRequest
-import io.mszymanski.orknux.orktin.model.SearchRequest
-import io.mszymanski.orknux.orktin.model.SearchMatch
-import io.mszymanski.orknux.orktin.model.SearchResult
-import io.mszymanski.orknux.orktin.model.SessionDto
-import io.mszymanski.orknux.orktin.model.Source
-import io.mszymanski.orknux.orktin.model.UpdateSessionRequest
+import io.mszymanski.orknux.orkbox.model.CreateSessionRequest
+import io.mszymanski.orknux.orkbox.model.Edit
+import io.mszymanski.orknux.orkbox.model.EditRequest
+import io.mszymanski.orknux.orkbox.model.ExecuteRequest
+import io.mszymanski.orknux.orkbox.model.ExecutionDto
+import io.mszymanski.orknux.orkbox.model.FileEntry
+import io.mszymanski.orknux.orkbox.model.GitSource
+import io.mszymanski.orknux.orkbox.model.MoveRequest
+import io.mszymanski.orknux.orkbox.model.SearchRequest
+import io.mszymanski.orknux.orkbox.model.SearchMatch
+import io.mszymanski.orknux.orkbox.model.SearchResult
+import io.mszymanski.orknux.orkbox.model.SessionDto
+import io.mszymanski.orknux.orkbox.model.Source
+import io.mszymanski.orknux.orkbox.model.UpdateSessionRequest
 import io.mszymanski.orknux.server.agent.Agent
 import io.mszymanski.orknux.server.llm.LlmSessionStore
 import io.mszymanski.orknux.server.security.WebProperties
@@ -31,48 +31,48 @@ import java.time.OffsetDateTime
 import java.util.Base64
 
 /**
- * What an agent can do with a tin: open a sandbox session, run commands in it,
+ * What an agent can do with a box: open a sandbox session, run commands in it,
  * work with its files, read its log, and close it.
  *
- * orktin's Session API, one tool per thing a model would reach for, rather
+ * orkbox's Session API, one tool per thing a model would reach for, rather
  * than one tool with a verb argument: a model picks a tool by its name and
  * description, and twenty well-named tools are found where one with twenty
  * modes is misused.
  *
- * **Which tins.** Those whose label the agent was granted - [Agent.tinLabels] -
+ * **Which boxes.** Those whose label the agent was granted - [Agent.boxLabels] -
  * checked when the menu is drawn and again on every call, so a model that
  * guessed a name it was never offered is refused by the thing that would run
  * it, and a grant taken back is taken back for sessions already open.
  *
- * **Which sessions.** An agent names a session by the handle `tin_open` gave
- * it - the row this side keeps, [TinSession] - and only the handles of its own
- * conversation answer. orktin's own id is never what is asked for, so one
+ * **Which sessions.** An agent names a session by the handle `orkbox_open` gave
+ * it - the row this side keeps, [BoxSession] - and only the handles of its own
+ * conversation answer. orkbox's own id is never what is asked for, so one
  * conversation cannot reach another's sandbox by guessing it.
  *
  * **What a failure looks like.** A command that exits non-zero is a result,
- * with its code and both streams. What orktin refuses - no such file, an edit
+ * with its code and both streams. What orkbox refuses - no such file, an edit
  * that matched nothing, a session that has stopped - comes back as an error in
- * orktin's words with orktin's code beside it, which is the part a model can
+ * orkbox's words with orkbox's code beside it, which is the part a model can
  * act on.
  *
  * **What is written down.** Opening and closing a session, in the audit log
- * under the agent's name. The commands themselves are in the tin's own log,
- * which a conversation's Tin panel reads.
+ * under the agent's name. The commands themselves are in the box's own log,
+ * which a conversation's Box panel reads.
  */
 @Service
-class TinTools(
-    private val tins: Tins,
-    private val sessions: TinSessionRepository,
-    private val settings: TinSettings,
+class BoxTools(
+    private val boxes: Boxes,
+    private val sessions: BoxSessionRepository,
+    private val settings: BoxSettings,
     private val store: LlmSessionStore,
     private val auditRecorder: WorkspaceAuditRecorder,
     private val mapper: ObjectMapper,
-    private val sessionLog: TinSessionLog,
+    private val sessionLog: BoxSessionLog,
     private val web: WebProperties,
 ) {
 
-    /** Offered while the agent holds any tin label. */
-    fun offered(agent: Agent): Boolean = agent.tinLabels.isNotEmpty()
+    /** Offered while the agent holds any box label. */
+    fun offered(agent: Agent): Boolean = agent.boxLabels.isNotEmpty()
 
     fun handles(name: String): Boolean = name in NAMES
 
@@ -83,7 +83,7 @@ class TinTools(
      * the model is told, in words it can act on.
      */
     fun run(agent: Agent, name: String, arguments: String, sessionId: Long?): String {
-        if (!offered(agent)) return refuse("This agent has not been given any tins")
+        if (!offered(agent)) return refuse("This agent has not been given any boxes")
         val args = runCatching { mapper.readTree(arguments.ifBlank { "{}" }) }.getOrNull()
             ?: return refuse("The arguments were not a JSON object")
         return try {
@@ -113,29 +113,29 @@ class TinTools(
             }
         } catch (refused: Refused) {
             refuse(refused.message, refused.code)
-        } catch (failed: TinCallException) {
-            refuse(failed.message ?: "The tin refused that", failed.code)
-        } catch (failed: TinNotFoundException) {
-            refuse("That tin is not there any more")
+        } catch (failed: BoxCallException) {
+            refuse(failed.message ?: "The box refused that", failed.code)
+        } catch (failed: BoxNotFoundException) {
+            refuse("That box is not there any more")
         } catch (failed: Exception) {
-            log.warn("Tin tool {} failed for agent {}", name, agent.name, failed)
+            log.warn("Box tool {} failed for agent {}", name, agent.name, failed)
             refuse(failed.message ?: "That could not be done")
         }
     }
 
-    // ------------------------------------------------------------- the tins
+    // ------------------------------------------------------------- the boxes
 
     private fun list(agent: Agent): String {
-        val usable = tins.usableBy(agent)
-        if (usable.isEmpty()) return answer(mapOf("tins" to emptyList<Any>(), "note" to "No tin you may use is available right now."))
+        val usable = boxes.usableBy(agent)
+        if (usable.isEmpty()) return answer(mapOf("boxes" to emptyList<Any>(), "note" to "No box you may use is available right now."))
         return answer(
             mapOf(
-                "tins" to usable.map { tin ->
+                "boxes" to usable.map { box ->
                     buildMap {
-                        put("name", tin.name)
-                        put("kind", tin.kind.name.lowercase())
-                        put("label", tin.label)
-                        val info = runCatching { tins.client(tin).info() }
+                        put("name", box.name)
+                        put("kind", box.kind.name.lowercase())
+                        put("label", box.label)
+                        val info = runCatching { boxes.client(box).info() }
                         info.onSuccess { said ->
                             put("defaultRuntime", said.defaultRuntime)
                             put("defaultTtlSeconds", said.defaultTtlSeconds)
@@ -164,18 +164,18 @@ class TinTools(
     }
 
     private fun open(agent: Agent, args: JsonNode, sessionId: Long?): String {
-        val conversation = sessionId ?: throw Refused("A tin session belongs to a conversation, and this call has none")
-        val usable = tins.usableBy(agent)
-        val asked = args.text("tin")
-        val tin = when {
+        val conversation = sessionId ?: throw Refused("A box session belongs to a conversation, and this call has none")
+        val usable = boxes.usableBy(agent)
+        val asked = args.text("box")
+        val box = when {
             asked != null -> usable.firstOrNull { it.name.equals(asked, ignoreCase = true) }
                 ?: throw Refused(
-                    "You may not use a tin called $asked. The ones you may use: " +
+                    "You may not use a box called $asked. The ones you may use: " +
                         usable.joinToString(", ") { it.name }.ifEmpty { "none" },
                 )
             usable.size == 1 -> usable.single()
-            usable.isEmpty() -> throw Refused("No tin you may use is available right now")
-            else -> throw Refused("Say which tin: " + usable.joinToString(", ") { it.name })
+            usable.isEmpty() -> throw Refused("No box you may use is available right now")
+            else -> throw Refused("Say which box: " + usable.joinToString(", ") { it.name })
         }
         val gitUrl = args.text("git_url")
         val request = CreateSessionRequest(
@@ -193,17 +193,17 @@ class TinTools(
             ),
             source = gitUrl?.let { Source(GitSource(url = it, ref = args.text("git_ref"), depth = args.long("git_depth")?.toInt())) },
         )
-        val client = tins.client(tin)
+        val client = boxes.client(box)
         val opened = client.create(request)
         val row = sessions.save(
-            TinSession(
+            BoxSession(
                 workspaceId = agent.workspaceId,
                 llmSessionId = conversation,
                 agentId = agent.id,
                 agentName = agent.name,
-                tinKind = tin.kind,
-                tinId = tin.row?.id,
-                tinName = tin.name,
+                boxKind = box.kind,
+                boxId = box.row?.id,
+                boxName = box.name,
                 remoteSessionId = opened.id,
                 status = opened.status,
                 lastUsedAt = OffsetDateTime.now(),
@@ -213,7 +213,7 @@ class TinTools(
         auditRecorder.recordAutomated(
             agent.workspaceId,
             WorkspaceAuditCategory.AGENT,
-            "Tin session ${row.id} opened on ${tin.name} by ${agent.name}",
+            "Box session ${row.id} opened on ${box.name} by ${agent.name}",
             agent.name,
         )
         sessionLog.recordQuietly(row, client)
@@ -224,14 +224,14 @@ class TinTools(
                 } else {
                     put(
                         "note",
-                        "Use session ${row.id} with the other tin tools. Paths are relative to the workspace root. " +
-                            "Close it with tin_close when you are done; it is stopped by itself when it expires or sits idle. " +
+                        "Use session ${row.id} with the other box tools. Paths are relative to the workspace root. " +
+                            "Close it with orkbox_close when you are done; it is stopped by itself when it expires or sits idle. " +
                             "In your next message to the person you are working for, once, send them `url` so they can " +
-                            "watch the commands as they run: one sentence in their language saying you started a tin session " +
+                            "watch the commands as they run: one sentence in their language saying you started a box session " +
                             "and naming in a few words what you will do in it, the words for the session being the link - " +
-                            "\"I've started a [tin session](url) where I'll implement the requested changes.\", in Polish " +
-                            "\"Rozpocząłem [sesję w puszce](url), będę tam implementował wymagane zmiany projektowe.\" " +
-                            "In the thread they are following, as that place writes a link: in Slack <url|sesję w puszce>.",
+                            "\"I've started a [box session](url) where I'll implement the requested changes.\", in Polish " +
+                            "\"Rozpocząłem [sesję w skrzynce](url), będę tam implementował wymagane zmiany projektowe.\" " +
+                            "In the thread they are following, as that place writes a link: in Slack <url|sesję w skrzynce>.",
                     )
                 }
             },
@@ -239,7 +239,7 @@ class TinTools(
     }
 
     private fun listSessions(agent: Agent, args: JsonNode, sessionId: Long?): String {
-        val conversation = sessionId ?: throw Refused("This call has no conversation, so it has no tin sessions")
+        val conversation = sessionId ?: throw Refused("This call has no conversation, so it has no box sessions")
         val closed = args.bool("include_closed") ?: false
         val rows = sessions.findByLlmSessionIdOrderByCreatedAtDescIdDesc(conversation)
             .filter { closed || it.open }
@@ -256,7 +256,7 @@ class TinTools(
 
     private fun close(agent: Agent, args: JsonNode, sessionId: Long?): String {
         val held = held(agent, args, sessionId)
-        // Before the stop, while the tin still has every event to give.
+        // Before the stop, while the box still has every event to give.
         sessionLog.recordQuietly(held.row, held.client)
         val stopped = held.client.stop(held.row.remoteSessionId)
         held.row.closedAt = OffsetDateTime.now()
@@ -266,7 +266,7 @@ class TinTools(
         auditRecorder.recordAutomated(
             agent.workspaceId,
             WorkspaceAuditCategory.AGENT,
-            "Tin session ${held.row.id} on ${held.row.tinName} closed by ${agent.name} " +
+            "Box session ${held.row.id} on ${held.row.boxName} closed by ${agent.name} " +
                 "after ${stopped.executions.total} commands",
             agent.name,
         )
@@ -390,7 +390,7 @@ class TinTools(
                     "path" to path,
                     "size" to file.size,
                     "binary" to true,
-                    "note" to "This file is not text. Use tin_export to take it out as an archive into the session store.",
+                    "note" to "This file is not text. Use orkbox_export to take it out as an archive into the session store.",
                 ),
             )
         }
@@ -467,16 +467,16 @@ class TinTools(
     /**
      * A search of the whole workspace, made one top-level entry at a time.
      *
-     * orktin 0.1.0 hands ripgrep no path when asked to search the workspace
+     * orkbox 0.1.0 hands ripgrep no path when asked to search the workspace
      * root, and ripgrep given no path reads stdin whenever stdin is not a
      * terminal - which under `docker exec` and a ProcessBuilder it never is - so
      * a root search on any runtime with `rg` came back empty while the same
      * search under a folder found everything. Naming each top-level entry
      * gives ripgrep a path every time. Hidden entries are skipped, as ripgrep
-     * skips them itself. Fixed in orktin after 0.1.0; this stays while the pin
-     * and any remote tin may still be on 0.1.0.
+     * skips them itself. Fixed in orkbox after 0.1.0; this stays while the pin
+     * and any remote box may still be on 0.1.0.
      */
-    private fun searchWorkspace(client: TinClient, id: String, request: SearchRequest): SearchResult {
+    private fun searchWorkspace(client: BoxClient, id: String, request: SearchRequest): SearchResult {
         val top = client.files(id, null, 1, null, false, 1000)
         val matches = ArrayList<SearchMatch>()
         var truncated = top.truncated
@@ -556,7 +556,7 @@ class TinTools(
         val held = held(agent, args, sessionId)
         val conversation = held.row.llmSessionId
         val path = args.text("path")
-        val key = args.text("key") ?: "tin.${held.row.id}.archive"
+        val key = args.text("key") ?: "box.${held.row.id}.archive"
         val bytes = held.client.exportArchive(held.row.remoteSessionId, path)
         touch(held)
         store.put(conversation, key, mapper.writeValueAsString(Base64.getEncoder().encodeToString(bytes)), StoredKind(ARCHIVE_TYPE, true))
@@ -566,7 +566,7 @@ class TinTools(
                 "key" to key,
                 "bytes" to bytes.size,
                 "contentType" to ARCHIVE_TYPE,
-                "note" to "A .tar.gz of ${path ?: "the workspace"}. Hand the key to a tool that takes a file, or to tin_import.",
+                "note" to "A .tar.gz of ${path ?: "the workspace"}. Hand the key to a tool that takes a file, or to orkbox_import.",
             ),
         )
     }
@@ -588,30 +588,30 @@ class TinTools(
 
     // -------------------------------------------------------------- sessions
 
-    private class Held(val row: TinSession, val client: TinClient)
+    private class Held(val row: BoxSession, val client: BoxClient)
 
     /**
-     * The session a call names, if it is this conversation's and its tin is
+     * The session a call names, if it is this conversation's and its box is
      * still one this agent may use.
      */
     private fun held(agent: Agent, args: JsonNode, sessionId: Long?): Held {
-        val conversation = sessionId ?: throw Refused("This call has no conversation, so it has no tin sessions")
-        val handle = args.long("session") ?: throw Refused("Say which session: the number tin_open answered with")
+        val conversation = sessionId ?: throw Refused("This call has no conversation, so it has no box sessions")
+        val handle = args.long("session") ?: throw Refused("Say which session: the number orkbox_open answered with")
         val row = sessions.findByIdOrNull(handle)?.takeIf { it.llmSessionId == conversation }
-            ?: throw Refused("This conversation has no tin session $handle. tin_sessions lists the ones it has.")
+            ?: throw Refused("This conversation has no box session $handle. orkbox_sessions lists the ones it has.")
         return Held(row, clientFor(agent, row))
     }
 
-    private fun clientFor(agent: Agent, row: TinSession): TinClient {
-        val tin = tins.byId(row.tinRef) ?: throw Refused("Tin ${row.tinName} is no longer configured")
-        if (!tins.mayUse(agent, tin)) throw Refused("You may no longer use tin ${row.tinName}")
-        return tins.client(tin)
+    private fun clientFor(agent: Agent, row: BoxSession): BoxClient {
+        val box = boxes.byId(row.boxRef) ?: throw Refused("Box ${row.boxName} is no longer configured")
+        if (!boxes.mayUse(agent, box)) throw Refused("You may no longer use box ${row.boxName}")
+        return boxes.client(box)
     }
 
     /**
      * Marks the session used, and copies what its log gained into this side's
      * record of it - so a conversation can still show what was run after the
-     * tin has forgotten the session. A copy that fails fails quietly: the call
+     * box has forgotten the session. A copy that fails fails quietly: the call
      * that ran is the agent's answer, and the next call copies again.
      */
     private fun touch(held: Held) {
@@ -620,16 +620,16 @@ class TinTools(
         sessionLog.recordQuietly(held.row, held.client)
     }
 
-    private fun remember(row: TinSession, status: String) {
+    private fun remember(row: BoxSession, status: String) {
         row.status = status
         if (status !in OPEN_STATUSES && row.closedAt == null) row.closedAt = OffsetDateTime.now()
         row.lastUsedAt = OffsetDateTime.now()
         sessions.save(row)
     }
 
-    private fun described(row: TinSession, live: SessionDto?): Map<String, Any?> = buildMap {
+    private fun described(row: BoxSession, live: SessionDto?): Map<String, Any?> = buildMap {
         put("session", row.id)
-        put("tin", row.tinName)
+        put("box", row.boxName)
         put("status", live?.status ?: row.status)
         live?.let { session ->
             put("runtime", session.runtime)
@@ -651,11 +651,11 @@ class TinTools(
      * watch its commands as they run. Absolute, because it is handed to a
      * model that pastes it somewhere with no address of its own.
      */
-    private fun linkOf(row: TinSession): String =
+    private fun linkOf(row: BoxSession): String =
         web.baseUrl.trim().trimEnd('/').ifEmpty { "http://localhost:5173" } +
-            "/workspace/${row.workspaceId}/sessions/${row.llmSessionId}?tin=${row.id}"
+            "/workspace/${row.workspaceId}/sessions/${row.llmSessionId}?box=${row.id}"
 
-    private fun executed(row: TinSession, ran: ExecutionDto): Map<String, Any?> = buildMap {
+    private fun executed(row: BoxSession, ran: ExecutionDto): Map<String, Any?> = buildMap {
         put("session", row.id)
         put("execution", ran.id)
         put("status", ran.status)
@@ -671,14 +671,14 @@ class TinTools(
             put(
                 "truncated",
                 "The output was longer than you are handed at once, so its middle was cut and a line says how much. " +
-                    "Read all of it with tin_output.",
+                    "Read all of it with orkbox_output.",
             )
         }
         if (ran.status == "running") {
             put(
                 "note",
-                "Still running. Call tin_execution with wait_seconds to wait for it, tin_output to read what it has " +
-                    "printed so far, or tin_signal to stop it.",
+                "Still running. Call orkbox_execution with wait_seconds to wait for it, orkbox_output to read what it has " +
+                    "printed so far, or orkbox_signal to stop it.",
             )
         } else if (ran.status == "timed_out") {
             put("note", "It ran past its timeout and was stopped. Give timeout_seconds to allow longer.")
@@ -695,7 +695,7 @@ class TinTools(
     }
 
     private fun executionOf(args: JsonNode): String =
-        args.text("execution") ?: throw Refused("Say which execution: the id tin_exec answered with")
+        args.text("execution") ?: throw Refused("Say which execution: the id orkbox_exec answered with")
 
     // ------------------------------------------------------------ arguments
 
@@ -755,35 +755,35 @@ class TinTools(
             code?.let { put("code", it) }
         })
 
-    /** Something this side refuses before a tin is asked. */
+    /** Something this side refuses before a box is asked. */
     private class Refused(override val message: String, val code: String? = null) : RuntimeException(message)
 
     companion object {
-        private val log = LoggerFactory.getLogger(TinTools::class.java)
+        private val log = LoggerFactory.getLogger(BoxTools::class.java)
 
-        const val LIST = "tin_list"
-        const val OPEN = "tin_open"
-        const val SESSIONS = "tin_sessions"
-        const val CLOSE = "tin_close"
-        const val EXTEND = "tin_extend"
-        const val EXEC = "tin_exec"
-        const val EXECUTION = "tin_execution"
-        const val OUTPUT = "tin_output"
-        const val STDIN = "tin_stdin"
-        const val SIGNAL = "tin_signal"
-        const val FILES = "tin_files"
-        const val READ = "tin_read"
-        const val WRITE = "tin_write"
-        const val EDIT = "tin_edit"
-        const val STAT = "tin_stat"
-        const val DELETE = "tin_delete"
-        const val MOVE = "tin_move"
-        const val SEARCH = "tin_search"
-        const val LOG = "tin_log"
-        const val EXPORT = "tin_export"
-        const val IMPORT = "tin_import"
+        const val LIST = "orkbox_list"
+        const val OPEN = "orkbox_open"
+        const val SESSIONS = "orkbox_sessions"
+        const val CLOSE = "orkbox_close"
+        const val EXTEND = "orkbox_extend"
+        const val EXEC = "orkbox_exec"
+        const val EXECUTION = "orkbox_execution"
+        const val OUTPUT = "orkbox_output"
+        const val STDIN = "orkbox_stdin"
+        const val SIGNAL = "orkbox_signal"
+        const val FILES = "orkbox_files"
+        const val READ = "orkbox_read"
+        const val WRITE = "orkbox_write"
+        const val EDIT = "orkbox_edit"
+        const val STAT = "orkbox_stat"
+        const val DELETE = "orkbox_delete"
+        const val MOVE = "orkbox_move"
+        const val SEARCH = "orkbox_search"
+        const val LOG = "orkbox_log"
+        const val EXPORT = "orkbox_export"
+        const val IMPORT = "orkbox_import"
 
-        /** What orktin waits for at most, whatever it is asked. */
+        /** What orkbox waits for at most, whatever it is asked. */
         const val MOST_WAIT_SECONDS = 3600L
         const val DEFAULT_LIST = 1000
         const val MOST_LIST = 10_000
@@ -806,46 +806,46 @@ class TinTools(
         private fun pairs(name: String, description: String) =
             ToolParameterSpec(name, description, false, mapOf("type" to "object", "additionalProperties" to mapOf("type" to "string")))
 
-        private val SESSION = number("session", "The session number tin_open answered with.", required = true)
-        private val EXECUTION_ID = text("execution", "The execution id tin_exec answered with.", required = true)
+        private val SESSION = number("session", "The session number orkbox_open answered with.", required = true)
+        private val EXECUTION_ID = text("execution", "The execution id orkbox_exec answered with.", required = true)
 
         val SPECS: List<ToolSpec> = listOf(
             ToolSpec(
                 LIST,
-                "Lists the tins you may use - sandboxes where you can open a session with its own workspace and run " +
+                "Lists the boxes you may use - sandboxes where you can open a session with its own workspace and run " +
                     "commands - with what each offers: its runtimes, their operating system and shell, default " +
                     "image and limits. Call it first to choose where to open a session.",
             ),
             ToolSpec(
                 OPEN,
-                "Opens a session on a tin: an empty workspace directory of your own, or a clone of a git repository, " +
+                "Opens a session on a box: an empty workspace directory of your own, or a clone of a git repository, " +
                     "where you can run commands and work with files. Answers with the session number every other " +
-                    "tin tool takes. Close it with tin_close when done; it also stops by itself when it expires or " +
+                    "box tool takes. Close it with orkbox_close when done; it also stops by itself when it expires or " +
                     "sits idle.",
                 listOf(
-                    text("tin", "Which tin, by name from tin_list. May be left out when you may use only one."),
-                    text("runtime", "docker or local, where the tin offers both; its default otherwise."),
-                    text("image", "The container image, for the docker runtime; the tin's default otherwise."),
+                    text("box", "Which box, by name from orkbox_list. May be left out when you may use only one."),
+                    text("runtime", "docker or local, where the box offers both; its default otherwise."),
+                    text("image", "The container image, for the docker runtime; the box's default otherwise."),
                     text("git_url", "A repository to clone into the workspace."),
                     text("git_ref", "The branch, tag or commit to check out; the remote's default otherwise."),
                     number("git_depth", "A shallow clone of this many commits; the full history otherwise."),
                     names("caches", "Shared dependency caches to mount, such as maven, gradle or npm (docker only)."),
                     text("network", "full or none (docker only)."),
                     pairs("variables", "Environment variables set for every command in the session, as name: value."),
-                    number("ttl_seconds", "How long the session may live; the tin's default otherwise."),
+                    number("ttl_seconds", "How long the session may live; the box's default otherwise."),
                     number("idle_timeout_seconds", "How long it may sit unused before it is stopped."),
                     pairs("labels", "Labels to put on the session, for your own bookkeeping."),
                 ),
             ),
             ToolSpec(
                 SESSIONS,
-                "Lists the tin sessions opened in this conversation, with their state, runtime and when they expire.",
+                "Lists the box sessions opened in this conversation, with their state, runtime and when they expire.",
                 listOf(flag("include_closed", "Also list the ones that have stopped.")),
             ),
             ToolSpec(
                 CLOSE,
                 "Closes a session: stops what is running and destroys its workspace and everything in it. Take " +
-                    "anything you still need out first - tin_read, or tin_export for many files.",
+                    "anything you still need out first - orkbox_read, or orkbox_export for many files.",
                 listOf(SESSION),
             ),
             ToolSpec(
@@ -862,8 +862,8 @@ class TinTools(
                 "Runs one command in a session, in its workspace, and answers with the exit code and both output " +
                     "streams. A non-zero exit is an answer and not an error - read the code and the output. Waits " +
                     "for it to finish up to wait_seconds; a command still running then comes back with its " +
-                    "execution id to follow with tin_execution or tin_output. Long output is cut in the middle; " +
-                    "tin_output reads all of it.",
+                    "execution id to follow with orkbox_execution or orkbox_output. Long output is cut in the middle; " +
+                    "orkbox_output reads all of it.",
                 listOf(
                     SESSION,
                     text("command", "The command line, run through the runtime's shell, so pipes and && work."),
@@ -871,7 +871,7 @@ class TinTools(
                     text("cwd", "The directory to run in, relative to the workspace root; the root otherwise."),
                     pairs("variables", "Environment variables set for this command only, as name: value."),
                     text("stdin", "Text written to its standard input, which is then closed."),
-                    flag("interactive", "Keep standard input open for tin_stdin."),
+                    flag("interactive", "Keep standard input open for orkbox_stdin."),
                     number("timeout_seconds", "Stop it after this long; the installation's default otherwise."),
                     flag("wait", "false answers at once with the execution id and leaves it running. true by default."),
                     number("wait_seconds", "How long to wait for it before answering; the installation's default otherwise."),
@@ -885,7 +885,7 @@ class TinTools(
             ),
             ToolSpec(
                 OUTPUT,
-                "Reads an execution's output from a byte offset, whole rather than cut: to read what tin_exec cut " +
+                "Reads an execution's output from a byte offset, whole rather than cut: to read what orkbox_exec cut " +
                     "short, or to follow a command that is still running.",
                 listOf(
                     SESSION,

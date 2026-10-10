@@ -227,14 +227,14 @@ class AgentAPI(
                 skillCatalogs = startingCatalogs(),
                 requiredSkills = STARTING_ALWAYS_SKILLS.toMutableList(),
                 lastModifiedBy = currentUser(),
-            ).also { made -> input.tinLabels?.let { made.tinLabels = it } },
+            ).also { made -> input.boxLabels?.let { made.boxLabels = it } },
         )
         auditRecorder.record(input.workspaceId, WorkspaceAuditCategory.AGENT, "Agent $name created")
-        if (agent.tinLabels.isNotEmpty()) {
+        if (agent.boxLabels.isNotEmpty()) {
             auditRecorder.record(
                 input.workspaceId,
                 WorkspaceAuditCategory.AGENT,
-                "Agent $name tin labels set to ${agent.tinLabels.joinToString(", ")}",
+                "Agent $name box labels set to ${agent.boxLabels.joinToString(", ")}",
             )
         }
         return describe(agent)
@@ -368,7 +368,7 @@ class AgentAPI(
         val previousTools = (agent.tools + BuiltInTools.grantedTo(agent)).distinct()
         val previousConnections = agent.connections.toList()
         val previousShare = agent.memoryShare
-        val previousTinLabels = agent.tinLabels
+        val previousBoxLabels = agent.boxLabels
 
         agent.name = name
         agent.description = input.description?.trim()?.ifEmpty { null }
@@ -424,8 +424,8 @@ class AgentAPI(
             agent.mcpServers = input.mcpServers.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
         }
         if (input.orknuxAccess != null) agent.orknuxAccess = input.orknuxAccess
-        // Which tins it may open a session on, by label. Null leaves it alone.
-        if (input.tinLabels != null) agent.tinLabels = input.tinLabels
+        // Which boxes it may open a session on, by label. Null leaves it alone.
+        if (input.boxLabels != null) agent.boxLabels = input.boxLabels
         if (input.memoryCatalogs != null) {
             agent.memoryCatalogs =
                 input.memoryCatalogs.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
@@ -614,14 +614,14 @@ class AgentAPI(
          * sandbox, and somebody reading the log later needs to know when an
          * agent first could.
          */
-        if (agent.tinLabels != previousTinLabels) {
+        if (agent.boxLabels != previousBoxLabels) {
             auditRecorder.record(
                 agent.workspaceId,
                 WorkspaceAuditCategory.AGENT,
-                if (agent.tinLabels.isEmpty()) {
-                    "Agent ${agent.name} tin labels cleared"
+                if (agent.boxLabels.isEmpty()) {
+                    "Agent ${agent.name} box labels cleared"
                 } else {
-                    "Agent ${agent.name} tin labels set to ${agent.tinLabels.joinToString(", ")}"
+                    "Agent ${agent.name} box labels set to ${agent.boxLabels.joinToString(", ")}"
                 },
             )
         }
@@ -865,8 +865,8 @@ data class CreateAgentInput(
     val systemPrompt: String? = null,
     /** Which icon a node drawn from this starts with; null draws the kind's own. */
     val icon: String? = null,
-    /** Which tins it may use, by label; null or empty is none. */
-    val tinLabels: List<String>? = null,
+    /** Which boxes it may use, by label; null or empty is none. */
+    val boxLabels: List<String>? = null,
 )
 
 data class UpdateAgentInput(
@@ -880,8 +880,8 @@ data class UpdateAgentInput(
     val mcpServers: List<String>? = null,
     /** Whether it may ask orknux about orknux; null leaves the grant alone. */
     val orknuxAccess: Boolean? = null,
-    /** Which tins it may use, by label; null leaves the grant alone, an empty list clears it. */
-    val tinLabels: List<String>? = null,
+    /** Which boxes it may use, by label; null leaves the grant alone, an empty list clears it. */
+    val boxLabels: List<String>? = null,
     /**
      * Whether it may keep a file it made: `save_artifact` and the two base64
      * tools in and out of `tools`, as a switch. Null leaves the list alone.
@@ -945,8 +945,8 @@ data class AgentView(
     val mcpServers: List<String>,
     /** Whether it may ask orknux about orknux. */
     val orknuxAccess: Boolean,
-    /** Which tins it may open a sandbox session on, by label; empty is none. */
-    val tinLabels: List<String>,
+    /** Which boxes it may open a sandbox session on, by label; empty is none. */
+    val boxLabels: List<String>,
     /** Whether it may keep a file it made - `save_artifact` in `tools`; see [Agent.artifactAccess]. */
     val artifactAccess: Boolean,
     /** Whether it may end its turn by saying so - `finish_answer` in `tools`. */
@@ -987,7 +987,7 @@ data class AgentView(
         modelName = modelName,
         mcpServers = agent.mcpServers.toList(),
         orknuxAccess = agent.orknuxAccess,
-        tinLabels = agent.tinLabels,
+        boxLabels = agent.boxLabels,
         artifactAccess = agent.artifactAccess,
         finishAccess = agent.finishAccess,
         pictureLinkAccess = agent.pictureLinkAccess,

@@ -96,8 +96,8 @@ class TaskWorker(
             modelId = modelId,
             memoryShare = agent?.memoryShare,
             orknuxAccess = agent?.orknuxAccess == true || TaskCapability.ORKNUX in held,
-            // The tins it may use come with it; a task asks for nothing wider.
-            tinLabelsText = agent?.tinLabelsText,
+            // The boxes it may use come with it; a task asks for nothing wider.
+            boxLabelsText = agent?.boxLabelsText,
             mcpServers = merged(agent?.mcpServers, named(TaskCapability.MCP_SERVER)),
             memoryCatalogs = merged(agent?.memoryCatalogs, named(TaskCapability.MEMORY_CATALOG)),
             skillCatalogs = merged(agent?.skillCatalogs, named(TaskCapability.SKILL_CATALOG)),

@@ -3272,10 +3272,10 @@ type Agent {
     """
     agentIds: [ID!]!
     """
-    Which tins this agent may open a sandbox session on, by label. Empty is
-    none, which is what every agent starts with - the local tin included.
+    Which boxes this agent may open a sandbox session on, by label. Empty is
+    none, which is what every agent starts with - the local box included.
     """
-    tinLabels: [String!]!
+    boxLabels: [String!]!
     """
     How many tools this agent carries at once; null is the provider's ceiling.
 
@@ -4430,8 +4430,8 @@ input CreateAgentInput {
     systemPrompt: String
     "Which icon a node drawn from this starts with; null draws the kind's own."
     icon: String
-    "Which tins it may use, by label; null or empty is none."
-    tinLabels: [String!]
+    "Which boxes it may use, by label; null or empty is none."
+    boxLabels: [String!]
 }
 
 input UpdateAgentInput {
@@ -4465,8 +4465,8 @@ input UpdateAgentInput {
     connectionIds: [ID!]
     "Which other agents it may put a question to; null leaves the grant alone."
     agentIds: [ID!]
-    "Which tins it may use, by label; null leaves the grant alone, an empty list clears it."
-    tinLabels: [String!]
+    "Which boxes it may use, by label; null leaves the grant alone, an empty list clears it."
+    boxLabels: [String!]
     "How many tools it carries at once, 5 to 100; null leaves it alone."
     maxTools: Int
     "Which granted tools always travel; null leaves them alone."
@@ -6236,8 +6236,8 @@ enum BuiltInToolGovernance {
     ORKNUX_ACCESS
     "Any of the HTTP tools granted, while Admin Settings has them switched on."
     HTTP_TOOLS
-    "Any tin label granted."
-    TIN_ACCESS
+    "Any box label granted."
+    BOX_ACCESS
 }
 
 """

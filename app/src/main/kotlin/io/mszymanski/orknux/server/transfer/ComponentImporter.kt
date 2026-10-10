@@ -851,9 +851,9 @@ class ComponentImporter(
         component.kind == ComponentKind.TRIGGER ->
             " It arrives switched off, so nothing it listens for starts anything until it is switched on here."
 
-        component.kind == ComponentKind.AGENT && !component.node.path("tinLabels").isEmpty ->
-            " It may use tins labelled " +
-                component.node.path("tinLabels").values().joinToString(", ") { it.stringValue() ?: "" } +
+        component.kind == ComponentKind.AGENT && !component.node.path("boxLabels").isEmpty ->
+            " It may use boxes labelled " +
+                component.node.path("boxLabels").values().joinToString(", ") { it.stringValue() ?: "" } +
                 ", which lets it run commands in a sandbox on this installation."
 
         component.kind == ComponentKind.AGENT && component.node.path("orknuxAccess").asBoolean(false) ->
@@ -1157,10 +1157,10 @@ class ComponentImporter(
                     enabled = node.path("enabled").asBoolean(true),
                     modelId = boundId(externalIn(node.path("modelRef"), ExternalKind.MODEL)),
                     orknuxAccess = node.path("orknuxAccess").asBoolean(false),
-                    // A file from before tins carries none, and grants none.
-                    tinLabelsText = node.path("tinLabels").values()
+                    // A file from before boxes carries none, and grants none.
+                    boxLabelsText = node.path("boxLabels").values()
                         .mapNotNull { if (it.isString) it.stringValue() else null }
-                        .let { Agent.parseTinLabels(it.joinToString(NEWLINE)) }
+                        .let { Agent.parseBoxLabels(it.joinToString(NEWLINE)) }
                         .joinToString(NEWLINE).ifEmpty { null },
                     // A `shellAccess` in a file exported before shells were
                     // removed is read by nothing: there is nothing left to grant.

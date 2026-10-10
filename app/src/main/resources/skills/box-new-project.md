@@ -1,9 +1,9 @@
 ---
-name: Tin New Project
-description: Start a new project in a tin - generate it with the ecosystem's own tool, make it build and test from the first commit, and hand it over.
+name: Box New Project
+description: Start a new project in a box - generate it with the ecosystem's own tool, make it build and test from the first commit, and hand it over.
 ---
 
-# Starting a new project in a tin
+# Starting a new project in a box
 
 ## Objective
 
@@ -13,8 +13,8 @@ and says in its README how to build, test and run it.
 
 ## How to work
 
-1. `tin_open` without a `git_url`, with `caches` for the toolchain you will
-   use. Check with `tin_list` what the tin's image has (JDK, Node, Python,
+1. `orkbox_open` without a `git_url`, with `caches` for the toolchain you will
+   use. Check with `orkbox_list` what the box's image has (JDK, Node, Python,
    compilers) and prefer what is already installed.
 2. **Generate, don't hand-write, the skeleton.** Use the ecosystem's own
    generator - Spring Initializr (`curl https://start.spring.io/...`),
@@ -35,6 +35,6 @@ and says in its README how to build, test and run it.
 
 ## Hand it over
 
-Export the project (`tin_export`) if it is not pushed anywhere, report what it
+Export the project (`orkbox_export`) if it is not pushed anywhere, report what it
 does, the commands and their results, and anything left undone - then
-`tin_close`. Closing destroys the workspace.
+`orkbox_close`. Closing destroys the workspace.

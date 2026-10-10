@@ -1,4 +1,4 @@
-package io.mszymanski.orknux.server.tin
+package io.mszymanski.orknux.server.box
 
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
@@ -6,11 +6,11 @@ import java.net.InetSocketAddress
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * An orktin server as far as a test needs one: a few routes on a port of its
- * own, answering what orktin would, and a note of what it was asked. Nothing
+ * An orkbox server as far as a test needs one: a few routes on a port of its
+ * own, answering what orkbox would, and a note of what it was asked. Nothing
  * leaves the machine.
  */
-class StubOrktin(private val token: String = "change-me") : AutoCloseable {
+class StubOrkbox(private val token: String = "change-me") : AutoCloseable {
 
     /** Every request: method, path with query, and the Authorization header. */
     val asked = CopyOnWriteArrayList<Triple<String, String, String?>>()
@@ -92,9 +92,9 @@ class StubOrktin(private val token: String = "change-me") : AutoCloseable {
         /** What exe_1 in ses_1 printed. */
         const val OUTPUT = "hello\n"
 
-        const val INFO = """{"name":"orktin","version":"9.9.9","defaultRuntime":"docker","runtimes":[
+        const val INFO = """{"name":"orkbox","version":"9.9.9","defaultRuntime":"docker","runtimes":[
             {"name":"docker","available":true,"workdir":"/workspace","shell":["bash","-c"],"os":"linux",
-             "images":["*"],"defaultImage":"orknux/orktin-toolchain:latest",
+             "images":["*"],"defaultImage":"orknux/orkbox-toolchain:latest",
              "defaultResources":{"cpus":2.0,"memoryMb":4096},"maxResources":{"cpus":8.0,"memoryMb":16384},
              "diskLimitEnforced":false,"networkModes":["full","none"],"caches":["maven","npm"],"futureField":1}],
             "defaultTtlSeconds":7200,"maxTtlSeconds":86400,"defaultIdleTimeoutSeconds":900,"maxSessions":50}"""

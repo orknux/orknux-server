@@ -252,7 +252,7 @@ class SecretMigrationTest(
             // variable, V263.
             "plugin_parameter.secret_value",
             "proxy_rule.password",
-            // A remote tin's bearer token.
+            // A remote box's bearer token.
             "tin.token",
             "workspace_connection.app_token",
             "workspace_connection.secret",

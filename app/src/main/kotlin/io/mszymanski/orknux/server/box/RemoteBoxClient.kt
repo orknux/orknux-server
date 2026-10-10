@@ -1,21 +1,21 @@
-package io.mszymanski.orknux.server.tin
+package io.mszymanski.orknux.server.box
 
-import io.mszymanski.orknux.orktin.model.CreateSessionRequest
-import io.mszymanski.orknux.orktin.model.DirectoryListing
-import io.mszymanski.orknux.orktin.model.EditRequest
-import io.mszymanski.orknux.orktin.model.EditResult
-import io.mszymanski.orknux.orktin.model.ExecuteRequest
-import io.mszymanski.orknux.orktin.model.ExecutionDto
-import io.mszymanski.orknux.orktin.model.FileEntry
-import io.mszymanski.orknux.orktin.model.Info
-import io.mszymanski.orknux.orktin.model.MoveRequest
-import io.mszymanski.orknux.orktin.model.Page
-import io.mszymanski.orknux.orktin.model.SearchRequest
-import io.mszymanski.orknux.orktin.model.SearchResult
-import io.mszymanski.orknux.orktin.model.SessionDto
-import io.mszymanski.orknux.orktin.model.SignalRequest
-import io.mszymanski.orknux.orktin.model.UpdateSessionRequest
-import io.mszymanski.orknux.orktin.model.WriteResult
+import io.mszymanski.orknux.orkbox.model.CreateSessionRequest
+import io.mszymanski.orknux.orkbox.model.DirectoryListing
+import io.mszymanski.orknux.orkbox.model.EditRequest
+import io.mszymanski.orknux.orkbox.model.EditResult
+import io.mszymanski.orknux.orkbox.model.ExecuteRequest
+import io.mszymanski.orknux.orkbox.model.ExecutionDto
+import io.mszymanski.orknux.orkbox.model.FileEntry
+import io.mszymanski.orknux.orkbox.model.Info
+import io.mszymanski.orknux.orkbox.model.MoveRequest
+import io.mszymanski.orknux.orkbox.model.Page
+import io.mszymanski.orknux.orkbox.model.SearchRequest
+import io.mszymanski.orknux.orkbox.model.SearchResult
+import io.mszymanski.orknux.orkbox.model.SessionDto
+import io.mszymanski.orknux.orkbox.model.SignalRequest
+import io.mszymanski.orknux.orkbox.model.UpdateSessionRequest
+import io.mszymanski.orknux.orkbox.model.WriteResult
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -34,41 +34,41 @@ import java.net.http.HttpResponse
 import java.time.Duration
 
 /**
- * A remote tin: an orktin server spoken to over its HTTP Session API.
+ * A remote box: an orkbox server spoken to over its HTTP Session API.
  *
- * **Hand-written, because there is nothing to use instead.** orktin publishes
- * no client library - only the server and `orktin-core`, the library the local
- * tin embeds. What this does reuse is that library's model classes and their
+ * **Hand-written, because there is nothing to use instead.** orkbox publishes
+ * no client library - only the server and `orkbox-core`, the library the local
+ * box embeds. What this does reuse is that library's model classes and their
  * kotlinx.serialization serializers, so every request and response shape is
- * orktin's own and a field it adds is one this carries without being told. The
+ * orkbox's own and a field it adds is one this carries without being told. The
  * protocol left to write is a URL per operation and a bearer token.
  *
  * **Under the Networking rules, as every outbound call is.** [client] is
- * `ProxyRouter.client()`, so a proxy rule matching a tin's address carries its
+ * `ProxyRouter.client()`, so a proxy rule matching a box's address carries its
  * requests, with the rule's credentials, and the trusted certificates apply.
  * And every request is first put past [vet] - the address guard
- * (`ConnectionProbe.vet`) the model, MCP and HTTP clients ask - so a tin at an
+ * (`ConnectionProbe.vet`) the model, MCP and HTTP clients ask - so a box at an
  * address this installation refuses to call is refused, with the guard's
  * reason, before anything is sent: the proxy selector can route but cannot say
  * no, which is why the guard is asked separately.
  *
  * Every request carries [timeout]; a call that waits for an execution carries
- * that wait on top of it, since orktin holds the response open for exactly that
- * long. A failure orktin reports comes back as a [TinCallException] with its
+ * that wait on top of it, since orkbox holds the response open for exactly that
+ * long. A failure orkbox reports comes back as a [BoxCallException] with its
  * problem+json `code`; one that never reached it, with `unreachable`.
  */
-class RemoteTinClient(
+class RemoteBoxClient(
     address: String,
     private val token: String?,
     private val client: HttpClient,
     private val timeout: Duration,
     /** Why a URL may not be called, or null where it may; see the class comment. */
     private val vet: (String) -> String? = { null },
-) : TinClient {
+) : BoxClient {
 
     private val base = address.trimEnd('/')
 
-    /** Whether the tin says it can create sessions: `/readyz`, which needs no token. */
+    /** Whether the box says it can create sessions: `/readyz`, which needs no token. */
     fun health(): Pair<Boolean, String?> = try {
         vet("$base/readyz")?.let { return false to "$base cannot be called: $it" }
         val response = client.send(
@@ -114,7 +114,7 @@ class RemoteTinClient(
     override fun stop(id: String): SessionDto = send("DELETE", sessionPath(id), null, serializer())
 
     override fun execute(id: String, request: ExecuteRequest): ExecutionDto {
-        val waiting = if (request.wait) (request.waitSeconds ?: EmbeddedTinClient.DEFAULT_WAIT_SECONDS) else 0
+        val waiting = if (request.wait) (request.waitSeconds ?: EmbeddedBoxClient.DEFAULT_WAIT_SECONDS) else 0
         return send("POST", sessionPath(id) + "/executions", encode(request), serializer(), Duration.ofSeconds(waiting))
     }
 
@@ -131,7 +131,7 @@ class RemoteTinClient(
             Duration.ofSeconds(waitSeconds ?: 0),
         )
 
-    override fun output(id: String, executionId: String, stream: String, offset: Long, limit: Int): TinOutput {
+    override fun output(id: String, executionId: String, stream: String, offset: Long, limit: Int): BoxOutput {
         val response = exchange(
             "GET",
             executionPath(id, executionId) + "/output" +
@@ -141,7 +141,7 @@ class RemoteTinClient(
         val text = String(response.body(), Charsets.UTF_8)
         val next = response.headers().firstValue("X-Next-Offset").orElse(null)?.toLongOrNull()
             ?: (offset + response.body().size)
-        return TinOutput(next - response.body().size, next, text, response.headers().firstValue("X-Execution-Status").orElse(null))
+        return BoxOutput(next - response.body().size, next, text, response.headers().firstValue("X-Execution-Status").orElse(null))
     }
 
     override fun stdin(id: String, executionId: String, input: String, close: Boolean) {
@@ -169,7 +169,7 @@ class RemoteTinClient(
         serializer(),
     )
 
-    override fun read(id: String, path: String, startLine: Int?, endLine: Int?): TinFile {
+    override fun read(id: String, path: String, startLine: Int?, endLine: Int?): BoxFile {
         val response = exchange(
             "GET",
             sessionPath(id) + "/files/content" +
@@ -178,7 +178,7 @@ class RemoteTinClient(
         )
         val headers = response.headers()
         val text = headers.firstValue("Content-Type").orElse("").startsWith("text/")
-        return TinFile(
+        return BoxFile(
             bytes = response.body(),
             text = text,
             size = headers.firstValue("X-File-Size").orElse(null)?.toLongOrNull() ?: response.body().size.toLong(),
@@ -215,7 +215,7 @@ class RemoteTinClient(
     override fun search(id: String, request: SearchRequest): SearchResult =
         send("POST", sessionPath(id) + "/files/search", encode(request), serializer())
 
-    override fun logs(id: String, since: Long, limit: Int, types: Set<String>?): TinLogPage {
+    override fun logs(id: String, since: Long, limit: Int, types: Set<String>?): BoxLogPage {
         val response = exchange(
             "GET",
             sessionPath(id) + "/logs" +
@@ -225,14 +225,14 @@ class RemoteTinClient(
         val page = JSON.parseToJsonElement(String(response.body(), Charsets.UTF_8)).jsonObject
         val events = page["items"]?.jsonArray.orEmpty().map { item ->
             val event = item.jsonObject
-            TinLogEvent(
+            BoxLogEvent(
                 seq = event["seq"]?.jsonPrimitive?.longOrNull ?: 0,
                 at = event["at"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                 type = event["type"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                 data = (event["data"] as? JsonObject ?: JsonObject(emptyMap())).toString(),
             )
         }
-        return TinLogPage(events, page["nextSeq"]?.jsonPrimitive?.longOrNull ?: since)
+        return BoxLogPage(events, page["nextSeq"]?.jsonPrimitive?.longOrNull ?: since)
     }
 
     override fun exportArchive(id: String, path: String?): ByteArray =
@@ -252,14 +252,14 @@ class RemoteTinClient(
     private fun <T> decode(response: HttpResponse<ByteArray>, as_: KSerializer<T>): T = try {
         JSON.decodeFromString(as_, String(response.body(), Charsets.UTF_8))
     } catch (unreadable: IllegalArgumentException) {
-        throw TinCallException(response.statusCode(), "invalid_response", "The tin answered with something that is not orktin's: ${unreadable.message}")
+        throw BoxCallException(response.statusCode(), "invalid_response", "The box answered with something that is not orkbox's: ${unreadable.message}")
     }
 
     private inline fun <reified T> encode(value: T): String = JSON.encodeToString(serializer<T>(), value)
 
     /**
-     * One request; a 2xx answer comes back, anything else is a [TinCallException]
-     * with the code orktin put in its problem+json.
+     * One request; a 2xx answer comes back, anything else is a [BoxCallException]
+     * with the code orkbox put in its problem+json.
      */
     private fun exchange(
         method: String,
@@ -268,7 +268,7 @@ class RemoteTinClient(
         contentType: String = JSON_TYPE,
         waiting: Duration = Duration.ZERO,
     ): HttpResponse<ByteArray> {
-        vet(base + path)?.let { throw TinCallException(null, TinCallException.REFUSED, "$base cannot be called: $it") }
+        vet(base + path)?.let { throw BoxCallException(null, BoxCallException.REFUSED, "$base cannot be called: $it") }
         val request = try {
             HttpRequest.newBuilder(URI.create(base + path))
                 .timeout(timeout.plus(waiting))
@@ -278,21 +278,21 @@ class RemoteTinClient(
                 .method(method, body?.let { HttpRequest.BodyPublishers.ofByteArray(it) } ?: HttpRequest.BodyPublishers.noBody())
                 .build()
         } catch (invalid: IllegalArgumentException) {
-            throw TinCallException(null, TinCallException.UNREACHABLE, "$base is not a usable address: ${invalid.message}")
+            throw BoxCallException(null, BoxCallException.UNREACHABLE, "$base is not a usable address: ${invalid.message}")
         }
         val response = try {
             client.send(request, HttpResponse.BodyHandlers.ofByteArray())
         } catch (failed: IOException) {
-            throw TinCallException(null, TinCallException.UNREACHABLE, describe(failed))
+            throw BoxCallException(null, BoxCallException.UNREACHABLE, describe(failed))
         } catch (interrupted: InterruptedException) {
             Thread.currentThread().interrupt()
-            throw TinCallException(null, TinCallException.UNREACHABLE, "interrupted while waiting for the tin")
+            throw BoxCallException(null, BoxCallException.UNREACHABLE, "interrupted while waiting for the box")
         }
         if (response.statusCode() in 200..299) return response
         throw refusal(response)
     }
 
-    private fun refusal(response: HttpResponse<ByteArray>): TinCallException {
+    private fun refusal(response: HttpResponse<ByteArray>): BoxCallException {
         val text = String(response.body(), Charsets.UTF_8)
         val problem = runCatching { JSON.parseToJsonElement(text).jsonObject }.getOrNull()
         val code = problem?.get("code")?.jsonPrimitive?.contentOrNull
@@ -300,7 +300,7 @@ class RemoteTinClient(
         val said = problem?.get("detail")?.jsonPrimitive?.contentOrNull
             ?: problem?.get("title")?.jsonPrimitive?.contentOrNull
             ?: text.trim().take(MOST_DETAIL).ifEmpty { "HTTP ${response.statusCode()}" }
-        return TinCallException(response.statusCode(), code, said)
+        return BoxCallException(response.statusCode(), code, said)
     }
 
     private fun describe(failed: IOException): String = when (failed) {
@@ -327,7 +327,7 @@ class RemoteTinClient(
         const val MOST_PAGES = 20
         const val MOST_DETAIL = 1000
 
-        /** Lenient on the way in, so a field a newer orktin adds is not a failure here. */
+        /** Lenient on the way in, so a field a newer orkbox adds is not a failure here. */
         val JSON = Json {
             ignoreUnknownKeys = true
             explicitNulls = false
