@@ -629,14 +629,18 @@ class AgentConversation(
          * counts repetition instead - the call and what it answered, because a
          * clock read twice with two different answers is somebody working.
          */
-        var lastCall: String? = null
         /*
-         * When each of the identical calls in the current run happened, so the
-         * window can be applied. A list rather than a count because the
-         * question is how many fall *inside* the window, and the oldest fall
-         * out of it as time passes.
+         * When each identical call happened, per call, so the window can be
+         * applied. Per call rather than for the last one only: a cycle of two
+         * calls taking turns - read, edit, read, edit - never repeats the call
+         * just before it, and counting only consecutive ones let it run the
+         * whole budget. And per call rather than one list for all of them,
+         * which counts a model doing ten different things quickly as one
+         * repeating itself. A list rather than a count because the question is
+         * how many fall *inside* the window, and the oldest fall out of it as
+         * time passes.
          */
-        val repeats = mutableListOf<Long>()
+        val repeatsOf = HashMap<String, MutableList<Long>>()
         /*
          * How many times the loop guard has spoken up. Issue #516.
          *
@@ -1230,8 +1234,8 @@ class AgentConversation(
 
                         val signature = call.name + 0.toChar() + call.arguments + 0.toChar() + got
                         val now = System.currentTimeMillis()
-                        if (signature == lastCall) repeats += now else { repeats.clear(); repeats += now }
-                        lastCall = signature
+                        val repeats = repeatsOf.getOrPut(signature) { mutableListOf() }
+                        repeats += now
                         /*
                          * Only the ones close enough together to be a cycle.
                          * A model told to watch something calls the same tool
@@ -1241,6 +1245,7 @@ class AgentConversation(
                          * deliberate wait clears the count.
                          */
                         repeats.removeAll { now - it > repeatWindow }
+                        repeatsOf.values.removeIf { held -> held.removeAll { now - it > repeatWindow }; held.isEmpty() }
 
                         /*
                          * What it may have meant instead. Issue #548.
