@@ -11,6 +11,8 @@ import io.mszymanski.orknux.orktin.model.FileEntry
 import io.mszymanski.orknux.orktin.model.GitSource
 import io.mszymanski.orknux.orktin.model.MoveRequest
 import io.mszymanski.orknux.orktin.model.SearchRequest
+import io.mszymanski.orknux.orktin.model.SearchMatch
+import io.mszymanski.orknux.orktin.model.SearchResult
 import io.mszymanski.orknux.orktin.model.SessionDto
 import io.mszymanski.orknux.orktin.model.Source
 import io.mszymanski.orknux.orktin.model.UpdateSessionRequest
@@ -446,21 +448,53 @@ class TinTools(
         return answer(mapOf("from" to from, "to" to to, "moved" to true))
     }
 
+    /**
+     * A search of the whole workspace, made one top-level entry at a time.
+     *
+     * orktin 0.1.0 hands ripgrep no path when asked to search the workspace
+     * root, and ripgrep given no path reads stdin whenever stdin is not a
+     * terminal - which under `docker exec` and a ProcessBuilder it never is - so
+     * a root search on any runtime with `rg` came back empty while the same
+     * search under a folder found everything. Naming each top-level entry
+     * gives ripgrep a path every time. Hidden entries are skipped, as ripgrep
+     * skips them itself. Remove this once orktin passes `.` for the root.
+     */
+    private fun searchWorkspace(client: TinClient, id: String, request: SearchRequest): SearchResult {
+        val top = client.files(id, null, 1, null, false, 1000)
+        val matches = ArrayList<SearchMatch>()
+        var truncated = top.truncated
+        for (entry in top.entries) {
+            if (entry.path.substringAfterLast('/').startsWith('.')) continue
+            if (entry.type != "file" && entry.type != "directory") continue
+            val left = request.maxResults - matches.size
+            if (left <= 0) {
+                truncated = true
+                break
+            }
+            val part = client.search(id, request.copy(path = entry.path, maxResults = left))
+            matches += part.matches
+            if (part.truncated) truncated = true
+        }
+        return SearchResult(matches, truncated)
+    }
+
     private fun search(agent: Agent, args: JsonNode, sessionId: Long?): String {
         val held = held(agent, args, sessionId)
         val pattern = args.rawText("pattern")?.takeIf { it.isNotEmpty() } ?: throw Refused("Say what to search for: pattern")
-        val found = held.client.search(
-            held.row.remoteSessionId,
-            SearchRequest(
-                pattern = pattern,
-                regex = args.bool("regex") ?: false,
-                path = args.text("path"),
-                glob = args.text("glob"),
-                caseSensitive = args.bool("case_sensitive") ?: true,
-                contextLines = args.long("context_lines")?.toInt()?.coerceIn(0, 20) ?: 0,
-                maxResults = args.long("max_results")?.toInt()?.coerceIn(1, 10_000) ?: 200,
-            ),
+        val request = SearchRequest(
+            pattern = pattern,
+            regex = args.bool("regex") ?: false,
+            path = args.text("path"),
+            glob = args.text("glob"),
+            caseSensitive = args.bool("case_sensitive") ?: true,
+            contextLines = args.long("context_lines")?.toInt()?.coerceIn(0, 20) ?: 0,
+            maxResults = args.long("max_results")?.toInt()?.coerceIn(1, 10_000) ?: 200,
         )
+        val found = if (request.path.isNullOrBlank() || request.path!!.trim().trim('/', '.').isEmpty()) {
+            searchWorkspace(held.client, held.row.remoteSessionId, request)
+        } else {
+            held.client.search(held.row.remoteSessionId, request)
+        }
         touch(held.row)
         return answer(
             mapOf(
