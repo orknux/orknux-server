@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.graphql.test.autoconfigure.tester.AutoConfigureGraphQlTester
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.test.annotation.DirtiesContext
 import org.springframework.graphql.test.tester.ExecutionGraphQlServiceTester
 import org.springframework.security.test.context.support.WithMockUser
 import java.time.Duration
@@ -38,6 +39,12 @@ import java.time.Instant
  * it on for its own context.
  */
 @SpringBootTest(properties = ["db-scheduler.enabled=true", "db-scheduler.polling-interval=1s"])
+/*
+ * Closed with the class. Left cached, this context's scheduler went on polling
+ * every second for the rest of the suite and ticked watchers that belonged to
+ * later tests: WatcherTest saw its tool called twice where it called it once.
+ */
+@DirtiesContext
 @AutoConfigureGraphQlTester
 @WithMockUser(username = "alice", roles = ["ADMINS"])
 class TriggerSchedulerIntegrationTest(
