@@ -1,0 +1,205 @@
+package io.mszymanski.orknux.server.tin
+
+import io.mszymanski.orknux.orktin.Config
+import io.mszymanski.orknux.server.attachment.InstallationSetting
+import io.mszymanski.orknux.server.attachment.InstallationSettingRepository
+import org.springframework.data.repository.findByIdOrNull
+import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
+import java.time.OffsetDateTime
+
+/*
+ * The bounds of every tin setting, with the default each one starts at. Every
+ * behavioural number about tins is one of these, set in Admin Settings; the
+ * constant is only what a fresh installation has.
+ */
+const val MIN_LOCAL_TIN_SESSIONS = 1
+const val MAX_LOCAL_TIN_SESSIONS = 1000
+const val DEFAULT_LOCAL_TIN_SESSIONS = 50
+
+const val MIN_LOCAL_TIN_TTL = 60
+const val MAX_LOCAL_TIN_TTL = 604800
+const val DEFAULT_LOCAL_TIN_TTL = 7200
+const val DEFAULT_LOCAL_TIN_MAX_TTL = 86400
+
+const val MIN_LOCAL_TIN_IDLE = 60
+const val MAX_LOCAL_TIN_IDLE = 86400
+const val DEFAULT_LOCAL_TIN_IDLE = 900
+
+const val MIN_TIN_COMMAND_WAIT = 1
+const val MAX_TIN_COMMAND_WAIT = 3600
+const val DEFAULT_TIN_COMMAND_WAIT = 300
+
+const val MIN_TIN_COMMAND_TIMEOUT = 1
+const val MAX_TIN_COMMAND_TIMEOUT = 86400
+const val DEFAULT_TIN_COMMAND_TIMEOUT = 1800
+
+const val MIN_TIN_OUTPUT_BYTES = 1024
+const val MAX_TIN_OUTPUT_BYTES = 4194304
+const val DEFAULT_TIN_OUTPUT_BYTES = 65536
+
+const val MIN_TIN_REQUEST_TIMEOUT = 1
+const val MAX_TIN_REQUEST_TIMEOUT = 600
+const val DEFAULT_TIN_REQUEST_TIMEOUT = 30
+
+/** The label the local tin has until an administrator says otherwise. */
+const val DEFAULT_LOCAL_TIN_LABEL = "local"
+
+/**
+ * How the local tin is set up, and how every tin is spoken to.
+ *
+ * Rows in `installation_setting`, like every other Admin setting, read through
+ * here rather than added to the long list in `InstallationSettings`: these are
+ * one feature's knobs, and the feature is the only thing that reads them. A
+ * stored value outside its bounds - a hand-edited row, a restore - reads as the
+ * default rather than failing a tool call.
+ */
+@Service
+class TinSettings(private val settings: InstallationSettingRepository) {
+
+    fun localEnabled(): Boolean = text(LOCAL_ENABLED)?.toBooleanStrictOrNull() ?: true
+
+    /** The directory local sessions are made under; null is [localLocationConfigured]. */
+    fun localLocation(): String? = text(LOCAL_LOCATION)?.takeIf { it.isNotBlank() }
+
+    /**
+     * Where they go when nobody says: the temporary directory's `orknux-tin`,
+     * and deliberately not orktin's own default `orktin` beside it. The local
+     * runtime deletes every `ses_*` folder under its root when it starts, so a
+     * standalone orktin on the same machine sharing that root would lose its
+     * sessions each time this server's tin came up.
+     */
+    fun localLocationConfigured(): String =
+        java.nio.file.Path.of(System.getProperty("java.io.tmpdir"), "orknux-tin").toString()
+
+    fun localRuntime(): String = text(LOCAL_RUNTIME)?.takeIf { it in RUNTIMES } ?: Config.RUNTIME_LOCAL
+
+    fun localMaxSessions(): Int = ranged(LOCAL_MAX_SESSIONS, MIN_LOCAL_TIN_SESSIONS..MAX_LOCAL_TIN_SESSIONS, DEFAULT_LOCAL_TIN_SESSIONS)
+
+    fun localDefaultTtlSeconds(): Int = ranged(LOCAL_DEFAULT_TTL, MIN_LOCAL_TIN_TTL..MAX_LOCAL_TIN_TTL, DEFAULT_LOCAL_TIN_TTL)
+
+    fun localMaxTtlSeconds(): Int = ranged(LOCAL_MAX_TTL, MIN_LOCAL_TIN_TTL..MAX_LOCAL_TIN_TTL, DEFAULT_LOCAL_TIN_MAX_TTL)
+
+    fun localIdleTimeoutSeconds(): Int = ranged(LOCAL_IDLE, MIN_LOCAL_TIN_IDLE..MAX_LOCAL_TIN_IDLE, DEFAULT_LOCAL_TIN_IDLE)
+
+    fun commandWaitSeconds(): Int = ranged(COMMAND_WAIT, MIN_TIN_COMMAND_WAIT..MAX_TIN_COMMAND_WAIT, DEFAULT_TIN_COMMAND_WAIT)
+
+    fun commandTimeoutSeconds(): Int =
+        ranged(COMMAND_TIMEOUT, MIN_TIN_COMMAND_TIMEOUT..MAX_TIN_COMMAND_TIMEOUT, DEFAULT_TIN_COMMAND_TIMEOUT)
+
+    fun outputBytes(): Int = ranged(OUTPUT_BYTES, MIN_TIN_OUTPUT_BYTES..MAX_TIN_OUTPUT_BYTES, DEFAULT_TIN_OUTPUT_BYTES)
+
+    fun requestTimeoutSeconds(): Int =
+        ranged(REQUEST_TIMEOUT, MIN_TIN_REQUEST_TIMEOUT..MAX_TIN_REQUEST_TIMEOUT, DEFAULT_TIN_REQUEST_TIMEOUT)
+
+    /**
+     * The local tin's label. Absent is the default; an empty row is a label
+     * somebody cleared, which leaves the local tin to no agent at all.
+     */
+    fun localLabel(): String? {
+        val held = settings.findByIdOrNull(LOCAL_LABEL) ?: return DEFAULT_LOCAL_TIN_LABEL
+        return held.value.trim().ifEmpty { null }
+    }
+
+    @Transactional
+    fun setLocalEnabled(enabled: Boolean, by: String) = write(LOCAL_ENABLED, enabled.toString(), by)
+
+    @Transactional
+    fun setLocalLocation(location: String?, by: String) {
+        val given = location?.trim().orEmpty()
+        if (given.isEmpty()) {
+            settings.findByIdOrNull(LOCAL_LOCATION)?.let(settings::delete)
+        } else {
+            write(LOCAL_LOCATION, given, by)
+        }
+    }
+
+    @Transactional
+    fun setLocalRuntime(runtime: String, by: String) {
+        val given = runtime.trim().lowercase()
+        if (given !in RUNTIMES) throw LocalTinRuntimeUnknownException(runtime)
+        write(LOCAL_RUNTIME, given, by)
+    }
+
+    @Transactional
+    fun setLocalMaxSessions(count: Int, by: String) {
+        if (count !in MIN_LOCAL_TIN_SESSIONS..MAX_LOCAL_TIN_SESSIONS) throw LocalTinMaxSessionsOutOfRangeException(count)
+        write(LOCAL_MAX_SESSIONS, count.toString(), by)
+    }
+
+    @Transactional
+    fun setLocalDefaultTtlSeconds(seconds: Int, by: String) {
+        if (seconds !in MIN_LOCAL_TIN_TTL..MAX_LOCAL_TIN_TTL) throw LocalTinTtlOutOfRangeException(seconds)
+        write(LOCAL_DEFAULT_TTL, seconds.toString(), by)
+    }
+
+    @Transactional
+    fun setLocalMaxTtlSeconds(seconds: Int, by: String) {
+        if (seconds !in MIN_LOCAL_TIN_TTL..MAX_LOCAL_TIN_TTL) throw LocalTinTtlOutOfRangeException(seconds)
+        write(LOCAL_MAX_TTL, seconds.toString(), by)
+    }
+
+    @Transactional
+    fun setLocalIdleTimeoutSeconds(seconds: Int, by: String) {
+        if (seconds !in MIN_LOCAL_TIN_IDLE..MAX_LOCAL_TIN_IDLE) throw LocalTinIdleTimeoutOutOfRangeException(seconds)
+        write(LOCAL_IDLE, seconds.toString(), by)
+    }
+
+    @Transactional
+    fun setCommandWaitSeconds(seconds: Int, by: String) {
+        if (seconds !in MIN_TIN_COMMAND_WAIT..MAX_TIN_COMMAND_WAIT) throw TinCommandWaitOutOfRangeException(seconds)
+        write(COMMAND_WAIT, seconds.toString(), by)
+    }
+
+    @Transactional
+    fun setCommandTimeoutSeconds(seconds: Int, by: String) {
+        if (seconds !in MIN_TIN_COMMAND_TIMEOUT..MAX_TIN_COMMAND_TIMEOUT) throw TinCommandTimeoutOutOfRangeException(seconds)
+        write(COMMAND_TIMEOUT, seconds.toString(), by)
+    }
+
+    @Transactional
+    fun setOutputBytes(bytes: Int, by: String) {
+        if (bytes !in MIN_TIN_OUTPUT_BYTES..MAX_TIN_OUTPUT_BYTES) throw TinOutputBytesOutOfRangeException(bytes)
+        write(OUTPUT_BYTES, bytes.toString(), by)
+    }
+
+    @Transactional
+    fun setRequestTimeoutSeconds(seconds: Int, by: String) {
+        if (seconds !in MIN_TIN_REQUEST_TIMEOUT..MAX_TIN_REQUEST_TIMEOUT) throw TinRequestTimeoutOutOfRangeException(seconds)
+        write(REQUEST_TIMEOUT, seconds.toString(), by)
+    }
+
+    /** Null or blank clears it, which is stored as an empty row so it is not read as the default. */
+    @Transactional
+    fun setLocalLabel(label: String?, by: String) = write(LOCAL_LABEL, label?.trim().orEmpty(), by)
+
+    private fun text(name: String): String? = settings.findByIdOrNull(name)?.value?.trim()
+
+    private fun ranged(name: String, range: IntRange, default: Int): Int =
+        text(name)?.toIntOrNull()?.takeIf { it in range } ?: default
+
+    private fun write(name: String, value: String, by: String) {
+        val held = settings.findByIdOrNull(name) ?: InstallationSetting(name = name)
+        held.value = value
+        held.lastModifiedAt = OffsetDateTime.now()
+        held.lastModifiedBy = by
+        settings.save(held)
+    }
+
+    companion object {
+        const val LOCAL_ENABLED = "tin.local.enabled"
+        const val LOCAL_LOCATION = "tin.local.location"
+        const val LOCAL_RUNTIME = "tin.local.runtime"
+        const val LOCAL_MAX_SESSIONS = "tin.local.max.sessions"
+        const val LOCAL_DEFAULT_TTL = "tin.local.ttl.default.seconds"
+        const val LOCAL_MAX_TTL = "tin.local.ttl.max.seconds"
+        const val LOCAL_IDLE = "tin.local.idle.seconds"
+        const val LOCAL_LABEL = "tin.local.label"
+        const val COMMAND_WAIT = "tin.command.wait.seconds"
+        const val COMMAND_TIMEOUT = "tin.command.timeout.seconds"
+        const val OUTPUT_BYTES = "tin.output.bytes"
+        const val REQUEST_TIMEOUT = "tin.request.timeout.seconds"
+
+        val RUNTIMES = setOf(Config.RUNTIME_LOCAL, Config.RUNTIME_DOCKER)
+    }
+}

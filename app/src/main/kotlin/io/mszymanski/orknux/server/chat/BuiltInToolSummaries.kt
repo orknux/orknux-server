@@ -39,6 +39,7 @@ class BuiltInToolSummaries(
     private val pictures: ObjectProvider<StepPictureTools>,
     private val memories: ObjectProvider<MemoryTool>,
     private val orknux: ObjectProvider<OrknuxTools>,
+    private val tins: ObjectProvider<io.mszymanski.orknux.server.tin.TinTools>,
     /**
      * What the release brings, read directly as well: the agent's own offer
      * leaves the HTTP tools out while Admin Settings has them off, and these
@@ -77,6 +78,7 @@ class BuiltInToolSummaries(
                 .forEach { specs += it.name to it.description }
         }
         take { orknux.getObject().specs(OrknuxScope(workspaceId = 0, mayWrite = true)) }
+        take { tins.getObject().specs() }
         return specs
             .filter { (_, description) -> description.isNotBlank() }
             .associate { (name, description) -> name to firstSentence(description) }

@@ -183,6 +183,9 @@ class BuiltInToolsTest(
         assertThat(listed.filter { it.governance == BuiltInGovernance.ORKNUX_ACCESS }.map { it.name })
             .isNotEmpty
             .allMatch { it.startsWith("orknux_") }
+        assertThat(listed.filter { it.governance == BuiltInGovernance.TIN_ACCESS }.map { it.name })
+            .contains("tin_open", "tin_exec", "tin_close")
+            .allMatch { it.startsWith("tin_") }
         // A name once, or the form draws two rows with one control between them.
         assertThat(listed.map { it.name }).doesNotHaveDuplicates()
     }

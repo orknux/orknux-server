@@ -2,3 +2,6 @@
 	path = orknux-ui
 	url = https://github.com/michjak-szymanski/orknux-ui.git
 	branch = main
+[submodule "orktin"]
+	path = orktin
+	url = https://github.com/orknux/orktin.git

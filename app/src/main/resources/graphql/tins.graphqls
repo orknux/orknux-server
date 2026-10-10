@@ -1,0 +1,244 @@
+# Tins: orktin instances an agent can open a sandbox session on - a workspace
+# filesystem and a way to run commands in it. The local tin is embedded in this
+# server and configured in Admin Settings; remote tins are orktin servers an
+# administrator registered. An agent reaches a tin through its label.
+
+extend type Query {
+    "Every tin, the local one first while it is switched on. Administrators only."
+    tins: [Tin!]!
+    "One tin by id - `local` for the local one - or null. Administrators only."
+    tin(id: ID!): Tin
+    """
+    What a tin says it is: its version, runtimes, defaults and limits. Refused
+    with TinUnreachable when it cannot be asked. Administrators only.
+    """
+    tinInfo(id: ID!): TinInfo!
+    "The sessions a tin holds now, newest first. Administrators only."
+    tinSessions(id: ID!): [TinRemoteSession!]!
+    "The labels in use on tins, sorted, for suggesting an agent's tin labels."
+    tinLabels: [String!]!
+    """
+    The tin sessions a conversation's agents opened, newest first (by when they
+    were opened, then by id). `active` is the tin's own word where it can be
+    asked now, and the last one recorded where it cannot.
+    """
+    sessionTins(sessionId: ID!): [SessionTin!]!
+    """
+    The event log of one of those sessions, from the tin itself, after the
+    sequence number `after`. Unavailable, with the reason in `message`, once the
+    tin or its session is gone.
+    """
+    sessionTinLog(sessionId: ID!, sessionTinId: ID!, after: Int): TinLog!
+}
+
+extend type Mutation {
+    "Registers a remote tin. Administrators only."
+    createTin(input: TinInput!): Tin!
+    """
+    Changes a tin. For the local tin only the label applies, and the name sent
+    is ignored. Administrators only.
+    """
+    updateTin(id: ID!, input: TinInput!): Tin!
+    "Removes a remote tin; false where there was none. Refused for the local tin. Administrators only."
+    deleteTin(id: ID!): Boolean!
+    """
+    Asks the orktin at `address` for its /v1/info with `token`. With no token
+    and an `id`, the token stored for that tin is used. Administrators only.
+    """
+    testTinConnection(address: String!, token: String, id: ID): TinConnectionTest!
+    "Switches the local tin on or off; off stops every session it holds."
+    setLocalTinEnabled(enabled: Boolean!): InstallationSettings!
+    "Where the local tin makes its sessions; null or empty puts it back to orktin's default."
+    setLocalTinLocation(location: String): InstallationSettings!
+    "Which runtime the local tin runs sessions with: local or docker."
+    setLocalTinRuntime(runtime: String!): InstallationSettings!
+    "How many sessions the local tin holds at once, 1 to 1000."
+    setLocalTinMaxSessions(count: Int!): InstallationSettings!
+    "How long a local tin session lasts unless it asks otherwise, 60 to 604800 seconds."
+    setLocalTinDefaultTtlSeconds(seconds: Int!): InstallationSettings!
+    "The longest a local tin session may last, 60 to 604800 seconds."
+    setLocalTinMaxTtlSeconds(seconds: Int!): InstallationSettings!
+    "How long a local tin session may sit idle before it is stopped, 60 to 86400 seconds."
+    setLocalTinIdleTimeoutSeconds(seconds: Int!): InstallationSettings!
+    "How long an agent's tin command is waited for before its answer says it is still running, 1 to 3600 seconds."
+    setTinCommandWaitSeconds(seconds: Int!): InstallationSettings!
+    "How long an agent's tin command may run before it is stopped, 1 to 86400 seconds."
+    setTinCommandTimeoutSeconds(seconds: Int!): InstallationSettings!
+    "How much of a tin command's output, per stream, an agent is handed at once, 1024 to 4194304 bytes."
+    setTinOutputBytes(bytes: Int!): InstallationSettings!
+    "How long a request to a tin may take before it is given up on, 1 to 600 seconds."
+    setTinRequestTimeoutSeconds(seconds: Int!): InstallationSettings!
+}
+
+extend type InstallationSettings {
+    "Whether the local tin exists. On by default."
+    localTinEnabled: Boolean!
+    "Where the local tin makes its sessions; null is orktin's default."
+    localTinLocation: String
+    "orktin's default for that: the temporary directory's orktin folder."
+    localTinLocationConfigured: String!
+    "Which runtime the local tin runs sessions with: local or docker."
+    localTinRuntime: String!
+    "How many sessions the local tin holds at once."
+    localTinMaxSessions: Int!
+    localTinMaxSessionsConfigured: Int!
+    "How long a local tin session lasts unless it asks otherwise, in seconds."
+    localTinDefaultTtlSeconds: Int!
+    localTinDefaultTtlSecondsConfigured: Int!
+    "The longest a local tin session may last, in seconds."
+    localTinMaxTtlSeconds: Int!
+    localTinMaxTtlSecondsConfigured: Int!
+    "How long a local tin session may sit idle before it is stopped, in seconds."
+    localTinIdleTimeoutSeconds: Int!
+    localTinIdleTimeoutSecondsConfigured: Int!
+    "How long an agent's tin command is waited for, in seconds."
+    tinCommandWaitSeconds: Int!
+    tinCommandWaitSecondsConfigured: Int!
+    "How long an agent's tin command may run, in seconds."
+    tinCommandTimeoutSeconds: Int!
+    tinCommandTimeoutSecondsConfigured: Int!
+    "How much of a tin command's output, per stream, an agent is handed at once, in bytes."
+    tinOutputBytes: Int!
+    tinOutputBytesConfigured: Int!
+    "How long a request to a tin may take, in seconds."
+    tinRequestTimeoutSeconds: Int!
+    tinRequestTimeoutSecondsConfigured: Int!
+}
+
+enum TinKind {
+    "Embedded in this server, configured in Admin Settings."
+    LOCAL
+    "An orktin server reached over HTTP."
+    REMOTE
+}
+
+enum TinHealthStatus {
+    UP
+    DOWN
+}
+
+"Whether a remote tin says it can create sessions, from its /readyz."
+type TinHealth {
+    status: TinHealthStatus!
+    "Why not, where it is DOWN."
+    detail: String
+}
+
+type Tin {
+    "`local` for the local tin."
+    id: ID!
+    "What an agent opens a session on it by."
+    name: String!
+    kind: TinKind!
+    "What an agent's grant names; null is a tin no agent may use."
+    label: String
+    "Remote tins only."
+    address: String
+    "Whether a token is stored; the token itself is never sent."
+    hasToken: Boolean!
+    "Remote tins only; asked when this field is."
+    health: TinHealth
+    "Sessions ready on it now; null when it could not be asked."
+    activeSessions: Int
+    "Remote tins only."
+    createdAt: String
+}
+
+type TinRuntime {
+    name: String!
+    available: Boolean!
+    unavailableReason: String
+    os: String!
+    workdir: String
+    "How a command string is run."
+    shell: [String!]!
+    defaultImage: String
+    images: [String!]
+    networkModes: [String!]!
+    caches: [String!]!
+    defaultCpus: Float
+    defaultMemoryMb: Int
+    maxCpus: Float
+    maxMemoryMb: Int
+    diskLimitEnforced: Boolean
+}
+
+type TinInfo {
+    name: String!
+    version: String!
+    defaultRuntime: String!
+    defaultTtlSeconds: Int!
+    maxTtlSeconds: Int!
+    defaultIdleTimeoutSeconds: Int!
+    maxSessions: Int!
+    runtimes: [TinRuntime!]!
+}
+
+"One session a tin holds, as the tin describes it."
+type TinRemoteSession {
+    id: String!
+    status: String!
+    runtime: String!
+    image: String
+    "Its labels, as a JSON object in text."
+    labels: String!
+    createdAt: String!
+    lastActivityAt: String!
+    expiresAt: String!
+    runningExecutions: Int!
+    totalExecutions: Int!
+}
+
+type TinConnectionTest {
+    ok: Boolean!
+    "What happened, in English."
+    message: String!
+    "The orktin version, where it answered."
+    version: String
+}
+
+"A tin session one of a conversation's agents opened."
+type SessionTin {
+    id: ID!
+    "`local`, or the remote tin's id."
+    tinId: ID!
+    "What the tin was called when the session was opened."
+    tinName: String!
+    tinKind: TinKind!
+    "The session's id on the tin."
+    remoteSessionId: String!
+    "Whether it still has a sandbox: creating or ready."
+    active: Boolean!
+    "The tin's word for it: creating, ready, stopping, stopped or failed."
+    status: String!
+    createdAt: String!
+    lastUsedAt: String
+}
+
+type TinEvent {
+    seq: Int!
+    at: String!
+    type: String!
+    "The event's data, as a JSON object in text."
+    data: String!
+}
+
+type TinLog {
+    events: [TinEvent!]!
+    "Where the next page starts: pass it as `after`."
+    nextSeq: Int!
+    "False once the tin or its session can no longer be asked."
+    available: Boolean!
+    "Why not, where it is unavailable."
+    message: String
+}
+
+input TinInput {
+    "Unique, and never `local`. Ignored for the local tin."
+    name: String!
+    label: String
+    "An http or https URL. Ignored for the local tin."
+    address: String
+    "On update: null keeps the stored token, empty clears it. Ignored for the local tin."
+    token: String
+}

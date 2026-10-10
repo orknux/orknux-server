@@ -42,6 +42,13 @@ COPY app/pom.xml app/
 COPY modules/connection/pom.xml modules/connection/
 COPY modules/execution/pom.xml modules/execution/
 
+# orktin-core, the sandbox library the local tin embeds, is published
+# nowhere: it comes from the orktin submodule and is installed into this
+# stage's repository before anything resolves against it. Its own tests are
+# orktin's to run.
+COPY orktin/ orktin/
+RUN chmod +x mvnw && ./mvnw -B -ntp -f orktin/pom.xml -pl orktin-core -am install -DskipTests
+
 RUN chmod +x mvnw && ./mvnw -B -ntp dependency:go-offline
 
 COPY app/src app/src

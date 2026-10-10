@@ -17,6 +17,14 @@ have failed.
 
 ## Unreleased
 
+### ✨ Added
+
+- **Tins**, the replacement for shells: an Admin → Tins page lists the orktin sandboxes agents can run commands in, with remote ones added by address and token, their health, active sessions and what each offers.
+- A local tin built into the server, on by default, configured in Admin Settings - where its sessions live, the local or docker runtime, how many sessions it holds and how long they last; it runs commands as the server's own user.
+- An agent's **Tin labels**: it may use a tin whose label it was given, and none by default - the local tin included.
+- Tin tools for agents - opening a session on a tin, running commands, reading and editing files, searching, reading the session log and moving archives in and out - with how long a command is waited for, how long it may run and how much output an agent is handed set in Admin Settings.
+- A conversation's **Tin** panel: the tin sessions its agents opened, whether each is still running, and each one's event log.
+
 ### 🔧 Changed
 
 - Shells are removed: agents can no longer open a shell on a machine, and the Admin → Shell pages are gone. Existing shell definitions stay in the database untouched, but nothing uses them any more.

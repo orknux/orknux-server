@@ -541,6 +541,9 @@ class ComponentExporter(
             put("systemPrompt", held.systemPrompt)
             put("enabled", held.enabled)
             put("orknuxAccess", held.orknuxAccess)
+            // The tins it may use, by label: an installation's labels, which a
+            // file carries as words and the importing side reads as its own.
+            putArray("tinLabels").let { labels -> held.tinLabels.forEach(labels::add) }
             put("icon", held.icon)
             putExternal("modelRef", externals.modelReference(workspaceId, held.modelId))
             val servers = putArray("mcpServerRefs")

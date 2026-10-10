@@ -138,6 +138,22 @@ class Agent(
     @Column(name = "orknux_access", nullable = false)
     var orknuxAccess: Boolean = false,
 
+    /**
+     * Which tins this agent may open a sandbox session on, by label, one per
+     * line; null or empty is none. Read and written through [tinLabels].
+     *
+     * By label rather than by tin, for the reason the shells were unnamed: an
+     * agent's question is "may I run a command somewhere of this kind", and a
+     * tin replaced by another under the same label should not leave every
+     * agent's grant pointing at nothing. None by default, the local tin
+     * included - the local runtime runs commands as this server's own user.
+     *
+     * A column of text rather than a table of rows, so a patch release could
+     * add it: a nullable column is the one change an older jar does not notice.
+     */
+    @Column(name = "tin_labels")
+    var tinLabelsText: String? = null,
+
     /** MCP servers this agent may connect to, in the order they were added. */
     // Each list in a select of its own, batched across rows, rather than joined:
     // joining several eager lists into one select returns every combination of
@@ -400,4 +416,21 @@ class Agent(
     val pictureLinkAccess: Boolean
         get() = io.mszymanski.orknux.server.chat.BuiltInTools
             .granted(this, io.mszymanski.orknux.server.workflow.StepPictureTools.LINK)
+
+    /**
+     * The tin labels this agent may use, trimmed, each once, in the order given.
+     * A view of [tinLabelsText], with no field of its own for Hibernate to map.
+     */
+    var tinLabels: List<String>
+        get() = parseTinLabels(tinLabelsText)
+        set(value) {
+            tinLabelsText = value.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+                .joinToString("\n").ifEmpty { null }
+        }
+
+    companion object {
+        /** One label per line, as the column holds them. */
+        fun parseTinLabels(text: String?): List<String> =
+            text.orEmpty().lines().map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+    }
 }

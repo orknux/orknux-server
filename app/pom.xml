@@ -63,6 +63,16 @@
             implementation and the one Boot's BOM manages; a path language is
             exactly the kind of thing not to write by hand.
         -->
+        <!--
+            The local tin, embedded: orktin's sessions, files and runtimes in
+            this process. Remote tins are spoken to over HTTP by TinClient,
+            reusing this library's model classes; see the tin package.
+        -->
+        <dependency>
+            <groupId>io.mszymanski.orknux</groupId>
+            <artifactId>orktin-core</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>com.jayway.jsonpath</groupId>
             <artifactId>json-path</artifactId>

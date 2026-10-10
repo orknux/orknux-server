@@ -32,6 +32,9 @@
         <shedlock.version>7.10.1</shedlock.version>
         <sqlite.version>3.51.0.0</sqlite.version>
         <openai.version>4.52.0</openai.version>
+        <orktin.version>0.1.0-SNAPSHOT</orktin.version>
+        <kotlinx-serialization.version>1.11.0</kotlinx-serialization.version>
+        <kotlinx-coroutines.version>1.11.0</kotlinx-coroutines.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
@@ -63,6 +66,53 @@
                 <groupId>commons-io</groupId>
                 <artifactId>commons-io</artifactId>
                 <version>2.20.0</version>
+            </dependency>
+            <!--
+                The local tin: orktin's library, embedded. Installed from the
+                `orktin` submodule rather than built in the reactor - see
+                AGENTS.md.
+            -->
+            <dependency>
+                <groupId>io.mszymanski.orknux</groupId>
+                <artifactId>orktin-core</artifactId>
+                <version>${orktin.version}</version>
+            </dependency>
+            <!--
+                What orktin-core was compiled against, ahead of the older ones
+                Boot's BOM manages: its serializers are generated for 1.11, and
+                a runtime older than the plugin that wrote them is not promised
+                to read them. Both are backwards compatible, so the rest of the
+                build loses nothing by moving up.
+            -->
+            <dependency>
+                <groupId>org.jetbrains.kotlinx</groupId>
+                <artifactId>kotlinx-serialization-core-jvm</artifactId>
+                <version>${kotlinx-serialization.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jetbrains.kotlinx</groupId>
+                <artifactId>kotlinx-serialization-json-jvm</artifactId>
+                <version>${kotlinx-serialization.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jetbrains.kotlinx</groupId>
+                <artifactId>kotlinx-serialization-json</artifactId>
+                <version>${kotlinx-serialization.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jetbrains.kotlinx</groupId>
+                <artifactId>kotlinx-serialization-core</artifactId>
+                <version>${kotlinx-serialization.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jetbrains.kotlinx</groupId>
+                <artifactId>kotlinx-coroutines-core-jvm</artifactId>
+                <version>${kotlinx-coroutines.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jetbrains.kotlinx</groupId>
+                <artifactId>kotlinx-coroutines-core</artifactId>
+                <version>${kotlinx-coroutines.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.mszymanski</groupId>

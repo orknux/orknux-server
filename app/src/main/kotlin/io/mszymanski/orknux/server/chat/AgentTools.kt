@@ -46,6 +46,8 @@ class AgentTools(
     private val pluginTools: PluginToolCaller,
     private val mcpTools: McpToolCaller,
     private val orknux: OrknuxTools,
+    /** The sandboxes, for an agent granted a tin label; see [io.mszymanski.orknux.server.tin.TinTools]. */
+    private val tins: io.mszymanski.orknux.server.tin.TinTools,
     /** What lets an agent find a connection id it was granted; see [ConnectionTools]. */
     private val connectionTools: ConnectionTools,
     /** What lets an agent put a question to another; see [AgentRunTools]. */
@@ -168,6 +170,10 @@ class AgentTools(
         // boundary — there is no session here to ask about anything wider.
         // Less the ones this agent has hidden: the grant is the set, the agent picks from it.
         if (agent.orknuxAccess) addAll(orknux.specs(scopeFor(agent)).filter { it.name !in agent.hiddenTools })
+
+        // The tins, for an agent granted a label. By label rather than by tin:
+        // which one a session lands on is said when it opens.
+        if (tins.offered(agent)) addAll(tins.specs())
 
         /*
          * And the ids of the connections it was granted, however many: one
@@ -419,6 +425,9 @@ class AgentTools(
             } else {
                 mapper.writeValueAsString(mapOf("error" to "This agent has not been given access to orknux"))
             }
+        } else if (tins.handles(call.name)) {
+            // Checked by the thing that would run it as well as left off the menu.
+            tins.run(agent, call.name, call.arguments, sessionId)
         } else if (call.name == VALIDATE) {
             validator.check(call.arguments)
         } else if (embedded.handles(call.name)) {

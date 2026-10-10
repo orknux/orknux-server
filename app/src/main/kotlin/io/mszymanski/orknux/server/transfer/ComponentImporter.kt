@@ -851,6 +851,11 @@ class ComponentImporter(
         component.kind == ComponentKind.TRIGGER ->
             " It arrives switched off, so nothing it listens for starts anything until it is switched on here."
 
+        component.kind == ComponentKind.AGENT && !component.node.path("tinLabels").isEmpty ->
+            " It may use tins labelled " +
+                component.node.path("tinLabels").values().joinToString(", ") { it.stringValue() ?: "" } +
+                ", which lets it run commands in a sandbox on this installation."
+
         component.kind == ComponentKind.AGENT && component.node.path("orknuxAccess").asBoolean(false) ->
             " It was granted access to Orknux itself, which lets it read this installation and start workflows."
 
@@ -1152,6 +1157,11 @@ class ComponentImporter(
                     enabled = node.path("enabled").asBoolean(true),
                     modelId = boundId(externalIn(node.path("modelRef"), ExternalKind.MODEL)),
                     orknuxAccess = node.path("orknuxAccess").asBoolean(false),
+                    // A file from before tins carries none, and grants none.
+                    tinLabelsText = node.path("tinLabels").values()
+                        .mapNotNull { if (it.isString) it.stringValue() else null }
+                        .let { Agent.parseTinLabels(it.joinToString(NEWLINE)) }
+                        .joinToString(NEWLINE).ifEmpty { null },
                     // A `shellAccess` in a file exported before shells were
                     // removed is read by nothing: there is nothing left to grant.
                     // The bound server's name here, which is not always the name
@@ -1850,3 +1860,6 @@ data class EnvelopeSummary(
     /** Every component, as it is named in the file. */
     val names: List<Pair<ComponentKind, String>>,
 )
+
+/** How agent.tin_labels separates one label from the next. */
+private const val NEWLINE = "\n"

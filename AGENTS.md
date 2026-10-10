@@ -54,6 +54,19 @@ is plainly there in the source. `-am` builds them alongside; `./mvnw install
 -DskipTests` first is the other way out. A plain `./mvnw test` builds the whole
 reactor and does not have the problem.
 
+**orktin-core comes from a submodule and is installed, not built in the
+reactor.** The local tin embeds [orktin](https://github.com/orknux/orktin)'s
+library, which is published nowhere, so after a fresh clone or a moved
+`orktin` pin install it once - CI and both Dockerfiles do the same:
+
+```
+git submodule update --init orktin
+./mvnw -f orktin/pom.xml -pl orktin-core -am install -DskipTests
+```
+
+It is kept out of the reactor so that `./mvnw test` runs this repository's
+suite and not orktin's, whose Docker tests pull images of their own.
+
 **The plugins are not in this repository.** They and the `@orknux/plugin`
 package live in
 [orknux-extension](https://github.com/michjak-szymanski/orknux-extension), and a
