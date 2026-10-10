@@ -139,6 +139,7 @@ object SettingNames {
     /** The first wait for a rate limit inside a stream that named none. Issue #608. */
     const val RATE_LIMIT_BACKOFF_SECONDS = "model.rate.limit.backoff.seconds"
     const val NOTE_MAX_CHARACTERS = "chat.note.max.characters"
+    const val NOTE_MAX_COUNT = "chat.note.max.count"
 
     /**
      * Log levels set from the screen, #591: one row per logger, `log.level.<name>`,
@@ -1172,6 +1173,24 @@ class InstallationSettings(
     /** What a fresh installation allows: the built-in default. */
     fun noteMaxCharactersConfigured(): Int = DEFAULT_NOTE_CHARACTERS
 
+    /**
+     * How many notes to self one conversation keeps. It was twenty, fixed: a
+     * long review filled them and was told to work with what it had.
+     */
+    fun noteMaxCount(): Int {
+        val held = settings.findByIdOrNull(SettingNames.NOTE_MAX_COUNT) ?: return noteMaxCountConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_NOTE_COUNT..MAX_NOTE_COUNT } ?: noteMaxCountConfigured()
+    }
+
+    /** What a fresh installation keeps: the built-in default. */
+    fun noteMaxCountConfigured(): Int = DEFAULT_NOTE_COUNT
+
+    @Transactional
+    fun setNoteMaxCount(count: Int, by: String) {
+        if (count !in MIN_NOTE_COUNT..MAX_NOTE_COUNT) throw NoteCountOutOfRangeException(count)
+        write(SettingNames.NOTE_MAX_COUNT, count.toString(), by)
+    }
+
     @Transactional
     fun setNoteMaxCharacters(characters: Int, by: String) {
         if (characters !in MIN_NOTE_CHARACTERS..MAX_NOTE_CHARACTERS) throw NoteLengthOutOfRangeException(characters)
@@ -2148,6 +2167,23 @@ class NoteLengthOutOfRangeException(val characters: Int) : RuntimeException(
 ), Refusal {
 
     override val arguments get() = mapOf("characters" to characters)
+}
+
+/**
+ * Between one note and a thousand in a conversation, a hundred until somebody
+ * says otherwise. Every one is read back on every later turn, so the count and
+ * the length together are what notes cost a prompt.
+ */
+const val MIN_NOTE_COUNT = 1
+const val MAX_NOTE_COUNT = 1000
+const val DEFAULT_NOTE_COUNT = 100
+
+class NoteCountOutOfRangeException(val count: Int) : RuntimeException(
+    "$count is not a number of notes to self a conversation can keep. " +
+        "Choose between $MIN_NOTE_COUNT and $MAX_NOTE_COUNT.",
+), Refusal {
+
+    override val arguments get() = mapOf("count" to count)
 }
 
 const val MIN_RATE_LIMIT_BACKOFF_SECONDS = 1

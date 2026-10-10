@@ -1313,6 +1313,8 @@ type Mutation {
     setRateLimitBackoffSeconds(seconds: Int!): InstallationSettings!
     "How long one note_to_self may be, 100 to 10000 characters. Administrators only."
     setNoteMaxCharacters(characters: Int!): InstallationSettings!
+    "How many notes to self one conversation keeps, 1 to 1000. Administrators only."
+    setNoteMaxCount(count: Int!): InstallationSettings!
     """
     Starts downloading a server release orknux.ai offers, and answers at once.
     In the background it is checked against the listing and the release key,
@@ -6866,6 +6868,10 @@ type InstallationSettings {
     noteMaxCharacters: Int!
     "What a fresh installation allows: the built-in default."
     noteMaxCharactersConfigured: Int!
+    "How many notes to self one conversation keeps."
+    noteMaxCount: Int!
+    "What a fresh installation keeps: the built-in default."
+    noteMaxCountConfigured: Int!
     """
     False where the installation runs Temporal, and the field is not offered.
 

@@ -3,6 +3,7 @@ package io.mszymanski.orknux.server.chat
 import io.mszymanski.orknux.connector.model.ToolCall
 import io.mszymanski.orknux.server.attachment.DEFAULT_NOTE_CHARACTERS
 import io.mszymanski.orknux.server.attachment.InstallationSettings
+import io.mszymanski.orknux.server.attachment.NoteCountOutOfRangeException
 import io.mszymanski.orknux.server.attachment.NoteLengthOutOfRangeException
 import io.mszymanski.orknux.server.llm.LlmSessionEventKind
 import io.mszymanski.orknux.server.llm.LlmSessionEventRepository
@@ -179,12 +180,21 @@ class NoteToSelfTest(
      */
     @Test
     fun `a conversation full of notes says so rather than losing one`() {
-        repeat(NoteTools.MOST) { write("Note $it.") }
+        // A hundred by default, and the administrator's to change; three here.
+        assertThat(settings.noteMaxCount()).isEqualTo(100)
+        try {
+            settings.setNoteMaxCount(3, "alice")
+            repeat(3) { write("Note $it.") }
 
-        val said = write("One more.")
-        assertThat(said).contains("as many as")
-        assertThat(sessions.notesOf(session)).hasSize(NoteTools.MOST)
-        assertThat(notes.recalled(session)).doesNotContain("One more.")
+            val said = write("One more.")
+            assertThat(said).contains("already written 3 notes").contains("as many as")
+            assertThat(sessions.notesOf(session)).hasSize(3)
+            assertThat(notes.recalled(session)).doesNotContain("One more.")
+            assertThatThrownBy { settings.setNoteMaxCount(0, "alice") }
+                .isInstanceOf(NoteCountOutOfRangeException::class.java)
+        } finally {
+            settings.setNoteMaxCount(settings.noteMaxCountConfigured(), "alice")
+        }
     }
 
     @Test

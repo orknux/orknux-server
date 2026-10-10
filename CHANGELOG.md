@@ -17,6 +17,10 @@ have failed.
 
 ## Unreleased
 
+### ✨ Added
+
+- How many notes to self one conversation keeps is an Admin setting, **Notes Per Conversation**, a hundred by default where it was a fixed twenty.
+
 ### 🔧 Changed
 
 - An agent setting a watcher must say how often it looks at the result itself (`agent_check_interval_seconds`), and can no longer switch that off with 0; a condition guessed wrong no longer runs silently to its timeout. Watchers already running are left as they are.

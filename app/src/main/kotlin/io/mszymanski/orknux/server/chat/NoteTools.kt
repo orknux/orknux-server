@@ -87,6 +87,7 @@ class NoteTools(
 
         /** Read once per turn, so the limit the model is told is the one it is held to. */
         private val longest = settings.noteMaxCharacters()
+        private val most = settings.noteMaxCount()
 
         override fun specs(): List<ToolSpec> = listOf(
             ToolSpec(
@@ -128,9 +129,9 @@ class NoteTools(
              * it can decide what matters; one whose notes vanished would go on
              * believing they were kept.
              */
-            if (sessions.noteCount(session) >= MOST) {
+            if (sessions.noteCount(session) >= most) {
                 return refusal(
-                    "You have already written $MOST notes in this conversation, which is as many as " +
+                    "You have already written $most notes in this conversation, which is as many as " +
                         "are kept. Work with the ones you have.",
                 )
             }
@@ -150,15 +151,5 @@ class NoteTools(
 
         const val NOTE = "note_to_self"
         const val NOTE_TEXT = "note"
-
-        /**
-         * How many one conversation keeps.
-         *
-         * Twenty, because all of them are read back on every turn: the bound is
-         * on what a prompt carries rather than on what a table holds, and twenty
-         * short lines is a paragraph where two hundred is a document nobody
-         * asked to be re-read every round.
-         */
-        const val MOST = 20
     }
 }

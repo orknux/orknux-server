@@ -110,6 +110,8 @@ class InstallationSettingsAPI(
         rateLimitBackoffSecondsConfigured = settings.rateLimitBackoffSecondsConfigured(),
         noteMaxCharacters = settings.noteMaxCharacters(),
         noteMaxCharactersConfigured = settings.noteMaxCharactersConfigured(),
+        noteMaxCount = settings.noteMaxCount(),
+        noteMaxCountConfigured = settings.noteMaxCountConfigured(),
         releasesKept = settings.releasesKept(),
         releasesKeptConfigured = settings.releasesKeptConfigured(),
         releaseBootAttempts = settings.releaseBootAttempts(),
@@ -307,6 +309,20 @@ class InstallationSettingsAPI(
      * copy on Postgres waited for ever, and an installation whose traffic holds
      * rows longer than a minute says so here.
      */
+    /** How many notes to self one conversation keeps. */
+    @MutationMapping
+    fun setNoteMaxCount(@Argument count: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setNoteMaxCount(count, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "A conversation keeps up to $count notes to self",
+        )
+        return installationSettings()
+    }
+
     /** How long one note to self may be. */
     @MutationMapping
     fun setNoteMaxCharacters(@Argument characters: Int): InstallationSettingsView {
@@ -1042,6 +1058,10 @@ data class InstallationSettingsView(
     val noteMaxCharacters: Int,
     /** What a fresh installation allows: the built-in default. */
     val noteMaxCharactersConfigured: Int,
+    /** How many notes to self one conversation keeps. */
+    val noteMaxCount: Int,
+    /** What a fresh installation keeps: the built-in default. */
+    val noteMaxCountConfigured: Int,
     /** What a fresh installation allows: the built-in default. */
     val pluginMaxSourceKbConfigured: Int,
     /**
