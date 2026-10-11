@@ -9,6 +9,7 @@ import io.mszymanski.orknux.server.attachment.ChatAttachments
 import io.mszymanski.orknux.server.attachment.InstallationSettings
 import io.mszymanski.orknux.server.stream.ReaderWatch
 import io.mszymanski.orknux.server.stream.ServerSentEvents
+import io.mszymanski.orknux.server.stream.Untimed
 import jakarta.servlet.http.HttpServletResponse
 import org.slf4j.LoggerFactory
 import org.springframework.http.MediaType
@@ -95,7 +96,13 @@ class ChatStreamAPI(
      *
      * Access is checked before anything is written, because after the first byte
      * the status code has already been sent and there is no way to say no.
+     *
+     * [Untimed], as are the other two streams here: an answer takes as long as
+     * the model thinks, and the container's async timeout cut a 637-second
+     * round off at 330. The relay ends with the answer, and [ReaderWatch]
+     * ends it sooner for a reader who has gone.
      */
+    @Untimed
     @PostMapping("/api/chats/{id}/stream", produces = [MediaType.TEXT_EVENT_STREAM_VALUE])
     fun stream(
         @PathVariable id: Long,
@@ -141,6 +148,7 @@ class ChatStreamAPI(
      * and letting the second attempt rename a chat somebody has already found
      * in the sidebar would move it out from under them.
      */
+    @Untimed
     @PostMapping("/api/chats/{id}/regenerate", produces = [MediaType.TEXT_EVENT_STREAM_VALUE])
     fun regenerate(
         @PathVariable id: Long,
@@ -449,6 +457,7 @@ class ChatStreamAPI(
      * the chat. Leaving this stream never stops the answer, whatever kind of
      * turn it is: following is looking, and Stop is [interrupt].
      */
+    @Untimed
     @GetMapping("/api/chats/{id}/follow", produces = [MediaType.TEXT_EVENT_STREAM_VALUE])
     fun follow(
         @PathVariable id: Long,

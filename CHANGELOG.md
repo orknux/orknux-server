@@ -25,6 +25,7 @@ have failed.
 - Box tools for agents - opening a session on a box, running commands, reading and editing files, searching, reading the session log and moving archives in and out - with how long a command is waited for, how long it may run and how much output an agent is handed set in Admin Settings.
 - A box edit can replace lines by number or a regular expression's matches, and `orkbox_undo` / `orkbox_redo` take back and put again an agent's edits and writes in a session - refusing a file something else changed since - with how many steps are kept per session set by **Box edit undo steps** in Admin Settings (10 by default, 0 to switch it off; held in memory, so a restart forgets them).
 - A conversation's **Box** panel: the box sessions its agents opened, whether each is still running, and each one's event log.
+- A reminder or watcher set by an agent another agent asked now wakes that agent when it goes off, after its answer, and what it then says reaches the agent that asked - which a chat or a task is woken for; a workflow step that has already finished reads it on its next turn in that conversation.
 - A conversation's **To-do** and **Notes** panels, below its boxes: the plan its agent keeps with the todo tools, done items ticked off, and what it wrote down with `note_to_self`, both updating as it works.
 - How big one value an agent keeps in its session may be, and how many it may keep, are Admin settings: **Session Value Size** (8 MB by default, up to 256 MB, so an exported project can be handed to an upload tool) and **Session Store Keys** (200 by default).
 
@@ -44,6 +45,7 @@ have failed.
 - A conversation that filled a llama.cpp model's context window failed with "no message" after empty retries, because llama.cpp stops for length rather than refusing; it is now summarised to fit and carries on.
 - Deleting a directory in a local box while a process still held files in it - a running jar in `target/` on Windows - reported success and left it there; it now says what was left and why.
 - A chat's agent now has the same session tools as a workflow step or a task - notes to self, the to-do list and the clock - where it had only scratchpads, timers and watchers.
+- A chat whose answer took longer than five and a half minutes stopped updating and showed the answer only after a reload, because the server closed its stream at the async request timeout; a chat's stream now lasts as long as its turn, and a page whose stream ends early picks the turn up again.
 
 ## 0.9.9.32
 

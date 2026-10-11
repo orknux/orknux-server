@@ -36,6 +36,8 @@ spring:
       # which is shorter than the five minutes `orknux_news` may be asked to
       # wait - so a wait would have been cut off by the machinery that makes it
       # cost nothing. Longer than the longest wait, with slack.
+      # A chat's streams are exempt (`@Untimed`): an answer lasts as long as the
+      # model thinks, and this cut a 637-second round off at 330.
       request-timeout: ${ORKNUX_ASYNC_REQUEST_TIMEOUT:330s}
   datasource:
     # Which database this installation keeps its state in, said the only way that
