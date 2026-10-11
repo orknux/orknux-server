@@ -302,6 +302,9 @@ class ChatStreamAPI(
                      * somebody turns it on. Issue #286.
                      */
                     val start = begin { event, payload -> send(event, payload) }
+                    // The session this turn is recorded in, said at once: a chat opens its session with its first
+                    // turn, and the page's link to it waited for the turn to end, or for a reload.
+                    start.llmSessionId?.let { send("session", mapOf("id" to it.toString())) }
                     start.compacted?.let { held ->
                         send(
                             "compacted",

@@ -506,6 +506,10 @@ class ChatInSessionTest(
         assertThat(said).isNotNegative()
         assertThat(frames.lastIndexOf("event:", said)).isEqualTo(frames.lastIndexOf("event:said", said))
         assertThat(frames.indexOf("event:call")).isGreaterThan(said)
+        // The session the chat opened with this turn is named before anything else, so the page can link to it at once.
+        val opened = requireNotNull(chats.findByIdOrNull(chatId)?.llmSessionId)
+        assertThat(frames).contains("event:session\ndata:{\"id\":\"$opened\"}")
+        assertThat(frames.indexOf("event:session")).isLessThan(said)
     }
 
     /**
