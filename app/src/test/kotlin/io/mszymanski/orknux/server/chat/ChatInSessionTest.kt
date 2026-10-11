@@ -568,6 +568,38 @@ class ChatInSessionTest(
     }
 
     /**
+     * The open chat is told when the agent has read the person's message, so the
+     * page can say Queued until then and Read after: a model reading a long
+     * prompt took minutes to reach it, and "Sent" read as ignored.
+     */
+    @Test
+    fun `the open chat is told when the agent reads what the person wrote mid-turn`() {
+        val catalogId = catalog("Reviews")
+        skill("codeReview", catalogId, "Read the diff twice before commenting.")
+        var chatId = 0L
+        val endpoint = serve { body ->
+            if (body.contains("tool_call_id")) {
+                """{"choices":[{"message":{"role":"assistant","content":"Blue it is."}}],"usage":{"prompt_tokens":9,"completion_tokens":4}}"""
+            } else {
+                chatService.postDuringTurn(chatId, "alice", "Use the blue one, please.")
+                """{"choices":[{"message":{"role":"assistant","content":"Let me read the review skill first.",
+                 "tool_calls":[{"id":"call_1","type":"function","function":{"name":"skill_load","arguments":"{\"name\":\"codeReview\"}"}}]}}],
+                 "usage":{"prompt_tokens":7,"completion_tokens":2}}"""
+            }
+        }
+        chatId = startChat(llmSessionId = null, agentId = agent("Reviewer", model(endpoint), granted = "Reviews"))
+
+        val response = org.springframework.mock.web.MockHttpServletResponse()
+        streaming.stream(chatId, ChatStreamRequest("Which colour?"), response).writeTo(response.outputStream)
+        val frames = response.contentAsString.replace(" ", "")
+
+        val read = frames.indexOf("event:personRead")
+        assertThat(read).isNotNegative()
+        assertThat(frames.substring(read)).contains("Usetheblueone,please.")
+        assertThat(frames.indexOf("Blueitis.")).isGreaterThan(read)
+    }
+
+    /**
      * Written while the model writes its final answer, the message is not left
      * for later: the turn sees it arrived and asks the model again with it.
      */
