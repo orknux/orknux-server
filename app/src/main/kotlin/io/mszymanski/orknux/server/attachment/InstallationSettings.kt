@@ -143,6 +143,7 @@ object SettingNames {
     const val SESSION_VALUE_MAX_MB = "session.store.value.max.mb"
     const val EMPTY_ANSWER_RETRIES = "chat.retries.empty"
     const val UNUSABLE_REPLY_RETRIES = "chat.retries.unusable"
+    const val MODEL_ANSWER_LIMIT_MINUTES = "model.answer.limit.minutes"
     const val SESSION_STORE_MAX_KEYS = "session.store.max.keys"
 
     /**
@@ -1250,6 +1251,26 @@ class InstallationSettings(
         write(SettingNames.UNUSABLE_REPLY_RETRIES, retries.toString(), by)
     }
 
+    /**
+     * How long one call to a model may take, in minutes. It was the OpenAI
+     * SDK's ten, never chosen, which cut a thinking model off mid-thought.
+     */
+    fun modelAnswerLimitMinutes(): Int {
+        val held = settings.findByIdOrNull(SettingNames.MODEL_ANSWER_LIMIT_MINUTES) ?: return modelAnswerLimitMinutesConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_MODEL_ANSWER_MINUTES..MAX_MODEL_ANSWER_MINUTES }
+            ?: modelAnswerLimitMinutesConfigured()
+    }
+
+    /** What a fresh installation allows: the built-in default. */
+    fun modelAnswerLimitMinutesConfigured(): Int =
+        io.mszymanski.orknux.connector.model.ModelCallLimits.DEFAULT.toMinutes().toInt()
+
+    @Transactional
+    fun setModelAnswerLimitMinutes(minutes: Int, by: String) {
+        if (minutes !in MIN_MODEL_ANSWER_MINUTES..MAX_MODEL_ANSWER_MINUTES) throw ModelAnswerLimitOutOfRangeException(minutes)
+        write(SettingNames.MODEL_ANSWER_LIMIT_MINUTES, minutes.toString(), by)
+    }
+
     /** How many keys one session's store may hold. It was 200, fixed. */
     fun sessionStoreMaxKeys(): Int {
         val held = settings.findByIdOrNull(SettingNames.SESSION_STORE_MAX_KEYS) ?: return sessionStoreMaxKeysConfigured()
@@ -2292,6 +2313,17 @@ class UnusableReplyRetriesOutOfRangeException(val retries: Int) : RuntimeExcepti
 ), Refusal {
 
     override val arguments get() = mapOf("retries" to retries)
+}
+
+const val MIN_MODEL_ANSWER_MINUTES = 1
+const val MAX_MODEL_ANSWER_MINUTES = 1440
+
+class ModelAnswerLimitOutOfRangeException(val minutes: Int) : RuntimeException(
+    "$minutes is not a number of minutes a model may take to answer. " +
+        "Choose between $MIN_MODEL_ANSWER_MINUTES and $MAX_MODEL_ANSWER_MINUTES.",
+), Refusal {
+
+    override val arguments get() = mapOf("minutes" to minutes)
 }
 
 const val MIN_SESSION_STORE_KEYS = 10

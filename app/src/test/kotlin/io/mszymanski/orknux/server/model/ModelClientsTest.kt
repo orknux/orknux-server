@@ -3,6 +3,7 @@ package io.mszymanski.orknux.server.model
 import com.openai.models.chat.completions.ChatCompletionCreateParams
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
+import io.mszymanski.orknux.connector.model.ModelCallLimits
 import io.mszymanski.orknux.connector.model.ModelClients
 import io.mszymanski.orknux.connector.model.ModelProvider
 import io.mszymanski.orknux.connector.model.ProviderType
@@ -10,13 +11,16 @@ import io.mszymanski.orknux.connector.proxy.ProxyRouter
 import io.mszymanski.orknux.connector.proxy.ProxyRule
 import io.mszymanski.orknux.connector.proxy.ProxyRuleSource
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
+import java.time.Duration
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * The SDK client is built pointing where the provider says, and through the
@@ -115,6 +119,49 @@ class ModelClientsTest {
         // still a client the rules reach.
         assertThat(proxied).singleElement().asString().contains("/chat/completions")
         assertThat(asked).isEmpty()
+    }
+
+    /**
+     * A call is given up on at the installation's limit, not the SDK's.
+     *
+     * The SDK's own default is ten minutes, which cut a thinking model off at
+     * exactly 600 seconds. A server that never answers is the honest stand-in:
+     * held to a one-second limit the call fails in about a second, where the
+     * default would have it wait ten minutes.
+     */
+    @Test
+    fun `a call is given up on at the limit the installation sets`() {
+        val silent = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
+        silent.createContext("/") { Thread.sleep(30_000) }
+        silent.start()
+        try {
+            val clients = ModelClients(ProxyRouter(ProxyRuleSource { emptyList() })) { Duration.ofSeconds(1) }
+            val started = System.nanoTime()
+            assertThatThrownBy { say(clients, provider(ProviderType.OPENAI, url(silent)), "slow") }
+            assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(10))
+        } finally {
+            silent.stop(0)
+        }
+    }
+
+    /** And a changed limit is a new client on the next call, without a restart. */
+    @Test
+    fun `a changed limit builds the client again`() {
+        val limit = AtomicReference(Duration.ofMinutes(60))
+        val clients = ModelClients(ProxyRouter(ProxyRuleSource { emptyList() }), ModelCallLimits { limit.get() })
+        val provider = ModelProvider(
+            id = 7,
+            workspaceId = 1,
+            name = "Provider",
+            type = ProviderType.OPENAI,
+            endpoint = url(origin),
+            secret = "sk-test",
+        )
+
+        val first = clients.clientFor(provider, ModelClients.apiKey("sk-test"))
+        assertThat(clients.clientFor(provider, ModelClients.apiKey("sk-test"))).isSameAs(first)
+        limit.set(Duration.ofMinutes(5))
+        assertThat(clients.clientFor(provider, ModelClients.apiKey("sk-test"))).isNotSameAs(first)
     }
 
     private fun say(clients: ModelClients, provider: ModelProvider, model: String) {

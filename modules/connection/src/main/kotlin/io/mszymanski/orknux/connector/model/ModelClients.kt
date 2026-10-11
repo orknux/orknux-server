@@ -4,6 +4,7 @@ import com.openai.azure.AzureUrlPathMode
 import com.openai.azure.credential.AzureApiKeyCredential
 import com.openai.client.OpenAIClient
 import com.openai.client.okhttp.OpenAIOkHttpClient
+import com.openai.core.Timeout
 import com.openai.core.http.ProxyAuthenticator
 import com.openai.errors.OpenAIIoException
 import com.openai.credential.BearerTokenCredential
@@ -49,7 +50,10 @@ import java.util.function.Supplier
  * SDK, ending at the same compiled rules in the same order.
  */
 @Component
-class ModelClients(private val proxies: ProxyRouter) {
+class ModelClients(
+    private val proxies: ProxyRouter,
+    private val limits: ModelCallLimits = ModelCallLimits.FRESH,
+) {
 
     /**
      * The client each provider is called through, by provider and surface.
@@ -104,7 +108,13 @@ class ModelClients(private val proxies: ProxyRouter) {
      * and the next call asks for the client again, as every caller does.
      */
     private fun held(base: String, provider: ModelProvider, credential: Credential): OpenAIClient {
-        val key = ClientKey(base, provider.type, identity(credential))
+        /*
+         * The time limit is part of what a client was built for, so a changed
+         * setting builds a new one on the next call and closes the old - read
+         * here, per call, rather than once at start-up.
+         */
+        val limit = limits.answer()
+        val key = ClientKey(base, provider.type, identity(credential), limit)
         // A provider not saved yet - one being tried before it is - has no id to
         // keep a slot by, so what it was built for is the slot.
         val slot = Slot(provider.id, base, if (provider.id == null) key else null)
@@ -114,7 +124,7 @@ class ModelClients(private val proxies: ProxyRouter) {
                 was
             } else {
                 replaced = was?.client
-                Held(key, build(base, provider, credential))
+                Held(key, build(base, provider, credential, limit))
             }
         }
         replaced?.let(::closeQuietly)
@@ -166,10 +176,18 @@ class ModelClients(private val proxies: ProxyRouter) {
     /** How many clients are held, for the test that a replaced one is not. Issue #616. */
     internal fun held(): Int = cache.size
 
-    private fun build(base: String, provider: ModelProvider, credential: Credential): OpenAIClient {
+    private fun build(base: String, provider: ModelProvider, credential: Credential, limit: Duration): OpenAIClient {
         val builder = OpenAIOkHttpClient.builder()
             .baseUrl(base)
             .credential(credential)
+            /*
+             * How long one call may take, the whole of it - see [ModelCallLimits].
+             * The SDK's own default is ten minutes, which cut a thinking model
+             * off mid-thought. Read as well as request: a stream that goes quiet
+             * for the whole limit is gone, and the limit is the longest anybody
+             * agreed to wait.
+             */
+            .timeout(Timeout.builder().request(limit).read(limit).build())
             /*
              * Asked once, because somebody else is counting.
              *
@@ -233,7 +251,7 @@ class ModelClients(private val proxies: ProxyRouter) {
         else -> credential.javaClass.name
     }
 
-    private data class ClientKey(val base: String, val type: ProviderType, val credential: String)
+    private data class ClientKey(val base: String, val type: ProviderType, val credential: String, val limit: Duration)
 
     /** Where a client is kept: a saved provider's surface, or for one not saved, what it was built for. */
     private data class Slot(val provider: Long?, val base: String, val unsaved: ClientKey?)

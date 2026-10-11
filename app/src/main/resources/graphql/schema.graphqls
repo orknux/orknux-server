@@ -1309,6 +1309,8 @@ type Mutation {
     setEmptyAnswerRetries(retries: Int!): InstallationSettings!
     "How many times a reply that could not be used is put back to the model, 0 to 10. Administrators only."
     setUnusableReplyRetries(retries: Int!): InstallationSettings!
+    "How long one call to a model may take, 1 to 1440 minutes. Administrators only."
+    setModelAnswerLimitMinutes(minutes: Int!): InstallationSettings!
     "How big one value in a session's store may be, 1 to 256 MB. Administrators only."
     setSessionValueMaxMb(megabytes: Int!): InstallationSettings!
     "How many keys one session's store may hold, 10 to 10000. Administrators only."
@@ -6712,6 +6714,10 @@ type InstallationSettings {
     unusableReplyRetries: Int!
     "What a fresh installation allows: the built-in default."
     unusableReplyRetriesConfigured: Int!
+    "How long one call to a model may take, in minutes, before it is given up on."
+    modelAnswerLimitMinutes: Int!
+    "What a fresh installation allows: the built-in default."
+    modelAnswerLimitMinutesConfigured: Int!
     "How big one value in a session's store may be, in MB - what an exported archive or a drawn picture can come to."
     sessionValueMaxMb: Int!
     "What a fresh installation allows: the built-in default."

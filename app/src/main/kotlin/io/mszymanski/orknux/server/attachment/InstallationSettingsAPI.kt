@@ -117,6 +117,8 @@ class InstallationSettingsAPI(
         emptyAnswerRetriesConfigured = settings.emptyAnswerRetriesConfigured(),
         unusableReplyRetries = settings.unusableReplyRetries(),
         unusableReplyRetriesConfigured = settings.unusableReplyRetriesConfigured(),
+        modelAnswerLimitMinutes = settings.modelAnswerLimitMinutes(),
+        modelAnswerLimitMinutesConfigured = settings.modelAnswerLimitMinutesConfigured(),
         sessionValueMaxMbConfigured = settings.sessionValueMaxMbConfigured(),
         sessionStoreMaxKeys = settings.sessionStoreMaxKeys(),
         sessionStoreMaxKeysConfigured = settings.sessionStoreMaxKeysConfigured(),
@@ -348,6 +350,16 @@ class InstallationSettingsAPI(
 
         settings.setUnusableReplyRetries(retries, currentUser())
         auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "An unusable reply is put back up to $retries times")
+        return installationSettings()
+    }
+
+    /** How long one call to a model may take. */
+    @MutationMapping
+    fun setModelAnswerLimitMinutes(@Argument minutes: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setModelAnswerLimitMinutes(minutes, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "A model may take up to $minutes minutes to answer")
         return installationSettings()
     }
 
@@ -1116,6 +1128,9 @@ data class InstallationSettingsView(
     /** How many times an unusable reply is put back to the model. */
     val unusableReplyRetries: Int,
     val unusableReplyRetriesConfigured: Int,
+    /** How long one call to a model may take, in minutes. */
+    val modelAnswerLimitMinutes: Int,
+    val modelAnswerLimitMinutesConfigured: Int,
     /** How big one value in a session's store may be, in MB. */
     val sessionValueMaxMb: Int,
     val sessionValueMaxMbConfigured: Int,
