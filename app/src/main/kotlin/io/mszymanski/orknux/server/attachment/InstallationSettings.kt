@@ -146,6 +146,7 @@ object SettingNames {
     const val MODEL_ANSWER_LIMIT_MINUTES = "model.answer.limit.minutes"
     const val WRITING_PROGRESS_MILLIS = "writing.progress.millis"
     const val WRITING_FORGOTTEN_SECONDS = "writing.forgotten.seconds"
+    const val READING_SHOWN_AFTER_SECONDS = "reading.shown.after.seconds"
     const val WIDGETS_PER_CHAT = "chat.widgets.max"
     const val WIDGET_TIMER_MAX_SECONDS = "chat.widget.timer.max.seconds"
     const val SESSION_STORE_MAX_KEYS = "session.store.max.keys"
@@ -1315,6 +1316,26 @@ class InstallationSettings(
         write(SettingNames.WRITING_FORGOTTEN_SECONDS, seconds.toString(), by)
     }
 
+    /**
+     * How long a server has to have been reading a prompt before anybody is told,
+     * in seconds; 0 tells at once. The card flashed up for every read of a
+     * second or two, which is most of them once the prompt cache holds.
+     */
+    fun readingShownAfterSeconds(): Int {
+        val held = settings.findByIdOrNull(SettingNames.READING_SHOWN_AFTER_SECONDS) ?: return readingShownAfterSecondsConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_READING_SHOWN_AFTER_SECONDS..MAX_READING_SHOWN_AFTER_SECONDS }
+            ?: readingShownAfterSecondsConfigured()
+    }
+
+    /** What a fresh installation does: the built-in default. */
+    fun readingShownAfterSecondsConfigured(): Int = 5
+
+    @Transactional
+    fun setReadingShownAfterSeconds(seconds: Int, by: String) {
+        if (seconds !in MIN_READING_SHOWN_AFTER_SECONDS..MAX_READING_SHOWN_AFTER_SECONDS) throw ReadingShownAfterOutOfRangeException(seconds)
+        write(SettingNames.READING_SHOWN_AFTER_SECONDS, seconds.toString(), by)
+    }
+
     /** How many widgets - timers, stopwatches - one chat may hold at once. */
     fun widgetsPerChat(): Int {
         val held = settings.findByIdOrNull(SettingNames.WIDGETS_PER_CHAT) ?: return widgetsPerChatConfigured()
@@ -2417,6 +2438,17 @@ const val MAX_WRITING_FORGOTTEN_SECONDS = 600
 class WritingForgottenOutOfRangeException(val seconds: Int) : RuntimeException(
     "$seconds is not a number of seconds a report of a model writing is believed for. " +
         "Choose between $MIN_WRITING_FORGOTTEN_SECONDS and $MAX_WRITING_FORGOTTEN_SECONDS.",
+), Refusal {
+
+    override val arguments get() = mapOf("seconds" to seconds)
+}
+
+const val MIN_READING_SHOWN_AFTER_SECONDS = 0
+const val MAX_READING_SHOWN_AFTER_SECONDS = 120
+
+class ReadingShownAfterOutOfRangeException(val seconds: Int) : RuntimeException(
+    "$seconds is not a number of seconds a prompt is read for before it is shown. " +
+        "Choose between $MIN_READING_SHOWN_AFTER_SECONDS and $MAX_READING_SHOWN_AFTER_SECONDS.",
 ), Refusal {
 
     override val arguments get() = mapOf("seconds" to seconds)

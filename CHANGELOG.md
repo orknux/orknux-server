@@ -22,6 +22,10 @@ have failed.
 - **Widgets** in a chat: timers and stopwatches an agent puts above the message box with its new `widget_*` tools, ticking as you watch and appearing mid-turn without a reload. You can pause, resume, reset, lap and remove them yourself; a timer the agent asks to be woken by tells it when it ends. **Widgets Per Chat** (8) and **Longest Chat Timer** (a day) are Admin settings.
 - A chat that ends on your own message with no answer under it - the turn died, was stopped, or the page lost it - offers **Answer this** under the message, instead of making you type it again.
 
+### 🔧 Changed
+
+- "Reading the prompt…" shows only once a llama.cpp server has been reading for five seconds, so the short reads a warm prompt cache makes no longer flash a card; **Reading Progress Shown After** in Admin Settings changes it, and 0 shows every read as before.
+
 ## 1.0.1
 
 ### ✨ Added

@@ -335,7 +335,11 @@ class ChatStreamAPI(
                      */
                     val answer = if (start.agentId == null) {
                         // A bare model on llama.cpp reads its prompt for as long as an agent's does.
-                        val reading = WritingProgress(generation.watch(), settings.writingProgressMillis().toLong())
+                        val reading = WritingProgress(
+                            generation.watch(),
+                            settings.writingProgressMillis().toLong(),
+                            settings.readingShownAfterSeconds() * 1000L,
+                        )
                         client.stream(
                             start.modelId,
                             start.turns,

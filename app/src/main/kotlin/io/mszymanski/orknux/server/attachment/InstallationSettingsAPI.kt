@@ -123,6 +123,8 @@ class InstallationSettingsAPI(
         writingProgressMillisConfigured = settings.writingProgressMillisConfigured(),
         writingForgottenSeconds = settings.writingForgottenSeconds(),
         writingForgottenSecondsConfigured = settings.writingForgottenSecondsConfigured(),
+        readingShownAfterSeconds = settings.readingShownAfterSeconds(),
+        readingShownAfterSecondsConfigured = settings.readingShownAfterSecondsConfigured(),
         widgetsPerChat = settings.widgetsPerChat(),
         widgetsPerChatConfigured = settings.widgetsPerChatConfigured(),
         widgetTimerMaxSeconds = settings.widgetTimerMaxSeconds(),
@@ -388,6 +390,16 @@ class InstallationSettingsAPI(
 
         settings.setWritingForgottenSeconds(seconds, currentUser())
         auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "A report of a model writing is forgotten after $seconds seconds")
+        return installationSettings()
+    }
+
+    /** How long a prompt is read before the page is told it is being read. */
+    @MutationMapping
+    fun setReadingShownAfterSeconds(@Argument seconds: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setReadingShownAfterSeconds(seconds, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "Reading a prompt is shown after $seconds seconds")
         return installationSettings()
     }
 
@@ -1185,6 +1197,9 @@ data class InstallationSettingsView(
     /** How long a report that a model is writing is believed without another, in seconds. */
     val writingForgottenSeconds: Int,
     val writingForgottenSecondsConfigured: Int,
+    /** How long a prompt is read, in seconds, before the page is told it is being read. */
+    val readingShownAfterSeconds: Int,
+    val readingShownAfterSecondsConfigured: Int,
     /** How many widgets one chat may hold at once. */
     val widgetsPerChat: Int,
     val widgetsPerChatConfigured: Int,

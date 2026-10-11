@@ -161,11 +161,18 @@ internal class WritingProgress(
     private val watch: RoundWatch,
     /** The Admin setting Writing Progress Interval, read when the round starts. */
     private val everyMillis: Long = EVERY_MILLIS,
+    /**
+     * The Admin setting Reading Progress Shown After: how long the server has to
+     * have been reading before anybody is told. A read that ends sooner is never
+     * shown - most do, once the prompt cache holds, and the card flashed for each.
+     */
+    private val readingShownAfterMillis: Long = 0,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private var said = 0
     private var told = Long.MIN_VALUE
     private var read = Long.MIN_VALUE
+    private var readingSince = Long.MIN_VALUE
 
     /**
      * The server has read this much of the prompt. Throttled on its own clock,
@@ -174,6 +181,8 @@ internal class WritingProgress(
      */
     fun reading(progress: io.mszymanski.orknux.connector.model.PromptProgress) {
         val now = clock()
+        if (readingSince == Long.MIN_VALUE) readingSince = now
+        if (now - readingSince < readingShownAfterMillis) return
         val done = progress.processed >= progress.total
         if (!done && read != Long.MIN_VALUE && now - read < everyMillis) return
         read = now
@@ -651,7 +660,7 @@ class AgentConversation(
             val once = if (watch == null) {
                 models.complete(modelId, told, hangup = hangup).also { told(watch, it) }
             } else {
-                val writing = WritingProgress(watch, settings.writingProgressMillis().toLong())
+                val writing = WritingProgress(watch, settings.writingProgressMillis().toLong(), settings.readingShownAfterSeconds() * 1000L)
                 models.stream(
                     modelId,
                     told,
@@ -891,7 +900,7 @@ class AgentConversation(
             val answer = if (watch == null) {
                 models.complete(modelId, conversation, offered, hangup = hangup)
             } else {
-                val writing = WritingProgress(watch, settings.writingProgressMillis().toLong())
+                val writing = WritingProgress(watch, settings.writingProgressMillis().toLong(), settings.readingShownAfterSeconds() * 1000L)
                 models.stream(
                     modelId,
                     conversation,

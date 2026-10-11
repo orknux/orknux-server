@@ -53,6 +53,8 @@ class LlamaCppProgressTest(
     @Autowired val recorder: LlmSessionRecorder,
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val audit: WorkspaceAuditRepository,
+    @Autowired val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
+    @Autowired val stored: io.mszymanski.orknux.server.attachment.InstallationSettingRepository,
 ) {
 
     private var workspaceId: Long = 0
@@ -79,10 +81,15 @@ class LlamaCppProgressTest(
     }
 
     @AfterEach
-    fun stop() = server.stop(0)
+    fun stop() {
+        server.stop(0)
+        stored.deleteAll(stored.findAll().filter { it.name == "reading.shown.after.seconds" })
+    }
 
     @Test
     fun `a llama cpp provider is asked for its reading, and the chat is told it before the answer`() {
+        // Told at once: the stub reads its prompt in milliseconds, under any delay worth having.
+        settings.setReadingShownAfterSeconds(0, "test")
         val chatId = chat("LLAMA_CPP")
 
         val frames = stream(chatId, "How big is the pool?")
@@ -94,6 +101,21 @@ class LlamaCppProgressTest(
         assertThat(reading.first()).containsExactly(1000L, 600L, 600L)
         assertThat(reading.last()).containsExactly(1000L, 600L, 1000L)
         assertThat(frames.indexOf("event:reading")).isLessThan(frames.indexOf("event:chunk"))
+    }
+
+    /**
+     * A read shorter than Reading Progress Shown After is never shown: by
+     * default five seconds, and the stub's read takes milliseconds. The card
+     * flashed up for every short read before.
+     */
+    @Test
+    fun `a read that ends before the setting's delay is never shown`() {
+        val chatId = chat("LLAMA_CPP")
+
+        val frames = stream(chatId, "How big is the pool?")
+
+        assertThat(bodies.single().replace(" ", "")).contains("\"return_progress\":true")
+        assertThat(frames).doesNotContain("event:reading").contains("event:chunk")
     }
 
     /**

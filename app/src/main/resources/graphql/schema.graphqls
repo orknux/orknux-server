@@ -1317,6 +1317,8 @@ type Mutation {
     setWritingProgressMillis(millis: Int!): InstallationSettings!
     "How long a report that a model is writing is believed without another, 5 to 600 seconds. Administrators only."
     setWritingForgottenSeconds(seconds: Int!): InstallationSettings!
+    "How long a prompt is read before the page is told it is being read, 0 to 120 seconds. Administrators only."
+    setReadingShownAfterSeconds(seconds: Int!): InstallationSettings!
     "How many widgets - timers, stopwatches - one chat may hold, 1 to 50. Administrators only."
     setWidgetsPerChat(widgets: Int!): InstallationSettings!
     "The longest a chat's timer may run, 60 to 604800 seconds. Administrators only."
@@ -6783,6 +6785,10 @@ type InstallationSettings {
     writingForgottenSeconds: Int!
     "What a fresh installation does: the built-in default."
     writingForgottenSecondsConfigured: Int!
+    "How long a prompt is read, in seconds, before the page is told it is being read; 0 tells at once."
+    readingShownAfterSeconds: Int!
+    "What a fresh installation does: the built-in default."
+    readingShownAfterSecondsConfigured: Int!
     "How many widgets one chat may hold at once."
     widgetsPerChat: Int!
     "What a fresh installation does: the built-in default."
