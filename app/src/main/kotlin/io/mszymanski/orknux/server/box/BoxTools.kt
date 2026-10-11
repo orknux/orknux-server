@@ -76,6 +76,11 @@ class BoxTools(
     private val secrets: BoxSecrets,
     /** The workspace variables an agent may hand a command; see [VariableTools]. */
     private val variableTools: io.mszymanski.orknux.server.variable.VariableTools,
+    /** The conversation's scratchpads, which orkbox_write can take its content from. */
+    private val pads: io.mszymanski.orknux.server.llm.SessionScratchpadService,
+    /** The workspace's saved artifacts, which orkbox_fetch_artifact puts into a box. */
+    private val artifacts: io.mszymanski.orknux.server.workflow.SavedArtifactRepository,
+    private val attachments: io.mszymanski.orknux.server.attachment.AttachmentStore,
 ) {
 
     /** Offered while the agent holds any box label. */
@@ -130,6 +135,7 @@ class BoxTools(
                 LOG -> log(agent, args, sessionId)
                 EXPORT -> export(agent, args, sessionId)
                 IMPORT -> import(agent, args, sessionId)
+                FETCH_ARTIFACT -> fetchArtifact(agent, args, sessionId)
                 else -> refuse("There is no tool called $name")
             }
         } catch (refused: Refused) {
@@ -454,10 +460,31 @@ class BoxTools(
     private fun write(agent: Agent, args: JsonNode, sessionId: Long?): String {
         val held = held(agent, args, sessionId)
         val path = args.text("path") ?: throw Refused("Say which file to write")
-        val content = args.rawText("content") ?: throw Refused("Say what to write; an empty string writes an empty file")
+        /*
+         * Or a scratchpad's content, by name. A draft written in a scratchpad had
+         * no way into a box but to be pasted back through the model whole - an
+         * agent zipped one, failed to import the zip, and tried to download it
+         * from inside a container that cannot reach this server.
+         */
+        val fromPad = args.text("from_scratchpad")
+        val given = args.rawText("content")
+        if (fromPad != null && given != null) throw Refused("Give content or from_scratchpad, not both")
+        val bytes = if (fromPad != null) {
+            val pad = pads.find(held.row.llmSessionId, fromPad)
+                ?: throw Refused("This conversation has no scratchpad named $fromPad")
+            // A scratchpad holding a file keeps it as base64 under its type; text is kept as itself.
+            if (pad.contentType.isNullOrBlank()) {
+                pad.content.toByteArray()
+            } else {
+                runCatching { Base64.getDecoder().decode(pad.content.trim()) }.getOrNull()
+                    ?: throw Refused("Scratchpad $fromPad does not hold the bytes of a file")
+            }
+        } else {
+            (given ?: throw Refused("Say what to write - content, or from_scratchpad naming a scratchpad; an empty string writes an empty file"))
+                .toByteArray()
+        }
         val mode = args.text("mode")
         val before = snapshot(held, path)
-        val bytes = content.toByteArray()
         val written = held.client.write(held.row.remoteSessionId, path, bytes, mode)
         val kept = kept(held, written.path, before, bytes, mode ?: before?.mode)
         touch(held)
@@ -774,6 +801,46 @@ class BoxTools(
         )
     }
 
+    /**
+     * A saved artifact put into a box: as a file, or unpacked when it is an archive.
+     *
+     * A box cannot reach this server's addresses, so an artifact's link is no use
+     * inside one - an agent spent most of an hour trying to download one from a
+     * container. The server reads the bytes and hands them over. Only the
+     * agent's own workspace's artifacts.
+     */
+    private fun fetchArtifact(agent: Agent, args: JsonNode, sessionId: Long?): String {
+        val held = held(agent, args, sessionId)
+        val named = args.text("artifact") ?: args.long("artifact")?.toString()
+            ?: throw Refused("Say which artifact: its number, as save_artifact answered or its link ends")
+        val id = ARTIFACT_NUMBER.find(named.trim().trimEnd('/'))?.groupValues?.get(1)?.toLongOrNull()
+            ?: throw Refused("$named is not an artifact number or link")
+        val artifact = artifacts.findByIdOrNull(id)?.takeIf { it.workspaceId == agent.workspaceId }
+            ?: throw Refused("This workspace has no artifact $id")
+        val bytes = attachments.open(artifact.location).use { it.readAllBytes() }
+        if (args.bool("unpack") == true) {
+            val zipped = BoxArchives.isZip(bytes)
+            val directory = args.text("path")
+            held.client.importArchive(held.row.remoteSessionId, directory, if (zipped) BoxArchives.zipToTar(bytes) else bytes)
+            touch(held)
+            return answer(
+                mapOf(
+                    "artifact" to id,
+                    "name" to artifact.name,
+                    "format" to if (zipped) "zip" else "tar",
+                    "bytes" to bytes.size,
+                    "unpackedInto" to (directory ?: "the workspace root"),
+                ),
+            )
+        }
+        val path = args.text("path") ?: artifact.name
+        val before = snapshot(held, path)
+        val written = held.client.write(held.row.remoteSessionId, path, bytes, null)
+        val kept = kept(held, written.path, before, bytes, before?.mode)
+        touch(held)
+        return answer(mapOf("artifact" to id, "name" to artifact.name, "path" to written.path, "size" to written.size) + kept)
+    }
+
     // -------------------------------------------------------------- sessions
 
     /** What a call hands its command from the workspace's variables: the environment, and the secrets among it by id. */
@@ -997,6 +1064,10 @@ class BoxTools(
         const val LOG = "orkbox_log"
         const val EXPORT = "orkbox_export"
         const val IMPORT = "orkbox_import"
+        const val FETCH_ARTIFACT = "orkbox_fetch_artifact"
+
+        /** The number an artifact is addressed by: alone, or at the end of its link. */
+        private val ARTIFACT_NUMBER = Regex("(\\d+)$")
         const val UNDO = "orkbox_undo"
         const val REDO = "orkbox_redo"
 
@@ -1173,11 +1244,13 @@ class BoxTools(
             ToolSpec(
                 WRITE,
                 "Writes a file in a session's workspace, creating it and its directories, replacing what was there. " +
-                    "orkbox_undo takes a write back.",
+                    "The content is given whole, or taken from one of this conversation's scratchpads by name - the way " +
+                    "to move a draft into a box without copying it back through your reply. orkbox_undo takes a write back.",
                 listOf(
                     SESSION,
                     text("path", "The file, relative to the workspace root.", required = true),
-                    text("content", "The whole new content.", required = true),
+                    text("content", "The whole new content. Leave it out when from_scratchpad is given."),
+                    text("from_scratchpad", "The name of a scratchpad in this conversation whose content is written, instead of content."),
                     text("mode", "Its permissions in octal, such as 755."),
                 ),
             ),
@@ -1310,6 +1383,19 @@ class BoxTools(
                     SESSION,
                     text("key", "The store key the archive is held under, such as artifact.18 or the key orkbox_export answered with.", required = true),
                     text("path", "The directory in the workspace to unpack into, created if missing; the workspace root by default."),
+                ),
+            ),
+            ToolSpec(
+                FETCH_ARTIFACT,
+                "Puts a saved artifact - a file save_artifact kept, or one somebody saved in this workspace - into a " +
+                    "session's workspace. This is how an artifact gets into a box: the box cannot reach this server or " +
+                    "its links, so do not try to download it from inside. Written as one file, or unpacked with unpack " +
+                    "when it is a .zip, .tar or .tar.gz. orkbox_undo takes a written file back.",
+                listOf(
+                    SESSION,
+                    text("artifact", "The artifact's number, or its link, which ends in that number.", required = true),
+                    text("path", "Where it goes: the file to write, the artifact's own name by default; with unpack, the directory to unpack into, the workspace root by default."),
+                    flag("unpack", "Unpack it as an archive instead of writing it as one file."),
                 ),
             ),
         )

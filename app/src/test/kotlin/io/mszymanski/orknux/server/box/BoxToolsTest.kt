@@ -55,6 +55,9 @@ class BoxToolsTest(
     @Autowired val web: io.mszymanski.orknux.server.security.WebProperties,
     @Autowired val jdbc: org.springframework.jdbc.core.JdbcTemplate,
     @Autowired val store: io.mszymanski.orknux.server.llm.LlmSessionStore,
+    @Autowired val pads: io.mszymanski.orknux.server.llm.SessionScratchpadService,
+    @Autowired val savedArtifacts: io.mszymanski.orknux.server.workflow.SavedArtifactRepository,
+    @Autowired val attachmentStore: io.mszymanski.orknux.server.attachment.AttachmentStore,
 ) {
 
     @TempDir
@@ -83,6 +86,7 @@ class BoxToolsTest(
         lines.deleteAll()
         agents.deleteAll()
         audit.deleteAll()
+        savedArtifacts.deleteAll()
         workspaces.deleteAll()
     }
 
@@ -361,6 +365,76 @@ class BoxToolsTest(
         val imported = call("orkbox_import", mapOf("session" to session, "key" to "evil.zip", "path" to "in"))
         assertThat(imported.path("error").stringValue()).contains("outside")
         assertThat(read(session, "in/ok.txt").path("error").isMissingNode).isFalse()
+    }
+
+    /**
+     * A draft in a scratchpad goes into a box by name. Before, the only way in
+     * was to send its content again, whole - an agent zipped one instead, failed
+     * to import the zip and tried to download it from inside the container.
+     */
+    @Test
+    fun `a scratchpad is written into a box by name, and undo takes it back`() {
+        val session = opened()
+        call("orkbox_write", mapOf("session" to session, "path" to "ui.html", "content" to "old"))
+        val draft = "<html>\n  <body>draft</body>\n</html>\n"
+        assertThat(pads.create(conversation, "ui.html", "The page, drafted", draft)).isInstanceOf(io.mszymanski.orknux.server.llm.ScratchpadResult.Ok::class.java)
+
+        val written = call("orkbox_write", mapOf("session" to session, "path" to "ui.html", "from_scratchpad" to "ui.html"))
+        assertThat(written.path("error").isMissingNode).describedAs(written.toString()).isTrue()
+        assertThat(read(session, "ui.html").path("content").stringValue()).isEqualTo(draft)
+
+        call("orkbox_undo", mapOf("session" to session))
+        assertThat(read(session, "ui.html").path("content").stringValue()).isEqualTo("old")
+        assertThat(call("orkbox_write", mapOf("session" to session, "path" to "x", "from_scratchpad" to "nope")).path("error").stringValue())
+            .contains("no scratchpad")
+    }
+
+    private fun artifact(workspace: Long, name: String, bytes: ByteArray): Long {
+        val location = attachmentStore.put(workspace, name, bytes)
+        return requireNotNull(
+            savedArtifacts.save(
+                io.mszymanski.orknux.server.workflow.SavedArtifact(
+                    workspaceId = workspace,
+                    name = name,
+                    description = "test",
+                    contentType = "application/octet-stream",
+                    sizeBytes = bytes.size.toLong(),
+                    location = location,
+                    savedBy = "Builder",
+                ),
+            ).id,
+        )
+    }
+
+    /** The box cannot reach this server, so an artifact goes in through the server: as a file, or unpacked. */
+    @Test
+    fun `a saved artifact goes into a box, as a file or unpacked`() {
+        val session = opened()
+        val page = artifact(workspaceId, "ui.html", "<h1>hi</h1>".toByteArray())
+        val fetched = call("orkbox_fetch_artifact", mapOf("session" to session, "artifact" to "http://localhost:5173/api/artifacts/$page"))
+        assertThat(fetched.path("error").isMissingNode).describedAs(fetched.toString()).isTrue()
+        assertThat(read(session, "ui.html").path("content").stringValue()).isEqualTo("<h1>hi</h1>")
+
+        val zipped = java.io.ByteArrayOutputStream().also { out ->
+            java.util.zip.ZipOutputStream(out).use { zip ->
+                zip.putNextEntry(java.util.zip.ZipEntry("site/app.css"))
+                zip.write("body{}".toByteArray())
+                zip.closeEntry()
+            }
+        }.toByteArray()
+        val archive = artifact(workspaceId, "site.zip", zipped)
+        val unpacked = call("orkbox_fetch_artifact", mapOf("session" to session, "artifact" to archive, "unpack" to true, "path" to "staging"))
+        assertThat(unpacked.path("error").isMissingNode).describedAs(unpacked.toString()).isTrue()
+        assertThat(read(session, "staging/site/app.css").path("content").stringValue()).isEqualTo("body{}")
+    }
+
+    @Test
+    fun `another workspace's artifact is not fetched`() {
+        val session = opened()
+        val elsewhere = requireNotNull(workspaces.save(Workspace(name = "elsewhere")).id)
+        val theirs = artifact(elsewhere, "secret.txt", "theirs".toByteArray())
+        assertThat(call("orkbox_fetch_artifact", mapOf("session" to session, "artifact" to theirs)).path("error").stringValue())
+            .contains("no artifact")
     }
 
     @Test
