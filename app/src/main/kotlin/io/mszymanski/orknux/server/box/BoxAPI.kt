@@ -47,6 +47,7 @@ class BoxAPI(
     private val sessionLog: BoxSessionLog,
     private val editHistory: BoxEditHistory,
     private val secrets: BoxSecrets,
+    private val exposed: ExposedPorts,
 ) {
 
     // ------------------------------------------------------------------ boxes
@@ -258,6 +259,57 @@ class BoxAPI(
     }
 
     // ------------------------------------------------------- a conversation
+
+    /** The ports a conversation's agents asked to expose, oldest first, with whether each answers. */
+    @QueryMapping
+    fun sessionBoxPorts(@Argument sessionId: Long): List<BoxPortView> {
+        val session = llmSessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
+        access.requireVisible(session.workspaceId)
+        return exposed.of(sessionId).map(::portView)
+    }
+
+    @MutationMapping
+    fun enableBoxPort(@Argument id: Long): BoxPortView = decide(id) { mapping, by -> exposed.enable(mapping, by) }
+
+    @MutationMapping
+    fun disableBoxPort(@Argument id: Long): BoxPortView = decide(id) { mapping, by -> exposed.disable(mapping, by) }
+
+    @MutationMapping
+    fun deleteBoxPort(@Argument id: Long): Long {
+        val mapping = exposed.find(id)
+        access.requireVisible(mapping.workspaceId)
+        exposed.delete(mapping, currentUser())
+        return id
+    }
+
+    private fun decide(id: Long, act: (BoxPortMapping, String) -> Unit): BoxPortView {
+        val mapping = exposed.find(id)
+        access.requireVisible(mapping.workspaceId)
+        act(mapping, currentUser())
+        return portView(exposed.find(id))
+    }
+
+    private fun portView(mapping: BoxPortMapping): BoxPortView {
+        val row = sessionRows.findByIdOrNull(mapping.boxSessionId)
+        val (alive, checkedAt) = exposed.alive(mapping)
+        return BoxPortView(
+            id = requireNotNull(mapping.id),
+            sessionBoxId = mapping.boxSessionId,
+            boxName = row?.boxName ?: "",
+            boxLabel = row?.let(::labelOf),
+            port = mapping.containerPort,
+            reason = mapping.reason,
+            state = mapping.state,
+            url = mapping.url,
+            note = mapping.note,
+            requestedBy = mapping.requestedBy,
+            createdAt = mapping.createdAt.toString(),
+            decidedAt = mapping.decidedAt?.toString(),
+            decidedBy = mapping.decidedBy,
+            alive = alive,
+            checkedAt = checkedAt?.toString(),
+        )
+    }
 
     @QueryMapping
     fun sessionBoxes(@Argument sessionId: Long): List<SessionBoxView> {
@@ -475,6 +527,24 @@ class BoxAPI(
     @SchemaMapping(typeName = "InstallationSettings", field = "localBoxMaxSessionsConfigured")
     fun localBoxMaxSessionsConfigured(source: InstallationSettingsView): Int = DEFAULT_LOCAL_BOX_SESSIONS
 
+    @SchemaMapping(typeName = "InstallationSettings", field = "boxMaxPorts")
+    fun boxMaxPorts(source: InstallationSettingsView): Int = settings.maxPorts()
+
+    @SchemaMapping(typeName = "InstallationSettings", field = "boxMaxPortsConfigured")
+    fun boxMaxPortsConfigured(source: InstallationSettingsView): Int = DEFAULT_BOX_PORTS
+
+    @SchemaMapping(typeName = "InstallationSettings", field = "boxPortCheckSeconds")
+    fun boxPortCheckSeconds(source: InstallationSettingsView): Int = settings.portCheckSeconds()
+
+    @SchemaMapping(typeName = "InstallationSettings", field = "boxPortCheckSecondsConfigured")
+    fun boxPortCheckSecondsConfigured(source: InstallationSettingsView): Int = DEFAULT_BOX_PORT_CHECK_SECONDS
+
+    @SchemaMapping(typeName = "InstallationSettings", field = "boxPortCheckWaitMillis")
+    fun boxPortCheckWaitMillis(source: InstallationSettingsView): Int = settings.portCheckWaitMillis()
+
+    @SchemaMapping(typeName = "InstallationSettings", field = "boxPortCheckWaitMillisConfigured")
+    fun boxPortCheckWaitMillisConfigured(source: InstallationSettingsView): Int = DEFAULT_BOX_PORT_CHECK_WAIT
+
     @SchemaMapping(typeName = "InstallationSettings", field = "localBoxDefaultTtlSeconds")
     fun localBoxDefaultTtlSeconds(source: InstallationSettingsView): Int = settings.localDefaultTtlSeconds()
 
@@ -556,6 +626,20 @@ class BoxAPI(
     @MutationMapping
     fun setLocalBoxMaxSessions(@Argument count: Int): InstallationSettingsView =
         changed("The local box holds up to $count sessions at once") { settings.setLocalMaxSessions(count, it) }
+
+    @MutationMapping
+    fun setBoxMaxPorts(@Argument count: Int): InstallationSettingsView =
+        changed(
+            if (count == 0) "Agents may not ask to expose box ports" else "A box session may expose up to $count ports",
+        ) { settings.setMaxPorts(count, it) }
+
+    @MutationMapping
+    fun setBoxPortCheckSeconds(@Argument seconds: Int): InstallationSettingsView =
+        changed("Whether an exposed port answers is looked at every $seconds seconds at most") { settings.setPortCheckSeconds(seconds, it) }
+
+    @MutationMapping
+    fun setBoxPortCheckWaitMillis(@Argument millis: Int): InstallationSettingsView =
+        changed("A look at an exposed port waits $millis milliseconds") { settings.setPortCheckWaitMillis(millis, it) }
 
     @MutationMapping
     fun setLocalBoxDefaultTtlSeconds(@Argument seconds: Int): InstallationSettingsView =
@@ -764,6 +848,24 @@ data class BoxRemoteSessionView(
 }
 
 data class BoxConnectionTestView(val ok: Boolean, val message: String, val version: String?)
+
+data class BoxPortView(
+    val id: Long,
+    val sessionBoxId: Long,
+    val boxName: String,
+    val boxLabel: String?,
+    val port: Int,
+    val reason: String?,
+    val state: BoxPortState,
+    val url: String?,
+    val note: String?,
+    val requestedBy: String?,
+    val createdAt: String,
+    val decidedAt: String?,
+    val decidedBy: String?,
+    val alive: Boolean,
+    val checkedAt: String?,
+)
 
 data class SessionBoxView(
     val id: Long,

@@ -33,6 +33,7 @@ class LocalBox(private val settings: BoxSettings) : DisposableBean {
         val location: String?,
         val owner: String,
         val maxSessions: Int,
+        val maxPorts: Int,
         val defaultTtl: Int,
         val maxTtl: Int,
         val idle: Int,
@@ -96,6 +97,7 @@ class LocalBox(private val settings: BoxSettings) : DisposableBean {
         location = settings.localLocation() ?: settings.localLocationConfigured(),
         owner = settings.localOwner(),
         maxSessions = settings.localMaxSessions(),
+        maxPorts = settings.maxPorts(),
         defaultTtl = settings.localDefaultTtlSeconds(),
         maxTtl = settings.localMaxTtlSeconds(),
         idle = settings.localIdleTimeoutSeconds(),
@@ -110,6 +112,8 @@ class LocalBox(private val settings: BoxSettings) : DisposableBean {
         maxTtlSeconds = shape.maxTtl.toLong(),
         defaultIdleTimeoutSeconds = shape.idle.toLong(),
         maxSessions = shape.maxSessions,
+        // At least one, because a forward this side allowed must not be refused for the box's own count.
+        maxPorts = maxOf(shape.maxPorts, 1),
         /*
          * Not on start: orkbox's clean-up removes every container carrying its
          * label, and a Docker host this server shares with a standalone orkbox

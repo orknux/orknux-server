@@ -9,6 +9,7 @@ import io.mszymanski.orknux.orkbox.model.ExecutionDto
 import io.mszymanski.orknux.orkbox.model.FileEntry
 import io.mszymanski.orknux.orkbox.model.Info
 import io.mszymanski.orknux.orkbox.model.MoveRequest
+import io.mszymanski.orknux.orkbox.model.PublishedPort
 import io.mszymanski.orknux.orkbox.model.SearchRequest
 import io.mszymanski.orknux.orkbox.model.SearchResult
 import io.mszymanski.orknux.orkbox.model.SessionDto
@@ -87,6 +88,12 @@ interface BoxClient {
 
     /** A `.tar` or `.tar.gz` unpacked into [path], or the workspace root. */
     fun importArchive(id: String, path: String?, archive: ByteArray)
+
+    /** Forwards the session's [port] to the box's machine, or answers the forward already open. */
+    fun forward(id: String, port: Int): PublishedPort
+
+    /** Closes a forward; a port that was not forwarded is not an error here. */
+    fun unforward(id: String, port: Int)
 }
 
 /** Something a box refused or could not do, in orkbox's own words and code. */

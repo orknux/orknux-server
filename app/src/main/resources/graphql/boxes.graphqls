@@ -4,6 +4,8 @@
 # administrator registered. An agent reaches a box through its label.
 
 extend type Query {
+    "The ports a conversation's agents asked to expose out of their box sessions, oldest first."
+    sessionBoxPorts(sessionId: ID!): [BoxPort!]!
     "Every box, the local one first while it is switched on. Administrators only."
     boxes: [Box!]!
     "One box by id - `local` for the local one - or null. Administrators only."
@@ -77,6 +79,21 @@ extend type Mutation {
     setLocalBoxRuntime(runtime: String!): InstallationSettings!
     "How many sessions the local box holds at once, 1 to 1000."
     setLocalBoxMaxSessions(count: Int!): InstallationSettings!
+    "How many ports one box session may have asked for or open at once, 0 to 20."
+    setBoxMaxPorts(count: Int!): InstallationSettings!
+    "How long a look at whether an exposed port answers is believed, 2 to 600 seconds."
+    setBoxPortCheckSeconds(seconds: Int!): InstallationSettings!
+    "How long that look waits, 100 to 10000 milliseconds."
+    setBoxPortCheckWaitMillis(millis: Int!): InstallationSettings!
+    """
+    Opens an exposed port: forwards it on its box and tells the agent where it
+    answers. Refused with BoxPortSessionClosed once its session has stopped.
+    """
+    enableBoxPort(id: ID!): BoxPort!
+    "Closes an exposed port and keeps it listed, so it can be enabled again."
+    disableBoxPort(id: ID!): BoxPort!
+    "Closes an exposed port and removes it."
+    deleteBoxPort(id: ID!): ID!
     "How long a local box session lasts unless it asks otherwise, 60 to 604800 seconds."
     setLocalBoxDefaultTtlSeconds(seconds: Int!): InstallationSettings!
     "The longest a local box session may last, 60 to 604800 seconds."
@@ -118,6 +135,15 @@ extend type InstallationSettings {
     "How many sessions the local box holds at once."
     localBoxMaxSessions: Int!
     localBoxMaxSessionsConfigured: Int!
+    "How many ports one box session may have asked for or open at once."
+    boxMaxPorts: Int!
+    boxMaxPortsConfigured: Int!
+    "How long a look at whether an exposed port answers is believed, in seconds."
+    boxPortCheckSeconds: Int!
+    boxPortCheckSecondsConfigured: Int!
+    "How long that look waits, in milliseconds."
+    boxPortCheckWaitMillis: Int!
+    boxPortCheckWaitMillisConfigured: Int!
     "How long a local box session lasts unless it asks otherwise, in seconds."
     localBoxDefaultTtlSeconds: Int!
     localBoxDefaultTtlSecondsConfigured: Int!
@@ -334,4 +360,34 @@ input BoxInput {
     address: String
     "On update: null keeps the stored token, empty clears it. Ignored for the local box."
     token: String
+}
+
+"Where an exposed port stands: asked, refused, open, or closed again."
+enum BoxPortState { PENDING ENABLED DISABLED REFUSED }
+
+"A port an agent asked to expose out of a box session, and what a person made of it."
+type BoxPort {
+    id: ID!
+    "The box session it is in."
+    sessionBoxId: ID!
+    boxName: String!
+    "The label of the box the session runs on, as it is now."
+    boxLabel: String
+    "The port inside the session."
+    port: Int!
+    "What the agent said it was for."
+    reason: String
+    state: BoxPortState!
+    "Where it answers while it is open."
+    url: String
+    "Set when the address opens only on the box's own machine."
+    note: String
+    requestedBy: String
+    createdAt: String!
+    decidedAt: String
+    decidedBy: String
+    "Whether something answers on it now; false without looking unless it is open."
+    alive: Boolean!
+    "When that was last looked at; null when it was not."
+    checkedAt: String
 }

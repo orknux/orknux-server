@@ -1,6 +1,8 @@
 package io.mszymanski.orknux.server.box
 
 import io.mszymanski.orknux.orkbox.model.CreateSessionRequest
+import io.mszymanski.orknux.orkbox.model.ForwardRequest
+import io.mszymanski.orknux.orkbox.model.PublishedPort
 import io.mszymanski.orknux.orkbox.model.DirectoryListing
 import io.mszymanski.orknux.orkbox.model.EditRequest
 import io.mszymanski.orknux.orkbox.model.EditResult
@@ -107,6 +109,17 @@ class RemoteBoxClient(
         send("POST", "/v1/sessions", encode(request), serializer())
 
     override fun session(id: String): SessionDto = get(sessionPath(id), serializer())
+
+    override fun forward(id: String, port: Int): PublishedPort =
+        send("POST", sessionPath(id) + "/ports", encode(ForwardRequest(port)), serializer())
+
+    override fun unforward(id: String, port: Int) {
+        try {
+            exchange("DELETE", sessionPath(id) + "/ports/$port", null)
+        } catch (gone: BoxCallException) {
+            if (gone.code != "port_not_forwarded") throw gone
+        }
+    }
 
     override fun update(id: String, request: UpdateSessionRequest): SessionDto =
         send("PATCH", sessionPath(id), encode(request), serializer())

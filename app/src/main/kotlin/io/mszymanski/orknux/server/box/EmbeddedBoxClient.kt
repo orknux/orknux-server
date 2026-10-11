@@ -3,6 +3,7 @@ package io.mszymanski.orknux.server.box
 import io.mszymanski.orknux.orkbox.ApiException
 import io.mszymanski.orknux.orkbox.Orkbox
 import io.mszymanski.orknux.orkbox.model.CreateSessionRequest
+import io.mszymanski.orknux.orkbox.model.PublishedPort
 import io.mszymanski.orknux.orkbox.model.DirectoryListing
 import io.mszymanski.orknux.orkbox.model.EditRequest
 import io.mszymanski.orknux.orkbox.model.EditResult
@@ -54,6 +55,13 @@ class EmbeddedBoxClient(private val orkbox: Orkbox) : BoxClient {
     }
 
     override fun create(request: CreateSessionRequest): SessionDto = call { manager.create(request).toDto() }
+
+    override fun forward(id: String, port: Int): PublishedPort = call { manager.forward(manager.get(id), port) }
+
+    override fun unforward(id: String, port: Int) = call {
+        val session = manager.get(id)
+        if (session.forwards.find(port) != null) manager.unforward(session, port)
+    }
 
     override fun session(id: String): SessionDto = call { manager.get(id).toDto() }
 

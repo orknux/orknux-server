@@ -81,6 +81,7 @@ class BoxTools(
     /** The workspace's saved artifacts, which orkbox_fetch_artifact puts into a box. */
     private val artifacts: io.mszymanski.orknux.server.workflow.SavedArtifactRepository,
     private val attachments: io.mszymanski.orknux.server.attachment.AttachmentStore,
+    private val exposed: ExposedPorts,
 ) {
 
     /** Offered while the agent holds any box label. */
@@ -113,6 +114,8 @@ class BoxTools(
         return try {
             when (name) {
                 LIST -> list(agent)
+                EXPOSE -> expose(agent, args, sessionId)
+                PORTS -> ports(agent, args, sessionId)
                 OPEN -> open(agent, args, sessionId)
                 SESSIONS -> listSessions(agent, args, sessionId)
                 CLOSE -> close(agent, args, sessionId)
@@ -280,6 +283,57 @@ class BoxTools(
         )
     }
 
+    /**
+     * Asks to expose a port of a session. Nothing opens here: a person is asked
+     * in the conversation and on the session page, and the agent is told
+     * through its inbox when they decide - which also wakes it.
+     */
+    private fun expose(agent: Agent, args: JsonNode, sessionId: Long?): String {
+        val held = held(agent, args, sessionId)
+        val port = args.long("port")?.toInt()?.takeIf { it in 1..65535 }
+            ?: throw Refused("Say which port, a number from 1 to 65535: the one your server listens on inside the session")
+        if (!held.row.open) throw Refused("Box session ${held.row.id} is not running, so nothing in it can be exposed")
+        val (mapping, asked) = exposed.request(held.row, port, args.text("why"), agent.name)
+        return answer(
+            buildMap {
+                put("session", held.row.id)
+                put("port", port)
+                put("state", mapping.state.name.lowercase())
+                mapping.url?.let { put("url", it) }
+                put(
+                    "note",
+                    when {
+                        mapping.state == BoxPortState.ENABLED -> "It is already exposed at ${mapping.url}."
+                        !asked -> "You asked for this port already; it is ${mapping.state.name.lowercase()}. You will be told when that changes."
+                        else ->
+                            "Nothing is exposed yet: the person has been asked in the conversation to allow or reject it, " +
+                                "and can change it later on the session page. You will be told the outcome, with the URL, " +
+                                "as a message - carry on with other work or end your turn; do not wait or ask again."
+                    },
+                )
+            },
+        )
+    }
+
+    /** The ports this session's agents asked to expose, and where each stands. */
+    private fun ports(agent: Agent, args: JsonNode, sessionId: Long?): String {
+        val held = held(agent, args, sessionId)
+        return answer(
+            mapOf(
+                "session" to held.row.id,
+                "ports" to exposed.of(held.row).map { mapping ->
+                    buildMap {
+                        put("port", mapping.containerPort)
+                        put("state", mapping.state.name.lowercase())
+                        mapping.url?.takeIf { mapping.state == BoxPortState.ENABLED }?.let { put("url", it) }
+                        mapping.note?.takeIf { mapping.state == BoxPortState.ENABLED }?.let { put("note", it) }
+                        mapping.reason?.let { put("why", it) }
+                    }
+                },
+            ),
+        )
+    }
+
     private fun listSessions(agent: Agent, args: JsonNode, sessionId: Long?): String {
         val conversation = sessionId ?: throw Refused("This call has no conversation, so it has no box sessions")
         val closed = args.bool("include_closed") ?: false
@@ -302,6 +356,7 @@ class BoxTools(
         sessionLog.recordQuietly(held.row, held.client)
         val stopped = held.client.stop(held.row.remoteSessionId)
         held.row.closedAt = OffsetDateTime.now()
+        exposed.closed(held.row)
         history.forget(held.row)
         remember(held.row, stopped.status)
         // And after it, for what stopping it finished.
@@ -1038,7 +1093,7 @@ class BoxTools(
         })
 
     /** Something this side refuses before a box is asked. */
-    private class Refused(override val message: String, val code: String? = null) : RuntimeException(message)
+    internal class Refused(override val message: String, val code: String? = null) : RuntimeException(message)
 
     companion object {
         private val log = LoggerFactory.getLogger(BoxTools::class.java)
@@ -1065,6 +1120,8 @@ class BoxTools(
         const val EXPORT = "orkbox_export"
         const val IMPORT = "orkbox_import"
         const val FETCH_ARTIFACT = "orkbox_fetch_artifact"
+        const val EXPOSE = "orkbox_expose"
+        const val PORTS = "orkbox_ports"
 
         /** The number an artifact is addressed by: alone, or at the end of its link. */
         private val ARTIFACT_NUMBER = Regex("(\\d+)$")
@@ -1143,6 +1200,25 @@ class BoxTools(
                     number("idle_timeout_seconds", "How long it may sit unused before it is stopped."),
                     pairs("labels", "Labels to put on the session, for your own bookkeeping."),
                 ),
+            ),
+            ToolSpec(
+                EXPOSE,
+                "Asks to make a port of a running session reachable from outside it, so a person can open what you " +
+                    "serve there - a dev server, a page. Nothing opens until a person allows it: they are asked in the " +
+                    "conversation, with Allow and Reject, and can enable, disable or remove it on the session page at " +
+                    "any time. You are told the outcome, with the URL, as a message; carry on or end your turn " +
+                    "meanwhile. Start the server first, listening on 0.0.0.0 or 127.0.0.1 inside the session.",
+                listOf(
+                    SESSION,
+                    number("port", "The port your server listens on inside the session.", required = true),
+                    text("why", "What it is for, in a sentence the person reads before deciding."),
+                ),
+            ),
+            ToolSpec(
+                PORTS,
+                "Lists the ports asked to be exposed in a session and where each stands - pending, enabled (with " +
+                    "the URL it answers at), disabled or refused.",
+                listOf(SESSION),
             ),
             ToolSpec(
                 SESSIONS,

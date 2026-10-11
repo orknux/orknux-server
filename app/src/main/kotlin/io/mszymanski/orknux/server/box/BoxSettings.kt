@@ -52,6 +52,21 @@ const val MIN_BOX_REQUEST_TIMEOUT = 1
 const val MAX_BOX_REQUEST_TIMEOUT = 600
 const val DEFAULT_BOX_REQUEST_TIMEOUT = 30
 
+/** How many ports one box session may have asked for or open at once; 0 lets an agent ask for none. */
+const val MIN_BOX_PORTS = 0
+const val MAX_BOX_PORTS = 20
+const val DEFAULT_BOX_PORTS = 5
+
+/** How long a look at whether an exposed port answers is believed, in seconds. */
+const val MIN_BOX_PORT_CHECK_SECONDS = 2
+const val MAX_BOX_PORT_CHECK_SECONDS = 600
+const val DEFAULT_BOX_PORT_CHECK_SECONDS = 15
+
+/** How long that look waits for the box to close a connection nothing inside took, in milliseconds. */
+const val MIN_BOX_PORT_CHECK_WAIT = 100
+const val MAX_BOX_PORT_CHECK_WAIT = 10000
+const val DEFAULT_BOX_PORT_CHECK_WAIT = 1500
+
 /** How many edits and writes `orkbox_undo` can take back, per box session; 0 keeps no history. */
 const val MIN_BOX_EDIT_UNDO_STEPS = 0
 const val MAX_BOX_EDIT_UNDO_STEPS = 100
@@ -95,6 +110,14 @@ class BoxSettings(private val settings: InstallationSettingRepository) {
 
     fun localMaxSessions(): Int = ranged(LOCAL_MAX_SESSIONS, MIN_LOCAL_BOX_SESSIONS..MAX_LOCAL_BOX_SESSIONS, DEFAULT_LOCAL_BOX_SESSIONS)
 
+    fun maxPorts(): Int = ranged(MAX_PORTS, MIN_BOX_PORTS..MAX_BOX_PORTS, DEFAULT_BOX_PORTS)
+
+    fun portCheckSeconds(): Int =
+        ranged(PORT_CHECK_SECONDS, MIN_BOX_PORT_CHECK_SECONDS..MAX_BOX_PORT_CHECK_SECONDS, DEFAULT_BOX_PORT_CHECK_SECONDS)
+
+    fun portCheckWaitMillis(): Int =
+        ranged(PORT_CHECK_WAIT, MIN_BOX_PORT_CHECK_WAIT..MAX_BOX_PORT_CHECK_WAIT, DEFAULT_BOX_PORT_CHECK_WAIT)
+
     fun localDefaultTtlSeconds(): Int = ranged(LOCAL_DEFAULT_TTL, MIN_LOCAL_BOX_TTL..MAX_LOCAL_BOX_TTL, DEFAULT_LOCAL_BOX_TTL)
 
     fun localMaxTtlSeconds(): Int = ranged(LOCAL_MAX_TTL, MIN_LOCAL_BOX_TTL..MAX_LOCAL_BOX_TTL, DEFAULT_LOCAL_BOX_MAX_TTL)
@@ -136,6 +159,24 @@ class BoxSettings(private val settings: InstallationSettingRepository) {
         val given = runtime.trim().lowercase()
         if (given !in RUNTIMES) throw LocalBoxRuntimeUnknownException(runtime)
         write(LOCAL_RUNTIME, given, by)
+    }
+
+    @Transactional
+    fun setMaxPorts(count: Int, by: String) {
+        if (count !in MIN_BOX_PORTS..MAX_BOX_PORTS) throw BoxMaxPortsOutOfRangeException(count)
+        write(MAX_PORTS, count.toString(), by)
+    }
+
+    @Transactional
+    fun setPortCheckSeconds(seconds: Int, by: String) {
+        if (seconds !in MIN_BOX_PORT_CHECK_SECONDS..MAX_BOX_PORT_CHECK_SECONDS) throw BoxPortCheckOutOfRangeException(seconds)
+        write(PORT_CHECK_SECONDS, seconds.toString(), by)
+    }
+
+    @Transactional
+    fun setPortCheckWaitMillis(millis: Int, by: String) {
+        if (millis !in MIN_BOX_PORT_CHECK_WAIT..MAX_BOX_PORT_CHECK_WAIT) throw BoxPortCheckWaitOutOfRangeException(millis)
+        write(PORT_CHECK_WAIT, millis.toString(), by)
     }
 
     @Transactional
@@ -236,6 +277,9 @@ class BoxSettings(private val settings: InstallationSettingRepository) {
         const val LOCAL_OWNER = "tin.local.owner"
         const val LOCAL_RUNTIME = "tin.local.runtime"
         const val LOCAL_MAX_SESSIONS = "tin.local.max.sessions"
+        const val MAX_PORTS = "tin.ports.max"
+        const val PORT_CHECK_SECONDS = "tin.ports.check.seconds"
+        const val PORT_CHECK_WAIT = "tin.ports.check.wait.millis"
         const val LOCAL_DEFAULT_TTL = "tin.local.ttl.default.seconds"
         const val LOCAL_MAX_TTL = "tin.local.ttl.max.seconds"
         const val LOCAL_IDLE = "tin.local.idle.seconds"

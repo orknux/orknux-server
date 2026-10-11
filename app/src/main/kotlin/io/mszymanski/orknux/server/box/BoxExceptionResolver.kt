@@ -21,6 +21,10 @@ class BoxExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is BoxLabelRequiredException,
             is LocalBoxRuntimeUnknownException,
             is LocalBoxMaxSessionsOutOfRangeException,
+            is BoxMaxPortsOutOfRangeException,
+            is BoxPortCheckOutOfRangeException,
+            is BoxPortCheckWaitOutOfRangeException,
+            is BoxPortSessionClosedException,
             is LocalBoxTtlOutOfRangeException,
             is LocalBoxIdleTimeoutOutOfRangeException,
             is BoxCommandWaitOutOfRangeException,
@@ -32,12 +36,12 @@ class BoxExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is BoxEditUndoStepsOutOfRangeException,
             -> ErrorType.BAD_REQUEST
 
-            is BoxNotFoundException -> ErrorType.NOT_FOUND
+            is BoxNotFoundException, is BoxPortNotFoundException -> ErrorType.NOT_FOUND
 
             // A box that will not answer is not the caller's mistake, and calling
             // it a bad request would have somebody checking what they typed
             // instead of checking the box.
-            is BoxUnreachableException -> ErrorType.INTERNAL_ERROR
+            is BoxUnreachableException, is BoxPortUnreachableException -> ErrorType.INTERNAL_ERROR
 
             else -> return null
         }

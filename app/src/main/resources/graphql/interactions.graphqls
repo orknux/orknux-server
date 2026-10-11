@@ -1,0 +1,43 @@
+# Questions put to a person in a conversation on behalf of something that needs
+# a decision before it goes on: an agent asking to expose a port, and whatever
+# asks next. A request carries its own options, so a client draws any kind
+# from what it is given; `kind` says which server-side handler acts on the
+# answer.
+
+extend type Query {
+    "The questions asked in a conversation, oldest first."
+    sessionRequests(sessionId: ID!): [InteractionRequest!]!
+}
+
+extend type Mutation {
+    """
+    Answers a question with one of its options. Refused with
+    InteractionAlreadyAnswered once it has been, and InteractionOptionUnknown
+    for an option it does not offer.
+    """
+    answerRequest(id: ID!, option: String!): InteractionRequest!
+}
+
+type InteractionRequest {
+    id: ID!
+    "Which handler acts on the answer, such as box.port."
+    kind: String!
+    "Who is asking: the agent's name."
+    askedBy: String
+    question: String!
+    options: [InteractionOption!]!
+    "The id of the option chosen; `settled` when it was decided somewhere else; null while open."
+    chosen: String
+    chosenBy: String
+    chosenAt: String
+    "What became of it, in a line, kept up to date when it changes elsewhere."
+    outcome: String
+    createdAt: String!
+}
+
+type InteractionOption {
+    id: ID!
+    label: String!
+    "A hint for drawing it: primary, danger, or null."
+    style: String
+}

@@ -53,6 +53,26 @@ class LocalBoxRuntimeUnknownException(val runtime: String) : RuntimeException(
     override val arguments get() = mapOf("runtime" to runtime)
 }
 
+class BoxMaxPortsOutOfRangeException(val count: Int) : RuntimeException(
+    "$count is not a number of ports a box session may expose. Choose between $MIN_BOX_PORTS and $MAX_BOX_PORTS.",
+), Refusal {
+    override val arguments get() = mapOf("count" to count)
+}
+
+class BoxPortCheckOutOfRangeException(val seconds: Int) : RuntimeException(
+    "$seconds is not a number of seconds to believe a look at an exposed port. " +
+        "Choose between $MIN_BOX_PORT_CHECK_SECONDS and $MAX_BOX_PORT_CHECK_SECONDS.",
+), Refusal {
+    override val arguments get() = mapOf("seconds" to seconds)
+}
+
+class BoxPortCheckWaitOutOfRangeException(val millis: Int) : RuntimeException(
+    "$millis is not a number of milliseconds to wait when looking at an exposed port. " +
+        "Choose between $MIN_BOX_PORT_CHECK_WAIT and $MAX_BOX_PORT_CHECK_WAIT.",
+), Refusal {
+    override val arguments get() = mapOf("millis" to millis)
+}
+
 class LocalBoxMaxSessionsOutOfRangeException(val count: Int) : RuntimeException(
     "$count is not a number of sessions the local box can hold. " +
         "Choose between $MIN_LOCAL_BOX_SESSIONS and $MAX_LOCAL_BOX_SESSIONS.",
