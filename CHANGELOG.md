@@ -15,30 +15,41 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
-## Unreleased
+## 1.0.0
 
 ### ✨ Added
 
-- You can write in a chat while its agent is working: the message goes to the running turn, the agent reads it at its next step, and it shows in the conversation where it was read.
-- An agent can ask to expose a port of a running box session with `orkbox_expose`, and nothing opens until a person allows it: the chat and the session transcript ask with **Allow** and **Reject**, and a **Ports** panel below Boxes lists every port asked for - its box label, whether something answers on it, and Allow or Enable, Disable and Delete at any time. The agent is told the outcome, with the URL, as a message that also wakes it. Admin Settings sets how many ports a session may expose (5) and how often and how long whether one answers is looked at; a box forwards a port through `docker exec`, so it works on Docker Desktop too, and listens on `ORKBOX_PUBLISH_HOST` (every interface by default).
-- An agent puts a draft into a box straight from a scratchpad (`orkbox_write` with `from_scratchpad`), and a saved artifact into a box with `orkbox_fetch_artifact`, unpacked if it is an archive: a box cannot reach this server, so it could not download one itself.
-- While a model writes a long tool call or its answer, the chat and the session page say what it is writing and how much has arrived, so a model putting a file into one call no longer looks stalled.
-- An agent's **Secret Catalogs** and **Variable Catalogs** grants: `variable_list` and `variable_get` read the plain values of the second, and `orkbox_exec` / `orkbox_open` take secrets and values by name and set them as environment variables for the command - a secret is never shown to the model, and anything a box prints that holds one reads `***` in the tool's answer, the session log, the chat and the Box panel.
-- A model provider can hand an agent **all tools up front** - every tool it holds from the first round, nothing to find or load - so the tool list never changes mid-turn and a local server such as llama.cpp keeps its prompt cache; on by default for Ollama and OpenAI-type providers, and a provider's **Most tools per request** caps how many one request carries (the type's own limit by default, 128 for OpenAI), past which the rest are still found as needed.
+- **Boxes - sandboxes where agents work.** An agent can open a session on a box, clone a repository into it, run commands, edit files, build and test, and hand back what it made - on a box built into the server or on remote orkbox instances. Everything below about boxes is part of it.
 - **Boxes**, the replacement for shells: an Admin → Boxes page lists the orkbox sandboxes agents can run commands in, with remote ones added by address and token, their health, active sessions and what each offers.
 - A local box built into the server, on by default, configured in Admin Settings - where its sessions live, the local or docker runtime, how many sessions it holds and how long they last; it runs commands as the server's own user.
 - An agent's **Box labels**: it may use a box whose label it was given, and none by default - the local box included.
 - Box tools for agents - opening a session on a box, running commands, reading and editing files, searching, reading the session log and moving archives in and out - with how long a command is waited for, how long it may run and how much output an agent is handed set in Admin Settings.
 - A box edit can replace lines by number or a regular expression's matches, and `orkbox_undo` / `orkbox_redo` take back and put again an agent's edits and writes in a session - refusing a file something else changed since - with how many steps are kept per session set by **Box edit undo steps** in Admin Settings (10 by default, 0 to switch it off; held in memory, so a restart forgets them).
 - A conversation's **Box** panel: the box sessions its agents opened, whether each is still running, and each one's event log.
+- An agent can ask to expose a port of a running box session with `orkbox_expose`, and nothing opens until a person allows it: the chat and the session transcript ask with **Allow** and **Reject**, and a **Ports** panel below Boxes lists every port asked for - its box label, whether something answers on it, and Allow or Enable, Disable and Delete at any time. The agent is told the outcome, with the URL, as a message that also wakes it. Admin Settings sets how many ports a session may expose (5) and how often and how long whether one answers is looked at; a box forwards a port through `docker exec`, so it works on Docker Desktop too, and listens on `ORKBOX_PUBLISH_HOST` (every interface by default).
+- An agent's **Secret Catalogs** and **Variable Catalogs** grants: `variable_list` and `variable_get` read the plain values of the second, and `orkbox_exec` / `orkbox_open` take secrets and values by name and set them as environment variables for the command - a secret is never shown to the model, and anything a box prints that holds one reads `***` in the tool's answer, the session log, the chat and the Box panel.
+- `orkbox_import` takes a .zip as well as a .tar or .tar.gz, and a secret handed to a box is set upper-cased too (`github_token` is also `$GITHUB_TOKEN`), with the answer naming what was set.
+- An agent puts a draft into a box straight from a scratchpad (`orkbox_write` with `from_scratchpad`), and a saved artifact into a box with `orkbox_fetch_artifact`, unpacked if it is an archive: a box cannot reach this server, so it could not download one itself.
+- You can write in a chat while its agent is working: the message goes to the running turn, the agent reads it at its next step, and it shows in the conversation where it was read.
+- While a model writes a long tool call or its answer, the chat and the session page say what it is writing and how much has arrived, so a model putting a file into one call no longer looks stalled.
+- A model provider can hand an agent **all tools up front** - every tool it holds from the first round, nothing to find or load - so the tool list never changes mid-turn and a local server such as llama.cpp keeps its prompt cache; on by default for Ollama and OpenAI-type providers, and a provider's **Most tools per request** caps how many one request carries (the type's own limit by default, 128 for OpenAI), past which the rest are still found as needed.
 - A reminder or watcher set by an agent another agent asked now wakes that agent when it goes off, after its answer, and what it then says reaches the agent that asked - which a chat or a task is woken for; a workflow step that has already finished reads it on its next turn in that conversation.
 - A conversation's **To-do** and **Notes** panels, below its boxes: the plan its agent keeps with the todo tools, done items ticked off, and what it wrote down with `note_to_self`, both updating as it works.
 - How big one value an agent keeps in its session may be, and how many it may keep, are Admin settings: **Session Value Size** (8 MB by default, up to 256 MB, so an exported project can be handed to an upload tool) and **Session Store Keys** (200 by default).
+- A chat links to the session it is answered in, from its header, from the moment its first turn starts; the session records which agent setup each turn ran under, as a workflow step's and a task's always did.
+- A picture pasted into the chat composer is attached as an uploaded one is, and a message may be sent with only an attachment.
+- What an agent writes beside its tool calls - how it reports progress - appears in the chat as it is written, and every agent is told to say what it is about to do and post a line every few calls.
+- A long block in a session or a tool call folds from an icon at its top right, which says its size in characters and tokens; the session page's side panels scroll instead of growing past the page.
 
 ### 🔧 Changed
+- A chat's files are shown under the message they came with - yours, or a picture the agent drew - instead of in a strip above the composer.
+- A question waiting for your answer (an agent asking to expose a port) sits at the bottom of the chat; once answered it moves to where it was asked, between the calls around it.
+- A message written while the agent works says Queued until the agent reads it, then Read.
+- A chat in a workspace with no companion model is named by its own model rather than staying "New chat".
+- A model's thinking is drawn in red, apart from its answer, and a thought longer than a minute says how long in minutes.
+- Chat rows in the sidebar drop their icon; a chat nothing was said in sorts by when it was made.
 - A box session an agent opens now stays up through two hours with no command, not the box's own fifteen minutes - an agent waiting for you to try what it served no longer comes back to a stopped session. Box Session Idle Timeout in Admin Settings changes it; an agent can still ask for its own.
 - How often the "Writing…" line is updated and how long it is believed without a new report are Admin settings, Writing Progress Interval (1 s) and Writing Progress Forgotten After (30 s).
-
 - Agents on Ollama and OpenAI-type providers - which includes llama.cpp and other OpenAI-compatible servers - are now handed every tool from their first round, past their own **Tools carried at once** limit and up to the provider's per-request limit; to keep the old behaviour, switch **All tools up front** off on the provider.
 - Shells are removed: agents can no longer open a shell on a machine, and the Admin → Shell pages are gone. Existing shell definitions stay in the database untouched, but nothing uses them any more.
 - A conversation's next turn now sends the model exactly what the last turn sent - every tool call, its reasoning and its result - and adds to it, so a provider with a prompt cache (llama.cpp, and hosted ones that bill cached input less) reads only the new message instead of the whole session again. What was sent is kept, encrypted, per session; once it outgrows half the model's context window it is started again from what was said, in one step. Notes, to-dos, a task's turn count and a memory count no longer sit in the system prompt, where they changed it every turn. Nothing to do on upgrade: existing sessions switch over on their next turn.
@@ -49,6 +60,14 @@ have failed.
 
 ### 🐛 Fixed
 
+- On Postgres, every chat nothing had been said in sorted above the one being talked in, and reopening Chat opened one of those.
+- A box label granted to an agent while its turn was running reached the watcher but not the box tools, which refused the box the watcher had just found.
+- The lines an agent wrote between tool calls showed no time after a reload.
+- A finished command's long output was read to the limit at once and could not be paged by scrolling.
+- An agent repeating a cycle of different calls, rather than the same call twice in a row, was no longer stopped by the repetition guard.
+- A tool whose code could not be loaded ended the agent's turn; it now answers as a failed call.
+- A new secret could not be typed into until its value was revealed; an open to-do's checkbox was barely visible; the chat's Upload files menu wrapped over the input.
+- Editing a box file with Windows line endings failed to match text the agent had just read.
 - A message written while the agent works is drawn where the agent read it, after the calls it made before reading it - and on a chat reopened mid-turn it is no longer drawn above the whole turn.
 - The memory tools name the agent's catalogs. An agent holding more than one was told the catalog was optional, left it out, and was refused - frontier models included.
 - On SQLite, naming a chat no longer holds the database's one writer while the model answers - a slow model used to stall every other write, and on a dropped connection left later writes failing to commit.
