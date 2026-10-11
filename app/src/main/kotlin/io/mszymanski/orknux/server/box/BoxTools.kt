@@ -86,7 +86,8 @@ class BoxTools(
      * the model is told, in words it can act on.
      */
     fun run(agent: Agent, name: String, arguments: String, sessionId: Long?): String {
-        if (!offered(agent)) return refuse("This agent has not been given any boxes")
+        // Asked of the grant now; what is *offered* stays as the turn began, so the request prefix a model server caches does not move.
+        if (boxes.labelsNow(agent).isEmpty()) return refuse("This agent has not been given any boxes")
         val args = runCatching { mapper.readTree(arguments.ifBlank { "{}" }) }.getOrNull()
             ?: return refuse("The arguments were not a JSON object")
         return try {

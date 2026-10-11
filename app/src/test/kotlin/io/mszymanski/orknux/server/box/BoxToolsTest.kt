@@ -106,11 +106,13 @@ class BoxToolsTest(
     @Test
     fun `a label no box has reaches nothing, and a box with no label is nobody's`() {
         agent.boxLabels = listOf("elsewhere")
+        agents.save(agent)
         assertThat(call("orkbox_list").path("boxes").size()).isZero()
         assertThat(call("orkbox_open").path("error").stringValue()).contains("No box you may use")
 
         boxes.save(Box(name = "unlabelled", label = null, address = "http://unlabelled.invalid"))
         agent.boxLabels = listOf("local")
+        agents.save(agent)
         assertThat(call("orkbox_open", mapOf("box" to "unlabelled")).path("error").stringValue()).contains("may not use")
     }
 
@@ -358,13 +360,39 @@ class BoxToolsTest(
         )
     }
 
+    /**
+     * A turn holds the agent it loaded when it began, and can run for an hour.
+     * A label granted part way through has to reach the tools in that turn: it
+     * reached the watcher, which reads the agent fresh, and the watcher fired on
+     * a box that orkbox_list and orkbox_open then said was not there.
+     */
+    @Test
+    fun `a label granted while a turn runs reaches that turn's box tools`() {
+        val stale = agents.save(Agent(workspaceId = workspaceId, name = "Waiting", type = AgentType.LLM).apply { boxLabels = listOf("elsewhere") })
+        assertThat(call("orkbox_list", who = stale).path("boxes").size()).isZero()
+
+        agents.findById(requireNotNull(stale.id)).get().also {
+            it.boxLabels = listOf("elsewhere", "local")
+            agents.save(it)
+        }
+
+        assertThat(stale.boxLabels).containsExactly("elsewhere")
+        val listed = call("orkbox_list", who = stale).path("boxes")
+        assertThat(listed.size()).isEqualTo(1)
+        assertThat(listed[0].path("name").stringValue()).isEqualTo("local")
+        val answer = call("orkbox_open", who = stale)
+        assertThat(answer.path("error").isMissingNode).describedAs(answer.toString()).isTrue()
+    }
+
     @Test
     fun `a grant taken back is taken back for a session already open`() {
         val session = opened()
         agent.boxLabels = emptyList()
+        agents.save(agent)
         assertThat(call("orkbox_exec", mapOf("session" to session, "command" to "echo x")).path("error").stringValue())
             .contains("not been given any boxes")
         agent.boxLabels = listOf("other")
+        agents.save(agent)
         assertThat(call("orkbox_exec", mapOf("session" to session, "command" to "echo x")).path("error").stringValue())
             .contains("no longer use")
     }

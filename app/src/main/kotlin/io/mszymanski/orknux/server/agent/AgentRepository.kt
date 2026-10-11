@@ -10,6 +10,14 @@ import org.springframework.data.repository.query.Param
 interface AgentRepository : JpaRepository<Agent, Long> {
 
     /**
+     * The box labels an agent holds now, read from the row rather than from an
+     * entity: a query for a column goes to the database, where a lookup by id
+     * hands back whatever copy the persistence context already holds.
+     */
+    @Query("select a.boxLabelsText from Agent a where a.id = :id")
+    fun boxLabelsTextOf(@Param("id") id: Long): String?
+
+    /**
      * The workspace an agent is in, without the agent.
      *
      * What an access check needs, asked before anything else on every screen

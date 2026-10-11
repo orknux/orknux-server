@@ -34,6 +34,7 @@ class Boxes(
     private val router: ProxyRouter,
     /** The address guard every outbound call is put past; see [RemoteBoxClient]. */
     private val probe: io.mszymanski.orknux.connector.connection.ConnectionProbe,
+    private val agents: io.mszymanski.orknux.server.agent.AgentRepository,
 ) {
 
     /** The local box while it is switched on, then the remote ones by name. */
@@ -54,13 +55,25 @@ class Boxes(
      * reaches none - the local box included.
      */
     fun usableBy(agent: Agent): List<KnownBox> {
-        val granted = agent.boxLabels.toSet()
+        val granted = labelsNow(agent)
         if (granted.isEmpty()) return emptyList()
         return all().filter { it.label != null && it.label in granted }
     }
 
     /** Whether [agent] may use [box] now. Asked on every call, so a grant taken back is taken back at once. */
-    fun mayUse(agent: Agent, box: KnownBox): Boolean = box.label != null && box.label in agent.boxLabels
+    fun mayUse(agent: Agent, box: KnownBox): Boolean = box.label != null && box.label in labelsNow(agent)
+
+    /**
+     * What [agent] is granted at this moment, not when its turn began.
+     *
+     * A turn holds the agent it loaded at its start, and a turn can run for an
+     * hour. A label granted part way through reached the watcher, which reads
+     * the agent fresh, and not the box tools: the watcher fired on a box that
+     * `orkbox_list` then said was not there, and `orkbox_open` refused it, in
+     * the same turn - and the agent concluded the box was flapping.
+     */
+    fun labelsNow(agent: Agent): Set<String> =
+        (agent.id?.takeIf(agents::existsById)?.let { id -> Agent.parseBoxLabels(agents.boxLabelsTextOf(id)) } ?: agent.boxLabels).toSet()
 
     /** A client for [box]; the local one is started if it was not. */
     fun client(box: KnownBox): BoxClient = when (box.kind) {
