@@ -128,6 +128,14 @@ class AgentBriefing(
         } else {
             HOW_YOU_RUN
         }
+        /*
+         * And to say what it is doing while it does it. A model on a long piece
+         * of work thought for minutes and called tool after tool in silence:
+         * what it writes beside a call reaches the person as it happens, its
+         * thinking may not, and one that writes nothing leaves them guessing
+         * whether it is working at all.
+         */
+        parts += REPORT_PROGRESS
 
         val instructions = skills.list(agent)
 
@@ -546,6 +554,13 @@ class AgentBriefing(
                 "before you finish, or, as a last resort, end your turn with a wake-up, where one is " +
                 "offered, and say when you will be back. Where you can do none of these, say so plainly " +
                 "rather than promising."
+
+        /** Saying what it is doing while it works; see [grants]. */
+        const val REPORT_PROGRESS =
+            "Whoever asked sees what you write, not what you think. For work that takes more than a couple " +
+                "of tool calls, first say in a sentence what you are about to do, then, every few calls, write " +
+                "a line beside your next call on what you found and what you are doing next - the way a " +
+                "colleague keeps you posted. Keep these short; the full answer comes at the end."
 
         /** When the to-do list is worth keeping; said after [HOW_YOU_RUN] where the agent holds it. */
         const val PLAN_WITH_TODOS =

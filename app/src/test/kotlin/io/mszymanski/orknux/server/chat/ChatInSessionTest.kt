@@ -61,6 +61,7 @@ class ChatInSessionTest(
     @Autowired val providers: ModelProviderRepository,
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val audit: WorkspaceAuditRepository,
+    @Autowired val streaming: ChatStreamAPI,
 ) {
 
     private var workspaceId: Long = 0
@@ -478,6 +479,29 @@ class ChatInSessionTest(
             .execute()
             .path("chatMessages[*].at").entityList(String::class.java).get()
             .also { times -> assertThat(times).hasSize(4).allSatisfy { assertThat(it).isNotBlank() } }
+    }
+
+    /**
+     * And the open chat is told it as it happens, not on the next reload: what
+     * the agent writes beside a call is how it keeps somebody posted on a long
+     * piece of work, and it used to reach only the session.
+     */
+    @Test
+    fun `what the agent says beside a lookup is streamed before the lookup`() {
+        val catalogId = catalog("Reviews")
+        skill("codeReview", catalogId, "Read the diff twice before commenting.")
+        val agentId = agent("Reviewer", model(serveRemarkingThenToolThenAnswer()), granted = "Reviews")
+        val chatId = startChat(llmSessionId = null, agentId = agentId)
+
+        val response = org.springframework.mock.web.MockHttpServletResponse()
+        streaming.stream(chatId, ChatStreamRequest("What does the review skill say?"), response)
+            .writeTo(response.outputStream)
+        val frames = response.contentAsString.replace(" ", "")
+
+        val said = frames.indexOf("Letmereadthereviewskillfirst.")
+        assertThat(said).isNotNegative()
+        assertThat(frames.lastIndexOf("event:", said)).isEqualTo(frames.lastIndexOf("event:said", said))
+        assertThat(frames.indexOf("event:call")).isGreaterThan(said)
     }
 
     /**

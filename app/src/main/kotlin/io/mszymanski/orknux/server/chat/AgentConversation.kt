@@ -89,6 +89,17 @@ interface RoundWatch {
      */
     fun drew(markdown: String) = Unit
 
+    /**
+     * What the model wrote beside the calls it asked for - "Let me read the
+     * tests next" - before any of them run.
+     *
+     * The progress it reports between steps. The session kept it, so a reload
+     * showed it, but nothing told the open chat: somebody watching a long piece
+     * of work saw a thinking block and a column of lookups, while the agent's
+     * own account of what it was doing waited for a refresh.
+     */
+    fun said(text: String) = Unit
+
     /** A call, the moment it is dispatched and before its tool has run. */
     fun called(at: Int, tool: String, arguments: String) = Unit
 
@@ -923,6 +934,7 @@ class AgentConversation(
                      * is not.
                      */
                     record(into, agent, answer)
+                    if (answer.turn.content.isNotBlank()) watch?.said(answer.turn.content)
 
                     /*
                      * Pictures this round's tools made, waiting for the calls

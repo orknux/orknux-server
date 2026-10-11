@@ -805,6 +805,11 @@ class ChatService(
             second.drew(markdown)
         }
 
+        override fun said(text: String) {
+            first?.said(text)
+            second.said(text)
+        }
+
         override fun called(at: Int, tool: String, arguments: String) {
             first?.called(at, tool, arguments)
             second.called(at, tool, arguments)
