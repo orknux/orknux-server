@@ -189,6 +189,8 @@ fun interface Interjections {
 class AgentConversation(
     private val models: ModelChatClient,
     private val tools: AgentTools,
+    /** Whether the provider hands over every tool up front; see [ToolCeilings]. */
+    private val ceilings: ToolCeilings,
     /** What lets an agent find a tool rather than carry it; see [ToolSearchTools]. */
     private val searching: ToolSearchTools,
     private val agents: AgentRepository,
@@ -211,6 +213,9 @@ class AgentConversation(
      */
     private val prompt: io.mszymanski.orknux.server.llm.SessionPrompt,
 ) {
+
+    /** Sessions already told that not every tool could go up front; told once each, while this server runs. */
+    private val overCap: MutableSet<Long> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     /**
      * How many rounds this agent gets: its own number, or the installation's.
@@ -363,7 +368,14 @@ class AgentConversation(
         hangup: Hangup?,
         interjections: Interjections?,
     ): ChatCompletion {
-        val holding = tools.offeringFor(agent)
+        /*
+         * The agent's own ceiling, or none where the provider is handed every
+         * tool up front - see [ToolCeilings]. Read once, here, so the list this
+         * turn sends is decided once and is the same in every round.
+         */
+        val offersAll = ceilings.offersAll(modelId)
+        val ceiling = if (offersAll) null else agent.maxTools
+        val holding = tools.offeringFor(agent, ceiling)
 
         /*
          * What the caller lent, as this agent may use it. Issue #444.
@@ -377,7 +389,7 @@ class AgentConversation(
          * drawing - are not the list's to switch and are carried as they were.
          */
         val lending = BuiltInTools.lentTo(agent, shed)
-        val (lent, lentFindable) = lending?.specs().orEmpty().partition { BuiltInTools.carried(agent, it.name) }
+        val (lent, lentFindable) = lending?.specs().orEmpty().partition { BuiltInTools.carried(agent, it.name, ceiling) }
         /*
          * And what the lent tools want said about themselves, put with the
          * briefing. A shed's descriptions say what its tools do; its briefing
@@ -387,7 +399,7 @@ class AgentConversation(
         // And what it lends, put into the briefing's list of tools. Issue #546.
         val told = briefed(turns, lending?.briefing()).map { turn ->
             if (turn.role == "system") {
-                turn.copy(content = BuiltInTools.listed(turn.content, agent, lending?.specs().orEmpty()) ?: turn.content)
+                turn.copy(content = BuiltInTools.listed(turn.content, agent, lending?.specs().orEmpty(), ceiling) ?: turn.content)
             } else {
                 turn
             }
@@ -419,8 +431,22 @@ class AgentConversation(
          * The lower of them wins, because an agent given a ceiling above what
          * the provider takes has been given a number that cannot be honoured.
          */
-        val limit = minOf(models.toolLimit(modelId), agent.maxTools ?: Int.MAX_VALUE)
-        val hunting = holding.core.size + holding.searchable.size + lent.size + lentFindable.size > limit
+        val limit = minOf(models.toolLimit(modelId), ceiling ?: Int.MAX_VALUE)
+        val holds = holding.core.size + holding.searchable.size + lent.size + lentFindable.size
+        val hunting = holds > limit
+        /*
+         * Every tool was meant to go up front and the provider's cap will not
+         * take them: the rest are found as they would be anywhere else, and the
+         * session says so once, because the reason it re-reads its prompt after
+         * a tool_load is otherwise invisible.
+         */
+        if (offersAll && hunting && into != null && overCap.add(into)) {
+            sessions.note(
+                into,
+                "This agent holds $holds tools and its provider takes $limit in one request, so not every tool " +
+                    "goes up front: the rest are found with ${ToolSearchTools.SEARCH} and loaded with ${ToolSearchTools.FIND}.",
+            )
+        }
 
         /*
          * Everything that is found rather than carried: the agent's own
@@ -428,7 +454,36 @@ class AgentConversation(
          * because the finder holds one shelf and a tool it cannot see is a tool
          * it cannot find.
          */
-        val findable = holding.searchable + lentFindable
+        /*
+         * What is carried and what is found, once the cap has had its say.
+         *
+         * Under the cap nothing changes: the agent's own split stands, and every
+         * tool goes out. Over it, an agent with no ceiling of its own - or one
+         * whose provider meant to hand over everything - has every built-in in
+         * its carried half, which alone can be more than the request takes. So
+         * the split is made again as a ceiling makes it, Always carried and the
+         * rest found; and if what is carried still overflows, the overflow is
+         * found too. The cap is the number at which the provider refuses the
+         * request, so nothing past it is ever sent.
+         */
+        val (core, carriedLent, findable) = if (!hunting) {
+            Triple(holding.core, lent, holding.searchable + lentFindable)
+        } else {
+            val split = if (ceiling == null) tools.offeringFor(agent, limit) else holding
+            val (splitLent, splitLentFindable) = if (ceiling == null) {
+                lending?.specs().orEmpty().partition { BuiltInTools.carried(agent, it.name, limit) }
+            } else {
+                lent to lentFindable
+            }
+            val carried = split.core + splitLent
+            val room = (limit - ToolSearchTools.OFFERED).coerceAtLeast(0)
+            val kept = carried.take(room).toSet()
+            Triple(
+                split.core.filter { it in kept },
+                splitLent.filter { it in kept },
+                carried.filterNot { it in kept } + split.searchable + splitLentFindable,
+            )
+        }
 
         /*
          * What this agent has already found, and where it is kept.
@@ -457,8 +512,8 @@ class AgentConversation(
                  * find_tools itself have taken their places. Negative where the
                  * core alone fills it, which the search reads as no room at all.
                  */
-                room = { limit - holding.core.size - lent.size - ToolSearchTools.OFFERED - found.size },
-                carried = (holding.core + lent).map { it.name }.toSet(),
+                room = { limit - core.size - carriedLent.size - ToolSearchTools.OFFERED - found.size },
+                carried = (core + carriedLent).map { it.name }.toSet(),
                 /*
                  * And what to give up to make room. Issue #372: an agent that
                  * has filled its budget and needs something else should lose the
@@ -484,7 +539,7 @@ class AgentConversation(
         fun offering(): List<ToolSpec> = if (finder == null) {
             holding.core + holding.searchable + lent + lentFindable
         } else {
-            holding.core + lent + finder.specs() + findable.filter { it.name in found }
+            core + carriedLent + finder.specs() + findable.filter { it.name in found }
         }
 
         var offered = offering()

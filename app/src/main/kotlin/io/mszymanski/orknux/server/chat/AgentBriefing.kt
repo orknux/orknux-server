@@ -74,6 +74,8 @@ class AgentBriefing(
     private val workspaces: io.mszymanski.orknux.server.workspace.WorkspaceRepository,
     /** The installation's default marker, where the workspace has none. Issue #402. */
     private val installation: io.mszymanski.orknux.server.attachment.InstallationSettings,
+    /** Whether the provider hands over every tool up front; see [ToolCeilings]. */
+    private val ceilings: org.springframework.beans.factory.ObjectProvider<ToolCeilings>,
 ) {
 
     /**
@@ -411,6 +413,13 @@ class AgentBriefing(
             val blocks = ((held.size - 1) / block).coerceAtLeast(0)
             val kept = (MOST_TOOL_SUMMARY_CHARS * (100 - blocks * step).coerceAtLeast(0) / 100)
                 .coerceAtLeast(SHORTEST_SUMMARY)
+            /*
+             * Every tool in hand from the first round: the provider offers them
+             * all up front and they fit under its cap, so there is nothing to
+             * find or load - and telling a model to load what it holds is how
+             * it spends a round loading it. See [ToolCeilings].
+             */
+            val allInHand = ceilings.getObject().let { it.offersAll(agent.modelId) && held.size <= (it.cap(agent.modelId) ?: Int.MAX_VALUE) }
             parts += buildString {
                 /*
                  * Which tool searches, by name. Issue #526: this said "search
@@ -420,19 +429,24 @@ class AgentBriefing(
                  * find_tools was the way to it, and looped on the tools it did
                  * hold - no runaway session ever called find_tools.
                  */
-                append("These are the tools you have, all of them, whether or not they are in front of you ")
-                append("this turn. Where one you need is marked (load it first), call ")
-                append(ToolSearchTools.FIND).append(" with its name from the list below - ")
-                // An example from its own list: core does not name a plugin's tool.
-                val example = held.minByOrNull { it.name }?.name ?: "its_name"
-                append(ToolSearchTools.FIND).append(" with names [\"").append(example)
-                append("\"], say - and it is yours ")
-                append("from your next message. The marked ones are not in front of you until you do. ")
-                append("If you do not know which tool a job needs, ").append(ToolSearchTools.SEARCH)
-                append(" finds them by words about it, and ").append(ToolSearchTools.DESCRIBE)
-                // Its whole description and parameters, before loading it. Issue #564.
-                append(" shows one in full before you load it. A tool that is not in this list is not one you have: ")
-                appendLine("say so rather than claiming you can do what it would do.")
+                if (allInHand) {
+                    append("These are the tools you have, all of them, and every one is in front of you. ")
+                    appendLine("A tool that is not in this list is not one you have: say so rather than claiming you can do what it would do.")
+                } else {
+                    append("These are the tools you have, all of them, whether or not they are in front of you ")
+                    append("this turn. Where one you need is marked (load it first), call ")
+                    append(ToolSearchTools.FIND).append(" with its name from the list below - ")
+                    // An example from its own list: core does not name a plugin's tool.
+                    val example = held.minByOrNull { it.name }?.name ?: "its_name"
+                    append(ToolSearchTools.FIND).append(" with names [\"").append(example)
+                    append("\"], say - and it is yours ")
+                    append("from your next message. The marked ones are not in front of you until you do. ")
+                    append("If you do not know which tool a job needs, ").append(ToolSearchTools.SEARCH)
+                    append(" finds them by words about it, and ").append(ToolSearchTools.DESCRIBE)
+                    // Its whole description and parameters, before loading it. Issue #564.
+                    append(" shows one in full before you load it. A tool that is not in this list is not one you have: ")
+                    appendLine("say so rather than claiming you can do what it would do.")
+                }
                 /*
                  * Which of them are behind the search, marked. Issue #534:
                  * the list named every tool alike, so a model reading
@@ -442,7 +456,7 @@ class AgentBriefing(
                  * Session 510: "I'll call slack_whoIs", then todo_complete,
                  * seven times, the model watching itself do it.
                  */
-                val behind = tools.getObject().offeringFor(agent).searchable.map { it.name }.toSet()
+                val behind = if (allInHand) emptySet() else tools.getObject().offeringFor(agent).searchable.map { it.name }.toSet()
                 held.sortedBy { it.name }.forEach { spec ->
                     val said = spec.summary?.trim()?.ifEmpty { null } ?: spec.description.trim()
                     appendLine()

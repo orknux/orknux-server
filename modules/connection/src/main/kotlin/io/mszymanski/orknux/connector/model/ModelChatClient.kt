@@ -927,8 +927,17 @@ class ModelChatClient(
      */
     fun toolLimit(modelId: Long): Int {
         val provider = models.findByIdOrNull(modelId)?.let { providers.findByIdOrNull(it.providerId) }
-        return provider?.type?.toolLimit ?: ProviderType.entries.minOf { it.toolLimit }
+        // The provider's own cap where somebody set one; the type's otherwise. See [ModelProvider.toolCap].
+        return provider?.toolCap() ?: ProviderType.entries.minOf { it.toolLimit }
     }
+
+    /**
+     * Whether an agent on this model is handed every tool from its first round.
+     * See [ModelProvider.offerAllTools]; a model or provider that has gone is
+     * not, which is the behaviour every provider had before the setting.
+     */
+    fun offersAllTools(modelId: Long?): Boolean =
+        modelId?.let { models.findByIdOrNull(it) }?.let { providers.findByIdOrNull(it.providerId) }?.offersAllTools() ?: false
 
     /**
      * A call through the SDK, answered in this application's own words.

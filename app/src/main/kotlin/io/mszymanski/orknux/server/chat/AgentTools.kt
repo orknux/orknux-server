@@ -115,7 +115,13 @@ class AgentTools(
      * so a tool added to the wrong half is a decision somebody made rather than
      * a line that landed in the wrong place.
      */
-    fun offeringFor(agent: Agent): Offering {
+    /**
+     * @param ceiling the agent's own cap on what it carries, as this turn reads
+     *   it: null where its provider is handed every tool up front, which leaves
+     *   nothing behind a search unless the provider's own cap forces it. See
+     *   [ToolCeilings].
+     */
+    fun offeringFor(agent: Agent, ceiling: Int? = agent.maxTools): Offering {
         val core = coreFor(agent)
         val searchable = searchableFor(agent)
 
@@ -131,7 +137,7 @@ class AgentTools(
          * is ever dropped, so marking a tool would be marking it against a thing
          * that never happens - and the screen does not offer the column either.
          */
-        if (agent.maxTools == null) {
+        if (ceiling == null) {
             return Offering(core = core, searchable = searchable)
         }
 
@@ -145,7 +151,7 @@ class AgentTools(
          * where it was: it has no Always mark to read, and it is few.
          */
         val always = agent.requiredTools.toSet()
-        val (carried, findable) = core.partition { BuiltInTools.carried(agent, it.name) }
+        val (carried, findable) = core.partition { BuiltInTools.carried(agent, it.name, ceiling) }
         return Offering(
             core = carried + searchable.filter { it.name in always },
             searchable = findable + searchable.filterNot { it.name in always },

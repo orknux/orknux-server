@@ -115,6 +115,8 @@ class ModelService(
         provider.throttleRequestsPerSecond = input.throttleRequestsPerSecond
         input.acceptRetryAfter?.let { provider.acceptRetryAfter = it }
         provider.sendsReasoning = input.sendsReasoning ?: false
+        provider.offerAllTools = input.offerAllTools
+        provider.maxTools = toolCapOf(input.maxTools)
         provider.chatApi = chatApiFor(provider.type, input.chatApi, null)
         provider.forgetCheck()
         val saved = providers.save(provider)
@@ -186,6 +188,9 @@ class ModelService(
         provider.throttleRequestsPerSecond = input.throttleRequestsPerSecond
         input.acceptRetryAfter?.let { provider.acceptRetryAfter = it }
         input.sendsReasoning?.let { provider.sendsReasoning = it }
+        // Set as given, like the throttle: the form sends both, and null is the type's default.
+        provider.offerAllTools = input.offerAllTools
+        provider.maxTools = toolCapOf(input.maxTools)
         provider.chatApi = chatApiFor(provider.type, input.chatApi, provider.chatApi)
 
         provider.forgetCheck()
@@ -199,6 +204,14 @@ class ModelService(
      * asked, and starts on Responses. Any other type holds none, and asking one
      * for a choice it does not have is refused rather than stored unread.
      */
+    /** A cap as given, or refused outside the range; null is the type's own. */
+    private fun toolCapOf(asked: Int?): Int? {
+        if (asked != null && asked !in ModelProviderToolCaps.FEWEST..ModelProviderToolCaps.MOST) {
+            throw ModelProviderToolCapInvalidException(asked)
+        }
+        return asked
+    }
+
     private fun chatApiFor(type: ProviderType, asked: ChatApi?, held: ChatApi?): ChatApi? {
         if (type != ProviderType.AZURE_OPENAI) {
             if (asked != null) throw ProviderChatApiNotTakenException(type)
@@ -747,6 +760,10 @@ data class CreateProviderInput(
     val chatApi: ChatApi? = null,
     /** Whether the model's earlier thinking is sent back; null is off. See [ModelProvider.sendsReasoning]. */
     val sendsReasoning: Boolean? = null,
+    /** Every tool from the first round; null is the type's default. See [ModelProvider.offerAllTools]. */
+    val offerAllTools: Boolean? = null,
+    /** The most tools one request carries; null is the type's. See [ModelProvider.maxTools]. */
+    val maxTools: Int? = null,
 )
 
 data class UpdateProviderInput(
@@ -785,6 +802,10 @@ data class UpdateProviderInput(
     val chatApi: ChatApi? = null,
     /** Whether the model's earlier thinking is sent back; null leaves it as it is. */
     val sendsReasoning: Boolean? = null,
+    /** Set as given: null is the type's default. See [ModelProvider.offerAllTools]. */
+    val offerAllTools: Boolean? = null,
+    /** Set as given: null is the type's cap. See [ModelProvider.maxTools]. */
+    val maxTools: Int? = null,
 )
 
 data class CreateModelInput(
@@ -896,6 +917,14 @@ data class ModelProviderView(
     val chatApi: ChatApi?,
     /** Whether the model's earlier thinking is sent back to this provider. */
     val sendsReasoning: Boolean,
+    /** Every tool from the first round, as set; null is the type's default, which [offersAllTools] resolves. */
+    val offerAllTools: Boolean?,
+    /** Whether it does, the default resolved. */
+    val offersAllTools: Boolean,
+    /** The most tools one request carries, as set; null is the type's, which [toolCap] resolves. */
+    val maxTools: Int?,
+    /** How many it is, the default resolved. */
+    val toolCap: Int,
     val status: ProviderStatus,
     val lastCheckMessage: String?,
     /** ISO-8601, as `WorkspaceConnectionView` reports its own. */
@@ -937,6 +966,10 @@ data class ModelProviderView(
         acceptRetryAfter = provider.acceptRetryAfter,
         chatApi = if (provider.type == ProviderType.AZURE_OPENAI) provider.chatApi ?: ChatApi.RESPONSES else null,
         sendsReasoning = provider.sendsReasoning,
+        offerAllTools = provider.offerAllTools,
+        offersAllTools = provider.offersAllTools(),
+        maxTools = provider.maxTools,
+        toolCap = provider.toolCap(),
         status = provider.status,
         lastCheckMessage = provider.lastCheckMessage,
         lastCheckedAt = provider.lastCheckedAt?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),

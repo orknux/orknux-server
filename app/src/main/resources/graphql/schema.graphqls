@@ -5246,6 +5246,14 @@ type ModelProvider {
     captured, stored and shown.
     """
     sendsReasoning: Boolean!
+    "Whether every tool goes out from an agent's first round, as set. Null is the type's default: on for Ollama and OpenAI."
+    offerAllTools: Boolean
+    "Whether it does, the default resolved."
+    offersAllTools: Boolean!
+    "The most tools one request carries, as set. Null is what the type takes."
+    maxTools: Int
+    "How many that is, the default resolved."
+    toolCap: Int!
     status: ProviderStatus!
     "What the last check found, and when it ran."
     lastCheckMessage: String
@@ -5436,6 +5444,10 @@ input CreateModelProviderInput {
     chatApi: ChatApi
     "Whether the model's earlier thinking is sent back. Null is false."
     sendsReasoning: Boolean
+    "Every tool up front from an agent's first round. Null is the type's default: on for Ollama and OpenAI."
+    offerAllTools: Boolean
+    "The most tools one request carries, 8 to 1024. Null is what the type takes."
+    maxTools: Int
 }
 
 input UpdateModelProviderInput {
@@ -5473,6 +5485,10 @@ input UpdateModelProviderInput {
     chatApi: ChatApi
     "Whether the model's earlier thinking is sent back. Null leaves it as it is."
     sendsReasoning: Boolean
+    "Every tool up front from an agent's first round. Set as given: null is the type's default."
+    offerAllTools: Boolean
+    "The most tools one request carries, 8 to 1024. Set as given: null is what the type takes."
+    maxTools: Int
 }
 
 

@@ -60,6 +60,8 @@ class AgentDetails(
     /** What the agent holds of its own, split as the round splits it. Issue #446. */
     private val tools: AgentTools,
     private val mapper: ObjectMapper,
+    /** The ceiling as the round reads it, so the record splits the tools the way they were sent. */
+    private val ceilings: io.mszymanski.orknux.server.chat.ToolCeilings,
 ) {
 
     /**
@@ -85,9 +87,10 @@ class AgentDetails(
         val connectionNames = agent.connections
             .mapNotNull { connections.workspaceConnection(it)?.takeIf { held -> held.workspaceId == agent.workspaceId }?.name }
 
-        val offering = tools.offeringFor(agent)
+        val ceiling = ceilings.of(agent)
+        val offering = tools.offeringFor(agent, ceiling)
         val (carriedLent, findableLent) = BuiltInTools.lentTo(agent, lent)?.specs().orEmpty()
-            .partition { BuiltInTools.carried(agent, it.name) }
+            .partition { BuiltInTools.carried(agent, it.name, ceiling) }
         val carried = (offering.core + carriedLent).map { it.name }
         val findable = (offering.searchable + findableLent).map { it.name }
 
@@ -98,7 +101,7 @@ class AgentDetails(
          * reader shown "findable" beside an agent nobody gave a ceiling would
          * go looking for a setting that is not there.
          */
-        val (held, found) = if (agent.maxTools == null) (carried + findable) to emptyList() else carried to findable
+        val (held, found) = if (ceiling == null) (carried + findable) to emptyList() else carried to findable
 
         return mapper.writeValueAsString(
             linkedMapOf(

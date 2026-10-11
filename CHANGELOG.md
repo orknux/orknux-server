@@ -19,6 +19,7 @@ have failed.
 
 ### ✨ Added
 
+- A model provider can hand an agent **all tools up front** - every tool it holds from the first round, nothing to find or load - so the tool list never changes mid-turn and a local server such as llama.cpp keeps its prompt cache; on by default for Ollama and OpenAI-type providers, and a provider's **Most tools per request** caps how many one request carries (the type's own limit by default, 128 for OpenAI), past which the rest are still found as needed.
 - **Boxes**, the replacement for shells: an Admin → Boxes page lists the orkbox sandboxes agents can run commands in, with remote ones added by address and token, their health, active sessions and what each offers.
 - A local box built into the server, on by default, configured in Admin Settings - where its sessions live, the local or docker runtime, how many sessions it holds and how long they last; it runs commands as the server's own user.
 - An agent's **Box labels**: it may use a box whose label it was given, and none by default - the local box included.
@@ -31,6 +32,7 @@ have failed.
 
 ### 🔧 Changed
 
+- Agents on Ollama and OpenAI-type providers - which includes llama.cpp and other OpenAI-compatible servers - are now handed every tool from their first round, past their own **Tools carried at once** limit and up to the provider's per-request limit; to keep the old behaviour, switch **All tools up front** off on the provider.
 - Shells are removed: agents can no longer open a shell on a machine, and the Admin → Shell pages are gone. Existing shell definitions stay in the database untouched, but nothing uses them any more.
 - A conversation's next turn now sends the model exactly what the last turn sent - every tool call, its reasoning and its result - and adds to it, so a provider with a prompt cache (llama.cpp, and hosted ones that bill cached input less) reads only the new message instead of the whole session again. What was sent is kept, encrypted, per session; once it outgrows half the model's context window it is started again from what was said, in one step. Notes, to-dos, a task's turn count and a memory count no longer sit in the system prompt, where they changed it every turn. Nothing to do on upgrade: existing sessions switch over on their next turn.
 - An empty answer from the model is asked again up to 5 times by default rather than twice, and both that and how often an unusable reply goes back to the model are Admin settings, **Empty Answer Retries** and **Unusable Reply Retries**. Each retry now says which attempt it is and how the provider stopped.

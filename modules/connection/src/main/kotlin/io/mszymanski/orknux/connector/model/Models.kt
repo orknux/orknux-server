@@ -155,6 +155,19 @@ class ProviderChatApiNotTakenException(type: ProviderType) : RuntimeException(
     "A $type provider speaks chat completions only; the chat API is chosen on Azure OpenAI providers. Leave it unset",
 )
 
+class ModelProviderToolCapInvalidException(count: Int) : RuntimeException(
+    "$count is not a number of tools a request can carry. Choose between ${ModelProviderToolCaps.FEWEST} and ${ModelProviderToolCaps.MOST}, or leave it unset",
+)
+
+/** The range a provider's own cap on tools per request is held to. */
+object ModelProviderToolCaps {
+    /** Fewer than this leaves no room beside the tools every turn carries. */
+    const val FEWEST = 8
+
+    /** Past this no provider takes them, and no model chooses well among them. */
+    const val MOST = 1024
+}
+
 enum class ProviderAuthMethod {
     /** A key sent on every request, in whichever header the type wants it. */
     API_KEY,
@@ -328,6 +341,32 @@ class ModelProvider(
     var sendsReasoning: Boolean = false,
 
     /**
+     * Whether an agent on this provider is handed every tool it holds from its
+     * first round, rather than some of them and a search for the rest. Null is
+     * the default for the type: on for Ollama and for OpenAI, whose type also
+     * covers the OpenAI-compatible local servers - llama.cpp among them - and
+     * off for the rest; see [offersAllTools]. Real OpenAI still holds its cap
+     * of 128 a request, and past it the rest are found as before.
+     *
+     * A local server keeps the prompt it last read and reuses the part a new
+     * request begins with. The tools are near the top of that prompt, so a tool
+     * loaded or dropped part way through a turn changes the beginning and the
+     * whole session is read again - a long Qwen session on llama.cpp spent
+     * minutes re-reading after every tool_load. Offered all at once, the list
+     * never moves and the cache holds.
+     */
+    @Column(name = "offer_all_tools")
+    var offerAllTools: Boolean? = null,
+
+    /**
+     * The most tools one request to this provider may carry; null is what the
+     * type takes - see [ProviderType.toolLimit]. Set where a server refuses
+     * fewer than its type is known for, or to keep a small model's list short.
+     */
+    @Column(name = "max_tools")
+    var maxTools: Int? = null,
+
+    /**
      * Which API an Azure OpenAI provider's chats go through; null on every
      * other type, which speaks chat completions. Null on an Azure provider is
      * read as Responses, the default - see [OpenAiResponses.speaks].
@@ -416,7 +455,13 @@ class ModelProvider(
         return base.trimEnd('/')
     }
 
-    /** Called after anything that could change whether it is worth checking. */
+    /** Whether every tool goes out from the first round: as set, or on for Ollama and OpenAI and off for the rest. */
+    fun offersAllTools(): Boolean = offerAllTools ?: (type == ProviderType.OLLAMA || type == ProviderType.OPENAI)
+
+    /** The most tools one request may carry: as set, or what the type takes. */
+    fun toolCap(): Int = maxTools ?: type.toolLimit
+
+        /** Called after anything that could change whether it is worth checking. */
     fun forgetCheck() {
         status = if (configured()) ProviderStatus.NOT_CHECKED else ProviderStatus.NOT_CONFIGURED
         lastCheckMessage = null

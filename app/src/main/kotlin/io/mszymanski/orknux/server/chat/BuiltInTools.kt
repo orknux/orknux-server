@@ -325,7 +325,7 @@ class BuiltInTools(
          * is looked for. A name that is not a grant-governed built-in is always
          * carried here, because whether *it* is found is somebody else's decision.
          */
-        fun carried(agent: Agent, name: String): Boolean =
+        fun carried(agent: Agent, name: String, ceiling: Int? = agent.maxTools): Boolean =
             /*
              * The policy travels with any HTTP tool, even where those are only
              * found: it is one small tool, and it is the answer to "where can
@@ -335,7 +335,7 @@ class BuiltInTools(
              */
             if (name == HTTP_ALLOW_LIST) HTTP.any { it in agent.tools } else
             (name !in GRANTED_SET && name !in REACHING_SET) ||
-                agent.maxTools == null ||
+                ceiling == null ||
                 name in agent.requiredTools
 
         /**
@@ -366,7 +366,7 @@ class BuiltInTools(
          * than a second list after it: two lists of your tools is a question
          * about which one counts.
          */
-        fun listed(system: String?, agent: Agent, lent: List<ToolSpec>): String? {
+        fun listed(system: String?, agent: Agent, lent: List<ToolSpec>, ceiling: Int? = agent.maxTools): String? {
             if (system == null || lent.isEmpty()) return system
             val lines = system.split(NL)
             val listed = lines.indices.filter { ENTRY.containsMatchIn(lines[it]) }
@@ -377,7 +377,7 @@ class BuiltInTools(
             val added = lent.filter { it.name !in present }.map { spec ->
                 val said = spec.summary?.trim()?.ifEmpty { null }
                     ?: spec.description.trim().substringBefore(". ").take(LENT_SUMMARY_CHARS)
-                "- " + spec.name + (if (carried(agent, spec.name)) " (loaded)" else " (load it first)") +
+                "- " + spec.name + (if (carried(agent, spec.name, ceiling)) " (loaded)" else " (load it first)") +
                     (if (said.isEmpty()) "" else ": " + said)
             }
             val merged = (lines.subList(first, last + 1) + added)
