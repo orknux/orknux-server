@@ -1078,25 +1078,33 @@ class ChatService(
         val thread = history.findByConversationId(session.conversationId)
         val last = thread.lastOrNull()
             ?: throw ChatNothingToRegenerateException("Nothing has been said in this chat yet")
-        if (last.messageType != MessageType.ASSISTANT) {
+        /*
+         * A chat ending on the person's own message - its turn died, was
+         * stopped, or the page lost it - is answered as it stands: nothing to
+         * take off and no take to keep, and retyping it was the only way out.
+         */
+        val unanswered = last.messageType == MessageType.USER
+        if (!unanswered && last.messageType != MessageType.ASSISTANT) {
             throw ChatNothingToRegenerateException("The last thing in this chat is not an answer")
         }
 
-        val asked = thread.dropLast(1)
+        val asked = if (unanswered) thread else thread.dropLast(1)
         if (asked.none { it.messageType == MessageType.USER }) {
             throw ChatNothingToRegenerateException("There is no question here to ask again")
         }
 
-        // Kept before it comes off, so a press that turns out to have been a
-        // mistake has left the answer somewhere it can be read.
-        takes.save(
-            ChatAnswerTake(
-                chatSessionId = requireNotNull(session.id),
-                messageIndex = thread.size - 1,
-                content = last.text.orEmpty(),
-            ),
-        )
-        history.saveAll(session.conversationId, asked)
+        if (!unanswered) {
+            // Kept before it comes off, so a press that turns out to have been a
+            // mistake has left the answer somewhere it can be read.
+            takes.save(
+                ChatAnswerTake(
+                    chatSessionId = requireNotNull(session.id),
+                    messageIndex = thread.size - 1,
+                    content = last.text.orEmpty(),
+                ),
+            )
+            history.saveAll(session.conversationId, asked)
+        }
 
         val into = recording(session)
         /*

@@ -42,6 +42,8 @@ class ChatRegenerateTest(
     @Autowired val models: LlmModelRepository,
     @Autowired val providers: ModelProviderRepository,
     @Autowired val workspaces: WorkspaceRepository,
+    @Autowired val generations: ChatGenerations,
+    @Autowired val streaming: ChatStreamAPI,
 ) {
 
     private var workspaceId: Long = 0
@@ -119,23 +121,41 @@ class ChatRegenerateTest(
     }
 
     /**
-     * Only the answer the chat ends on. Anything earlier has been answered on
-     * top of, and a different answer there would rewrite what the turns after
-     * it were replying to.
+     * A chat ending on the person's own message - its turn died, was stopped, or
+     * the page lost it - is answered as it stands. Asking it again used to be
+     * refused as "not an answer", and retyping was the only way out.
      */
     @Test
-    fun `an answer with a question after it cannot be asked again`() {
+    fun `a question left unanswered is answered as it stands, with nothing taken off`() {
         val id = startChat()
         said(id, "First question", "First answer")
         history.saveAll(conversation(id), history.findByConversationId(conversation(id)) + UserMessage("And also?"))
 
-        assertThatThrownBy { chats.beginRegenerate(id) }
-            .isInstanceOf(ChatNothingToRegenerateException::class.java)
-            .hasMessageContaining("not an answer")
+        val again = chats.beginRegenerate(id)
+        chats.finishSend(id, "Also this.")
 
-        // Nothing was taken off, and nothing was written down.
-        assertThat(history.findByConversationId(conversation(id))).hasSize(3)
+        // The model is handed the question that was left, and the thread ends question, answer.
+        assertThat(again.turns.filterNot { it.role == "system" }.last().content).isEqualTo("And also?")
+        assertThat(history.findByConversationId(conversation(id)).map { it.text })
+            .containsExactly("First question", "First answer", "And also?", "Also this.")
+        // There was no answer to keep, so nothing was written down as a take.
         assertThat(takes.findAll()).isEmpty()
+    }
+
+    /** Not while that question is already being answered: two answers at once would both land. */
+    @Test
+    fun `a chat already answering is not asked again`() {
+        val id = startChat()
+        said(id, "Question", "Answer")
+        val running = ChatGeneration()
+        generations.register(id, running)
+        try {
+            assertThatThrownBy { streaming.regenerate(id, false, org.springframework.mock.web.MockHttpServletResponse()) }
+                .isInstanceOf(ChatNothingToRegenerateException::class.java)
+                .hasMessageContaining("answering already")
+        } finally {
+            generations.release(id, running)
+        }
     }
 
     @Test

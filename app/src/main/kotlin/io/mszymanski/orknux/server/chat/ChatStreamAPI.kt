@@ -158,6 +158,8 @@ class ChatStreamAPI(
         if (!settings.chatEnabled()) throw ChatDisabledException()
         val session = chats.session(id) ?: throw ChatSessionNotFoundException(id)
         requireOwn(session)
+        // A question still being answered is not one to answer twice at once.
+        if (generations.answering(id)) throw ChatNothingToRegenerateException("This chat is answering already; wait for it, or stop it first")
 
         return answering(id, { chats.beginRegenerate(id) }, said = null, response = response, session = session, interruptOnLeave = voice) {
             chats.abandonRegenerate(id)
