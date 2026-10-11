@@ -133,6 +133,7 @@ class ChatTools(
                     // puts it on the screen of whoever is watching the
                     // round, rather than at their next reload.
                     watch.drew(drawn.said)
+                    watch.filed(drawn.attachmentId, drawn.filename, drawn.contentType, drawn.sizeBytes)
                     mapper.writeValueAsString(
                         mapOf(
                             "drawn" to true,

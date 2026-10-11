@@ -63,6 +63,7 @@ have failed.
 
 ### 🔧 Changed
 
+- A chat's files are drawn under the message they came with - the person's, or the answer of the turn that filed them - rather than in one strip above the composer, and appear there without a reload. A question still waiting for an answer is the last thing in the chat; once answered it sits between the calls it was asked between.
 - An agent setting a watcher must say how often it looks at the result itself (`agent_check_interval_seconds`), and can no longer switch that off with 0; a condition guessed wrong no longer runs silently to its timeout. Watchers already running are left as they are.
 
 ## 0.9.9.30

@@ -206,14 +206,17 @@ class ChatAttachmentAPI(
         return kept.map(::describeView)
     }
 
-    private fun describeView(attachment: ChatAttachment) = ChatAttachmentView(
-        id = requireNotNull(attachment.id),
-        filename = attachment.filename,
-        contentType = attachment.contentType,
-        sizeBytes = attachment.sizeBytes,
-        uploadedBy = attachment.uploadedBy,
-    )
+    private fun describeView(attachment: ChatAttachment) = attachment.view()
 }
+
+/** A chat's file as a screen is shown it: never where its bytes are kept. */
+fun ChatAttachment.view() = ChatAttachmentView(
+    id = requireNotNull(id),
+    filename = filename,
+    contentType = contentType,
+    sizeBytes = sizeBytes,
+    uploadedBy = uploadedBy,
+)
 
 data class ChatAttachmentView(
     val id: Long,

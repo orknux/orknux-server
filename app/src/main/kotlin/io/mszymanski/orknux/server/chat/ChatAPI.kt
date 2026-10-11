@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.chat
 
+import io.mszymanski.orknux.server.attachment.view
 import io.mszymanski.orknux.connector.model.ChatCompletion
 import io.mszymanski.orknux.connector.model.ModelService
 import io.mszymanski.orknux.server.agent.AgentRepository
@@ -103,7 +104,16 @@ class ChatAPI(
         val session = chats.session(id) ?: throw ChatSessionNotFoundException(id)
         requireOwn(session)
         return chats.messages(session).map {
-            ChatMessageView(it.role, it.content, it.actor, it.takes, it.thinking, it.thinkingMillis, it.at)
+            ChatMessageView(
+                it.role,
+                it.content,
+                it.actor,
+                it.takes,
+                it.thinking,
+                it.thinkingMillis,
+                it.at,
+                it.attachments.map { file -> file.view() },
+            )
         }
     }
 
@@ -378,6 +388,8 @@ data class ChatMessageView(
      * is how every message spent months claiming to have been sent at no time.
      */
     val at: String? = null,
+    /** The files this message came with; see [ChatMessage.attachments]. */
+    val attachments: List<io.mszymanski.orknux.server.attachment.ChatAttachmentView> = emptyList(),
 )
 
 data class ChatAnswerView(

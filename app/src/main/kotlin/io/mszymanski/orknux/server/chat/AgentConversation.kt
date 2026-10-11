@@ -90,6 +90,15 @@ interface RoundWatch {
     fun drew(markdown: String) = Unit
 
     /**
+     * A file the round put on the chat, the moment it is filed.
+     *
+     * The chat draws each file under the message it came with, and one filed
+     * during a turn belongs to that turn's answer - which the open chat has no
+     * other way to learn about until somebody reloads the page.
+     */
+    fun filed(id: Long, filename: String, contentType: String, sizeBytes: Long) = Unit
+
+    /**
      * What the model wrote beside the calls it asked for - "Let me read the
      * tests next" - before any of them run.
      *

@@ -60,6 +60,15 @@ class ChatAttachment(
 
     @Column(name = "uploaded_by", nullable = false, length = 120)
     val uploadedBy: String = "",
+
+    /**
+     * Which message of the chat it came with, by place in the thread - the
+     * person's message it was sent with, or the answer of the turn that filed
+     * it. Null for a file not yet sent and for rows older than the column,
+     * which are placed by when they were uploaded.
+     */
+    @Column(name = "message_index")
+    var messageIndex: Int? = null,
 )
 
 interface ChatAttachmentRepository : JpaRepository<ChatAttachment, Long> {

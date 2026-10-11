@@ -193,6 +193,39 @@ class ChatDrawingTest(
      * a few characters at a time. The chat's two doors pick one path each, and
      * what an agent may do must not depend on which of them the browser used.
      */
+    /**
+     * A file is drawn under the message it was sent with. The chat drew every
+     * file in one strip above the composer, which said nothing about which
+     * message a file had come with.
+     */
+    @Test
+    fun `a file sent with the second message is listed under that message, and one never sent under none`() {
+        val chatId = chatWithAgent(serve { saying("Noted.") })
+        stream(chatId, "First, no file")
+        val sent = uploaded("notes.txt")
+        uploaded("left-in-the-composer.txt")
+
+        stream(chatId, "Second, with a file", listOf(sent))
+
+        val lines = filesUnder(chatId)
+        assertThat(lines.filter { it.second.isNotEmpty() }).containsExactly("Second, with a file" to listOf("notes.txt"))
+        assertThat(lines.flatMap { it.second }).doesNotContain("left-in-the-composer.txt")
+        assertThat(attachments.findById(sent).get().messageIndex).isEqualTo(2)
+    }
+
+    /** A picture the agent drew is filed under the line that shows it, and announced as a file while the turn runs. */
+    @Test
+    fun `a picture the agent drew is filed under the line that shows it, and announced on the stream`() {
+        val chatId = drawingChat()
+
+        val frames = stream(chatId, "Draw the architecture")
+
+        val filed = attachments.findAll().single()
+        assertThat(frames).contains("event:filed").contains("\"id\":\"${filed.id}\"")
+        val picture = filesUnder(chatId).single { it.first.contains("/api/attachments/${filed.id}") }
+        assertThat(picture.second).containsExactly(filed.filename)
+    }
+
     @Test
     fun `an agent draws on the streamed path too`() {
         val chatId = drawingChat()
@@ -544,10 +577,36 @@ class ChatDrawingTest(
      * to the response rather than to the stream the body is handed, which is
      * `ServerSentEvents`' whole argument, so that is where they are read from.
      */
-    private fun stream(chatId: Long, said: String): String {
+    private fun stream(chatId: Long, said: String, attachmentIds: List<Long> = emptyList()): String {
         val response = MockHttpServletResponse()
-        streaming.stream(chatId, ChatStreamRequest(said), response).writeTo(response.outputStream)
+        streaming.stream(chatId, ChatStreamRequest(said, attachmentIds), response).writeTo(response.outputStream)
         return response.contentAsString.replace(" ", "")
+    }
+
+    /** Each line the page draws, as its content and the names of the files under it. */
+    private fun filesUnder(chatId: Long): List<Pair<String, List<String>>> {
+        val shown = graphQlTester.document("{ chatMessages(id: $chatId) { content attachments { filename } } }").execute()
+        val contents = shown.path("chatMessages[*].content").entityList(String::class.java).get()
+        return contents.indices.map { at ->
+            contents[at] to shown.path("chatMessages[$at].attachments[*].filename").entityList(String::class.java).get()
+        }
+    }
+
+    /** A file in somebody's composer: uploaded by the chat's owner, claimed by no chat yet. */
+    private fun uploaded(name: String): Long {
+        val bytes = "notes".toByteArray()
+        return requireNotNull(
+            attachments.save(
+                ChatAttachment(
+                    workspaceId = workspaceId,
+                    filename = name,
+                    contentType = "text/plain",
+                    sizeBytes = bytes.size.toLong(),
+                    location = store.put(workspaceId, name, bytes),
+                    uploadedBy = "alice",
+                ),
+            ).id,
+        )
     }
 
     /* ------------------------------------------------- what a round looks like */

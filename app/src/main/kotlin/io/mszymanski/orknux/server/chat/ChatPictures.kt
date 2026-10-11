@@ -145,7 +145,9 @@ class ChatPictures(
         )
 
         val said = "![${alt(asked)}](/api/attachments/${requireNotNull(saved.id)})"
-        chats.recordPicture(requireNotNull(chat.id), said)
+        // Filed under the message that shows it, so the chat never lists it a second time apart from it.
+        saved.messageIndex = chats.recordPicture(requireNotNull(chat.id), said)
+        attachments.save(saved)
 
         /*
          * Audited, and audited exactly as the button was.
@@ -160,7 +162,7 @@ class ChatPictures(
          */
         auditRecorder.record(chat.workspaceId, WorkspaceAuditCategory.CHAT, "An agent drew a picture in a chat")
 
-        return ChatDrawing.Drawn(requireNotNull(saved.id), said, drawn.millis)
+        return ChatDrawing.Drawn(requireNotNull(saved.id), said, drawn.millis, saved.filename, saved.contentType, saved.sizeBytes)
     }
 
     /**
@@ -211,7 +213,14 @@ sealed interface ChatDrawing {
      * @param attachmentId the [ChatAttachment] the bytes were filed as.
      * @param said the line written into the thread: a markdown image.
      */
-    data class Drawn(val attachmentId: Long, val said: String, val millis: Long) : ChatDrawing
+    data class Drawn(
+        val attachmentId: Long,
+        val said: String,
+        val millis: Long,
+        val filename: String = "",
+        val contentType: String = "",
+        val sizeBytes: Long = 0,
+    ) : ChatDrawing
 
     /**
      * Why nothing was drawn, in words the model is handed.

@@ -127,7 +127,7 @@ class ChatStreamAPI(
          */
         return answering(
             id,
-            { send -> chats.beginSend(id, request.text, attachments.imagesOf(sent)) { send("compacting", mapOf<String, Any>()) } },
+            { send -> chats.beginSend(id, request.text, attachments.imagesOf(sent), { send("compacting", mapOf<String, Any>()) }, sent.mapNotNull { it.id }) },
             request.text,
             response,
             session,
@@ -559,6 +559,9 @@ internal fun ChatGeneration.watch(): RoundWatch = object : RoundWatch {
     override fun thinking(text: String) = post("thinking", mapOf("text" to text))
 
     override fun drew(markdown: String) = post("drew", mapOf("markdown" to markdown))
+
+    override fun filed(id: Long, filename: String, contentType: String, sizeBytes: Long) =
+        post("filed", mapOf("id" to id.toString(), "filename" to filename, "contentType" to contentType, "sizeBytes" to sizeBytes))
 
     override fun said(text: String) = post("said", mapOf("text" to text))
 

@@ -4106,6 +4106,13 @@ type ChatMessage {
     role: String!
     content: String!
     """
+    The files this message came with: what the person sent with it, or what the
+    agent's side filed during the turn this answer ends. Drawn under the message
+    rather than in a strip of their own, which said nothing about which message
+    a file belonged to.
+    """
+    attachments: [ChatAttachment!]!
+    """
     When it was sent, ISO-8601, or null for a line carried in from the LLM
     session this chat continues - said before the chat existed.
     """

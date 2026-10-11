@@ -68,6 +68,8 @@ class ChatService(
     private val prompt: io.mszymanski.orknux.server.llm.SessionPrompt,
     /** The agent's setup as a session line; a provider, because it reads the tools that read the chats. */
     private val agentDetails: org.springframework.beans.factory.ObjectProvider<io.mszymanski.orknux.server.agent.AgentDetails>,
+    /** The files a chat holds, placed under the message each came with. */
+    private val files: io.mszymanski.orknux.server.attachment.ChatAttachmentRepository,
     transactions: PlatformTransactionManager,
 ) {
 
@@ -214,13 +216,16 @@ class ChatService(
          * then display the same time, which is the answer either way.
          */
         val sentAt = sentAt(session.conversationId)
-        val thread = history.findByConversationId(session.conversationId)
+        val said = history.findByConversationId(session.conversationId)
+        val filed = filesByMessage(requireNotNull(session.id), said, sentAt)
+        val thread = said
             .mapIndexed { at, message ->
                 ChatMessage(message).copy(
                     takes = earlier[at]?.map { it.content }.orEmpty(),
                     thinking = thought[at]?.content,
                     thinkingMillis = thought[at]?.millis?.takeIf { it > 0 },
                     at = sentAt.getOrNull(at)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+                    attachments = filed[at].orEmpty(),
                 )
             }
         val llmSessionId = session.llmSessionId ?: return thread
@@ -240,6 +245,31 @@ class ChatService(
          */
         val upTo = if (ownSession(session)) OffsetDateTime.now() else session.createdAt
         return carried(thread, recorder.readBefore(llmSessionId, upTo, budget(session)))
+    }
+
+    /**
+     * The chat's files by the place in the thread of the message each came with.
+     *
+     * A file that says its place is put there, while that place is still in the
+     * thread. One that does not - kept before the column existed, or claimed by
+     * a send that then failed - goes under the first message the person wrote
+     * at or after it was uploaded, which is the message it was attached to, and
+     * failing that under the last thing the person said.
+     */
+    private fun filesByMessage(
+        chatId: Long,
+        thread: List<Message>,
+        sentAt: List<OffsetDateTime>,
+    ): Map<Int, List<io.mszymanski.orknux.server.attachment.ChatAttachment>> {
+        val held = files.findByChatSessionIdOrderByUploadedAtAsc(chatId)
+        if (held.isEmpty()) return emptyMap()
+        val asked = thread.indices.filter { thread[it].messageType == MessageType.USER }
+        return held.mapNotNull { file ->
+            val place = file.messageIndex?.takeIf { it in thread.indices }
+                ?: asked.firstOrNull { at -> sentAt.getOrNull(at)?.let { !it.isBefore(file.uploadedAt) } == true }
+                ?: asked.lastOrNull()
+            place?.let { it to file }
+        }.groupBy({ it.first }, { it.second })
     }
 
     /**
@@ -820,6 +850,11 @@ class ChatService(
             second.drew(markdown)
         }
 
+        override fun filed(id: Long, filename: String, contentType: String, sizeBytes: Long) {
+            first?.filed(id, filename, contentType, sizeBytes)
+            second.filed(id, filename, contentType, sizeBytes)
+        }
+
         override fun said(text: String) {
             first?.said(text)
             second.said(text)
@@ -868,6 +903,8 @@ class ChatService(
         images: List<String> = emptyList(),
         /** Called before the summariser is asked, so the stream can say so. */
         compacting: () -> Unit = {},
+        /** The files sent with this message, already claimed for the chat; they are placed under it. */
+        attachmentIds: List<Long> = emptyList(),
     ): ChatSendStart {
         val session = sessions.findByIdOrNull(id) ?: throw ChatSessionNotFoundException(id)
         val message = text.trim().ifEmpty { throw ChatMessageEmptyException() }
@@ -883,14 +920,29 @@ class ChatService(
             compaction.compactIfNeeded(workspace, session.conversationId, modelId, beginning = compacting)
         }
 
-        return requireNotNull(writing.execute { recorded(id, message, images, compacted) })
+        return requireNotNull(writing.execute { recorded(id, message, images, compacted, attachmentIds) })
     }
 
-    private fun recorded(id: Long, message: String, images: List<String>, compacted: Compacted?): ChatSendStart {
+    private fun recorded(
+        id: Long,
+        message: String,
+        images: List<String>,
+        compacted: Compacted?,
+        attachmentIds: List<Long> = emptyList(),
+    ): ChatSendStart {
         val session = sessions.findByIdOrNull(id) ?: throw ChatSessionNotFoundException(id)
         val modelId = session.modelId ?: throw ChatModelNotChosenException()
         val thread = history.findByConversationId(session.conversationId)
         history.saveAll(session.conversationId, thread + UserMessage(message))
+        // Placed under the message they came with, whose place is the thread's length before it was added.
+        if (attachmentIds.isNotEmpty()) {
+            files.findAllById(attachmentIds)
+                .filter { it.chatSessionId == session.id && it.messageIndex == null }
+                .forEach {
+                    it.messageIndex = thread.size
+                    files.save(it)
+                }
+        }
         session.lastMessageAt = OffsetDateTime.now()
         val into = recording(session)
         /*
@@ -1124,7 +1176,8 @@ class ChatService(
      * cannot explain the conversation around it.
      */
     @Transactional
-    fun recordPicture(id: Long, said: String) {
+    /** @return the picture's place in the thread, which the file it shows is filed under. */
+    fun recordPicture(id: Long, said: String): Int {
         val session = sessions.findByIdOrNull(id) ?: throw ChatSessionNotFoundException(id)
         val thread = history.findByConversationId(session.conversationId)
         history.saveAll(session.conversationId, thread + AssistantMessage(said))
@@ -1135,6 +1188,7 @@ class ChatService(
         session.lastMessageAt = OffsetDateTime.now()
 
         recording(session)?.let { recorder.agentSaid(it, PICTURE_ACTOR, said) }
+        return thread.size
     }
 
     /**
@@ -1342,6 +1396,11 @@ data class ChatMessage(
      * and inventing a time for them would be worse than none. Issue #323.
      */
     val at: String? = null,
+    /**
+     * The files this message came with: what the person sent with it, or what
+     * the agent's side filed during the turn this answer ends.
+     */
+    val attachments: List<io.mszymanski.orknux.server.attachment.ChatAttachment> = emptyList(),
 ) {
     constructor(message: Message) : this(message.messageType.name.lowercase(), message.text.orEmpty())
 }
