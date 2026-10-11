@@ -740,9 +740,18 @@ class BoxTools(
         val bytes = runCatching { Base64.getDecoder().decode(base64.trim()) }.getOrNull()
             ?: throw Refused("$key does not hold the bytes of a file")
         val path = args.text("path")
-        held.client.importArchive(held.row.remoteSessionId, path, bytes)
+        val zipped = BoxArchives.isZip(bytes)
+        val archive = if (zipped) BoxArchives.zipToTar(bytes) else bytes
+        held.client.importArchive(held.row.remoteSessionId, path, archive)
         touch(held)
-        return answer(mapOf("key" to key, "bytes" to bytes.size, "unpackedInto" to (path ?: "the workspace root")))
+        return answer(
+            mapOf(
+                "key" to key,
+                "format" to if (zipped) "zip" else "tar",
+                "bytes" to bytes.size,
+                "unpackedInto" to (path ?: "the workspace root"),
+            ),
+        )
     }
 
     // -------------------------------------------------------------- sessions
@@ -1232,11 +1241,15 @@ class BoxTools(
             ),
             ToolSpec(
                 IMPORT,
-                "Unpacks a .tar or .tar.gz held in this conversation's store into a session's workspace.",
+                "Unpacks an archive held in this conversation's store - a .zip, .tar or .tar.gz, told apart by its " +
+                    "contents rather than its name - into a session's workspace, keeping its folders. This is how a " +
+                    "file you saved, were sent or exported (an artifact, an attachment, orkbox_export) gets into a box: " +
+                    "the box cannot reach this server or its links, so do not try to download it from inside the box. " +
+                    "Files already at those paths are overwritten. Answers with the format it read and where it unpacked.",
                 listOf(
                     SESSION,
-                    text("key", "The key the archive is held under.", required = true),
-                    text("path", "The directory to unpack into; the workspace root by default."),
+                    text("key", "The store key the archive is held under, such as artifact.18 or the key orkbox_export answered with.", required = true),
+                    text("path", "The directory in the workspace to unpack into, created if missing; the workspace root by default."),
                 ),
             ),
         )

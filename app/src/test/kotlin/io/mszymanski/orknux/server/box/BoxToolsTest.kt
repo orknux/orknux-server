@@ -54,6 +54,7 @@ class BoxToolsTest(
     @Autowired val outputs: BoxSessionOutputRepository,
     @Autowired val web: io.mszymanski.orknux.server.security.WebProperties,
     @Autowired val jdbc: org.springframework.jdbc.core.JdbcTemplate,
+    @Autowired val store: io.mszymanski.orknux.server.llm.LlmSessionStore,
 ) {
 
     @TempDir
@@ -314,6 +315,52 @@ class BoxToolsTest(
         assertThat(imported.path("error").isMissingNode).describedAs(imported.toString()).isTrue()
         assertThat(call("orkbox_read", mapOf("session" to session, "path" to "copy/report.txt")).path("content").stringValue())
             .isEqualTo("done")
+    }
+
+    /** A zip as a session store holds it: base64 bytes, kept as a binary value. */
+    private fun storeZip(key: String, entries: Map<String, String>) {
+        val bytes = java.io.ByteArrayOutputStream().also { out ->
+            java.util.zip.ZipOutputStream(out).use { zip ->
+                entries.forEach { (name, content) ->
+                    zip.putNextEntry(java.util.zip.ZipEntry(name))
+                    zip.write(content.toByteArray())
+                    zip.closeEntry()
+                }
+            }
+        }.toByteArray()
+        store.put(
+            conversation,
+            key,
+            mapper.writeValueAsString(java.util.Base64.getEncoder().encodeToString(bytes)),
+            io.mszymanski.orknux.workflow.script.StoredKind("application/zip", true),
+        )
+    }
+
+    /**
+     * A zip goes in as well as a tar. A box takes only a tar, and an agent that
+     * saved a zip was answered archive_invalid and went on to try unzip inside a
+     * box the file had never reached.
+     */
+    @Test
+    fun `a zip in the store unpacks into a session, folders and all`() {
+        val session = opened()
+        storeZip("artifact.18", mapOf("site/index.html" to "<h1>hi</h1>", "site/css/app.css" to "body{}"))
+
+        val imported = call("orkbox_import", mapOf("session" to session, "key" to "artifact.18", "path" to "staging"))
+        assertThat(imported.path("error").isMissingNode).describedAs(imported.toString()).isTrue()
+        assertThat(imported.path("format").stringValue()).isEqualTo("zip")
+        assertThat(read(session, "staging/site/index.html").path("content").stringValue()).isEqualTo("<h1>hi</h1>")
+        assertThat(read(session, "staging/site/css/app.css").path("content").stringValue()).isEqualTo("body{}")
+    }
+
+    @Test
+    fun `a zip naming a path outside where it unpacks is refused whole`() {
+        val session = opened()
+        storeZip("evil.zip", mapOf("ok.txt" to "fine", "../escaped.txt" to "no"))
+
+        val imported = call("orkbox_import", mapOf("session" to session, "key" to "evil.zip", "path" to "in"))
+        assertThat(imported.path("error").stringValue()).contains("outside")
+        assertThat(read(session, "in/ok.txt").path("error").isMissingNode).isFalse()
     }
 
     @Test

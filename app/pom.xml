@@ -48,6 +48,13 @@
             <version>${db-scheduler.version}</version>
         </dependency>
 
+        <!-- Reads a zip and writes the tar a box unpacks: orkbox_import takes either. -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-compress</artifactId>
+            <version>1.28.0</version>
+        </dependency>
+
         <dependency>
             <groupId>io.mszymanski</groupId>
             <artifactId>orknux-connection</artifactId>
