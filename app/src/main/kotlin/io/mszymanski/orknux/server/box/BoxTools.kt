@@ -216,7 +216,9 @@ class BoxTools(
             network = args.text("network"),
             caches = args.strings("caches").orEmpty(),
             ttlSeconds = args.long("ttl_seconds"),
-            idleTimeoutSeconds = args.long("idle_timeout_seconds"),
+            // The administrator's default rather than the box's own, which was fifteen minutes - short enough
+            // to stop a session while its agent waited for a person to try what it had built.
+            idleTimeoutSeconds = args.long("idle_timeout_seconds") ?: settings.sessionIdleSeconds().toLong(),
             labels = args.stringMap("labels").orEmpty() + mapOf(
                 "orknux.workspace" to agent.workspaceId.toString(),
                 "orknux.session" to conversation.toString(),
@@ -1205,7 +1207,9 @@ class BoxTools(
                 "Opens a session on a box: an empty workspace directory of your own, or a clone of a git repository, " +
                     "where you can run commands and work with files. Answers with the session number every other " +
                     "box tool takes. Close it with orkbox_close when done; it also stops by itself when it expires or " +
-                    "sits idle. To read or search more than a handful of a repository's files, clone it here with " +
+                    "goes idle_timeout_seconds with no command - and waiting for a person counts as idle, so before you " +
+                    "hand over for something that may take a while (trying an exposed port, answering you), give a " +
+                    "longer idle_timeout_seconds here or raise it with orkbox_extend. The answer says the timeout. To read or search more than a handful of a repository's files, clone it here with " +
                     "git_url and use orkbox_search and orkbox_read rather than fetching files one at a time from a " +
                     "code-hosting service: one clone answers every later search at once.",
                 listOf(
@@ -1221,7 +1225,11 @@ class BoxTools(
                     SECRETS,
                     VALUES,
                     number("ttl_seconds", "How long the session may live; the box's default otherwise."),
-                    number("idle_timeout_seconds", "How long it may sit unused before it is stopped."),
+                    number(
+                        "idle_timeout_seconds",
+                        "How long it may go with no command before its box stops it - waiting for a person to try " +
+                            "something or answer you counts as idle. The administrator's default otherwise.",
+                    ),
                     pairs("labels", "Labels to put on the session, for your own bookkeeping."),
                 ),
             ),
@@ -1257,11 +1265,17 @@ class BoxTools(
             ),
             ToolSpec(
                 EXTEND,
-                "Changes how long a session lives from now, or how long it may sit idle.",
+                "Changes how long a session lives from now (ttl_seconds), how long it may go with no command " +
+                    "before it is stopped (idle_timeout_seconds), or both. Raise the idle timeout before handing over to " +
+                    "a person for something that may take a while: waiting for them counts as idle, and any command " +
+                    "also keeps a session alive.",
                 listOf(
                     SESSION,
                     number("ttl_seconds", "How long it may live from now."),
-                    number("idle_timeout_seconds", "How long it may sit unused before it is stopped."),
+                    number(
+                        "idle_timeout_seconds",
+                        "How long it may go with no command before it is stopped; waiting for a person counts as idle.",
+                    ),
                 ),
             ),
             ToolSpec(

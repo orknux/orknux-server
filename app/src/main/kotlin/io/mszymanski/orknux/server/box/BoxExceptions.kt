@@ -136,6 +136,13 @@ class BoxRequestTimeoutOutOfRangeException(val seconds: Int) : RuntimeException(
     override val arguments get() = mapOf("seconds" to seconds)
 }
 
+class BoxSessionIdleOutOfRangeException(val seconds: Int) : RuntimeException(
+    "$seconds is not a number of seconds a box session may sit idle. " +
+        "Choose between $MIN_BOX_SESSION_IDLE and $MAX_BOX_SESSION_IDLE.",
+), Refusal {
+    override val arguments get() = mapOf("seconds" to seconds)
+}
+
 class BoxEditUndoStepsOutOfRangeException(val steps: Int) : RuntimeException(
     "$steps is not a number of box edits to keep for undoing. " +
         "Choose between $MIN_BOX_EDIT_UNDO_STEPS and $MAX_BOX_EDIT_UNDO_STEPS.",

@@ -75,8 +75,10 @@ This matters most in Slack, where they cannot see your tool calls.
   conversation's sessions, so you need not open a second one for the same work.
 - `orkbox_export` packs a directory into this conversation's store.
   `orkbox_close` destroys the workspace - export first if anybody needs it. A
-  session also stops when it expires or sits idle; `orkbox_extend` gives it
-  longer.
+  session also stops when it expires or goes its idle timeout with no command;
+  `orkbox_extend` gives it longer. Waiting for the person counts as idle - before
+  you hand over for something that may take a while, such as trying a port you
+  exposed, raise `idle_timeout_seconds` so the session is still there after.
 
 ## Load the skill for the work
 

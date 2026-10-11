@@ -307,6 +307,23 @@ class BoxToolsTest(
         assertThat(read(session, "n.txt").path("content").stringValue()).isEqualTo("5")
     }
 
+    /**
+     * A session an agent opens without naming an idle timeout gets the
+     * administrator's, not its box's fifteen minutes: session 638's box was
+     * stopped while its agent waited for a person to try what it had served.
+     */
+    @Test
+    fun `a session opened without an idle timeout gets the administrator's, and one that names its own keeps it`() {
+        val defaulted = call("orkbox_open")
+        assertThat(defaulted.path("idleTimeoutSeconds").asLong()).describedAs(defaulted.toString()).isEqualTo(7200)
+
+        settings.setSessionIdleSeconds(5400, "alice")
+        assertThat(call("orkbox_open").path("idleTimeoutSeconds").asLong()).isEqualTo(5400)
+
+        val named = call("orkbox_open", mapOf("idle_timeout_seconds" to 600))
+        assertThat(named.path("idleTimeoutSeconds").asLong()).isEqualTo(600)
+    }
+
     @Test
     fun `a directory goes out as an archive in the session store and back in`() {
         val session = opened()

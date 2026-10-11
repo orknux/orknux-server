@@ -605,6 +605,12 @@ class BoxAPI(
     @SchemaMapping(typeName = "InstallationSettings", field = "boxEditUndoStepsConfigured")
     fun boxEditUndoStepsConfigured(source: InstallationSettingsView): Int = DEFAULT_BOX_EDIT_UNDO_STEPS
 
+    @SchemaMapping(typeName = "InstallationSettings", field = "boxSessionIdleSeconds")
+    fun boxSessionIdleSeconds(source: InstallationSettingsView): Int = settings.sessionIdleSeconds()
+
+    @SchemaMapping(typeName = "InstallationSettings", field = "boxSessionIdleSecondsConfigured")
+    fun boxSessionIdleSecondsConfigured(source: InstallationSettingsView): Int = DEFAULT_BOX_SESSION_IDLE
+
     @MutationMapping
     fun setLocalBoxEnabled(@Argument enabled: Boolean): InstallationSettingsView =
         changed(if (enabled) "The local box switched on" else "The local box switched off") {
@@ -682,6 +688,12 @@ class BoxAPI(
     @MutationMapping
     fun setBoxRequestTimeoutSeconds(@Argument seconds: Int): InstallationSettingsView =
         changed("A request to a box is given up on after $seconds seconds") { settings.setRequestTimeoutSeconds(seconds, it) }
+
+    @MutationMapping
+    fun setBoxSessionIdleSeconds(@Argument seconds: Int): InstallationSettingsView =
+        changed("A box session an agent opens stops after $seconds seconds with no command") {
+            settings.setSessionIdleSeconds(seconds, it)
+        }
 
     @MutationMapping
     fun setBoxEditUndoSteps(@Argument steps: Int): InstallationSettingsView =

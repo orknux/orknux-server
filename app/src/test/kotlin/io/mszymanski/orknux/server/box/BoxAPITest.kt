@@ -313,7 +313,8 @@ class BoxAPITest(
                 boxOutputBytes boxOutputBytesConfigured boxRequestTimeoutSeconds boxRequestTimeoutSecondsConfigured
                 localBoxOutputKeptBytes localBoxOutputKeptBytesConfigured boxOutputShownBytes boxOutputShownBytesConfigured
                 boxEditUndoSteps boxEditUndoStepsConfigured boxMaxPorts boxMaxPortsConfigured
-                boxPortCheckSeconds boxPortCheckSecondsConfigured boxPortCheckWaitMillis boxPortCheckWaitMillisConfigured } }""",
+                boxPortCheckSeconds boxPortCheckSecondsConfigured boxPortCheckWaitMillis boxPortCheckWaitMillisConfigured
+                boxSessionIdleSeconds boxSessionIdleSecondsConfigured } }""",
         ).execute()
         defaults.path("installationSettings.localBoxEnabled").entity(Boolean::class.java).isEqualTo(true)
         defaults.path("installationSettings.localBoxLocation").valueIsNull()
@@ -325,7 +326,7 @@ class BoxAPITest(
             "localBoxIdleTimeoutSeconds" to 900, "boxCommandWaitSeconds" to 300, "boxCommandTimeoutSeconds" to 1800,
             "boxOutputBytes" to 65536, "boxRequestTimeoutSeconds" to 30, "localBoxOutputKeptBytes" to 1048576,
             "boxOutputShownBytes" to 4194304, "boxEditUndoSteps" to 10, "boxMaxPorts" to 5,
-            "boxPortCheckSeconds" to 15, "boxPortCheckWaitMillis" to 1500,
+            "boxPortCheckSeconds" to 15, "boxPortCheckWaitMillis" to 1500, "boxSessionIdleSeconds" to 7200,
         ).forEach { (field, value) ->
             defaults.path("installationSettings.$field").entity(Int::class.java).isEqualTo(value)
             defaults.path("installationSettings.${field}Configured").entity(Int::class.java).isEqualTo(value)
@@ -347,6 +348,7 @@ class BoxAPITest(
             Knob("setBoxMaxPorts", "count", "boxMaxPorts", 0, -1, 21, "BoxMaxPortsOutOfRange"),
             Knob("setBoxPortCheckSeconds", "seconds", "boxPortCheckSeconds", 30, 1, 601, "BoxPortCheckOutOfRange"),
             Knob("setBoxPortCheckWaitMillis", "millis", "boxPortCheckWaitMillis", 500, 99, 10001, "BoxPortCheckWaitOutOfRange"),
+            Knob("setBoxSessionIdleSeconds", "seconds", "boxSessionIdleSeconds", 600, 59, 86401, "BoxSessionIdleOutOfRange"),
         ).forEach { knob ->
             graphQlTester.document("mutation { ${knob.mutation}(${knob.argument}: ${knob.good}) { ${knob.field} ${knob.field}Configured } }")
                 .execute().also {

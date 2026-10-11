@@ -121,6 +121,11 @@ extend type Mutation {
     box session, 0 to 100; 0 keeps no history. Held in memory only.
     """
     setBoxEditUndoSteps(steps: Int!): InstallationSettings!
+    """
+    How long a box session an agent opens may go with no command before its box
+    stops it, 60 to 86400 seconds; sent with every orkbox_open that names none.
+    """
+    setBoxSessionIdleSeconds(seconds: Int!): InstallationSettings!
 }
 
 extend type InstallationSettings {
@@ -174,6 +179,9 @@ extend type InstallationSettings {
     "How many file edits and writes an agent can undo per box session; 0 is none."
     boxEditUndoSteps: Int!
     boxEditUndoStepsConfigured: Int!
+    "How long a box session an agent opens may go with no command, in seconds."
+    boxSessionIdleSeconds: Int!
+    boxSessionIdleSecondsConfigured: Int!
 }
 
 enum BoxKind {

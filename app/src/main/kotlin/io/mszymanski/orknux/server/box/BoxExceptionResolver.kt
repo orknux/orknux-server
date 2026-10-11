@@ -34,6 +34,7 @@ class BoxExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is LocalBoxOutputKeptOutOfRangeException,
             is BoxRequestTimeoutOutOfRangeException,
             is BoxEditUndoStepsOutOfRangeException,
+            is BoxSessionIdleOutOfRangeException,
             -> ErrorType.BAD_REQUEST
 
             is BoxNotFoundException, is BoxPortNotFoundException -> ErrorType.NOT_FOUND

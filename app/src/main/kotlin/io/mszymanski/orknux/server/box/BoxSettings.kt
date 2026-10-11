@@ -67,6 +67,16 @@ const val MIN_BOX_PORT_CHECK_WAIT = 100
 const val MAX_BOX_PORT_CHECK_WAIT = 10000
 const val DEFAULT_BOX_PORT_CHECK_WAIT = 1500
 
+/**
+ * How long a box session an agent opens may sit with no command before its box
+ * stops it, in seconds - sent with every `orkbox_open` that names none. A box's
+ * own default was fifteen minutes, and an agent that handed over to a person to
+ * try what it had built came back to a stopped session.
+ */
+const val MIN_BOX_SESSION_IDLE = 60
+const val MAX_BOX_SESSION_IDLE = 86400
+const val DEFAULT_BOX_SESSION_IDLE = 7200
+
 /** How many edits and writes `orkbox_undo` can take back, per box session; 0 keeps no history. */
 const val MIN_BOX_EDIT_UNDO_STEPS = 0
 const val MAX_BOX_EDIT_UNDO_STEPS = 100
@@ -140,6 +150,9 @@ class BoxSettings(private val settings: InstallationSettingRepository) {
 
     fun editUndoSteps(): Int =
         ranged(EDIT_UNDO_STEPS, MIN_BOX_EDIT_UNDO_STEPS..MAX_BOX_EDIT_UNDO_STEPS, DEFAULT_BOX_EDIT_UNDO_STEPS)
+
+    fun sessionIdleSeconds(): Int =
+        ranged(SESSION_IDLE, MIN_BOX_SESSION_IDLE..MAX_BOX_SESSION_IDLE, DEFAULT_BOX_SESSION_IDLE)
 
     @Transactional
     fun setLocalEnabled(enabled: Boolean, by: String) = write(LOCAL_ENABLED, enabled.toString(), by)
@@ -240,6 +253,12 @@ class BoxSettings(private val settings: InstallationSettingRepository) {
     }
 
     @Transactional
+    fun setSessionIdleSeconds(seconds: Int, by: String) {
+        if (seconds !in MIN_BOX_SESSION_IDLE..MAX_BOX_SESSION_IDLE) throw BoxSessionIdleOutOfRangeException(seconds)
+        write(SESSION_IDLE, seconds.toString(), by)
+    }
+
+    @Transactional
     fun setEditUndoSteps(steps: Int, by: String) {
         if (steps !in MIN_BOX_EDIT_UNDO_STEPS..MAX_BOX_EDIT_UNDO_STEPS) throw BoxEditUndoStepsOutOfRangeException(steps)
         write(EDIT_UNDO_STEPS, steps.toString(), by)
@@ -290,6 +309,7 @@ class BoxSettings(private val settings: InstallationSettingRepository) {
         const val OUTPUT_SHOWN = "tin.output.shown.bytes"
         const val REQUEST_TIMEOUT = "tin.request.timeout.seconds"
         const val EDIT_UNDO_STEPS = "tin.edit.undo.steps"
+        const val SESSION_IDLE = "tin.session.idle.seconds"
 
         val RUNTIMES = setOf(Config.RUNTIME_LOCAL, Config.RUNTIME_DOCKER)
     }

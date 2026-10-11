@@ -36,6 +36,7 @@ have failed.
 - How big one value an agent keeps in its session may be, and how many it may keep, are Admin settings: **Session Value Size** (8 MB by default, up to 256 MB, so an exported project can be handed to an upload tool) and **Session Store Keys** (200 by default).
 
 ### 🔧 Changed
+- A box session an agent opens now stays up through two hours with no command, not the box's own fifteen minutes - an agent waiting for you to try what it served no longer comes back to a stopped session. Box Session Idle Timeout in Admin Settings changes it; an agent can still ask for its own.
 - How often the "Writing…" line is updated and how long it is believed without a new report are Admin settings, Writing Progress Interval (1 s) and Writing Progress Forgotten After (30 s).
 
 - Agents on Ollama and OpenAI-type providers - which includes llama.cpp and other OpenAI-compatible servers - are now handed every tool from their first round, past their own **Tools carried at once** limit and up to the provider's per-request limit; to keep the old behaviour, switch **All tools up front** off on the provider.
