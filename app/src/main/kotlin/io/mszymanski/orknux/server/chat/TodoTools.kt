@@ -82,6 +82,12 @@ class TodoTools(
         }
     }
 
+    /**
+     * The list as it is stored, in the agent's order, open and done items alike -
+     * for the session page, which shows the plan rather than putting it in a prompt.
+     */
+    fun items(session: Long): List<TodoItem> = load(session).items
+
     private inner class Shed(private val session: Long) : ToolShed {
 
         override fun specs(): List<ToolSpec> = listOf(

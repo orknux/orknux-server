@@ -1,0 +1,22 @@
+# A session's to-do list, issue #405: the plan an agent keeps with todo_add,
+# todo_reorder, todo_note and todo_complete, shown read-only beside the
+# transcript on the session page.
+
+extend type Query {
+    """
+    One session's to-do list, in the order the agent keeps it, open and done
+    items alike. Empty where the agent has planned nothing. Anybody who can see
+    the session's workspace.
+    """
+    sessionTodos(sessionId: ID!): [SessionTodo!]!
+}
+
+"One item on an agent's to-do list."
+type SessionTodo {
+    "The number the agent gave it, which its tools name it by."
+    id: Int!
+    text: String!
+    "What the agent noted against it, if anything."
+    note: String
+    done: Boolean!
+}
