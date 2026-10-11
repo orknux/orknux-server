@@ -168,6 +168,25 @@ class ChatStreamInterruptTest(
      * and a conversation reopened tomorrow ending in half a sentence attributed
      * to the model is a worse record than one ending on the question.
      */
+    /**
+     * A voice turn whose reader is gone before the first frame is never put to
+     * the model: the turn names its session first, that write fails, and there
+     * is nobody to answer.
+     */
+    @Test
+    fun `a voice turn whose reader is already gone never asks the model`() {
+        val chatId = chatWithAgent(model(serve()))
+
+        val response = GoneAlready()
+        streaming.stream(chatId, ChatStreamRequest("Say something long", voice = true), response)
+            .writeTo(response.outputStream)
+        val until = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (generations.current(chatId)?.isOver() == false && System.nanoTime() < until) Thread.sleep(10)
+        Thread.sleep(300)
+
+        assertThat(written.get()).isZero()
+    }
+
     @Test
     fun `a voice turn's abandoned answer is not kept`() {
         val chatId = chatWithAgent(model(serve()))
@@ -445,7 +464,8 @@ class ChatStreamInterruptTest(
      * [io.mszymanski.orknux.server.stream.ReaderWatch] sends is a write like any
      * other, so this is also how it finds out.
      */
-    private class Gone : MockHttpServletResponse() {
+    /** A reader gone before anything is written: the turn ends before the model is asked at all. */
+    private class GoneAlready : MockHttpServletResponse() {
         private val stream = object : ServletOutputStream() {
             override fun write(b: Int) = throw IOException("Broken pipe")
             override fun write(b: ByteArray, off: Int, len: Int) = throw IOException("Broken pipe")
@@ -456,6 +476,28 @@ class ChatStreamInterruptTest(
         override fun getOutputStream(): ServletOutputStream = stream
 
         override fun flushBuffer() = throw IOException("Broken pipe")
+    }
+
+    /**
+     * A reader that leaves once the model has begun answering.
+     *
+     * Not at the very first frame: a turn now names its session before the
+     * model is asked, and a reader gone by then stops the turn before there is
+     * an answer to stop - right, but not what these cases are about, which is
+     * a model already answering being told to stop.
+     */
+    private inner class Gone : MockHttpServletResponse() {
+        private fun gone() = written.get() > 0
+        private val stream = object : ServletOutputStream() {
+            override fun write(b: Int) { if (gone()) throw IOException("Broken pipe") }
+            override fun write(b: ByteArray, off: Int, len: Int) { if (gone()) throw IOException("Broken pipe") }
+            override fun isReady() = true
+            override fun setWriteListener(listener: WriteListener?) = Unit
+        }
+
+        override fun getOutputStream(): ServletOutputStream = stream
+
+        override fun flushBuffer() { if (gone()) throw IOException("Broken pipe") }
     }
 
     /**
