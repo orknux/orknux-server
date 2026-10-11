@@ -1150,6 +1150,20 @@ class AgentConversation(
                              */
                             kept?.sent(closed(conversation, call.id, halted.message.orEmpty()))
                             throw halted
+                        } catch (broken: LinkageError) {
+                            /*
+                             * A tool whose code could not be loaded - a jar
+                             * replaced under a running server. An Error, so
+                             * nothing below caught it: the turn died on the
+                             * call and the transcript showed it with no answer
+                             * and nothing else, which read as a tool still
+                             * running. Answered as a failure instead, so the
+                             * model and the reader both see what happened.
+                             */
+                            jackson.writeValueAsString(mapOf(
+                                "error" to "The tool could not run: " + broken.javaClass.simpleName + " " +
+                                    broken.message.orEmpty() + ". The server needs a restart.",
+                            ))
                         }
                         // Remembered only once it loaded: a refusal is not a page to point at.
                         if (readAs != null && readBefore == null && !AgentTools.failed(got)) skillsRead[readAs] = call.id
