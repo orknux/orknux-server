@@ -57,7 +57,15 @@ class ChatTitles(
         val workspace = workspaces.findByIdOrNull(session.workspaceId) ?: return
         val companion = workspace.companionModelId ?: session.modelId ?: return
 
-        val suggested = ask(companion, question, answer) ?: return
+        /*
+         * From the question's own words where the model gave nothing usable. A
+         * reasoning model asked for six words often thinks and answers with
+         * nothing, which left every chat on an installation called New chat
+         * with not a line in the log.
+         */
+        val suggested = ask(companion, question, answer)
+            ?: fromWords(question).also { log.info("Chat {} named from its first message: its model gave no usable title", sessionId) }
+            ?: return
         writing.executeWithoutResult {
             val held = sessions.findByIdOrNull(sessionId) ?: return@executeWithoutResult
             if (held.title == DEFAULT_TITLE) {
@@ -98,6 +106,14 @@ class ChatTitles(
         }
     }
 
+    /** "can you check what the biggest files are on michjak-server" -> "can you check what the biggest". */
+    private fun fromWords(question: String): String? =
+        question.trim().lineSequence().firstOrNull { it.isNotBlank() }
+            ?.split(Regex("\\s+"))?.take(FALLBACK_WORDS)?.joinToString(" ")
+            ?.trimEnd('.', ',', '!', '?', ':', ';', ' ')
+            ?.take(TITLE_LENGTH)
+            ?.ifBlank { null }
+
     /** The first line, without the decoration models add to it. */
     private fun clean(said: String): String? {
         val line = said.trim().lineSequence().firstOrNull { it.isNotBlank() } ?: return null
@@ -114,6 +130,9 @@ class ChatTitles(
         val log = LoggerFactory.getLogger(ChatTitles::class.java)
 
         /** What a chat is called before it has been anything. */
+        /** How many of the question's words name a chat its model could not. */
+        const val FALLBACK_WORDS = 6
+
         const val DEFAULT_TITLE = "New chat"
 
         /** Enough of the answer to name it by; the whole of it is not needed. */

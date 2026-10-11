@@ -737,6 +737,29 @@ class ChatInSessionTest(
         assertThat(chats.findByIdOrNull(chatId)?.title).isEqualTo("Pool sizing")
     }
 
+    /**
+     * A model that only thinks when asked for a title still leaves the chat
+     * named: from the first words of what was asked. A reasoning model answered
+     * the naming request with nothing, and every chat on an installation stayed
+     * New chat without a line in the log.
+     */
+    @Test
+    fun `a chat whose model gives no title is named from the first words of the question`() {
+        val endpoint = serve { body ->
+            if (body.contains("You name conversations")) {
+                """{"choices":[{"message":{"role":"assistant","content":"","reasoning_content":"Hmm, a title."}}],"usage":{"prompt_tokens":5,"completion_tokens":3}}"""
+            } else {
+                """{"choices":[{"message":{"role":"assistant","content":"About forty gigabytes."}}],"usage":{"prompt_tokens":5,"completion_tokens":3}}"""
+            }
+        }
+        val chatId = bareChat(llmSessionId = null, endpoint = endpoint)
+        chats.save(requireNotNull(chats.findByIdOrNull(chatId)).apply { title = "New chat" })
+
+        send(chatId, "Can you check what the biggest files are on the server?")
+
+        assertThat(chats.findByIdOrNull(chatId)?.title).isEqualTo("Can you check what the biggest")
+    }
+
     @Test
     fun `a chat with no agent opens no session even after it is used`() {
         val chatId = bareChat(llmSessionId = null, endpoint = serveAnswer("Hello."))
