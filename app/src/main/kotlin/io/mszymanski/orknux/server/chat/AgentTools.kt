@@ -163,13 +163,9 @@ class AgentTools(
         // Built-ins by name, on unless hidden: the server's own skills reach every agent.
         addAll(skills.descriptors().filter { BuiltInTools.granted(agent, it.name) }.map(::spec))
         if (agent.memoryCatalogs.isNotEmpty()) {
-            add(spec(memories.descriptor()))
-            // The writing half of the same grant: an agent given a catalog can
-            // add to what it holds, so a lesson outlives the conversation.
-            add(spec(memories.saveDescriptor()))
-            // And correcting or removing what is there. Issue #571.
-            add(spec(memories.updateDescriptor()))
-            add(spec(memories.deleteDescriptor()))
+            // Searching, and the writing half of the same grant - saving, correcting
+            // and removing (issue #571) - with this agent's catalogs named in each.
+            addAll(memories.descriptorsFor(agent).map(::spec))
         }
 
         // orknux itself, for an agent granted it. Scoped to the agent's own
@@ -658,7 +654,14 @@ class AgentTools(
     private fun spec(descriptor: ToolDescriptor) = ToolSpec(
         name = descriptor.name,
         description = descriptor.description,
-        parameters = descriptor.parameters.map { ToolParameterSpec(it.name, it.description, it.required) },
+        parameters = descriptor.parameters.map { parameter ->
+            ToolParameterSpec(
+                parameter.name,
+                parameter.description,
+                parameter.required,
+                parameter.allowed?.let { mapOf("type" to "string", "enum" to it, "description" to parameter.description) },
+            )
+        },
     )
 
     /**

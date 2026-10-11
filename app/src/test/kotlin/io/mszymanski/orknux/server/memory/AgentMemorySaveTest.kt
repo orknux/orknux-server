@@ -40,6 +40,7 @@ class AgentMemorySaveTest(
     @Autowired val agents: AgentRepository,
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val audit: WorkspaceAuditRepository,
+    @Autowired val tools: io.mszymanski.orknux.server.chat.AgentTools,
 ) {
 
     private lateinit var agent: Agent
@@ -179,5 +180,46 @@ class AgentMemorySaveTest(
         assertThat(audit.findAll().map { it.message }).anyMatch { it.contains("Stale fact deleted") && it.contains(agent.name) }
         assertThatThrownBy { memoryTool.delete(agent, catalog.name, "Stale fact") }
             .hasMessageContaining("no memory called")
+    }
+
+    /**
+     * The tools name the agent's catalogs. "Optional while the agent holds
+     * exactly one" told a model nothing it could act on - it never knew how many
+     * it held - so models left the catalog out and were refused with the list.
+     */
+    @Test
+    fun `with one catalog the memory tools name it and leave it optional`() {
+        val save = memoryTool.descriptorsFor(agent).single { it.name == "memory_save" }.parameters.single { it.name == "catalog" }
+
+        assertThat(save.required).isFalse()
+        assertThat(save.allowed).containsExactly(catalog.name)
+        assertThat(save.description).contains(catalog.name)
+    }
+
+    @Test
+    fun `with two catalogs writing requires one of them, by an enum the model is shown`() {
+        val second = catalogs.findByWorkspaceIdAndName(agent.workspaceId, "Escalations")
+            ?: catalogs.save(MemoryCatalog(workspaceId = agent.workspaceId, name = "Escalations", createdBy = "test"))
+        agent.memoryCatalogs = mutableListOf(catalog.name, second.name)
+        agents.save(agent)
+
+        val described = memoryTool.descriptorsFor(agent).associateBy { it.name }
+        listOf("memory_save", "memory_update", "memory_delete").forEach { name ->
+            val held = described.getValue(name).parameters.single { it.name == "catalog" }
+            assertThat(held.required).describedAs(name).isTrue()
+            assertThat(held.allowed).describedAs(name).containsExactlyInAnyOrder(catalog.name, "Escalations")
+            assertThat(held.description).describedAs(name).contains(catalog.name).contains("Escalations")
+        }
+        val search = described.getValue("memory_search").parameters.single { it.name == "catalog" }
+        assertThat(search.required).isFalse()
+        assertThat(search.description).contains("leave it out").contains("Escalations")
+
+        // As the model receives it: a JSON Schema enum on the parameter.
+        val sent = tools.specsFor(agent).single { it.name == "memory_save" }.parameters.single { it.name == "catalog" }
+        assertThat(sent.required).isTrue()
+        assertThat(sent.declared()["enum"] as List<*>).containsExactlyInAnyOrder(catalog.name, "Escalations")
+
+        assertThatThrownBy { memoryTool.save(agent, null, "Who", "Nobody.") }
+            .hasMessageContaining("catalog must be one of").hasMessageContaining("Escalations")
     }
 }

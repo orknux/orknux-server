@@ -40,6 +40,43 @@ class MemoryTool(
     fun deleteDescriptor(): ToolDescriptor = DELETE_DESCRIPTOR
 
     /**
+     * The four memory tools as this agent is handed them, its catalogs named.
+     *
+     * The descriptions said "Optional while the agent holds exactly one", which
+     * a model cannot act on: it is never told how many it holds, or what they
+     * are called. Models - frontier ones included - left the catalog out, were
+     * refused with the list, and tried again. Named in the parameter, as an
+     * enum and in words, the first call is the right one.
+     *
+     * Read once per offering like every other grant, so the tool list a round
+     * sends does not move while a turn runs.
+     */
+    fun descriptorsFor(agent: Agent): List<ToolDescriptor> {
+        val names = catalogsFor(agent).map { it.name }
+        if (names.isEmpty()) return listOf(DESCRIPTOR, SAVE_DESCRIPTOR, UPDATE_DESCRIPTOR, DELETE_DESCRIPTOR)
+        val listed = names.joinToString(", ")
+        val search = ToolParameter(
+            "catalog",
+            "Restrict to one catalog. Optional: leave it out to search all of: $listed.",
+            required = false,
+            allowed = names,
+        )
+        fun writing(verb: String) = if (names.size == 1) {
+            ToolParameter("catalog", "The catalog $verb. Optional: this agent holds one, ${names.single()}.", required = false, allowed = names)
+        } else {
+            ToolParameter("catalog", "The catalog $verb. Required: one of $listed.", required = true, allowed = names)
+        }
+        fun ToolDescriptor.withCatalog(parameter: ToolParameter) =
+            copy(parameters = parameters.map { if (it.name == "catalog") parameter else it })
+        return listOf(
+            DESCRIPTOR.withCatalog(search),
+            SAVE_DESCRIPTOR.withCatalog(writing("to save into")),
+            UPDATE_DESCRIPTOR.withCatalog(writing("the memory is in")),
+            DELETE_DESCRIPTOR.withCatalog(writing("the memory is in")),
+        )
+    }
+
+    /**
      * The catalogs this agent may read, as the screen would name them.
      *
      * A granted name that no longer matches a catalog is dropped rather than
@@ -358,7 +395,7 @@ class MemoryTool(
                 )
             allowed.size == 1 -> allowed.single()
             else -> throw MemorySaveRefusedException(
-                "Say which catalog. This agent holds: " + allowed.joinToString { it.name },
+                "Say which catalog: catalog must be one of " + allowed.joinToString { it.name } + ".",
             )
         }
     }
@@ -498,4 +535,6 @@ data class ToolParameter(
     val name: String,
     val description: String,
     val required: Boolean,
+    /** The only values it takes, where there is a fixed set - sent to the model as a JSON Schema enum. */
+    val allowed: List<String>? = null,
 )

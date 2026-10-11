@@ -49,6 +49,7 @@ have failed.
 
 ### 🐛 Fixed
 
+- The memory tools name the agent's catalogs. An agent holding more than one was told the catalog was optional, left it out, and was refused - frontier models included.
 - On SQLite, naming a chat no longer holds the database's one writer while the model answers - a slow model used to stall every other write, and on a dropped connection left later writes failing to commit.
 - A chat's thinking is now in its session's transcript, as a task's and a workflow step's always was.
 - When a turn outgrows the model's window and is summarised, the session's note of it carries the summary the model was given.

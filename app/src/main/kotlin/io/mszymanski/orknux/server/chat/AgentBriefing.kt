@@ -347,7 +347,9 @@ class AgentBriefing(
                 append("Search it with memory_search before answering anything about how this workspace ")
                 append("works, what it has decided, or who its customers are - what is written down there ")
                 append("is what somebody wanted you to know, and it beats what you would otherwise assume. ")
-                appendLine("Write down with memory_save anything you are told that the next conversation would need.")
+                append("Write down with memory_save anything you are told that the next conversation would need")
+                val writable = memories.catalogsFor(agent).map { it.name }
+                appendLine(if (writable.size > 1) ", naming the catalog: one of ${writable.joinToString(", ")}." else ".")
             }
         }
 
