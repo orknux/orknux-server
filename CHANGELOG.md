@@ -41,6 +41,7 @@ have failed.
 - Two Orknux servers on one machine no longer delete each other's local box sessions when one starts: each cleans up only the workspaces it made, and a session whose workspace was removed says so instead of calling every path outside it.
 - A conversation that filled a llama.cpp model's context window failed with "no message" after empty retries, because llama.cpp stops for length rather than refusing; it is now summarised to fit and carries on.
 - Deleting a directory in a local box while a process still held files in it - a running jar in `target/` on Windows - reported success and left it there; it now says what was left and why.
+- A chat's agent now has the same session tools as a workflow step or a task - notes to self, the to-do list and the clock - where it had only scratchpads, timers and watchers.
 
 ## 0.9.9.32
 

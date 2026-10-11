@@ -2,6 +2,7 @@ package io.mszymanski.orknux.server.chat
 
 import io.mszymanski.orknux.connector.model.ChatCompletion
 import io.mszymanski.orknux.connector.model.ChatTurn
+import io.mszymanski.orknux.connector.model.ToolCall
 import io.mszymanski.orknux.connector.model.ToolParameterSpec
 import io.mszymanski.orknux.connector.model.ToolSpec
 import io.mszymanski.orknux.server.agent.Agent
@@ -81,8 +82,13 @@ class AgentRunTools(
     private val details: ObjectProvider<io.mszymanski.orknux.server.agent.AgentDetails>,
     /** Where the asked agent's own conversation is written; see [run]. Issue #379. */
     private val sessions: io.mszymanski.orknux.server.llm.LlmSessionRecorder,
-    /** The working files lent to the asked agent, so a shared pad reaches it. Issue #411. */
-    private val scratchpads: ScratchpadTools,
+    /**
+     * The session's tools the asked agent is lent, the same set every turn
+     * takes - so a pad the asker shared reaches it (#411), and so does a note,
+     * a to-do list and the clock. Fetched rather than injected: the watcher
+     * tools in it reach the agent's own tools, which hold this.
+     */
+    private val sessionSheds: ObjectProvider<SessionSheds>,
     /** The conversations already started from one, for the count in [run]. Issue #380. */
     private val held: io.mszymanski.orknux.server.llm.LlmSessionRepository,
     /** Whether a line in one of those is still open, for [asked]. Issue #477. */
@@ -599,13 +605,14 @@ class AgentRunTools(
          */
         val into = parent?.let { above -> sessions.openUnder(above, title) }
 
-        // The asked agent gets scratchpad tools scoped to its own session, so a
-        // pad the asker shared is one it can read and add to - the same document,
-        // worked on by both. A subagent in no session gets none. Issue #411.
+        // The asked agent gets the session's tools, scoped to its own session,
+        // so a pad the asker shared is one it can read and add to - the same
+        // document, worked on by both. Issue #411. A subagent in no session gets
+        // only what needs none.
         //
         // Built before the question goes in, because the account of the setup
         // below names what was lent as well as what was granted.
-        val lent = handing(into)
+        val lent = handing(sub, into)
 
         if (into != null) {
             /*
@@ -797,8 +804,9 @@ class AgentRunTools(
     }
 
     /**
-     * The scratchpads the asked agent works in, and what it is told about
-     * handing one back. Issue #458.
+     * The session's tools the asked agent works with - the same set every turn
+     * takes, see [SessionSheds] - and what it is told about handing a
+     * scratchpad back. Issue #458.
      *
      * A subagent asked for something long writes it into a pad and then puts
      * the whole of it in its answer as well, because the answer is the only
@@ -809,21 +817,27 @@ class AgentRunTools(
      * gains the part only a subagent needs, and it is added here rather than in
      * [ScratchpadTools] because it is true of nothing else that is lent them.
      */
-    private fun handing(into: Long?): ToolShed? {
-        val pads = scratchpads.shed(into) ?: return null
-        return object : ToolShed by pads {
-            override fun briefing(): String = listOfNotNull(
-                pads.briefing(),
-                "You are answering another agent, not a person. Anything long you make - a page, a file, " +
-                    "a list - goes in a scratchpad, and the scratchpads are the conversation's: the agent " +
-                    "that asked you reads and edits the same files, and a file it already has is one you " +
-                    "edit rather than copy. Nothing has to be shared. So your answer says which pad the " +
-                    "work is in and what is in it in a line or two, and never repeats the whole of it. " +
-                    "What you write twice is paid for twice and cut off once.",
-            // Not the platform's line separator: a briefing that differs by
-            // machine is a prompt a cache cannot share between them.
-            ).joinToString(separator = "\n\n")
-        }
+    private fun handing(sub: Agent, into: Long?): ToolShed? = sheds(
+        sessionSheds.getObject().of(sub, into),
+        into?.let { Handing },
+    )
+
+    /**
+     * The paragraph alone, lent beside the session's tools: it holds no tool,
+     * so the grant filter has nothing to take from it and the briefing is
+     * carried through as any shed's is.
+     */
+    private object Handing : ToolShed {
+        override fun specs(): List<ToolSpec> = emptyList()
+        override fun handles(name: String): Boolean = false
+        override fun run(call: ToolCall): String = error("lends no tool")
+        override fun briefing(): String =
+            "You are answering another agent, not a person. Anything long you make - a page, a file, " +
+                "a list - goes in a scratchpad, and the scratchpads are the conversation's: the agent " +
+                "that asked you reads and edits the same files, and a file it already has is one you " +
+                "edit rather than copy. Nothing has to be shared. So your answer says which pad the " +
+                "work is in and what is in it in a line or two, and never repeats the whole of it. " +
+                "What you write twice is paid for twice and cut off once."
     }
 
     /** The agents this one may ask: its grant list, in its own workspace, as rows. */

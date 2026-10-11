@@ -117,7 +117,17 @@ class AgentBriefing(
          * every agent in every context, which is why it is here and not in a
          * tool's description.
          */
-        parts += HOW_YOU_RUN
+        /*
+         * And when to plan, beside it, where the agent holds the list: every
+         * turn in a session lends it now (see [SessionSheds]), and a model that
+         * was never told when to reach for it reached for it never, or for a
+         * one-line answer.
+         */
+        parts += if (BuiltInTools.granted(agent, TodoTools.ADD) && BuiltInTools.granted(agent, TodoTools.COMPLETE)) {
+            HOW_YOU_RUN + " " + PLAN_WITH_TODOS
+        } else {
+            HOW_YOU_RUN
+        }
 
         val instructions = skills.list(agent)
 
@@ -524,5 +534,10 @@ class AgentBriefing(
                 "before you finish, or, as a last resort, end your turn with a wake-up, where one is " +
                 "offered, and say when you will be back. Where you can do none of these, say so plainly " +
                 "rather than promising."
+
+        /** When the to-do list is worth keeping; said after [HOW_YOU_RUN] where the agent holds it. */
+        const val PLAN_WITH_TODOS =
+            "For work of more than a few steps, write the steps down with " + TodoTools.ADD + " first and " +
+                "tick each off with " + TodoTools.COMPLETE + " as it lands; for a quick answer, skip the list."
     }
 }

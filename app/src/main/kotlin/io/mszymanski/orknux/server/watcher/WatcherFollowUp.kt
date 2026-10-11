@@ -8,11 +8,8 @@ import io.mszymanski.orknux.server.agent.FinishAnswerTools
 import io.mszymanski.orknux.server.chat.AgentBriefing
 import io.mszymanski.orknux.server.chat.AgentConversation
 import io.mszymanski.orknux.server.chat.ChatSessionRepository
-import io.mszymanski.orknux.server.chat.DateTools
 import io.mszymanski.orknux.server.chat.NoteTools
-import io.mszymanski.orknux.server.chat.ScratchpadTools
-import io.mszymanski.orknux.server.chat.TimerTools
-import io.mszymanski.orknux.server.chat.TodoTools
+import io.mszymanski.orknux.server.chat.SessionSheds
 import io.mszymanski.orknux.server.chat.sheds
 import io.mszymanski.orknux.server.llm.LlmSessionRecorder
 import io.mszymanski.orknux.server.llm.SessionEventDue
@@ -88,12 +85,8 @@ class WatcherFollowUp(
     private val conversation: ObjectProvider<AgentConversation>,
     private val sessions: LlmSessionRecorder,
     private val budgets: SessionMemoryBudgets,
-    private val notes: NoteTools,
-    private val scratchpads: ScratchpadTools,
-    private val todos: TodoTools,
-    private val dates: DateTools,
-    private val timers: TimerTools,
-    private val watcherTools: WatcherTools,
+    /** The tools every turn in a session is lent; see [SessionSheds]. */
+    private val sessionSheds: SessionSheds,
     private val finishing: FinishAnswerTools,
     private val expressions: NodeExpressions,
     private val runs: ObjectProvider<ExecutionService>,
@@ -209,12 +202,8 @@ class WatcherFollowUp(
          * reminder is said again on every attempt and recorded on none.
          */
         val history = sent ?: (
-            listOfNotNull(
-                listOfNotNull(
-                    notes.recalled(session).takeIf { it.isNotBlank() },
-                    todos.recalled(session).takeIf { it.isNotBlank() },
-                ).takeIf { it.isNotEmpty() }?.let { ChatTurn("user", it.joinToString("\n\n")) },
-            ) + sessions.remembered(session, budget) + sessions.recalled(session, budget)
+            listOfNotNull(sessionSheds.standing(session)?.let { ChatTurn("user", it) }) +
+                sessions.remembered(session, budget) + sessions.recalled(session, budget)
             )
         val arrived = inbox.take(session)
         val said = buildList {
@@ -223,13 +212,9 @@ class WatcherFollowUp(
             arrived.forEach { add(ChatTurn("user", it)) }
             add(ChatTurn("user", followUp(mayFinish)))
         }
+        // The tools every turn in a session is lent, and the ending, which is this door's own.
         val shed = sheds(
-            notes.shed(session, agent.name),
-            scratchpads.shed(session),
-            todos.shed(session),
-            dates.shed(),
-            timers.shed(session),
-            watcherTools.shed(agent, session),
+            sessionSheds.of(agent, session),
             finishing.shed(granted = mayFinish),
         )
 

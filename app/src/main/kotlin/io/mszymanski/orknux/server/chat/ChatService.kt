@@ -62,12 +62,8 @@ class ChatService(
     /** Keeps a long chat inside the window its model will accept; see [ChatCompaction]. */
     private val compaction: ChatCompaction,
     private val workspaces: WorkspaceRepository,
-    /** The working files a chat's agent keeps in the chat's session; see [ScratchpadTools]. Issue #445. */
-    private val scratchpads: ScratchpadTools,
-    /** A reminder the chat's agent sets and carries on; see [TimerTools]. */
-    private val timers: TimerTools,
-    /** Watchers the chat's agent sets, which wake the chat; see [io.mszymanski.orknux.server.watcher.WatcherTools]. #606. */
-    private val watchers: io.mszymanski.orknux.server.watcher.WatcherTools,
+    /** The tools every turn in a session is lent, a chat's included; see [SessionSheds]. */
+    private val sessionSheds: SessionSheds,
     /** What the chat's model was sent, sent again as it was; see [io.mszymanski.orknux.server.llm.SessionPrompt]. */
     private val prompt: io.mszymanski.orknux.server.llm.SessionPrompt,
     transactions: PlatformTransactionManager,
@@ -744,18 +740,18 @@ class ChatService(
         } else {
             /*
              * An agent may need its tools before it can answer; a bare model
-             * cannot. Beside what the door lent, the scratchpads: a chat has a
-             * session to keep files in like a task does, and an agent drafting
-             * something long in a chat was doing it in its head for want of
-             * them. Lent here rather than by each door, so the two doors cannot
-             * come to lend different things. Issue #445.
+             * cannot. Beside what the door lent, the tools every turn in a
+             * session is lent - a note, working files, a to-do list, the clock,
+             * a reminder, a watcher - the same set a step or a task takes. A
+             * chat had only the scratchpads, the timer and the watchers, so
+             * the agent that kept a plan in a workflow could not in a chat.
+             * Lent here rather than by each door, so the streaming, blocking
+             * and waking doors cannot come to lend different things. #445.
              */
             val agent = agents.findByIdOrNull(start.agentId)
             val lent = sheds(
                 shed,
-                scratchpads.shed(start.llmSessionId),
-                timers.shed(start.llmSessionId),
-                agent?.let { watchers.shed(it, start.llmSessionId) },
+                agent?.let { sessionSheds.of(it, start.llmSessionId) },
             )
             /*
              * The thinking goes into the session too, as a task's and a
@@ -889,7 +885,7 @@ class ChatService(
             // of the thread by its position, because it is no longer the last
             // thing in the list: what the tools returned goes between.
             turns = briefed(session) +
-                (sent ?: (thread.map { ChatTurn(role(it), it.text.orEmpty()) } + recalled(session, into))) +
+                (sent ?: (standing(session, into) + thread.map { ChatTurn(role(it), it.text.orEmpty()) } + recalled(session, into))) +
                 ChatTurn("user", message, images),
             compacted = compacted,
         )
@@ -916,7 +912,7 @@ class ChatService(
             llmSessionId = into,
             conversationId = session.conversationId,
             turns = briefed(session) +
-                (sentBefore(session, into) ?: (thread.map { ChatTurn(role(it), it.text.orEmpty()) } + recalled(session, into))),
+                (sentBefore(session, into) ?: (standing(session, into) + thread.map { ChatTurn(role(it), it.text.orEmpty()) } + recalled(session, into))),
         )
     }
 
@@ -987,7 +983,7 @@ class ChatService(
             llmSessionId = into,
             conversationId = session.conversationId,
             turns = briefed(session) +
-                (sentBefore(session, into) ?: (asked.map { ChatTurn(role(it), it.text.orEmpty()) } + recalled(session, into))),
+                (sentBefore(session, into) ?: (standing(session, into) + asked.map { ChatTurn(role(it), it.text.orEmpty()) } + recalled(session, into))),
         )
     }
 
@@ -1156,6 +1152,21 @@ class ChatService(
      */
     private fun recalled(chat: ChatSession, into: Long?): List<ChatTurn> =
         into?.let { recorder.recalled(it, budget(chat)) }.orEmpty()
+
+    /**
+     * What the chat's agent wrote down for itself and the to-do list it is
+     * working down, as a user turn at the head of a conversation rebuilt from
+     * the thread - as a step, a task and a watcher's follow-up put it. Never in
+     * the system turn, where writing a note would change every message after
+     * it; where what was sent is kept, the calls that wrote them are in it and
+     * this is not added. Empty for a chat with no agent, which has neither.
+     */
+    private fun standing(chat: ChatSession, into: Long?): List<ChatTurn> =
+        if (chat.agentId == null) {
+            emptyList()
+        } else {
+            listOfNotNull(sessionSheds.standing(into)?.let { ChatTurn("user", it) })
+        }
 
     /**
      * What the person said, into the session this chat is continuing.

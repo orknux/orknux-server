@@ -65,18 +65,8 @@ class TaskLoop(
     private val budgets: SessionMemoryBudgets,
     private val worker: TaskWorker,
     private val tools: TaskTools,
-    /** What lets an agent write something down for itself; see [NoteTools]. #371. */
-    private val notes: io.mszymanski.orknux.server.chat.NoteTools,
-    /** What lets an agent keep working files across the task; see [ScratchpadTools]. #411. */
-    private val scratchpads: io.mszymanski.orknux.server.chat.ScratchpadTools,
-    /** What lets an agent plan its work as a to-do list; see [TodoTools]. #405. */
-    private val todos: io.mszymanski.orknux.server.chat.TodoTools,
-    /** What lets an agent ask what the current time is; see [DateTools]. #407. */
-    private val dates: io.mszymanski.orknux.server.chat.DateTools,
-    /** A reminder the agent sets for itself; see [io.mszymanski.orknux.server.chat.TimerTools]. */
-    private val timers: io.mszymanski.orknux.server.chat.TimerTools,
-    /** Watchers the agent sets, which wake its session; see [io.mszymanski.orknux.server.watcher.WatcherTools]. #606. */
-    private val watchers: io.mszymanski.orknux.server.watcher.WatcherTools,
+    /** The tools every turn in a session is lent; see [io.mszymanski.orknux.server.chat.SessionSheds]. */
+    private val sessionSheds: io.mszymanski.orknux.server.chat.SessionSheds,
     /** save_artifact whatever the agent's list says; see [TaskArtifacts]. */
     private val artifacts: TaskArtifacts,
     /** The agent's setup, written into the log where it changes; see [AgentDetails]. #391, #441. */
@@ -180,34 +170,13 @@ class TaskLoop(
             // Drawing and linking are two decisions; see the shed.
             tools.shed(task, mayLink = agent.pictureLinkAccess),
             /*
-             * And somewhere to write a note to itself. Issue #371: a
-             * task is the longest thing an agent does here - many turns
-             * over hours - so it is where the transcript being trimmed
-             * costs the most, and where what was found on turn three is
-             * most likely to be gone by turn thirty.
+             * The tools every turn in a session is lent - a note, working
+             * files, a to-do list, the clock, a reminder, a watcher - taken
+             * whole, so a task cannot come to have different ones from a
+             * step or a chat. A task is the longest job here, many turns
+             * over hours, so it is where they earn their keep most.
              */
-            notes.shed(session, agent.name),
-            /*
-             * And working files across the task - a document it is
-             * building, code it is writing - which the note is too
-             * short to hold. A task is the longest job here, so it is
-             * where a scratchpad earns its keep. Issue #411.
-             */
-            scratchpads.shed(session),
-            /*
-             * And a to-do list to plan the task on. A task is the
-             * longest job here - many turns over hours - so it is where
-             * a plan worked down step by step earns its keep most.
-             * Issue #405.
-             */
-            todos.shed(session),
-            // And the clock: a task runs for hours, so the time it began
-            // is not the time now. Needs no session. #407.
-            dates.shed(),
-            // A reminder it sets and carries on; delivered to the session.
-            timers.shed(session),
-            // A tool of its own called on an interval until its result matches; wakes this session. #606.
-            watchers.shed(agent, session),
+            sessionSheds.of(agent, session),
             // Somewhere a finished file goes, whatever the agent's list says.
             artifacts.shed(agent, session),
         )
@@ -258,11 +227,8 @@ class TaskLoop(
                  * after it; a note written later is in what was sent, as the
                  * call that wrote it.
                  */
-                listOfNotNull(
-                    notes.recalled(session).takeIf { it.isNotBlank() },
-                    // The plan it is working down. #405.
-                    todos.recalled(session).takeIf { it.isNotBlank() },
-                ).takeIf { it.isNotEmpty() }?.let { add(ChatTurn("user", it.joinToString(separator = "\n\n"))) }
+                // And the plan it is working down. #405.
+                sessionSheds.standing(session)?.let { add(ChatTurn("user", it)) }
                 addAll(sessions.remembered(session, budget))
                 addAll(sessions.recalled(session, budget))
             }

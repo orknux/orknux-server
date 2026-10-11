@@ -71,18 +71,8 @@ class AgentNodeRunner(
     private val drawings: io.mszymanski.orknux.server.workflow.StepPictureTools,
     /** What lets it stop when the work is already delivered; see [FinishAnswerTools]. */
     private val finishing: FinishAnswerTools,
-    /** What lets an agent write something down for itself; see [NoteTools]. Issue #371. */
-    private val notes: io.mszymanski.orknux.server.chat.NoteTools,
-    /** What lets an agent keep working files across the job; see [ScratchpadTools]. Issue #411. */
-    private val scratchpads: io.mszymanski.orknux.server.chat.ScratchpadTools,
-    /** What lets an agent plan its work as a to-do list; see [TodoTools]. Issue #405. */
-    private val todos: io.mszymanski.orknux.server.chat.TodoTools,
-    /** What lets an agent ask what the current time is; see [DateTools]. Issue #407. */
-    private val dates: io.mszymanski.orknux.server.chat.DateTools,
-    /** A reminder the agent sets for itself; see [io.mszymanski.orknux.server.chat.TimerTools]. */
-    private val timers: io.mszymanski.orknux.server.chat.TimerTools,
-    /** Watchers the agent sets, which wake its session; see [io.mszymanski.orknux.server.watcher.WatcherTools]. #606. */
-    private val watchers: io.mszymanski.orknux.server.watcher.WatcherTools,
+    /** The tools every turn in a session is lent - notes, scratchpads, to-dos, the clock, timers, watchers; see [io.mszymanski.orknux.server.chat.SessionSheds]. */
+    private val sessionSheds: io.mszymanski.orknux.server.chat.SessionSheds,
     /** The agent's setup, written into the log where it changes; see [AgentDetails]. Issues #391, #441. */
     private val agentDetails: AgentDetails,
     /**
@@ -361,33 +351,12 @@ class AgentNodeRunner(
         val shed = io.mszymanski.orknux.server.chat.sheds(
             drawing,
             /*
-             * Somewhere to write a note to itself, where this node keeps a
-             * session to write it into. Issue #371: a wake-up already carries
-             * one, and this is the same thing without the parking - what the
-             * first six steps of a long job found, which the transcript trims
-             * away exactly when it starts to matter.
+             * The tools every turn in a session is lent, taken whole so a step
+             * cannot come to have different ones from a chat or a task. Most
+             * of them need the session this node keeps; a node that keeps none
+             * gets the clock alone. See [io.mszymanski.orknux.server.chat.SessionSheds].
              */
-            notes.shed(session, agent.name),
-            /*
-             * And somewhere to keep a working file across the job - a document
-             * it is drafting, code it is writing - which the note is too short
-             * to be and the transcript too trimmed. Only where there is a
-             * session to keep it in. Issue #411.
-             */
-            scratchpads.shed(session),
-            /*
-             * And a to-do list to plan the job on, where this node keeps a
-             * session to hold it. The plan an agent works down across steps it
-             * cannot finish in one turn. Issue #405.
-             */
-            todos.shed(session),
-            // And the clock, so it can reason about time it has no way to know
-            // otherwise. Needs no session; see the shed. Issue #407.
-            dates.shed(),
-            // A reminder it sets and carries on; delivered to the session.
-            timers.shed(session),
-            // A tool of its own called on an interval until its result matches; wakes this session. #606.
-            watchers.shed(agent, session),
+            sessionSheds.of(agent, session),
             finishing.shed(
                 granted = agent.finishAccess,
                 shaped = step.outputObjectId != null,
@@ -548,7 +517,7 @@ class AgentNodeRunner(
          * which is where the turns that held them were dropped. Null where
          * nothing was written, which is most turns.
          */
-        val standing = if (sent != null) null else standingOf(session)
+        val standing = if (sent != null) null else sessionSheds.standing(session)
 
         /*
          * Not asked twice: another attempt at a step whose first attempt sent
@@ -739,16 +708,6 @@ class AgentNodeRunner(
             )
         }
     }
-
-    /**
-     * What the agent wrote down for itself and the plan it is working down, as
-     * one block, or null where there is neither. Issues #371, #405.
-     */
-    private fun standingOf(session: Long?): String? =
-        listOfNotNull(
-            notes.recalled(session).takeIf { it.isNotBlank() },
-            todos.recalled(session).takeIf { it.isNotBlank() },
-        ).takeIf { it.isNotEmpty() }?.joinToString(separator = "\n\n")
 
     /**
      * Runs [body] with [hangup] pulled if the run is asked to stop meanwhile.
