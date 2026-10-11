@@ -572,6 +572,51 @@ class ChatInSessionTest(
     }
 
     /**
+     * Two messages written at different rounds come back each where the agent
+     * read it: after the calls before it and before the calls after it, with
+     * times that never go backwards. Session 639 drew one above the whole turn.
+     */
+    @Test
+    fun `messages written at different rounds are drawn where the agent read them`() {
+        val catalogId = catalog("Reviews")
+        skill("codeReview", catalogId, "Read the diff twice before commenting.")
+        var chatId = 0L
+        var round = 0
+        val call = { aside: String, id: String ->
+            """{"choices":[{"message":{"role":"assistant","content":"$aside",
+             "tool_calls":[{"id":"$id","type":"function","function":{"name":"skill_load","arguments":"{\"name\":\"codeReview\"}"}}]}}],
+             "usage":{"prompt_tokens":7,"completion_tokens":2}}"""
+        }
+        val endpoint = serve { _ ->
+            round++
+            when (round) {
+                1 -> {
+                    chatService.postDuringTurn(chatId, "alice", "First note.")
+                    call("Looking first.", "call_1")
+                }
+                2 -> {
+                    chatService.postDuringTurn(chatId, "alice", "Second note.")
+                    call("Looking again.", "call_2")
+                }
+                else -> """{"choices":[{"message":{"role":"assistant","content":"All done."}}],"usage":{"prompt_tokens":9,"completion_tokens":2}}"""
+            }
+        }
+        chatId = startChat(llmSessionId = null, agentId = agent("Reviewer", model(endpoint), granted = "Reviews"))
+
+        send(chatId, "Have a look.")
+
+        val shown = graphQlTester.document("""{ chatMessages(id: $chatId) { role content at } }""").execute()
+        val contents = shown.path("chatMessages[*].content").entityList(String::class.java).get()
+        val roles = shown.path("chatMessages[*].role").entityList(String::class.java).get()
+        val drawn = contents.indices.map { if (roles[it] == "tool") "call" else contents[it] }
+        assertThat(drawn).containsExactly(
+            "Have a look.", "Looking first.", "call", "First note.", "Looking again.", "call", "Second note.", "All done.",
+        )
+        val times = shown.path("chatMessages[*].at").entityList(String::class.java).get().map { java.time.OffsetDateTime.parse(it) }
+        assertThat(times.zipWithNext().all { (a, b) -> !b.isBefore(a) }).describedAs(times.toString()).isTrue()
+    }
+
+    /**
      * The open chat is told when the agent has read the person's message, so the
      * page can say Queued until then and Read after: a model reading a long
      * prompt took minutes to reach it, and "Sent" read as ignored.

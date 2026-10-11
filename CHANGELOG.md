@@ -49,6 +49,7 @@ have failed.
 
 ### 🐛 Fixed
 
+- A message written while the agent works is drawn where the agent read it, after the calls it made before reading it - and on a chat reopened mid-turn it is no longer drawn above the whole turn.
 - The memory tools name the agent's catalogs. An agent holding more than one was told the catalog was optional, left it out, and was refused - frontier models included.
 - On SQLite, naming a chat no longer holds the database's one writer while the model answers - a slow model used to stall every other write, and on a dropped connection left later writes failing to commit.
 - A chat's thinking is now in its session's transcript, as a task's and a workflow step's always was.
