@@ -19,6 +19,7 @@ have failed.
 
 ### ✨ Added
 
+- You can write in a chat while its agent is working: the message goes to the running turn, the agent reads it at its next step, and it shows in the conversation where it was read.
 - An agent can ask to expose a port of a running box session with `orkbox_expose`, and nothing opens until a person allows it: the chat and the session transcript ask with **Allow** and **Reject**, and a **Ports** panel below Boxes lists every port asked for - its box label, whether something answers on it, and Allow or Enable, Disable and Delete at any time. The agent is told the outcome, with the URL, as a message that also wakes it. Admin Settings sets how many ports a session may expose (5) and how often and how long whether one answers is looked at; a box forwards a port through `docker exec`, so it works on Docker Desktop too, and listens on `ORKBOX_PUBLISH_HOST` (every interface by default).
 - An agent puts a draft into a box straight from a scratchpad (`orkbox_write` with `from_scratchpad`), and a saved artifact into a box with `orkbox_fetch_artifact`, unpacked if it is an archive: a box cannot reach this server, so it could not download one itself.
 - While a model writes a long tool call or its answer, the chat and the session page say what it is writing and how much has arrived, so a model putting a file into one call no longer looks stalled.

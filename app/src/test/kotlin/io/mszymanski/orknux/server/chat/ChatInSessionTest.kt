@@ -62,6 +62,7 @@ class ChatInSessionTest(
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val audit: WorkspaceAuditRepository,
     @Autowired val streaming: ChatStreamAPI,
+    @Autowired val chatService: ChatService,
 ) {
 
     private var workspaceId: Long = 0
@@ -524,6 +525,78 @@ class ChatInSessionTest(
         val details = events.findAll().filter { it.sessionId == session && it.kind == LlmSessionEventKind.AGENT_DETAILS }
         assertThat(details).hasSize(1)
         assertThat(details.single().content).contains("Reviewer").contains("skill_load")
+    }
+
+    /**
+     * What the person writes while the agent is working reaches the agent at
+     * its next round, as the person speaking - and stays in the chat where the
+     * agent read it, and in the session as theirs.
+     */
+    @Test
+    fun `a message written while the agent works is read at its next round, as the person's`() {
+        val catalogId = catalog("Reviews")
+        skill("codeReview", catalogId, "Read the diff twice before commenting.")
+        var chatId = 0L
+        val endpoint = serve { body ->
+            if (body.contains("tool_call_id")) {
+                """{"choices":[{"message":{"role":"assistant","content":"Blue it is."}}],"usage":{"prompt_tokens":9,"completion_tokens":4}}"""
+            } else {
+                // The person writes while the first round is still being answered.
+                chatService.postDuringTurn(chatId, "alice", "Use the blue one, please.")
+                """{"choices":[{"message":{"role":"assistant","content":"Let me read the review skill first.",
+                 "tool_calls":[{"id":"call_1","type":"function","function":{"name":"skill_load","arguments":"{\"name\":\"codeReview\"}"}}]}}],
+                 "usage":{"prompt_tokens":7,"completion_tokens":2}}"""
+            }
+        }
+        val agentId = agent("Reviewer", model(endpoint), granted = "Reviews")
+        chatId = startChat(llmSessionId = null, agentId = agentId)
+
+        send(chatId, "Which colour?")
+
+        val second = received.last()
+        assertThat(second).contains("alice wrote this while you were working").contains("Use the blue one, please.")
+        graphQlTester.document("""{ chatMessages(id: $chatId) { role content } }""").execute()
+            .path("chatMessages[*].content").entityList(String::class.java).get().also { said ->
+                assertThat(said.indexOf("Use the blue one, please.")).isGreaterThan(said.indexOf("Which colour?"))
+                assertThat(said.indexOf("Blue it is.")).isGreaterThan(said.indexOf("Use the blue one, please."))
+            }
+        val session = requireNotNull(chats.findByIdOrNull(chatId)?.llmSessionId)
+        assertThat(events.findAll().filter { it.sessionId == session && it.kind == LlmSessionEventKind.USER }.map { it.actor to it.content })
+            .contains("alice" to "Use the blue one, please.")
+    }
+
+    /**
+     * Written while the model writes its final answer, the message is not left
+     * for later: the turn sees it arrived and asks the model again with it.
+     */
+    @Test
+    fun `a message written during the last round is answered before the turn ends`() {
+        var chatId = 0L
+        val endpoint = serve { body ->
+            if (!body.contains("Use the blue one")) {
+                chatService.postDuringTurn(chatId, "alice", "Use the blue one, please.")
+                """{"choices":[{"message":{"role":"assistant","content":"Red."}}],"usage":{"prompt_tokens":9,"completion_tokens":1}}"""
+            } else {
+                """{"choices":[{"message":{"role":"assistant","content":"Blue, then."}}],"usage":{"prompt_tokens":9,"completion_tokens":2}}"""
+            }
+        }
+        chatId = startChat(llmSessionId = null, agentId = agent("Reviewer", model(endpoint)))
+
+        send(chatId, "Which colour?")
+
+        val deadline = System.currentTimeMillis() + 10_000
+        while (received.none { it.contains("alice wrote this while you were working") } && System.currentTimeMillis() < deadline) {
+            Thread.sleep(50)
+        }
+        assertThat(received.last()).contains("alice wrote this while you were working")
+    }
+
+    /** With no turn running there is nothing to write into: the page sends it as a turn of its own. */
+    @Test
+    fun `a message for a turn that is not running is not taken`() {
+        val chatId = startChat(llmSessionId = null, agentId = agent("Reviewer", model(serveAnswer("Hi."))))
+        graphQlTester.document("""mutation { postChatMessageDuringTurn(id: $chatId, text: "too late") }""")
+            .execute().path("postChatMessageDuringTurn").entity(Boolean::class.java).isEqualTo(false)
     }
 
     /**

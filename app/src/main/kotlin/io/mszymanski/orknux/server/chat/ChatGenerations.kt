@@ -105,6 +105,18 @@ class ChatGenerations {
     /** Told of every [register], for pages waiting on a woken turn. */
     private val arrivals = Object()
 
+    /** Told when a chat has no turn left being answered; see [whenIdle]. */
+    private val idle = java.util.concurrent.CopyOnWriteArrayList<(Long) -> Unit>()
+
+    /**
+     * Calls [listener] each time a chat's last turn is released. How
+     * [ChatWake] answers what arrived while a turn ran and that turn never read
+     * - a person's message written after its last round, most of all.
+     */
+    fun whenIdle(listener: (Long) -> Unit) {
+        idle += listener
+    }
+
     /** Notes that a turn on this chat is being answered, until [release]. */
     fun register(chatId: Long, generation: ChatGeneration) {
         inFlight.compute(chatId) { _, held ->
@@ -146,6 +158,7 @@ class ChatGenerations {
             held.remove(generation)
             held.ifEmpty { null }
         }
+        if (!answering(chatId)) idle.forEach { listener -> runCatching { listener(chatId) } }
     }
 
     /** Whether a turn on this chat is being answered right now. */

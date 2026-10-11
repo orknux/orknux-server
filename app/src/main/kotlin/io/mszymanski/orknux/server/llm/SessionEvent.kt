@@ -53,6 +53,10 @@ class SessionEvent(
 
     @Column(name = "created_at", nullable = false)
     val createdAt: OffsetDateTime = OffsetDateTime.now(),
+
+    /** Who wrote a [SessionEventKind.PERSON] message; null for everything the server posts. */
+    @Column(name = "said_by")
+    val saidBy: String? = null,
 )
 
 enum class SessionEventKind {
@@ -64,7 +68,16 @@ enum class SessionEventKind {
 
     /** A watcher this session's agent set has fired, timed out or been stopped. Issue #606. */
     WATCHER,
+
+    /** A person wrote in the chat while the agent was answering. */
+    PERSON,
 }
+
+/**
+ * A person's message, taken out of the inbox by a turn - so the chat can put it
+ * into its thread at the point the agent read it, rather than when it was typed.
+ */
+data class PersonSaidInTurn(val sessionId: Long, val saidBy: String, val text: String)
 
 interface SessionEventRepository : JpaRepository<SessionEvent, Long> {
 
@@ -121,8 +134,22 @@ class SessionInbox(
     }
 
     /**
+     * Leaves what a person wrote while the agent was answering. The turn reads
+     * it at its next round, as the person speaking.
+     */
+    @Transactional
+    fun postFromPerson(sessionId: Long, saidBy: String, text: String) {
+        events.save(SessionEvent(sessionId = sessionId, kind = SessionEventKind.PERSON, body = text, saidBy = saidBy))
+        published.publishEvent(SessionEventDue(sessionId))
+    }
+
+    /**
      * What is due, marked read and written into the transcript as said to the
      * agent - so a later turn recalls it like anything else it was told.
+     *
+     * A person's message is written under their name and handed to the model
+     * saying who wrote it and when: as a bare user turn it read like the
+     * server's own reports, and an agent half-way through a task took it for one.
      */
     @Transactional
     fun take(sessionId: Long): List<String> {
@@ -130,10 +157,22 @@ class SessionInbox(
         val now = OffsetDateTime.now()
         due.forEach { event ->
             event.deliveredAt = now
-            recorder.userSaid(sessionId, FROM, event.body)
+            val person = event.saidBy?.takeIf { event.kind == SessionEventKind.PERSON }
+            if (person == null) {
+                recorder.userSaid(sessionId, FROM, event.body)
+            } else {
+                recorder.userSaid(sessionId, person, event.body)
+                published.publishEvent(PersonSaidInTurn(sessionId, person, event.body))
+            }
         }
         events.saveAll(due)
-        return due.map { it.body }
+        return due.map { event ->
+            if (event.kind == SessionEventKind.PERSON) {
+                "${event.saidBy ?: "The person"} wrote this while you were working - read it before your next step:\n\n${event.body}"
+            } else {
+                event.body
+            }
+        }
     }
 
     /** Whether anything is still to come for this session, due or not. */

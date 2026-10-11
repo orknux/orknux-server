@@ -210,6 +210,10 @@ class ChatDisabledException : RuntimeException("Chat is turned off for this inst
 class ChatModelNotChosenException :
     RuntimeException("This chat has no model to answer with; choose one first")
 
+/** A chat with no agent answers in one call, so nothing written while it answers can reach it. */
+class ChatCannotBeToldMidTurnException :
+    RuntimeException("This chat's model answers in one go and cannot read anything while it does; send it once the answer is in")
+
 class ChatModelUnusableException(val reason: String) : RuntimeException(reason), Refusal {
 
     override val arguments get() = mapOf("reason" to reason)

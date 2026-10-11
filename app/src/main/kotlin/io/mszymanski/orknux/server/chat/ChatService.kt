@@ -70,11 +70,47 @@ class ChatService(
     private val agentDetails: org.springframework.beans.factory.ObjectProvider<io.mszymanski.orknux.server.agent.AgentDetails>,
     /** The files a chat holds, placed under the message each came with. */
     private val files: io.mszymanski.orknux.server.attachment.ChatAttachmentRepository,
+    /** Where a message written while the agent answers waits for its next round. */
+    private val inbox: io.mszymanski.orknux.server.llm.SessionInbox,
     transactions: PlatformTransactionManager,
 ) {
 
     /** What [beginSend] writes, and only that; see there for why it is not the whole method. */
     private val writing = TransactionTemplate(transactions)
+
+    /**
+     * Something the person wrote while the agent was answering.
+     *
+     * Left in the session's inbox rather than starting a turn: the turn that is
+     * running reads it between its rounds, as the person speaking, so the agent
+     * can change course without being stopped. It reaches the chat's thread when
+     * the agent reads it - see [personSaidInTurn] - so the thread holds it where
+     * the answer took it into account. A turn that ends before reading it leaves
+     * it waiting, and the chat is woken to answer it (see [ChatWake]).
+     *
+     * @throws ChatCannotBeToldMidTurnException for a chat with no agent: a bare
+     *   model answers in one call and has no round to read anything between.
+     */
+    fun postDuringTurn(id: Long, saidBy: String, text: String) {
+        val session = sessions.findByIdOrNull(id) ?: throw ChatSessionNotFoundException(id)
+        if (session.agentId == null) throw ChatCannotBeToldMidTurnException()
+        val into = writing.execute { recording(session) } ?: throw ChatCannotBeToldMidTurnException()
+        inbox.postFromPerson(into, saidBy, text)
+    }
+
+    /**
+     * A message the person wrote mid-turn, read by the agent: into the thread
+     * now, so a reload shows it where the agent took it in, and the answer
+     * written after it follows it.
+     */
+    @org.springframework.context.event.EventListener
+    fun personSaidInTurn(said: io.mszymanski.orknux.server.llm.PersonSaidInTurn) {
+        val session = sessions.findFirstByLlmSessionId(said.sessionId) ?: return
+        val thread = history.findByConversationId(session.conversationId)
+        history.saveAll(session.conversationId, thread + UserMessage(said.text))
+        session.lastMessageAt = OffsetDateTime.now()
+        sessions.save(session)
+    }
 
     /**
      * How much of a session this chat is allowed to carry.

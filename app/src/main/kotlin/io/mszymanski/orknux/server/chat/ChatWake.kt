@@ -45,6 +45,21 @@ class ChatWake(
     /** Off the thread that posted: that is an ask finishing, or the sweep. */
     private val turns: ExecutorService = Executors.newCachedThreadPool { Thread(it, "chat-wake").apply { isDaemon = true } }
 
+    /*
+     * What arrived while a turn was being answered is read by that turn - unless
+     * it arrived after the turn's last round. A person writing just as the agent
+     * finished left a message nothing read until the sweep came round, so a
+     * turn ending with something unread wakes the chat at once.
+     */
+    init {
+        generations.whenIdle { chatId ->
+            val session = chats.findById(chatId).orElse(null)?.llmSessionId ?: return@whenIdle
+            if (inbox.nextDue(session)?.let { !it.isAfter(java.time.OffsetDateTime.now()) } == true) {
+                due(SessionEventDue(session))
+            }
+        }
+    }
+
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     fun due(event: SessionEventDue) {
         val chat = chats.findFirstByLlmSessionId(event.sessionId) ?: return

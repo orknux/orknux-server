@@ -195,6 +195,23 @@ class ChatAPI(
      * one write lock there is - for as long as the model and its tools take.
      * What is written is written either side of the asking.
      */
+    /**
+     * Writes into a turn that is being answered, for the agent to read at its
+     * next round. Answers false where no turn is running - it ended between the
+     * page deciding and this arriving - and the page then sends it as a turn of
+     * its own. See [ChatService.postDuringTurn].
+     */
+    @MutationMapping
+    fun postChatMessageDuringTurn(@Argument id: Long, @Argument text: String): Boolean {
+        requireChat()
+        val session = chats.session(id) ?: throw ChatSessionNotFoundException(id)
+        requireOwn(session)
+        if (text.isBlank()) throw ChatMessageEmptyException()
+        if (!generations.answering(id)) return false
+        chats.postDuringTurn(id, currentUser(), text)
+        return true
+    }
+
     @MutationMapping
     fun sendChatMessage(@Argument id: Long, @Argument text: String): ChatAnswerView {
         requireChat()
@@ -210,27 +227,34 @@ class ChatAPI(
         // a second one beside it. See ChatWake.
         val generation = ChatGeneration()
         generations.register(id, generation)
-        val said = try {
-            chats.ask(start, shed = chatTools.shed(session), hangup = generation.hangup)
+        /*
+         * Released only once the answer is kept, as the streaming door does: a
+         * message written while this turn ran and not yet read wakes the chat
+         * when the turn is released, and a wake that started before the answer
+         * was in the thread would answer as though it had never been given.
+         */
+        val answer = try {
+            val said = chats.ask(start, shed = chatTools.shed(session), hangup = generation.hangup)
+            val answered = when (said) {
+                is ChatCompletion.Failed -> throw ChatModelUnusableException(said.reason)
+                // The loop runs tools to a conclusion, so nothing reaching here is
+                // still asking for one.
+                is ChatCompletion.CalledTools ->
+                    throw ChatModelUnusableException("The model asked for a tool that could not be run")
+                is ChatCompletion.Answered -> said
+            }
+            chats.finishSend(
+                id,
+                answered.content,
+                answered.reasoning,
+                answered.reasoningMillis,
+                answered.inputTokens,
+                answered.outputTokens,
+            )
+            answered
         } finally {
             generations.release(id, generation)
         }
-        val answer = when (said) {
-            is ChatCompletion.Failed -> throw ChatModelUnusableException(said.reason)
-            // The loop runs tools to a conclusion, so nothing reaching here is
-            // still asking for one.
-            is ChatCompletion.CalledTools ->
-                throw ChatModelUnusableException("The model asked for a tool that could not be run")
-            is ChatCompletion.Answered -> said
-        }
-        chats.finishSend(
-            id,
-            answer.content,
-            answer.reasoning,
-            answer.reasoningMillis,
-            answer.inputTokens,
-            answer.outputTokens,
-        )
         // Same as the streaming path: a first exchange earns the chat a name.
         runCatching { titles.nameFrom(id, text, answer.content) }
         val named = chats.session(id) ?: session

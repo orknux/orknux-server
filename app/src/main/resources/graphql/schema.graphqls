@@ -1987,6 +1987,12 @@ type Mutation {
     chooseChatAgent(id: ID!, agentId: ID!): ChatSession!
     "Deletes the chat and the history with it."
     deleteChat(id: ID!): Boolean!
+    """
+    Writes into a turn being answered, for the agent to read at its next round.
+    False where no turn is running, and the message is then to be sent as a turn
+    of its own.
+    """
+    postChatMessageDuringTurn(id: ID!, text: String!): Boolean!
     "Says something and answers it, with the whole thread as context."
     sendChatMessage(id: ID!, text: String!): ChatAnswer!
     "Defines a default connection, assigned to workspaces created from now on."

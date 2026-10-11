@@ -19,6 +19,7 @@ class ChatExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ChatTitleInvalidException,
             is ChatMessageEmptyException,
             is ChatModelNotChosenException,
+            is ChatCannotBeToldMidTurnException,
             is ChatModelUnusableException,
             is ChatAgentUnusableException,
             is ChatAgentMissingException,
