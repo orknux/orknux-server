@@ -8,6 +8,7 @@ import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.Table
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Query
 import java.time.OffsetDateTime
 
 /**
@@ -140,13 +141,19 @@ interface ChatSessionRepository : JpaRepository<ChatSession, Long> {
 
     /**
      * The sidebar, in the order it draws: pinned first, then by when each was
-     * last spoken in, then by when it was made — a new chat has no messages and
-     * would otherwise sort last.
+     * last spoken in - or made, for a chat nothing has been said in yet.
+     *
+     * One coalesced key rather than `lastMessageAt desc, createdAt desc`,
+     * because the engines disagree on where a null goes: Postgres sorts it
+     * first in a descending order, so every chat nobody ever spoke in - however
+     * old - sat above the one somebody was talking in, and a reload opened
+     * one of those instead.
      */
-    fun findByWorkspaceIdAndUserIdOrderByPinnedDescLastMessageAtDescCreatedAtDesc(
-        workspaceId: Long,
-        userId: String,
-    ): List<ChatSession>
+    @Query(
+        "select c from ChatSession c where c.workspaceId = :workspaceId and c.userId = :userId " +
+            "order by c.pinned desc, coalesce(c.lastMessageAt, c.createdAt) desc, c.id desc",
+    )
+    fun sidebar(workspaceId: Long, userId: String): List<ChatSession>
 
     fun findByConversationId(conversationId: String): ChatSession?
 

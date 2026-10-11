@@ -107,6 +107,27 @@ class ChatAPITest(
             .containsExactly("Setup CI pipeline", "Write the unit tests")
     }
 
+    /**
+     * A chat nobody spoke in sorts by when it was made, not above everything:
+     * Postgres puts a null first in a descending order, and that buried the chat
+     * somebody was talking in under every empty one they had ever opened.
+     */
+    @Test
+    fun `a chat spoken in a moment ago sorts above an older one nothing was said in`() {
+        val silent = startChat("Opened and left")
+        val spoken = startChat("Talked in")
+        assertThat(silent).isLessThan(spoken)
+        sessions.findById(spoken).get().also {
+            it.lastMessageAt = java.time.OffsetDateTime.now().plusSeconds(1)
+            sessions.save(it)
+        }
+
+        graphQlTester.document("""{ chatSessions(workspaceId: $workspaceId) { title } }""")
+            .execute()
+            .path("chatSessions[*].title").entityList(String::class.java)
+            .containsExactly("Talked in", "Opened and left")
+    }
+
     @Test
     fun `deleting a chat takes its history with it`() {
         val id = startChat("Refactor payment module")

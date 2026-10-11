@@ -103,7 +103,7 @@ class ChatService(
     }
 
     fun sessions(workspaceId: Long, userId: String): List<ChatSession> =
-        sessions.findByWorkspaceIdAndUserIdOrderByPinnedDescLastMessageAtDescCreatedAtDesc(workspaceId, userId)
+        sessions.sidebar(workspaceId, userId)
 
     /**
      * The caller's chats in this workspace that said the given thing.
