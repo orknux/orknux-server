@@ -66,6 +66,8 @@ class ChatService(
     private val sessionSheds: SessionSheds,
     /** What the chat's model was sent, sent again as it was; see [io.mszymanski.orknux.server.llm.SessionPrompt]. */
     private val prompt: io.mszymanski.orknux.server.llm.SessionPrompt,
+    /** The agent's setup as a session line; a provider, because it reads the tools that read the chats. */
+    private val agentDetails: org.springframework.beans.factory.ObjectProvider<io.mszymanski.orknux.server.agent.AgentDetails>,
     transactions: PlatformTransactionManager,
 ) {
 
@@ -772,6 +774,19 @@ class ChatService(
              */
             val session = start.llmSessionId
             val name = agent?.name ?: "agent"
+            /*
+             * The agent's setup, written where this turn starts when it differs
+             * from the last one the session holds - as a workflow step and a
+             * task have always done. A chat wrote none, so its session had no
+             * Agent details line to say what model, prompt and tools a turn was
+             * answered under. The instructions are the system turn this turn is
+             * sent with, the same string the model reads.
+             */
+            if (session != null && agent != null) {
+                val instructed = start.turns.firstOrNull { it.role == "system" }?.content
+                runCatching { recorder.describeAgent(session, agentDetails.getObject().snapshot(agent, lent, instructed)) }
+                    .onFailure { log.warn("The setup of agent {} could not be written into session {}", agent.id, session, it) }
+            }
             if (session != null && watch != null) {
                 val written = SessionThinking(session, name, recorder)
                 try {

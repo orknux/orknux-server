@@ -351,7 +351,8 @@ class ChatInSessionTest(
 
         send(chatId, "So what do we do about it?")
 
-        val lines = events.findAll().sortedBy { it.id }
+        // The setup line is the turn's account of the agent, not something it said.
+        val lines = events.findAll().sortedBy { it.id }.filterNot { it.kind == LlmSessionEventKind.AGENT_DETAILS }
         assertThat(lines.map { it.kind })
             .containsExactly(LlmSessionEventKind.USER, LlmSessionEventKind.AGENT)
         assertThat(lines[1].actor).isEqualTo("Reviewer")
@@ -502,6 +503,27 @@ class ChatInSessionTest(
         assertThat(said).isNotNegative()
         assertThat(frames.lastIndexOf("event:", said)).isEqualTo(frames.lastIndexOf("event:said", said))
         assertThat(frames.indexOf("event:call")).isGreaterThan(said)
+    }
+
+    /**
+     * A chat's session says what the agent was set up with, as a workflow
+     * step's and a task's do: an Agent details line where the turn starts, and
+     * none again while nothing about the agent changed.
+     */
+    @Test
+    fun `a chat writes the agent's setup into its session once`() {
+        val catalogId = catalog("Reviews")
+        skill("codeReview", catalogId, "Read the diff twice before commenting.")
+        val agentId = agent("Reviewer", model(serveRemarkingThenToolThenAnswer()), granted = "Reviews")
+        val chatId = startChat(llmSessionId = null, agentId = agentId)
+
+        send(chatId, "What does the review skill say?")
+        send(chatId, "And again?")
+
+        val session = requireNotNull(chats.findByIdOrNull(chatId)?.llmSessionId)
+        val details = events.findAll().filter { it.sessionId == session && it.kind == LlmSessionEventKind.AGENT_DETAILS }
+        assertThat(details).hasSize(1)
+        assertThat(details.single().content).contains("Reviewer").contains("skill_load")
     }
 
     /**
