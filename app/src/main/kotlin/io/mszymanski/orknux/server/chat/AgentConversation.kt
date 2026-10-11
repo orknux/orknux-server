@@ -100,6 +100,17 @@ interface RoundWatch {
      */
     fun said(text: String) = Unit
 
+    /**
+     * How far the model has got writing: [tool] is the call it is spelling out,
+     * or null for the answer, and [chars] how much of it has arrived.
+     *
+     * Told at most about once a second, by [WritingProgress]. A model putting a
+     * whole file into one call writes for minutes after its thinking ends and
+     * before the call is made, and until this nothing arrived in that time to
+     * say it was working at all.
+     */
+    fun writing(tool: String?, chars: Int) = Unit
+
     /** A call, the moment it is dispatched and before its tool has run. */
     fun called(at: Int, tool: String, arguments: String) = Unit
 
@@ -113,6 +124,44 @@ interface RoundWatch {
      *   returned nothing does not.
      */
     fun returned(at: Int, result: String, failed: Boolean) = Unit
+}
+
+/**
+ * One round's writing, told to a [RoundWatch] at most once a [everyMillis].
+ *
+ * The stream reports every frame, and a model writes forty a second; a page
+ * redrawn that often is a page that cannot be read, and a session told that
+ * often is a lock taken that often. The first report goes at once, so the line
+ * appears the moment writing starts.
+ */
+internal class WritingProgress(
+    private val watch: RoundWatch,
+    private val everyMillis: Long = EVERY_MILLIS,
+    private val clock: () -> Long = System::currentTimeMillis,
+) {
+    private var said = 0
+    private var told = Long.MIN_VALUE
+
+    /** A piece of the answer arrived. */
+    fun answer(piece: String) {
+        said += piece.length
+        tell(null, said)
+    }
+
+    /** The arguments of [tool] have got to [chars], counted across the round's calls. */
+    fun calling(tool: String, chars: Int) = tell(tool, chars)
+
+    private fun tell(tool: String?, chars: Int) {
+        val now = clock()
+        if (told != Long.MIN_VALUE && now - told < everyMillis) return
+        told = now
+        watch.writing(tool, chars)
+    }
+
+    private companion object {
+        /** Often enough to read as moving, which is all the line is for. */
+        const val EVERY_MILLIS = 1000L
+    }
 }
 
 /**
@@ -564,12 +613,17 @@ class AgentConversation(
             val once = if (watch == null) {
                 models.complete(modelId, told, hangup = hangup).also { told(watch, it) }
             } else {
+                val writing = WritingProgress(watch)
                 models.stream(
                     modelId,
                     told,
                     onThinking = { watch.thinking(it) },
                     hangup = hangup,
-                ) { watch.answering() }
+                    onCalling = writing::calling,
+                ) {
+                    watch.answering()
+                    writing.answer(it)
+                }
             }
             record(into, agent, once)
             if (once is ChatCompletion.Answered) kept?.sent(told + ChatTurn(role = "assistant", content = once.content))
@@ -797,13 +851,18 @@ class AgentConversation(
             val answer = if (watch == null) {
                 models.complete(modelId, conversation, offered, hangup = hangup)
             } else {
+                val writing = WritingProgress(watch)
                 models.stream(
                     modelId,
                     conversation,
                     offered,
                     onThinking = { watch.thinking(it) },
                     hangup = hangup,
-                ) { watch.answering() }
+                    onCalling = writing::calling,
+                ) {
+                    watch.answering()
+                    writing.answer(it)
+                }
             }
             when (answer) {
                 /*

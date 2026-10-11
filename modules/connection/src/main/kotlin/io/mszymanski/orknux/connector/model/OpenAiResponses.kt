@@ -96,6 +96,7 @@ internal class OpenAiResponses(private val clients: ModelClients) {
         tools: List<ToolSpec>,
         onThinking: (String) -> Unit,
         hangup: Hangup?,
+        onCalling: (tool: String, chars: Int) -> Unit,
         onChunk: (String) -> Unit,
     ): OpenAiChat.Outcome {
         val whole = StringBuilder()
@@ -144,7 +145,10 @@ internal class OpenAiResponses(private val clients: ModelClients) {
                         gathered[call.id().orElse(call.callId())] = Gathering(call.callId(), call.name())
                     }
                     event.isFunctionCallArgumentsDelta() -> event.asFunctionCallArgumentsDelta().let { delta ->
-                        gathered[delta.itemId()]?.arguments?.append(delta.delta())
+                        gathered[delta.itemId()]?.let { call ->
+                            call.arguments.append(delta.delta())
+                            onCalling(call.name, gathered.values.sumOf { it.arguments.length })
+                        }
                     }
                     // The finished call is the word on it, whatever the deltas made.
                     event.isOutputItemDone() -> event.asOutputItemDone().item().functionCallOrNull()?.let { call ->

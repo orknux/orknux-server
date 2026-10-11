@@ -118,6 +118,9 @@ class SessionThinking(
      */
     override fun called(at: Int, tool: String, arguments: String) = settle()
 
+    /** How far the model has got writing, for the session page to show while it does. */
+    override fun writing(tool: String?, chars: Int) = sessions.writing(session, agent, tool, chars)
+
     /**
      * The model began writing its answer, so this round has stopped thinking.
      *
@@ -158,6 +161,8 @@ class SessionThinking(
      */
     @Synchronized
     fun settle() {
+        // Whatever was being written has landed, or the turn is over.
+        sessions.quiet(session)
         val open = line
         val took = (lastFrame - began) / NANOS
         began = clock()

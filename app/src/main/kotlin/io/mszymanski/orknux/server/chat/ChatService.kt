@@ -825,6 +825,11 @@ class ChatService(
             second.said(text)
         }
 
+        override fun writing(tool: String?, chars: Int) {
+            first?.writing(tool, chars)
+            second.writing(tool, chars)
+        }
+
         override fun called(at: Int, tool: String, arguments: String) {
             first?.called(at, tool, arguments)
             second.called(at, tool, arguments)

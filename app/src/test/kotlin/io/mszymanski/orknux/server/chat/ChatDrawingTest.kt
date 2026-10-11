@@ -204,6 +204,9 @@ class ChatDrawingTest(
         assertThat(filed.chatSessionId).isEqualTo(chatId)
         // The round really was streamed, which is the whole point of this one.
         assertThat(frames).contains("event:call").contains("chat_draw_picture")
+        // And while the call was being spelled out, the page was told the model was writing it.
+        assertThat(frames.indexOf("event:writing")).isNotNegative().isLessThan(frames.indexOf("event:call"))
+        assertThat(frames).contains("""{"tool":"chat_draw_picture","chars":""")
 
         /*
          * And the picture is announced, not merely written down.

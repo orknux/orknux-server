@@ -803,6 +803,8 @@ type Query {
     ): LlmSessionPage!
     "One session, by the id the list handed over. Null when it is not one you can see."
     llmSession(id: ID!): LlmSession
+    "What the session's model is writing this moment - a tool call being spelled out, or its answer. Null when it is writing nothing."
+    llmSessionWriting(id: ID!): SessionWriting
     """
     One session's transcript, oldest first.
 
@@ -9257,4 +9259,18 @@ input BulkheadsInput {
     memoryEnabled: Boolean!
     turnMemoryMb: Int!
     toolResultKb: Int!
+}
+
+"""
+What a session's model is writing at this moment. Held in memory and gone the
+moment the call is made or the answer lands, which are lines of their own.
+"""
+type SessionWriting {
+    agent: String!
+    "The tool whose call is being written, or null for the answer."
+    tool: String
+    "How many characters have arrived so far."
+    chars: Int!
+    "When this stretch of writing began, ISO-8601."
+    since: String!
 }

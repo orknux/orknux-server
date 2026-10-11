@@ -352,6 +352,14 @@ class ModelChatClient(
      *   streaming call is closing the thing being read, and which thing that is
      *   depends on which of the two shapes below is being spoken - so each of
      *   them hands its own over.
+     *
+     * @param onCalling how far the model has got spelling out a tool call: the
+     *   tool's name and how many characters of arguments have arrived so far,
+     *   across every call in the round. Told on every frame that adds to one,
+     *   so a caller showing it decides how often. A model writing a whole file
+     *   into one call can be at it for minutes, after its thinking has ended
+     *   and before there is a word of answer, and nothing else arrives to say
+     *   it is working.
      */
     fun stream(
         modelId: Long,
@@ -359,12 +367,13 @@ class ModelChatClient(
         tools: List<ToolSpec> = emptyList(),
         onThinking: (String) -> Unit = {},
         hangup: Hangup? = null,
+        onCalling: (tool: String, chars: Int) -> Unit = { _, _ -> },
         onChunk: (String) -> Unit,
     ): ChatCompletion {
         val limits = throttled(modelId)
         spoken(modelId)?.let { shape ->
             return through(modelId, shape, limits) {
-                openAi.stream(shape.provider, shape.model, wire(shape.provider, turns), tools, onThinking, hangup, onChunk)
+                openAi.stream(shape.provider, shape.model, wire(shape.provider, turns), tools, onThinking, hangup, onCalling, onChunk)
             }
         }
 
@@ -488,6 +497,9 @@ class ModelChatClient(
                         if (frameInput > 0) input = frameInput
                         if (frameOutput > 0) output = frameOutput
                         gatherCalls(payload, ready.anthropic, asked)
+                        callingSoFar(asked.values.map { it.name to it.arguments.length })?.let { (tool, chars) ->
+                            onCalling(tool, chars)
+                        }
                     }
                     val frame = pieceOf(line, ready.anthropic) ?: return@forEach
                     // Thinking the provider named is thinking: it does not go
@@ -626,6 +638,16 @@ class ModelChatClient(
      * this is a builder rather than a value: it is only a [ToolCall] once the
      * stream has ended.
      */
+    /**
+     * The call being written now and how much of the round's arguments have
+     * arrived, or null before any call has a name. The newest named call is the
+     * one in progress: a model spells its calls out one after another.
+     */
+    internal fun callingSoFar(calls: Collection<Pair<String, Int>>): Pair<String, Int>? {
+        val tool = calls.lastOrNull { it.first.isNotEmpty() }?.first ?: return null
+        return tool to calls.sumOf { it.second }
+    }
+
     private class StreamedCall {
         var id: String = ""
         var name: String = ""

@@ -429,6 +429,12 @@ class ChatStreamInterruptTest(
         // The stub answers on a thread of its own, so what it made of the
         // hang-up is only settled once it has stopped.
         assertThat(done.await(10, TimeUnit.SECONDS)).isTrue()
+        // And the turn is over once its generation is, which is a little after
+        // the provider stops. The reader is gone at the first frame, and a round
+        // now sends one - how far it has got writing - long before the answer,
+        // so returning from the stream says nothing about whether it is kept.
+        val until = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (generations.current(chatId)?.isOver() == false && System.nanoTime() < until) Thread.sleep(10)
     }
 
     /**

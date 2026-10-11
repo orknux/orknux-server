@@ -562,6 +562,8 @@ internal fun ChatGeneration.watch(): RoundWatch = object : RoundWatch {
 
     override fun said(text: String) = post("said", mapOf("text" to text))
 
+    override fun writing(tool: String?, chars: Int) = post("writing", mapOf("tool" to tool, "chars" to chars))
+
     override fun called(at: Int, tool: String, arguments: String) =
         post("call", mapOf("at" to at, "tool" to tool, "arguments" to arguments))
 

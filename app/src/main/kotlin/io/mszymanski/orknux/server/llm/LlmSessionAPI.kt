@@ -84,6 +84,8 @@ class LlmSessionAPI(
     private val executions: io.mszymanski.orknux.workflow.execution.ExecutionService,
     /** The tasks whose log a session is, for whether one is still writing into it. Issue #448. */
     private val tasks: io.mszymanski.orknux.server.task.TaskRepository,
+    /** What a session's model is writing this second; see [LlmSessionRecorder.writingNow]. */
+    private val recorder: LlmSessionRecorder,
 ) {
 
     @QueryMapping
@@ -210,6 +212,27 @@ class LlmSessionAPI(
         val subagents = sessions.subagentCountsFor(listOf(id)).firstOrNull()?.total?.toInt() ?: 0
         val lit = active(session, unfinished, writtenInto = id in writtenInto(listOf(id)), window = settings.sessionsActiveWindowSeconds())
         return describe(session, events.countBySessionId(id).toInt(), lit, subagents)
+    }
+
+    /**
+     * What the session's model is writing at this moment, or null.
+     *
+     * A call being spelled out or an answer half written is in no line of the
+     * transcript until it lands, and a model writing a file into one call can be
+     * at it for minutes - so this is what the page shows in the meantime.
+     */
+    @QueryMapping
+    fun llmSessionWriting(@Argument id: Long): SessionWritingView? {
+        val session = sessions.findByIdOrNull(id) ?: return null
+        if (!access.canSee(session.workspaceId)) return null
+        return recorder.writingNow(id)?.let {
+            SessionWritingView(
+                agent = it.agent,
+                tool = it.tool,
+                chars = it.chars,
+                since = it.since.format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+            )
+        }
     }
 
     /**
@@ -787,3 +810,6 @@ class ScratchpadRefusedException(why: String) : RuntimeException(why), Refusal {
 
     override val arguments get() = emptyMap<String, Any?>()
 }
+
+/** What a session's model is writing now: the tool it is calling, or null for its answer. */
+data class SessionWritingView(val agent: String, val tool: String?, val chars: Int, val since: String)

@@ -140,6 +140,7 @@ class OpenAiChat(
         tools: List<ToolSpec>,
         onThinking: (String) -> Unit,
         hangup: Hangup? = null,
+        onCalling: (tool: String, chars: Int) -> Unit = { _, _ -> },
         onChunk: (String) -> Unit,
     ): Outcome {
         // Given up on before it was made. A round of an agent's loop reaches
@@ -152,7 +153,7 @@ class OpenAiChat(
             is Ready.Yes -> ready.client
         }
         if (OpenAiResponses.speaks(provider)) {
-            return responses.stream(client, provider, model, turns, tools, onThinking, hangup, onChunk)
+            return responses.stream(client, provider, model, turns, tools, onThinking, hangup, onCalling, onChunk)
         }
 
         val whole = StringBuilder()
@@ -258,6 +259,11 @@ class OpenAiChat(
                         function.name().orElse(null)?.let { into.name = it }
                         function.arguments().orElse(null)?.let { into.arguments.append(it) }
                     }
+                }
+                // How far the arguments have got, for a caller showing that the model is still writing.
+                if (delta.toolCalls().orElse(null).orEmpty().isNotEmpty()) {
+                    val named = gathered.values.lastOrNull { !it.name.isNullOrEmpty() }?.name
+                    if (named != null) onCalling(named, gathered.values.sumOf { it.arguments.length })
                 }
             }
         }

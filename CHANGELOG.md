@@ -19,6 +19,7 @@ have failed.
 
 ### ✨ Added
 
+- While a model writes a long tool call or its answer, the chat and the session page say what it is writing and how much has arrived, so a model putting a file into one call no longer looks stalled.
 - An agent's **Secret Catalogs** and **Variable Catalogs** grants: `variable_list` and `variable_get` read the plain values of the second, and `orkbox_exec` / `orkbox_open` take secrets and values by name and set them as environment variables for the command - a secret is never shown to the model, and anything a box prints that holds one reads `***` in the tool's answer, the session log, the chat and the Box panel.
 - A model provider can hand an agent **all tools up front** - every tool it holds from the first round, nothing to find or load - so the tool list never changes mid-turn and a local server such as llama.cpp keeps its prompt cache; on by default for Ollama and OpenAI-type providers, and a provider's **Most tools per request** caps how many one request carries (the type's own limit by default, 128 for OpenAI), past which the rest are still found as needed.
 - **Boxes**, the replacement for shells: an Admin → Boxes page lists the orkbox sandboxes agents can run commands in, with remote ones added by address and token, their health, active sessions and what each offers.

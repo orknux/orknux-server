@@ -369,6 +369,47 @@ class LlmSessionRecorder(
     }
 
     /**
+     * What each session's model is writing at this moment, by session.
+     *
+     * Kept in memory and nowhere else, on purpose. It is a fact about the next
+     * second - a call being spelled out, an answer half written - that is over
+     * the moment the call is made or the answer lands, and both of those are
+     * written into the transcript as lines of their own. Written down, it would
+     * be a row per second per running agent that nobody reads after the second
+     * has passed; held here, the session page asks what is happening now and a
+     * server that restarts has, correctly, nothing being written.
+     */
+    private val writingNow = java.util.concurrent.ConcurrentHashMap<Long, SessionWriting>()
+
+    /** The model in [session] has got [chars] into [tool], or into its answer where that is null. */
+    fun writing(session: Long, agent: String, tool: String?, chars: Int) {
+        val now = java.time.Instant.now()
+        writingNow.compute(session) { _, was ->
+            val since = was?.takeIf { it.tool == tool }?.since ?: OffsetDateTime.now()
+            SessionWriting(agent, tool, chars, since, now)
+        }
+    }
+
+    /** Nothing is being written in [session] any more: the call was made, or the turn ended. */
+    fun quiet(session: Long) {
+        writingNow.remove(session)
+    }
+
+    /**
+     * What [session]'s model is writing now, or null. A report older than
+     * [WRITING_FORGOTTEN_AFTER] is forgotten, so a turn that died without
+     * settling does not say it is writing for ever.
+     */
+    fun writingNow(session: Long): SessionWriting? {
+        val held = writingNow[session] ?: return null
+        if (held.at.isBefore(java.time.Instant.now().minus(WRITING_FORGOTTEN_AFTER))) {
+            writingNow.remove(session, held)
+            return null
+        }
+        return held
+    }
+
+    /**
      * Opens a line for what the model is thinking, with the first of it on.
      *
      * The three methods below are one line of transcript in three moments, and
@@ -918,3 +959,18 @@ data class RememberedTurn(
         const val CALL = "tool"
     }
 }
+
+/**
+ * What a session's model is writing now: the call it is spelling out, or null
+ * for its answer, how much has arrived, since when, and when it last said so.
+ */
+data class SessionWriting(
+    val agent: String,
+    val tool: String?,
+    val chars: Int,
+    val since: OffsetDateTime,
+    val at: java.time.Instant,
+)
+
+/** How long a report of writing is believed without another. Longer than any pause between frames. */
+val WRITING_FORGOTTEN_AFTER: java.time.Duration = java.time.Duration.ofSeconds(30)
