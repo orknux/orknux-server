@@ -27,6 +27,7 @@ import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
+import java.time.Duration
 import java.time.OffsetDateTime
 import java.util.Base64
 
@@ -69,6 +70,7 @@ class BoxTools(
     private val mapper: ObjectMapper,
     private val sessionLog: BoxSessionLog,
     private val web: WebProperties,
+    private val history: BoxEditHistory,
 ) {
 
     /** Offered while the agent holds any box label. */
@@ -105,6 +107,8 @@ class BoxTools(
                 STAT -> stat(agent, args, sessionId)
                 DELETE -> delete(agent, args, sessionId)
                 MOVE -> move(agent, args, sessionId)
+                UNDO -> step(agent, args, sessionId, undoing = true)
+                REDO -> step(agent, args, sessionId, undoing = false)
                 SEARCH -> search(agent, args, sessionId)
                 LOG -> log(agent, args, sessionId)
                 EXPORT -> export(agent, args, sessionId)
@@ -260,6 +264,7 @@ class BoxTools(
         sessionLog.recordQuietly(held.row, held.client)
         val stopped = held.client.stop(held.row.remoteSessionId)
         held.row.closedAt = OffsetDateTime.now()
+        history.forget(held.row)
         remember(held.row, stopped.status)
         // And after it, for what stopping it finished.
         sessionLog.recordQuietly(held.row, held.client)
@@ -415,9 +420,13 @@ class BoxTools(
         val held = held(agent, args, sessionId)
         val path = args.text("path") ?: throw Refused("Say which file to write")
         val content = args.rawText("content") ?: throw Refused("Say what to write; an empty string writes an empty file")
-        val written = held.client.write(held.row.remoteSessionId, path, content.toByteArray(), args.text("mode"))
+        val mode = args.text("mode")
+        val before = snapshot(held, path)
+        val bytes = content.toByteArray()
+        val written = held.client.write(held.row.remoteSessionId, path, bytes, mode)
+        val kept = kept(held, written.path, before, bytes, mode ?: before?.mode)
         touch(held)
-        return answer(mapOf("path" to written.path, "size" to written.size, "etag" to written.etag))
+        return answer(mapOf("path" to written.path, "size" to written.size, "etag" to written.etag) + kept)
     }
 
     private fun edit(agent: Agent, args: JsonNode, sessionId: Long?): String {
@@ -427,17 +436,31 @@ class BoxTools(
             ?.takeIf { it.isArray && !it.isEmpty }
             ?.values()
             ?.map { one ->
+                val startLine = (one.long("start_line") ?: one.long("startLine"))?.toInt()
+                val endLine = (one.long("end_line") ?: one.long("endLine"))?.toInt()
+                val oldText = one.rawText("old_text") ?: one.rawText("oldText")
+                if (oldText == null && startLine == null) {
+                    throw Refused("Every edit needs old_text, the text to replace, or start_line, the first line to replace")
+                }
+                if (endLine != null && startLine == null) throw Refused("end_line needs start_line")
                 Edit(
-                    oldText = one.rawText("old_text") ?: one.rawText("oldText")
-                        ?: throw Refused("Every edit needs old_text, the exact text to replace"),
+                    oldText = oldText,
                     newText = one.rawText("new_text") ?: one.rawText("newText") ?: "",
                     replaceAll = one.bool("replace_all") ?: one.bool("replaceAll") ?: false,
+                    startLine = startLine,
+                    endLine = endLine,
+                    regex = one.bool("regex") ?: false,
                 )
             }
-            ?: throw Refused("Give edits: an array of {old_text, new_text, replace_all}")
+            ?: throw Refused("Give edits: an array of {old_text or start_line and end_line, new_text, replace_all, regex}")
+        val before = snapshot(held, path)
         val result = held.client.edit(held.row.remoteSessionId, EditRequest(path, edits))
+        val after = before?.let { runCatching { held.client.read(held.row.remoteSessionId, result.path, null, null).bytes }.getOrNull() }
+        val kept = kept(held, result.path, before, after, before?.mode)
         touch(held)
-        return answer(mapOf("path" to result.path, "size" to result.size, "etag" to result.etag, "replacements" to result.replacements))
+        return answer(
+            mapOf("path" to result.path, "size" to result.size, "etag" to result.etag, "replacements" to result.replacements) + kept,
+        )
     }
 
     private fun stat(agent: Agent, args: JsonNode, sessionId: Long?): String {
@@ -462,6 +485,127 @@ class BoxTools(
         held.client.move(held.row.remoteSessionId, MoveRequest(from, to, args.bool("overwrite") ?: false))
         touch(held)
         return answer(mapOf("from" to from, "to" to to, "moved" to true))
+    }
+
+    // ----------------------------------------------------------- undo, redo
+
+    /** What a file held before a change; [bytes] null is a file that was not there. */
+    private class Snapshot(val bytes: ByteArray?, val mode: String?)
+
+    /**
+     * What a file holds before a change, where the change can be kept for
+     * undoing: null when the history is switched off, or the file is not one
+     * to keep - a directory, a link, or larger than an agent is handed of a
+     * command's output.
+     */
+    private fun snapshot(held: Held, path: String): Snapshot? {
+        if (settings.editUndoSteps() <= 0) return null
+        val entry = try {
+            held.client.stat(held.row.remoteSessionId, path)
+        } catch (failed: BoxCallException) {
+            return if (failed.code == FILE_NOT_FOUND) Snapshot(null, null) else null
+        }
+        if (entry.type != "file" || (entry.size ?: 0) > settings.outputBytes()) return null
+        val file = runCatching { held.client.read(held.row.remoteSessionId, path, null, null) }.getOrNull() ?: return null
+        return Snapshot(file.bytes, entry.mode?.takeIf { MODE.matches(it) })
+    }
+
+    /** Keeps the change for orkbox_undo where it can be, and says so in the answer where it cannot. */
+    private fun kept(held: Held, path: String, before: Snapshot?, after: ByteArray?, afterMode: String?): Map<String, Any> {
+        val session = held.row
+        val steps = settings.editUndoSteps()
+        if (steps <= 0) return emptyMap()
+        val most = settings.outputBytes()
+        if (before == null || after == null || after.size > most) {
+            history.changedUnrecorded(session)
+            return mapOf("undo" to "This change cannot be taken back with orkbox_undo: the file is not a plain file of at most $most bytes.")
+        }
+        history.record(
+            session,
+            BoxEditHistory.Change(path, before.bytes, before.mode, after, afterMode?.takeIf { MODE.matches(it) }),
+            steps,
+            Duration.ofSeconds(settings.localMaxTtlSeconds().toLong()),
+        )
+        return emptyMap()
+    }
+
+    /** What the file holds now; null is not there. */
+    private fun current(held: Held, path: String): ByteArray? = try {
+        held.client.read(held.row.remoteSessionId, path, null, null).bytes
+    } catch (failed: BoxCallException) {
+        if (failed.code == FILE_NOT_FOUND) null else throw failed
+    }
+
+    /** Makes the file hold [bytes], or removes it where [bytes] is null. */
+    private fun restore(held: Held, path: String, bytes: ByteArray?, mode: String?) {
+        if (bytes == null) {
+            held.client.delete(held.row.remoteSessionId, path, false)
+        } else {
+            held.client.write(held.row.remoteSessionId, path, bytes, mode)
+        }
+    }
+
+    /**
+     * Takes back ([undoing]) or puts again up to `steps` changes, newest
+     * first. Each is checked against the file first: one that no longer holds
+     * what the step expects - a command, a move or another write got there
+     * since - is not clobbered. That step is dropped, since it can never apply
+     * cleanly again, and the call stops there.
+     */
+    private fun step(agent: Agent, args: JsonNode, sessionId: Long?, undoing: Boolean): String {
+        val held = held(agent, args, sessionId)
+        val session = held.row
+        val verb = if (undoing) "undo" else "redo"
+        if (!held.row.open) throw Refused("Session ${held.row.id} is closed, and what could be undone in it went with it", "session_closed")
+        if (settings.editUndoSteps() <= 0) {
+            throw Refused("Box edits are not kept for undoing on this installation: Box edit undo steps is 0 in Admin Settings", "undo_off")
+        }
+        val steps = (args.long("steps") ?: 1).coerceIn(1, MAX_BOX_EDIT_UNDO_STEPS.toLong()).toInt()
+        val done = ArrayList<Map<String, Any?>>()
+        var stopped: String? = null
+        history.using(session) { stacks ->
+            val from = if (undoing) stacks.undo else stacks.redo
+            val onto = if (undoing) stacks.redo else stacks.undo
+            for (i in 0 until steps) {
+                val change = from.removeLastOrNull() ?: break
+                val expected = if (undoing) change.after else change.before
+                val now = current(held, change.path)
+                val unchanged = if (expected == null) now == null else now != null && now.contentEquals(expected)
+                if (!unchanged) {
+                    stopped = "${change.path} has changed since (by a command, a move or another tool), so it was left " +
+                        "as it is and that step dropped from the history. Read the file and edit it instead."
+                    break
+                }
+                if (undoing) {
+                    restore(held, change.path, change.before, change.beforeMode)
+                } else {
+                    restore(held, change.path, change.after, change.afterMode)
+                }
+                onto.addLast(change)
+                done += mapOf(
+                    "path" to change.path,
+                    "now" to when {
+                        undoing && change.before == null -> "removed, as it did not exist before"
+                        !undoing && change.before == null -> "created again"
+                        else -> "restored"
+                    },
+                )
+            }
+        }
+        touch(held)
+        if (done.isEmpty()) {
+            stopped?.let { throw Refused(it, "file_changed") }
+            throw Refused("There is nothing to $verb in session ${held.row.id}", "nothing_to_$verb")
+        }
+        val (left, ahead) = history.depth(session)
+        return answer(
+            buildMap {
+                put(if (undoing) "undone" else "redone", done)
+                put("canUndo", left)
+                put("canRedo", ahead)
+                stopped?.let { put("stopped", it) }
+            },
+        )
     }
 
     /**
@@ -623,6 +767,7 @@ class BoxTools(
     private fun remember(row: BoxSession, status: String) {
         row.status = status
         if (status !in OPEN_STATUSES && row.closedAt == null) row.closedAt = OffsetDateTime.now()
+        if (status !in OPEN_STATUSES) history.forget(row)
         row.lastUsedAt = OffsetDateTime.now()
         sessions.save(row)
     }
@@ -782,6 +927,13 @@ class BoxTools(
         const val LOG = "orkbox_log"
         const val EXPORT = "orkbox_export"
         const val IMPORT = "orkbox_import"
+        const val UNDO = "orkbox_undo"
+        const val REDO = "orkbox_redo"
+
+        private const val FILE_NOT_FOUND = "file_not_found"
+
+        /** A mode orkbox's write takes; anything else a runtime reports is not handed back to it. */
+        private val MODE = Regex("[0-7]{3,4}")
 
         /** What orkbox waits for at most, whatever it is asked. */
         const val MOST_WAIT_SECONDS = 3600L
@@ -936,7 +1088,8 @@ class BoxTools(
             ),
             ToolSpec(
                 WRITE,
-                "Writes a file in a session's workspace, creating it and its directories, replacing what was there.",
+                "Writes a file in a session's workspace, creating it and its directories, replacing what was there. " +
+                    "orkbox_undo takes a write back.",
                 listOf(
                     SESSION,
                     text("path", "The file, relative to the workspace root.", required = true),
@@ -946,8 +1099,12 @@ class BoxTools(
             ),
             ToolSpec(
                 EDIT,
-                "Edits a file in a session's workspace by replacing exact text, all edits or none. An old_text that " +
-                    "is not found, or found more than once without replace_all, refuses the whole edit.",
+                "Edits a file in a session's workspace, all edits or none, applied in order. Each edit replaces exact " +
+                    "text (old_text), a regular expression's matches (old_text with regex true; new_text may use \$1), " +
+                    "or lines by number (start_line to end_line, as a read or a search numbered them; old_text is then " +
+                    "an optional guard that those lines still hold it). Line numbers count in the file as the edits " +
+                    "before left it, so give several line edits bottom-up. An old_text that is not found, or found " +
+                    "more than once without replace_all, refuses the whole edit. orkbox_undo takes an edit back.",
                 listOf(
                     SESSION,
                     text("path", "The file, relative to the workspace root.", required = true),
@@ -960,11 +1117,25 @@ class BoxTools(
                             "items" to mapOf(
                                 "type" to "object",
                                 "properties" to mapOf(
-                                    "old_text" to mapOf("type" to "string", "description" to "The exact text to replace."),
+                                    "old_text" to mapOf(
+                                        "type" to "string",
+                                        "description" to "The exact text to replace, or the pattern with regex. " +
+                                            "Give old_text or start_line.",
+                                    ),
                                     "new_text" to mapOf("type" to "string", "description" to "What to put there."),
                                     "replace_all" to mapOf("type" to "boolean", "description" to "Replace every occurrence."),
+                                    "start_line" to mapOf(
+                                        "type" to "integer",
+                                        "description" to "Replace lines by number instead, from this one (from 1). " +
+                                            "Give old_text or start_line.",
+                                    ),
+                                    "end_line" to mapOf("type" to "integer", "description" to "The last line replaced; start_line when left out."),
+                                    "regex" to mapOf(
+                                        "type" to "boolean",
+                                        "description" to "old_text is a regular expression, multiline: ^ and \$ match at line breaks.",
+                                    ),
                                 ),
-                                "required" to listOf("old_text", "new_text"),
+                                "required" to listOf("new_text"),
                             ),
                         ),
                     ),
@@ -977,7 +1148,7 @@ class BoxTools(
             ),
             ToolSpec(
                 DELETE,
-                "Deletes a file or directory in a session's workspace.",
+                "Deletes a file or directory in a session's workspace. orkbox_undo cannot take a delete back.",
                 listOf(
                     SESSION,
                     text("path", "The path, relative to the workspace root.", required = true),
@@ -986,13 +1157,28 @@ class BoxTools(
             ),
             ToolSpec(
                 MOVE,
-                "Moves or renames a file or directory in a session's workspace.",
+                "Moves or renames a file or directory in a session's workspace. orkbox_undo cannot take a move back.",
                 listOf(
                     SESSION,
                     text("from", "Where it is.", required = true),
                     text("to", "Where it goes.", required = true),
                     flag("overwrite", "Replace what is already there."),
                 ),
+            ),
+            ToolSpec(
+                UNDO,
+                "Takes back the last changes orkbox_edit and orkbox_write made in a session, newest first: each file " +
+                    "goes back to what it held before, and a file a write created is removed. A file changed since by " +
+                    "anything else - a command, orkbox_move - is left as it is and that step refused. Deletes and moves " +
+                    "cannot be taken back. Only a limited number of steps is kept, in memory: the history is lost when " +
+                    "the session closes or the server restarts.",
+                listOf(SESSION, number("steps", "How many changes to take back; 1 by default.")),
+            ),
+            ToolSpec(
+                REDO,
+                "Puts back changes orkbox_undo took back, the most recently undone first. A new edit or write ends " +
+                    "what can be redone.",
+                listOf(SESSION, number("steps", "How many changes to put back; 1 by default.")),
             ),
             ToolSpec(
                 SEARCH,

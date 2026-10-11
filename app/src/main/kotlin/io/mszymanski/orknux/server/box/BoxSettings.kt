@@ -52,6 +52,11 @@ const val MIN_BOX_REQUEST_TIMEOUT = 1
 const val MAX_BOX_REQUEST_TIMEOUT = 600
 const val DEFAULT_BOX_REQUEST_TIMEOUT = 30
 
+/** How many edits and writes `orkbox_undo` can take back, per box session; 0 keeps no history. */
+const val MIN_BOX_EDIT_UNDO_STEPS = 0
+const val MAX_BOX_EDIT_UNDO_STEPS = 100
+const val DEFAULT_BOX_EDIT_UNDO_STEPS = 10
+
 /**
  * The local box's label, which is fixed: there is one local box on every
  * installation, and an agent granted `local` should mean the same thing on all
@@ -109,6 +114,9 @@ class BoxSettings(private val settings: InstallationSettingRepository) {
 
     fun requestTimeoutSeconds(): Int =
         ranged(REQUEST_TIMEOUT, MIN_BOX_REQUEST_TIMEOUT..MAX_BOX_REQUEST_TIMEOUT, DEFAULT_BOX_REQUEST_TIMEOUT)
+
+    fun editUndoSteps(): Int =
+        ranged(EDIT_UNDO_STEPS, MIN_BOX_EDIT_UNDO_STEPS..MAX_BOX_EDIT_UNDO_STEPS, DEFAULT_BOX_EDIT_UNDO_STEPS)
 
     @Transactional
     fun setLocalEnabled(enabled: Boolean, by: String) = write(LOCAL_ENABLED, enabled.toString(), by)
@@ -190,6 +198,12 @@ class BoxSettings(private val settings: InstallationSettingRepository) {
         write(REQUEST_TIMEOUT, seconds.toString(), by)
     }
 
+    @Transactional
+    fun setEditUndoSteps(steps: Int, by: String) {
+        if (steps !in MIN_BOX_EDIT_UNDO_STEPS..MAX_BOX_EDIT_UNDO_STEPS) throw BoxEditUndoStepsOutOfRangeException(steps)
+        write(EDIT_UNDO_STEPS, steps.toString(), by)
+    }
+
     /**
      * This installation's name for the local box's workspaces, made once and
      * kept. Orkbox's start-up clean-up removes only workspaces carrying it, so
@@ -231,6 +245,7 @@ class BoxSettings(private val settings: InstallationSettingRepository) {
         const val LOCAL_OUTPUT_KEPT = "tin.local.output.kept.bytes"
         const val OUTPUT_SHOWN = "tin.output.shown.bytes"
         const val REQUEST_TIMEOUT = "tin.request.timeout.seconds"
+        const val EDIT_UNDO_STEPS = "tin.edit.undo.steps"
 
         val RUNTIMES = setOf(Config.RUNTIME_LOCAL, Config.RUNTIME_DOCKER)
     }

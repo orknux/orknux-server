@@ -99,6 +99,11 @@ extend type Mutation {
     setBoxOutputShownBytes(bytes: Int!): InstallationSettings!
     "How long a request to a box may take before it is given up on, 1 to 600 seconds."
     setBoxRequestTimeoutSeconds(seconds: Int!): InstallationSettings!
+    """
+    How many of an agent's file edits and writes orkbox_undo can take back, per
+    box session, 0 to 100; 0 keeps no history. Held in memory only.
+    """
+    setBoxEditUndoSteps(steps: Int!): InstallationSettings!
 }
 
 extend type InstallationSettings {
@@ -140,6 +145,9 @@ extend type InstallationSettings {
     "How long a request to a box may take, in seconds."
     boxRequestTimeoutSeconds: Int!
     boxRequestTimeoutSecondsConfigured: Int!
+    "How many file edits and writes an agent can undo per box session; 0 is none."
+    boxEditUndoSteps: Int!
+    boxEditUndoStepsConfigured: Int!
 }
 
 enum BoxKind {

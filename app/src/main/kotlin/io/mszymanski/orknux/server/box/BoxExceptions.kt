@@ -115,3 +115,10 @@ class BoxRequestTimeoutOutOfRangeException(val seconds: Int) : RuntimeException(
 ), Refusal {
     override val arguments get() = mapOf("seconds" to seconds)
 }
+
+class BoxEditUndoStepsOutOfRangeException(val steps: Int) : RuntimeException(
+    "$steps is not a number of box edits to keep for undoing. " +
+        "Choose between $MIN_BOX_EDIT_UNDO_STEPS and $MAX_BOX_EDIT_UNDO_STEPS.",
+), Refusal {
+    override val arguments get() = mapOf("steps" to steps)
+}

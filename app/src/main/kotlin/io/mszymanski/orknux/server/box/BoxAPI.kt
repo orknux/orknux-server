@@ -45,6 +45,7 @@ class BoxAPI(
     private val auditRecorder: WorkspaceAuditRecorder,
     private val mapper: ObjectMapper,
     private val sessionLog: BoxSessionLog,
+    private val editHistory: BoxEditHistory,
 ) {
 
     // ------------------------------------------------------------------ boxes
@@ -446,6 +447,7 @@ class BoxAPI(
         if (live != row.status) {
             row.status = live
             if (live !in OPEN_STATUSES && row.closedAt == null) row.closedAt = OffsetDateTime.now()
+            if (live !in OPEN_STATUSES) editHistory.forget(row)
             sessionRows.save(row)
         }
         return live
@@ -525,6 +527,12 @@ class BoxAPI(
     @SchemaMapping(typeName = "InstallationSettings", field = "boxRequestTimeoutSecondsConfigured")
     fun boxRequestTimeoutSecondsConfigured(source: InstallationSettingsView): Int = DEFAULT_BOX_REQUEST_TIMEOUT
 
+    @SchemaMapping(typeName = "InstallationSettings", field = "boxEditUndoSteps")
+    fun boxEditUndoSteps(source: InstallationSettingsView): Int = settings.editUndoSteps()
+
+    @SchemaMapping(typeName = "InstallationSettings", field = "boxEditUndoStepsConfigured")
+    fun boxEditUndoStepsConfigured(source: InstallationSettingsView): Int = DEFAULT_BOX_EDIT_UNDO_STEPS
+
     @MutationMapping
     fun setLocalBoxEnabled(@Argument enabled: Boolean): InstallationSettingsView =
         changed(if (enabled) "The local box switched on" else "The local box switched off") {
@@ -588,6 +596,12 @@ class BoxAPI(
     @MutationMapping
     fun setBoxRequestTimeoutSeconds(@Argument seconds: Int): InstallationSettingsView =
         changed("A request to a box is given up on after $seconds seconds") { settings.setRequestTimeoutSeconds(seconds, it) }
+
+    @MutationMapping
+    fun setBoxEditUndoSteps(@Argument steps: Int): InstallationSettingsView =
+        changed(
+            if (steps == 0) "An agent's box edits are not kept for undoing" else "An agent can undo its last $steps box edits",
+        ) { settings.setEditUndoSteps(steps, it) }
 
     /** Checks, sets, applies to a running local box at once, and writes the entry - in that order. */
     private fun changed(entry: String, set: (String) -> Unit): InstallationSettingsView {

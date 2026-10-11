@@ -23,7 +23,9 @@ have failed.
 - A local box built into the server, on by default, configured in Admin Settings - where its sessions live, the local or docker runtime, how many sessions it holds and how long they last; it runs commands as the server's own user.
 - An agent's **Box labels**: it may use a box whose label it was given, and none by default - the local box included.
 - Box tools for agents - opening a session on a box, running commands, reading and editing files, searching, reading the session log and moving archives in and out - with how long a command is waited for, how long it may run and how much output an agent is handed set in Admin Settings.
+- A box edit can replace lines by number or a regular expression's matches, and `orkbox_undo` / `orkbox_redo` take back and put again an agent's edits and writes in a session - refusing a file something else changed since - with how many steps are kept per session set by **Box edit undo steps** in Admin Settings (10 by default, 0 to switch it off; held in memory, so a restart forgets them).
 - A conversation's **Box** panel: the box sessions its agents opened, whether each is still running, and each one's event log.
+- A conversation's **To-do** and **Notes** panels, below its boxes: the plan its agent keeps with the todo tools, done items ticked off, and what it wrote down with `note_to_self`, both updating as it works.
 - How big one value an agent keeps in its session may be, and how many it may keep, are Admin settings: **Session Value Size** (8 MB by default, up to 256 MB, so an exported project can be handed to an upload tool) and **Session Store Keys** (200 by default).
 
 ### 🔧 Changed

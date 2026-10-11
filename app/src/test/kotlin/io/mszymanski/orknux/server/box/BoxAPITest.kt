@@ -311,7 +311,8 @@ class BoxAPITest(
                 localBoxMaxTtlSeconds localBoxMaxTtlSecondsConfigured localBoxIdleTimeoutSeconds localBoxIdleTimeoutSecondsConfigured
                 boxCommandWaitSeconds boxCommandWaitSecondsConfigured boxCommandTimeoutSeconds boxCommandTimeoutSecondsConfigured
                 boxOutputBytes boxOutputBytesConfigured boxRequestTimeoutSeconds boxRequestTimeoutSecondsConfigured
-                localBoxOutputKeptBytes localBoxOutputKeptBytesConfigured boxOutputShownBytes boxOutputShownBytesConfigured } }""",
+                localBoxOutputKeptBytes localBoxOutputKeptBytesConfigured boxOutputShownBytes boxOutputShownBytesConfigured
+                boxEditUndoSteps boxEditUndoStepsConfigured } }""",
         ).execute()
         defaults.path("installationSettings.localBoxEnabled").entity(Boolean::class.java).isEqualTo(true)
         defaults.path("installationSettings.localBoxLocation").valueIsNull()
@@ -322,7 +323,7 @@ class BoxAPITest(
             "localBoxMaxSessions" to 50, "localBoxDefaultTtlSeconds" to 7200, "localBoxMaxTtlSeconds" to 86400,
             "localBoxIdleTimeoutSeconds" to 900, "boxCommandWaitSeconds" to 300, "boxCommandTimeoutSeconds" to 1800,
             "boxOutputBytes" to 65536, "boxRequestTimeoutSeconds" to 30, "localBoxOutputKeptBytes" to 1048576,
-            "boxOutputShownBytes" to 4194304,
+            "boxOutputShownBytes" to 4194304, "boxEditUndoSteps" to 10,
         ).forEach { (field, value) ->
             defaults.path("installationSettings.$field").entity(Int::class.java).isEqualTo(value)
             defaults.path("installationSettings.${field}Configured").entity(Int::class.java).isEqualTo(value)
@@ -340,6 +341,7 @@ class BoxAPITest(
             Knob("setLocalBoxOutputKeptBytes", "bytes", "localBoxOutputKeptBytes", 0, -1, 16777217, "LocalBoxOutputKeptOutOfRange"),
             Knob("setBoxOutputShownBytes", "bytes", "boxOutputShownBytes", 65536, 65535, 67108865, "BoxOutputShownOutOfRange"),
             Knob("setBoxRequestTimeoutSeconds", "seconds", "boxRequestTimeoutSeconds", 5, 0, 601, "BoxRequestTimeoutOutOfRange"),
+            Knob("setBoxEditUndoSteps", "steps", "boxEditUndoSteps", 0, -1, 101, "BoxEditUndoStepsOutOfRange"),
         ).forEach { knob ->
             graphQlTester.document("mutation { ${knob.mutation}(${knob.argument}: ${knob.good}) { ${knob.field} ${knob.field}Configured } }")
                 .execute().also {
@@ -364,6 +366,7 @@ class BoxAPITest(
             "The local box makes its sessions in /srv/boxes",
             "A request to a box is given up on after 5 seconds",
             "A local box command's output is not kept",
+            "An agent's box edits are not kept for undoing",
         )
     }
 

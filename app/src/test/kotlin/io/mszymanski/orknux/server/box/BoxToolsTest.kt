@@ -188,6 +188,118 @@ class BoxToolsTest(
             .isEqualTo("path_outside_workspace")
     }
 
+    private fun read(session: Long, path: String): JsonNode = call("orkbox_read", mapOf("session" to session, "path" to path))
+
+    private fun edit(session: Long, path: String, vararg edits: Map<String, Any?>): JsonNode =
+        call("orkbox_edit", mapOf("session" to session, "path" to path, "edits" to edits.toList()))
+
+    @Test
+    fun `an edit replaces lines by number, or a regular expression's matches`() {
+        val session = opened()
+        call("orkbox_write", mapOf("session" to session, "path" to "app.txt", "content" to "one\ntwo\nthree\nfour\n"))
+
+        edit(session, "app.txt", mapOf("start_line" to 2, "end_line" to 3, "new_text" to "middle\n")).also {
+            assertThat(it.path("error").isMissingNode).describedAs(it.toString()).isTrue()
+        }
+        assertThat(read(session, "app.txt").path("content").stringValue()).isEqualTo("one\nmiddle\nfour\n")
+
+        // old_text beside a line number is a guard, and a guard that does not hold refuses.
+        assertThat(edit(session, "app.txt", mapOf("start_line" to 1, "old_text" to "nope", "new_text" to "x\n")).path("code").stringValue())
+            .isEqualTo("edit_no_match")
+        assertThat(edit(session, "app.txt", mapOf("start_line" to 9, "new_text" to "x\n")).path("code").stringValue())
+            .isEqualTo("edit_bad_lines")
+        // The old camelCase spelling still works.
+        edit(session, "app.txt", mapOf("startLine" to 1, "endLine" to 1, "oldText" to "one", "newText" to "first\n"))
+        assertThat(read(session, "app.txt").path("content").stringValue()).isEqualTo("first\nmiddle\nfour\n")
+
+        edit(session, "app.txt", mapOf("old_text" to "^(\\w+)$", "new_text" to "<$1>", "regex" to true, "replace_all" to true)).also {
+            assertThat(it.path("replacements")[0].asInt()).describedAs(it.toString()).isEqualTo(3)
+        }
+        assertThat(read(session, "app.txt").path("content").stringValue()).isEqualTo("<first>\n<middle>\n<four>\n")
+        assertThat(edit(session, "app.txt", mapOf("old_text" to "(", "new_text" to "x", "regex" to true)).path("code").stringValue())
+            .isEqualTo("invalid_regex")
+
+        assertThat(edit(session, "app.txt", mapOf("new_text" to "x")).path("error").stringValue()).contains("old_text", "start_line")
+    }
+
+    @Test
+    fun `an edit and a write are undone and redone, and a file changed since is left alone`() {
+        val session = opened()
+        call("orkbox_write", mapOf("session" to session, "path" to "app.txt", "content" to "port = 8080\n"))
+        edit(session, "app.txt", mapOf("old_text" to "8080", "new_text" to "9090"))
+        call("orkbox_write", mapOf("session" to session, "path" to "created.txt", "content" to "fresh"))
+
+        // The write that created a file is undone by removing it.
+        call("orkbox_undo", mapOf("session" to session)).also {
+            assertThat(it.path("undone")[0].path("path").stringValue()).describedAs(it.toString()).isEqualTo("created.txt")
+            assertThat(it.path("canRedo").asInt()).isEqualTo(1)
+        }
+        assertThat(read(session, "created.txt").path("code").stringValue()).isEqualTo("file_not_found")
+        call("orkbox_undo", mapOf("session" to session))
+        assertThat(read(session, "app.txt").path("content").stringValue()).isEqualTo("port = 8080\n")
+
+        // Redone, the most recently undone first.
+        call("orkbox_redo", mapOf("session" to session, "steps" to 2)).also {
+            assertThat(it.path("redone").size()).describedAs(it.toString()).isEqualTo(2)
+        }
+        assertThat(read(session, "app.txt").path("content").stringValue()).isEqualTo("port = 9090\n")
+        assertThat(read(session, "created.txt").path("content").stringValue()).isEqualTo("fresh")
+        assertThat(call("orkbox_redo", mapOf("session" to session)).path("code").stringValue()).isEqualTo("nothing_to_redo")
+
+        // A command changed it since: undo refuses rather than clobber, and drops the step.
+        call("orkbox_exec", mapOf("session" to session, "command" to "echo changed> created.txt"))
+        call("orkbox_undo", mapOf("session" to session)).also {
+            assertThat(it.path("code").stringValue()).describedAs(it.toString()).isEqualTo("file_changed")
+            assertThat(it.path("error").stringValue()).contains("created.txt")
+        }
+        assertThat(read(session, "created.txt").path("content").stringValue()).startsWith("changed")
+        // The step before it is still there.
+        call("orkbox_undo", mapOf("session" to session)).also {
+            assertThat(it.path("undone")[0].path("path").stringValue()).describedAs(it.toString()).isEqualTo("app.txt")
+        }
+        assertThat(read(session, "app.txt").path("content").stringValue()).isEqualTo("port = 8080\n")
+
+        // A new change ends what can be redone.
+        edit(session, "app.txt", mapOf("start_line" to 1, "new_text" to "port = 1\n"))
+        assertThat(call("orkbox_redo", mapOf("session" to session)).path("code").stringValue()).isEqualTo("nothing_to_redo")
+
+        // Closing the session drops its history with it.
+        call("orkbox_close", mapOf("session" to session))
+        assertThat(call("orkbox_undo", mapOf("session" to session)).path("code").stringValue()).isEqualTo("session_closed")
+    }
+
+    @Test
+    fun `the history holds as many steps as Admin Settings says, and none at 0`() {
+        graphQlTester.document("mutation { setBoxEditUndoSteps(steps: 2) { boxEditUndoSteps boxEditUndoStepsConfigured } }").execute().also {
+            it.path("setBoxEditUndoSteps.boxEditUndoSteps").entity(Int::class.java).isEqualTo(2)
+            it.path("setBoxEditUndoSteps.boxEditUndoStepsConfigured").entity(Int::class.java).isEqualTo(DEFAULT_BOX_EDIT_UNDO_STEPS)
+        }
+        graphQlTester.document("mutation { setBoxEditUndoSteps(steps: 101) { boxEditUndoSteps } }").execute()
+            .errors().satisfy { errors ->
+                assertThat(errors.single().extensions["code"]).isEqualTo("BoxEditUndoStepsOutOfRange")
+            }
+        assertThat(audit.findAll().map { it.message }).contains("An agent can undo its last 2 box edits")
+
+        val session = opened()
+        (1..4).forEach { call("orkbox_write", mapOf("session" to session, "path" to "n.txt", "content" to "$it")) }
+        call("orkbox_undo", mapOf("session" to session, "steps" to 10)).also {
+            assertThat(it.path("undone").size()).describedAs(it.toString()).isEqualTo(2)
+            assertThat(it.path("canUndo").asInt()).isZero()
+        }
+        assertThat(read(session, "n.txt").path("content").stringValue()).isEqualTo("2")
+
+        // A file larger than an agent is handed is not kept.
+        settings.setOutputBytes(MIN_BOX_OUTPUT_BYTES, "alice")
+        call("orkbox_write", mapOf("session" to session, "path" to "big.txt", "content" to "x".repeat(MIN_BOX_OUTPUT_BYTES + 1))).also {
+            assertThat(it.path("undo").stringValue()).describedAs(it.toString()).contains("cannot be taken back")
+        }
+
+        settings.setEditUndoSteps(0, "alice")
+        call("orkbox_write", mapOf("session" to session, "path" to "n.txt", "content" to "5"))
+        assertThat(call("orkbox_undo", mapOf("session" to session)).path("code").stringValue()).isEqualTo("undo_off")
+        assertThat(read(session, "n.txt").path("content").stringValue()).isEqualTo("5")
+    }
+
     @Test
     fun `a directory goes out as an archive in the session store and back in`() {
         val session = opened()
