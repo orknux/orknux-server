@@ -159,6 +159,8 @@ object ComponentSnapshot {
              */
             "mcpServers" to agent.mcpServers.toList(),
             "memoryCatalogs" to agent.memoryCatalogs.toList(),
+            "secretCatalogs" to agent.secretCatalogs.toList(),
+            "variableCatalogs" to agent.variableCatalogs.toList(),
             "skillCatalogs" to agent.skillCatalogs.toList(),
             "tools" to agent.tools.toList(),
             // By id, which is what the column holds; a grant whose connection
@@ -306,6 +308,9 @@ object ComponentSnapshot {
         agent.icon = text(held, "icon")
         agent.mcpServers = names(held, "mcpServers")
         agent.memoryCatalogs = names(held, "memoryCatalogs")
+        // A version written before these grants held none, which is what it had.
+        agent.secretCatalogs = names(held, "secretCatalogs")
+        agent.variableCatalogs = names(held, "variableCatalogs")
         agent.skillCatalogs = names(held, "skillCatalogs")
         agent.tools = names(held, "tools")
         // A version written before connections existed grants none, which is

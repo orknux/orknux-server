@@ -129,6 +129,14 @@ class BoxSession(
 
     @Column(name = "closed_at")
     var closedAt: OffsetDateTime? = null,
+
+    /**
+     * The workspace secrets handed to this session's commands, as variable ids
+     * one per line - never their values. What the box printed is masked with
+     * them wherever it is shown or kept; see [BoxSecrets].
+     */
+    @Column(name = "secret_variable_ids", columnDefinition = "text")
+    var secretVariableIds: String? = null,
 ) {
     /** The box's id as the API spells it: `local`, or the row id. */
     val boxRef: String get() = if (boxKind == BoxKind.LOCAL) LOCAL_BOX_ID else boxId.toString()

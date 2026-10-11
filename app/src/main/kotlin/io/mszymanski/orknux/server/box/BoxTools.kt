@@ -72,6 +72,10 @@ class BoxTools(
     private val sessionLog: BoxSessionLog,
     private val web: WebProperties,
     private val history: BoxEditHistory,
+    /** Masks what a session given secrets prints; see [BoxSecrets]. */
+    private val secrets: BoxSecrets,
+    /** The workspace variables an agent may hand a command; see [VariableTools]. */
+    private val variableTools: io.mszymanski.orknux.server.variable.VariableTools,
 ) {
 
     /** Offered while the agent holds any box label. */
@@ -90,6 +94,17 @@ class BoxTools(
         if (boxes.labelsNow(agent).isEmpty()) return refuse("This agent has not been given any boxes")
         val args = runCatching { mapper.readTree(arguments.ifBlank { "{}" }) }.getOrNull()
             ?: return refuse("The arguments were not a JSON object")
+        val answered = answering(agent, name, args, sessionId)
+        /*
+         * Masked once, here, on the way out: this string is what the model
+         * reads, what the session log records and what the chat stream sends,
+         * so one pass covers all three. A secret a command was given and then
+         * printed comes back as ***.
+         */
+        return if (sessionId == null) answered else secrets.maskConversation(sessionId, answered)
+    }
+
+    private fun answering(agent: Agent, name: String, args: JsonNode, sessionId: Long?): String {
         return try {
             when (name) {
                 LIST -> list(agent)
@@ -184,10 +199,11 @@ class BoxTools(
             else -> throw Refused("Say which box: " + usable.joinToString(", ") { it.name })
         }
         val gitUrl = args.text("git_url")
+        val handed = handed(agent, args)
         val request = CreateSessionRequest(
             runtime = args.text("runtime"),
             image = args.text("image"),
-            env = args.stringMap("variables").orEmpty(),
+            env = args.stringMap("variables").orEmpty() + handed.env,
             network = args.text("network"),
             caches = args.strings("caches").orEmpty(),
             ttlSeconds = args.long("ttl_seconds"),
@@ -216,6 +232,7 @@ class BoxTools(
                 closedAt = if (opened.status in OPEN_STATUSES) null else OffsetDateTime.now(),
             ),
         )
+        secrets.given(row, handed.secrets)
         auditRecorder.recordAutomated(
             agent.workspaceId,
             WorkspaceAuditCategory.AGENT,
@@ -312,11 +329,14 @@ class BoxTools(
         val argv = args.strings("argv")?.takeIf { it.isNotEmpty() }
         if ((command == null) == (argv == null)) throw Refused("Give either command or argv, not both and not neither")
         val wait = args.bool("wait") ?: true
+        val handed = handed(agent, args)
+        // Before the command starts, so output it prints straight away is masked too.
+        secrets.given(held.row, handed.secrets)
         val request = ExecuteRequest(
             command = command,
             argv = argv,
             cwd = args.text("cwd"),
-            env = args.stringMap("variables").orEmpty(),
+            env = args.stringMap("variables").orEmpty() + handed.env,
             stdin = args.rawText("stdin"),
             interactive = args.bool("interactive") ?: false,
             timeoutSeconds = args.long("timeout_seconds") ?: settings.commandTimeoutSeconds().toLong(),
@@ -756,6 +776,32 @@ class BoxTools(
 
     // -------------------------------------------------------------- sessions
 
+    /** What a call hands its command from the workspace's variables: the environment, and the secrets among it by id. */
+    private class Handed(val env: Map<String, String>, val secrets: Map<Long, String>)
+
+    /**
+     * The `secrets` and `values` a call names, resolved here from the
+     * variables this agent may use - refused whole if one is not, so a command
+     * never starts with half its credentials. Each becomes an environment
+     * variable of its own name.
+     */
+    private fun handed(agent: Agent, args: JsonNode): Handed {
+        val secretNames = args.strings("secrets").orEmpty().filter { it.isNotBlank() }
+        val valueNames = args.strings("values").orEmpty().filter { it.isNotBlank() }
+        if (secretNames.isEmpty() && valueNames.isEmpty()) return Handed(emptyMap(), emptyMap())
+        val (heldSecrets, heldValues) = try {
+            variableTools.secrets(agent, secretNames) to variableTools.values(agent, valueNames)
+        } catch (refused: io.mszymanski.orknux.server.variable.VariableTools.Refused) {
+            throw Refused(refused.message)
+        }
+        val unset = (heldSecrets + heldValues).filter { it.value == null }
+        if (unset.isNotEmpty()) throw Refused("No value is set for " + unset.joinToString(", ") { it.name })
+        return Handed(
+            env = heldValues.associate { it.name to it.value.orEmpty() } + heldSecrets.associate { it.name to it.value.orEmpty() },
+            secrets = heldSecrets.associate { it.id to it.value.orEmpty() },
+        )
+    }
+
     private class Held(val row: BoxSession, val client: BoxClient)
 
     /**
@@ -983,6 +1029,16 @@ class BoxTools(
             ToolParameterSpec(name, description, false, mapOf("type" to "object", "additionalProperties" to mapOf("type" to "string")))
 
         private val SESSION = number("session", "The session number orkbox_open answered with.", required = true)
+
+        private val SECRETS = names(
+            "secrets",
+            "Workspace secrets to set as environment variables, by name from variable_list. The command reads one as " +
+                "\$NAME; you never see its value, and output that prints it shows ***. Never paste a secret into a command.",
+        )
+        private val VALUES = names(
+            "values",
+            "Plain workspace variables to set as environment variables, by name from variable_list.",
+        )
         private val EXECUTION_ID = text("execution", "The execution id orkbox_exec answered with.", required = true)
 
         val SPECS: List<ToolSpec> = listOf(
@@ -1010,6 +1066,8 @@ class BoxTools(
                     names("caches", "Shared dependency caches to mount, such as maven, gradle or npm (docker only)."),
                     text("network", "full or none (docker only)."),
                     pairs("variables", "Environment variables set for every command in the session, as name: value."),
+                    SECRETS,
+                    VALUES,
                     number("ttl_seconds", "How long the session may live; the box's default otherwise."),
                     number("idle_timeout_seconds", "How long it may sit unused before it is stopped."),
                     pairs("labels", "Labels to put on the session, for your own bookkeeping."),
@@ -1048,6 +1106,8 @@ class BoxTools(
                     names("argv", "Or the program and its arguments, run without a shell."),
                     text("cwd", "The directory to run in, relative to the workspace root; the root otherwise."),
                     pairs("variables", "Environment variables set for this command only, as name: value."),
+                    SECRETS,
+                    VALUES,
                     text("stdin", "Text written to its standard input, which is then closed."),
                     flag("interactive", "Keep standard input open for orkbox_stdin."),
                     number("timeout_seconds", "Stop it after this long; the installation's default otherwise."),

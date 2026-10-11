@@ -68,6 +68,13 @@ enum class BuiltInGovernance {
      * so the label grant switches them, and the rows are read-only.
      */
     BOX_ACCESS,
+
+    /**
+     * Offered while the agent holds any secret or variable catalog: the
+     * variable tools, and the secrets and values `orkbox_exec` takes, come with
+     * those grants.
+     */
+    VARIABLE_CATALOGS,
 }
 
 /** One of the server's own tools, and what switches it. */
@@ -93,6 +100,7 @@ class BuiltInTools(
     private val memories: MemoryTool,
     private val orknux: OrknuxTools,
     private val boxes: io.mszymanski.orknux.server.box.BoxTools,
+    private val variables: io.mszymanski.orknux.server.variable.VariableTools,
 ) {
 
     /**
@@ -124,6 +132,7 @@ class BuiltInTools(
             add(BuiltInTool(it.name, BuiltInGovernance.ORKNUX_ACCESS))
         }
         boxes.specs().forEach { add(BuiltInTool(it.name, BuiltInGovernance.BOX_ACCESS)) }
+        variables.specs().forEach { add(BuiltInTool(it.name, BuiltInGovernance.VARIABLE_CATALOGS)) }
     }
 
     companion object {

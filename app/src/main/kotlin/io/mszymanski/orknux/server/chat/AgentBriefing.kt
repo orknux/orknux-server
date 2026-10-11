@@ -493,6 +493,13 @@ class AgentBriefing(
             }
         }
 
+        /*
+         * Where its secrets go, said once: a model that holds a credential's
+         * name and not its value reaches for the value - asks the person, or
+         * puts it in a command line - unless it is told the name is the way.
+         */
+        if (agent.secretCatalogs.isNotEmpty()) parts += SECRETS_BY_NAME
+
         val asks = runTools.getObject()
         if (asks.offered(agent)) {
             parts += buildString {
@@ -556,6 +563,13 @@ class AgentBriefing(
                 "that kind of work done, and it beats what you would otherwise assume. Do this once per " +
                 "conversation: the list does not change, so for later requests choose from the one you read."
 
+
+        /** How an agent granted secrets uses them; see [grants]. */
+        const val SECRETS_BY_NAME =
+            "You may use some of the workspace's secrets without ever seeing them: variable_list names them, and " +
+                "orkbox_exec or orkbox_open takes them by name in secrets, setting each as an environment variable " +
+                "of the same name for the command, such as \$GITHUB_TOKEN. Never ask for a secret's value or write " +
+                "one into a command, a file or an answer; anything that prints one shows ***."
 
         /** How a turn works; see [grants]. */
         const val HOW_YOU_RUN =

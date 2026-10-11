@@ -115,6 +115,8 @@ class BoxSessionLog(
     private val outputs: BoxSessionOutputRepository,
     private val settings: BoxSettings,
     private val mapper: ObjectMapper,
+    /** Kept masked: what is stored here is shown later, and must not hold a secret a command was given. */
+    private val secrets: BoxSecrets,
 ) {
 
     /** Copies what the box has beyond what is held. A box that refuses is the caller's to judge; see [recordQuietly]. */
@@ -129,7 +131,7 @@ class BoxSessionLog(
             val page = client.logs(row.remoteSessionId, since, BOX_LOG_PAGE, null)
             val fresh = page.events.filter { it.seq > since }
             if (fresh.isEmpty()) return
-            events.saveAll(fresh.map { BoxSessionEvent(boxSessionId = id, seq = it.seq, at = it.at, type = it.type, data = it.data) })
+            events.saveAll(fresh.map { BoxSessionEvent(boxSessionId = id, seq = it.seq, at = it.at, type = it.type, data = secrets.mask(row, it.data)) })
             fresh.filter { it.type == FINISHED }.forEach { keepOutput(row, client, it) }
             since = fresh.maxOf { it.seq }
             if (page.events.size < BOX_LOG_PAGE) return
@@ -174,7 +176,7 @@ class BoxSessionLog(
                     boxSessionId = id,
                     executionId = execution,
                     startOffset = start ?: 0,
-                    text = String(bytes.toByteArray(), Charsets.UTF_8),
+                    text = secrets.mask(row, String(bytes.toByteArray(), Charsets.UTF_8)),
                     truncated = truncated,
                 ),
             )

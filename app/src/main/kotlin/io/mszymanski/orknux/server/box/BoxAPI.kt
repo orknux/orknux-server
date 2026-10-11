@@ -46,6 +46,7 @@ class BoxAPI(
     private val mapper: ObjectMapper,
     private val sessionLog: BoxSessionLog,
     private val editHistory: BoxEditHistory,
+    private val secrets: BoxSecrets,
 ) {
 
     // ------------------------------------------------------------------ boxes
@@ -298,7 +299,7 @@ class BoxAPI(
         if (client == null) return BoxLogView(emptyList(), since.toInt(), false, requireNotNull(unreachable).alone)
         return try {
             val page = client.logs(row.remoteSessionId, since, BOX_LOG_PAGE, null)
-            BoxLogView(page.events.map { BoxEventView(it.seq.toInt(), it.at, it.type, it.data) }, page.nextSeq.toInt(), true, null)
+            BoxLogView(page.events.map { BoxEventView(it.seq.toInt(), it.at, it.type, secrets.mask(row, it.data)) }, page.nextSeq.toInt(), true, null)
         } catch (failed: BoxCallException) {
             BoxLogView(emptyList(), since.toInt(), false, goneFrom(row, failed).alone)
         }
@@ -373,7 +374,8 @@ class BoxAPI(
                 val chunk = client.output(row.remoteSessionId, executionId, BoxSessionLog.COMBINED, from, most)
                 val read = chunk.next - chunk.offset
                 return BoxOutputView(
-                    text = chunk.text,
+                    // Masked as it is read: a secret a command was given and printed shows as ***.
+                    text = secrets.mask(row, chunk.text),
                     offset = chunk.offset.toInt(),
                     nextOffset = chunk.next.toInt(),
                     done = chunk.status != null && chunk.status != RUNNING && read < most,

@@ -3240,6 +3240,10 @@ type Agent {
     pictureLinkAccess: Boolean!
     "Memory catalogs this agent may read, by name."
     memoryCatalogs: [String!]!
+    "Variable catalogs whose secrets this agent may hand a box command, by name. Used, never read: masked in everything shown."
+    secretCatalogs: [String!]!
+    "Variable catalogs whose plain values this agent may read, by name."
+    variableCatalogs: [String!]!
     "Which skill catalogs it may draw on."
     skillCatalogs: [String!]!
     """
@@ -4463,6 +4467,10 @@ input UpdateAgentInput {
     pictureLinkAccess: Boolean
     "Same rule: null leaves it alone, an empty list clears it."
     memoryCatalogs: [String!]
+    "Variable catalogs whose secrets it may hand a box command; null leaves the grant alone."
+    secretCatalogs: [String!]
+    "Variable catalogs whose plain values it may read; null leaves the grant alone."
+    variableCatalogs: [String!]
     "Null leaves the grant alone."
     skillCatalogs: [String!]
     "Skills inside those catalogs it may not see, by id; null leaves them alone."
@@ -6274,6 +6282,8 @@ enum BuiltInToolGovernance {
     HTTP_TOOLS
     "Any box label granted."
     BOX_ACCESS
+    "Any secret or variable catalog granted."
+    VARIABLE_CATALOGS
 }
 
 """

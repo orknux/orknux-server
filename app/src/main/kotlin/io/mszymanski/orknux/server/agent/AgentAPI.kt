@@ -362,6 +362,8 @@ class AgentAPI(
         val previousServers = agent.mcpServers.toList()
         val previousOrknux = agent.orknuxAccess
         val previousCatalogs = agent.memoryCatalogs.toList()
+        val previousSecretCatalogs = agent.secretCatalogs.toList()
+        val previousVariableCatalogs = agent.variableCatalogs.toList()
         val previousSkillCatalogs = agent.skillCatalogs.toList()
         // Everything it could call before this save: its grants and the
         // built-ins it had not hidden, so the audit reads the same either side
@@ -434,6 +436,14 @@ class AgentAPI(
         if (input.skillCatalogs != null) {
             agent.skillCatalogs =
                 input.skillCatalogs.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
+        }
+        if (input.secretCatalogs != null) {
+            agent.secretCatalogs =
+                input.secretCatalogs.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
+        }
+        if (input.variableCatalogs != null) {
+            agent.variableCatalogs =
+                input.variableCatalogs.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
         }
         /*
          * What each skill inside those catalogs does. Issue #480.
@@ -672,6 +682,19 @@ class AgentAPI(
                 "Agent ${agent.name} no longer reads memory catalog $catalog",
             )
         }
+        // The secrets grant most of all: it is what an agent may hand a command.
+        (agent.secretCatalogs - previousSecretCatalogs.toSet()).forEach { catalog ->
+            auditRecorder.record(agent.workspaceId, WorkspaceAuditCategory.AGENT, "Agent ${agent.name} given the secrets of catalog $catalog")
+        }
+        (previousSecretCatalogs - agent.secretCatalogs.toSet()).forEach { catalog ->
+            auditRecorder.record(agent.workspaceId, WorkspaceAuditCategory.AGENT, "Agent ${agent.name} no longer uses the secrets of catalog $catalog")
+        }
+        (agent.variableCatalogs - previousVariableCatalogs.toSet()).forEach { catalog ->
+            auditRecorder.record(agent.workspaceId, WorkspaceAuditCategory.AGENT, "Agent ${agent.name} given the variables of catalog $catalog")
+        }
+        (previousVariableCatalogs - agent.variableCatalogs.toSet()).forEach { catalog ->
+            auditRecorder.record(agent.workspaceId, WorkspaceAuditCategory.AGENT, "Agent ${agent.name} no longer reads the variables of catalog $catalog")
+        }
         /*
          * Not the built-in catalog: every agent holds it whatever its list says
          * (SkillTool.granted), so the form no longer sends it, and an agent that
@@ -900,6 +923,10 @@ data class UpdateAgentInput(
     val pictureLinkAccess: Boolean? = null,
     /** Same rule: null leaves it alone, an empty list clears it. */
     val memoryCatalogs: List<String>? = null,
+    /** Variable catalogs whose secrets it may hand a box command; null leaves the grant alone. */
+    val secretCatalogs: List<String>? = null,
+    /** Variable catalogs whose plain values it may read; null leaves the grant alone. */
+    val variableCatalogs: List<String>? = null,
     /** Which skill catalogs it may draw on; null leaves the grant alone. */
     val skillCatalogs: List<String>? = null,
     /** Skills inside those catalogs it may not see, by id; null leaves them alone. Issue #480. */
@@ -960,6 +987,8 @@ data class AgentView(
     /** Whether it may ask for an address for a picture it drew - `picture_link` in `tools`. */
     val pictureLinkAccess: Boolean,
     val memoryCatalogs: List<String>,
+    val secretCatalogs: List<String>,
+    val variableCatalogs: List<String>,
     val skillCatalogs: List<String>,
     /** The skills in those catalogs this agent may not see, by id. Issue #480. */
     val hiddenSkills: List<String>,
@@ -998,6 +1027,8 @@ data class AgentView(
         finishAccess = agent.finishAccess,
         pictureLinkAccess = agent.pictureLinkAccess,
         memoryCatalogs = agent.memoryCatalogs.toList(),
+        secretCatalogs = agent.secretCatalogs.toList(),
+        variableCatalogs = agent.variableCatalogs.toList(),
         skillCatalogs = agent.skillCatalogs.toList(),
         hiddenSkills = agent.hiddenSkills.toList(),
         requiredSkills = agent.requiredSkills.toList(),
@@ -1084,7 +1115,8 @@ private class AgentLists(private val loaded: List<Pair<KMutableProperty1<Agent, 
     companion object {
         @Suppress("UNCHECKED_CAST")
         private val LISTS = listOf(
-            Agent::mcpServers, Agent::memoryCatalogs, Agent::skillCatalogs, Agent::hiddenSkills,
+            Agent::mcpServers, Agent::memoryCatalogs, Agent::secretCatalogs, Agent::variableCatalogs,
+            Agent::skillCatalogs, Agent::hiddenSkills,
             Agent::requiredSkills, Agent::tools, Agent::requiredTools, Agent::hiddenTools,
             Agent::connections, Agent::agents,
         ) as List<KMutableProperty1<Agent, MutableList<*>>>

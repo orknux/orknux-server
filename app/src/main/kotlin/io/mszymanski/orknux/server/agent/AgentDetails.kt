@@ -126,6 +126,8 @@ class AgentDetails(
                 "findable" to found.sorted(),
                 "skills" to agent.skillCatalogs.sorted(),
                 "memory" to agent.memoryCatalogs.sorted(),
+                "secrets" to agent.secretCatalogs.sorted(),
+                "variables" to agent.variableCatalogs.sorted(),
                 "connections" to connectionNames.sorted(),
             ),
         )

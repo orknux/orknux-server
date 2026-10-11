@@ -947,6 +947,8 @@ class AgentRunTools(
         connections = agent.connections.toMutableList(),
         skillCatalogs = agent.skillCatalogs.toMutableList(),
         memoryCatalogs = agent.memoryCatalogs.toMutableList(),
+        secretCatalogs = agent.secretCatalogs.toMutableList(),
+        variableCatalogs = agent.variableCatalogs.toMutableList(),
         mcpServers = agent.mcpServers.toMutableList(),
         // The whole of the rule: nothing to ask, so nothing further to reach.
         agents = mutableListOf(),

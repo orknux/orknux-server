@@ -48,6 +48,7 @@ class AgentTools(
     private val orknux: OrknuxTools,
     /** The sandboxes, for an agent granted a box label; see [io.mszymanski.orknux.server.box.BoxTools]. */
     private val boxes: io.mszymanski.orknux.server.box.BoxTools,
+    private val variables: io.mszymanski.orknux.server.variable.VariableTools,
     /** What lets an agent find a connection id it was granted; see [ConnectionTools]. */
     private val connectionTools: ConnectionTools,
     /** What lets an agent put a question to another; see [AgentRunTools]. */
@@ -180,6 +181,9 @@ class AgentTools(
         // The boxes, for an agent granted a label. By label rather than by box:
         // which one a session lands on is said when it opens.
         if (boxes.offered(agent)) addAll(boxes.specs())
+
+        // The workspace's variables, for an agent granted a secret or variable catalog.
+        if (variables.offered(agent)) addAll(variables.specs())
 
         /*
          * And the ids of the connections it was granted, however many: one
@@ -434,6 +438,9 @@ class AgentTools(
         } else if (boxes.handles(call.name)) {
             // Checked by the thing that would run it as well as left off the menu.
             boxes.run(agent, call.name, call.arguments, sessionId)
+        } else if (variables.handles(call.name)) {
+            // The grant is read fresh by the tool itself, as the box tools read theirs.
+            variables.run(agent, call.name, call.arguments)
         } else if (call.name == VALIDATE) {
             validator.check(call.arguments)
         } else if (embedded.handles(call.name)) {

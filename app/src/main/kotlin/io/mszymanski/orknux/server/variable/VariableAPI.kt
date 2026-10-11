@@ -31,6 +31,8 @@ import java.time.format.DateTimeFormatter
 class VariableAPI(
     private val variables: WorkspaceVariableRepository,
     private val catalogs: VariableCatalogRepository,
+    /** Whose secret and variable grants name a catalog, so a rename carries them. */
+    private val agents: io.mszymanski.orknux.server.agent.AgentRepository,
     /**
      * Asked what still reads a variable before one is removed or made readable.
      *
@@ -176,6 +178,22 @@ class VariableAPI(
 
         val previous = catalog.name
         catalog.name = trimmed
+        /*
+         * The agents granted it follow it. A grant is by name, the way the form
+         * shows it, so a renamed catalog would otherwise drop out from under
+         * every agent using it - silently, the next time one reached for a
+         * secret it had been given.
+         */
+        if (trimmed != previous) {
+            agents.findGrantedSecretCatalog(catalog.workspaceId, previous).forEach { agent ->
+                agent.secretCatalogs = agent.secretCatalogs.map { if (it == previous) trimmed else it }.distinct().toMutableList()
+                agents.save(agent)
+            }
+            agents.findGrantedVariableCatalog(catalog.workspaceId, previous).forEach { agent ->
+                agent.variableCatalogs = agent.variableCatalogs.map { if (it == previous) trimmed else it }.distinct().toMutableList()
+                agents.save(agent)
+            }
+        }
         auditRecorder.record(
             catalog.workspaceId,
             WorkspaceAuditCategory.WORKFLOW,

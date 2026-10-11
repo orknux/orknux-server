@@ -17,6 +17,22 @@ interface AgentRepository : JpaRepository<Agent, Long> {
     @Query("select a.boxLabelsText from Agent a where a.id = :id")
     fun boxLabelsTextOf(@Param("id") id: Long): String?
 
+    /** The secret catalogs an agent holds now, read from the rows; see [boxLabelsTextOf] for why not the entity. */
+    @Query("select c from Agent a join a.secretCatalogs c where a.id = :id")
+    fun secretCatalogsOf(@Param("id") id: Long): List<String>
+
+    /** And the variable catalogs, the same way. */
+    @Query("select c from Agent a join a.variableCatalogs c where a.id = :id")
+    fun variableCatalogsOf(@Param("id") id: Long): List<String>
+
+    /** The workspace's agents granted the secrets of this catalog, exactly as spelled. */
+    @Query("select a from Agent a join a.secretCatalogs c where a.workspaceId = :workspaceId and c = :name")
+    fun findGrantedSecretCatalog(@Param("workspaceId") workspaceId: Long, @Param("name") name: String): List<Agent>
+
+    /** And the values of this catalog. */
+    @Query("select a from Agent a join a.variableCatalogs c where a.workspaceId = :workspaceId and c = :name")
+    fun findGrantedVariableCatalog(@Param("workspaceId") workspaceId: Long, @Param("name") name: String): List<Agent>
+
     /**
      * The workspace an agent is in, without the agent.
      *

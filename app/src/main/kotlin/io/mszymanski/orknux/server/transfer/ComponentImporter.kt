@@ -1217,6 +1217,14 @@ class ComponentImporter(
                     memoryCatalogs = node.names("memoryCatalogs")
                         .onEach { memoryCatalogFor(workspaceId, it, who) }
                         .toMutableList(),
+                    /*
+                     * By name and nothing made: a variable catalog holds
+                     * somebody's values, and an empty one invented here would
+                     * be a folder nobody asked for. A grant naming a catalog
+                     * this workspace lacks reaches nothing until one exists.
+                     */
+                    secretCatalogs = node.names("secretCatalogs").toMutableList(),
+                    variableCatalogs = node.names("variableCatalogs").toMutableList(),
                     icon = node.text("icon"),
                 ),
             ).id!!

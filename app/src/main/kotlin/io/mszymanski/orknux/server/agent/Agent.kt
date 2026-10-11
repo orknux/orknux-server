@@ -194,6 +194,33 @@ class Agent(
     var skillCatalogs: MutableList<String> = mutableListOf(),
 
     /**
+     * Variable catalogs whose secrets this agent may use, by name.
+     *
+     * Used, never read: a secret reaches a box command as an environment
+     * variable through `orkbox_exec`, the model names it and never sees it, and
+     * every place that shows what the box printed masks it. By name for the
+     * reason [memoryCatalogs] is.
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
+    @CollectionTable(name = "agent_secret_catalog", joinColumns = [JoinColumn(name = "agent_id")])
+    @OrderColumn(name = "position")
+    @Column(name = "name", nullable = false)
+    var secretCatalogs: MutableList<String> = mutableListOf(),
+
+    /**
+     * Variable catalogs whose plain values this agent may read, by name. Not
+     * masked anywhere: a value that is not a secret is one somebody chose to
+     * let be read.
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @Fetch(FetchMode.SELECT)
+    @CollectionTable(name = "agent_variable_catalog", joinColumns = [JoinColumn(name = "agent_id")])
+    @OrderColumn(name = "position")
+    @Column(name = "name", nullable = false)
+    var variableCatalogs: MutableList<String> = mutableListOf(),
+
+    /**
      * The skills inside those catalogs this agent may not see, by id. Issue #480.
      *
      * The catalogs say what is in scope and these two lists say what happens to

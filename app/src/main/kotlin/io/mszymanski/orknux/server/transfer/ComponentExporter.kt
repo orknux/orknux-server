@@ -565,6 +565,12 @@ class ComponentExporter(
             held.skillCatalogs.forEach { skillCatalogs.add(it) }
             val memoryCatalogs = putArray("memoryCatalogs")
             held.memoryCatalogs.forEach { memoryCatalogs.add(it) }
+            // The variable grants by name too; nothing of a catalog's contents
+            // travels with them, a secret least of all.
+            val secretCatalogs = putArray("secretCatalogs")
+            held.secretCatalogs.forEach { secretCatalogs.add(it) }
+            val variableCatalogs = putArray("variableCatalogs")
+            held.variableCatalogs.forEach { variableCatalogs.add(it) }
         }
 
     /**
