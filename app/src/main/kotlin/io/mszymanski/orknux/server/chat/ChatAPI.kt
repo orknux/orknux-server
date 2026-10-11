@@ -77,7 +77,9 @@ class ChatAPI(
     @QueryMapping
     fun chatSessions(@Argument workspaceId: Long): List<ChatSessionView> {
         requireWorkspaceAccess(workspaceId)
-        return chats.sessions(workspaceId, currentUser()).map(::describe)
+        // Names looked up once per list rather than once per chat: a list of 69 chats loaded the same agent 69 times.
+        val names = Names()
+        return chats.sessions(workspaceId, currentUser()).map { describe(it, names) }
     }
 
     /**
@@ -273,17 +275,24 @@ class ChatAPI(
         )
     }
 
-    private fun describe(session: ChatSession): ChatSessionView {
-        val model = session.modelId?.let { models.model(it) }
+    /** The model and agent names a list of chats shares, each read once. */
+    private inner class Names {
+        private val modelNames = HashMap<Long, String?>()
+        private val agentNames = HashMap<Long, String?>()
+        fun model(id: Long): String? = modelNames.getOrPut(id) { models.model(id)?.name }
+        fun agent(id: Long): String? = agentNames.getOrPut(id) { agents.findByIdOrNull(id)?.name }
+    }
+
+    private fun describe(session: ChatSession, names: Names = Names()): ChatSessionView {
         return ChatSessionView(
             id = requireNotNull(session.id),
             workspaceId = session.workspaceId,
             title = session.title,
             pinned = session.pinned,
             modelId = session.modelId,
-            modelName = model?.name,
+            modelName = session.modelId?.let(names::model),
             agentId = session.agentId,
-            agentName = session.agentId?.let { agents.findByIdOrNull(it) }?.name,
+            agentName = session.agentId?.let(names::agent),
             llmSessionId = session.llmSessionId,
             createdAt = session.createdAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
             lastMessageAt = session.lastMessageAt?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
