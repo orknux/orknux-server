@@ -214,6 +214,10 @@ class ModelImageClient(
         ProviderType.SYSTEM_ONE ->
             "${provider.name} is a decision model: it answers questions with probabilities and draws nothing."
 
+        ProviderType.LLAMA_CPP ->
+            "${provider.name} runs llama.cpp, which has no image generation. " +
+                "Run an image server beside it and add that as an OpenAI provider."
+
         ProviderType.OPENAI, ProviderType.AZURE_OPENAI -> null
     }
 

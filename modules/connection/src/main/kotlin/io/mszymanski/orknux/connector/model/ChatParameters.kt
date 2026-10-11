@@ -104,6 +104,8 @@ object ChatParameters {
         ProviderType.AZURE_OPENAI -> AZURE
         ProviderType.OPENAI -> if (hostedByOpenAi(endpoint)) OPENAI_HOSTED else OPENAI_SHAPED
         ProviderType.OLLAMA -> OLLAMA
+        // llama.cpp's own sampler: top-k, min-p and the repeat penalty, as any OpenAI-shaped server takes.
+        ProviderType.LLAMA_CPP -> OPENAI_SHAPED
         ProviderType.ANTHROPIC -> ANTHROPIC
         ProviderType.SYSTEM_ONE -> emptyList()
     }

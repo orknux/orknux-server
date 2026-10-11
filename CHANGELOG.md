@@ -15,6 +15,17 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- A **llama.cpp** provider type: spoken to as OpenAI is, and asked how far it has read a prompt - the chat and the session page say "Reading the prompt… 42,610 / 208,324 tokens (20%) · 38,000 cached" while a long session is read, which was minutes of nothing on the screen. Move a llama.cpp server registered as OpenAI to the new type to see it.
+- A chat's running total says how much of its input the provider reused from its cache, where it reports it - every round sends the whole conversation, so a long chat on a local server read as millions of tokens it mostly never read again.
+
+### 🐛 Fixed
+
+- A round asked again because a person wrote mid-turn was left out of the turn's token count.
+
 ## 1.0.0
 
 ### ✨ Added

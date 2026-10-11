@@ -4088,6 +4088,8 @@ type ChatSession {
     """
     spentInputTokens: Float!
     spentOutputTokens: Float!
+    "How many of spentInputTokens the provider reused from its cache, where it said; 0 where it did not."
+    spentCachedInputTokens: Float!
     """
     How many pictures were drawn in this chat.
 
@@ -5186,6 +5188,12 @@ enum ProviderType {
     optional. Its models are DECISION models.
     """
     SYSTEM_ONE
+    """
+    A llama.cpp server, spoken to as OpenAI is - give it the address it listens
+    on. Asked as well how far it has got reading a prompt, which the chat and
+    the session page show while a long one is read.
+    """
+    LLAMA_CPP
 }
 
 "How a provider is authenticated. ENTRA_ID is Azure OpenAI only."
@@ -9298,4 +9306,10 @@ type SessionWriting {
     chars: Int!
     "When this stretch of writing began, ISO-8601."
     since: String!
+    "While the server is still reading the prompt (llama.cpp only): its length in tokens. Null once writing starts."
+    promptTotal: Float
+    "How many of those the server reused from its cache."
+    promptCached: Float
+    "How many it has read so far, the cached ones included."
+    promptProcessed: Float
 }

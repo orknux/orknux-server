@@ -385,9 +385,28 @@ class LlmSessionRecorder(
     fun writing(session: Long, agent: String, tool: String?, chars: Int) {
         val now = java.time.Instant.now()
         writingNow.compute(session) { _, was ->
-            val since = was?.takeIf { it.tool == tool }?.since ?: OffsetDateTime.now()
+            val since = was?.takeIf { it.tool == tool && it.reading == null }?.since ?: OffsetDateTime.now()
             SessionWriting(agent, tool, chars, since, now)
         }
+    }
+
+    /**
+     * The server behind [session]'s model has read [processed] of [total] tokens
+     * of the prompt, [cached] of them from its cache. Held in the same place as
+     * [writing] and replaced by it the moment the model writes, so the page
+     * shows one thing at a time: reading, then writing.
+     */
+    fun reading(session: Long, agent: String, total: Long, cached: Long, processed: Long) {
+        val now = java.time.Instant.now()
+        writingNow.compute(session) { _, was ->
+            val since = was?.takeIf { it.reading != null }?.since ?: OffsetDateTime.now()
+            SessionWriting(agent, null, 0, since, now, SessionReading(total, cached, processed))
+        }
+    }
+
+    /** The prompt has been read and the model has begun on it: a report of reading is put away, one of writing kept. */
+    fun readingDone(session: Long) {
+        writingNow.computeIfPresent(session) { _, was -> was.takeIf { it.reading == null } }
     }
 
     /** Nothing is being written in [session] any more: the call was made, or the turn ended. */
@@ -971,5 +990,10 @@ data class SessionWriting(
     val chars: Int,
     val since: OffsetDateTime,
     val at: java.time.Instant,
+    /** Set while the server is still reading the prompt and nothing is being written yet. */
+    val reading: SessionReading? = null,
 )
+
+/** How far a server has read a prompt: [processed] of [total] tokens, [cached] of them from its cache. */
+data class SessionReading(val total: Long, val cached: Long, val processed: Long)
 

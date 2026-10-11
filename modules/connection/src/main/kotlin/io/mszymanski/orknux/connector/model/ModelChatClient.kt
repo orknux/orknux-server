@@ -157,6 +157,8 @@ sealed interface ChatCompletion {
          * presenting the turn's time as the thinking's.
          */
         val reasoningMillis: Long = 0,
+        /** How many of [inputTokens] the provider reused from its cache, where it said. */
+        val cachedInputTokens: Long = 0,
     ) : ChatCompletion
 
     /**
@@ -171,6 +173,8 @@ sealed interface ChatCompletion {
         val millis: Long,
         val inputTokens: Long = 0,
         val outputTokens: Long = 0,
+        /** How many of [inputTokens] the provider reused from its cache, where it said. */
+        val cachedInputTokens: Long = 0,
         /**
          * What it thought before deciding to look something up. A reasoning
          * model does most of its thinking here rather than in the round that
@@ -360,6 +364,10 @@ class ModelChatClient(
      *   into one call can be at it for minutes, after its thinking has ended
      *   and before there is a word of answer, and nothing else arrives to say
      *   it is working.
+     *
+     * @param onReading how far the server has got reading the prompt, before
+     *   it writes anything - reported by a [ProviderType.LLAMA_CPP] provider
+     *   only, on every frame that carries it. See [PromptProgress].
      */
     fun stream(
         modelId: Long,
@@ -368,12 +376,13 @@ class ModelChatClient(
         onThinking: (String) -> Unit = {},
         hangup: Hangup? = null,
         onCalling: (tool: String, chars: Int) -> Unit = { _, _ -> },
+        onReading: (PromptProgress) -> Unit = {},
         onChunk: (String) -> Unit,
     ): ChatCompletion {
         val limits = throttled(modelId)
         spoken(modelId)?.let { shape ->
             return through(modelId, shape, limits) {
-                openAi.stream(shape.provider, shape.model, wire(shape.provider, turns), tools, onThinking, hangup, onCalling, onChunk)
+                openAi.stream(shape.provider, shape.model, wire(shape.provider, turns), tools, onThinking, hangup, onCalling, onReading, onChunk)
             }
         }
 
@@ -1080,6 +1089,7 @@ class ModelChatClient(
                     millis = millis,
                     inputTokens = outcome.inputTokens,
                     outputTokens = outcome.outputTokens,
+                    cachedInputTokens = outcome.cachedInputTokens,
                     reasoning = split.thought,
                     reasoningMillis = outcome.thoughtMillis,
                 ),
@@ -1104,6 +1114,7 @@ class ModelChatClient(
                 outcome.outputTokens,
                 split.thought,
                 outcome.thoughtMillis,
+                cachedInputTokens = outcome.cachedInputTokens,
             ),
         )
     }

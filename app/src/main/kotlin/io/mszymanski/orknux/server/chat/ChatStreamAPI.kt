@@ -332,11 +332,14 @@ class ChatStreamAPI(
                      * thinking, and that streams beside the answer.
                      */
                     val answer = if (start.agentId == null) {
+                        // A bare model on llama.cpp reads its prompt for as long as an agent's does.
+                        val reading = WritingProgress(generation.watch(), settings.writingProgressMillis().toLong())
                         client.stream(
                             start.modelId,
                             start.turns,
                             onThinking = { piece -> send("thinking", mapOf("text" to piece)) },
                             hangup = hangup,
+                            onReading = reading::reading,
                         ) { piece -> send("chunk", mapOf("text" to piece)) }
                     } else {
                         /*
@@ -387,6 +390,7 @@ class ChatStreamAPI(
                                 answer.reasoningMillis,
                                 answer.inputTokens,
                                 answer.outputTokens,
+                                answer.cachedInputTokens,
                             )
                             kept = true
                             // Naming it is not part of the answer, so a
@@ -415,6 +419,7 @@ class ChatStreamAPI(
                                     "millis" to answer.millis,
                                     "inputTokens" to answer.inputTokens,
                                     "outputTokens" to answer.outputTokens,
+                                    "cachedInputTokens" to answer.cachedInputTokens,
                                     "cost" to models.costOf(start.modelId, answer.inputTokens, answer.outputTokens),
                                 ),
                             )
@@ -569,6 +574,9 @@ internal fun ChatGeneration.watch(): RoundWatch = object : RoundWatch {
     override fun said(text: String) = post("said", mapOf("text" to text))
 
     override fun writing(tool: String?, chars: Int) = post("writing", mapOf("tool" to tool, "chars" to chars))
+
+    override fun reading(total: Long, cached: Long, processed: Long) =
+        post("reading", mapOf("total" to total, "cached" to cached, "processed" to processed))
 
     override fun called(at: Int, tool: String, arguments: String) =
         post("call", mapOf("at" to at, "tool" to tool, "arguments" to arguments))

@@ -120,6 +120,14 @@ interface RoundWatch {
      */
     fun writing(tool: String?, chars: Int) = Unit
 
+    /**
+     * How far the server has got reading the prompt, before the model writes
+     * anything: [processed] of [total] tokens, [cached] of them reused from its
+     * cache. Told at most as often as [writing], by [WritingProgress], and only
+     * by a llama.cpp provider - nothing else reports it. Issue #627.
+     */
+    fun reading(total: Long, cached: Long, processed: Long) = Unit
+
     /** A call, the moment it is dispatched and before its tool has run. */
     fun called(at: Int, tool: String, arguments: String) = Unit
 
@@ -151,6 +159,20 @@ internal class WritingProgress(
 ) {
     private var said = 0
     private var told = Long.MIN_VALUE
+    private var read = Long.MIN_VALUE
+
+    /**
+     * The server has read this much of the prompt. Throttled on its own clock,
+     * so the first word of the answer is told at once rather than waiting out
+     * the last report of reading; the report that finishes the read always goes.
+     */
+    fun reading(progress: io.mszymanski.orknux.connector.model.PromptProgress) {
+        val now = clock()
+        val done = progress.processed >= progress.total
+        if (!done && read != Long.MIN_VALUE && now - read < everyMillis) return
+        read = now
+        watch.reading(progress.total, progress.cached, progress.processed)
+    }
 
     /** A piece of the answer arrived. */
     fun answer(piece: String) {
@@ -630,6 +652,7 @@ class AgentConversation(
                     onThinking = { watch.thinking(it) },
                     hangup = hangup,
                     onCalling = writing::calling,
+                    onReading = writing::reading,
                 ) {
                     watch.answering()
                     writing.answer(it)
@@ -659,6 +682,7 @@ class AgentConversation(
          */
         var input = 0L
         var output = 0L
+        var cached = 0L
         /*
          * Where a call came in the whole round, not in the round it was made
          * in. See [RoundWatch]: it is the handle a reader pairs a result with
@@ -869,6 +893,7 @@ class AgentConversation(
                     onThinking = { watch.thinking(it) },
                     hangup = hangup,
                     onCalling = writing::calling,
+                    onReading = writing::reading,
                 ) {
                     watch.answering()
                     writing.answer(it)
@@ -992,6 +1017,11 @@ class AgentConversation(
                      */
                     val arrived = into?.let { inbox.take(it) }.orEmpty()
                     if (arrived.isNotEmpty()) {
+                        // Asked again, but this round was read and written all the same: it counts.
+                        spent += answer.millis
+                        input += answer.inputTokens
+                        output += answer.outputTokens
+                        cached += answer.cachedInputTokens
                         into?.let { sessions.agentSaid(it, agent.name, answer.content) }
                         conversation += ChatTurn(role = "assistant", content = answer.content)
                         arrived.forEach { conversation += ChatTurn(role = "user", content = it) }
@@ -1001,6 +1031,7 @@ class AgentConversation(
                         millis = spent + answer.millis,
                         inputTokens = input + answer.inputTokens,
                         outputTokens = output + answer.outputTokens,
+                        cachedInputTokens = cached + answer.cachedInputTokens,
                         reasoning = thinking.toString(),
                         reasoningMillis = thoughtFor,
                     )
@@ -1018,6 +1049,7 @@ class AgentConversation(
                     spent += answer.millis
                     input += answer.inputTokens
                     output += answer.outputTokens
+                    cached += answer.cachedInputTokens
                     /*
                      * A call whose arguments are not JSON goes back as `{}`.
                      * Issue #528.

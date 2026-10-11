@@ -124,6 +124,10 @@ class ChatSession(
     @Column(name = "spent_output_tokens", nullable = false)
     var spentOutputTokens: Long = 0,
 
+    /** How many of [spentInputTokens] the provider said it reused from its cache. Issue #627. */
+    @Column(name = "spent_cached_input_tokens", nullable = false)
+    var spentCachedInputTokens: Long = 0,
+
     /**
      * How many pictures this chat has had drawn in it.
      *

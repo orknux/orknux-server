@@ -112,6 +112,7 @@ class OpenAiChat(
             thought = reasoning(said?._additionalProperties()),
             inputTokens = usage?.promptTokens() ?: 0,
             outputTokens = usage?.completionTokens() ?: 0,
+            cachedInputTokens = cachedOf(usage, answer._additionalProperties()),
             stopReason = runCatching { answer.choices().firstOrNull()?.finishReason()?.asString() }.getOrNull(),
         )
     }
@@ -141,6 +142,7 @@ class OpenAiChat(
         onThinking: (String) -> Unit,
         hangup: Hangup? = null,
         onCalling: (tool: String, chars: Int) -> Unit = { _, _ -> },
+        onReading: (PromptProgress) -> Unit = {},
         onChunk: (String) -> Unit,
     ): Outcome {
         // Given up on before it was made. A round of an agent's loop reaches
@@ -161,6 +163,7 @@ class OpenAiChat(
         val gathered = sortedMapOf<Long, Gathering>()
         var input = 0L
         var output = 0L
+        var cached = 0L
         /** Why the stream ended, from the frame that said. */
         var stopped: String? = null
 
@@ -199,6 +202,11 @@ class OpenAiChat(
 
         val params = params(provider, model, turns, tools)
             .streamOptions(ChatCompletionStreamOptions.builder().includeUsage(true).build())
+            .also { builder ->
+                // Asked of llama.cpp alone: how far it has got reading the prompt. Not part of the
+                // OpenAI shape, and a server that does not know the field would be sent one it never asked for.
+                if (provider.type == ProviderType.LLAMA_CPP) builder.putAdditionalBodyProperty(RETURN_PROGRESS, JsonValue.from(true))
+            }
             .build()
 
         /*
@@ -226,10 +234,13 @@ class OpenAiChat(
              */
             hangup?.holding { response.close() }
             response.stream().forEach { chunk ->
+                // Before anything else: a progress frame carries no choice worth reading, and may carry none at all.
+                progress(chunk._additionalProperties())?.let(onReading)
                 chunk.usage().orElse(null)?.let {
                     input = it.promptTokens()
                     output = it.completionTokens()
                 }
+                cachedOf(chunk.usage().orElse(null), chunk._additionalProperties()).takeIf { it > 0 }?.let { cached = it }
                 /*
                  * Read as optional, though the SDK calls it required. Azure
                  * OpenAI sends choices that carry only their content-filter
@@ -306,6 +317,7 @@ class OpenAiChat(
             thoughtMillis = if (!sawThought) 0L else (thoughtTo - started) / 1_000_000,
             inputTokens = input,
             outputTokens = output,
+            cachedInputTokens = cached,
             stopReason = stopped,
         )
     }
@@ -333,6 +345,8 @@ class OpenAiChat(
             val thoughtMillis: Long = 0,
             val inputTokens: Long = 0,
             val outputTokens: Long = 0,
+            /** How many of [inputTokens] the provider reused from its cache, where it said. */
+            val cachedInputTokens: Long = 0,
             /** What the Responses API asked to be handed back next round; see [ChatTurn.reasoningItems]. */
             val reasoningItems: List<String> = emptyList(),
             /** Why the provider stopped - `stop`, `length`, `tool_calls` - where it said. */
@@ -510,7 +524,39 @@ class OpenAiChat(
             .orEmpty()
     }
 
+    /**
+     * How many of a request's input tokens the provider reused from its cache.
+     *
+     * OpenAI says so in `usage.prompt_tokens_details.cached_tokens`, and so do
+     * newer llama.cpp builds; older ones say it only in their own `timings`
+     * (`cache_n`), on the frame that carries the usage. Summed over a long
+     * session, input that counts every round's whole prompt reads as millions
+     * of tokens a local server mostly never processed again. Issue #627.
+     */
+    private fun cachedOf(usage: com.openai.models.completions.CompletionUsage?, properties: Map<String, JsonValue>?): Long {
+        val reported = usage?.promptTokensDetails()?.orElse(null)?.cachedTokens()?.orElse(null)
+        if (reported != null && reported > 0) return reported
+        val timings = properties?.get(TIMINGS)?.asObject()?.orElse(null) ?: return 0
+        return timings[CACHE_N]?.asNumber()?.orElse(null)?.toLong() ?: 0
+    }
+
+    /** The `prompt_progress` a llama.cpp frame carries, or null. */
+    private fun progress(properties: Map<String, JsonValue>?): PromptProgress? {
+        val held = properties?.get(PROMPT_PROGRESS)?.asObject()?.orElse(null) ?: return null
+        return PromptProgress.of(held.mapValues { (_, value) -> value.asNumber().orElse(null) })
+    }
+
     internal companion object {
+        /** What llama.cpp is asked, on a streamed request, to report how far it has read the prompt. */
+        const val RETURN_PROGRESS = "return_progress"
+
+        /** And what it answers that under, on each frame while it reads. */
+        const val PROMPT_PROGRESS = "prompt_progress"
+
+        /** llama.cpp's own account of a request, beside the OpenAI usage, and the cached prompt tokens in it. */
+        const val TIMINGS = "timings"
+        const val CACHE_N = "cache_n"
+
         /** Three spellings, because three vendors chose three. */
         private val REASONING_FIELDS = listOf("reasoning", "reasoning_content", "thinking")
 

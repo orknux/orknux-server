@@ -901,6 +901,11 @@ class ChatService(
             second.writing(tool, chars)
         }
 
+        override fun reading(total: Long, cached: Long, processed: Long) {
+            first?.reading(total, cached, processed)
+            second.reading(total, cached, processed)
+        }
+
         override fun called(at: Int, tool: String, arguments: String) {
             first?.called(at, tool, arguments)
             second.called(at, tool, arguments)
@@ -1159,6 +1164,8 @@ class ChatService(
         thinkingMillis: Long = 0,
         inputTokens: Long = 0,
         outputTokens: Long = 0,
+        /** How many of [inputTokens] the provider reused from its cache, where it said. */
+        cachedInputTokens: Long = 0,
     ) {
         val session = sessions.findByIdOrNull(id) ?: throw ChatSessionNotFoundException(id)
         val thread = history.findByConversationId(session.conversationId)
@@ -1174,6 +1181,7 @@ class ChatService(
          */
         session.spentInputTokens += inputTokens
         session.spentOutputTokens += outputTokens
+        session.spentCachedInputTokens += cachedInputTokens
         // The answer's place in the thread, which is what its thinking is
         // filed under. Taken before nothing else can move it: the thread is
         // only appended to, so the turn just added sits where the old one

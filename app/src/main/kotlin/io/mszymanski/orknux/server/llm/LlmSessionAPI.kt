@@ -231,6 +231,9 @@ class LlmSessionAPI(
                 tool = it.tool,
                 chars = it.chars,
                 since = it.since.format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+                promptTotal = it.reading?.total,
+                promptCached = it.reading?.cached,
+                promptProcessed = it.reading?.processed,
             )
         }
     }
@@ -812,4 +815,12 @@ class ScratchpadRefusedException(why: String) : RuntimeException(why), Refusal {
 }
 
 /** What a session's model is writing now: the tool it is calling, or null for its answer. */
-data class SessionWritingView(val agent: String, val tool: String?, val chars: Int, val since: String)
+data class SessionWritingView(
+    val agent: String,
+    val tool: String?,
+    val chars: Int,
+    val since: String,
+    val promptTotal: Long? = null,
+    val promptCached: Long? = null,
+    val promptProcessed: Long? = null,
+)

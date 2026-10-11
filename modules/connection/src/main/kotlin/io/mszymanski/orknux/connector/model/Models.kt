@@ -108,6 +108,15 @@ enum class ProviderType {
      * talks to a chat model is ever pointed at it. Issue #577.
      */
     SYSTEM_ONE,
+
+    /**
+     * A llama.cpp server. Spoken to exactly as [OPENAI] is - its
+     * `/v1/chat/completions` is the OpenAI shape - and kept apart for what only
+     * it does: asked to, it reports how far it has got reading a prompt, which
+     * on a long session after a cache miss is minutes of nothing on the screen.
+     * Issue #627.
+     */
+    LLAMA_CPP,
     ;
 
     /**
@@ -129,7 +138,7 @@ enum class ProviderType {
     val toolLimit: Int
         get() = when (this) {
             OPENAI, AZURE_OPENAI -> 128
-            OLLAMA -> 128
+            OLLAMA, LLAMA_CPP -> 128
             ANTHROPIC -> 256
             // Takes no tools at all; nothing offers it any.
             SYSTEM_ONE -> 0
@@ -456,7 +465,8 @@ class ModelProvider(
     }
 
     /** Whether every tool goes out from the first round: as set, or on for Ollama and OpenAI and off for the rest. */
-    fun offersAllTools(): Boolean = offerAllTools ?: (type == ProviderType.OLLAMA || type == ProviderType.OPENAI)
+    fun offersAllTools(): Boolean =
+        offerAllTools ?: (type == ProviderType.OLLAMA || type == ProviderType.OPENAI || type == ProviderType.LLAMA_CPP)
 
     /** The most tools one request may carry: as set, or what the type takes. */
     fun toolCap(): Int = maxTools ?: type.toolLimit

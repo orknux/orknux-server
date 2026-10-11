@@ -252,6 +252,7 @@ class ChatAPI(
                 answered.reasoningMillis,
                 answered.inputTokens,
                 answered.outputTokens,
+                answered.cachedInputTokens,
             )
             answered
         } finally {
@@ -298,6 +299,7 @@ class ChatAPI(
             lastMessageAt = session.lastMessageAt?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
             spentInputTokens = session.spentInputTokens,
             spentOutputTokens = session.spentOutputTokens,
+            spentCachedInputTokens = session.spentCachedInputTokens,
             spentPictures = session.spentPictures,
         )
     }
@@ -387,6 +389,12 @@ data class ChatSessionView(
      */
     val spentInputTokens: Long,
     val spentOutputTokens: Long,
+    /**
+     * How many of [spentInputTokens] the provider reused from its cache. Every
+     * round sends the whole conversation, so input summed over a long session
+     * reads as millions of tokens a local server mostly never read again.
+     */
+    val spentCachedInputTokens: Long = 0,
     /** How many pictures were drawn here; a picture reports no tokens at all. */
     val spentPictures: Int,
 )

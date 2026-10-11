@@ -99,6 +99,8 @@ class SessionThinking(
         val now = System.currentTimeMillis()
         val open = line
         if (open == null) {
+            // The prompt has been read: the model is thinking now, and that is a line of its own.
+            sessions.readingDone(session)
             line = sessions.thinking(session, agent, thought.toString())
             flushed = now
             return
@@ -120,6 +122,10 @@ class SessionThinking(
 
     /** How far the model has got writing, for the session page to show while it does. */
     override fun writing(tool: String?, chars: Int) = sessions.writing(session, agent, tool, chars)
+
+    /** How far the server has read the prompt, for the session page to show before anything is written. */
+    override fun reading(total: Long, cached: Long, processed: Long) =
+        sessions.reading(session, agent, total, cached, processed)
 
     /**
      * The model began writing its answer, so this round has stopped thinking.

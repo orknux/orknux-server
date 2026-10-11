@@ -96,6 +96,7 @@ class ChatWake(
                 is ChatCompletion.Answered -> {
                     service.finishSend(
                         id, said.content, said.reasoning, said.reasoningMillis, said.inputTokens, said.outputTokens,
+                        said.cachedInputTokens,
                     )
                     generation.post("chunk", mapOf("text" to said.content))
                 }
