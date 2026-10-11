@@ -1297,8 +1297,9 @@ class AgentConversation(
                              * model and the reader both see what happened.
                              */
                             jackson.writeValueAsString(mapOf(
-                                "error" to "The tool could not run: " + broken.javaClass.simpleName + " " +
-                                    broken.message.orEmpty() + ". The server needs a restart.",
+                                "error" to "The server could not load part of its own code (" + broken.javaClass.simpleName + " " +
+                                    broken.message.orEmpty() + "), so this call's answer could not be read. It may have " +
+                                    "taken effect anyway - check before you try it again. The server needs a restart.",
                             ))
                         }
                         // Remembered only once it loaded: a refusal is not a page to point at.

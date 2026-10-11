@@ -145,6 +145,19 @@ class BoxTools(
             refuse(refused.message, refused.code)
         } catch (failed: BoxCallException) {
             refuse(failed.message ?: "The box refused that", failed.code)
+        } catch (broken: LinkageError) {
+            /*
+             * This server's own code would not load - a library replaced under it.
+             * The box usually did the work already and only reading its answer
+             * failed: an agent told the write failed found the file there anyway.
+             */
+            log.warn("Box tool {} could not load its code; the server needs a restart", name, broken)
+            refuse(
+                "The server could not load part of its own code (" + broken.javaClass.simpleName + " " +
+                    broken.message.orEmpty() + "), so this call's answer could not be read. It may have taken effect " +
+                    "in the box anyway - check before you try it again. The server needs a restart.",
+                "server_needs_restart",
+            )
         } catch (failed: BoxNotFoundException) {
             refuse("That box is not there any more")
         } catch (failed: Exception) {
