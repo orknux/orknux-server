@@ -55,6 +55,8 @@ class ChatTools(
      * model's and why a size arrives as two numbers.
      */
     private val parameters: DrawToolParameters,
+    /** Timers and stopwatches above the composer; see [io.mszymanski.orknux.server.widget.WidgetTools]. */
+    private val widgets: io.mszymanski.orknux.server.widget.WidgetTools,
 ) {
 
     /**
@@ -75,9 +77,10 @@ class ChatTools(
          * workspace chose can change between two of them.
          */
         override fun specs(): List<ToolSpec> =
-            if (pictures.offered(chat)) listOf(parameters.offering(DRAWING, pictures.modelFor(chat))) else emptyList()
+            (if (pictures.offered(chat)) listOf(parameters.offering(DRAWING, pictures.modelFor(chat))) else emptyList()) +
+                widgets.specs()
 
-        override fun handles(name: String): Boolean = name == DRAW
+        override fun handles(name: String): Boolean = name == DRAW || widgets.handles(name)
 
         /**
          * A refusal is an answer, never an ending.
@@ -89,6 +92,7 @@ class ChatTools(
          * answering a failed drawing with a sentence rather than parking.
          */
         override fun run(call: ToolCall): String = when (call.name) {
+            in io.mszymanski.orknux.server.widget.WidgetTools.NAMES -> widgets.run(chat, call) { now -> watch.widgets(now) }
             DRAW -> {
                 val description = argument(call, "description")?.trim()
                 // The size and quality, held to what the model takes before the

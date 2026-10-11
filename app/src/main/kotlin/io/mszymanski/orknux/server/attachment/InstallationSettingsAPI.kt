@@ -123,6 +123,10 @@ class InstallationSettingsAPI(
         writingProgressMillisConfigured = settings.writingProgressMillisConfigured(),
         writingForgottenSeconds = settings.writingForgottenSeconds(),
         writingForgottenSecondsConfigured = settings.writingForgottenSecondsConfigured(),
+        widgetsPerChat = settings.widgetsPerChat(),
+        widgetsPerChatConfigured = settings.widgetsPerChatConfigured(),
+        widgetTimerMaxSeconds = settings.widgetTimerMaxSeconds(),
+        widgetTimerMaxSecondsConfigured = settings.widgetTimerMaxSecondsConfigured(),
         sessionValueMaxMbConfigured = settings.sessionValueMaxMbConfigured(),
         sessionStoreMaxKeys = settings.sessionStoreMaxKeys(),
         sessionStoreMaxKeysConfigured = settings.sessionStoreMaxKeysConfigured(),
@@ -384,6 +388,26 @@ class InstallationSettingsAPI(
 
         settings.setWritingForgottenSeconds(seconds, currentUser())
         auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "A report of a model writing is forgotten after $seconds seconds")
+        return installationSettings()
+    }
+
+    /** How many widgets one chat may hold. */
+    @MutationMapping
+    fun setWidgetsPerChat(@Argument widgets: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setWidgetsPerChat(widgets, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "A chat may hold $widgets widgets")
+        return installationSettings()
+    }
+
+    /** The longest a chat's timer may run. */
+    @MutationMapping
+    fun setWidgetTimerMaxSeconds(@Argument seconds: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setWidgetTimerMaxSeconds(seconds, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "A chat's timer may run for $seconds seconds")
         return installationSettings()
     }
 
@@ -1161,6 +1185,12 @@ data class InstallationSettingsView(
     /** How long a report that a model is writing is believed without another, in seconds. */
     val writingForgottenSeconds: Int,
     val writingForgottenSecondsConfigured: Int,
+    /** How many widgets one chat may hold at once. */
+    val widgetsPerChat: Int,
+    val widgetsPerChatConfigured: Int,
+    /** The longest a chat's timer may run, in seconds. */
+    val widgetTimerMaxSeconds: Int,
+    val widgetTimerMaxSecondsConfigured: Int,
     /** How big one value in a session's store may be, in MB. */
     val sessionValueMaxMb: Int,
     val sessionValueMaxMbConfigured: Int,

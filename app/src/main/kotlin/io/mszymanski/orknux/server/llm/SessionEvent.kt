@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.llm
 
+import org.springframework.data.repository.findByIdOrNull
+
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.EnumType
@@ -129,8 +131,24 @@ class SessionInbox(
     /** Leaves something for the session's agent, due now unless a later time is given. */
     @Transactional
     fun post(sessionId: Long, kind: SessionEventKind, body: String, dueAt: OffsetDateTime = OffsetDateTime.now()) {
-        events.save(SessionEvent(sessionId = sessionId, kind = kind, body = body, dueAt = dueAt))
+        posted(sessionId, kind, body, dueAt)
+    }
+
+    /** The same, answering the id it was left under - so something that may be called off can be. */
+    @Transactional
+    fun posted(sessionId: Long, kind: SessionEventKind, body: String, dueAt: OffsetDateTime = OffsetDateTime.now()): Long {
+        val saved = events.save(SessionEvent(sessionId = sessionId, kind = kind, body = body, dueAt = dueAt))
         if (!dueAt.isAfter(OffsetDateTime.now())) published.publishEvent(SessionEventDue(sessionId))
+        return requireNotNull(saved.id)
+    }
+
+    /**
+     * Calls off something left for later and not yet read - a timer paused or
+     * removed before it rang. One already read stays: it happened.
+     */
+    @Transactional
+    fun withdraw(id: Long) {
+        events.findByIdOrNull(id)?.takeIf { it.deliveredAt == null }?.let(events::delete)
     }
 
     /**

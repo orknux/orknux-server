@@ -1317,6 +1317,10 @@ type Mutation {
     setWritingProgressMillis(millis: Int!): InstallationSettings!
     "How long a report that a model is writing is believed without another, 5 to 600 seconds. Administrators only."
     setWritingForgottenSeconds(seconds: Int!): InstallationSettings!
+    "How many widgets - timers, stopwatches - one chat may hold, 1 to 50. Administrators only."
+    setWidgetsPerChat(widgets: Int!): InstallationSettings!
+    "The longest a chat's timer may run, 60 to 604800 seconds. Administrators only."
+    setWidgetTimerMaxSeconds(seconds: Int!): InstallationSettings!
     "How big one value in a session's store may be, 1 to 256 MB. Administrators only."
     setSessionValueMaxMb(megabytes: Int!): InstallationSettings!
     "How many keys one session's store may hold, 10 to 10000. Administrators only."
@@ -6779,6 +6783,14 @@ type InstallationSettings {
     writingForgottenSeconds: Int!
     "What a fresh installation does: the built-in default."
     writingForgottenSecondsConfigured: Int!
+    "How many widgets one chat may hold at once."
+    widgetsPerChat: Int!
+    "What a fresh installation does: the built-in default."
+    widgetsPerChatConfigured: Int!
+    "The longest a chat's timer may run, in seconds."
+    widgetTimerMaxSeconds: Int!
+    "What a fresh installation does: the built-in default."
+    widgetTimerMaxSecondsConfigured: Int!
     "How big one value in a session's store may be, in MB - what an exported archive or a drawn picture can come to."
     sessionValueMaxMb: Int!
     "What a fresh installation allows: the built-in default."

@@ -573,6 +573,8 @@ internal fun ChatGeneration.watch(): RoundWatch = object : RoundWatch {
 
     override fun said(text: String) = post("said", mapOf("text" to text))
 
+    override fun widgets(widgets: List<io.mszymanski.orknux.server.widget.WidgetView>) = post("widgets", mapOf("widgets" to widgets))
+
     override fun writing(tool: String?, chars: Int) = post("writing", mapOf("tool" to tool, "chars" to chars))
 
     override fun reading(total: Long, cached: Long, processed: Long) =

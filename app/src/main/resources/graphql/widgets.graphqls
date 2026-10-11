@@ -1,0 +1,48 @@
+# Widgets: small live things an agent keeps in a chat - timers, stopwatches -
+# drawn above the composer. The agent makes and changes them with its widget_*
+# tools; the person who owns the chat can pause, resume, reset, lap and remove
+# them here.
+
+extend type Query {
+    "A chat's widgets, oldest first. The chat's owner only."
+    chatWidgets(chatId: ID!): [ChatWidget!]!
+}
+
+extend type Mutation {
+    "Pauses, resumes, resets or laps one widget - `pause`, `resume`, `reset`, `lap` - as its kind allows."
+    actOnChatWidget(id: ID!, action: String!): ChatWidget!
+    "Takes a widget away from its chat."
+    removeChatWidget(id: ID!): Boolean!
+}
+
+"""
+A widget as it stands. The moments (`endsAt`, `startedAt`) are what a page ticks
+from; the counts beside them are as of `asOf`.
+"""
+type ChatWidget {
+    id: ID!
+    "TIMER or STOPWATCH."
+    kind: String!
+    label: String!
+    "The agent that put it there."
+    createdBy: String!
+    running: Boolean!
+    "A timer that reached nought."
+    done: Boolean!
+    "When the counts below were worked out, ISO-8601."
+    asOf: String!
+    "A timer's length, in seconds."
+    durationSeconds: Int
+    "When a running timer reaches nought, ISO-8601. Null while it is paused or done."
+    endsAt: String
+    remainingSeconds: Int
+    "Whether the agent is told when the timer ends."
+    wake: Boolean
+    "When a running stopwatch last started, ISO-8601. Null while it is paused."
+    startedAt: String
+    "A stopwatch's time while paused, and what it had before startedAt while running."
+    accumulatedMillis: Float
+    elapsedMillis: Float
+    "A stopwatch's laps, as the elapsed milliseconds each was taken at."
+    laps: [Float!]
+}

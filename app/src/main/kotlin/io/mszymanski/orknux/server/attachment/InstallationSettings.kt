@@ -146,6 +146,8 @@ object SettingNames {
     const val MODEL_ANSWER_LIMIT_MINUTES = "model.answer.limit.minutes"
     const val WRITING_PROGRESS_MILLIS = "writing.progress.millis"
     const val WRITING_FORGOTTEN_SECONDS = "writing.forgotten.seconds"
+    const val WIDGETS_PER_CHAT = "chat.widgets.max"
+    const val WIDGET_TIMER_MAX_SECONDS = "chat.widget.timer.max.seconds"
     const val SESSION_STORE_MAX_KEYS = "session.store.max.keys"
 
     /**
@@ -1313,6 +1315,36 @@ class InstallationSettings(
         write(SettingNames.WRITING_FORGOTTEN_SECONDS, seconds.toString(), by)
     }
 
+    /** How many widgets - timers, stopwatches - one chat may hold at once. */
+    fun widgetsPerChat(): Int {
+        val held = settings.findByIdOrNull(SettingNames.WIDGETS_PER_CHAT) ?: return widgetsPerChatConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_WIDGETS_PER_CHAT..MAX_WIDGETS_PER_CHAT } ?: widgetsPerChatConfigured()
+    }
+
+    /** What a fresh installation does: the built-in default. */
+    fun widgetsPerChatConfigured(): Int = 8
+
+    @Transactional
+    fun setWidgetsPerChat(widgets: Int, by: String) {
+        if (widgets !in MIN_WIDGETS_PER_CHAT..MAX_WIDGETS_PER_CHAT) throw WidgetsPerChatOutOfRangeException(widgets)
+        write(SettingNames.WIDGETS_PER_CHAT, widgets.toString(), by)
+    }
+
+    /** The longest a chat's timer widget may run, in seconds. */
+    fun widgetTimerMaxSeconds(): Int {
+        val held = settings.findByIdOrNull(SettingNames.WIDGET_TIMER_MAX_SECONDS) ?: return widgetTimerMaxSecondsConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_WIDGET_TIMER_SECONDS..MAX_WIDGET_TIMER_SECONDS } ?: widgetTimerMaxSecondsConfigured()
+    }
+
+    /** What a fresh installation does: the built-in default, a day. */
+    fun widgetTimerMaxSecondsConfigured(): Int = 86400
+
+    @Transactional
+    fun setWidgetTimerMaxSeconds(seconds: Int, by: String) {
+        if (seconds !in MIN_WIDGET_TIMER_SECONDS..MAX_WIDGET_TIMER_SECONDS) throw WidgetTimerLimitOutOfRangeException(seconds)
+        write(SettingNames.WIDGET_TIMER_MAX_SECONDS, seconds.toString(), by)
+    }
+
     /** How many keys one session's store may hold. It was 200, fixed. */
     fun sessionStoreMaxKeys(): Int {
         val held = settings.findByIdOrNull(SettingNames.SESSION_STORE_MAX_KEYS) ?: return sessionStoreMaxKeysConfigured()
@@ -2385,6 +2417,27 @@ const val MAX_WRITING_FORGOTTEN_SECONDS = 600
 class WritingForgottenOutOfRangeException(val seconds: Int) : RuntimeException(
     "$seconds is not a number of seconds a report of a model writing is believed for. " +
         "Choose between $MIN_WRITING_FORGOTTEN_SECONDS and $MAX_WRITING_FORGOTTEN_SECONDS.",
+), Refusal {
+
+    override val arguments get() = mapOf("seconds" to seconds)
+}
+
+const val MIN_WIDGETS_PER_CHAT = 1
+const val MAX_WIDGETS_PER_CHAT = 50
+
+class WidgetsPerChatOutOfRangeException(val widgets: Int) : RuntimeException(
+    "$widgets is not a number of widgets one chat may hold. Choose between $MIN_WIDGETS_PER_CHAT and $MAX_WIDGETS_PER_CHAT.",
+), Refusal {
+
+    override val arguments get() = mapOf("widgets" to widgets)
+}
+
+const val MIN_WIDGET_TIMER_SECONDS = 60
+const val MAX_WIDGET_TIMER_SECONDS = 604800
+
+class WidgetTimerLimitOutOfRangeException(val seconds: Int) : RuntimeException(
+    "$seconds is not a number of seconds a chat's timer may run. " +
+        "Choose between $MIN_WIDGET_TIMER_SECONDS and $MAX_WIDGET_TIMER_SECONDS.",
 ), Refusal {
 
     override val arguments get() = mapOf("seconds" to seconds)

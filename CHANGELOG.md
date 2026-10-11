@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- **Widgets** in a chat: timers and stopwatches an agent puts above the message box with its new `widget_*` tools, ticking as you watch and appearing mid-turn without a reload. You can pause, resume, reset, lap and remove them yourself; a timer the agent asks to be woken by tells it when it ends. **Widgets Per Chat** (8) and **Longest Chat Timer** (a day) are Admin settings.
+
 ## 1.0.1
 
 ### ✨ Added

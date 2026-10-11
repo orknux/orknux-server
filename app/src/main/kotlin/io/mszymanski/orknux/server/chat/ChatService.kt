@@ -891,6 +891,11 @@ class ChatService(
             second.filed(id, filename, contentType, sizeBytes)
         }
 
+        override fun widgets(widgets: List<io.mszymanski.orknux.server.widget.WidgetView>) {
+            first?.widgets(widgets)
+            second.widgets(widgets)
+        }
+
         override fun said(text: String) {
             first?.said(text)
             second.said(text)

@@ -99,6 +99,12 @@ interface RoundWatch {
     fun filed(id: Long, filename: String, contentType: String, sizeBytes: Long) = Unit
 
     /**
+     * The chat's widgets as they stand after a widget tool changed them - all of
+     * them, so a page replaces what it draws rather than patching it.
+     */
+    fun widgets(widgets: List<io.mszymanski.orknux.server.widget.WidgetView>) = Unit
+
+    /**
      * What the model wrote beside the calls it asked for - "Let me read the
      * tests next" - before any of them run.
      *
