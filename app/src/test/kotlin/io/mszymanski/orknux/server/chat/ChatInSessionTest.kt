@@ -534,6 +534,17 @@ class ChatInSessionTest(
      * calls no tools, so there is nothing to keep and nothing is invented on
      * anybody's behalf.
      */
+    /** With no companion model in the workspace, the chat's own model names it rather than nothing doing. */
+    @Test
+    fun `a chat in a workspace with no companion model is named by its own model`() {
+        val chatId = bareChat(llmSessionId = null, endpoint = serveAnswer("Pool sizing"))
+        chats.save(requireNotNull(chats.findByIdOrNull(chatId)).apply { title = "New chat" })
+
+        send(chatId, "How big should the pool be?")
+
+        assertThat(chats.findByIdOrNull(chatId)?.title).isEqualTo("Pool sizing")
+    }
+
     @Test
     fun `a chat with no agent opens no session even after it is used`() {
         val chatId = bareChat(llmSessionId = null, endpoint = serveAnswer("Hello."))

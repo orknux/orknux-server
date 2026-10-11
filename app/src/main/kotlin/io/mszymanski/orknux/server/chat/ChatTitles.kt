@@ -17,7 +17,9 @@ import org.springframework.transaction.annotation.Transactional
  * workspace's companion model rather than the model being talked to: it is not
  * part of the conversation, and it should be able to be something cheap.
  *
- * A workspace with no companion model simply keeps the name it gave. Nothing
+ * A workspace with no companion model names it with the chat's own model, which
+ * is the one model every chat is sure to have: left unnamed, a list of chats read
+ * "New chat" down the whole of it. Nothing
  * about this is important enough to fail a chat over — a title that did not
  * arrive is a title, and the person can rename it.
  */
@@ -41,7 +43,7 @@ class ChatTitles(
         if (session.title != DEFAULT_TITLE) return
 
         val workspace = workspaces.findByIdOrNull(session.workspaceId) ?: return
-        val companion = workspace.companionModelId ?: return
+        val companion = workspace.companionModelId ?: session.modelId ?: return
 
         val suggested = ask(companion, question, answer) ?: return
         session.title = suggested
