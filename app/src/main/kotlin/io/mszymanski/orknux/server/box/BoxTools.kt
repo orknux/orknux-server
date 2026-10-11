@@ -407,7 +407,9 @@ class BoxTools(
         )
         val ran = held.client.execute(held.row.remoteSessionId, request)
         touch(held)
-        return answer(executed(held.row, ran))
+        // The names the command was given, so a model reads the one that is set rather than guessing its case.
+        val given = handed.env.keys.sorted()
+        return answer(executed(held.row, ran) + if (given.isEmpty()) emptyMap() else mapOf("environment" to given))
     }
 
     private fun execution(agent: Agent, args: JsonNode, sessionId: Long?): String {
@@ -918,10 +920,27 @@ class BoxTools(
         }
         val unset = (heldSecrets + heldValues).filter { it.value == null }
         if (unset.isNotEmpty()) throw Refused("No value is set for " + unset.joinToString(", ") { it.name })
-        return Handed(
-            env = heldValues.associate { it.name to it.value.orEmpty() } + heldSecrets.associate { it.name to it.value.orEmpty() },
-            secrets = heldSecrets.associate { it.id to it.value.orEmpty() },
-        )
+        val named = heldValues.associate { it.name to it.value.orEmpty() } + heldSecrets.associate { it.name to it.value.orEmpty() }
+        return Handed(env = withUpperCase(named), secrets = heldSecrets.associate { it.id to it.value.orEmpty() })
+    }
+
+    /**
+     * Each name as it is spelled, and upper-cased beside it.
+     *
+     * Environment variables are upper-case by habit and case-sensitive in
+     * fact: a model handed `github_token` read `$GITHUB_TOKEN`, found it empty,
+     * and spent a dozen rounds deciding the token was bad. An upper-cased
+     * copy is set where the name is not already upper-case and nothing else
+     * claims it.
+     */
+    private fun withUpperCase(named: Map<String, String>): Map<String, String> {
+        val upper = named.entries
+            .map { (name, value) -> name.uppercase() to value }
+            .filter { (alias, _) -> alias !in named && ENVIRONMENT_NAME.matches(alias) }
+            .groupBy({ it.first }, { it.second })
+            .filterValues { it.size == 1 }
+            .mapValues { it.value.single() }
+        return named + upper
     }
 
     private class Held(val row: BoxSession, val client: BoxClient)
@@ -1156,16 +1175,21 @@ class BoxTools(
         private fun pairs(name: String, description: String) =
             ToolParameterSpec(name, description, false, mapOf("type" to "object", "additionalProperties" to mapOf("type" to "string")))
 
+        /** A name a shell can read as $NAME. */
+        private val ENVIRONMENT_NAME = Regex("[A-Z_][A-Z0-9_]*")
+
         private val SESSION = number("session", "The session number orkbox_open answered with.", required = true)
 
         private val SECRETS = names(
             "secrets",
-            "Workspace secrets to set as environment variables, by name from variable_list. The command reads one as " +
-                "\$NAME; you never see its value, and output that prints it shows ***. Never paste a secret into a command.",
+            "Workspace secrets to set as environment variables, by name from variable_list. Each is set under its name " +
+                "exactly as listed and upper-cased too: github_token is \$github_token and \$GITHUB_TOKEN. You never see " +
+                "its value, and output that prints it shows ***. Never paste a secret into a command.",
         )
         private val VALUES = names(
             "values",
-            "Plain workspace variables to set as environment variables, by name from variable_list.",
+            "Plain workspace variables to set as environment variables, by name from variable_list, under the name as " +
+                "listed and upper-cased too.",
         )
         private val EXECUTION_ID = text("execution", "The execution id orkbox_exec answered with.", required = true)
 

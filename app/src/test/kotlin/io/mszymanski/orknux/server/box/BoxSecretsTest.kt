@@ -171,6 +171,30 @@ class BoxSecretsTest(
         assertThat(lines.findAll().map { it.content.orEmpty() + it.result.orEmpty() }).noneMatch { it.contains(SECRET) }
     }
 
+    /**
+     * A secret is set under its own name and upper-cased too, and the answer
+     * names what was set. Session 635 was handed github_token, read
+     * ${'$'}GITHUB_TOKEN, found it empty and decided the token was bad.
+     */
+    @Test
+    fun `a lower-case secret is readable by its upper-cased name too, and the answer says which names were set`() {
+        variables.save(
+            WorkspaceVariable(
+                workspaceId = workspaceId,
+                catalogId = requireNotNull(variables.findAll().first { it.name == "API_TOKEN" }.catalogId),
+                name = "github_token",
+                kind = VariableKind.SECRET,
+                value = SECRET,
+            ),
+        )
+        val session = opened()
+
+        val ran = call("orkbox_exec", mapOf("session" to session, "command" to printing("GITHUB_TOKEN"), "secrets" to listOf("github_token")))
+        assertThat(ran.path("stdout").stringValue()).contains("token=***")
+        val names = ran.path("environment").let { node -> (0 until node.size()).map { node[it].stringValue() } }
+        assertThat(names).containsExactly("GITHUB_TOKEN", "github_token")
+    }
+
     @Test
     fun `a plain value handed to a command is not masked`() {
         val session = opened()
