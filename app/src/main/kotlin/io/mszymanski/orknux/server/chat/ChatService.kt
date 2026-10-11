@@ -326,6 +326,8 @@ class ChatService(
         }
     }
 
+    private fun sentAtOf(line: RememberedTurn): String? = line.at?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+
     private fun ownSession(session: ChatSession): Boolean {
         val id = session.llmSessionId ?: return false
         val mine = runCatching { LlmSessionKey.of(CHAT_PREFIX, session.conversationId) }.getOrNull() ?: return false
@@ -407,9 +409,10 @@ class ChatService(
         val head = (where[from]..where[from + spans - 1]).map { at ->
             val line = read[at]
             when {
-                line.called -> ChatMessage(role = RememberedTurn.CALL, content = line.content, actor = line.actor)
+                /* A line only the session holds - an aside between calls - takes its time from there, or it is drawn with none. */
+                line.called -> ChatMessage(role = RememberedTurn.CALL, content = line.content, actor = line.actor, at = sentAtOf(line))
                 turn < thread.size && same(thread[turn], line) -> thread[turn++].copy(actor = line.actor)
-                else -> ChatMessage(role = line.role, content = line.content, actor = line.actor)
+                else -> ChatMessage(role = line.role, content = line.content, actor = line.actor, at = sentAtOf(line))
             }
         }
         return head + thread.drop(found)

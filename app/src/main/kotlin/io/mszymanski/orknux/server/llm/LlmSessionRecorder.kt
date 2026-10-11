@@ -727,6 +727,7 @@ class LlmSessionRecorder(
             event.content.orEmpty()
         },
         actor = event.actor,
+        at = event.at,
     )
 
     /**
@@ -889,7 +890,13 @@ class LlmSessionRecorder(
  * anybody reading a transcript needs to know which agent, tool or person the
  * words belong to.
  */
-data class RememberedTurn(val role: String, val content: String, val actor: String) {
+data class RememberedTurn(
+    val role: String,
+    val content: String,
+    val actor: String,
+    /** When the line was written; null where it was made up rather than read. */
+    val at: OffsetDateTime? = null,
+) {
 
     /**
      * True for a line that was a call rather than something anybody said.

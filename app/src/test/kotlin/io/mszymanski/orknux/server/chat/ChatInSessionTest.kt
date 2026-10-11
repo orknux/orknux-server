@@ -473,6 +473,11 @@ class ChatInSessionTest(
             .path("chatMessages[3].role").entity(String::class.java).isEqualTo("assistant")
             .path("chatMessages[3].content").entity(String::class.java).isEqualTo("Read the diff twice.")
             .path("chatMessages").entityList(Any::class.java).hasSize(4)
+        // Every line carries when it was sent - the aside and the call too, which only the session holds.
+        graphQlTester.document("""{ chatMessages(id: $chatId) { at } }""")
+            .execute()
+            .path("chatMessages[*].at").entityList(String::class.java).get()
+            .also { times -> assertThat(times).hasSize(4).allSatisfy { assertThat(it).isNotBlank() } }
     }
 
     /**
