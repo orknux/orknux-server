@@ -29,6 +29,8 @@ class SkillTool(
     private val fromPlugins: PluginSkills,
     /** A granted MCP server's prompts, as a third source. Issue #617. */
     private val fromServers: McpSkills,
+    /** Which of the server's own skills only a box grant brings. */
+    private val builtIn: BuiltInSkills,
 ) {
 
     /**
@@ -232,9 +234,11 @@ class SkillTool(
      */
     private fun granted(agent: Agent): List<GrantedSkill> {
         /*
-         * The server's own catalog always, whatever was ticked: its skills are
-         * the product's, the way the built-in tools are, and an agent with no
-         * catalog granted could otherwise not reach even `!caveman`.
+         * The server's own catalog always, for every agent, whatever its list
+         * names: its skills are the product's, the way the built-in tools are,
+         * and an agent with no catalog granted could otherwise not reach even
+         * `!caveman`. A list that still names it, as agents made before this
+         * do, names it to no effect.
          */
         val held = agent.skillCatalogs.toSet() + BuiltInSkills.CATALOG
 
@@ -272,8 +276,18 @@ class SkillTool(
          * name, which is the same rule an ungranted catalog has always had.
          */
         val unwanted = agent.hiddenSkills.map { it.lowercase() }.toSet()
+        /*
+         * And the box pages only with a box. Session 629: an agent granted a
+         * box but only its plugins' catalogs was never pointed at how a
+         * repository is changed, and committed unbuilt code straight to main.
+         * The server's catalog now goes to every agent, and its box pages go
+         * with the box grant the way the orkbox_ tools do - to an agent
+         * without one they describe work it cannot do.
+         */
+        val boxed = agent.boxLabels.isNotEmpty()
         val offered = (own + fromPlugins.granted(held) + fromServers.granted(agent))
             .filterNot { it.key.lowercase() in unwanted }
+            .filter { boxed || !builtIn.needsBox(it) }
         return offered
     }
 

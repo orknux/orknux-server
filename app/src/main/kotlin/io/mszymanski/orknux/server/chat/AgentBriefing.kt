@@ -451,12 +451,24 @@ class AgentBriefing(
          * Issue #557: asked for an HTML report with pictures and charts, a model
          * that never read the skill shipped a page with none of them in it.
          */
-        if (io.mszymanski.orknux.server.agent.BuiltInSkills.CATALOG in agent.skillCatalogs) {
+        // Every agent holds the built-in catalog, so this is said to every agent.
+        run {
             val marker = workspaces.findById(agent.workspaceId).map { it.commandMarker }.orElse(null)
                 ?: installation.commandMarker()
             parts += "Before you build an HTML page or report, load the " + HTML_SKILL + " skill (" + marker +
                 io.mszymanski.orknux.server.agent.SkillKeys.derive(HTML_SKILL) +
                 "): it says how its pictures, charts and diagrams go in and how it is handed over."
+            /*
+             * And changing a repository in a box, named the same way: session
+             * 629 cloned, edited, never built and pushed to main, the page
+             * that says not to on offer and never read.
+             */
+            if (agent.boxLabels.isNotEmpty()) {
+                parts += "Before you change, commit or push anything in a repository in a box, load the " +
+                    "box-project-changes skill (" + marker + io.mszymanski.orknux.server.agent.BuiltInSkills.PROJECT_CHANGES +
+                    "): build and test before committing, work on a new branch, never push to main or master, " +
+                    "and open a pull request."
+            }
         }
 
         val asks = runTools.getObject()

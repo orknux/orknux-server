@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.box
 
+import io.mszymanski.orknux.server.agent.BuiltInSkills
 import io.mszymanski.orknux.connector.model.ToolParameterSpec
 import io.mszymanski.orknux.connector.model.ToolSpec
 import io.mszymanski.orknux.orkbox.model.CreateSessionRequest
@@ -235,7 +236,20 @@ class BoxTools(
                             "and naming in a few words what you will do in it, the words for the session being the link - " +
                             "\"I've started a [box session](url) where I'll implement the requested changes.\", in Polish " +
                             "\"Rozpocząłem [sesję w skrzynce](url), będę tam implementował wymagane zmiany projektowe.\" " +
-                            "In the thread they are following, as that place writes a link: in Slack <url|sesję w skrzynce>.",
+                            "In the thread they are following, as that place writes a link: in Slack <url|sesję w skrzynce>." +
+                            /*
+                             * Said where the clone is made, because that is where
+                             * the work starts. Session 629 cloned, edited, never
+                             * built, and pushed to main, with the page that says
+                             * not to on offer and never read.
+                             */
+                            if (gitUrl != null) {
+                                " Before you change, commit or push anything in this clone, load the " +
+                                    BuiltInSkills.PROJECT_CHANGES + " skill with skill_load: it says how to build and test " +
+                                    "first, work on a new branch, never push to main or master, and open a pull request."
+                            } else {
+                                ""
+                            },
                     )
                 }
             },

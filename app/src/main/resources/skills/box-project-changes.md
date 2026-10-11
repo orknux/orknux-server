@@ -1,80 +1,105 @@
 ---
 name: Box Project Changes
-description: Change an existing project in a box - read how it is built and what it expects, make a focused change, compile it, run its tests, and report honestly.
+description: Load before you change, commit or push anything in an existing repository in a box - a fix, a feature, "fix it, commit and open a PR". Branch, build, test, then push a branch and open a pull request; never main.
+grant: box
 ---
 
 # Changing an existing project in a box
 
-## Objective
+## Checklist - do these in order, and do not skip one
 
-Somebody asked for a change to a project that already exists: a fix, a
-feature, a dependency bump. Make that change the way the project's own
-maintainers would, and prove it builds and its tests pass, in a box session.
-Load the Boxes skill first if you have not used the box tools before.
+1. Open a session on the repository: `orkbox_open` with `git_url`.
+2. Read the rules: `AGENTS.md`, `CLAUDE.md`, `README.md`, `CONTRIBUTING.md` -
+   whichever exist.
+3. Find the build tool and the test command (table below).
+4. Make a branch: `git checkout -b fix/<short-name>`. Never work on `main` or
+   `master`.
+5. Build and test **before** you change anything. Write down what already fails.
+6. Make the change with `orkbox_edit`. Keep it small.
+7. Build and test again. Read the result. Fix what you broke.
+8. Read `git diff`. Commit on your branch.
+9. Push **your branch** only if the person asked you to push or open a PR.
+10. Open the pull request, or give the person the branch and the compare link.
+11. Report: what you changed, the build and test commands and their results,
+    what you did not check.
 
-## 1. Get the code
+If a step fails and you cannot fix it, stop and say so. Do not skip ahead to
+committing.
 
-- `orkbox_open` with `git_url` (and `git_ref` for a branch or tag). Pass
-  `caches` for the build tool you expect (`maven`, `gradle`, `npm`, ...) so
-  dependencies are not downloaded from scratch.
-- Never put a password or token in `git_url`. If the clone needs credentials,
-  ask for them to be given to you another way, or say you could not clone.
+## Find the build tool
 
-## 2. Read before you touch anything
+Look at the files at the repository root (`orkbox_files`). Use the wrapper the
+repository ships, not a globally installed tool.
 
-Read, in this order, whatever of these exists at the root and in the
-directory you will change:
+| File at the root          | Build                         | Tests                              |
+|---------------------------|-------------------------------|------------------------------------|
+| `mvnw`, `pom.xml`         | `./mvnw -q compile`           | `./mvnw test -Dtest=ClassName`     |
+| `gradlew`, `build.gradle` | `./gradlew build -x test`     | `./gradlew test --tests ClassName` |
+| `package.json`            | `npm ci` then `npm run build` | `npm test` (read its `scripts`)    |
+| `pyproject.toml`          | `pip install -e .`            | `pytest path/to/test_file.py`      |
+| `Cargo.toml`              | `cargo build`                 | `cargo test name`                  |
+| `go.mod`                  | `go build ./...`              | `go test ./...`                    |
+| `Makefile`                | `make`                        | `make test`                        |
 
-1. `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md` - rules written
-   for an agent. They win over your habits.
-2. `README.md` - what the project is, how to build and run it.
-3. `CONTRIBUTING.md`, `docs/` - conventions, commit style, how tests are run.
-4. The build file: `pom.xml`/`mvnw`, `build.gradle(.kts)`/`gradlew`,
-   `package.json` (its `scripts`), `Makefile`, `pyproject.toml`, `Cargo.toml`,
-   `go.mod`, `*.sln`/`*.csproj`. Prefer the wrapper the repository ships
-   (`./mvnw`, `./gradlew`) over a globally installed tool.
-5. CI configuration (`.github/workflows/`, `.gitlab-ci.yml`) - the exact
-   commands the project trusts to build and test itself.
+Also read `.github/workflows/*.yml`: the commands CI runs are the ones the
+project trusts. On a Windows box (`orkbox_list` says so) use `mvnw.cmd` and
+`gradlew.bat`. A build that takes minutes: `orkbox_exec` with `wait: false`,
+then `orkbox_execution` with `wait_seconds` - load the Box Long Commands skill.
 
-Use `orkbox_search` and `orkbox_files` to find the code involved instead of reading
-the whole tree. Read the surrounding code and its tests before editing.
+If the build cannot run at all (no JDK, no network, a database it needs), say
+so and stop. Do not change code you cannot build.
 
-## 3. Establish a baseline
+## Editing files
 
-Build and run the tests **before** changing anything. A failure that was
-already there is not yours, and you need to know which it is. Note the
-command, how long it took and what failed. If the build cannot run at all
-(missing toolchain, no network, a service it needs), say so and stop rather
-than changing code you cannot check.
+- `orkbox_search` finds the code; `orkbox_read` with `start_line` and
+  `end_line` reads only the part you need.
+- `orkbox_edit` with `old_text` and `new_text` replaces exact text. Copy
+  `old_text` from what `orkbox_read` showed, spaces included.
+- `orkbox_edit` with `start_line` and `end_line` replaces those lines. Pass
+  `old_text` too as a guard: the edit is refused if the lines no longer hold
+  it. Several line edits in one call: go from the bottom of the file up, since
+  each edit moves the lines below it.
+- `orkbox_edit` with `regex: true` treats `old_text` as a regular expression;
+  `new_text` may use `$1`, `$2` for its groups. Add `replace_all: true` to
+  change every match.
+- A wrong edit: `orkbox_undo` takes back the last `orkbox_edit` or
+  `orkbox_write` (`steps` for more than one); `orkbox_redo` puts it back. Only
+  the last few steps are kept, in memory, and undo refuses a file that a
+  command changed since. Deletes and moves cannot be undone.
+- Change only what the request needs. No reformatting, no renames, no upgrades
+  on the side. Add or update a test that fails without your change.
 
-## 4. Make the change
+## Prove it
 
-- Work on a branch: `git checkout -b <short-descriptive-name>`.
-- Keep it focused: only what the request needs. No drive-by reformatting,
-  renames or upgrades.
-- Match the code around it - naming, comment density, error handling, test
-  style. Use `orkbox_edit` for exact replacements; rewrite a whole file only when
-  it is new or tiny.
-- Add or update a test that fails without your change and passes with it,
-  where the project has tests for that kind of code.
+- Run the build and the tests closest to your change, then what CI runs.
+- Read the output. `orkbox_output` gives the part `orkbox_exec` cut out. Look
+  for `BUILD SUCCESS`, `Tests run: N, Failures: 0`, exit code 0.
+- **Never commit code that was not built.** If the tests fail because of your
+  change, fix it or tell the person; do not commit it as done.
 
-## 5. Prove it
+## Commit, push, pull request
 
-1. Compile first; fix every error you introduced.
-2. Run the tests closest to your change, then the full suite the project's CI
-   runs. Long runs: start them with `wait: false` and follow with
-   `orkbox_execution` and `wait_seconds`.
-3. Run the formatter or linter only if the project uses one in CI, and only on
-   files you touched.
-4. Read `git diff` end to end. Remove debug output and leftover experiments.
+Load the Box Git skill for the commands. In short:
 
-## 6. Hand it over
+- Commit on your branch, never on `main`/`master`.
+- `git push -u origin <your-branch>` - only when asked. Never push to `main` or
+  `master`, never `--force`.
+- Open the pull request with a tool you hold that creates pull requests or
+  merge requests - look in your tool list, and ask `tool_find` for "pull
+  request" if you have it. None? Give the person the branch name and the
+  compare link.
+- Push refused for lack of credentials? Say so and give the person the branch
+  or an export (`orkbox_export`). Do not hand the work to another agent or a
+  cloud coding service to get around it.
 
-- Commit with a message in the project's style (look at `git log`).
-- Push or open a pull request only when you were asked to and have the means.
-- Report: what you changed and why, the commands you ran and their results
-  (tests passed / failed, with counts), anything you could not verify, and
-  failures that were already there before you started. Never claim a build or
-  test passed that you did not see pass.
-- If the session holds work somebody needs, export it (`orkbox_export`) before
-  `orkbox_close`; closing destroys the workspace.
+## Report
+
+Say, plainly:
+
+- what you changed, in which files, and why;
+- the exact build and test commands, and their result (passed / failed, with
+  counts) - copy the line from the output;
+- the branch, the commit, the pull request link;
+- what you did not verify, and what was already failing before you started.
+
+Never say a build or test passed that you did not see pass.

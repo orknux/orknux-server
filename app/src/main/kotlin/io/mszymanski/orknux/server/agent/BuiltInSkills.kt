@@ -42,6 +42,26 @@ class BuiltInSkills {
 
     private val held: List<GrantedSkill> by lazy { read() }
 
+    /**
+     * The ids of the skills that come with a box grant rather than with the
+     * catalog: those whose frontmatter says `grant: box`.
+     *
+     * A page about the orkbox_ tools is the box grant's, the way the tools are.
+     * It goes to an agent that may open a box whatever catalogs it holds -
+     * an agent given a box and only its plugins' catalogs was otherwise told
+     * nothing about how a repository is changed, and pushed to main - and to
+     * no agent that may not, which would be a page about tools it has not got.
+     */
+    val boxKeys: Set<String> by lazy { boxKeysIn(held) }
+
+    /** Whether this skill is one of the server's that only a box grant brings. */
+    fun needsBox(skill: GrantedSkill): Boolean = skill.catalog == CATALOG && skill.key in boxKeys
+
+    private fun boxKeysIn(skills: List<GrantedSkill>): Set<String> = skills
+        .filter { frontmatter(it.content, "grant").equals(BOX_GRANT, ignoreCase = true) }
+        .map { it.key }
+        .toSet()
+
     private fun read(): List<GrantedSkill> {
         val resolver = PathMatchingResourcePatternResolver(javaClass.classLoader)
         val files = runCatching { resolver.getResources("classpath*:skills/*.md") }.getOrDefault(emptyArray())
@@ -89,6 +109,15 @@ class BuiltInSkills {
         const val CATALOG = "orknux_skills"
 
         const val KEY = "orknux"
+
+        /** The frontmatter value, `grant: box`, of a skill a box grant brings. */
+        const val BOX_GRANT = "box"
+
+        /**
+         * The page that matters most once an agent changes a repository: build
+         * before committing, a branch and not main, a pull request.
+         */
+        const val PROJECT_CHANGES = "box-project-changes"
 
         /** How far into a file the frontmatter can be; it is the first thing in one. */
         private const val FRONTMATTER_LINES = 20

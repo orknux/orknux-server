@@ -98,10 +98,10 @@ class AgentFromModelTest(
         assertThat(made.hiddenTools).isEmpty()
         assertThat(io.mszymanski.orknux.server.chat.BuiltInTools.grantedTo(made))
             .containsExactlyElementsOf(io.mszymanski.orknux.server.chat.BuiltInTools.GRANTED)
-        // The server's own skill catalog, for the reason its own tools are on:
-        // it is what a command means, and an agent holding none has no commands
-        // to tell anybody about. Still nothing of the workspace's. Issue #471.
-        assertThat(made.skillCatalogs).containsExactly(BuiltInSkills.CATALOG)
+        // Nothing named: the server's own skill catalog is every agent's
+        // without being on the list (see SkillTool.granted), and nothing of the
+        // workspace's is granted by default. Issue #471.
+        assertThat(made.skillCatalogs).isEmpty()
         assertThat(made.memoryCatalogs).isEmpty()
         assertThat(made.mcpServers).isEmpty()
         assertThat(made.orknuxAccess).isFalse()

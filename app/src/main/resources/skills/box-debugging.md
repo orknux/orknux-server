@@ -1,41 +1,42 @@
 ---
 name: Box Debugging
-description: Find out why a build, test or program fails in a box - reproduce it, read all of the output, narrow it down, then fix the cause.
+description: Load when a build, test or program fails in a box and you need to find out why - reproduce it, read all of the output, narrow it down, fix the cause.
+grant: box
 ---
 
 # Debugging in a box
 
-## Objective
+## Checklist
 
-Something fails - a test, a build, a script, a running service. Find the
-cause by running things, not by guessing, and fix the cause rather than the
-symptom.
+1. Run the exact command that fails. See the same failure yourself.
+2. Read **all** the output with `orkbox_output`. Find the **first** error.
+3. Run only the failing test, so each try takes seconds.
+4. Change one thing. Run again. Note what it showed.
+5. Fix the cause, not the symptom.
+6. Run the failing test, then the wider suite.
+7. Report the cause, the fix, and the commands with their results before and
+   after.
 
-## How to work
+## How
 
-1. **Reproduce it.** Run the exact command that fails and confirm you see the
-   same failure. If you cannot reproduce it, say so and report what you ran -
-   do not fix something you never saw break.
-2. **Read all of it.** `orkbox_exec` cuts long output in the middle; the real
-   error is often in the part cut out. Read the full text with `orkbox_output`
-   and look for the *first* error, not the last one - later errors are often
-   caused by the first.
-3. **Make it small.** Run only the failing test or module (`-Dtest=Name`,
-   `--tests`, `-k name`, `npm test -- name`) so each try takes seconds.
-4. **Look at the state.** Read the files, configuration and versions involved
-   (`java -version`, `node -v`, lock files). Check what changed recently with
-   `git log -p` and `git diff`.
-5. **Test one idea at a time.** Change one thing, rerun, and keep notes of
-   what you tried and what it showed, so you do not go round in circles.
-   `git stash` or `git bisect` help when a change of history is involved.
-6. **Fix the cause**, then add or keep a test that would have caught it, and
-   rerun the wider suite to make sure nothing else broke.
+- **Cannot reproduce it?** Say so and report what you ran. Do not fix
+  something you never saw break.
+- **Read all of it.** `orkbox_exec` cuts long output in the middle, and the real
+  error is often in the cut part. Later errors are often caused by the first.
+- **One test at a time:** `./mvnw test -Dtest=Name`, `./gradlew test --tests
+  Name`, `pytest -k name`, `npm test -- name`.
+- **Look at the state:** the files and configuration involved, versions
+  (`java -version`, `node -v`), lock files, and what changed recently
+  (`git log -p -5`, `git diff`).
+- **Keep notes** of each idea and what it showed, so you do not go round in
+  circles. `git stash` sets your change aside; `git bisect` finds the commit
+  that broke it.
+- A wrong edit: `orkbox_undo` takes it back.
 
 ## Rules
 
-- A flaky result is a conclusion, not a first guess: rerun it a few times and
-  show it passing and failing before calling it flaky.
-- Do not silence a failure - skipping a test, catching and ignoring an error,
-  loosening an assertion - to make it go green.
-- Report the cause in one or two sentences, the fix, and the evidence (the
-  command and its result before and after).
+- "Flaky" is a conclusion, not a first guess: run it several times and show it
+  both passing and failing before you call it that.
+- Never make it green by skipping a test, catching and ignoring an error, or
+  loosening an assertion.
+- Never say it is fixed unless you saw the test pass after the change.

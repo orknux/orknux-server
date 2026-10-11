@@ -241,7 +241,7 @@ class PluginSkillsTest(
 
         val agent = created()
 
-        assertThat(agent.skillCatalogs).containsExactlyInAnyOrder(BuiltInSkills.CATALOG, "deploys_plugin")
+        assertThat(agent.skillCatalogs).containsExactly("deploys_plugin")
         assertThat(granted(agent)).hasSize(2)
     }
 
@@ -253,7 +253,7 @@ class PluginSkillsTest(
         plugin.enabled = false
         plugins.save(plugin)
 
-        assertThat(created().skillCatalogs).containsExactly(BuiltInSkills.CATALOG)
+        assertThat(created().skillCatalogs).isEmpty()
     }
 
     /** And it is switched off per agent as any grant is, and stays off. */
@@ -264,10 +264,10 @@ class PluginSkillsTest(
 
         agentApi.updateAgent(
             requireNotNull(agent.id),
-            UpdateAgentInput(name = agent.name, skillCatalogs = listOf(BuiltInSkills.CATALOG)),
+            UpdateAgentInput(name = agent.name, skillCatalogs = emptyList()),
         )
 
-        assertThat(agents.findById(requireNotNull(agent.id)).get().skillCatalogs).containsExactly(BuiltInSkills.CATALOG)
+        assertThat(agents.findById(requireNotNull(agent.id)).get().skillCatalogs).isEmpty()
     }
 
     /**
@@ -284,7 +284,7 @@ class PluginSkillsTest(
         load()
 
         assertThat(agents.findById(requireNotNull(before.id)).get().skillCatalogs)
-            .containsExactly(BuiltInSkills.CATALOG)
+            .isEmpty()
         assertThat(created("after").skillCatalogs).contains("deploys_plugin")
     }
 

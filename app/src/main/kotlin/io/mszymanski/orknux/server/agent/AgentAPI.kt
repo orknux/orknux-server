@@ -48,13 +48,14 @@ class AgentAPI(
     private val budgets: SessionMemoryBudgets,
     private val connections: WorkspaceConnectionService,
     private val builtIns: io.mszymanski.orknux.server.chat.BuiltInTools,
-    /** What a new agent is granted to read: every catalog the server and its plugins bring. Issue #4. */
+    /** What a new agent is granted to read: every catalog its plugins bring. Issue #4. */
     private val pluginSkills: PluginSkills,
 ) {
 
     /**
-     * The skill catalogs a new agent starts with: the server's own, and every
-     * catalog an enabled plugin brings. Issue #4.
+     * The skill catalogs a new agent starts with: every catalog an enabled
+     * plugin brings. Issue #4. Not the server's own, which every agent holds
+     * without its name on the list - see `SkillTool.granted`.
      *
      * A plugin's catalog had to be granted by hand on every agent, so an agent
      * made in a workspace with the Slack plugin did not know how that plugin's
@@ -86,7 +87,7 @@ class AgentAPI(
     private val STARTING_ALWAYS_SKILLS = listOf("watchers")
 
     private fun startingCatalogs(): MutableList<String> =
-        (listOf(BuiltInSkills.CATALOG) + pluginSkills.catalogs().map { it.name }).distinct().toMutableList()
+        pluginSkills.catalogs().map { it.name }.filter { it != BuiltInSkills.CATALOG }.distinct().toMutableList()
 
     /** The agent, with what its model is called: the screen shows the name. */
     private fun describe(agent: Agent) =

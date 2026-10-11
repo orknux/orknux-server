@@ -1,39 +1,40 @@
 ---
 name: Box Long Commands
-description: Run builds, test suites and servers that take a while in a box - start them in the background, follow them, stop them cleanly.
+description: Load before you run a build, test suite or server in a box that takes more than a minute - start it in the background, follow it, stop it cleanly.
+grant: box
 ---
 
 # Long-running commands in a box
 
-## Objective
+## Checklist
 
-A full build, a test suite or a server can run for minutes or forever. Run
-them without blocking your turn, keep track of them, and never leave them
-running when you are done.
+1. Start it: `orkbox_exec` with `wait: false` and a `timeout_seconds`. Keep the
+   `execution` id it answers with.
+2. Wait for it: `orkbox_execution` with that id and `wait_seconds` (say 120).
+   Repeat until its status is no longer running.
+3. Read the output: `orkbox_output`; pass the `nextOffset` it returns as
+   `offset` to read on.
+4. Report the outcome and how long it took; on failure, the failing part of
+   the output.
+5. A server or watcher you started: stop it with `orkbox_signal` (`TERM`, then
+   `KILL`) before you finish.
 
 ## Builds and test suites
 
-- Start with `orkbox_exec` and `wait: false`. You get an `execution` id back
-  straight away.
-- Follow it with `orkbox_execution` and `wait_seconds` (wait up to that long for
-  it to finish), and read what it printed so far with `orkbox_output` - pass the
-  `nextOffset` it returns as `offset` to read on.
-- Give a sensible `timeout_seconds` so a hung command is stopped for you.
-- Use the dependency `caches` on `orkbox_open` and offline or quiet flags
-  (`-q`, `--offline` when dependencies are cached) to keep runs short.
+- Open the session with `caches` for the build tool (`maven`, `gradle`, `npm`)
+  so dependencies are not downloaded every time.
+- Quiet and offline flags keep runs short: `-q`, `--offline` once dependencies
+  are cached.
+- Do not start the same command twice. Check `orkbox_execution` first.
 
-## Servers and watchers
+## Servers
 
-- Start the server with `wait: false`, then poll until it answers (for
-  example `curl -sf http://localhost:<port>/health` in a short loop with a
-  limit), rather than sleeping a fixed time.
-- Talk to it from the same session with further `orkbox_exec` calls.
-- Stop it with `orkbox_signal` (`TERM`, then `KILL` if it does not exit) when you
-  are finished.
+- Start the server with `wait: false`.
+- Wait until it answers, with a limit, rather than sleeping a fixed time:
+  `for i in $(seq 30); do curl -sf http://localhost:8080/health && break; sleep 2; done`
+- Talk to it with more `orkbox_exec` calls in the same session.
 
 ## Rules
 
-- Do not start the same long command twice; check `orkbox_execution` first.
-- If a session is about to expire with work still running, `orkbox_extend` it.
-- Report how long the run took and its outcome, with the failing part of the
-  output when it failed.
+- A session about to expire with work still running: `orkbox_extend` it.
+- Never report a result you did not read in the output.
