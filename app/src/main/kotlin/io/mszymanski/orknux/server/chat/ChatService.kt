@@ -943,7 +943,9 @@ class ChatService(
         attachmentIds: List<Long> = emptyList(),
     ): ChatSendStart {
         val session = sessions.findByIdOrNull(id) ?: throw ChatSessionNotFoundException(id)
-        val message = text.trim().ifEmpty { throw ChatMessageEmptyException() }
+        // A picture or a file is something said: only a message with nothing at all in it is refused.
+        val message = text.trim()
+        if (message.isEmpty() && images.isEmpty() && attachmentIds.isEmpty()) throw ChatMessageEmptyException()
         val modelId = session.modelId ?: throw ChatModelNotChosenException()
 
         /*

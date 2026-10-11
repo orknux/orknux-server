@@ -213,6 +213,18 @@ class ChatDrawingTest(
         assertThat(attachments.findById(sent).get().messageIndex).isEqualTo(2)
     }
 
+    /** A file sent with nothing typed is a message: the page offered Send, and the server refused it as empty. */
+    @Test
+    fun `a file sent with no words is answered, and listed under its message`() {
+        val chatId = chatWithAgent(serve { saying("Got the file.") })
+        val sent = uploaded("notes.txt")
+
+        val frames = stream(chatId, "", listOf(sent))
+
+        assertThat(frames).doesNotContain("event:error")
+        assertThat(filesUnder(chatId).filter { it.second.isNotEmpty() }.map { it.second }).containsExactly(listOf("notes.txt"))
+    }
+
     /** A picture the agent drew is filed under the line that shows it, and announced as a file while the turn runs. */
     @Test
     fun `a picture the agent drew is filed under the line that shows it, and announced on the stream`() {
