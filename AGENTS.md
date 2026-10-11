@@ -455,7 +455,9 @@ every start it is in effect. Never set them in a deployment.
   where an answer an agent asked for, or a reminder it set, is left; a turn
   reads it between rounds and at its start, and `SessionEventDue` is what wakes
   a session that is not running - `SessionWake` for workflow steps and tasks,
-  `ChatWake` for chats. Something new that finishes after the turn that
+  `ChatWake` for chats, `WatcherFollowUp` for a finished step's watcher, and
+  `SubagentWake` for an asked agent, whose answer goes back to the asker's
+  inbox. Something new that finishes after the turn that
   started it posts there too, rather than growing a wake-up of its own. The
   briefing's "How you run" is the other half: the model is told there is no
   later unless it makes one, and the inbox is the backup when it forgets.

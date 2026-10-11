@@ -57,9 +57,9 @@ import kotlin.random.Random
  * the same, into a session nobody in Slack could see. `finish_answer` is lent
  * for the turn that has nothing to tell anyone.
  *
- * The third of the session's wakers, and only for what the other two do not own:
+ * The third of the session's wakers, and only for what the others do not own:
  * a chat's session is [io.mszymanski.orknux.server.chat.ChatWake]'s, a task's is
- * the task's, and a step parked on the session - or mid-turn in it, which reads
+ * the task's, an ask's is [io.mszymanski.orknux.server.chat.SubagentWake]'s, and a step parked on the session - or mid-turn in it, which reads
  * the inbox itself - is [io.mszymanski.orknux.server.llm.SessionWake]'s. Only for
  * a watcher's event, because a watcher is the one thing in an inbox that names the
  * agent to wake; an ask or a timer still holds its step, which is waiting for it.
@@ -92,6 +92,8 @@ class WatcherFollowUp(
     private val runs: ObjectProvider<ExecutionService>,
     /** What the session's model was sent, sent again as it was; see [SessionPrompt]. */
     private val prompt: io.mszymanski.orknux.server.llm.SessionPrompt,
+    /** Which sessions are an ask's, and so [io.mszymanski.orknux.server.chat.SubagentWake]'s. */
+    private val held: io.mszymanski.orknux.server.llm.LlmSessionRepository,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -133,9 +135,13 @@ class WatcherFollowUp(
      * parked on it, and no chat unless a run wrote here too. A run's watcher
      * wakes the run's agent, whose answer goes on to the run's next node; a chat
      * opened on that conversation with "Continue in chat" does not take it over.
+     * Nor an ask's session: no step is in it, so the answer went nowhere, and
+     * the agent that asked is where it belongs - see
+     * [io.mszymanski.orknux.server.chat.SubagentWake].
      */
     fun owned(session: Long): Boolean =
         inbox.pending(session, SessionEventKind.WATCHER) &&
+            held.findByIdOrNull(session)?.parentSessionId == null &&
             (chats.findFirstByLlmSessionId(session) == null || steps.existsBySessionId(session)) &&
             tasks.findFirstBySessionId(session) == null &&
             !steps.existsBySessionIdAndStatusIn(session, BUSY)

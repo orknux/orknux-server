@@ -672,14 +672,19 @@ class AgentAPI(
                 "Agent ${agent.name} no longer reads memory catalog $catalog",
             )
         }
-        (agent.skillCatalogs - previousSkillCatalogs.toSet()).forEach { catalog ->
+        /*
+         * Not the built-in catalog: every agent holds it whatever its list says
+         * (SkillTool.granted), so the form no longer sends it, and an agent that
+         * had it stored losing it on its next save changes nothing it can do.
+         */
+        (agent.skillCatalogs - previousSkillCatalogs.toSet() - BuiltInSkills.CATALOG).forEach { catalog ->
             auditRecorder.record(
                 agent.workspaceId,
                 WorkspaceAuditCategory.AGENT,
                 "Agent ${agent.name} given skill catalog $catalog",
             )
         }
-        (previousSkillCatalogs - agent.skillCatalogs.toSet()).forEach { catalog ->
+        (previousSkillCatalogs - agent.skillCatalogs.toSet() - BuiltInSkills.CATALOG).forEach { catalog ->
             auditRecorder.record(
                 agent.workspaceId,
                 WorkspaceAuditCategory.AGENT,

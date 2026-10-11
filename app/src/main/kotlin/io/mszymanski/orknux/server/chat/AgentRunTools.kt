@@ -100,6 +100,8 @@ class AgentRunTools(
     private val mapper: ObjectMapper,
     /** Where a finished ask is left for the asker, which wakes it if it is not running. */
     private val inbox: io.mszymanski.orknux.server.llm.SessionInbox,
+    /** Announces what came due while a turn was ending; see [launch]. */
+    private val published: org.springframework.context.ApplicationEventPublisher,
 ) {
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
@@ -657,61 +659,89 @@ class AgentRunTools(
             return answerOf(wanted, conversations.getObject().answer(modelId, sub, turns, into = null, shed = lent, gated = false), parent, null)
         }
 
-        val gateKey = parent ?: into
+        val failed: (Throwable) -> Unit = { why ->
+            log.warn("An ask of {} did not finish: {}", wanted.name, why.message)
+            parent?.let { asker ->
+                runCatching {
+                    inbox.post(
+                        asker,
+                        io.mszymanski.orknux.server.llm.SessionEventKind.ANSWER,
+                        "${wanted.name} could not finish what you asked about \"$title\": ${why.message}",
+                    )
+                }
+            }
+        }
+        val handed = launch(into, gateKey = parent ?: into, failed = failed) {
+            /*
+             * Its reasoning written into its own session, as a task's and an
+             * agent node's are. Without it the asked agent's session read as a
+             * request, a lookup and an answer, with the half-minute it spent
+             * thinking in between shown as nothing at all (session 569).
+             */
+            val thinking = io.mszymanski.orknux.server.llm.SessionThinking(into, wanted.name, sessions)
+            val said = try {
+                conversations.getObject().answer(modelId, sub, turns, into = into, shed = lent, watch = thinking, gated = false)
+            } finally {
+                thinking.settle()
+            }
+            /*
+             * The answer is put where the asker will look for it rather than
+             * returned: nobody is waiting on this thread. `agent_asks` reports
+             * it and the key is what carries the text. And told to the asker,
+             * which is what wakes it if its turn has ended - an agent that
+             * finished without waiting still gets the answer it was owed.
+             */
+            answerOf(wanted, said, parent, into).also { answered ->
+                parent?.let { asker ->
+                    inbox.post(
+                        asker,
+                        io.mszymanski.orknux.server.llm.SessionEventKind.ANSWER,
+                        "${wanted.name} has answered what you asked about \"$title\":\n$answered",
+                    )
+                }
+            }
+        }
+        if (!handed) return refusal("Asks are not running just now; try again in a moment.")
+
+        return mapper.writeValueAsString(
+            linkedMapOf(
+                "agent" to wanted.name,
+                "about" to title,
+                "session" to into,
+                "working" to true,
+                "note" to "It has started, and its answer is not here yet. Carry on with anything else " +
+                    "you have; call " + WAIT + " when you have nothing left, then " + ASKS + " to read " +
+                    "what came back. Do not end your turn before you have read it: nothing brings you " +
+                    "back to an answer you finished without.",
+            ),
+        )
+    }
+
+    /**
+     * A turn of the asked agent's, in its own session, on the asking pool.
+     *
+     * The ask's first turn and every turn it is woken for later go through
+     * here, so they share the one account of what is working - [running], which
+     * `agent_asks`, `agent_wait` and a parked step all read - and the asking
+     * conversation's permits, so a subagent woken by its timer is counted
+     * against the same `agentMaxSubagentsAtOnce` as one being asked.
+     *
+     * Answers false where it was not started: the pool is shut, or a turn is
+     * already running in [into] - which reads its inbox between rounds itself,
+     * so a second one beside it would only answer the same thing twice.
+     */
+    private fun launch(into: Long, gateKey: Long, failed: (Throwable) -> Unit, work: () -> String): Boolean {
         val gate = requireNotNull(
             atOnce.compute(gateKey) { _, held ->
                 (held ?: Gate(installation.agentMaxSubagentsAtOnce())).apply { users++ }
             },
         )
         // A Callable by name: a bare lambda resolves to the Runnable constructor, whose future holds null. Issue #536.
-        val work = java.util.concurrent.Callable {
+        val guarded = java.util.concurrent.Callable {
             val permits = gate.permits
             permits.acquire()
-            runCatching {
-                /*
-                 * Its reasoning written into its own session, as a task's and an
-                 * agent node's are. Without it the asked agent's session read as
-                 * a request, a lookup and an answer, with the half-minute it spent
-                 * thinking in between shown as nothing at all (session 569).
-                 */
-                val thinking = io.mszymanski.orknux.server.llm.SessionThinking(into, wanted.name, sessions)
-                val said = try {
-                    conversations.getObject().answer(modelId, sub, turns, into = into, shed = lent, watch = thinking, gated = false)
-                } finally {
-                    thinking.settle()
-                }
-                /*
-                 * The answer is put where the asker will look for it rather
-                 * than returned: nobody is waiting on this thread. `agent_asks`
-                 * reports it and the key is what carries the text.
-                 */
-                answerOf(wanted, said, parent, into).also { answered ->
-                    /*
-                     * And told to the asker, which is what wakes it if its turn
-                     * has ended. An agent that finished without waiting still
-                     * gets the answer it was owed.
-                     */
-                    parent?.let { asker ->
-                        inbox.post(
-                            asker,
-                            io.mszymanski.orknux.server.llm.SessionEventKind.ANSWER,
-                            "${wanted.name} has answered what you asked about \"$title\":\n$answered",
-                        )
-                    }
-                }
-            }
-                .onFailure { why ->
-                    log.warn("An ask of {} did not finish: {}", wanted.name, why.message)
-                    parent?.let { asker ->
-                        runCatching {
-                            inbox.post(
-                                asker,
-                                io.mszymanski.orknux.server.llm.SessionEventKind.ANSWER,
-                                "${wanted.name} could not finish what you asked about \"$title\": ${why.message}",
-                            )
-                        }
-                    }
-                }
+            runCatching(work)
+                .onFailure(failed)
                 .also { permits.release() }
                 // The answer itself, for agent_asks to hand back - not the Result around it. Issue #536.
                 .getOrNull()
@@ -727,32 +757,77 @@ class AgentRunTools(
          * the future is marked done and also for a task cancelled before it
          * ever ran - and registered before it is handed over, so even an ask
          * that is over at once cannot finish before it is in the map.
+         *
+         * And a look at the inbox on the way out: a reminder that came due
+         * after the turn's last look at it, and before it ended, was announced
+         * while the turn still counted as running, so nothing would bring the
+         * agent back to it. Only after a turn that answered - one that threw
+         * may have thrown before taking what was due, and would be woken into
+         * the same throw for ever.
          */
-        val started = object : java.util.concurrent.FutureTask<String?>(work) {
+        val started = object : java.util.concurrent.FutureTask<String?>(guarded) {
             override fun done() {
                 running.remove(into, this)
                 letGo(gateKey)
+                if (!isCancelled && runCatching { get() }.getOrNull() != null) {
+                    runCatching { if (owed(into)) published.publishEvent(io.mszymanski.orknux.server.llm.SessionEventDue(into)) }
+                }
             }
         }
-        running[into] = started
-        val handed = runCatching { requireNotNull(asking).execute(started) }.isSuccess
-        if (!handed) {
-            started.cancel(false)
-            return refusal("Asks are not running just now; try again in a moment.")
+        val claimed = running.compute(into) { _, there -> if (there != null && !there.isDone) there else started }
+        if (claimed !== started) {
+            letGo(gateKey)
+            return false
         }
+        val handed = runCatching { requireNotNull(asking).execute(started) }.isSuccess
+        if (!handed) started.cancel(false)
+        return handed
+    }
 
-        return mapper.writeValueAsString(
-            linkedMapOf(
-                "agent" to wanted.name,
-                "about" to title,
-                "session" to into,
-                "working" to true,
-                "note" to "It has started, and its answer is not here yet. Carry on with anything else " +
-                    "you have; call " + WAIT + " when you have nothing left, then " + ASKS + " to read " +
-                    "what came back. Do not end your turn before you have read it: nothing brings you " +
-                    "back to an answer you finished without.",
-            ),
-        )
+    /** Whether something is due and unread in a subagent's session. */
+    private fun owed(session: Long): Boolean =
+        inbox.nextDue(session)?.isAfter(java.time.OffsetDateTime.now()) == false
+
+    /**
+     * Runs the asked agent again in its own session, for what arrived there
+     * after its turn ended - a reminder it set coming due, a watcher it set
+     * firing. See [SubagentWake], which decides when; this is the how, and it
+     * is the ask's own: the same pool, the same permits, and the answer left
+     * for the agent that asked, whose own waker brings it back - a chat by
+     * [ChatWake], a task by its service, a parked step by
+     * [io.mszymanski.orknux.server.llm.SessionWake].
+     *
+     * @param turns what the turn is sent, built on the turn's own thread - so
+     *   the inbox it takes is only taken once the turn is really going.
+     * @return false where nothing was started: the session is not an ask's, a
+     *   turn is running in it already, or the pool is shut.
+     */
+    fun resume(session: Long, wanted: Agent, modelId: Long, turns: (Agent) -> List<ChatTurn>): Boolean {
+        val row = held.findByIdOrNull(session) ?: return false
+        val parent = row.parentSessionId ?: return false
+        if (running[session]?.isDone == false) return false
+        val title = row.title ?: "what you asked"
+        val sub = without(wanted)
+        val lent = handing(sub, session)
+        val failed: (Throwable) -> Unit = { why ->
+            log.warn("{} could not be woken in session {}: {}", wanted.name, session, why.message)
+        }
+        return launch(session, gateKey = parent, failed = failed) {
+            val thinking = io.mszymanski.orknux.server.llm.SessionThinking(session, wanted.name, sessions)
+            val said = try {
+                conversations.getObject().answer(modelId, sub, turns(sub), into = session, shed = lent, watch = thinking, gated = false)
+            } finally {
+                thinking.settle()
+            }
+            answerOf(wanted, said, parent, session).also { answered ->
+                inbox.post(
+                    parent,
+                    io.mszymanski.orknux.server.llm.SessionEventKind.ANSWER,
+                    "${wanted.name} has come back about \"$title\" on its own - a reminder or watcher it " +
+                        "set went off - and says:\n$answered",
+                )
+            }
+        }
     }
 
     /**
