@@ -136,6 +136,7 @@ interface RoundWatch {
  */
 internal class WritingProgress(
     private val watch: RoundWatch,
+    /** The Admin setting Writing Progress Interval, read when the round starts. */
     private val everyMillis: Long = EVERY_MILLIS,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
@@ -159,7 +160,7 @@ internal class WritingProgress(
     }
 
     private companion object {
-        /** Often enough to read as moving, which is all the line is for. */
+        /** The setting's own default, for a caller with no settings to read: often enough to read as moving. */
         const val EVERY_MILLIS = 1000L
     }
 }
@@ -613,7 +614,7 @@ class AgentConversation(
             val once = if (watch == null) {
                 models.complete(modelId, told, hangup = hangup).also { told(watch, it) }
             } else {
-                val writing = WritingProgress(watch)
+                val writing = WritingProgress(watch, settings.writingProgressMillis().toLong())
                 models.stream(
                     modelId,
                     told,
@@ -851,7 +852,7 @@ class AgentConversation(
             val answer = if (watch == null) {
                 models.complete(modelId, conversation, offered, hangup = hangup)
             } else {
-                val writing = WritingProgress(watch)
+                val writing = WritingProgress(watch, settings.writingProgressMillis().toLong())
                 models.stream(
                     modelId,
                     conversation,

@@ -396,13 +396,14 @@ class LlmSessionRecorder(
     }
 
     /**
-     * What [session]'s model is writing now, or null. A report older than
-     * [WRITING_FORGOTTEN_AFTER] is forgotten, so a turn that died without
-     * settling does not say it is writing for ever.
+     * What [session]'s model is writing now, or null. A report older than the
+     * Admin setting Writing Progress Forgotten After is forgotten, so a turn
+     * that died without settling does not say it is writing for ever.
      */
     fun writingNow(session: Long): SessionWriting? {
         val held = writingNow[session] ?: return null
-        if (held.at.isBefore(java.time.Instant.now().minus(WRITING_FORGOTTEN_AFTER))) {
+        val forgottenAfter = java.time.Duration.ofSeconds(installation.writingForgottenSeconds().toLong())
+        if (held.at.isBefore(java.time.Instant.now().minus(forgottenAfter))) {
             writingNow.remove(session, held)
             return null
         }
@@ -972,5 +973,3 @@ data class SessionWriting(
     val at: java.time.Instant,
 )
 
-/** How long a report of writing is believed without another. Longer than any pause between frames. */
-val WRITING_FORGOTTEN_AFTER: java.time.Duration = java.time.Duration.ofSeconds(30)

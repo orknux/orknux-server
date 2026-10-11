@@ -294,6 +294,8 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is io.mszymanski.orknux.server.attachment.EmptyAnswerRetriesOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.UnusableReplyRetriesOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.ModelAnswerLimitOutOfRangeException,
+            is io.mszymanski.orknux.server.attachment.WritingProgressIntervalOutOfRangeException,
+            is io.mszymanski.orknux.server.attachment.WritingForgottenOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.SessionStoreKeysOutOfRangeException,
             /* The knobs of server updates. Issue #584. */
             is io.mszymanski.orknux.server.attachment.ReleasesKeptOutOfRangeException,

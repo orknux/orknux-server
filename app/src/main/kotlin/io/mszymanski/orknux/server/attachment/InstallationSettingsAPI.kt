@@ -119,6 +119,10 @@ class InstallationSettingsAPI(
         unusableReplyRetriesConfigured = settings.unusableReplyRetriesConfigured(),
         modelAnswerLimitMinutes = settings.modelAnswerLimitMinutes(),
         modelAnswerLimitMinutesConfigured = settings.modelAnswerLimitMinutesConfigured(),
+        writingProgressMillis = settings.writingProgressMillis(),
+        writingProgressMillisConfigured = settings.writingProgressMillisConfigured(),
+        writingForgottenSeconds = settings.writingForgottenSeconds(),
+        writingForgottenSecondsConfigured = settings.writingForgottenSecondsConfigured(),
         sessionValueMaxMbConfigured = settings.sessionValueMaxMbConfigured(),
         sessionStoreMaxKeys = settings.sessionStoreMaxKeys(),
         sessionStoreMaxKeysConfigured = settings.sessionStoreMaxKeysConfigured(),
@@ -360,6 +364,26 @@ class InstallationSettingsAPI(
 
         settings.setModelAnswerLimitMinutes(minutes, currentUser())
         auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "A model may take up to $minutes minutes to answer")
+        return installationSettings()
+    }
+
+    /** How often a page watching a model write is told how far it has got. */
+    @MutationMapping
+    fun setWritingProgressMillis(@Argument millis: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setWritingProgressMillis(millis, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "Progress of a model writing is told every $millis ms")
+        return installationSettings()
+    }
+
+    /** How long a report that a model is writing is believed without another. */
+    @MutationMapping
+    fun setWritingForgottenSeconds(@Argument seconds: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setWritingForgottenSeconds(seconds, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "A report of a model writing is forgotten after $seconds seconds")
         return installationSettings()
     }
 
@@ -1131,6 +1155,12 @@ data class InstallationSettingsView(
     /** How long one call to a model may take, in minutes. */
     val modelAnswerLimitMinutes: Int,
     val modelAnswerLimitMinutesConfigured: Int,
+    /** How often a page watching a model write is told how far it has got, in milliseconds. */
+    val writingProgressMillis: Int,
+    val writingProgressMillisConfigured: Int,
+    /** How long a report that a model is writing is believed without another, in seconds. */
+    val writingForgottenSeconds: Int,
+    val writingForgottenSecondsConfigured: Int,
     /** How big one value in a session's store may be, in MB. */
     val sessionValueMaxMb: Int,
     val sessionValueMaxMbConfigured: Int,

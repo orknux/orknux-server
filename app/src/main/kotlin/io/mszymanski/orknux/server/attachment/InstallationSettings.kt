@@ -144,6 +144,8 @@ object SettingNames {
     const val EMPTY_ANSWER_RETRIES = "chat.retries.empty"
     const val UNUSABLE_REPLY_RETRIES = "chat.retries.unusable"
     const val MODEL_ANSWER_LIMIT_MINUTES = "model.answer.limit.minutes"
+    const val WRITING_PROGRESS_MILLIS = "writing.progress.millis"
+    const val WRITING_FORGOTTEN_SECONDS = "writing.forgotten.seconds"
     const val SESSION_STORE_MAX_KEYS = "session.store.max.keys"
 
     /**
@@ -1271,6 +1273,46 @@ class InstallationSettings(
         write(SettingNames.MODEL_ANSWER_LIMIT_MINUTES, minutes.toString(), by)
     }
 
+    /**
+     * How often a page watching a model write is told how far it has got, in
+     * milliseconds. It was a second, fixed: often enough to read as moving, and
+     * rare enough not to redraw a page forty times a second.
+     */
+    fun writingProgressMillis(): Int {
+        val held = settings.findByIdOrNull(SettingNames.WRITING_PROGRESS_MILLIS) ?: return writingProgressMillisConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_WRITING_PROGRESS_MILLIS..MAX_WRITING_PROGRESS_MILLIS }
+            ?: writingProgressMillisConfigured()
+    }
+
+    /** What a fresh installation does: the built-in default. */
+    fun writingProgressMillisConfigured(): Int = 1000
+
+    @Transactional
+    fun setWritingProgressMillis(millis: Int, by: String) {
+        if (millis !in MIN_WRITING_PROGRESS_MILLIS..MAX_WRITING_PROGRESS_MILLIS) throw WritingProgressIntervalOutOfRangeException(millis)
+        write(SettingNames.WRITING_PROGRESS_MILLIS, millis.toString(), by)
+    }
+
+    /**
+     * How long a report that a model is writing is believed without another, in
+     * seconds. It was thirty, fixed: past it, a turn that died without settling
+     * stops saying it is writing.
+     */
+    fun writingForgottenSeconds(): Int {
+        val held = settings.findByIdOrNull(SettingNames.WRITING_FORGOTTEN_SECONDS) ?: return writingForgottenSecondsConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_WRITING_FORGOTTEN_SECONDS..MAX_WRITING_FORGOTTEN_SECONDS }
+            ?: writingForgottenSecondsConfigured()
+    }
+
+    /** What a fresh installation does: the built-in default. */
+    fun writingForgottenSecondsConfigured(): Int = 30
+
+    @Transactional
+    fun setWritingForgottenSeconds(seconds: Int, by: String) {
+        if (seconds !in MIN_WRITING_FORGOTTEN_SECONDS..MAX_WRITING_FORGOTTEN_SECONDS) throw WritingForgottenOutOfRangeException(seconds)
+        write(SettingNames.WRITING_FORGOTTEN_SECONDS, seconds.toString(), by)
+    }
+
     /** How many keys one session's store may hold. It was 200, fixed. */
     fun sessionStoreMaxKeys(): Int {
         val held = settings.findByIdOrNull(SettingNames.SESSION_STORE_MAX_KEYS) ?: return sessionStoreMaxKeysConfigured()
@@ -2324,6 +2366,28 @@ class ModelAnswerLimitOutOfRangeException(val minutes: Int) : RuntimeException(
 ), Refusal {
 
     override val arguments get() = mapOf("minutes" to minutes)
+}
+
+const val MIN_WRITING_PROGRESS_MILLIS = 200
+const val MAX_WRITING_PROGRESS_MILLIS = 10000
+
+class WritingProgressIntervalOutOfRangeException(val millis: Int) : RuntimeException(
+    "$millis is not a number of milliseconds between reports of a model writing. " +
+        "Choose between $MIN_WRITING_PROGRESS_MILLIS and $MAX_WRITING_PROGRESS_MILLIS.",
+), Refusal {
+
+    override val arguments get() = mapOf("millis" to millis)
+}
+
+const val MIN_WRITING_FORGOTTEN_SECONDS = 5
+const val MAX_WRITING_FORGOTTEN_SECONDS = 600
+
+class WritingForgottenOutOfRangeException(val seconds: Int) : RuntimeException(
+    "$seconds is not a number of seconds a report of a model writing is believed for. " +
+        "Choose between $MIN_WRITING_FORGOTTEN_SECONDS and $MAX_WRITING_FORGOTTEN_SECONDS.",
+), Refusal {
+
+    override val arguments get() = mapOf("seconds" to seconds)
 }
 
 const val MIN_SESSION_STORE_KEYS = 10

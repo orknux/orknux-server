@@ -1313,6 +1313,10 @@ type Mutation {
     setUnusableReplyRetries(retries: Int!): InstallationSettings!
     "How long one call to a model may take, 1 to 1440 minutes. Administrators only."
     setModelAnswerLimitMinutes(minutes: Int!): InstallationSettings!
+    "How often a page watching a model write is told how far it has got, 200 to 10000 ms. Administrators only."
+    setWritingProgressMillis(millis: Int!): InstallationSettings!
+    "How long a report that a model is writing is believed without another, 5 to 600 seconds. Administrators only."
+    setWritingForgottenSeconds(seconds: Int!): InstallationSettings!
     "How big one value in a session's store may be, 1 to 256 MB. Administrators only."
     setSessionValueMaxMb(megabytes: Int!): InstallationSettings!
     "How many keys one session's store may hold, 10 to 10000. Administrators only."
@@ -6746,6 +6750,14 @@ type InstallationSettings {
     modelAnswerLimitMinutes: Int!
     "What a fresh installation allows: the built-in default."
     modelAnswerLimitMinutesConfigured: Int!
+    "How often a page watching a model write is told how far it has got, in milliseconds."
+    writingProgressMillis: Int!
+    "What a fresh installation does: the built-in default."
+    writingProgressMillisConfigured: Int!
+    "How long a report that a model is writing is believed without another, in seconds."
+    writingForgottenSeconds: Int!
+    "What a fresh installation does: the built-in default."
+    writingForgottenSecondsConfigured: Int!
     "How big one value in a session's store may be, in MB - what an exported archive or a drawn picture can come to."
     sessionValueMaxMb: Int!
     "What a fresh installation allows: the built-in default."
