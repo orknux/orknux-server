@@ -7,7 +7,8 @@ import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import org.slf4j.LoggerFactory
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.TransactionTemplate
 
 /**
  * Naming a chat from what was said in it.
@@ -28,7 +29,10 @@ class ChatTitles(
     private val sessions: ChatSessionRepository,
     private val workspaces: WorkspaceRepository,
     private val models: ModelChatClient,
+    transactions: PlatformTransactionManager,
 ) {
+
+    private val writing = TransactionTemplate(transactions)
 
     /**
      * Renames a chat still carrying its default name, from the exchange just had.
@@ -36,8 +40,16 @@ class ChatTitles(
      * Only the untouched default is replaced: a chat somebody named is named,
      * and having it renamed underneath them would be worse than "New chat" ever
      * was.
+     *
+     * The model is asked outside any transaction, and only the rename is
+     * written in one. This was a single @Transactional method, harmless while
+     * only a companion model was asked; once a chat's own model names it, that
+     * held the database's one writer on SQLite for as long as the model took to
+     * answer - a local model thinking for a minute stalled every other write,
+     * and a suite whose stub had gone away saw commits fail in the next class.
+     * The title is checked again when it is written, so a rename made while the
+     * model was answering stands.
      */
-    @Transactional
     fun nameFrom(sessionId: Long, question: String, answer: String) {
         val session = sessions.findByIdOrNull(sessionId) ?: return
         if (session.title != DEFAULT_TITLE) return
@@ -46,7 +58,13 @@ class ChatTitles(
         val companion = workspace.companionModelId ?: session.modelId ?: return
 
         val suggested = ask(companion, question, answer) ?: return
-        session.title = suggested
+        writing.executeWithoutResult {
+            val held = sessions.findByIdOrNull(sessionId) ?: return@executeWithoutResult
+            if (held.title == DEFAULT_TITLE) {
+                held.title = suggested
+                sessions.save(held)
+            }
+        }
     }
 
     /**

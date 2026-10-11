@@ -49,6 +49,7 @@ have failed.
 
 ### 🐛 Fixed
 
+- On SQLite, naming a chat no longer holds the database's one writer while the model answers - a slow model used to stall every other write, and on a dropped connection left later writes failing to commit.
 - A chat's thinking is now in its session's transcript, as a task's and a workflow step's always was.
 - When a turn outgrows the model's window and is summarised, the session's note of it carries the summary the model was given.
 - Two Orknux servers on one machine no longer delete each other's local box sessions when one starts: each cleans up only the workspaces it made, and a session whose workspace was removed says so instead of calling every path outside it.

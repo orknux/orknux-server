@@ -63,6 +63,8 @@ class ChatInSessionTest(
     @Autowired val audit: WorkspaceAuditRepository,
     @Autowired val streaming: ChatStreamAPI,
     @Autowired val chatService: ChatService,
+    @Autowired val titles: ChatTitles,
+    @Autowired val transactions: org.springframework.transaction.PlatformTransactionManager,
 ) {
 
     private var workspaceId: Long = 0
@@ -607,6 +609,42 @@ class ChatInSessionTest(
      * calls no tools, so there is nothing to keep and nothing is invented on
      * anybody's behalf.
      */
+    /**
+     * Naming a chat asks a model, and nothing else may wait for that.
+     *
+     * It was one @Transactional method, so on SQLite the database's one writer
+     * was held for as long as the model took: a local model thinking for a
+     * minute stalled every write, and a stub that had gone away left the next
+     * test class failing to commit. While the model answers, another
+     * transaction must be able to start - which on SQLite is the question,
+     * and on Postgres is true either way.
+     */
+    @Test
+    fun `naming a chat does not hold a transaction while the model answers`() {
+        val other = org.springframework.transaction.support.TransactionTemplate(transactions)
+        val couldWrite = java.util.concurrent.atomic.AtomicReference<Boolean>()
+        val chatId = bareChat(
+            llmSessionId = null,
+            endpoint = serve {
+                couldWrite.set(
+                    runCatching {
+                        java.util.concurrent.CompletableFuture
+                            .supplyAsync { other.execute { chats.count() } }
+                            .get(3, java.util.concurrent.TimeUnit.SECONDS)
+                        true
+                    }.getOrDefault(false),
+                )
+                """{"choices":[{"message":{"role":"assistant","content":"Pool sizing"}}]}"""
+            },
+        )
+        chats.save(requireNotNull(chats.findByIdOrNull(chatId)).apply { title = "New chat" })
+
+        titles.nameFrom(chatId, "How big should the pool be?", "Twenty.")
+
+        assertThat(couldWrite.get()).describedAs("another transaction could start while the model answered").isTrue()
+        assertThat(chats.findByIdOrNull(chatId)?.title).isEqualTo("Pool sizing")
+    }
+
     /** With no companion model in the workspace, the chat's own model names it rather than nothing doing. */
     @Test
     fun `a chat in a workspace with no companion model is named by its own model`() {
