@@ -37,7 +37,6 @@ import org.springframework.transaction.event.TransactionalEventListener
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -285,10 +284,9 @@ class WatcherFollowUp(
         }
     }
 
-    private fun zone(): ZoneId = runCatching { ZoneId.of(installation.workingTimezone()) }.getOrDefault(ZoneId.systemDefault())
+    private fun zone(): ZoneId = installation.workingZone()
 
     companion object {
-        private val AT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
         /**
          * The note a retry leaves in the transcript. The date and time it will
@@ -297,7 +295,7 @@ class WatcherFollowUp(
          */
         fun retryNote(reason: String, attempt: Int, of: Int, wait: Duration, now: Instant, zone: ZoneId): String =
             "The turn could not be answered ($reason); attempt $attempt of $of at " +
-                "${AT.format(now.plus(wait).atZone(zone))} ${zone.id}, in ${wait.toSeconds()}s."
+                "${io.mszymanski.orknux.workflow.execution.retryAt(now, wait, zone)}, in ${wait.toSeconds()}s."
 
         /** A step in either of these reads the inbox by itself, or is woken by [io.mszymanski.orknux.server.llm.SessionWake]. */
         private val BUSY = listOf(StepStatus.RUNNING, StepStatus.WAITING)

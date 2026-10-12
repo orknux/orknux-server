@@ -1437,6 +1437,10 @@ class InstallationSettings(
 
     fun workingTimezoneConfigured(): String = java.time.ZoneId.systemDefault().id
 
+    /** [workingTimezone] as a zone; the machine's own should a stored name no longer resolve. */
+    fun workingZone(): java.time.ZoneId =
+        runCatching { java.time.ZoneId.of(workingTimezone()) }.getOrDefault(java.time.ZoneId.systemDefault())
+
     @Transactional
     fun setWorkingTimezone(zone: String, by: String) {
         val wanted = zone.trim()

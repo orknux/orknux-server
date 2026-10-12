@@ -150,7 +150,7 @@ class FailureHandlingTest(
         // Not parked either, which is the half a count cannot show: a settled
         // failure spends none of the policy and none of the clock, and a node
         // carrying a wait of thirty seconds proves the second of those.
-        assertThat(linesOf(run)).noneMatch { it.contains("Trying again in") }
+        assertThat(linesOf(run)).noneMatch { it.contains("Trying again") }
         assertThat(spentBy(run)).isLessThan(Duration.ofSeconds(5))
     }
 
@@ -203,8 +203,10 @@ class FailureHandlingTest(
         assertThat(run.status).isEqualTo(ExecutionStatus.FAILED)
         assertThat(stepsBy(run).getValue("boom").attempts).isEqualTo(3)
         // The log says what was actually waited, not what is written on the node.
-        assertThat(linesOf(run)).anyMatch { it.contains("attempt 1 of 3") && it.contains("Trying again in 2s") }
-        assertThat(linesOf(run)).anyMatch { it.contains("attempt 2 of 3") && it.contains("Trying again in 3s") }
+        // And when it will end, as a date and time a person can check against the clock.
+        assertThat(linesOf(run)).anyMatch { Regex("""Trying again at \d{4}-\d\d-\d\d \d\d:\d\d:\d\d \S+, in 2s""").containsMatchIn(it) }
+        assertThat(linesOf(run)).anyMatch { it.contains("attempt 1 of 3") && it.contains(", in 2s") }
+        assertThat(linesOf(run)).anyMatch { it.contains("attempt 2 of 3") && it.contains(", in 3s") }
         // And the clock agrees with the log: five seconds of run were spent
         // waiting, which is the whole difference between a policy and a field.
         assertThat(spentBy(run)).isGreaterThanOrEqualTo(Duration.ofMillis(4_800))
@@ -224,9 +226,9 @@ class FailureHandlingTest(
         val run = engine.start(WORKSPACE, WORKFLOW, ExecutionTrigger.API, INPUT)
 
         assertThat(stepsBy(run).getValue("boom").attempts).isEqualTo(3)
-        assertThat(linesOf(run)).anyMatch { it.contains("attempt 1 of 3") && it.contains("Trying again in 1s") }
+        assertThat(linesOf(run)).anyMatch { it.contains("attempt 1 of 3") && it.contains(", in 1s") }
         // Five seconds asked for, two allowed - and two is what the run sat out.
-        assertThat(linesOf(run)).anyMatch { it.contains("attempt 2 of 3") && it.contains("Trying again in 2s") }
+        assertThat(linesOf(run)).anyMatch { it.contains("attempt 2 of 3") && it.contains(", in 2s") }
         assertThat(spentBy(run)).isLessThan(Duration.ofSeconds(5))
     }
 

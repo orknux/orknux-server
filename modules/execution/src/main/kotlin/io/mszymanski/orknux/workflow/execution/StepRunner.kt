@@ -248,10 +248,15 @@ class StepRunner(
     /** Told when a step has parked; see [StepParked]. */
     private val published: org.springframework.context.ApplicationEventPublisher,
     transactionManager: org.springframework.transaction.PlatformTransactionManager,
+    /** What a retry's time is said in; the machine's zone where nothing provides one. */
+    private val zones: org.springframework.beans.factory.ObjectProvider<WorkingZone>,
 ) {
 
     /** What [carry] reads and writes the run under; see there. */
     private val transactions = org.springframework.transaction.support.TransactionTemplate(transactionManager)
+
+    private fun zone(): java.time.ZoneId =
+        runCatching { zones.getIfAvailable()?.zone() }.getOrNull() ?: java.time.ZoneId.systemDefault()
 
     /**
      * Where a jittered wait's randomness comes from.
@@ -547,7 +552,7 @@ class StepRunner(
             step.nodeKey,
             LogLevel.INFO,
             "${step.name} failed on attempt ${step.attempts} of ${policy.attempts}: $reason. " +
-                "Trying again in ${wait.toSeconds()}s",
+                "Trying again at ${retryAt(java.time.Instant.now(), wait, zone())}, in ${wait.toSeconds()}s",
         )
         // It produced nothing, so the next attempt is handed what this one was.
         return StepOutcome(StepStatus.WAITING, input, resumeAfter = wait)
