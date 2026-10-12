@@ -48,6 +48,8 @@ class BoxAPI(
     private val editHistory: BoxEditHistory,
     private val secrets: BoxSecrets,
     private val exposed: ExposedPorts,
+    /** A conversation's box sessions are its family's: an asker's and the subagents' it asked. */
+    private val family: io.mszymanski.orknux.server.llm.SessionFamily,
 ) {
 
     // ------------------------------------------------------------------ boxes
@@ -318,7 +320,8 @@ class BoxAPI(
     fun sessionBoxes(@Argument sessionId: Long): List<SessionBoxView> {
         val session = llmSessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
         access.requireVisible(session.workspaceId)
-        return sessionRows.findByLlmSessionIdOrderByCreatedAtDescIdDesc(sessionId).map { row ->
+        // The family's, as the agents see them: a subagent works in the session its asker opened.
+        return sessionRows.findByLlmSessionIdInOrderByCreatedAtDescIdDesc(family.of(sessionId)).map { row ->
             SessionBoxView.of(row, liveStatus(row), labelOf(row))
         }
     }
@@ -334,7 +337,7 @@ class BoxAPI(
     fun sessionBoxLog(@Argument sessionId: Long, @Argument sessionBoxId: Long, @Argument after: Int?): BoxLogView {
         val session = llmSessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
         access.requireVisible(session.workspaceId)
-        val row = sessionRows.findByIdOrNull(sessionBoxId)?.takeIf { it.llmSessionId == sessionId }
+        val row = sessionRows.findByIdOrNull(sessionBoxId)?.takeIf { it.llmSessionId in family.of(sessionId) }
             ?: throw BoxNotFoundException(sessionBoxId.toString())
         val since = (after ?: 0).toLong().coerceAtLeast(0)
         if (row.boxKind != BoxKind.LOCAL) return remoteLog(row, since)
@@ -417,7 +420,7 @@ class BoxAPI(
     private fun readOutput(sessionId: Long, sessionBoxId: Long, executionId: String, offset: Int?, limit: Int?): BoxOutputView {
         val session = llmSessions.findByIdOrNull(sessionId) ?: throw LlmSessionNotFoundException(sessionId)
         access.requireVisible(session.workspaceId)
-        val row = sessionRows.findByIdOrNull(sessionBoxId)?.takeIf { it.llmSessionId == sessionId }
+        val row = sessionRows.findByIdOrNull(sessionBoxId)?.takeIf { it.llmSessionId in family.of(sessionId) }
             ?: throw BoxNotFoundException(sessionBoxId.toString())
         val from = (offset ?: 0).coerceAtLeast(0).toLong()
         val most = (limit ?: BOX_OUTPUT_PAGE).coerceIn(1, settings.outputBytes())
@@ -893,6 +896,10 @@ data class SessionBoxView(
     val createdAt: String,
     val lastUsedAt: String?,
     val boxLabel: String?,
+    /** The conversation session that opened it - another one of the family where it is shared. */
+    val openedIn: Long,
+    /** The agent that opened it, where it was recorded. */
+    val openedBy: String?,
 ) {
     companion object {
         fun of(row: BoxSession, status: String, boxLabel: String?) = SessionBoxView(
@@ -906,6 +913,8 @@ data class SessionBoxView(
             createdAt = row.createdAt.toString(),
             lastUsedAt = row.lastUsedAt?.toString(),
             boxLabel = boxLabel,
+            openedIn = row.llmSessionId,
+            openedBy = row.agentName,
         )
     }
 }

@@ -519,6 +519,13 @@ class BoxToolsTest(
         call("orkbox_write", mapOf("session" to parents, "path" to "from-parent.txt", "content" to "hello"))
         assertThat(call("orkbox_read", mapOf("session" to parents, "path" to "from-parent.txt"), into = child).toString())
             .contains("hello")
+        // The subagent's own Box panel lists the session it works in, and says whose it is.
+        val panel = graphQlTester.document("{ sessionBoxes(sessionId: $child) { id openedIn openedBy } }").execute()
+        panel.path("sessionBoxes[*].id").entityList(Long::class.java).containsExactly(parents)
+        panel.path("sessionBoxes[0].openedIn").entity(Long::class.java).isEqualTo(conversation)
+        panel.path("sessionBoxes[0].openedBy").entity(String::class.java).isEqualTo("Builder")
+        graphQlTester.document("{ sessionBoxLog(sessionId: $child, sessionBoxId: $parents) { available } }").execute()
+            .path("sessionBoxLog.available").entity(Boolean::class.java).isEqualTo(true)
         call("orkbox_sessions", into = child).path("sessions").also { listed ->
             assertThat(listed.toList().map { it.path("session").asLong() }).containsExactly(parents)
             assertThat(listed[0].path("openedBy").stringValue()).isEqualTo("Builder")

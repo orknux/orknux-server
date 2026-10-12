@@ -29,7 +29,8 @@ extend type Query {
     boxLabels: [String!]!
     """
     The box sessions a conversation's agents opened, newest first (by when they
-    were opened, then by id). `active` is the box's own word where it can be
+    were opened, then by id) - its whole family's, since an asker and the
+    subagents it asked work in one another's sessions; `openedIn` says whose. `active` is the box's own word where it can be
     asked now, and the last one recorded where it cannot.
     """
     sessionBoxes(sessionId: ID!): [SessionBox!]!
@@ -324,6 +325,14 @@ type SessionBox {
     `local` for the local box, null for a remote box since removed.
     """
     boxLabel: String
+    """
+    The session of the conversation that opened it. Another session of the
+    same family where it is shared: an asker and the subagents it asked work
+    in one another's box sessions.
+    """
+    openedIn: ID!
+    "The agent that opened it, where it was recorded."
+    openedBy: String
 }
 
 type BoxEvent {
