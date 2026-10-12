@@ -709,12 +709,20 @@ class LlmSessionRecorder(
         }
 
         var room = budget.memoryChars
+        var first = true
         return recent
             .asSequence()
             .mapNotNull { event -> event.content?.takeIf { it.isNotBlank() }?.let { event to it } }
+            /*
+             * The newest line is kept whatever its length. Filling newest first
+             * until the room runs out let one long last answer run it out on its
+             * own, and the tail came back empty - a chat continuing the session
+             * opened with nothing in it, on exactly the long conversations worth
+             * continuing. Over the allowance by one line beats remembering none.
+             */
             .takeWhile { (_, said) ->
                 room -= said.length
-                room >= 0
+                (room >= 0 || first).also { first = false }
             }
             .map { (event, _) -> event }
             .toList()

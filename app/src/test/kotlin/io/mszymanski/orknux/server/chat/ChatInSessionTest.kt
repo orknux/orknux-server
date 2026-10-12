@@ -14,6 +14,7 @@ import io.mszymanski.orknux.server.workspace.Workspace
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRepository
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import org.assertj.core.api.Assertions.assertThat
+import io.mszymanski.orknux.server.llm.SessionMemoryBudget
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -113,6 +114,27 @@ class ChatInSessionTest(
      * something it went and found out, which is the one reading this page must
      * not produce.
      */
+    /**
+     * A last answer longer than the whole memory allowance used to empty the
+     * copy: the tail is filled newest first until the allowance runs out, and
+     * the newest line ran it out on its own - so "Continue in chat" opened an
+     * empty chat on exactly the long conversations worth continuing.
+     */
+    @Test
+    fun `a chat opened from a session whose last answer is longer than its memory still holds it`() {
+        val sessionId = session("issue", "43")
+        recorder.userSaid(sessionId, "Ask reviewer", "Review the whole pull request, please.")
+        recorder.agentSaid(sessionId, "Reviewer", "x".repeat(SessionMemoryBudget.DEFAULT.memoryChars + 1))
+
+        val chatId = startChat(sessionId)
+
+        val content = graphQlTester.document("""{ chatMessages(id: $chatId) { role content } }""")
+            .execute()
+            .path("chatMessages[*].content").entityList(String::class.java).get()
+        assertThat(content).isNotEmpty()
+        assertThat(content.last()).startsWith("xxx")
+    }
+
     @Test
     fun `a chat opened from a session starts holding what was already said`() {
         val sessionId = session("issue", "42")
