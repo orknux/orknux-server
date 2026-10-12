@@ -106,6 +106,14 @@ class WatcherAPI(
     }
 
     @MutationMapping
+    fun setWatcherLookScaleSeconds(@Argument seconds: Int): WatcherSettingsView {
+        access.requireAdmin()
+        settings.setLookScaleSeconds(seconds, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.AGENT, "Watcher agent looks measured against $seconds seconds")
+        return view()
+    }
+
+    @MutationMapping
     fun setWatcherMaxPerAgent(@Argument count: Int): WatcherSettingsView {
         access.requireAdmin()
         settings.setMaxPerAgent(count, currentUser())
@@ -122,6 +130,8 @@ class WatcherAPI(
         maxPerAgentConfigured = settings.maxPerAgentConfigured(),
         minAgentCheckSeconds = settings.minAgentCheckSeconds(),
         minAgentCheckSecondsConfigured = settings.minAgentCheckSecondsConfigured(),
+        lookScaleSeconds = settings.lookScaleSeconds(),
+        lookScaleSecondsConfigured = settings.lookScaleSecondsConfigured(),
     )
 
     private fun currentUser(): String =
@@ -210,6 +220,8 @@ data class WatcherSettingsView(
     val maxPerAgentConfigured: Int,
     val minAgentCheckSeconds: Int,
     val minAgentCheckSecondsConfigured: Int,
+    val lookScaleSeconds: Int,
+    val lookScaleSecondsConfigured: Int,
 )
 
 @Component
@@ -223,6 +235,7 @@ class WatcherExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is WatcherMinIntervalOutOfRangeException,
             is WatcherMaxPerAgentOutOfRangeException,
             is WatcherMinAgentCheckOutOfRangeException,
+            is WatcherLookScaleOutOfRangeException,
             -> refused(exception, ErrorType.BAD_REQUEST, environment)
 
             else -> null

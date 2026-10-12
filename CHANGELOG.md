@@ -25,6 +25,8 @@ have failed.
 
 ### 🔧 Changed
 
+- **A watcher's own looks are spaced by its length.** The agent no longer has to choose an agent check: one look for a 5-20 min watcher, two up to an hour, then one more each time the length doubles, evenly spaced. **Three Looks By The Agent From** (an hour) in Admin Settings scales it. An agent check the agent gives must now be shorter than the watcher's timeout, and running watchers set without one get looks at their next check.
+- Retry notes in a conversation and step retries in a run log say when the next attempt is, in the working timezone, and the Watchers page shows times on hover in your own time zone rather than UTC.
 - **A box's session limit counts only sessions at work** - being made or running a command. An idle session no longer takes a place; it takes one when it starts a command, and is refused while none is free. This applies to the local box and to a standalone orkbox once it is upgraded.
 - "Reading the prompt…" shows only once a llama.cpp server has been reading for five seconds, so the short reads a warm prompt cache makes no longer flash a card; **Reading Progress Shown After** in Admin Settings changes it, and 0 shows every read as before.
 

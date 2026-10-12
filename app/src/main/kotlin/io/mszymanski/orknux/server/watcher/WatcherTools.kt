@@ -99,10 +99,10 @@ class WatcherTools(
                             "Seconds between looks of your own: while the condition has not matched, you are " +
                                 "woken this often with the latest result, to judge it yourself and change the " +
                                 "watcher with $UPDATE or end it - so a condition that never recognises what you " +
-                                "are waiting for does not leave you waiting until the timeout. At least $looks, at " +
-                                "least interval_seconds; longer than timeout_seconds means no look before it ends. Each look costs you a turn, " +
-                                "so pick the longest you can afford to be late by.",
-                            required = true,
+                                "are waiting for does not leave you waiting until the timeout. Usually leave it out: " +
+                                "your looks are then spaced by the watcher's length - one for a short watcher, more " +
+                                "the longer it runs. Give it only to look more or less often: at least $looks, at least " +
+                                "interval_seconds, and shorter than timeout_seconds. Each look costs you a turn.",
                         ),
                     ),
                 ),
@@ -194,18 +194,17 @@ class WatcherTools(
             val note = text(asked?.path(NOTE))?.trim()?.ifEmpty { null }
             val description = description(asked)?.ifEmpty { null }
             /*
-             * Required. A watcher whose condition never matched used to run
-             * silently to its timeout - a week by default - with nobody looking
-             * at what came back; a look of the agent's own is what notices a
-             * condition that was guessed wrong.
+             * A watcher whose condition never matched used to run silently to
+             * its timeout - a week by default - with nobody looking at what came
+             * back; a look of the agent's own is what notices a condition that
+             * was guessed wrong. Left out, the looks are spaced by the watcher's
+             * length (WatcherSettings.looksFor): an agent asked to choose chose
+             * the timeout itself, which is no look at all.
              */
             val agentCheck = present(asked?.path(AGENT_CHECK))?.let {
-                whole(it) ?: throw WatcherRefused("$AGENT_CHECK must be a whole number of seconds.")
-            }?.takeIf { it > 0 }
-                ?: throw WatcherRefused(
-                    "$AGENT_CHECK is required: how many seconds between looks of your own at the latest result, " +
-                        "at least ${settings.minAgentCheckSeconds()} and at least $INTERVAL.",
-                )
+                whole(it)?.takeIf { seconds -> seconds > 0 }
+                    ?: throw WatcherRefused("$AGENT_CHECK must be a whole number of seconds greater than zero.")
+            }
 
             val watcher = try {
                 service.create(

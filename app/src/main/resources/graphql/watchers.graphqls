@@ -28,6 +28,12 @@ extend type Mutation {
     setWatcherMinAgentCheckSeconds(seconds: Int!): WatcherSettings!
     "How many watchers one agent may have running at once; zero switches watchers off. Administrators only."
     setWatcherMaxPerAgent(count: Int!): WatcherSettings!
+    """
+    The length of watcher that gets three looks of the agent's own, in seconds:
+    a twelfth of it gets one, a third two, and each doubling past it one more,
+    evenly spaced. Used where the agent gave no agent check. Administrators only.
+    """
+    setWatcherLookScaleSeconds(seconds: Int!): WatcherSettings!
 }
 
 type WatcherPage {
@@ -106,4 +112,8 @@ type WatcherSettings {
     minAgentCheckSeconds: Int!
     "What a fresh installation allows - ORKNUX_WATCHER_MIN_AGENT_CHECK_SECONDS."
     minAgentCheckSecondsConfigured: Int!
+    "The length of watcher that gets three looks of the agent's own; the schedule is measured against it."
+    lookScaleSeconds: Int!
+    "What a fresh installation allows - ORKNUX_WATCHER_LOOK_SCALE_SECONDS."
+    lookScaleSecondsConfigured: Int!
 }

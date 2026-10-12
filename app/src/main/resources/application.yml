@@ -305,6 +305,10 @@ orknux:
     # The shortest interval at which one may wake its agent to look at the
     # result itself, in seconds. Each look is a model turn.
     min-agent-check-seconds: ${ORKNUX_WATCHER_MIN_AGENT_CHECK_SECONDS:300}
+    # The length of watcher that gets three looks of the agent's own, in
+    # seconds, where the agent gave no agent check: a twelfth of it gets one, a
+    # third two, and each doubling past it one more, evenly spaced.
+    look-scale-seconds: ${ORKNUX_WATCHER_LOOK_SCALE_SECONDS:3600}
   sessions:
     # How long a session counts as active after its last line, in seconds. The
     # sessions list's dot lights for a line written this recently, so an agent

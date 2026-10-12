@@ -156,6 +156,7 @@ class WatcherService(
         }
         asked.agentCheckIntervalSeconds?.let { agentCheckProblem(it, asked.intervalSeconds, asked.timeoutSeconds) }
             ?.let { throw WatcherRefused(it) }
+        val agentCheck = asked.agentCheckIntervalSeconds ?: settings.agentCheckFor(asked.timeoutSeconds, asked.intervalSeconds)
 
         val running = agent.id?.let { watchers.countByAgentIdAndStatus(it, WatcherStatus.ACTIVE) }
             ?: watchers.countBySessionIdAndAgentIdIsNullAndStatus(sessionId, WatcherStatus.ACTIVE)
@@ -202,8 +203,8 @@ class WatcherService(
                     createdAt = now,
                     expiresAt = now.plusSeconds(asked.timeoutSeconds.toLong()),
                     nextCheckAt = now.plusSeconds(asked.intervalSeconds.toLong()),
-                    agentCheckIntervalSeconds = asked.agentCheckIntervalSeconds,
-                    nextAgentCheckAt = asked.agentCheckIntervalSeconds?.let { now.plusSeconds(it.toLong()) },
+                    agentCheckIntervalSeconds = agentCheck,
+                    nextAgentCheckAt = agentCheck?.let { now.plusSeconds(it.toLong()) },
                 ),
             )
             recorder.note(
@@ -266,7 +267,8 @@ class WatcherService(
             else -> change.agentCheckIntervalSeconds
         }
         if (change.agentCheckIntervalSeconds != null && agentCheck != null) {
-            agentCheckProblem(agentCheck, interval, watcher.timeoutSeconds)?.let { throw WatcherRefused(it) }
+            val left = Duration.between(OffsetDateTime.now(), watcher.expiresAt).toSeconds().coerceAtLeast(0).toInt()
+            agentCheckProblem(agentCheck, interval, left)?.let { throw WatcherRefused(it) }
         }
 
         return requireNotNull(
@@ -305,13 +307,16 @@ class WatcherService(
      * Why an agent check this often cannot be had, or null where it can. At
      * least the installation's floor - each look is a model turn - and no more
      * often than the tool is called, since a look between two checks would show
-     * the same result twice; no longer than the watcher runs, or it never looks.
+     * the same result twice; shorter than the watcher has to run, or it never
+     * looks: it times out on the check a look would have come with.
      */
     private fun agentCheckProblem(seconds: Int, interval: Int, timeout: Int): String? {
         val floor = maxOf(settings.minAgentCheckSeconds(), interval)
         return when {
             seconds < floor -> "agent_check_interval_seconds must be at least $floor: no shorter than this " +
                 "installation allows (${settings.minAgentCheckSeconds()}s) and no shorter than interval_seconds."
+            seconds >= timeout -> "agent_check_interval_seconds must be shorter than the ${timeout}s the watcher " +
+                "has to run, or it ends before you look once. Leave it out and your looks are spaced by its length."
             else -> null
         }
     }
@@ -431,6 +436,12 @@ class WatcherService(
      * a week for a match that was never coming. #618.
      */
     private fun lookDue(watcher: Watcher, result: String, now: OffsetDateTime) {
+        if (watcher.agentCheckIntervalSeconds == null) {
+            // Set before every watcher had looks: given the schedule now, counted from when it was set.
+            val derived = settings.agentCheckFor(watcher.timeoutSeconds, watcher.intervalSeconds) ?: return
+            watcher.agentCheckIntervalSeconds = derived
+            watcher.nextAgentCheckAt = watcher.createdAt.plusSeconds(derived.toLong())
+        }
         val every = watcher.agentCheckIntervalSeconds ?: return
         val due = watcher.nextAgentCheckAt ?: return
         if (now.isBefore(due)) return

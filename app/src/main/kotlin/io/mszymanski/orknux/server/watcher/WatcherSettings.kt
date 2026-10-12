@@ -26,6 +26,8 @@ data class WatcherProperties(
     val maxPerAgent: Int = DEFAULT_WATCHER_MAX_PER_AGENT,
     /** The shortest an agent may ask to be shown a watcher's result between checks. #618. */
     val minAgentCheckSeconds: Int = DEFAULT_WATCHER_MIN_AGENT_CHECK_SECONDS,
+    /** How long a watcher is that gets three looks; see [WatcherSettings.looksFor]. */
+    val lookScaleSeconds: Int = DEFAULT_WATCHER_LOOK_SCALE_SECONDS,
 )
 
 @Configuration(proxyBeanMethods = false)
@@ -79,6 +81,36 @@ class WatcherSettings(
     fun minAgentCheckSecondsConfigured(): Int =
         properties.minAgentCheckSeconds.coerceIn(WATCHER_MIN_AGENT_CHECK_RANGE)
 
+    /**
+     * The length of watcher that gets three looks of the agent's own; the rest
+     * of the schedule is measured against it - see [looksFor].
+     */
+    fun lookScaleSeconds(): Int = held(LOOK_SCALE, WATCHER_LOOK_SCALE_RANGE) ?: lookScaleSecondsConfigured()
+
+    fun lookScaleSecondsConfigured(): Int = properties.lookScaleSeconds.coerceIn(WATCHER_LOOK_SCALE_RANGE)
+
+    /**
+     * Seconds between the agent's own looks for a watcher of [timeout] checked
+     * every [interval], where nobody chose: [looksFor] looks, evenly spaced, so
+     * the last falls before the timeout rather than on it. Fewer where that
+     * spacing would be shorter than [minAgentCheckSeconds] or [interval];
+     * null where not even one fits.
+     */
+    fun agentCheckFor(timeout: Int, interval: Int): Int? {
+        val floor = maxOf(minAgentCheckSeconds(), interval)
+        for (looks in looksFor(timeout, lookScaleSeconds()) downTo 1) {
+            val every = timeout / (looks + 1)
+            if (every >= floor) return every
+        }
+        return null
+    }
+
+    @Transactional
+    fun setLookScaleSeconds(seconds: Int, by: String) {
+        if (seconds !in WATCHER_LOOK_SCALE_RANGE) throw WatcherLookScaleOutOfRangeException(seconds)
+        write(LOOK_SCALE, seconds, by)
+    }
+
     @Transactional
     fun setMaxSeconds(seconds: Int, by: String) {
         if (seconds !in WATCHER_MAX_SECONDS_RANGE) throw WatcherMaxSecondsOutOfRangeException(seconds)
@@ -120,6 +152,29 @@ class WatcherSettings(
         const val MIN_INTERVAL = "watcher.min.interval.seconds"
         const val MAX_PER_AGENT = "watcher.max.per.agent"
         const val MIN_AGENT_CHECK = "watcher.min.agent.check.seconds"
+        const val LOOK_SCALE = "watcher.look.scale.seconds"
+
+        /**
+         * How many looks of its own an agent gets on a watcher of [timeout]
+         * seconds, against [scale] (an hour by default): none below a twelfth of
+         * it, one below a third, two below the whole, three at it, and one more
+         * each time the timeout doubles - 3 + floor(log2(timeout / scale)).
+         * With an hour: 5-20 min one, 20-60 two, 1-2 h three, 2-4 h four.
+         */
+        fun looksFor(timeout: Int, scale: Int): Int {
+            val t = timeout.toLong()
+            val s = scale.toLong()
+            if (t * 12 < s) return 0
+            if (t * 3 < s) return 1
+            if (t < s) return 2
+            var looks = 3
+            var edge = s * 2
+            while (t >= edge) {
+                looks++
+                edge *= 2
+            }
+            return looks
+        }
     }
 }
 
@@ -151,6 +206,12 @@ val WATCHER_MAX_PER_AGENT_RANGE = 0..1000
 
 val WATCHER_MIN_AGENT_CHECK_RANGE = 1..365 * 24 * 60 * 60
 
+/** An hour: five minutes to twenty get one look, twenty to an hour two, and each doubling past it one more. */
+const val DEFAULT_WATCHER_LOOK_SCALE_SECONDS = 60 * 60
+
+/** A minute to a week. */
+val WATCHER_LOOK_SCALE_RANGE = 60..7 * 24 * 60 * 60
+
 class WatcherMaxSecondsOutOfRangeException(val seconds: Int) : RuntimeException(
     "$seconds is not a length of time a watcher can be allowed to run for. " +
         "Choose between ${WATCHER_MAX_SECONDS_RANGE.first} and ${WATCHER_MAX_SECONDS_RANGE.last}.",
@@ -170,6 +231,13 @@ class WatcherMaxPerAgentOutOfRangeException(val count: Int) : RuntimeException(
         "Choose between ${WATCHER_MAX_PER_AGENT_RANGE.first} and ${WATCHER_MAX_PER_AGENT_RANGE.last}.",
 ), Refusal {
     override val arguments get() = mapOf("count" to count)
+}
+
+class WatcherLookScaleOutOfRangeException(val seconds: Int) : RuntimeException(
+    "$seconds is not a length the agent's looks can be measured against. " +
+        "Choose between ${WATCHER_LOOK_SCALE_RANGE.first} and ${WATCHER_LOOK_SCALE_RANGE.last}.",
+), Refusal {
+    override val arguments get() = mapOf("seconds" to seconds)
 }
 
 class WatcherMinAgentCheckOutOfRangeException(val seconds: Int) : RuntimeException(

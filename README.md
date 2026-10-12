@@ -421,6 +421,7 @@ installation starts from.
 | `ORKNUX_WATCHER_MIN_INTERVAL_SECONDS` | The shortest interval between a watcher's checks. Admin -> Settings overrides it. | `15` |
 | `ORKNUX_WATCHER_MAX_PER_AGENT` | How many watchers one agent may have running; `0` switches them off. Admin -> Settings overrides it. | `10` |
 | `ORKNUX_WATCHER_MIN_AGENT_CHECK_SECONDS` | The shortest interval at which a watcher may wake its agent to look at the result itself; each look is a model turn. Admin -> Settings overrides it. | `300` |
+| `ORKNUX_WATCHER_LOOK_SCALE_SECONDS` | The length of watcher that gets three looks of the agent's own where the agent gave no agent check: a twelfth of it gets one, a third two, and each doubling past it one more, evenly spaced. Admin -> Settings overrides it. | `3600` |
 
 ### Access
 
