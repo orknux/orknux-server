@@ -21,6 +21,19 @@ import java.time.Duration
  */
 class WatcherAdviceTest {
 
+    /** A retry says when it will happen, in the working timezone, not only how long until. */
+    @Test
+    fun `a retry note gives the date and time of the next attempt`() {
+        val note = WatcherFollowUp.retryNote(
+            "rate limit", 4, 5, Duration.ofSeconds(125),
+            java.time.Instant.parse("2026-10-12T16:42:00Z"), java.time.ZoneId.of("Europe/Warsaw"),
+        )
+        assertThat(note).isEqualTo(
+            "The turn could not be answered (rate limit); attempt 4 of 5 at 2026-10-12 18:44:05 Europe/Warsaw, in 125s.",
+        )
+    }
+
+
     /** Where [first] is said before [then], both being said at all. */
     private fun assertBefore(text: String, first: String, then: String) {
         val a = text.indexOf(first)

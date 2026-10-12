@@ -35,6 +35,9 @@ import org.springframework.stereotype.Component
 import org.springframework.transaction.event.TransactionPhase
 import org.springframework.transaction.event.TransactionalEventListener
 import java.time.Duration
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -94,6 +97,8 @@ class WatcherFollowUp(
     private val prompt: io.mszymanski.orknux.server.llm.SessionPrompt,
     /** Which sessions are an ask's, and so [io.mszymanski.orknux.server.chat.SubagentWake]'s. */
     private val held: io.mszymanski.orknux.server.llm.LlmSessionRepository,
+    /** The working timezone, which a retry's time is said in. */
+    private val installation: io.mszymanski.orknux.server.attachment.InstallationSettings,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -165,11 +170,7 @@ class WatcherFollowUp(
             val budget = policy.budget
             if (budget != null && Duration.ofNanos(System.nanoTime() - began) + wait > budget) break
             log.info("Session {} follow-up failed ({}); trying again in {}s", session, answer.reason, wait.toSeconds())
-            sessions.note(
-                session,
-                "The turn could not be answered (${answer.reason}); attempt ${spent + 1} of ${policy.attempts} " +
-                    "in ${wait.toSeconds()}s.",
-            )
+            sessions.note(session, retryNote(answer.reason, spent + 1, policy.attempts, wait, Instant.now(), zone()))
             pause(wait)
             spent++
             answer = follow(session, again = true)
@@ -284,7 +285,20 @@ class WatcherFollowUp(
         }
     }
 
+    private fun zone(): ZoneId = runCatching { ZoneId.of(installation.workingTimezone()) }.getOrDefault(ZoneId.systemDefault())
+
     companion object {
+        private val AT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+
+        /**
+         * The note a retry leaves in the transcript. The date and time it will
+         * happen, not only the wait: "in 125s" read an hour later says nothing
+         * about whether it already has.
+         */
+        fun retryNote(reason: String, attempt: Int, of: Int, wait: Duration, now: Instant, zone: ZoneId): String =
+            "The turn could not be answered ($reason); attempt $attempt of $of at " +
+                "${AT.format(now.plus(wait).atZone(zone))} ${zone.id}, in ${wait.toSeconds()}s."
+
         /** A step in either of these reads the inbox by itself, or is woken by [io.mszymanski.orknux.server.llm.SessionWake]. */
         private val BUSY = listOf(StepStatus.RUNNING, StepStatus.WAITING)
 
