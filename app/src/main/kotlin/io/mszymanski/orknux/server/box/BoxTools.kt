@@ -1220,8 +1220,8 @@ class BoxTools(
                 LIST,
                 "Lists the boxes you may use - sandboxes where you can open a session with its own workspace and run " +
                     "commands - with what each offers: its runtimes, their operating system and shell, default " +
-                    "image and limits, and freeSessions - how many more sessions it takes now; idle sessions, open with " +
-                    "nothing running, hold a place too, and a box with none free refuses orkbox_open until one closes. Call it first to choose where to open a session.",
+                    "image and limits, and freeSessions - how many more sessions may work on it now. Only sessions running a " +
+                    "command count; with none free, orkbox_open and a command in an idle session are refused until one finishes. Call it first to choose where to open a session.",
             ),
             ToolSpec(
                 OPEN,

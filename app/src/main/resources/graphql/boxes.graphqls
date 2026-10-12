@@ -77,7 +77,7 @@ extend type Mutation {
     setLocalBoxLocation(location: String): InstallationSettings!
     "Which runtime the local box runs sessions with: local or docker."
     setLocalBoxRuntime(runtime: String!): InstallationSettings!
-    "How many sessions the local box holds at once, 1 to 1000."
+    "How many sessions may work on the local box at once - being made or running a command; idle ones do not count. 1 to 1000."
     setLocalBoxMaxSessions(count: Int!): InstallationSettings!
     "How many ports one box session may have asked for or open at once, 0 to 20."
     setBoxMaxPorts(count: Int!): InstallationSettings!
@@ -137,7 +137,7 @@ extend type InstallationSettings {
     localBoxLocationConfigured: String!
     "Which runtime the local box runs sessions with: local or docker."
     localBoxRuntime: String!
-    "How many sessions the local box holds at once."
+    "How many sessions may work on the local box at once; idle ones do not count."
     localBoxMaxSessions: Int!
     localBoxMaxSessionsConfigured: Int!
     "How many ports one box session may have asked for or open at once."
@@ -225,13 +225,13 @@ type Box {
     createdAt: String
 }
 
-"A box's sessions: those open (creating or ready), the most it takes, and the room left."
+"A box's sessions: those open, the most that may work at once, and the room left."
 type BoxCapacity {
-    "Open: busy and idle together, which is what the box counts against max."
+    "Open: busy and idle together."
     active: Int!
-    "Running a command, or still being made."
+    "Running a command, or still being made: what max limits."
     busy: Int!
-    "Open with nothing running, waiting until its idle timeout; holds a place all the same."
+    "Open with nothing running, waiting until its idle timeout; takes no place until it starts a command."
     idle: Int!
     max: Int!
     free: Int!

@@ -198,7 +198,7 @@ class BoxAPITest(
         asked.path("box.health.status").entity(String::class.java).isEqualTo("UP")
         asked.path("box.activeSessions").entity(Int::class.java).isEqualTo(2)
         asked.path("box.capacity.active").entity(Int::class.java).isEqualTo(2)
-        // Each stub session has a command running: working, not waiting.
+        // Each stub session has a command running: working, so each takes a place.
         asked.path("box.capacity.busy").entity(Int::class.java).isEqualTo(2)
         asked.path("box.capacity.idle").entity(Int::class.java).isEqualTo(0)
         asked.path("box.capacity.max").entity(Int::class.java).isEqualTo(50)
@@ -375,7 +375,7 @@ class BoxAPITest(
             .path("setLocalBoxLocation.localBoxLocation").valueIsNull()
 
         assertThat(messages()).contains(
-            "The local box holds up to 7 sessions at once",
+            "The local box lets up to 7 sessions work at once",
             "The local box runs sessions with the docker runtime",
             "The local box makes its sessions in /srv/boxes",
             "A request to a box is given up on after 5 seconds",

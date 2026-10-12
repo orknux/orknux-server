@@ -634,7 +634,7 @@ class BoxAPI(
 
     @MutationMapping
     fun setLocalBoxMaxSessions(@Argument count: Int): InstallationSettingsView =
-        changed("The local box holds up to $count sessions at once") { settings.setLocalMaxSessions(count, it) }
+        changed("The local box lets up to $count sessions work at once") { settings.setLocalMaxSessions(count, it) }
 
     @MutationMapping
     fun setBoxMaxPorts(@Argument count: Int): InstallationSettingsView =
