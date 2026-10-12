@@ -10,7 +10,6 @@ import jakarta.persistence.Table
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
-import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.OffsetDateTime
@@ -163,7 +162,7 @@ sealed interface ScratchpadResult {
 @Service
 class SessionScratchpadService(
     private val pads: SessionScratchpadRepository,
-    private val sessions: LlmSessionRepository,
+    private val family: SessionFamily,
     private val settings: InstallationSettings,
 ) {
 
@@ -187,7 +186,7 @@ class SessionScratchpadService(
     @Transactional(readOnly = true)
     fun list(sessionId: Long): List<SessionScratchpad> {
         val own = pads.findBySessionIdOrderByNameAsc(sessionId)
-        val relatives = familyOf(sessionId)
+        val relatives = family.relativesOf(sessionId)
         val theirs = if (relatives.isEmpty()) emptyList() else
             pads.findBySessionIdInOrderByNameAsc(relatives)
                 .filter { other -> own.none { it.name == other.name } }
@@ -446,55 +445,11 @@ class SessionScratchpadService(
     /** The pad and whether this session owns it: its own first, then the family's. Issue #498. */
     private fun resolve(sessionId: Long, name: String): Pair<SessionScratchpad, Boolean>? {
         pads.findBySessionIdAndName(sessionId, name)?.let { return it to true }
-        val relatives = familyOf(sessionId)
+        val relatives = family.relativesOf(sessionId)
         if (relatives.isEmpty()) return null
         return pads.findBySessionIdInOrderByNameAsc(relatives)
             .firstOrNull { it.name == name }
             ?.let { it to false }
-    }
-
-    /**
-     * The other sessions in this conversation: the root it descends from and
-     * everything under that root. Issue #498.
-     *
-     * Nearest first, so a name held twice resolves to the closest copy - which
-     * is the ancestor an agent inherited it from rather than a cousin that
-     * happens to use the same name.
-     *
-     * Bounded the way the family panel is: a conversation is a few sessions
-     * deep and a hundred wide at the very worst, and a walk with no bound is a
-     * query that one malformed row turns into a loop.
-     */
-    private fun familyOf(sessionId: Long): List<Long> {
-        val ancestors = ancestorsOf(sessionId)
-        val root = ancestors.lastOrNull() ?: sessionId
-        val seen = mutableSetOf(root)
-        val below = mutableListOf<Long>()
-        var edge = listOf(root)
-        var depth = 0
-        while (edge.isNotEmpty() && depth < ANCESTOR_DEPTH && seen.size < MOST_IN_FAMILY) {
-            val next = pads.let { _ -> sessions.findByParentSessionIdInOrderByIdAsc(edge) }
-                .mapNotNull { it.id }
-                .filter { seen.add(it) }
-            below += next
-            edge = next
-            depth += 1
-        }
-        // Nearest first: what this session inherited, then the rest of the family.
-        return (ancestors + below).filter { it != sessionId }.distinct()
-    }
-
-    /** The sessions this one descends from, nearest first, bounded like the family. */
-    private fun ancestorsOf(sessionId: Long): List<Long> {
-        val chain = mutableListOf<Long>()
-        var parent = sessions.findByIdOrNull(sessionId)?.parentSessionId
-        var guard = 0
-        while (parent != null && guard < ANCESTOR_DEPTH) {
-            chain += parent
-            parent = sessions.findByIdOrNull(parent)?.parentSessionId
-            guard += 1
-        }
-        return chain
     }
 
     /** Null if the added bytes fit the owner's budget, else why not. */
@@ -535,19 +490,6 @@ class SessionScratchpadService(
 
         /** As much of a matching line as a hit carries. */
         const val HIT_LENGTH = 200
-
-        /** How far up the family a shared pad is inherited, matching the family panel's reach. */
-        const val ANCESTOR_DEPTH = 8
-
-        /**
-         * How many sessions of one conversation are read for its files.
-         * Issue #498.
-         *
-         * A conversation is a handful of sessions; a hundred is a fan-out
-         * nobody intended, and past it the walk stops rather than reading a
-         * workspace's worth of rows to answer one list.
-         */
-        const val MOST_IN_FAMILY = 100
     }
 }
 

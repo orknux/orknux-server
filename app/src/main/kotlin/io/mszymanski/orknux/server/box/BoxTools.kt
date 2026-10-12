@@ -48,8 +48,11 @@ import java.util.Base64
  *
  * **Which sessions.** An agent names a session by the handle `orkbox_open` gave
  * it - the row this side keeps, [BoxSession] - and only the handles of its own
- * conversation answer. orkbox's own id is never what is asked for, so one
- * conversation cannot reach another's sandbox by guessing it.
+ * conversation answer. The conversation is the family, as [SessionFamily] says
+ * it: a subagent works in the box session the agent that asked it opened, and
+ * the asker carries on in one its subagent opened, the way they already share
+ * scratchpads. orkbox's own id is never what is asked for, so one conversation
+ * cannot reach another's sandbox by guessing it.
  *
  * **What a failure looks like.** A command that exits non-zero is a result,
  * with its code and both streams. What orkbox refuses - no such file, an edit
@@ -82,6 +85,7 @@ class BoxTools(
     private val artifacts: io.mszymanski.orknux.server.workflow.SavedArtifactRepository,
     private val attachments: io.mszymanski.orknux.server.attachment.AttachmentStore,
     private val exposed: ExposedPorts,
+    private val family: io.mszymanski.orknux.server.llm.SessionFamily,
 ) {
 
     /** Offered while the agent holds any box label. */
@@ -359,7 +363,7 @@ class BoxTools(
     private fun listSessions(agent: Agent, args: JsonNode, sessionId: Long?): String {
         val conversation = sessionId ?: throw Refused("This call has no conversation, so it has no box sessions")
         val closed = args.bool("include_closed") ?: false
-        val rows = sessions.findByLlmSessionIdOrderByCreatedAtDescIdDesc(conversation)
+        val rows = sessions.findByLlmSessionIdInOrderByCreatedAtDescIdDesc(family.of(conversation))
             .filter { closed || it.open }
         return answer(
             mapOf(
@@ -549,7 +553,7 @@ class BoxTools(
         val given = args.rawText("content")
         if (fromPad != null && given != null) throw Refused("Give content or from_scratchpad, not both")
         val bytes = if (fromPad != null) {
-            val pad = pads.find(held.row.llmSessionId, fromPad)
+            val pad = pads.find(held.conversation, fromPad)
                 ?: throw Refused("This conversation has no scratchpad named $fromPad")
             // A scratchpad holding a file keeps it as base64 under its type; text is kept as itself.
             if (pad.contentType.isNullOrBlank()) {
@@ -839,7 +843,7 @@ class BoxTools(
 
     private fun export(agent: Agent, args: JsonNode, sessionId: Long?): String {
         val held = held(agent, args, sessionId)
-        val conversation = held.row.llmSessionId
+        val conversation = held.conversation
         val path = args.text("path")
         val key = args.text("key") ?: "box.${held.row.id}.archive"
         val bytes = held.client.exportArchive(held.row.remoteSessionId, path)
@@ -859,8 +863,8 @@ class BoxTools(
     private fun import(agent: Agent, args: JsonNode, sessionId: Long?): String {
         val held = held(agent, args, sessionId)
         val key = args.text("key") ?: throw Refused("Say which key holds the archive")
-        val stored = store.get(held.row.llmSessionId, key) ?: throw Refused("This conversation holds nothing under $key")
-        val kind = store.kindOf(held.row.llmSessionId, key)
+        val stored = store.get(held.conversation, key) ?: throw Refused("This conversation holds nothing under $key")
+        val kind = store.kindOf(held.conversation, key)
         if (kind != null && !kind.binary) throw Refused("$key holds text, not an archive")
         val base64 = runCatching { mapper.readTree(stored) }.getOrNull()?.takeIf { it.isString }?.stringValue() ?: stored
         val bytes = runCatching { Base64.getDecoder().decode(base64.trim()) }.getOrNull()
@@ -965,7 +969,8 @@ class BoxTools(
         return named + upper
     }
 
-    private class Held(val row: BoxSession, val client: BoxClient)
+    /** [conversation] is the caller's, which is not [row]'s where the session was opened elsewhere in the family. */
+    private class Held(val row: BoxSession, val client: BoxClient, val conversation: Long)
 
     /**
      * The session a call names, if it is this conversation's and its box is
@@ -974,9 +979,10 @@ class BoxTools(
     private fun held(agent: Agent, args: JsonNode, sessionId: Long?): Held {
         val conversation = sessionId ?: throw Refused("This call has no conversation, so it has no box sessions")
         val handle = args.long("session") ?: throw Refused("Say which session: the number orkbox_open answered with")
-        val row = sessions.findByIdOrNull(handle)?.takeIf { it.llmSessionId == conversation }
+        val row = sessions.findByIdOrNull(handle)
+            ?.takeIf { it.llmSessionId == conversation || it.llmSessionId in family.of(conversation) }
             ?: throw Refused("This conversation has no box session $handle. orkbox_sessions lists the ones it has.")
-        return Held(row, clientFor(agent, row))
+        return Held(row, clientFor(agent, row), conversation)
     }
 
     private fun clientFor(agent: Agent, row: BoxSession): BoxClient {
@@ -1008,6 +1014,7 @@ class BoxTools(
     private fun described(row: BoxSession, live: SessionDto?): Map<String, Any?> = buildMap {
         put("session", row.id)
         put("box", row.boxName)
+        put("openedBy", row.agentName)
         put("status", live?.status ?: row.status)
         live?.let { session ->
             put("runtime", session.runtime)
@@ -1275,7 +1282,8 @@ class BoxTools(
             ),
             ToolSpec(
                 SESSIONS,
-                "Lists the box sessions opened in this conversation, with their state, runtime and when they expire.",
+                "Lists the box sessions opened in this conversation - by you, by the agent that asked you, or by " +
+                    "the agents you asked; any of them can be used - with their state, runtime and when they expire.",
                 listOf(flag("include_closed", "Also list the ones that have stopped.")),
             ),
             ToolSpec(

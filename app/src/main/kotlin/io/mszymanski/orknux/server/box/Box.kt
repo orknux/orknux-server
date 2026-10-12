@@ -147,6 +147,9 @@ class BoxSession(
 
 interface BoxSessionRepository : JpaRepository<BoxSession, Long> {
     fun findByLlmSessionIdOrderByCreatedAtDescIdDesc(llmSessionId: Long): List<BoxSession>
+
+    /** A conversation's sessions across its family - the asker and the agents it asked. */
+    fun findByLlmSessionIdInOrderByCreatedAtDescIdDesc(llmSessionIds: Collection<Long>): List<BoxSession>
     fun findByBoxKindAndBoxIdAndClosedAtIsNull(boxKind: BoxKind, boxId: Long?): List<BoxSession>
     fun findTop200ByBoxKindAndBoxIdOrderByCreatedAtDescIdDesc(boxKind: BoxKind, boxId: Long?): List<BoxSession>
 }

@@ -506,6 +506,41 @@ class BoxToolsTest(
     }
 
     /**
+     * A subagent is the conversation asking somebody to do part of it, so the
+     * sandbox is the conversation's: it works in the session its asker opened,
+     * and the asker carries on in one it opened - while a conversation outside
+     * the family is refused as before.
+     */
+    @Test
+    fun `a subagent works in its asker's box session, and the asker in the subagent's`() {
+        val parents = opened()
+        val child = recorder.openUnder(conversation, "helper")
+
+        call("orkbox_write", mapOf("session" to parents, "path" to "from-parent.txt", "content" to "hello"))
+        assertThat(call("orkbox_read", mapOf("session" to parents, "path" to "from-parent.txt"), into = child).toString())
+            .contains("hello")
+        call("orkbox_sessions", into = child).path("sessions").also { listed ->
+            assertThat(listed.toList().map { it.path("session").asLong() }).containsExactly(parents)
+            assertThat(listed[0].path("openedBy").stringValue()).isEqualTo("Builder")
+        }
+
+        // What the subagent takes out lands in its own store, where its own tools look.
+        call("orkbox_export", mapOf("session" to parents, "key" to "work"), into = child)
+        assertThat(store.get(child, "work")).isNotNull()
+        assertThat(store.get(conversation, "work")).isNull()
+
+        val childs = call("orkbox_open", into = child).path("session").asLong()
+        assertThat(call("orkbox_exec", mapOf("session" to childs, "command" to "echo shared")).path("stdout").stringValue())
+            .contains("shared")
+        assertThat(call("orkbox_sessions").path("sessions").toList().map { it.path("session").asLong() }).containsExactly(childs, parents)
+
+        val stranger = recorder.open(workspaceId, "chat", "elsewhere")
+        assertThat(call("orkbox_exec", mapOf("session" to parents, "command" to "echo x"), into = stranger).path("error").stringValue())
+            .contains("no box session")
+        assertThat(call("orkbox_sessions", into = stranger).path("sessions").size()).isZero()
+    }
+
+    /**
      * A turn holds the agent it loaded when it began, and can run for an hour.
      * A label granted part way through has to reach the tools in that turn: it
      * reached the watcher, which reads the agent fresh, and the watcher fired on

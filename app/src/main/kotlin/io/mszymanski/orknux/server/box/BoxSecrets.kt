@@ -33,6 +33,7 @@ import java.util.concurrent.ConcurrentHashMap
 class BoxSecrets(
     private val sessions: BoxSessionRepository,
     private val variables: WorkspaceVariableRepository,
+    private val family: io.mszymanski.orknux.server.llm.SessionFamily,
 ) {
 
     /** Values handed to each box session in this process, by session row id. */
@@ -56,7 +57,8 @@ class BoxSecrets(
 
     /** [text] with every secret any box session of this conversation was given replaced. */
     fun maskConversation(llmSessionId: Long, text: String): String {
-        val values = sessions.findByLlmSessionIdOrderByCreatedAtDescIdDesc(llmSessionId)
+        // The family's, since a subagent runs commands in the sessions its asker opened and was given secrets in.
+        val values = sessions.findByLlmSessionIdInOrderByCreatedAtDescIdDesc(family.of(llmSessionId))
             .filter { it.secretVariableIds != null || used.containsKey(it.id) }
             .flatMap(::valuesOf)
             .toSet()
