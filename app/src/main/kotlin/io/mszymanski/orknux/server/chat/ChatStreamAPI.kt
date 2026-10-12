@@ -403,8 +403,11 @@ class ChatStreamAPI(
                             // companion model that will not answer costs the
                             // chat nothing.
                             if (said != null) {
+                                // A naming that failed is said to the page for a moment: it was silent, and a bad key left every chat New chat.
                                 runCatching { titles.nameFrom(id, said, answer.content) }
                                     .onFailure { log.warn("Could not name chat {}", id, it) }
+                                    .getOrNull()
+                                    ?.let { why -> send("titleFailed", mapOf("reason" to why)) }
                             }
                             /*
                              * What the turn took and what it cost, in one frame.

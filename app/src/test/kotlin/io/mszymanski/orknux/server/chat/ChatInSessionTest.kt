@@ -760,6 +760,26 @@ class ChatInSessionTest(
         assertThat(chats.findByIdOrNull(chatId)?.title).isEqualTo("Can you check what the biggest")
     }
 
+    /** And the open chat is told the naming failed, for a moment, rather than nothing: a bad key used to leave every chat New chat in silence. */
+    @Test
+    fun `the open chat is told when its model could not name it`() {
+        val endpoint = serve { body ->
+            if (body.contains("You name conversations")) {
+                """{"choices":[{"message":{"role":"assistant","content":"","reasoning_content":"Hmm."}}],"usage":{"prompt_tokens":5,"completion_tokens":3}}"""
+            } else {
+                """{"choices":[{"message":{"role":"assistant","content":"Forty gigabytes."}}],"usage":{"prompt_tokens":5,"completion_tokens":3}}"""
+            }
+        }
+        val chatId = bareChat(llmSessionId = null, endpoint = endpoint)
+        chats.save(requireNotNull(chats.findByIdOrNull(chatId)).apply { title = "New chat" })
+
+        val response = org.springframework.mock.web.MockHttpServletResponse()
+        streaming.stream(chatId, ChatStreamRequest("How big is the disk?"), response).writeTo(response.outputStream)
+
+        assertThat(response.contentAsString).contains("event: titleFailed").contains("\"reason\"")
+        assertThat(chats.findByIdOrNull(chatId)?.title).isEqualTo("How big is the disk")
+    }
+
     @Test
     fun `a chat with no agent opens no session even after it is used`() {
         val chatId = bareChat(llmSessionId = null, endpoint = serveAnswer("Hello."))

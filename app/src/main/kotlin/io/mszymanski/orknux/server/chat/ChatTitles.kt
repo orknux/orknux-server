@@ -50,12 +50,17 @@ class ChatTitles(
      * The title is checked again when it is written, so a rename made while the
      * model was answering stands.
      */
-    fun nameFrom(sessionId: Long, question: String, answer: String) {
-        val session = sessions.findByIdOrNull(sessionId) ?: return
-        if (session.title != DEFAULT_TITLE) return
+    /**
+     * Returns why the model could not name the chat, for the page to say so
+     * for a moment; null when it named it, or when there was nothing to name.
+     */
+    fun nameFrom(sessionId: Long, question: String, answer: String): String? {
+        val session = sessions.findByIdOrNull(sessionId) ?: return null
+        if (session.title != DEFAULT_TITLE) return null
 
-        val workspace = workspaces.findByIdOrNull(session.workspaceId) ?: return
-        val companion = workspace.companionModelId ?: session.modelId ?: return
+        val workspace = workspaces.findByIdOrNull(session.workspaceId) ?: return null
+        val companion = workspace.companionModelId ?: session.modelId ?: return null
+        val failed = arrayOfNulls<String>(1)
 
         /*
          * From the question's own words where the model gave nothing usable. A
@@ -63,9 +68,12 @@ class ChatTitles(
          * nothing, which left every chat on an installation called New chat
          * with not a line in the log.
          */
-        val suggested = ask(companion, question, answer)
-            ?: fromWords(question).also { log.info("Chat {} named from its first message: its model gave no usable title", sessionId) }
-            ?: return
+        val suggested = ask(companion, question, answer) { failed[0] = it }
+            ?: fromWords(question).also {
+                log.info("Chat {} named from its first message: its model gave no usable title", sessionId)
+                if (failed[0] == null) failed[0] = "The model gave no title"
+            }
+            ?: return failed[0]
         writing.executeWithoutResult {
             val held = sessions.findByIdOrNull(sessionId) ?: return@executeWithoutResult
             if (held.title == DEFAULT_TITLE) {
@@ -73,6 +81,7 @@ class ChatTitles(
                 sessions.save(held)
             }
         }
+        return failed[0]
     }
 
     /**
@@ -83,7 +92,7 @@ class ChatTitles(
      * Anything that comes back long is cut rather than refused — a truncated
      * title beats none.
      */
-    private fun ask(modelId: Long, question: String, answer: String): String? {
+    private fun ask(modelId: Long, question: String, answer: String, failed: (String) -> Unit): String? {
         val turns = listOf(
             ChatTurn(
                 role = "system",
@@ -100,6 +109,7 @@ class ChatTitles(
             is ChatCompletion.Failed -> {
                 // Worth knowing about, not worth failing a chat over.
                 log.warn("Could not name chat with the companion model: {}", completion.reason)
+                failed(completion.reason)
                 null
             }
             is ChatCompletion.Answered -> clean(completion.content)
