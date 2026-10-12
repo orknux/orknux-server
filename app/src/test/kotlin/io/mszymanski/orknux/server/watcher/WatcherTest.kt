@@ -469,6 +469,8 @@ class WatcherTest(
         assertThat(heard).containsExactly(session)
         assertThat(events.findAll().single().body).startsWith("Watcher #$id timed out")
             .contains("never matched").contains("running")
+            // Told the wait is not settled, and what to do: an agent told only that it ended gave up on a review.
+            .contains("has not happened").contains(WatcherTools.SET).contains("longer timeout_seconds").contains("say so")
         assertThat(notes().last()).startsWith("Watcher #$id timed out after 60s and 1 checks")
     }
 

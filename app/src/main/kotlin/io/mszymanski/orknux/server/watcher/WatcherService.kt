@@ -472,9 +472,23 @@ class WatcherService(
             SessionEventKind.WATCHER,
             "Watcher #$id timed out: ${watcher.tool} was called ${watcher.checks} times over " +
                 "${watcher.timeoutSeconds}s and ${describe(watcher)} never matched." + noteOf(watcher) +
-                " What it returned last: $result The watcher has ended.",
+                " What it returned last: $result " + afterTimeout(),
         )
     }
+
+    /**
+     * What a timed-out watcher's agent is told to do next. It used to be told
+     * only "The watcher has ended", and an agent waiting on a review read that
+     * as the end of the job: it noted "no replacement set" and finished, with
+     * the review still not in. A timeout is the agent's own guess at how long
+     * to wait running out, not the thing it was waiting for being settled.
+     */
+    private fun afterTimeout(): String =
+        "The watcher has ended, but what you were waiting for has not happened - only the time you gave it ran " +
+            "out. Decide now: if it is still worth waiting for, set another watcher with ${WatcherTools.SET}, with a " +
+            "longer timeout_seconds if this one was too short (at most ${settings.maxSeconds()}s), or with a " +
+            "condition that better recognises it; if it is not, or the result shows it will never come, say so to " +
+            "whoever you were working for. Ending this turn without either leaves nobody waiting for it."
 
     private fun fail(id: Long, why: String) = inTransaction.executeWithoutResult {
         val watcher = watchers.findByIdOrNull(id)?.takeIf { it.status == WatcherStatus.ACTIVE } ?: return@executeWithoutResult
