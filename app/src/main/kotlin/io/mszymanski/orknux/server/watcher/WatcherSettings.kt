@@ -10,6 +10,7 @@ import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.OffsetDateTime
+import kotlin.math.ceil
 
 /**
  * Where a fresh installation's watcher limits come from: `orknux.watchers.*`,
@@ -26,8 +27,12 @@ data class WatcherProperties(
     val maxPerAgent: Int = DEFAULT_WATCHER_MAX_PER_AGENT,
     /** The shortest an agent may ask to be shown a watcher's result between checks. #618. */
     val minAgentCheckSeconds: Int = DEFAULT_WATCHER_MIN_AGENT_CHECK_SECONDS,
-    /** How long a watcher is that gets three looks; see [WatcherSettings.looksFor]. */
-    val lookScaleSeconds: Int = DEFAULT_WATCHER_LOOK_SCALE_SECONDS,
+    /** The delay before the agent's first look of its own; see [LookBackoff]. */
+    val lookInitialSeconds: Int = DEFAULT_LOOK_BACKOFF.initialSeconds,
+    /** What each delay is multiplied by for the next. */
+    val lookMultiplier: Double = DEFAULT_LOOK_BACKOFF.multiplier,
+    /** The longest a delay grows to. */
+    val lookMaxSeconds: Int = DEFAULT_LOOK_BACKOFF.maxSeconds,
 )
 
 @Configuration(proxyBeanMethods = false)
@@ -82,33 +87,44 @@ class WatcherSettings(
         properties.minAgentCheckSeconds.coerceIn(WATCHER_MIN_AGENT_CHECK_RANGE)
 
     /**
-     * The length of watcher that gets three looks of the agent's own; the rest
-     * of the schedule is measured against it - see [looksFor].
+     * How the agent's own looks are spaced where it gave no agent check - see
+     * [LookBackoff]. A stored backoff that no longer holds together falls back
+     * to the configured one whole, never part of it.
      */
-    fun lookScaleSeconds(): Int = held(LOOK_SCALE, WATCHER_LOOK_SCALE_RANGE) ?: lookScaleSecondsConfigured()
-
-    fun lookScaleSecondsConfigured(): Int = properties.lookScaleSeconds.coerceIn(WATCHER_LOOK_SCALE_RANGE)
-
-    /**
-     * Seconds between the agent's own looks for a watcher of [timeout] checked
-     * every [interval], where nobody chose: [looksFor] looks, evenly spaced, so
-     * the last falls before the timeout rather than on it. Fewer where that
-     * spacing would be shorter than [minAgentCheckSeconds] or [interval];
-     * null where not even one fits.
-     */
-    fun agentCheckFor(timeout: Int, interval: Int): Int? {
-        val floor = maxOf(minAgentCheckSeconds(), interval)
-        for (looks in looksFor(timeout, lookScaleSeconds()) downTo 1) {
-            val every = timeout / (looks + 1)
-            if (every >= floor) return every
-        }
-        return null
+    fun lookBackoff(): LookBackoff {
+        val stored = LookBackoff(
+            initialSeconds = held(LOOK_INITIAL, WATCHER_LOOK_INITIAL_RANGE) ?: return lookBackoffConfigured(),
+            multiplier = settings.findByIdOrNull(LOOK_MULTIPLIER)?.value?.toDoubleOrNull() ?: return lookBackoffConfigured(),
+            maxSeconds = held(LOOK_MAX, WATCHER_LOOK_MAX_RANGE) ?: return lookBackoffConfigured(),
+        )
+        return if (stored.problem() == null) stored else lookBackoffConfigured()
     }
 
+    /** What a fresh installation uses - the ORKNUX_WATCHER_LOOK_* variables. */
+    fun lookBackoffConfigured(): LookBackoff {
+        val configured = LookBackoff(properties.lookInitialSeconds, properties.lookMultiplier, properties.lookMaxSeconds)
+        return if (configured.problem() == null) configured else DEFAULT_LOOK_BACKOFF
+    }
+
+    /**
+     * The delay before the first look where nobody chose one: the backoff's
+     * initial delay, but no sooner than [minAgentCheckSeconds] allows or than
+     * the tool is next called. Null where it would fall at or after the
+     * watcher's end, since it would never come.
+     */
+    fun firstLookFor(timeout: Int, interval: Int): Int? =
+        maxOf(lookBackoff().initialSeconds, minAgentCheckSeconds(), interval).takeIf { it < timeout }
+
+    /** The delay after a look that came [delay] seconds after the one before. */
+    fun nextLookAfter(delay: Int): Int = lookBackoff().after(delay)
+
+    /** Sets the whole backoff at once, since the ceiling is only valid against the initial delay. */
     @Transactional
-    fun setLookScaleSeconds(seconds: Int, by: String) {
-        if (seconds !in WATCHER_LOOK_SCALE_RANGE) throw WatcherLookScaleOutOfRangeException(seconds)
-        write(LOOK_SCALE, seconds, by)
+    fun setLookBackoff(backoff: LookBackoff, by: String) {
+        backoff.problem()?.let { throw WatcherLookBackoffInvalidException(backoff, it) }
+        write(LOOK_INITIAL, backoff.initialSeconds, by)
+        write(LOOK_MULTIPLIER, backoff.multiplier.toString(), by)
+        write(LOOK_MAX, backoff.maxSeconds, by)
     }
 
     @Transactional
@@ -139,9 +155,11 @@ class WatcherSettings(
     private fun held(name: String, range: IntRange): Int? =
         settings.findByIdOrNull(name)?.value?.toIntOrNull()?.takeIf { it in range }
 
-    private fun write(name: String, value: Int, by: String) {
+    private fun write(name: String, value: Int, by: String) = write(name, value.toString(), by)
+
+    private fun write(name: String, value: String, by: String) {
         val held = settings.findByIdOrNull(name) ?: InstallationSetting(name = name)
-        held.value = value.toString()
+        held.value = value
         held.lastModifiedAt = OffsetDateTime.now()
         held.lastModifiedBy = by
         settings.save(held)
@@ -152,29 +170,65 @@ class WatcherSettings(
         const val MIN_INTERVAL = "watcher.min.interval.seconds"
         const val MAX_PER_AGENT = "watcher.max.per.agent"
         const val MIN_AGENT_CHECK = "watcher.min.agent.check.seconds"
-        const val LOOK_SCALE = "watcher.look.scale.seconds"
+        const val LOOK_INITIAL = "watcher.look.initial.seconds"
+        const val LOOK_MULTIPLIER = "watcher.look.multiplier"
+        const val LOOK_MAX = "watcher.look.max.seconds"
+    }
+}
 
-        /**
-         * How many looks of its own an agent gets on a watcher of [timeout]
-         * seconds, against [scale] (an hour by default): none below a twelfth of
-         * it, one below a third, two below the whole, three at it, and one more
-         * each time the timeout doubles - 3 + floor(log2(timeout / scale)).
-         * With an hour: 5-20 min one, 20-60 two, 1-2 h three, 2-4 h four.
-         */
-        fun looksFor(timeout: Int, scale: Int): Int {
-            val t = timeout.toLong()
-            val s = scale.toLong()
-            if (t * 12 < s) return 0
-            if (t * 3 < s) return 1
-            if (t < s) return 2
-            var looks = 3
-            var edge = s * 2
-            while (t >= edge) {
-                looks++
-                edge *= 2
-            }
-            return looks
+/**
+ * Exponential backoff for the agent's own looks on a watcher:
+ *
+ *     delay(1) = initial
+ *     delay(n) = min(delay(n - 1) * multiplier, max)
+ *
+ * The first look comes [initialSeconds] after the watcher is set, and each
+ * wait after that is the last one times [multiplier], until it reaches
+ * [maxSeconds]. A short watcher gets a look or two while what it watches is
+ * still fresh, and a week-long one is not looked at every hour of it. A
+ * multiplier of 1 is a fixed interval.
+ */
+data class LookBackoff(
+    val initialSeconds: Int,
+    val multiplier: Double,
+    val maxSeconds: Int,
+) {
+
+    /** The wait after one of [delay] seconds: longer by the multiplier, up to the ceiling, never shorter. */
+    fun after(delay: Int): Int = maxOf(delay, minOf(ceil(delay * multiplier), maxSeconds.toDouble()).toInt())
+
+    /**
+     * When, in seconds after it was set, the looks fall on a watcher of
+     * [timeout] seconds, the first no sooner than [floor]. What the Admin page
+     * simulates from, and what the tests read.
+     */
+    fun looksWithin(timeout: Int, floor: Int = 0): List<Long> {
+        val at = mutableListOf<Long>()
+        var delay = maxOf(initialSeconds, floor)
+        var t = delay.toLong()
+        while (t < timeout && at.size < MOST_LOOKS) {
+            at += t
+            delay = after(delay)
+            t += delay
         }
+        return at
+    }
+
+    /** Why this is not a backoff, or null when it is. */
+    fun problem(): String? = when {
+        initialSeconds !in WATCHER_LOOK_INITIAL_RANGE ->
+            "the initial delay must be between ${WATCHER_LOOK_INITIAL_RANGE.first} and ${WATCHER_LOOK_INITIAL_RANGE.last} seconds"
+        multiplier.isNaN() || multiplier < WATCHER_LOOK_MULTIPLIER_RANGE.start || multiplier > WATCHER_LOOK_MULTIPLIER_RANGE.endInclusive ->
+            "the multiplier must be between ${WATCHER_LOOK_MULTIPLIER_RANGE.start} and ${WATCHER_LOOK_MULTIPLIER_RANGE.endInclusive}"
+        maxSeconds !in WATCHER_LOOK_MAX_RANGE ->
+            "the maximum delay must be between ${WATCHER_LOOK_MAX_RANGE.first} and ${WATCHER_LOOK_MAX_RANGE.last} seconds"
+        maxSeconds < initialSeconds -> "the maximum delay must be at least the initial delay"
+        else -> null
+    }
+
+    private companion object {
+        /** Past this many looks a list is a bug, not a schedule. */
+        const val MOST_LOOKS = 10_000
     }
 }
 
@@ -206,11 +260,17 @@ val WATCHER_MAX_PER_AGENT_RANGE = 0..1000
 
 val WATCHER_MIN_AGENT_CHECK_RANGE = 1..365 * 24 * 60 * 60
 
-/** An hour: five minutes to twenty get one look, twenty to an hour two, and each doubling past it one more. */
-const val DEFAULT_WATCHER_LOOK_SCALE_SECONDS = 60 * 60
+/** First look after 5 min, then 10, 20, 40 ... later, never more than a day apart. */
+val DEFAULT_LOOK_BACKOFF = LookBackoff(initialSeconds = 5 * 60, multiplier = 2.0, maxSeconds = 24 * 60 * 60)
 
 /** A minute to a week. */
-val WATCHER_LOOK_SCALE_RANGE = 60..7 * 24 * 60 * 60
+val WATCHER_LOOK_INITIAL_RANGE = 60..7 * 24 * 60 * 60
+
+/** 1, a fixed interval, to 10. */
+val WATCHER_LOOK_MULTIPLIER_RANGE = 1.0..10.0
+
+/** A minute to a year. */
+val WATCHER_LOOK_MAX_RANGE = 60..365 * 24 * 60 * 60
 
 class WatcherMaxSecondsOutOfRangeException(val seconds: Int) : RuntimeException(
     "$seconds is not a length of time a watcher can be allowed to run for. " +
@@ -233,11 +293,14 @@ class WatcherMaxPerAgentOutOfRangeException(val count: Int) : RuntimeException(
     override val arguments get() = mapOf("count" to count)
 }
 
-class WatcherLookScaleOutOfRangeException(val seconds: Int) : RuntimeException(
-    "$seconds is not a length the agent's looks can be measured against. " +
-        "Choose between ${WATCHER_LOOK_SCALE_RANGE.first} and ${WATCHER_LOOK_SCALE_RANGE.last}.",
+class WatcherLookBackoffInvalidException(val backoff: LookBackoff, val reason: String) : RuntimeException(
+    "That is not a backoff for the agent's looks: $reason.",
 ), Refusal {
-    override val arguments get() = mapOf("seconds" to seconds)
+    override val arguments get() = mapOf(
+        "initialSeconds" to backoff.initialSeconds,
+        "multiplier" to backoff.multiplier,
+        "maxSeconds" to backoff.maxSeconds,
+    )
 }
 
 class WatcherMinAgentCheckOutOfRangeException(val seconds: Int) : RuntimeException(

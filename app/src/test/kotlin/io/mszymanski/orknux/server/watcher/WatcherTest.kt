@@ -20,6 +20,7 @@ import io.mszymanski.orknux.server.workspace.Workspace
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRepository
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -201,21 +202,24 @@ class WatcherTest(
      * spacing chose its timeout, which is no look at all.
      */
     @Test
-    fun `a watcher's looks are spaced by its length unless the agent gives them, and never past its end`() {
+    fun `a watcher's looks back off unless the agent gives them, and never past its end`() {
         val offered = shed().specs().single { it.name == WatcherTools.SET }
             .parameters.single { it.name == WatcherTools.AGENT_CHECK }
         assertThat(offered.required).isFalse()
 
-        // Two hours with the default scale of an hour: four looks, one every 24 minutes.
+        // The first look after the backoff's initial five minutes, and growing from there.
         val derived = idIn(set(interval = 180, timeout = 7200))
-        assertThat(watchers.findById(derived).orElseThrow().agentCheckIntervalSeconds).isEqualTo(1440)
+        watchers.findById(derived).orElseThrow().also {
+            assertThat(it.agentCheckIntervalSeconds).isEqualTo(300)
+            assertThat(it.agentCheckBackoff).isTrue()
+        }
 
-        // Ten minutes: one look, halfway.
-        val once = idIn(set(timeout = 600))
-        assertThat(watchers.findById(once).orElseThrow().agentCheckIntervalSeconds).isEqualTo(300)
+        // No sooner than the tool is called.
+        val slow = idIn(set(interval = 400, timeout = 7200))
+        assertThat(watchers.findById(slow).orElseThrow().agentCheckIntervalSeconds).isEqualTo(400)
 
-        // Under five minutes: none.
-        val none = idIn(set(timeout = 240))
+        // Five minutes or less: the first look would never come.
+        val none = idIn(set(timeout = 300))
         assertThat(watchers.findById(none).orElseThrow().agentCheckIntervalSeconds).isNull()
 
         // An agent check as long as the watcher would never come.
@@ -223,6 +227,7 @@ class WatcherTest(
 
         val given = idIn(set(timeout = 3600, agentCheck = 900))
         assertThat(watchers.findById(given).orElseThrow().agentCheckIntervalSeconds).isEqualTo(900)
+        assertThat(watchers.findById(given).orElseThrow().agentCheckBackoff).isFalse()
         assertThat(call(WatcherTools.UPDATE, """{"watcher":$given,"agent_check_interval_seconds":0}"""))
             .contains("cannot be switched off")
         assertThat(call(WatcherTools.UPDATE, """{"watcher":$given,"agent_check_interval_seconds":3600}"""))
@@ -230,7 +235,7 @@ class WatcherTest(
         assertThat(watchers.findById(given).orElseThrow().agentCheckIntervalSeconds).isEqualTo(900)
     }
 
-    /** One set before every watcher had looks is given the schedule at its next check, counted from when it was set. */
+    /** One set before every watcher had looks is given the backoff at its next check, counted from when it was set. */
     @Test
     fun `a watcher set without looks is given them at its next check`() {
         val id = idIn(set(interval = 180, timeout = 7200))
@@ -242,17 +247,46 @@ class WatcherTest(
         due(id)
         assertThat(service.tick()).isEqualTo(1)
         val given = watchers.findById(id).orElseThrow()
-        assertThat(given.agentCheckIntervalSeconds).isEqualTo(1440)
-        assertThat(given.nextAgentCheckAt).isEqualTo(given.createdAt.plusSeconds(1440))
+        assertThat(given.agentCheckIntervalSeconds).isEqualTo(300)
+        assertThat(given.nextAgentCheckAt).isEqualTo(given.createdAt.plusSeconds(300))
+        assertThat(given.agentCheckBackoff).isTrue()
     }
 
-    /** The table the user asked for: one look for 5-20 min, two to an hour, then one more per doubling. */
+    /** 5 min, then each wait doubled, up to a day: the looks fall at 5, 15, 35, 75 ... minutes. */
     @Test
-    fun `the number of looks grows by one each time a watcher's length doubles`() {
-        val hour = 3600
-        val looks = listOf(4 * 60, 5 * 60, 19 * 60, 20 * 60, 59 * 60, hour, 2 * hour - 1, 2 * hour, 4 * hour, 8 * hour, 7 * 24 * hour)
-            .map { WatcherSettings.looksFor(it, hour) }
-        assertThat(looks).containsExactly(0, 1, 1, 2, 2, 3, 3, 4, 5, 6, 10)
+    fun `the default backoff doubles each wait up to a day`() {
+        val minute = 60L
+        assertThat(DEFAULT_LOOK_BACKOFF.looksWithin(2 * 3600)).containsExactly(5 * minute, 15 * minute, 35 * minute, 75 * minute)
+        assertThat(DEFAULT_LOOK_BACKOFF.looksWithin(300)).isEmpty()
+        assertThat(DEFAULT_LOOK_BACKOFF.after(16 * 3600)).isEqualTo(24 * 3600)
+        assertThat(DEFAULT_LOOK_BACKOFF.after(24 * 3600)).isEqualTo(24 * 3600)
+        // A week: the waits reach a day by the ninth look and stay there.
+        assertThat(DEFAULT_LOOK_BACKOFF.looksWithin(7 * 24 * 3600)).hasSize(14)
+    }
+
+    /** All three parameters move the looks, a look grows the next wait, and a backoff that does not hold together is refused. */
+    @Test
+    fun `the backoff follows its parameters, and each look grows the next wait`() {
+        val backoff = LookBackoff(initialSeconds = 600, multiplier = 3.0, maxSeconds = 3600)
+        assertThat(backoff.looksWithin(10_000)).containsExactly(600L, 2400L, 6000L, 9600L)
+
+        settings.setLookBackoff(backoff, "alice")
+        assertThat(settings.lookBackoff()).isEqualTo(backoff)
+        val id = idIn(set(interval = 180, timeout = 20_000))
+        assertThat(watchers.findById(id).orElseThrow().agentCheckIntervalSeconds).isEqualTo(600)
+        watchers.findById(id).orElseThrow().also {
+            it.nextAgentCheckAt = OffsetDateTime.now().minusSeconds(1)
+            watchers.save(it)
+        }
+        due(id)
+        service.tick()
+        assertThat(watchers.findById(id).orElseThrow().agentCheckIntervalSeconds).isEqualTo(1800)
+
+        assertThat(LookBackoff(600, 2.0, 300).problem()).contains("at least the initial delay")
+        assertThat(LookBackoff(600, 0.5, 3600).problem()).contains("multiplier")
+        assertThatThrownBy { settings.setLookBackoff(LookBackoff(30, 2.0, 3600), "alice") }
+            .isInstanceOf(WatcherLookBackoffInvalidException::class.java)
+        assertThat(settings.lookBackoff()).isEqualTo(backoff)
     }
 
     @Test

@@ -100,8 +100,8 @@ class WatcherTools(
                                 "woken this often with the latest result, to judge it yourself and change the " +
                                 "watcher with $UPDATE or end it - so a condition that never recognises what you " +
                                 "are waiting for does not leave you waiting until the timeout. Usually leave it out: " +
-                                "your looks are then spaced by the watcher's length - one for a short watcher, more " +
-                                "the longer it runs. Give it only to look more or less often: at least $looks, at least " +
+                                "your looks then back off by themselves - the first after a few minutes, each wait " +
+                                "longer than the last. Give it only for a fixed spacing of your own: at least $looks, at least " +
                                 "interval_seconds, and shorter than timeout_seconds. Each look costs you a turn.",
                         ),
                     ),
@@ -197,8 +197,8 @@ class WatcherTools(
              * A watcher whose condition never matched used to run silently to
              * its timeout - a week by default - with nobody looking at what came
              * back; a look of the agent's own is what notices a condition that
-             * was guessed wrong. Left out, the looks are spaced by the watcher's
-             * length (WatcherSettings.looksFor): an agent asked to choose chose
+             * was guessed wrong. Left out, the looks back off exponentially
+             * (WatcherSettings.lookBackoff): an agent asked to choose chose
              * the timeout itself, which is no look at all.
              */
             val agentCheck = present(asked?.path(AGENT_CHECK))?.let {

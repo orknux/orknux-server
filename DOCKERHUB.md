@@ -50,7 +50,7 @@ in the source repository.
 
 | Variable | What it does | Default | Required |
 | --- | --- | --- | --- |
-| `ORKNUX_SECRET_KEY` | Encrypts every credential this server holds - provider keys, Slack tokens, MCP secrets - so the database alone is not enough to use them. 32 bytes, base64. | *none* | **Yes** |
+| `ORKNUX_SECRET_KEY` | Encrypts every stored credential, so the database alone is not enough to use them. 32 bytes, base64. | *none* | **Yes** |
 
 A key that is set and **cannot work** - not valid base64, or the wrong length -
 stops the boot, loudly. Otherwise it surfaces as a 500 hours later, while the
@@ -143,7 +143,7 @@ request.
 | `ORKNUX_OIDC_CLIENT_SECRET` | Its secret. | *none* | **Yes** under OIDC |
 | `ORKNUX_OIDC_SCOPES` | What is asked for, comma separated. | `openid,profile,email,groups` | No |
 | `ORKNUX_OIDC_USERNAME_CLAIM` | The claim to show as somebody's name. The subject is the fallback. | `preferred_username` | No |
-| `ORKNUX_OIDC_ROLES_CLAIM` | The claim carrying group or role membership; there is no standard one. Keycloak and Okta usually say `groups`, Entra `groups` or `roles`. | `groups` | No |
+| `ORKNUX_OIDC_ROLES_CLAIM` | The claim carrying group or role membership. Keycloak and Okta say `groups`, Entra `groups` or `roles`. | `groups` | No |
 | `ORKNUX_OIDC_DISPLAY_NAME` | What the sign-in button says. | `single sign-on` | No |
 | `ORKNUX_OIDC_AUDIENCES` | Which audiences a bearer token may name, comma separated. **Read the paragraph below before upgrading an OIDC installation.** | *the client id* | **Conditional** - see below |
 
@@ -318,8 +318,9 @@ ORKNUX_CONNECTION_CHECK_INITIAL_DELAY, ORKNUX_SCHEDULER_THREADS, ORKNUX_SCHEDULE
 ORKNUX_REVISION_SWEEP_ENABLED, ORKNUX_REVISION_SWEEP_INTERVAL,
 ORKNUX_SESSIONS_ACTIVE_WINDOW_SECONDS, ORKNUX_SESSIONS_DUE_SWEEP, ORKNUX_TASK_SWEEP_ENABLED,
 ORKNUX_TASK_SWEEP_INITIAL_DELAY, ORKNUX_WATCHER_MAX_SECONDS, ORKNUX_WATCHER_MIN_INTERVAL_SECONDS,
-ORKNUX_WATCHER_MAX_PER_AGENT, ORKNUX_WATCHER_MIN_AGENT_CHECK_SECONDS and
-ORKNUX_WATCHER_LOOK_SCALE_SECONDS are in
+ORKNUX_WATCHER_MAX_PER_AGENT, ORKNUX_WATCHER_MIN_AGENT_CHECK_SECONDS,
+ORKNUX_WATCHER_LOOK_INITIAL_SECONDS, ORKNUX_WATCHER_LOOK_MULTIPLIER and
+ORKNUX_WATCHER_LOOK_MAX_SECONDS are in
 [the README](https://github.com/orknux/orknux-server/blob/main/README.md#more-settings).
 
 ## Sessions, HTTP and logging

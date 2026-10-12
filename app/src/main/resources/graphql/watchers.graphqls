@@ -29,11 +29,12 @@ extend type Mutation {
     "How many watchers one agent may have running at once; zero switches watchers off. Administrators only."
     setWatcherMaxPerAgent(count: Int!): WatcherSettings!
     """
-    The length of watcher that gets three looks of the agent's own, in seconds:
-    a twelfth of it gets one, a third two, and each doubling past it one more,
-    evenly spaced. Used where the agent gave no agent check. Administrators only.
+    Exponential backoff for the agent's own looks where it gave no agent check:
+    the first after initialSeconds, each wait after that the last times
+    multiplier, up to maxSeconds. initialSeconds is 60 to 604800, multiplier 1
+    to 10, maxSeconds 60 to a year and at least initialSeconds. Administrators only.
     """
-    setWatcherLookScaleSeconds(seconds: Int!): WatcherSettings!
+    setWatcherLookBackoff(initialSeconds: Int!, multiplier: Float!, maxSeconds: Int!): WatcherSettings!
 }
 
 type WatcherPage {
@@ -112,8 +113,18 @@ type WatcherSettings {
     minAgentCheckSeconds: Int!
     "What a fresh installation allows - ORKNUX_WATCHER_MIN_AGENT_CHECK_SECONDS."
     minAgentCheckSecondsConfigured: Int!
-    "The length of watcher that gets three looks of the agent's own; the schedule is measured against it."
-    lookScaleSeconds: Int!
-    "What a fresh installation allows - ORKNUX_WATCHER_LOOK_SCALE_SECONDS."
-    lookScaleSecondsConfigured: Int!
+    "How the agent's own looks back off where it gave no agent check."
+    lookBackoff: WatcherLookBackoff!
+    "What a fresh installation uses - the ORKNUX_WATCHER_LOOK_* variables."
+    lookBackoffConfigured: WatcherLookBackoff!
+}
+
+"""
+Exponential backoff for the agent's own looks on a watcher: the first after
+initialSeconds, then each wait the last times multiplier, up to maxSeconds.
+"""
+type WatcherLookBackoff {
+    initialSeconds: Int!
+    multiplier: Float!
+    maxSeconds: Int!
 }

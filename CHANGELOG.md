@@ -25,7 +25,7 @@ have failed.
 
 ### 🔧 Changed
 
-- **A watcher's own looks are spaced by its length.** The agent no longer has to choose an agent check: one look for a 5-20 min watcher, two up to an hour, then one more each time the length doubles, evenly spaced. **Three Looks By The Agent From** (an hour) in Admin Settings scales it. An agent check the agent gives must now be shorter than the watcher's timeout, and running watchers set without one get looks at their next check.
+- **A watcher's own looks back off exponentially.** The agent no longer has to choose an agent check: the first look comes after 5 min, each wait after that doubles, and none is longer than a day. Admin Settings sets the three numbers and shows when the agent would look on watchers from 10 min to a week. An agent check the agent gives must now be shorter than the watcher's timeout, and running watchers set without one get looks at their next check.
 - Retry notes in a conversation and step retries in a run log say when the next attempt is, in the working timezone, and the Watchers page shows times on hover in your own time zone rather than UTC.
 - **A box's session limit counts only sessions at work** - being made or running a command. An idle session no longer takes a place; it takes one when it starts a command, and is refused while none is free. This applies to the local box and to a standalone orkbox once it is upgraded.
 - **Subagents share box sessions with the agent that asked them**, both ways, the way they share scratchpads: either can run commands in a session the other opened - on the grant of whoever opened it, so a subagent needs no grant of its own for that box - and `orkbox_sessions` lists them with who opened each. A conversation outside the family still cannot reach them.

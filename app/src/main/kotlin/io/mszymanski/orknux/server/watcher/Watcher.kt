@@ -145,6 +145,14 @@ class Watcher(
     /** When it is next due to wake its agent for a look; null with no agent check. */
     @Column(name = "next_agent_check_at")
     var nextAgentCheckAt: OffsetDateTime? = null,
+
+    /**
+     * Whether [agentCheckIntervalSeconds] grows after each look - the
+     * installation's backoff, used where the agent gave no agent check - or
+     * stays as the agent chose it.
+     */
+    @Column(name = "agent_check_backoff")
+    var agentCheckBackoff: Boolean = false,
 )
 
 enum class WatcherConditionKind {

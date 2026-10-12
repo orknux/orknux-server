@@ -156,7 +156,7 @@ class WatcherService(
         }
         asked.agentCheckIntervalSeconds?.let { agentCheckProblem(it, asked.intervalSeconds, asked.timeoutSeconds) }
             ?.let { throw WatcherRefused(it) }
-        val agentCheck = asked.agentCheckIntervalSeconds ?: settings.agentCheckFor(asked.timeoutSeconds, asked.intervalSeconds)
+        val agentCheck = asked.agentCheckIntervalSeconds ?: settings.firstLookFor(asked.timeoutSeconds, asked.intervalSeconds)
 
         val running = agent.id?.let { watchers.countByAgentIdAndStatus(it, WatcherStatus.ACTIVE) }
             ?: watchers.countBySessionIdAndAgentIdIsNullAndStatus(sessionId, WatcherStatus.ACTIVE)
@@ -205,6 +205,7 @@ class WatcherService(
                     nextCheckAt = now.plusSeconds(asked.intervalSeconds.toLong()),
                     agentCheckIntervalSeconds = agentCheck,
                     nextAgentCheckAt = agentCheck?.let { now.plusSeconds(it.toLong()) },
+                    agentCheckBackoff = asked.agentCheckIntervalSeconds == null && agentCheck != null,
                 ),
             )
             recorder.note(
@@ -290,6 +291,7 @@ class WatcherService(
                 if (change.agentCheckIntervalSeconds != null) {
                     held.agentCheckIntervalSeconds = agentCheck
                     held.nextAgentCheckAt = agentCheck?.let { now.plusSeconds(it.toLong()) }
+                    held.agentCheckBackoff = false
                 }
                 watchers.save(held)
                 recorder.note(
@@ -316,7 +318,7 @@ class WatcherService(
             seconds < floor -> "agent_check_interval_seconds must be at least $floor: no shorter than this " +
                 "installation allows (${settings.minAgentCheckSeconds()}s) and no shorter than interval_seconds."
             seconds >= timeout -> "agent_check_interval_seconds must be shorter than the ${timeout}s the watcher " +
-                "has to run, or it ends before you look once. Leave it out and your looks are spaced by its length."
+                "has to run, or it ends before you look once. Leave it out and your looks back off by themselves."
             else -> null
         }
     }
@@ -437,20 +439,28 @@ class WatcherService(
      */
     private fun lookDue(watcher: Watcher, result: String, now: OffsetDateTime) {
         if (watcher.agentCheckIntervalSeconds == null) {
-            // Set before every watcher had looks: given the schedule now, counted from when it was set.
-            val derived = settings.agentCheckFor(watcher.timeoutSeconds, watcher.intervalSeconds) ?: return
-            watcher.agentCheckIntervalSeconds = derived
-            watcher.nextAgentCheckAt = watcher.createdAt.plusSeconds(derived.toLong())
+            // Set before every watcher had looks: given the backoff now, counted from when it was set.
+            val first = settings.firstLookFor(watcher.timeoutSeconds, watcher.intervalSeconds) ?: return
+            watcher.agentCheckIntervalSeconds = first
+            watcher.nextAgentCheckAt = watcher.createdAt.plusSeconds(first.toLong())
+            watcher.agentCheckBackoff = true
         }
         val every = watcher.agentCheckIntervalSeconds ?: return
         val due = watcher.nextAgentCheckAt ?: return
         if (now.isBefore(due)) return
-        watcher.nextAgentCheckAt = now.plusSeconds(every.toLong())
+        val next = if (watcher.agentCheckBackoff) settings.nextLookAfter(every) else every
+        watcher.agentCheckIntervalSeconds = next
+        watcher.nextAgentCheckAt = now.plusSeconds(next.toLong())
+        val spacing = if (watcher.agentCheckBackoff) {
+            "one of the looks that back off by themselves; the next is in ${next}s unless it ends first"
+        } else {
+            "the look you asked for every ${every}s"
+        }
         recorder.note(watcher.sessionId, "Watcher #${watcher.id} showed ${watcher.agentName} its result after ${watcher.checks} checks.")
         inbox.post(
             watcher.sessionId,
             SessionEventKind.WATCHER,
-            "Watcher #${watcher.id} has not matched yet, and this is the look you asked for every ${every}s. " +
+            "Watcher #${watcher.id} has not matched yet, and this is $spacing. " +
                 "You asked to be told when ${watcher.tool} returned something matching ${describe(watcher)}." +
                 noteOf(watcher) + " On check ${watcher.checks} it returned: $result " +
                 "Judge it yourself. If what you are waiting for has in fact happened, end the watcher with " +

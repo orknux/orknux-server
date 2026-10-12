@@ -106,10 +106,18 @@ class WatcherAPI(
     }
 
     @MutationMapping
-    fun setWatcherLookScaleSeconds(@Argument seconds: Int): WatcherSettingsView {
+    fun setWatcherLookBackoff(
+        @Argument initialSeconds: Int,
+        @Argument multiplier: Double,
+        @Argument maxSeconds: Int,
+    ): WatcherSettingsView {
         access.requireAdmin()
-        settings.setLookScaleSeconds(seconds, currentUser())
-        auditRecorder.record(null, WorkspaceAuditCategory.AGENT, "Watcher agent looks measured against $seconds seconds")
+        settings.setLookBackoff(LookBackoff(initialSeconds, multiplier, maxSeconds), currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.AGENT,
+            "Watcher agent looks back off from $initialSeconds s by x$multiplier up to $maxSeconds s",
+        )
         return view()
     }
 
@@ -130,8 +138,8 @@ class WatcherAPI(
         maxPerAgentConfigured = settings.maxPerAgentConfigured(),
         minAgentCheckSeconds = settings.minAgentCheckSeconds(),
         minAgentCheckSecondsConfigured = settings.minAgentCheckSecondsConfigured(),
-        lookScaleSeconds = settings.lookScaleSeconds(),
-        lookScaleSecondsConfigured = settings.lookScaleSecondsConfigured(),
+        lookBackoff = settings.lookBackoff(),
+        lookBackoffConfigured = settings.lookBackoffConfigured(),
     )
 
     private fun currentUser(): String =
@@ -220,8 +228,8 @@ data class WatcherSettingsView(
     val maxPerAgentConfigured: Int,
     val minAgentCheckSeconds: Int,
     val minAgentCheckSecondsConfigured: Int,
-    val lookScaleSeconds: Int,
-    val lookScaleSecondsConfigured: Int,
+    val lookBackoff: LookBackoff,
+    val lookBackoffConfigured: LookBackoff,
 )
 
 @Component
@@ -235,7 +243,7 @@ class WatcherExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is WatcherMinIntervalOutOfRangeException,
             is WatcherMaxPerAgentOutOfRangeException,
             is WatcherMinAgentCheckOutOfRangeException,
-            is WatcherLookScaleOutOfRangeException,
+            is WatcherLookBackoffInvalidException,
             -> refused(exception, ErrorType.BAD_REQUEST, environment)
 
             else -> null
