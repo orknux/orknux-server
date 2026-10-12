@@ -1560,6 +1560,12 @@ type Mutation {
     """
     setMyLanguage(language: String): AppUser!
     """
+    Sets the time zone you read times in. Yours only. An IANA name such as
+    `Europe/Warsaw`; null puts you back to your browser's own zone. A name that
+    is not a zone is refused.
+    """
+    setMyTimeZone(timeZone: String): AppUser!
+    """
     Turns the cost line in your chats on or off. Yours only - it decides what is
     drawn on one person's own screen, on chats nobody else can open, so there is
     no id to pass.
@@ -8691,6 +8697,8 @@ type AppUser {
     open in the language it is already set to.
     """
     language: String
+    "The time zone they read times in, as an IANA name. Null where their browser's own is used."
+    timeZone: String
     type: UserType!
     roles: [RoleRef!]!
     "False for anybody the identity provider defines."

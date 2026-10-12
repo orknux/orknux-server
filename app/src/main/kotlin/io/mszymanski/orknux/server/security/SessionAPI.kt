@@ -324,6 +324,8 @@ class SessionAPI(
              * with no row yet, which is what the column defaults to.
              */
             chatCostShown = held?.chatCostShown ?: false,
+            // With the session for the language's reason: every time on the first screen is drawn in it.
+            timeZone = held?.timeZone,
             /*
              * Whether Preferences offers them access tokens of their own. Only
              * an internal user may hold one - see `UserAPI.createUserToken` -
@@ -383,6 +385,8 @@ data class SessionUser @JsonCreator constructor(
      * its own on a screen that already has one open.
      */
     @JsonProperty("chatCostShown") val chatCostShown: Boolean = false,
+    /** The time zone to draw times in, or null where the browser's own should be used. */
+    @JsonProperty("timeZone") val timeZone: String? = null,
     /** Whether they may make access tokens for themselves: internal users only. Issue #2. */
     @JsonProperty("tokensAllowed") val tokensAllowed: Boolean = false,
 ) {

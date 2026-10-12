@@ -161,6 +161,14 @@ class AppUser(
     @Column(length = 16)
     var language: String? = null,
 
+    /**
+     * Which time zone they read times in, as an IANA name, or null while they
+     * have not said and the browser's own zone is used. On the person for the
+     * reason [language] is.
+     */
+    @Column(name = "time_zone", length = 64)
+    var timeZone: String? = null,
+
     @Column(name = "created_at", nullable = false)
     val createdAt: OffsetDateTime = OffsetDateTime.now(),
 
@@ -269,6 +277,12 @@ class UserNameTakenException(val username: String) :
 }
 
 class UserNameInvalidException : RuntimeException("A user needs a username")
+
+class UnknownTimeZoneException(val timeZone: String) :
+    RuntimeException("There is no time zone named \"$timeZone\"; give an IANA name like \"Europe/Warsaw\""), Refusal {
+
+    override val arguments get() = mapOf("timeZone" to timeZone)
+}
 
 class PasswordTooShortException(val shortest: Int) :
     RuntimeException("A password needs at least $shortest characters"), Refusal {

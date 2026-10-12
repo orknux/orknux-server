@@ -50,6 +50,7 @@ import io.mszymanski.orknux.server.issue.IssueAttachmentNotYoursException
 import io.mszymanski.orknux.server.issue.IssueCommentNotYoursException
 import io.mszymanski.orknux.server.issue.IssueNotFoundException
 import io.mszymanski.orknux.server.issue.IssueTitleInvalidException
+import io.mszymanski.orknux.server.user.UnknownTimeZoneException
 import io.mszymanski.orknux.server.user.PasswordNotSettableException
 import io.mszymanski.orknux.server.user.EmailInvalidException
 import io.mszymanski.orknux.server.user.PasswordTooShortException
@@ -203,6 +204,7 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is RoleNameInvalidException,
             is UserNameTakenException,
             is UserNameInvalidException,
+            is UnknownTimeZoneException,
             is IssueTitleInvalidException,
             is IssueCommentEmptyException,
             is IssueCommentNotYoursException,

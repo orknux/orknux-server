@@ -244,6 +244,24 @@ class UserAPI(
     }
 
     /**
+     * Which time zone somebody reads times in. Theirs alone, like the language.
+     * An IANA name such as `Europe/Warsaw`, checked against the zones Java
+     * knows so a typo is refused rather than silently read as UTC; null puts
+     * them back to their browser's own zone.
+     */
+    @MutationMapping
+    @Transactional
+    fun setMyTimeZone(@Argument timeZone: String?): UserView {
+        val wanted = timeZone?.trim()?.takeIf(String::isNotEmpty)
+        if (wanted != null && runCatching { java.time.ZoneId.of(wanted) }.isFailure) throw UnknownTimeZoneException(wanted)
+        val held = mineOr(null)
+        held.timeZone = wanted
+        held.lastModifiedAt = OffsetDateTime.now()
+        held.lastModifiedBy = editor()
+        return describe(users.save(held))
+    }
+
+    /**
      * The account this call is allowed to change: mine when no id was given,
      * anybody's for an administrator.
      *
@@ -356,6 +374,7 @@ class UserAPI(
         emailNotifications = user.emailNotifications,
         chatCostShown = user.chatCostShown,
         language = user.language,
+        timeZone = user.timeZone,
         type = user.type,
         roles = user.roles.map { RoleRef(requireNotNull(it.id), it.name) }.sortedBy { it.name.lowercase() },
         editable = user.editable,
@@ -379,6 +398,8 @@ data class UserView(
     val chatCostShown: Boolean,
     /** The language they read the product in, or null where they have not said. */
     val language: String?,
+    /** The time zone they read times in, or null where their browser's is used. */
+    val timeZone: String?,
     val type: UserType,
     val roles: List<RoleRef>,
     /** False for anybody the identity provider defines. */

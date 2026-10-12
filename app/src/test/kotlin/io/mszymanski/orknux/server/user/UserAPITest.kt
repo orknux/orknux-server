@@ -245,6 +245,27 @@ class UserAPITest(
         assertThat(requireNotNull(users.findByUsername("kasia")).language).isNull()
     }
 
+    @Test
+    @WithMockUser(username = "tomek", roles = ["USERS"])
+    fun `somebody chooses the time zone they read times in, and a name that is no zone is refused`() {
+        detection.onSignIn(AuthenticationSuccessEvent(TestingAuthenticationToken("tomek", "n/a", "ROLE_USERS")))
+
+        graphQlTester.document("""mutation { setMyTimeZone(timeZone: " Europe/Warsaw ") { timeZone } }""")
+            .execute()
+            .path("setMyTimeZone.timeZone").entity(String::class.java).isEqualTo("Europe/Warsaw")
+        assertThat(requireNotNull(users.findByUsername("tomek")).timeZone).isEqualTo("Europe/Warsaw")
+
+        graphQlTester.document("""mutation { setMyTimeZone(timeZone: "Mars/Olympus") { timeZone } }""")
+            .execute()
+            .errors().expect { it.message?.contains("no time zone named") == true }
+        assertThat(requireNotNull(users.findByUsername("tomek")).timeZone).isEqualTo("Europe/Warsaw")
+
+        graphQlTester.document("""mutation { setMyTimeZone(timeZone: null) { timeZone } }""")
+            .execute()
+            .path("setMyTimeZone.timeZone").valueIsNull()
+        assertThat(requireNotNull(users.findByUsername("tomek")).timeZone).isNull()
+    }
+
     /**
      * A tag no catalogue was shipped for is stored rather than refused.
      *
