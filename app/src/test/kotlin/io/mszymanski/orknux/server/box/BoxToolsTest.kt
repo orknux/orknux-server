@@ -541,6 +541,28 @@ class BoxToolsTest(
     }
 
     /**
+     * A subagent granted other boxes works in its asker's session on the
+     * asker's grant - asking it in is handing it the sandbox - but opens none of
+     * its own there, and loses the session when the asker loses the box.
+     */
+    @Test
+    fun `a subagent without the box works in its asker's session on the asker's grant`() {
+        val parents = opened()
+        val child = recorder.openUnder(conversation, "helper")
+        val helper = agents.save(Agent(workspaceId = workspaceId, name = "Helper", type = AgentType.LLM).apply { boxLabels = listOf("other") })
+
+        assertThat(call("orkbox_exec", mapOf("session" to parents, "command" to "echo helped"), who = helper, into = child).path("stdout").stringValue())
+            .contains("helped")
+        assertThat(call("orkbox_open", mapOf("box" to "local"), who = helper, into = child).path("error").stringValue())
+            .contains("may not use a box called local")
+
+        agent.boxLabels = listOf("other")
+        agents.save(agent)
+        assertThat(call("orkbox_exec", mapOf("session" to parents, "command" to "echo x"), who = helper, into = child).path("error").stringValue())
+            .contains("no longer use")
+    }
+
+    /**
      * A turn holds the agent it loaded when it began, and can run for an hour.
      * A label granted part way through has to reach the tools in that turn: it
      * reached the watcher, which reads the agent fresh, and the watcher fired on

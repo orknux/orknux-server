@@ -76,6 +76,19 @@ class Boxes(
     fun mayUse(agent: Agent, box: KnownBox): Boolean = box.label != null && box.label in labelsNow(agent)
 
     /**
+     * Whether [agent] may work in a session on [box] that the agent [openerId]
+     * opened: on its own grant, or on the opener's. A session is shared within
+     * a conversation - an asker and the subagents it asks - and asking somebody
+     * to work in your sandbox is handing them your grant for that sandbox, not
+     * for the box: opening a session of its own still takes a grant of its own.
+     */
+    fun mayUseSession(agent: Agent, box: KnownBox, openerId: Long?): Boolean =
+        mayUse(agent, box) ||
+            openerId?.takeIf { it != agent.id }
+                ?.let { agents.findById(it).orElse(null) }
+                ?.let { mayUse(it, box) } == true
+
+    /**
      * What [agent] is granted at this moment, not when its turn began.
      *
      * A turn holds the agent it loaded at its start, and a turn can run for an

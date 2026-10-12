@@ -987,7 +987,7 @@ class BoxTools(
 
     private fun clientFor(agent: Agent, row: BoxSession): BoxClient {
         val box = boxes.byId(row.boxRef) ?: throw Refused("Box ${row.boxName} is no longer configured")
-        if (!boxes.mayUse(agent, box)) throw Refused("You may no longer use box ${row.boxName}")
+        if (!boxes.mayUseSession(agent, box, row.agentId)) throw Refused("You may no longer use box ${row.boxName}")
         return boxes.client(box)
     }
 
