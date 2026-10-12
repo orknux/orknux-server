@@ -194,9 +194,15 @@ class BoxAPITest(
     @Test
     fun `a remote box is asked how it is, and an unreachable one says so`() {
         val id = create("builder")
-        val asked = graphQlTester.document("""{ box(id: "$id") { health { status detail } activeSessions } }""").execute()
+        val asked = graphQlTester.document("""{ box(id: "$id") { health { status detail } activeSessions capacity { active busy idle max free } } }""").execute()
         asked.path("box.health.status").entity(String::class.java).isEqualTo("UP")
         asked.path("box.activeSessions").entity(Int::class.java).isEqualTo(2)
+        asked.path("box.capacity.active").entity(Int::class.java).isEqualTo(2)
+        // Each stub session has a command running: working, not waiting.
+        asked.path("box.capacity.busy").entity(Int::class.java).isEqualTo(2)
+        asked.path("box.capacity.idle").entity(Int::class.java).isEqualTo(0)
+        asked.path("box.capacity.max").entity(Int::class.java).isEqualTo(50)
+        asked.path("box.capacity.free").entity(Int::class.java).isEqualTo(48)
 
         stub.ready = false
         graphQlTester.document("""{ box(id: "$id") { health { status detail } } }""").execute().also {
@@ -223,9 +229,10 @@ class BoxAPITest(
         assertThat(stub.asked.filter { it.second.startsWith("/v1/") }).allMatch { it.third == "Bearer change-me" }
 
         val gone = create("gone", address = "http://orkbox.invalid:8080")
-        graphQlTester.document("""{ box(id: "$gone") { health { status detail } activeSessions } }""").execute().also {
+        graphQlTester.document("""{ box(id: "$gone") { health { status detail } activeSessions capacity { free } } }""").execute().also {
             it.path("box.health.status").entity(String::class.java).isEqualTo("DOWN")
             it.path("box.activeSessions").valueIsNull()
+            it.path("box.capacity").valueIsNull()
         }
         refusedWith("""{ boxInfo(id: "$gone") { name } }""", "BoxUnreachable", mapOf("name" to "gone"))
     }

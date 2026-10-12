@@ -19,6 +19,19 @@ data class KnownBox(
 )
 
 /**
+ * A box's sessions: how many are open, the most it takes, and the room left.
+ *
+ * Open is split in two because a person reading "3 active" assumes three are
+ * working. [busy] are running a command; [idle] are open with nothing running -
+ * waiting on an agent or a person until their idle timeout stops them - and
+ * hold a place all the same. orkbox has no paused state: idle is the nearest.
+ */
+data class BoxCapacity(val busy: Int, val idle: Int, val max: Int) {
+    val active: Int get() = busy + idle
+    val free: Int get() = (max - active).coerceAtLeast(0)
+}
+
+/**
  * Every box this installation has, and a client for each.
  *
  * The one place that knows the local box and the remote ones are both boxes:
@@ -74,6 +87,20 @@ class Boxes(
      */
     fun labelsNow(agent: Agent): Set<String> =
         (agent.id?.takeIf(agents::existsById)?.let { id -> Agent.parseBoxLabels(agents.boxLabelsTextOf(id)) } ?: agent.boxLabels).toSet()
+
+    /**
+     * How full [box] is: the sessions it holds open against the most it takes,
+     * or null when it could not be asked. Counted as orkbox counts when it
+     * refuses one - creating and ready both - so a box said to have room has
+     * it. The local box is not started to say so: stopped, it holds none.
+     */
+    fun capacity(box: KnownBox): BoxCapacity? = runCatching {
+        val client = clientIfRunning(box) ?: return BoxCapacity(0, 0, settings.localMaxSessions())
+        val open = client.sessions(null).filter { it.status in OPEN_STATUSES }
+        // Being made counts as working: it is not waiting on anybody.
+        val busy = open.count { it.status != "ready" || it.executions.running > 0 }
+        BoxCapacity(busy, open.size - busy, client.info().maxSessions)
+    }.getOrNull()
 
     /** A client for [box]; the local one is started if it was not. */
     fun client(box: KnownBox): BoxClient = when (box.kind) {

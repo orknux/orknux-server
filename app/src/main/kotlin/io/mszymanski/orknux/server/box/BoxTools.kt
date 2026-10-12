@@ -199,6 +199,13 @@ class BoxTools(
                                 },
                             )
                         }
+                        boxes.capacity(box)?.let { room ->
+                            put("activeSessions", room.active)
+                            put("busySessions", room.busy)
+                            put("idleSessions", room.idle)
+                            put("maxSessions", room.max)
+                            put("freeSessions", room.free)
+                        }
                         info.onFailure { put("unreachable", it.message ?: "it did not answer") }
                     }
                 },
@@ -1213,7 +1220,8 @@ class BoxTools(
                 LIST,
                 "Lists the boxes you may use - sandboxes where you can open a session with its own workspace and run " +
                     "commands - with what each offers: its runtimes, their operating system and shell, default " +
-                    "image and limits. Call it first to choose where to open a session.",
+                    "image and limits, and freeSessions - how many more sessions it takes now; idle sessions, open with " +
+                    "nothing running, hold a place too, and a box with none free refuses orkbox_open until one closes. Call it first to choose where to open a session.",
             ),
             ToolSpec(
                 OPEN,

@@ -147,6 +147,9 @@ class BoxAPI(
         }
     }.getOrElse { BoxHealthView(BoxHealthStatus.DOWN, it.message ?: "It did not start") }
 
+    @SchemaMapping(typeName = "Box", field = "capacity")
+    fun capacity(box: BoxView): BoxCapacity? = boxes.capacity(box.known)
+
     @SchemaMapping(typeName = "Box", field = "activeSessions")
     fun activeSessions(box: BoxView): Int? {
         // A local box nobody has started holds none, and is not started to say so.

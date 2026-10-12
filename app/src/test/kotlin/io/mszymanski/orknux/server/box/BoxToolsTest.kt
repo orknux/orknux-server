@@ -129,6 +129,13 @@ class BoxToolsTest(
         assertThat(listed[0].path("runtimes")[0].path("name").stringValue()).isEqualTo("local")
 
         val session = opened()
+        // The agent is told how much room is left, counted as the box counts when it refuses one.
+        val room = call("orkbox_list").path("boxes")[0]
+        assertThat(room.path("activeSessions").asInt()).isPositive()
+        // Opened and nothing run in it yet: waiting, not working, and still holding a place.
+        assertThat(room.path("idleSessions").asInt()).isPositive()
+        assertThat(room.path("busySessions").asInt() + room.path("idleSessions").asInt()).isEqualTo(room.path("activeSessions").asInt())
+        assertThat(room.path("freeSessions").asInt()).isEqualTo(room.path("maxSessions").asInt() - room.path("activeSessions").asInt())
         val row = sessions.findById(session).get()
         assertThat(row.boxKind).isEqualTo(BoxKind.LOCAL)
         assertThat(row.llmSessionId).isEqualTo(conversation)

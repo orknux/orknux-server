@@ -219,8 +219,22 @@ type Box {
     health: BoxHealth
     "Sessions ready on it now; null when it could not be asked."
     activeSessions: Int
+    "How full it is, counted as it counts when it refuses a session; null when it could not be asked."
+    capacity: BoxCapacity
     "Remote boxes only."
     createdAt: String
+}
+
+"A box's sessions: those open (creating or ready), the most it takes, and the room left."
+type BoxCapacity {
+    "Open: busy and idle together, which is what the box counts against max."
+    active: Int!
+    "Running a command, or still being made."
+    busy: Int!
+    "Open with nothing running, waiting until its idle timeout; holds a place all the same."
+    idle: Int!
+    max: Int!
+    free: Int!
 }
 
 type BoxRuntime {
