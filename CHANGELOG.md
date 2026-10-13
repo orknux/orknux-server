@@ -15,6 +15,13 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- **Mute yourself in voice mode**, with a button on the panel or a shortcut - Alt+M unless you choose another in Preferences. Muted, nothing you say is heard, transcribed or sent, and the answer being read aloud goes on.
+- In voice mode, a message **waiting** for the next turn can be cancelled before it goes.
+
 ## 1.0.3
 
 ### ✨ Added
