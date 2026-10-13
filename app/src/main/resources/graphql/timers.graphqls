@@ -1,0 +1,24 @@
+# A session's timers: the reminders an agent set with timer_set, and a chat
+# timer widget's wake-up, shown read-only beside the transcript on the session
+# page. The agent lists and calls them off with timer_list and timer_cancel.
+
+extend type Query {
+    """
+    One session's timers, waiting and rung alike, newest first; a hundred at
+    most. Anybody who can see the session's workspace.
+    """
+    sessionTimers(sessionId: ID!): [SessionTimer!]!
+}
+
+"A reminder left for a session's agent."
+type SessionTimer {
+    "The id timer_set answered, which timer_cancel takes."
+    id: ID!
+    "What the agent wrote it was for."
+    note: String!
+    createdAt: String!
+    "When it comes up, or came up."
+    dueAt: String!
+    "When the agent read it; null while it is still waiting."
+    rangAt: String
+}

@@ -98,6 +98,9 @@ interface SessionEventRepository : JpaRepository<SessionEvent, Long> {
     /** What of one kind is still to come at a session, soonest first - the reminders `timer_list` shows. */
     fun findBySessionIdAndKindAndDeliveredAtIsNullOrderByDueAtAscIdAsc(sessionId: Long, kind: SessionEventKind): List<SessionEvent>
 
+    /** One kind at a session, read and unread, newest first - the session page's Timers panel. */
+    fun findTop100BySessionIdAndKindOrderByCreatedAtDescIdDesc(sessionId: Long, kind: SessionEventKind): List<SessionEvent>
+
     @Query("SELECT DISTINCT e.sessionId FROM SessionEvent e WHERE e.deliveredAt IS NULL AND e.dueAt <= :now")
     fun sessionsDue(@Param("now") now: OffsetDateTime): List<Long>
 
