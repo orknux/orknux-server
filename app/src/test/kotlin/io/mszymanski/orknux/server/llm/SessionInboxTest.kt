@@ -128,4 +128,33 @@ class SessionInboxTest(
         // No session, nowhere to deliver: not offered at all.
         assertThat(timers.shed(null)).isNull()
     }
+
+    @Test
+    fun `timer_list shows what is waiting, and timer_cancel calls one off`() {
+        val shed = requireNotNull(timers.shed(session))
+        val set = shed.run(ToolCall("1", TimerTools.SET, """{"seconds":40,"note":"say hi again"}"""))
+        val id = Regex("\"id\":(\\d+)").find(set)!!.groupValues[1].toLong()
+
+        val listed = shed.run(ToolCall("2", TimerTools.LIST, "{}"))
+        assertThat(listed).contains("\"id\":$id", "\"note\":\"say hi again\"", "\"count\":1")
+
+        // Somebody else's reminder is not this session's to call off.
+        val theirs = recorder.open(requireNotNull(workspaces.findAll().single().id), "node", "two")
+        val other = inbox.posted(theirs, SessionEventKind.TIMER, "theirs", OffsetDateTime.now().plusMinutes(1))
+        assertThat(shed.run(ToolCall("3", TimerTools.CANCEL, """{"id":$other}"""))).contains("error")
+        assertThat(events.findById(other)).isPresent()
+
+        assertThat(shed.run(ToolCall("4", TimerTools.CANCEL, """{"id":$id}"""))).contains("\"cancelled\":true")
+        assertThat(inbox.pending(session)).isFalse()
+        assertThat(shed.run(ToolCall("5", TimerTools.LIST, "{}"))).contains("\"count\":0")
+        // Twice is a refusal, not a second success.
+        assertThat(shed.run(ToolCall("6", TimerTools.CANCEL, """{"id":$id}"""))).contains("error")
+
+        // One already read happened: it stays.
+        inbox.post(session, SessionEventKind.TIMER, "rang", OffsetDateTime.now().minusSeconds(1))
+        val rang = events.findAll().single { it.sessionId == session }
+        inbox.take(session)
+        assertThat(shed.run(ToolCall("7", TimerTools.CANCEL, """{"id":${rang.id}}"""))).contains("error")
+        assertThat(events.findById(rang.id!!)).isPresent()
+    }
 }

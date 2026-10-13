@@ -19,6 +19,7 @@ have failed.
 
 ### ✨ Added
 
+- `timer_list` and `timer_cancel`: an agent can see the reminders it set and call one off before it comes up; `timer_set` now answers the reminder's id. Both are on for every agent, like `timer_set`.
 - A session's page lists the **watchers** it set beside the transcript, running ones first, with what each is for and where it stands; a row opens the Watchers page.
 
 ## 1.0.2

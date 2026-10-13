@@ -95,6 +95,9 @@ interface SessionEventRepository : JpaRepository<SessionEvent, Long> {
 
     fun findFirstBySessionIdAndDeliveredAtIsNullOrderByDueAtAsc(sessionId: Long): SessionEvent?
 
+    /** What of one kind is still to come at a session, soonest first - the reminders `timer_list` shows. */
+    fun findBySessionIdAndKindAndDeliveredAtIsNullOrderByDueAtAscIdAsc(sessionId: Long, kind: SessionEventKind): List<SessionEvent>
+
     @Query("SELECT DISTINCT e.sessionId FROM SessionEvent e WHERE e.deliveredAt IS NULL AND e.dueAt <= :now")
     fun sessionsDue(@Param("now") now: OffsetDateTime): List<Long>
 
@@ -150,6 +153,22 @@ class SessionInbox(
     fun withdraw(id: Long) {
         events.findByIdOrNull(id)?.takeIf { it.deliveredAt == null }?.let(events::delete)
     }
+
+    /**
+     * The same, asked from inside a session: only what was left for that session
+     * and is still unread may go, so an agent can call off its own reminder and
+     * nobody else's. Answers whether anything was there to call off.
+     */
+    @Transactional
+    fun withdraw(sessionId: Long, id: Long): Boolean {
+        val event = events.findByIdOrNull(id)?.takeIf { it.sessionId == sessionId && it.deliveredAt == null } ?: return false
+        events.delete(event)
+        return true
+    }
+
+    /** What of one kind is still to come at a session, soonest first. */
+    fun waiting(sessionId: Long, kind: SessionEventKind): List<SessionEvent> =
+        events.findBySessionIdAndKindAndDeliveredAtIsNullOrderByDueAtAscIdAsc(sessionId, kind)
 
     /**
      * Leaves what a person wrote while the agent was answering. The turn reads

@@ -161,6 +161,9 @@ class BuiltInTools(
             TodoTools.COMPLETE,
             DateTools.NOW,
             TimerTools.SET,
+            // Listing and calling off a reminder; V362 marks them Always.
+            TimerTools.LIST,
+            TimerTools.CANCEL,
             /*
              * Watchers, #606: on by default like the timer beside them, since
              * a watcher calls only the agent's own tools with its own grants,

@@ -141,7 +141,7 @@ class SessionShedsTest(
             ZipTools.ZIP_FILES, ZipTools.ZIP_EXTRACT,
             TodoTools.ADD, TodoTools.LIST, TodoTools.REORDER, TodoTools.NOTE, TodoTools.COMPLETE,
             DateTools.NOW,
-            TimerTools.SET,
+            TimerTools.SET, TimerTools.LIST, TimerTools.CANCEL,
             WatcherTools.SET, WatcherTools.UPDATE, WatcherTools.LIST, WatcherTools.FINISH,
         )
 
