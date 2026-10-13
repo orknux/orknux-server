@@ -15,13 +15,16 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
-## Unreleased
+## 1.0.3
 
 ### ✨ Added
 
-- `timer_list` and `timer_cancel`: an agent can see the reminders it set and call one off before it comes up; `timer_set` now answers the reminder's id. Both are on for every agent, like `timer_set`.
-- A session's page lists its agent's **timers** beside the transcript, waiting ones first with their note and when each comes up, then the ones that rang.
-- A session's page lists the **watchers** it set beside the transcript, running ones first, with what each is for and where it stands; a row opens the Watchers page.
+- A session's page lists the **watchers** and **timers** its agent set, below Notes. Running watchers come first, each with what it is for and where it stands, and a row opens the Watchers page. Timers are one row per reminder, saying when it is next due and how often it rang - so a reminder the agent re-arms on every ring stays one row.
+- `timer_list` and `timer_cancel`: an agent can see the reminders it set and call one off before it comes up, so told to stop something it keeps re-arming, it can. `timer_set` now answers the reminder's id. Both are on for every agent, like `timer_set`.
+
+### 🔧 Changed
+
+- A session's **Sessions** panel is always shown, listing the session alone where it asked no other agent, like the other panels beside the transcript.
 
 ## 1.0.2
 
