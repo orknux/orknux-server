@@ -10,6 +10,11 @@ extend type Query {
     ended first. Anybody who can see the workspace.
     """
     watchers(workspaceId: ID!, finished: Boolean = false, page: Int = 0, size: Int = 50): WatcherPage!
+    """
+    The watchers set in one session, running and ended alike, newest first; a
+    hundred at most. Anybody who can see the session's workspace.
+    """
+    sessionWatchers(sessionId: ID!): [Watcher!]!
     "The limits on what an agent may ask a watcher to do. Administrators only."
     watcherSettings: WatcherSettings!
 }

@@ -117,6 +117,25 @@ class WatcherAPITest(
         finished.path("watchers.content[0].finishedAt").hasValue()
     }
 
+    /** The session page's panel: that session's watchers, running and ended, newest first, and none of another's. */
+    @Test
+    fun `a session lists the watchers it set, running and ended`() {
+        val ended = watcher(
+            "ticketStatus", WatcherStatus.FIRED,
+            createdAt = OffsetDateTime.now().minusHours(3), finishedAt = OffsetDateTime.now().minusMinutes(5),
+        )
+        val running = watcher("deployStatus")
+        val mine = session
+        session = recorder.open(workspaceId, "chat", "elsewhere")
+        watcher("buildStatus")
+
+        val listed = graphQlTester.document("{ sessionWatchers(sessionId: $mine) { $fields } }").execute()
+        listed.path("sessionWatchers[*].id").entityList(Long::class.java).containsExactly(running, ended)
+        listed.path("sessionWatchers[1].status").entity(String::class.java).isEqualTo("FIRED")
+        graphQlTester.document("{ sessionWatchers(sessionId: 999999) { id } }").execute()
+            .errors().expect { it.message?.contains("999999") == true }
+    }
+
     @Test
     fun `stop ends a running watcher, tells its agent, and is audited`() {
         val id = watcher("buildStatus")

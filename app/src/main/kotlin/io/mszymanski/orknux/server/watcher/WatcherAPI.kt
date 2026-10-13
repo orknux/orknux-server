@@ -61,6 +61,19 @@ class WatcherAPI(
         )
     }
 
+    /**
+     * The watchers set in one session, running and ended alike, newest first -
+     * what the session page lists beside the transcript. A hundred at most; a
+     * session that set more has the workspace's Watchers page for the rest.
+     */
+    @QueryMapping
+    fun sessionWatchers(@Argument sessionId: Long): List<WatcherView> {
+        val session = sessions.findByIdOrNull(sessionId)
+            ?: throw io.mszymanski.orknux.server.llm.LlmSessionNotFoundException(sessionId)
+        access.requireVisible(session.workspaceId)
+        return watchers.findTop100BySessionIdOrderByCreatedAtDescIdDesc(sessionId).map { WatcherView.of(it, session.title) }
+    }
+
     @MutationMapping
     fun stopWatcher(@Argument id: Long): WatcherView {
         val watcher = watchers.findByIdOrNull(id) ?: throw WatcherNotFoundException(id)

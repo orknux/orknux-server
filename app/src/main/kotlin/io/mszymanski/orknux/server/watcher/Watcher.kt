@@ -200,6 +200,9 @@ interface WatcherRepository : JpaRepository<Watcher, Long> {
 
     fun findByAgentIdOrderByCreatedAtAscIdAsc(agentId: Long): List<Watcher>
 
+    /** One conversation session's watchers, every state, newest first - the session page's panel. */
+    fun findTop100BySessionIdOrderByCreatedAtDescIdDesc(sessionId: Long): List<Watcher>
+
     fun findBySessionIdAndAgentIdIsNullOrderByCreatedAtAscIdAsc(sessionId: Long): List<Watcher>
 
     /** The watcher in this session that looked last and has an agent to wake; see `WatcherFollowUp`. #618. */

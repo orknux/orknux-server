@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- A session's page lists the **watchers** it set beside the transcript, running ones first, with what each is for and where it stands; a row opens the Watchers page.
+
 ## 1.0.2
 
 ### ✨ Added
