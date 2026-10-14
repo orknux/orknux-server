@@ -420,6 +420,7 @@ CREATE TABLE execution_step
     attempts                     integer not null default 0,
     agent_sleeps                 integer not null default 0,
     agent_sleep_note             text,
+    agent_said                   text,
     session_id                   integer,
     enabled                      boolean not null default true,
     constraint uk_execution_step UNIQUE (execution_id, node_key),

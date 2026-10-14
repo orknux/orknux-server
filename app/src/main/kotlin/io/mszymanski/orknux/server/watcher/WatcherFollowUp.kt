@@ -228,16 +228,21 @@ class WatcherFollowUp(
             sessions.note(session, "${agent.name} was woken by watcher #${watcher.id}, after the step that set it had finished.")
         }
         val thinking = SessionThinking(session, agent.name, sessions)
+        // Everything it writes on the way, handed on with its last answer, as a step does.
+        val spoken = mutableListOf<String>()
+        fun all(last: String) = (spoken + last).filter { it.isNotBlank() }.joinToString("\n\n") { it.trim() }
         val answer = try {
-            conversation.getObject().answer(modelId, agent, said, session, shed = shed, watch = thinking)
+            conversation.getObject().answer(
+                modelId, agent, said, session, shed = shed, watch = thinking, spoke = { spoken += it },
+            )
         } catch (finished: AnswerFinished) {
-            // Nothing to tell anyone, or nothing more than what it passed.
-            finished.answer.takeIf { it.isNotBlank() }?.let { handOn(session, step, it) }
+            // Nothing to tell anyone, or nothing more than what it wrote and passed.
+            all(finished.answer).takeIf { it.isNotBlank() }?.let { handOn(session, step, it) }
             return null
         } finally {
             thinking.settle()
         }
-        if (answer is ChatCompletion.Answered) handOn(session, step, answer.content)
+        if (answer is ChatCompletion.Answered) handOn(session, step, all(answer.content))
         return answer
     }
 

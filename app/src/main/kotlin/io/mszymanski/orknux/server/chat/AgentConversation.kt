@@ -445,11 +445,19 @@ class AgentConversation(
          * on it. Issue #616.
          */
         gated: Boolean = true,
+        /**
+         * Told every piece of prose the model writes before its last one: what
+         * it said beside the tools it called, and an answer it was asked again
+         * after because something arrived. Not its thinking, not its calls.
+         * A workflow step hands all of it on, with the last answer, because
+         * that is everything the agent wrote to whoever reads the step's output.
+         */
+        spoke: ((String) -> Unit)? = null,
     ): ChatCompletion {
         fun refused(why: String) = ChatCompletion.Failed(why, permanent = false).also { record(into, agent, it) }
         val run = {
             bulkheads.heapRefusal()?.let { refused(it) }
-                ?: held(modelId, agent, turns, into, shed, watch, hangup, interjections)
+                ?: held(modelId, agent, turns, into, shed, watch, hangup, interjections, spoke)
         }
         return if (gated) bulkheads.turn(::refused, run) else run()
     }
@@ -463,6 +471,7 @@ class AgentConversation(
         watch: RoundWatch?,
         hangup: Hangup?,
         interjections: Interjections?,
+        spoke: ((String) -> Unit)?,
     ): ChatCompletion {
         /*
          * The agent's own ceiling, or none where the provider is handed every
@@ -1038,6 +1047,7 @@ class AgentConversation(
                         output += answer.outputTokens
                         cached += answer.cachedInputTokens
                         into?.let { sessions.agentSaid(it, agent.name, answer.content) }
+                        if (answer.content.isNotBlank()) spoke?.invoke(answer.content)
                         conversation += ChatTurn(role = "assistant", content = answer.content)
                         arrived.forEach { conversation += ChatTurn(role = "user", content = it) }
                         return@repeat
@@ -1105,7 +1115,10 @@ class AgentConversation(
                      * is not.
                      */
                     record(into, agent, answer)
-                    if (answer.turn.content.isNotBlank()) watch?.said(answer.turn.content)
+                    if (answer.turn.content.isNotBlank()) {
+                        watch?.said(answer.turn.content)
+                        spoke?.invoke(answer.turn.content)
+                    }
 
                     /*
                      * Pictures this round's tools made, waiting for the calls

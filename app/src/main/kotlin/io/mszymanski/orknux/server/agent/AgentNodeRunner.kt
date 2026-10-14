@@ -611,11 +611,22 @@ class AgentNodeRunner(
          * rather than a failed one, because it asked. Issue #440.
          */
         val hangup = Hangup()
+        /*
+         * Everything the agent writes on the way, besides its last answer: what
+         * it said beside its tool calls, round by round. The next node is handed
+         * all of it, joined, because a step whose output goes to a Slack thread
+         * is one whose agent is talking to that thread - and "I've opened the
+         * ticket, now checking the build" written beside a call reached nobody,
+         * while only the last message went on. Not its thinking, its calls or
+         * the notes the session keeps about it.
+         */
+        val spoken = mutableListOf<String>()
         val answer = try {
             stoppable(hangup) {
                 // gated = false: this step took its place in [run], before it read anything.
                 conversation.answer(
                     modelId, agent, turns, session, shed = shed, watch = watching, hangup = hangup, gated = false,
+                    spoke = { spoken += it },
                 )
             }
         } catch (finished: AnswerFinished) {
@@ -635,6 +646,8 @@ class AgentNodeRunner(
                 step.agentSleeps += 1
                 step.agentSleepNote = finished.answer.takeIf { it.isNotEmpty() }
                 step.waitUntil = java.time.OffsetDateTime.now().plus(wake)
+                // What it wrote before sleeping is kept for the answer it gives on waking.
+                keepSaid(step, spoken)
 
                 val note = "${agent.name} is waiting ${wake.toSeconds()}s" +
                     (if (finished.clipped) ", shortened to what this installation allows" else "") +
@@ -653,14 +666,17 @@ class AgentNodeRunner(
              * prose. No shape to satisfy: the tool is not offered where the
              * node is held to one.
              */
-            stillOwed(step, agent, session, finished.answer)?.let { return it }
+            stillOwed(step, agent, session, finished.answer)?.let {
+                keepSaid(step, spoken + finished.answer)
+                return it
+            }
             runLog.write(
                 step.executionId,
                 step.nodeKey,
                 LogLevel.INFO,
                 "${agent.name} finished: the work was delivered, so there was nothing left to answer",
             )
-            return StepResult(StepStatus.COMPLETED, expressions.named(step.outputName, finished.answer))
+            return StepResult(StepStatus.COMPLETED, expressions.named(step.outputName, allSaid(step, spoken, finished.answer)))
         } finally {
             // Whatever the turn did, and before anything else reads the
             // session: a line left open is one a page reads as still being
@@ -669,7 +685,12 @@ class AgentNodeRunner(
             watching?.settle()
         }
 
-        if (answer is ChatCompletion.Answered) stillOwed(step, agent, session, answer.content)?.let { return it }
+        if (answer is ChatCompletion.Answered) {
+            stillOwed(step, agent, session, answer.content)?.let {
+                keepSaid(step, spoken + answer.content)
+                return it
+            }
+        }
 
         return when (answer) {
             // Named, the answer is handed on as an object holding it, so the next
@@ -677,8 +698,9 @@ class AgentNodeRunner(
             // node cannot refer to something that has no name.
             is ChatCompletion.Answered ->
                 if (step.outputObjectId == null) {
-                    StepResult(StepStatus.COMPLETED, expressions.named(step.outputName, answer.content))
+                    StepResult(StepStatus.COMPLETED, expressions.named(step.outputName, allSaid(step, spoken, answer.content)))
                 } else {
+                    // Held to a shape, the last answer is the object; prose beside it is not JSON.
                     shaped(step, agent.name, answer.content)
                 }
 
@@ -801,6 +823,21 @@ class AgentNodeRunner(
      * is, and counted against them, so a step owed things for ever still ends.
      * What it had said so far goes into the note it is woken with.
      */
+    /**
+     * What the step hands on: everything the agent wrote across every pass of
+     * it - earlier passes kept on the row when it slept - then [last], the
+     * answer that ended it. Blank pieces are left out, so an agent that said
+     * nothing beside its calls hands on exactly its answer, as it always did.
+     */
+    private fun allSaid(step: ExecutionStep, spoken: List<String>, last: String): String =
+        (listOfNotNull(step.agentSaid) + spoken + last).filter { it.isNotBlank() }.joinToString("\n\n") { it.trim() }
+
+    /** Keeps what this pass wrote on the row, for the pass that ends the step. */
+    private fun keepSaid(step: ExecutionStep, spoken: List<String>) {
+        val kept = (listOfNotNull(step.agentSaid) + spoken).filter { it.isNotBlank() }.joinToString("\n\n") { it.trim() }
+        step.agentSaid = kept.takeIf { it.isNotEmpty() }
+    }
+
     private fun stillOwed(step: ExecutionStep, agent: Agent, session: Long?, said: String): StepResult? {
         if (session == null) return null
         val running = asks.getObject().stillWorking(session)

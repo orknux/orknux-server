@@ -23,6 +23,10 @@ have failed.
 - In voice mode, a message **waiting** for the next turn can be cancelled before it goes.
 - In voice mode, **talking while the model is still thinking stops it**, as talking over the answer does, and what you said is the next turn. On by default; the workspace's Voice card can turn it off, and then what you say waits for the turn after.
 
+### 🔧 Changed
+
+- **An agent node hands on everything its agent wrote**, not only its last message: what it said beside its tool calls, round by round, then its answer, separated by a blank line - across every pass of a step that slept and was woken, and in what a watcher's follow-up hands on. Its thinking, tool calls and notes are still left out. A workflow that posts an agent's output to Slack will now post its progress remarks too; an agent that should send only its conclusion has to be told to write nothing beside its calls.
+
 ### 🐛 Fixed
 
 - A session page's side column no longer makes the page scroll when its panels are taller than the window; it scrolls inside itself, so an open scratchpad fits the page again.

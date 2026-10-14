@@ -1047,6 +1047,80 @@ class AgentNodeRunnerTest(
     }
 
     /**
+     * Everything the agent wrote goes on, not only its last message.
+     *
+     * A step whose output is posted to a Slack thread is an agent talking to
+     * that thread, and what it wrote beside a tool call - "Checking the clock
+     * first." - reached nobody: only the round with no calls was handed on.
+     * Its thinking and its calls still are not.
+     */
+    @Test
+    fun `what the agent wrote beside its tool calls is handed on with its answer`() {
+        val agentId = agent("Responder", model(serveSpeaking(finish = false)))
+        graph(agentId)
+
+        start()
+
+        val step = steps.findAll().single { it.agentId == agentId }
+        assertThat(step.status).isEqualTo(StepStatus.COMPLETED)
+        assertThat(step.output).isEqualTo("Checking the clock first.\n\nIt is morning, so the report is due.")
+        assertThat(step.output).doesNotContain("current_time", "pondering")
+    }
+
+    /** And beside `finish_answer`, where there is no last answer: what it wrote is what goes on. */
+    @Test
+    fun `what the agent wrote beside finish_answer is handed on`() {
+        val agentId = agent("Responder", model(serveSpeaking(finish = true)))
+        graph(agentId)
+
+        start()
+
+        val step = steps.findAll().single { it.agentId == agentId }
+        assertThat(step.status).isEqualTo(StepStatus.COMPLETED)
+        assertThat(step.output).isEqualTo("Checking the clock first.\n\nPosted the report to the channel.")
+    }
+
+    /**
+     * A model that writes a sentence beside a call to the clock, then either
+     * answers or writes a second sentence beside `finish_answer`. Each round
+     * carries reasoning too, which must not be handed on.
+     */
+    private fun serveSpeaking(finish: Boolean): String {
+        val calls = AtomicInteger()
+        server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
+        server.createContext("/chat/completions") { exchange ->
+            received += exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
+            val body = when (calls.incrementAndGet()) {
+                1 -> """
+                    {"choices":[{"message":{"role":"assistant","content":"Checking the clock first.",
+                      "reasoning_content":"pondering the time",
+                      "tool_calls":[{"id":"call_1","type":"function",
+                        "function":{"name":"current_time","arguments":"{}"}}]}}],
+                     "usage":{"prompt_tokens":9,"completion_tokens":4}}
+                    """.trimIndent()
+                2 -> if (finish) {
+                    """
+                    {"choices":[{"message":{"role":"assistant","content":"Posted the report to the channel.",
+                      "tool_calls":[{"id":"call_2","type":"function",
+                        "function":{"name":"finish_answer","arguments":"{\"wake_after_ms\":-1}"}}]}}],
+                     "usage":{"prompt_tokens":9,"completion_tokens":4}}
+                    """.trimIndent()
+                } else {
+                    """{"choices":[{"message":{"role":"assistant","content":"It is morning, so the report is due.",
+                      "reasoning_content":"pondering the answer"}}]}"""
+                }
+                else -> """{"choices":[{"message":{"role":"assistant","content":"asked again"}}]}"""
+            }.toByteArray(StandardCharsets.UTF_8)
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+            exchange.close()
+        }
+        server.start()
+        return "http://${server.address.hostString}:${server.address.port}"
+    }
+
+    /**
      * A model that asks for `finish_answer` once, and answers prose if it is
      * ever asked again.
      *

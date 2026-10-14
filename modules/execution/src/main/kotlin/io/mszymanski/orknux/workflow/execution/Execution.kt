@@ -436,6 +436,17 @@ class ExecutionStep(
     var agentSleepNote: String? = null,
 
     /**
+     * What the agent wrote in the passes before this one, kept across a sleep.
+     *
+     * An agent step hands on everything its agent wrote, not only the last
+     * answer; a step that parks and is woken is several passes, and each one
+     * starts with nothing in memory. Null until a pass that wrote something
+     * slept.
+     */
+    @Column(name = "agent_said", columnDefinition = "text")
+    var agentSaid: String? = null,
+
+    /**
      * The LLM session an agent step talked into, when it kept one.
      *
      * Written by the runner the first time it opens the session, so the run's
