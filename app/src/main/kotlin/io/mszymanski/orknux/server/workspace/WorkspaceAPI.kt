@@ -1070,6 +1070,7 @@ class WorkspaceAPI(
         @Argument speechOverRoomPercent: Int?,
         @Argument unattendedMicrophoneMs: Int?,
         @Argument bargeInMs: Int?,
+        @Argument bargeInWhileThinking: Boolean?,
     ): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
         access.requireVisible(workspace)
@@ -1081,12 +1082,13 @@ class WorkspaceAPI(
         workspace.voiceSpeechOverRoomPercent = speechOverRoomPercent
         workspace.voiceUnattendedMicrophoneMs = unattendedMicrophoneMs
         workspace.voiceBargeInMs = bargeInMs
+        workspace.voiceBargeInWhileThinking = bargeInWhileThinking
 
         auditRecorder.record(
             workspaceId,
             // What happens inside a chat: the microphone is a chat's, not a model's.
             WorkspaceAuditCategory.CHAT,
-            VoiceTurnTaking.audit(pauseEndsTurnMs, speechOverRoomPercent, unattendedMicrophoneMs, bargeInMs),
+            VoiceTurnTaking.audit(pauseEndsTurnMs, speechOverRoomPercent, unattendedMicrophoneMs, bargeInMs, bargeInWhileThinking),
         )
         return workspace
     }
@@ -1422,8 +1424,8 @@ object VoiceTurnTaking {
     }
 
     /** One line for the log, whichever were set and whichever were cleared. */
-    fun audit(pauseMs: Int?, speechPercent: Int?, unattendedMs: Int?, bargeMs: Int? = null): String =
-        if (pauseMs == null && speechPercent == null && unattendedMs == null && bargeMs == null) {
+    fun audit(pauseMs: Int?, speechPercent: Int?, unattendedMs: Int?, bargeMs: Int? = null, whileThinking: Boolean? = null): String =
+        if (pauseMs == null && speechPercent == null && unattendedMs == null && bargeMs == null && whileThinking == null) {
             "Voice turn-taking back to the default"
         } else {
             "Voice turn-taking set to a pause of ${pauseMs?.let { "$it ms" } ?: "the default"}, " +
@@ -1434,6 +1436,11 @@ object VoiceTurnTaking {
                     null -> "for the default"
                     0 -> "turned off"
                     else -> "after $bargeMs ms"
+                } +
+                when (whileThinking) {
+                    false -> ", not while it is thinking"
+                    true -> ", and while it is thinking"
+                    null -> ""
                 }
         }
 }

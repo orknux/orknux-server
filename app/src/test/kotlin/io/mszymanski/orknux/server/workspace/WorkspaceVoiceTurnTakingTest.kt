@@ -287,6 +287,30 @@ class WorkspaceVoiceTurnTakingTest(
      * which is the one thing a person cannot do in a conversation: say "no, not
      * that" and be listened to.
      */
+    /**
+     * Talking while the model is still thinking stops it too, unless the
+     * workspace says not to. Null is on - the interface owns the default - and
+     * false is the departure, which the log names.
+     */
+    @Test
+    fun `talking over a thinking model is on unless the workspace turns it off`() {
+        assertThat(workspaces.findAll().single().voiceBargeInWhileThinking).isNull()
+
+        graphQlTester.document(
+            """mutation { setWorkspaceVoiceTurnTaking(workspaceId: $workspaceId, bargeInWhileThinking: false) {
+                 voiceBargeInWhileThinking
+               } }""",
+        ).execute()
+            .path("setWorkspaceVoiceTurnTaking.voiceBargeInWhileThinking").entity(Boolean::class.java).isEqualTo(false)
+        assertThat(workspaces.findAll().single().voiceBargeInWhileThinking).isFalse()
+        assertThat(VoiceTurnTaking.audit(null, null, null, null, false)).endsWith("not while it is thinking")
+
+        graphQlTester.document(
+            """mutation { setWorkspaceVoiceTurnTaking(workspaceId: $workspaceId) { voiceBargeInWhileThinking } }""",
+        ).execute()
+            .path("setWorkspaceVoiceTurnTaking.voiceBargeInWhileThinking").valueIsNull()
+    }
+
     @Test
     fun `talking over the answer is a length this workspace can set`() {
         graphQlTester.document(

@@ -21,6 +21,11 @@ have failed.
 
 - **Mute yourself in voice mode**, with a button on the panel or a shortcut - Alt+M unless you choose another in Preferences. Muted, nothing you say is heard, transcribed or sent, and the answer being read aloud goes on.
 - In voice mode, a message **waiting** for the next turn can be cancelled before it goes.
+- In voice mode, **talking while the model is still thinking stops it**, as talking over the answer does, and what you said is the next turn. On by default; the workspace's Voice card can turn it off, and then what you say waits for the turn after.
+
+### 🐛 Fixed
+
+- A session page's side column no longer makes the page scroll when its panels are taller than the window; it scrolls inside itself, so an open scratchpad fits the page again.
 
 ## 1.0.3
 

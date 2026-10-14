@@ -241,7 +241,7 @@ class AgentSettingsStatementsTest(
             "sessionCompactionSummaryTokensDefault sessionCompactionAttempts sessionCompactionAttemptsDefault " +
             "sessionCompactionModelId unsafeBuiltInTools commandMarker commandMarkerDefault functionTimeoutSeconds " +
             "functionTimeoutSecondsDefault toolTimeoutSeconds toolTimeoutSecondsDefault voicePauseEndsTurnMs " +
-            "voiceSpeechOverRoomPercent voiceUnattendedMicrophoneMs voiceBargeInMs voiceSpeechChunking " +
+            "voiceSpeechOverRoomPercent voiceUnattendedMicrophoneMs voiceBargeInMs voiceBargeInWhileThinking voiceSpeechChunking " +
             "chatShowTimestamps"
     }
 }

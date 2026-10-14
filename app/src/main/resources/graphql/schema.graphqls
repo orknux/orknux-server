@@ -1935,6 +1935,11 @@ type Mutation {
         3000 ms, or 0 to leave the answer alone.
         """
         bargeInMs: Int
+        """
+        Whether talking while the model is still thinking stops it too, after
+        the same hold. Null is the default, which is on.
+        """
+        bargeInWhileThinking: Boolean
     ): Workspace!
     """
     Where an answer is cut for the speech model here.
@@ -2428,6 +2433,11 @@ type Workspace {
     Null means the workspace has decided nothing. Zero turns it off.
     """
     voiceBargeInMs: Int
+    """
+    Whether talking while the model is still thinking stops it, as talking over
+    the answer does. Null means the workspace has decided nothing, which is on.
+    """
+    voiceBargeInWhileThinking: Boolean
     """
     Where an answer is cut before it is handed to the speech model.
 

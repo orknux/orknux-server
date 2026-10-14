@@ -168,6 +168,7 @@ internal val WORKSPACE_SETTINGS: List<FileField<Workspace, *>> = listOf(
     FileField("voiceSpeechOverRoomPercent", { it.voiceSpeechOverRoomPercent }, { w, v -> w.voiceSpeechOverRoomPercent = v }, WHOLE_OR_NULL),
     FileField("voiceUnattendedMicrophoneMs", { it.voiceUnattendedMicrophoneMs }, { w, v -> w.voiceUnattendedMicrophoneMs = v }, WHOLE_OR_NULL),
     FileField("voiceBargeInMs", { it.voiceBargeInMs }, { w, v -> w.voiceBargeInMs = v }, WHOLE_OR_NULL),
+    FileField("voiceBargeInWhileThinking", { it.voiceBargeInWhileThinking }, { w, v -> w.voiceBargeInWhileThinking = v }, YES_NO_OR_NULL),
     FileField("voiceSpeechChunking", { it.voiceSpeechChunking }, { w, v -> w.voiceSpeechChunking = v }, choice<SpeechChunking>()),
 )
 

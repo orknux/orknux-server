@@ -487,6 +487,15 @@ class Workspace(
     var voiceBargeInMs: Int? = null,
 
     /**
+     * Whether talking while the model is still thinking stops it, as talking
+     * over the answer does - after the same hold. Null means the workspace has
+     * decided nothing, which is on; false leaves a thinking model alone, so a
+     * follow-up said into the gap waits for the answer instead of replacing it.
+     */
+    @Column(name = "voice_barge_in_thinking")
+    var voiceBargeInWhileThinking: Boolean? = null,
+
+    /**
      * Where an answer is cut before it is handed to the speech model.
      *
      * A value rather than a null, unlike the three above. Those store a
