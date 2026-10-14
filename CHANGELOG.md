@@ -19,6 +19,7 @@ have failed.
 
 ### ✨ Added
 
+- An answer **read aloud shows how much of it has been heard**, as a bar and a percentage beside the speaker and under voice mode's caption.
 - A **chat timer chimes** when it reaches nought in the open chat. A workspace setting, on by default; an agent can make one timer sound or stay silent when you tell it to.
 
 ## 1.0.4
