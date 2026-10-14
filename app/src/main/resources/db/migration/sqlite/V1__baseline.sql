@@ -1532,6 +1532,7 @@ CREATE TABLE workspace
     quick_chat_model_id          integer,
     quick_chat_may_write         boolean not null default false,
     chat_show_timestamps         boolean not null default false,
+    widget_timer_sound           boolean not null default true,
     default_memory_share         integer,
     voice_pause_ends_turn_ms     integer,
     voice_speech_over_room_percent integer,

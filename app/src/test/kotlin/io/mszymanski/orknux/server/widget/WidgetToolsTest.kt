@@ -146,6 +146,22 @@ class WidgetToolsTest(
         assertThat(seen.last().single().id).isEqualTo(id)
     }
 
+    /**
+     * Whether a timer sounds is the workspace's, unless the agent chose for
+     * that one timer - which its tool says to do only when the person asked.
+     * Left out, the timer carries no choice and the page follows the workspace.
+     */
+    @Test
+    fun `a timer sounds as the workspace says, unless the agent chose for that one`() {
+        assertThat(call(WidgetTools.TIMER_START, mapOf("label" to "tea", "seconds" to 60)).path("sound").isNull).isTrue()
+        assertThat(call(WidgetTools.TIMER_START, mapOf("label" to "quiet", "seconds" to 60, "sound" to false)).path("sound").asBoolean(true))
+            .isFalse()
+        assertThat(call(WidgetTools.TIMER_START, mapOf("label" to "loud", "seconds" to 60, "sound" to true)).path("sound").asBoolean(false))
+            .isTrue()
+        val described = chatTools.shed(chat).specs().single { it.name == WidgetTools.TIMER_START }
+        assertThat(described.parameters.single { it.name == "sound" }.description).contains("explicitly asked")
+    }
+
     @Test
     fun `a stopwatch counts up, keeps its laps, pauses and resets`() {
         val id = call(WidgetTools.STOPWATCH_START, mapOf("label" to "build")).path("id").asLong()

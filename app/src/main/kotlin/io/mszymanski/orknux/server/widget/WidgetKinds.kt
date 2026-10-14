@@ -48,19 +48,22 @@ const val LAP = "lap"
  * A countdown. Runs from when it is started; paused, it keeps what was left.
  *
  * State: `durationSeconds`, `endsAt` while running, `remainingSeconds` while
- * paused, `wake`, and `eventId` - the inbox entry that tells the agent it
- * ended, called off when the timer is paused or removed before it rings.
+ * paused, `wake`, `sound` where the agent chose for this timer whether it
+ * sounds - absent, it follows the workspace - and `eventId` - the inbox entry
+ * that tells the agent it ended, called off when the timer is paused or
+ * removed before it rings.
  */
 @Component
 class TimerWidget : WidgetKind {
     override val kind = TIMER
     override val actions = setOf(PAUSE, RESUME, RESET)
 
-    fun started(seconds: Long, wake: Boolean, now: OffsetDateTime): ObjectNode =
+    fun started(seconds: Long, wake: Boolean, now: OffsetDateTime, sound: Boolean? = null): ObjectNode =
         WidgetState.json.createObjectNode()
             .put("durationSeconds", seconds)
             .put("endsAt", now.plusSeconds(seconds).toString())
             .put("wake", wake)
+            .also { state -> sound?.let { state.put("sound", it) } }
 
     private fun remaining(state: JsonNode, now: OffsetDateTime): Long {
         val endsAt = WidgetState.moment(state, "endsAt")
@@ -112,6 +115,7 @@ class TimerWidget : WidgetKind {
             endsAt = endsAt?.toString(),
             remainingSeconds = left,
             wake = state.path("wake").asBoolean(false),
+            sound = state.path("sound").takeIf { it.isBoolean }?.asBoolean(),
         )
     }
 

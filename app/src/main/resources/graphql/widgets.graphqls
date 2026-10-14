@@ -38,6 +38,11 @@ type ChatWidget {
     remainingSeconds: Int
     "Whether the agent is told when the timer ends."
     wake: Boolean
+    """
+    Whether the timer sounds when it ends, where the agent chose for this one
+    because the person asked; null follows the workspace's widgetTimerSound.
+    """
+    sound: Boolean
     "When a running stopwatch last started, ISO-8601. Null while it is paused."
     startedAt: String
     "A stopwatch's time while paused, and what it had before startedAt while running."

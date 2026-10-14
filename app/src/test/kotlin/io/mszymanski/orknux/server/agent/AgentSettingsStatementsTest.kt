@@ -242,6 +242,6 @@ class AgentSettingsStatementsTest(
             "sessionCompactionModelId unsafeBuiltInTools commandMarker commandMarkerDefault functionTimeoutSeconds " +
             "functionTimeoutSecondsDefault toolTimeoutSeconds toolTimeoutSecondsDefault voicePauseEndsTurnMs " +
             "voiceSpeechOverRoomPercent voiceUnattendedMicrophoneMs voiceBargeInMs voiceBargeInWhileThinking voiceSpeechChunking " +
-            "chatShowTimestamps"
+            "chatShowTimestamps widgetTimerSound"
     }
 }

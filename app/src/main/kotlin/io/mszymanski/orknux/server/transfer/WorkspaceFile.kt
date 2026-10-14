@@ -149,6 +149,7 @@ internal val WORKSPACE_SETTINGS: List<FileField<Workspace, *>> = listOf(
     FileField("compactionSummaryTokens", { it.compactionSummaryTokens }, { w, v -> w.compactionSummaryTokens = v }, WHOLE_OR_NULL),
     FileField("quickChatMayWrite", { it.quickChatMayWrite }, { w, v -> w.quickChatMayWrite = v }, YES_NO),
     FileField("chatShowTimestamps", { it.chatShowTimestamps }, { w, v -> w.chatShowTimestamps = v }, YES_NO),
+    FileField("widgetTimerSound", { it.widgetTimerSound }, { w, v -> w.widgetTimerSound = v }, YES_NO),
     FileField("defaultMemoryShare", { it.defaultMemoryShare }, { w, v -> w.defaultMemoryShare = v }, WHOLE_OR_NULL),
     FileField("taskMaxTurns", { it.taskMaxTurns }, { w, v -> w.taskMaxTurns = v }, WHOLE_OR_NULL),
     FileField("agentMaxSubagents", { it.agentMaxSubagents }, { w, v -> w.agentMaxSubagents = v }, WHOLE_OR_NULL),

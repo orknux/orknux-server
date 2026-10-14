@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- A **chat timer chimes** when it reaches nought in the open chat. A workspace setting, on by default; an agent can make one timer sound or stay silent when you tell it to.
+
 ## 1.0.4
 
 ### ✨ Added

@@ -735,6 +735,20 @@ class WorkspaceAPI(
     }
 
     /**
+     * Whether this workspace's chat timers sound when they end. A display
+     * choice like the timestamps above, and per workspace for the same reason.
+     */
+    @MutationMapping
+    @Transactional
+    fun setWorkspaceWidgetTimerSound(@Argument workspaceId: Long, @Argument sound: Boolean): Workspace {
+        val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
+        access.requireVisible(workspace)
+
+        workspace.widgetTimerSound = sound
+        return workspace
+    }
+
+    /**
      * What agents in this workspace are given when they ask for nothing.
      *
      * The middle step of three - the agent's own share, then this, then the

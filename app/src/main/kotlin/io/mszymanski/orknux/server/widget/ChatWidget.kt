@@ -78,6 +78,8 @@ data class WidgetView(
     val remainingSeconds: Long? = null,
     /** Whether the agent is told when the timer ends. */
     val wake: Boolean? = null,
+    /** Whether the timer sounds when it ends, where the agent chose; null follows the workspace. */
+    val sound: Boolean? = null,
     /** When a running stopwatch last started. Null while it is paused. */
     val startedAt: String? = null,
     /** A stopwatch's time while paused, and what it had before [startedAt] while running. */

@@ -42,12 +42,12 @@ class Widgets(
     }
 
     @Transactional
-    fun startTimer(chat: ChatSession, label: String, seconds: Long, wake: Boolean, by: String): WidgetView {
+    fun startTimer(chat: ChatSession, label: String, seconds: Long, wake: Boolean, by: String, sound: Boolean? = null): WidgetView {
         val longest = settings.widgetTimerMaxSeconds().toLong()
         if (seconds <= 0) throw WidgetRefusedException("A timer runs for a number of seconds greater than zero")
         if (seconds > longest) throw WidgetRefusedException("A timer can run for at most $longest seconds on this installation")
         if (wake && chat.llmSessionId == null) throw WidgetRefusedException("This chat has no session to wake yet")
-        val state = (byKind.getValue(TimerWidget.TIMER) as TimerWidget).started(seconds, wake, now())
+        val state = (byKind.getValue(TimerWidget.TIMER) as TimerWidget).started(seconds, wake, now(), sound)
         return made(chat, TimerWidget.TIMER, label, state, by)
     }
 

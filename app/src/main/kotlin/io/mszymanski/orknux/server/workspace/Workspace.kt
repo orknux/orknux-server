@@ -186,6 +186,15 @@ class Workspace(
     var chatShowTimestamps: Boolean = false,
 
     /**
+     * Whether a timer an agent puts above a chat's message box sounds when it
+     * reaches nought. On by default: a timer somebody asked for is one they
+     * want to hear end. An agent can choose otherwise for one timer - only
+     * when the person said so - and that choice is the timer's, not this.
+     */
+    @Column(name = "widget_timer_sound", nullable = false)
+    var widgetTimerSound: Boolean = true,
+
+    /**
      * What an agent that sets no share of its own is given, as a percentage of
      * its model's context window.
      *

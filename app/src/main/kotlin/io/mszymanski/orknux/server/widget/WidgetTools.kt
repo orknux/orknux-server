@@ -46,6 +46,13 @@ class WidgetTools(
                 ToolParameterSpec("label", "What it is timing, in a few words; shown on the timer.", required = true),
                 ToolParameterSpec("seconds", "How long it runs, in seconds.", true, mapOf("type" to "integer")),
                 ToolParameterSpec("wake", "true to be told when it ends; false by default.", false, mapOf("type" to "boolean")),
+                ToolParameterSpec(
+                    "sound",
+                    "Leave this out: whether a timer sounds when it ends is the workspace's setting. Pass true or " +
+                        "false only when the person explicitly asked for this timer to make a sound, or to be silent.",
+                    false,
+                    mapOf("type" to "boolean"),
+                ),
             ),
         ),
         ToolSpec(
@@ -71,7 +78,14 @@ class WidgetTools(
                 LIST -> mapOf("widgets" to widgets.list(chatId), "most" to settings.widgetsPerChat())
                 TIMER_START -> {
                     val seconds = number(args, "seconds") ?: throw WidgetRefusedException("Say for how many seconds, as a number")
-                    widgets.startTimer(chat, text(args, "label"), seconds, args.path("wake").asBoolean(false), who(chat))
+                    val sound = args.path("sound").let { node ->
+                        when {
+                            node.isBoolean -> node.asBoolean()
+                            node.isString -> node.stringValue().trim().lowercase().toBooleanStrictOrNull()
+                            else -> null
+                        }
+                    }
+                    widgets.startTimer(chat, text(args, "label"), seconds, args.path("wake").asBoolean(false), who(chat), sound)
                 }
                 STOPWATCH_START -> widgets.startStopwatch(chat, text(args, "label"), who(chat))
                 PAUSE_TOOL -> widgets.act(chat, id(args), PAUSE)

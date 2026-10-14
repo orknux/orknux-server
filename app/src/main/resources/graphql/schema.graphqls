@@ -1851,6 +1851,8 @@ type Mutation {
     "Whether the quick chat may start things, or only look them up."
     setWorkspaceQuickChatWrites(workspaceId: ID!, allowed: Boolean!): Workspace!
     setWorkspaceChatTimestamps(workspaceId: ID!, shown: Boolean!): Workspace!
+    "Whether this workspace's chat timers sound when they end."
+    setWorkspaceWidgetTimerSound(workspaceId: ID!, sound: Boolean!): Workspace!
     """
     What agents in this workspace are given when they set no share of their own.
 
@@ -2262,6 +2264,11 @@ type Workspace {
     """
     quickChatMayWrite: Boolean!
     chatShowTimestamps: Boolean!
+    """
+    Whether a chat timer sounds when it ends, unless the agent chose otherwise
+    for that timer. True by default.
+    """
+    widgetTimerSound: Boolean!
     """
     What agents here are given when they set no share of their own, as a
     percentage of their model's context window.
