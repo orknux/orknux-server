@@ -15,12 +15,15 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
-## Unreleased
+## 1.0.8
+
+### ✨ Added
+
+- **The sessions list shows each session's tokens and cost**, and sorts by either. The columns follow the workspace's switch for showing a session's cost.
 
 ### 🔧 Changed
 
 - **Memory catalogs and plugin skills are granted to agents by default.** A new agent holds every memory catalog its workspace has and every plugin's skill catalog; a memory catalog created later, or a plugin that brings skills for the first time, is granted to the agents already there. Each can be unticked on the agent, and re-uploading a plugin does not hand back a catalog somebody took away.
-- **The sessions list shows each session's tokens and cost**, and sorts by either. The columns follow the workspace's switch for showing a session's cost.
 - **A session page's side column has no scrollbar of its own**: it grows with its panels and the page scrolls to them, while a long list still scrolls inside its panel.
 - **Save is at the top** of Preferences, beside the title with the count of unsaved changes, and at the top of a connection's General card.
 
