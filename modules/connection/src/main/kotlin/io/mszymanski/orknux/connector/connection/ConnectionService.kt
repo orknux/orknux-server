@@ -59,7 +59,9 @@ class ConnectionService(
         if (url.isEmpty()) throw ConnectionUrlInvalidException()
         if (connections.findByName(name) != null) throw ConnectionNameTakenException(name)
 
-        val connection = connections.save(Connection(name = name, type = input.type, url = url))
+        val connection = connections.save(
+            Connection(name = name, type = input.type, url = url, description = input.description.described()),
+        )
 
         // The count goes back to the caller, which is what writes the audit
         // entry: "Default connection Slack added to 3 existing workspaces".
@@ -85,11 +87,13 @@ class ConnectionService(
         connection.name = name
         connection.type = input.type
         connection.url = url
+        connection.description = input.description.described()
 
         workspaceConnections.findByConnectionId(id).forEach { held ->
             held.name = name
             held.type = input.type
             held.url = url
+            held.description = connection.description
         }
         return ConnectionView(connection)
     }
@@ -116,11 +120,19 @@ class ConnectionService(
 private fun ConnectionInput.slackAwareUrl(): String =
     if (type == ConnectionType.SLACK) SLACK_API_URL else url.orEmpty().trim()
 
+/** A description as it is kept: trimmed, at most [DESCRIPTION_LENGTH] characters, and nothing rather than blank. */
+internal fun String?.described(): String? = this?.trim()?.take(DESCRIPTION_LENGTH)?.ifEmpty { null }
+
+/** The column's length; the forms cap what is typed to it. */
+const val DESCRIPTION_LENGTH = 500
+
 data class ConnectionInput(
     val name: String,
     val type: ConnectionType,
     /** Required, except for the types that have one address: Slack is filled in. */
     val url: String? = null,
+    /** What it is for, in a sentence; carried to every copy. */
+    val description: String? = null,
     /**
      * Defaults reach new workspaces as they are created; this also gives it to the
      * workspaces that already exist. Ignored when updating.
@@ -133,12 +145,14 @@ data class ConnectionView(
     val name: String,
     val type: ConnectionType,
     val url: String,
+    val description: String? = null,
 ) {
     constructor(connection: Connection) : this(
         id = requireNotNull(connection.id),
         name = connection.name,
         type = connection.type,
         url = connection.url,
+        description = connection.description,
     )
 }
 

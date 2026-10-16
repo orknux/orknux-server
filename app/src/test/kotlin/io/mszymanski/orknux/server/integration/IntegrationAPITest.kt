@@ -125,6 +125,43 @@ class IntegrationAPITest(
             .contains("Default connection Pager added to 1 existing workspace")
     }
 
+    /**
+     * A connection says what it is for. A workspace's own one keeps what the
+     * workspace wrote, and empties it on an empty one; an inherited copy
+     * follows the admin default's, as its name does.
+     */
+    @Test
+    fun `a connection carries a description, and a copy follows its default's`() {
+        val made = graphQlTester.document(
+            """
+            mutation {
+              createConnection(input: {
+                name: "Desk", type: HTTP, url: "https://desk.test", description: "the support desk",
+                addToExistingWorkspaces: true
+              }) { id description }
+            }
+            """,
+        ).execute()
+        made.path("createConnection.description").entity(String::class.java).isEqualTo("the support desk")
+        val defaultId = made.path("createConnection.id").entity(Long::class.java).get()
+        assertThat(workspaceConnections.findAll().single { it.name == "Desk" }.description).isEqualTo("the support desk")
+        graphQlTester.document(
+            """mutation { updateConnection(id: $defaultId, input: { name: "Desk", type: HTTP, url: "https://desk.test", description: "  the support desk, EU  " }) { id } }""",
+        ).execute().path("updateConnection.id").hasValue()
+        assertThat(workspaceConnections.findAll().single { it.name == "Desk" }.description).isEqualTo("the support desk, EU")
+
+        val own = createWorkspaceConnection("Tracker", type = "HTTP")
+        graphQlTester.document(
+            """mutation { updateWorkspaceConnection(id: $own, input: { description: "production Jira" }) { description } }""",
+        ).execute().path("updateWorkspaceConnection.description").entity(String::class.java).isEqualTo("production Jira")
+        graphQlTester.document(
+            """mutation { updateWorkspaceConnection(id: $own, input: { name: "Tracker" }) { description } }""",
+        ).execute().path("updateWorkspaceConnection.description").entity(String::class.java).isEqualTo("production Jira")
+        graphQlTester.document(
+            """mutation { updateWorkspaceConnection(id: $own, input: { description: "" }) { description } }""",
+        ).execute().path("updateWorkspaceConnection.description").valueIsNull()
+    }
+
     @Test
     fun `storing credentials connects a connection, and revealing them is recorded`() {
         val id = createWorkspaceConnection("Slack")

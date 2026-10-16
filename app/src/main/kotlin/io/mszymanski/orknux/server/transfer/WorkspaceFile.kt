@@ -199,6 +199,7 @@ internal val WORKSPACE_MODEL_CHOICES: List<ModelChoice> = listOf(
 
 internal val CONNECTION_FIELDS: List<FileField<WorkspaceConnection, *>> = listOf(
     FileField("urlOverride", { it.urlOverride }, { c, v -> c.urlOverride = v }, TEXT_OR_NULL),
+    FileField("description", { it.description }, { c, v -> c.description = v }, TEXT_OR_NULL),
     FileField("pluginType", { it.pluginType }, { c, v -> c.pluginType = v }, TEXT_OR_NULL),
     FileField("authType", { it.authType }, { c, v -> c.authType = v }, choice<AuthType>()),
     FileField("smtpPort", { it.smtpPort }, { c, v -> c.smtpPort = v }, WHOLE_OR_NULL),

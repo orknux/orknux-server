@@ -58,7 +58,7 @@ class ConnectionTools(
         name = FIND,
         description = "Finds the id of a connection you have been granted - a tool that takes a " +
             "connection needs one of these, and you can name no other. Search by the name of the " +
-            "system or of the connection: \"slack\", \"production jira\"; leave the query out to list " +
+            "system, of the connection or of what it is for: \"slack\", \"production jira\"; leave the query out to list " +
             "them all. Only pass an id to a tool when you have been explicitly told to use that " +
             "connection; otherwise leave the tool to its own default.",
         parameters = listOf(
@@ -127,6 +127,8 @@ class ConnectionTools(
                         // connection from a production one when both are called
                         // after the same system. Never the credential.
                         "host" to host(found.effectiveUrl),
+                        // What it is for, in the words of whoever set it up.
+                        "description" to found.description,
                     )
                 },
             ),
@@ -142,7 +144,7 @@ class ConnectionTools(
      * question not being answered.
      */
     private fun matches(connection: WorkspaceConnectionView, asked: String): Boolean {
-        val against = "${connection.name} ${connection.type.name} ${connection.effectiveUrl}".lowercase()
+        val against = "${connection.name} ${connection.type.name} ${connection.effectiveUrl} ${connection.description.orEmpty()}".lowercase()
         return asked.lowercase().split(NOT_A_WORD).filter { it.isNotEmpty() }.all { against.contains(it) }
     }
 

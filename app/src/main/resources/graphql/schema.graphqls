@@ -4675,6 +4675,8 @@ input HttpHeaderInput {
 type Connection {
     id: ID!
     name: String!
+    "What it is for, in a sentence. Shown under its name and told to an agent beside it."
+    description: String
     type: ConnectionType!
     url: String!
 }
@@ -4689,6 +4691,8 @@ type ConnectionPage {
 
 input ConnectionInput {
     name: String!
+    "What it is for, in a sentence. Shown under its name and told to an agent beside it."
+    description: String
     type: ConnectionType!
     "Required, except for the types that have one address: Slack is filled in."
     url: String
@@ -4785,6 +4789,8 @@ type WorkspaceConnection {
     id: ID!
     workspaceId: ID!
     name: String!
+    "What it is for, in a sentence. Shown under its name and told to an agent beside it."
+    description: String
     type: ConnectionType!
     "The admin default, or the workspace's own URL for a connection it added."
     url: String!
@@ -5045,6 +5051,8 @@ type SlackSuggestion {
 input CreateWorkspaceConnectionInput {
     workspaceId: ID!
     name: String!
+    "What it is for, in a sentence. Shown under its name and told to an agent beside it."
+    description: String
     type: ConnectionType!
     "A plugin-declared kind of host, as key/name; needs type HTTP. Issue #363."
     pluginType: String
@@ -5085,6 +5093,8 @@ input CreateWorkspaceConnectionInput {
 input UpdateWorkspaceConnectionInput {
     "Ignored for inherited connections, which follow the admin default."
     name: String
+    "What it is for, in a sentence. Shown under its name and told to an agent beside it."
+    description: String
     type: ConnectionType
     "Null leaves the plugin kind alone; an empty string clears it. Issue #363."
     pluginType: String

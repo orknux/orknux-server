@@ -530,7 +530,9 @@ class PluginParameters(
                 "This workspace has no ${kind}connection; one has to be added on its Connections page first."
             }
         }
-        val listed = usable.joinToString(", ") { "${it.id} (${it.name})" } + "."
+        val listed = usable.joinToString(", ") { one ->
+            "${one.id} (${one.name}${one.description?.let { " - $it" }.orEmpty()})"
+        } + "."
         return if (agent) "The ${kind}connections you have been granted: $listed" else "This workspace's ${kind}connections: $listed"
     }
 

@@ -640,6 +640,7 @@ class WorkspaceDuplicator(
                     name = held.name,
                     type = held.type,
                     url = held.url,
+                    description = held.description,
                     urlOverride = held.urlOverride,
                     pluginType = held.pluginType,
                     authType = held.authType,

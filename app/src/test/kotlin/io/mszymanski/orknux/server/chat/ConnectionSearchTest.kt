@@ -216,6 +216,31 @@ class ConnectionSearchTest(
         assertThat(matches.single()["name"]).isEqualTo("Staging Jira")
     }
 
+    /**
+     * What a connection is for reaches the agent: beside its name in the
+     * briefing, in what the finder answers, and as something to search by -
+     * two connections to one system are told apart by what they are for.
+     */
+    @Test
+    fun `a connection's description is told to the agent and found by`() {
+        val name = "Described ${System.nanoTime()}"
+        val id = connections.createWorkspaceConnection(
+            CreateWorkspaceConnectionInput(
+                workspaceId = workspaceId,
+                name = name,
+                type = ConnectionType.HTTP,
+                url = "https://described.example.test",
+                description = "the quarterly billing ledger",
+            ),
+        ).id
+        val holder = agent(listOf(id))
+
+        assertThat(briefing.of(holder).orEmpty()).contains("$name (HTTP, id $id): the quarterly billing ledger")
+        val listed = found(finder.run(holder, "{}"))
+        assertThat(listed.single()["description"]).isEqualTo("the quarterly billing ledger")
+        assertThat(found(finder.run(holder, """{"query":"ledger"}""")).map { it["name"] }).containsExactly(name)
+    }
+
     @Test
     fun `no query lists everything it holds`() {
         val said = finder.run(agent(granted), "{}")

@@ -141,6 +141,10 @@ class Connection(
 
     @Column(nullable = false, length = 1000)
     var url: String,
+
+    /** What it is for, in a sentence; carried to the copies like the name. */
+    @Column(length = 500)
+    var description: String? = null,
 )
 
 /**
@@ -173,6 +177,16 @@ class WorkspaceConnection(
 
     @Column(nullable = false, length = 1000)
     var url: String,
+
+    /**
+     * What this connection is for, in a sentence: "production Jira, the
+     * support project". Shown under its name in the list and on hover, and
+     * told to an agent beside its name, because two connections to the same
+     * system are told apart by what they are for. Follows the admin default
+     * on an inherited copy, like the name.
+     */
+    @Column(length = 500)
+    var description: String? = null,
 
     /** Used instead of [url] when the workspace points at its own endpoint. */
     @Column(name = "url_override", length = 1000)

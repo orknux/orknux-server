@@ -545,6 +545,8 @@ class AgentBriefing(
                 reachable.forEach { connection ->
                     append("\n- ").append(connection.name)
                     append(" (").append(connection.type.name).append(", id ").append(connection.id).append(")")
+                    // What it is for, which is how two connections to one system are told apart.
+                    connection.description?.let { append(": ").append(it) }
                 }
                 appendLine()
             }

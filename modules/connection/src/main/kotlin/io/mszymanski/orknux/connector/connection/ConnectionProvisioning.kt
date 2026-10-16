@@ -37,6 +37,7 @@ class ConnectionProvisioning(
                 name = default.name,
                 type = default.type,
                 url = default.url,
+                description = default.description,
                 // The form no longer asks a Slack connection how it
                 // authenticates, so a provisioned one has to arrive knowing:
                 // left at NONE it would hold a bot token and send it to nobody.

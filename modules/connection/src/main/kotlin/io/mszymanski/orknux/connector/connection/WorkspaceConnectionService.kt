@@ -96,6 +96,7 @@ class WorkspaceConnectionService(
                 type = input.type,
                 pluginType = pluginType,
                 url = url,
+                description = input.description.described(),
                 authType = if (slack) AuthType.BEARER_TOKEN else input.authType ?: AuthType.NONE,
                 secret = if (secretVariable == null) ownSecret else null,
                 secretVariableId = secretVariable,
@@ -143,6 +144,8 @@ class WorkspaceConnectionService(
                 if (url.isEmpty()) throw ConnectionUrlInvalidException()
                 connection.url = url
             }
+            // Null leaves it as it is; an empty one takes it off.
+            input.description?.let { connection.description = it.described() }
         }
 
         input.authType?.let { connection.authType = it }
@@ -360,6 +363,8 @@ data class CreateWorkspaceConnectionInput(
     val pluginType: String? = null,
     /** Required, except for the types that have one address: Slack is filled in. */
     val url: String? = null,
+    /** What it is for, in a sentence. */
+    val description: String? = null,
     /** Ignored for Slack, which is always a bearer token. */
     val authType: AuthType? = null,
     val secret: String? = null,
@@ -389,6 +394,8 @@ data class UpdateWorkspaceConnectionInput(
     /** Null leaves the plugin kind as it is; an empty string clears it. Issue #363. */
     val pluginType: String? = null,
     val url: String? = null,
+    /** Null leaves it as it is; empty takes it off. Ignored for inherited connections. */
+    val description: String? = null,
     val urlOverride: String? = null,
     val authType: AuthType? = null,
     /**
@@ -426,6 +433,8 @@ data class WorkspaceConnectionView(
     val type: ConnectionType,
     /** The admin default, or the workspace's own URL for a connection it added. */
     val url: String,
+    /** What it is for, in a sentence, or null. */
+    val description: String?,
     val urlOverride: String?,
     /** Where requests actually go: the override when set, the default otherwise. */
     val effectiveUrl: String,
@@ -493,6 +502,7 @@ data class WorkspaceConnectionView(
         name = connection.name,
         type = connection.type,
         url = connection.url,
+        description = connection.description,
         urlOverride = connection.urlOverride,
         effectiveUrl = connection.effectiveUrl,
         authType = connection.authType,
