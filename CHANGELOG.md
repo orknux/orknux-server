@@ -17,6 +17,10 @@ have failed.
 
 ## Unreleased
 
+### ✨ Added
+
+- A **session page shows what the session has cost**: the tokens every model call made into it was charged - in, out and cached - and the money where the models have prices. A workspace setting, on by default. It counts from this release on; earlier calls were not recorded.
+
 ### 🔧 Changed
 
 - **Preferences has a Save button.** A change there is held until you press Save, and the page counts what is waiting; before, each one took effect the moment it was made. The email address no longer has a Save of its own.

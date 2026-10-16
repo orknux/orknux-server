@@ -284,6 +284,7 @@ fun interface Interjections {
 @Service
 class AgentConversation(
     private val models: ModelChatClient,
+    private val spend: io.mszymanski.orknux.server.llm.SessionSpend,
     private val tools: AgentTools,
     /** Whether the provider hands over every tool up front; see [ToolCeilings]. */
     private val ceilings: ToolCeilings,
@@ -682,6 +683,7 @@ class AgentConversation(
                     writing.answer(it)
                 }
             }
+            into?.let { spend.add(it, modelId, once) }
             record(into, agent, once)
             if (once is ChatCompletion.Answered) kept?.sent(told + ChatTurn(role = "assistant", content = once.content))
             return once
@@ -923,6 +925,8 @@ class AgentConversation(
                     writing.answer(it)
                 }
             }
+            // What the round cost, whatever it answered: a round that asked for tools is charged too.
+            into?.let { spend.add(it, modelId, answer) }
             when (answer) {
                 /*
                  * A round that could not be used is put back to the model

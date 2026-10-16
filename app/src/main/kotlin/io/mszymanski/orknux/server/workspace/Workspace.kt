@@ -194,6 +194,10 @@ class Workspace(
     @Column(name = "widget_timer_sound", nullable = false)
     var widgetTimerSound: Boolean = true,
 
+    /** Whether a session page shows what the session has cost, in tokens and money. On by default. */
+    @Column(name = "session_cost_shown", nullable = false)
+    var sessionCostShown: Boolean = true,
+
     /**
      * What an agent that sets no share of its own is given, as a percentage of
      * its model's context window.

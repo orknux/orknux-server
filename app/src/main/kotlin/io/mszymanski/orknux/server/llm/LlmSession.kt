@@ -292,6 +292,25 @@ class LlmSession(
      */
     @Column(name = "agent_details", columnDefinition = "text")
     var agentDetails: String? = null,
+
+    /** What every model call made into this session was charged, in tokens; see [SessionSpend]. */
+    @Column(name = "spent_input_tokens", nullable = false)
+    var spentInputTokens: Long = 0,
+
+    @Column(name = "spent_output_tokens", nullable = false)
+    var spentOutputTokens: Long = 0,
+
+    /** How many of [spentInputTokens] the provider reused from its cache, where it said. */
+    @Column(name = "spent_cached_input_tokens", nullable = false)
+    var spentCachedInputTokens: Long = 0,
+
+    /** Their price, from the prices on each model called; the calls of an unpriced model add nothing. */
+    @Column(name = "spent_cost", nullable = false, precision = 16, scale = 6)
+    var spentCost: java.math.BigDecimal = java.math.BigDecimal.ZERO,
+
+    /** Whether some call's model had no price, so [spentCost] is part of the whole. */
+    @Column(name = "spent_partly_unpriced", nullable = false)
+    var spentPartlyUnpriced: Boolean = false,
 )
 
 /** Matches the column; a tool with a long name must not fail the insert. */
@@ -420,6 +439,25 @@ class LlmSessionEvent(
 }
 
 interface LlmSessionRepository : JpaRepository<LlmSession, Long> {
+
+    /** One model call's spend, added in one statement so two turns finishing at once cannot lose either. */
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query(
+        "UPDATE LlmSession s SET s.spentInputTokens = s.spentInputTokens + :input, " +
+            "s.spentOutputTokens = s.spentOutputTokens + :output, " +
+            "s.spentCachedInputTokens = s.spentCachedInputTokens + :cached, " +
+            "s.spentCost = s.spentCost + :cost, " +
+            "s.spentPartlyUnpriced = (CASE WHEN :unpriced = true THEN true ELSE s.spentPartlyUnpriced END) " +
+            "WHERE s.id = :id",
+    )
+    fun addSpend(
+        @org.springframework.data.repository.query.Param("id") id: Long,
+        @org.springframework.data.repository.query.Param("input") input: Long,
+        @org.springframework.data.repository.query.Param("output") output: Long,
+        @org.springframework.data.repository.query.Param("cached") cached: Long,
+        @org.springframework.data.repository.query.Param("cost") cost: java.math.BigDecimal,
+        @org.springframework.data.repository.query.Param("unpriced") unpriced: Boolean,
+    ): Int
 
     /** The one this key names here, which is what "the same session" means. */
     fun findByWorkspaceIdAndSessionKey(workspaceId: Long, sessionKey: String): LlmSession?

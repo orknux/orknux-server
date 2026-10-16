@@ -470,6 +470,19 @@ class LlmSessionAPI(
     fun agentDetails(session: LlmSessionView): SessionAgentDetailsView? =
         session.agentDetails?.let(::agentDetailsOf)
 
+    /** What the session has cost, read off its row. */
+    @SchemaMapping(typeName = "LlmSession")
+    fun spent(session: LlmSessionView): SessionSpendView? =
+        sessions.findByIdOrNull(session.id)?.let { held ->
+            SessionSpendView(
+                inputTokens = held.spentInputTokens,
+                outputTokens = held.spentOutputTokens,
+                cachedInputTokens = held.spentCachedInputTokens,
+                cost = held.spentCost.takeIf { it.signum() > 0 }?.stripTrailingZeros()?.toPlainString(),
+                partlyUnpriced = held.spentPartlyUnpriced,
+            )
+        }
+
     /**
      * One snapshot, resolved into the shape the log draws. Shared by the
      * session's latest and the AGENT_DETAILS line, so the two cannot read the

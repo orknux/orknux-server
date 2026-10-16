@@ -748,6 +748,17 @@ class WorkspaceAPI(
         return workspace
     }
 
+    /** Whether this workspace's session pages show what a session has cost. A display choice, like the two above. */
+    @MutationMapping
+    @Transactional
+    fun setWorkspaceSessionCostShown(@Argument workspaceId: Long, @Argument shown: Boolean): Workspace {
+        val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
+        access.requireVisible(workspace)
+
+        workspace.sessionCostShown = shown
+        return workspace
+    }
+
     /**
      * What agents in this workspace are given when they ask for nothing.
      *

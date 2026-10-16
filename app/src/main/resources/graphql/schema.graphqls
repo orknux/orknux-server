@@ -1858,6 +1858,8 @@ type Mutation {
     setWorkspaceChatTimestamps(workspaceId: ID!, shown: Boolean!): Workspace!
     "Whether this workspace's chat timers sound when they end."
     setWorkspaceWidgetTimerSound(workspaceId: ID!, sound: Boolean!): Workspace!
+    "Whether this workspace's session pages show what a session has cost."
+    setWorkspaceSessionCostShown(workspaceId: ID!, shown: Boolean!): Workspace!
     """
     What agents in this workspace are given when they set no share of their own.
 
@@ -2274,6 +2276,8 @@ type Workspace {
     for that timer. True by default.
     """
     widgetTimerSound: Boolean!
+    "Whether a session page shows what the session has cost. True by default."
+    sessionCostShown: Boolean!
     """
     What agents here are given when they set no share of their own, as a
     percentage of their model's context window.
@@ -3507,6 +3511,20 @@ type LlmSession {
     no agent has written into. Issues #391, #441.
     """
     agentDetails: SessionAgentDetails
+    "What every model call made into this session was charged, and its price."
+    spent: SessionSpend
+}
+
+"What a session has cost."
+type SessionSpend {
+    inputTokens: Float!
+    outputTokens: Float!
+    "How many of the input tokens the provider reused from its cache."
+    cachedInputTokens: Float!
+    "From the prices on each model called, as a decimal; null where none was priced."
+    cost: String
+    "Whether some call's model had no price, so cost is part of the whole."
+    partlyUnpriced: Boolean!
 }
 
 """

@@ -686,6 +686,9 @@ class AgentNodeRunnerTest(
         val step = steps.findAll().single { it.nodeKey == "think" }
         val session = sessions.findAll().single()
         assertThat(step.sessionId).isEqualTo(session.id)
+        // And what its call cost is on the session: the stub reports 11 in, 6 out.
+        assertThat(session.spentInputTokens).isEqualTo(11)
+        assertThat(session.spentOutputTokens).isEqualTo(6)
     }
 
     /** A node with no session wired to it keeps none, and its step says so. */
