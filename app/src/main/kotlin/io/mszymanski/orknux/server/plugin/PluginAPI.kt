@@ -81,6 +81,7 @@ class PluginUploadAPI(
      * fetches plugins from URLs somebody typed.
      */
     private val installKey: MarketplaceInstallKey,
+    private val defaultGrants: io.mszymanski.orknux.server.agent.DefaultGrants,
 ) {
 
     /** How large one source file may be right now; asked per load, so the screen's answer is this one. */
@@ -812,6 +813,8 @@ class PluginUploadAPI(
         val fingerprint = digest(files.fold(source) { acc, held -> acc + "\n// " + held.path + "\n" + held.source })
 
         val existing = plugins.findByKey(key)
+        // Whether its skills are arriving for the first time, which is when they are granted by default.
+        val hadSkills = existing != null && declarations.readSkills(existing.declaredSkills).isNotEmpty()
         // Stamped when somebody has just agreed; carried over when nothing new was
         // granted; cleared with the list when the plugin stops asking for anything.
         val acceptedAt = when {
@@ -902,6 +905,14 @@ class PluginUploadAPI(
         )
 
         val saved = plugins.save(plugin)
+        /*
+         * A plugin bringing skills for the first time hands its catalog to every
+         * agent; one re-uploaded with skills it already had does not, so a
+         * catalog somebody unticked stays unticked. See DefaultGrants.
+         */
+        if (!hadSkills && declarations.readSkills(declaredSkills).isNotEmpty()) {
+            defaultGrants.pluginSkillsAdded(io.mszymanski.orknux.server.agent.catalogOf(key))
+        }
         // A new row was inserted with its code; an existing one is written
         // here, since the entity never writes the code after its insert.
         if (existing != null) code.replace(requireNotNull(saved.id), source, typescript?.ifBlank { null })

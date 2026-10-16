@@ -36,6 +36,7 @@ class MemoryAPI(
     private val access: WorkspaceAccess,
     private val auditRecorder: WorkspaceAuditRecorder,
     private val dependants: ComponentDependants,
+    private val defaultGrants: io.mszymanski.orknux.server.agent.DefaultGrants,
 ) {
 
     @QueryMapping
@@ -121,6 +122,8 @@ class MemoryAPI(
             MemoryCatalog(workspaceId = workspaceId, name = trimmed, createdBy = currentUser()),
         )
         auditRecorder.record(workspaceId, WorkspaceAuditCategory.MEMORY, "Memory catalog $trimmed added")
+        // The workspace's agents may read and write it unless somebody unticks it.
+        defaultGrants.memoryCatalogAdded(workspaceId, trimmed)
         return describe(created)
     }
 

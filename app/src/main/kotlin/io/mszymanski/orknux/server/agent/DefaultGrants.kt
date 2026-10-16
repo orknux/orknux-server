@@ -1,0 +1,66 @@
+package io.mszymanski.orknux.server.agent
+
+import io.mszymanski.orknux.server.memory.MemoryCatalogRepository
+import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
+import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
+import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
+
+/**
+ * The memory catalogs and plugin skills an agent holds without anybody ticking
+ * them.
+ *
+ * A new agent starts with every memory catalog its workspace has and every
+ * plugin's skill catalog; a memory catalog made later, or a plugin that brings
+ * skills for the first time, is granted to the agents already there. All of it
+ * can be unticked on the agent - a grant given by default is still a grant -
+ * and a plugin re-uploaded with the same skills does not hand back a catalog
+ * somebody took away: only a catalog appearing for the first time is granted.
+ */
+@Service
+class DefaultGrants(
+    private val agents: AgentRepository,
+    private val memoryCatalogs: MemoryCatalogRepository,
+    private val pluginSkills: PluginSkills,
+    private val auditRecorder: WorkspaceAuditRecorder,
+) {
+
+    /** Every memory catalog of [workspaceId], by name, for a new agent. */
+    fun memoryCatalogsFor(workspaceId: Long): MutableList<String> =
+        memoryCatalogs.findByWorkspaceIdOrderByNameAsc(workspaceId).map { it.name }.toMutableList()
+
+    /** Every plugin's skill catalog, for a new agent; the server's own skills reach it another way. */
+    fun pluginSkillCatalogs(): MutableList<String> =
+        pluginSkills.catalogs().map { it.name }.filter { it != BuiltInSkills.CATALOG }.distinct().toMutableList()
+
+    /** A memory catalog just made in [workspaceId], granted to the agents already there. */
+    @Transactional
+    fun memoryCatalogAdded(workspaceId: Long, catalog: String) {
+        val given = agents.findByWorkspaceId(workspaceId, org.springframework.data.domain.Sort.by("id"))
+            .filter { catalog !in it.memoryCatalogs }
+        given.forEach { it.memoryCatalogs.add(catalog) }
+        agents.saveAll(given)
+        if (given.isNotEmpty()) {
+            auditRecorder.record(
+                workspaceId,
+                WorkspaceAuditCategory.AGENT,
+                "Memory catalog $catalog granted to ${given.size} agent${if (given.size == 1) "" else "s"} by default",
+            )
+        }
+    }
+
+    /** A plugin's skill catalog appearing for the first time, granted to every agent there is. */
+    @Transactional
+    fun pluginSkillsAdded(catalog: String) {
+        val given = agents.findAll().filter { catalog !in it.skillCatalogs }
+        given.forEach { it.skillCatalogs.add(catalog) }
+        agents.saveAll(given)
+        given.groupBy { it.workspaceId }.forEach { (workspaceId, held) ->
+            auditRecorder.record(
+                workspaceId,
+                WorkspaceAuditCategory.AGENT,
+                "Skills of $catalog granted to ${held.size} agent${if (held.size == 1) "" else "s"} by default",
+            )
+        }
+    }
+}

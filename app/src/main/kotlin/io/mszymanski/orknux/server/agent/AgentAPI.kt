@@ -50,6 +50,7 @@ class AgentAPI(
     private val builtIns: io.mszymanski.orknux.server.chat.BuiltInTools,
     /** What a new agent is granted to read: every catalog its plugins bring. Issue #4. */
     private val pluginSkills: PluginSkills,
+    private val defaultGrants: DefaultGrants,
 ) {
 
     /**
@@ -86,8 +87,7 @@ class AgentAPI(
      */
     private val STARTING_ALWAYS_SKILLS = listOf("watchers")
 
-    private fun startingCatalogs(): MutableList<String> =
-        pluginSkills.catalogs().map { it.name }.filter { it != BuiltInSkills.CATALOG }.distinct().toMutableList()
+    private fun startingCatalogs(): MutableList<String> = defaultGrants.pluginSkillCatalogs()
 
     /** The agent, with what its model is called: the screen shows the name. */
     private fun describe(agent: Agent) =
@@ -226,6 +226,8 @@ class AgentAPI(
                 // commands to tell anybody about. Issue #471. With every
                 // plugin's catalog beside them; see startingCatalogs. Issue #4.
                 skillCatalogs = startingCatalogs(),
+                // Every memory catalog the workspace has, which it may untick. See DefaultGrants.
+                memoryCatalogs = defaultGrants.memoryCatalogsFor(input.workspaceId),
                 requiredSkills = STARTING_ALWAYS_SKILLS.toMutableList(),
                 lastModifiedBy = currentUser(),
             ).also { made -> input.boxLabels?.let { made.boxLabels = it } },
@@ -305,6 +307,7 @@ class AgentAPI(
                 // paragraph above is about: these catalogs are the
                 // installation's, and a skill runs nothing. Issues #471 and #4.
                 skillCatalogs = startingCatalogs(),
+                memoryCatalogs = defaultGrants.memoryCatalogsFor(model.workspaceId),
                 requiredSkills = STARTING_ALWAYS_SKILLS.toMutableList(),
                 lastModifiedBy = currentUser(),
             ),

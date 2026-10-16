@@ -271,21 +271,35 @@ class PluginSkillsTest(
     }
 
     /**
-     * Not granted to an agent that already existed when the plugin arrived -
-     * neither by loading the plugin nor by a migration: an existing agent
-     * without a catalog may be one somebody chose to leave without it, and
-     * nothing stored can tell that from one nobody looked at. See
-     * `AgentAPI.startingCatalogs`.
+     * Granted to the agents that already existed too, when the plugin first
+     * brings skills - a plugin loaded later is one every agent may draw on,
+     * unless somebody unticks it. See DefaultGrants.
      */
     @Test
-    fun `a plugin loaded later is not granted to an agent that already existed`() {
+    fun `a plugin loaded later is granted to the agents that already existed`() {
         val before = created("before")
 
         load()
 
-        assertThat(agents.findById(requireNotNull(before.id)).get().skillCatalogs)
-            .isEmpty()
+        assertThat(agents.findById(requireNotNull(before.id)).get().skillCatalogs).contains("deploys_plugin")
         assertThat(created("after").skillCatalogs).contains("deploys_plugin")
+        assertThat(audit.findAll().map { it.message }).contains("Skills of deploys_plugin granted to 1 agent by default")
+    }
+
+    /**
+     * But only when its skills arrive for the first time: re-uploading a plugin
+     * with the skills it already had does not hand back a catalog somebody took
+     * away.
+     */
+    @Test
+    fun `a re-upload does not hand back a catalog somebody took away`() {
+        load()
+        val agent = created()
+        agentApi.updateAgent(requireNotNull(agent.id), UpdateAgentInput(name = agent.name, skillCatalogs = emptyList()))
+
+        load()
+
+        assertThat(agents.findById(requireNotNull(agent.id)).get().skillCatalogs).isEmpty()
     }
 
     /**

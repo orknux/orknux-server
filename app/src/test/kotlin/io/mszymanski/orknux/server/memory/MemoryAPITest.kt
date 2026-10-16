@@ -161,6 +161,25 @@ class MemoryAPITest(
      * being checked is that the question is about the catalog's own name, not
      * that the workspace happens to have no agents in it.
      */
+    /**
+     * Granted by default: a new agent holds every memory catalog its workspace
+     * has, and a catalog made later reaches the agents already there - each can
+     * be unticked on the agent. See DefaultGrants.
+     */
+    @Test
+    fun `a new agent holds the workspace's memory catalogs, and a catalog made later reaches it`() {
+        catalog("Runbooks")
+        val agentId = graphQlTester.document(
+            """mutation { createAgent(input: { workspaceId: $workspaceId, name: "Reviewer", type: LLM }) { id memoryCatalogs } }""",
+        ).execute().path("createAgent.memoryCatalogs").entityList(String::class.java).containsExactly("Runbooks")
+            .path("createAgent.id").entity(Long::class.java).get()
+
+        catalog("Incidents")
+
+        assertThat(agents.findById(agentId).get().memoryCatalogs).containsExactlyInAnyOrder("Runbooks", "Incidents")
+        assertThat(audit.findAll().map { it.message }).contains("Memory catalog Incidents granted to 1 agent by default")
+    }
+
     @Test
     fun `a memory catalog nobody was granted still deletes`() {
         val id = catalog("Unused")
