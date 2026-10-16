@@ -19,7 +19,7 @@ have failed.
 
 ### 🔧 Changed
 
-- **A session page's side column fits the window** and never scrolls as a whole: an empty panel is one line, and panels with something in them share the rest, each scrolling its own list.
+- **A session page's side column has no scrollbar of its own**: it grows with its panels and the page scrolls to them, while a long list still scrolls inside its panel.
 - **Save is at the top** of Preferences, beside the title with the count of unsaved changes, and at the top of a connection's General card.
 
 ## 1.0.7
