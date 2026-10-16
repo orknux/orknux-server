@@ -15,11 +15,15 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
-## Unreleased
+## 1.0.6
 
 ### ✨ Added
 
 - A **connection has a description** - what it is for, such as "production Jira, the support project". It shows under the name in the Connections list and in full on hover, the list's search finds it, and an agent is told it beside the connection's name and can search by it, so two connections to the same system are told apart. An inherited connection takes its admin default's.
+
+### 🐛 Fixed
+
+- A plugin parameter could not be emptied by saving - deleting a value or a revealed secret from its box left Save disabled, and only Clear removed it. Saving an emptied box now clears it.
 
 ## 1.0.5
 
