@@ -24,6 +24,7 @@ have failed.
 
 ### 🐛 Fixed
 
+- A workspace's own connection can have its **URL changed** on its page - and a mail connection its server, which could not be changed at all. Before, only the URL override could move one.
 - After sending a message, a chat sometimes stopped short of the end of the answer; it now follows the answer to the bottom, and leaves you where you are if you scroll up while it arrives.
 
 ## 1.0.4
