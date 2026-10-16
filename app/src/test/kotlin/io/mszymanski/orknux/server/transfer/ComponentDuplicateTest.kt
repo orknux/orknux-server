@@ -24,6 +24,7 @@ import org.springframework.security.test.context.support.WithMockUser
 class ComponentDuplicateTest(
     @Autowired val graphQlTester: ExecutionGraphQlServiceTester,
     @Autowired val workspaces: WorkspaceRepository,
+    @Autowired val agents: io.mszymanski.orknux.server.agent.AgentRepository,
 ) {
 
     private var workspaceId: Long = 0
@@ -73,6 +74,28 @@ class ComponentDuplicateTest(
         assertThat(duplicate("CONDITION", condition)).isEqualTo("From alice (2)")
         // And again: the next free one after that.
         assertThat(duplicate("AGENT", agent)).isEqualTo("Triage (3)")
+    }
+
+    /**
+     * An agent granted a plugin's tools, and the plugin switched off or removed
+     * since: the grant names a tool nothing provides. Duplicating it was refused
+     * with "Nothing was imported. There is no tool called plantuml_render here".
+     * The copy arrives without the stale names and with everything else.
+     */
+    @Test
+    fun `an agent holding a grant for a tool that is gone is duplicated without it`() {
+        val ws = workspaceId
+        made("""mutation { createTool(input: { workspaceId: $ws, name: "forecast" }) { id } }""", "createTool")
+        val id = made("""mutation { createAgent(input: { workspaceId: $ws, name: "OKO Bot", type: LLM }) { id } }""", "createAgent")
+        val original = agents.findById(id).get()
+        original.tools.addAll(listOf("forecast", "plantuml_render", "plantuml_check"))
+        agents.save(original)
+
+        assertThat(duplicate("AGENT", id)).isEqualTo("OKO Bot (2)")
+
+        val copy = requireNotNull(agents.findByWorkspaceIdAndName(ws, "OKO Bot (2)"))
+        assertThat(copy.tools).contains("forecast").doesNotContain("plantuml_render", "plantuml_check")
+        assertThat(agents.findById(id).get().tools).contains("plantuml_render")
     }
 
     @Test

@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🐛 Fixed
+
+- **Duplicating an agent no longer fails** when it is still granted tools that are gone, such as those of a plugin switched off since. The copy arrives without them, and the audit log says which.
+
 ## 1.0.8
 
 ### ✨ Added

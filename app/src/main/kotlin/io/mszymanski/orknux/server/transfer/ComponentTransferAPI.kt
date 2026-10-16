@@ -61,9 +61,22 @@ class ComponentTransferAPI(
         access.requireVisible(workspaceId)
         val from = exporter.fileNameFor(workspaceId, kind, id)
         val envelope = exporter.export(workspaceId, kind, id, ExportDepth.SHALLOW)
-        val done = importer.apply(workspaceId, envelope)
+        /*
+         * A tool the original is granted and this workspace no longer has - a
+         * plugin's, switched off or removed since - is left off the copy rather
+         * than refusing it. Everything else the original points at is here by
+         * construction, so a stale grant is the only thing that can be missing,
+         * and the original holds it harmlessly: nothing offers a tool that is
+         * not there. Moving an agent to another workspace still asks, because
+         * there a missing tool may be one somebody has to create.
+         */
+        val stale = importer.plan(workspaceId, envelope).entries
+            .filter { it.disposition == ImportDisposition.MISSING && it.droppable && it.kind == ComponentKind.TOOL }
+            .map { it.name }
+        val done = importer.apply(workspaceId, envelope, exclude = stale.map { ComponentExclusion(kind = ComponentKind.TOOL, name = it) })
         val made = done.entries.first { it.carried && it.kind == kind }
-        audit.record(workspaceId, categoryOf(kind), "${kind.label.replaceFirstChar { it.uppercase() }} ${made.name} duplicated as ${made.targetName}")
+        val without = if (stale.isEmpty()) "" else ", without ${stale.joinToString(", ")}, which this workspace no longer has"
+        audit.record(workspaceId, categoryOf(kind), "${kind.label.replaceFirstChar { it.uppercase() }} ${made.name} duplicated as ${made.targetName}$without")
         return DuplicatedComponent(kind = kind, name = made.targetName)
     }
 
