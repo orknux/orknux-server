@@ -24,6 +24,8 @@ have failed.
 
 ### 🐛 Fixed
 
+- **A condition switched to Function can be saved.** One that had been a Value, Slack or Jira condition kept the old type's check and was refused with INTERNAL_ERROR.
+- The **function editor's return type follows the code**: `: Promise<number>` written in the declaration moves the Return Type field, and choosing one there rewrites an annotation already in the code.
 - **An action that sends a message offers only Slack connections**, and saving one on another kind is refused. A Jira or HTTP connection could be chosen before, and every run skipped the step with "cannot send messages yet". An action already saved that way keeps skipping until it is pointed at a Slack connection.
 - **Duplicating an agent no longer fails** when it is still granted tools that are gone, such as those of a plugin switched off since. The copy arrives without them, and the audit log says which.
 

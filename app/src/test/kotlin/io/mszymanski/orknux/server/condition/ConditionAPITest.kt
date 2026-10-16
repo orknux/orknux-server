@@ -291,6 +291,43 @@ class ConditionAPITest(
         return requireNotNull(functions.findAll().first { it.scope == FunctionScope.PLUGIN }.id)
     }
 
+    /**
+     * A Value condition switched to Function: the form sends the function and
+     * not the check, and the check the Value condition had stayed on the row -
+     * which ck_workflow_condition_shape refused, as INTERNAL_ERROR.
+     */
+    @Test
+    fun `a value condition switched to a function condition saves`() {
+        val fn = function(
+            "containsText",
+            "BOOLEAN",
+            "export default function containsText(input) { return String(input.text).includes('x'); }",
+        )
+        val id = graphQlTester.document(
+            """
+            mutation {
+              createCondition(input: {
+                workspaceId: $workspaceId, name: "Is agent mentioned", type: VALUE, check: IN_LIST, values: ["U01"]
+              }) { id }
+            }
+            """,
+        ).execute().path("createCondition.id").entity(Long::class.java).get()
+
+        graphQlTester.document(
+            """
+            mutation {
+              updateCondition(id: $id, input: { name: "Is agent mentioned", type: FUNCTION, functionId: $fn }) {
+                type check property values functionName
+              }
+            }
+            """,
+        ).execute()
+            .path("updateCondition.type").entity(String::class.java).isEqualTo("FUNCTION")
+            .path("updateCondition.check").valueIsNull()
+            .path("updateCondition.property").valueIsNull()
+            .path("updateCondition.functionName").entity(String::class.java).isEqualTo("containsText")
+    }
+
     private fun function(name: String, returnType: String, source: String): Long = graphQlTester.document(
         """
         mutation(${'$'}source: String!) {

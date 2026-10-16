@@ -354,6 +354,17 @@ class ConditionAPI(
                         function.returnType.name.lowercase(),
                     )
                 }
+                /*
+                 * A function asks its own question, so the property, the check
+                 * and the values another type left behind go - as VALUE drops
+                 * its property above. An update only writes what it is sent, and
+                 * a condition switched from Value to Function kept its check:
+                 * ck_workflow_condition_shape refused the row, and the form
+                 * showed INTERNAL_ERROR.
+                 */
+                condition.property = null
+                condition.check = null
+                condition.values = mutableListOf()
             }
 
             else -> {
