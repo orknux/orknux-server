@@ -15,7 +15,7 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
-## Unreleased
+## 1.0.7
 
 ### ✨ Added
 
@@ -24,6 +24,10 @@ have failed.
 ### 🔧 Changed
 
 - **Preferences has a Save button.** A change there is held until you press Save, and the page counts what is waiting; before, each one took effect the moment it was made. The email address no longer has a Save of its own.
+
+### 🐛 Fixed
+
+- The **Integrations tables line up** again: an MCP server's name was centred and drawn in the wrong weight, and the Auth heading sat over the Status column, which had no heading. A connection's description now has a column of its own.
 
 ## 1.0.6
 
