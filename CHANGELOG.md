@@ -24,6 +24,8 @@ have failed.
 
 ### 🐛 Fixed
 
+- **A plugin parameter's pickers wait for Save** like its text boxes: choosing a connection, an option or a variable stored at once, while typing waited.
+- **A session's cost meter is shown even before anything was counted**, at nought with the reason on hover. It hid itself, which read as switched off on every session from before 1.0.7.
 - **A condition switched to Function can be saved.** One that had been a Value, Slack or Jira condition kept the old type's check and was refused with INTERNAL_ERROR.
 - The **function editor's return type follows the code**: `: Promise<number>` written in the declaration moves the Return Type field, and choosing one there rewrites an annotation already in the code.
 - **An action that sends a message offers only Slack connections**, and saving one on another kind is refused. A Jira or HTTP connection could be chosen before, and every run skipped the step with "cannot send messages yet". An action already saved that way keeps skipping until it is pointed at a Slack connection.
