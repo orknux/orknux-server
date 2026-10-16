@@ -15,6 +15,16 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- **A node's Action and Condition pickers offer what the plugins bring**: every loaded plugin's actions and functions beside the workspace's own, each marked with its plugin - and in a condition, the functions that answer yes or no. Picking one makes the node's own definition around it, which used to take Custom, a subtype and the plugin's entry.
+
+### 🔧 Changed
+
+- **Creating a workflow opens its editor**, as duplicating one already did.
+
 ## 1.0.9
 
 ### ✨ Added
