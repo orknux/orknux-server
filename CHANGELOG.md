@@ -17,8 +17,13 @@ have failed.
 
 ## Unreleased
 
+### ✨ Added
+
+- The **workflow editor has a Refresh button**: it reads the graph and the lists its nodes pick from again, so something made in another tab appears, and asks first when there are unsaved changes.
+
 ### 🐛 Fixed
 
+- **An action that sends a message offers only Slack connections**, and saving one on another kind is refused. A Jira or HTTP connection could be chosen before, and every run skipped the step with "cannot send messages yet". An action already saved that way keeps skipping until it is pointed at a Slack connection.
 - **Duplicating an agent no longer fails** when it is still granted tools that are gone, such as those of a plugin switched off since. The copy arrives without them, and the audit log says which.
 
 ## 1.0.8

@@ -311,6 +311,34 @@ class ActionAPITest(
         ).execute().errors().expect { it.message?.contains("needs a URL") == true }.verify()
     }
 
+    /**
+     * Sending is Slack's alone. A Jira connection here used to save, and every
+     * run skipped the step with "JIRA connections cannot send messages yet".
+     */
+    @Test
+    fun `a message through a connection that cannot send one is refused`() {
+        val jira = graphQlTester.document(
+            """
+            mutation {
+              createWorkspaceConnection(input: {
+                workspaceId: $workspaceId, name: "Jira", type: HTTP, url: "https://jira.example.invalid"
+              }) { id }
+            }
+            """,
+        ).execute().path("createWorkspaceConnection.id").entity(Long::class.java).get()
+
+        graphQlTester.document(
+            """
+            mutation {
+              createAction(input: {
+                workspaceId: $workspaceId, name: "Send Jira message", type: EXECUTE, subtype: OUTGOING_CONNECTION,
+                connectionId: $jira, connectionAction: SEND_MESSAGE, content: "Approved"
+              }) { id }
+            }
+            """,
+        ).execute().errors().expect { it.message?.contains("a Slack connection") == true }.verify()
+    }
+
     @Test
     fun `a connection from another workspace is refused`() {
         val otherWorkspace = requireNotNull(workspaces.save(Workspace(name = "frontend")).id)

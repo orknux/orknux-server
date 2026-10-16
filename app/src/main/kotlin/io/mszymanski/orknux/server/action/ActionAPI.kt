@@ -384,6 +384,14 @@ class ActionAPI(
                     throw ActionSettingMissingException("a connection this workspace holds")
                 }
                 if (action.connectionAction == null) throw ActionSettingMissingException("an action to perform")
+                /*
+                 * Sending is Slack's alone (OutgoingMessages): a Jira or Teams
+                 * connection here saved cleanly and was skipped on every run with
+                 * "cannot send messages yet", the way a mail through Slack was.
+                 */
+                if (connection.type != ConnectionType.SLACK) {
+                    throw ActionSettingMissingException("a Slack connection to send the message through")
+                }
             }
 
             /*
