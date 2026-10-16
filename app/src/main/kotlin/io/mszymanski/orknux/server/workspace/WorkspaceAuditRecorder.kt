@@ -92,6 +92,9 @@ class WorkspaceAuditRecorder(
 
     private fun currentUserId(): String {
         val authentication = SecurityContextHolder.getContext().authentication
+        val signedIn = authentication != null && authentication.isAuthenticated && authentication !is AnonymousAuthenticationToken
+        // An agent building through the orknux_* tools, with nobody signed in: its name. See ActingIn.
+        if (!signedIn) io.mszymanski.orknux.server.security.ActingIn.actor()?.let { return it }
         check(
             authentication != null &&
                 authentication.isAuthenticated &&

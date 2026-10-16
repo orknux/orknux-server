@@ -190,6 +190,9 @@ class OrknuxTools(
     private val variables: WorkspaceVariableRepository,
     private val revisions: ComponentRevisionRecorder,
     private val issueTools: IssueTools,
+    /** Reading, building and publishing workflows; see [WorkflowBuildTools]. */
+    private val buildTools: WorkflowBuildTools,
+    private val access: io.mszymanski.orknux.server.security.WorkspaceAccess,
     private val newsTools: NewsTools,
     private val web: WebProperties,
     private val mapper: ObjectMapper,
@@ -230,7 +233,9 @@ class OrknuxTools(
     private fun issueLink(workspaceId: Long, number: Int) = link("/workspace/$workspaceId/issues/$number")
 
     /** What to offer, which depends on whether this caller may start anything. */
-    fun specs(scope: OrknuxScope): List<ToolSpec> = buildList {
+    fun specs(scope: OrknuxScope): List<ToolSpec> = ownSpecs(scope) + buildTools.specs(scope)
+
+    private fun ownSpecs(scope: OrknuxScope): List<ToolSpec> = buildList {
         add(
             ToolSpec(
                 name = "orknux_workflows",
@@ -769,7 +774,17 @@ class OrknuxTools(
             "orknux_rerun_execution" -> rerun(scope, arguments)
             "orknux_set_workflow_enabled" -> setWorkflowEnabled(scope, arguments)
             "orknux_set_agent_enabled" -> setAgentEnabled(scope, arguments)
-            else -> refuse("There is no tool called $name")
+            /*
+             * Through the workspace's own controllers, which check access again.
+             * The scope was checked before it was built; an agent working a task
+             * has no session for that second check to find, so it is granted this
+             * one workspace for the length of the call, under its own name. See ActingIn.
+             */
+            else -> if (buildTools.handles(name)) {
+                access.actingIn(scope.workspaceId, scope.actor) { buildTools.run(scope, name, arguments) }
+            } else {
+                refuse("There is no tool called $name")
+            }
         }
     } catch (failure: Exception) {
         refuse(failure.message ?: "That could not be done")

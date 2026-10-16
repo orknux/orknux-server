@@ -78,6 +78,7 @@ class WorkspaceAccess(
      * whose audience nobody has decided is not one to show to everybody.
      */
     fun canSee(workspace: Workspace): Boolean {
+        if (workspace.id != null && workspace.id == ActingIn.workspace()) return true
         if (isAdmin()) return true
         if (workspace.roles.isEmpty() && workspace.adminRoles.isEmpty()) return false
         val held = heldRoles().mapNotNull { it.id }.toSet()
@@ -158,6 +159,9 @@ class WorkspaceAccess(
      * administrator, who can see every workspace, still gets the true not-found
      * for a genuinely missing id.
      */
+    /** Runs [block] as somebody who may see [workspaceId] alone; see [ActingIn]. */
+    fun <T> actingIn(workspaceId: Long, actor: String?, block: () -> T): T = ActingIn.run(workspaceId, actor, block)
+
     fun requireVisible(workspaceId: Long): Workspace {
         val workspace = workspaces.findByIdOrNull(workspaceId)
         if (workspace == null || !canSee(workspace)) throw WorkspaceNotFoundException(workspaceId)
