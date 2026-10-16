@@ -15,7 +15,7 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
-## Unreleased
+## 1.0.5
 
 ### ✨ Added
 
@@ -25,6 +25,7 @@ have failed.
 
 ### 🐛 Fixed
 
+- **A SQLite installation - the all-in-one `orknux-one` image - that upgraded to 1.0.4 did not start**: 1.0.4 changed a schema file such an installation had already applied, and the migration tool refuses that. Upgrading to 1.0.5 starts it again, with nothing to do by hand; one made fresh on 1.0.4 is put right on its first start, keeping its settings.
 - A workspace's own connection can have its **URL changed** on its page - and a mail connection its server, which could not be changed at all. Before, only the URL override could move one.
 - Saving a plugin's secret parameter left the page saying "1 unsaved" with Save still pressable, and the typed secret in the box; it now clears once stored.
 - After sending a message, a chat sometimes stopped short of the end of the answer; it now follows the answer to the bottom, and leaves you where you are if you scroll up while it arrives.

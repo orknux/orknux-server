@@ -128,10 +128,15 @@ for every module, because there is one database. Never edit a migration that has
 run. Entity and migration are changed together, or the application will not start.
 
 **Every schema change is written twice.** There are two databases: the numbered
-Postgres history above, and a single squashed baseline for SQLite in
-`app/src/main/resources/db/migration/sqlite/V1__baseline.sql`. SQLite has no
-history to replay onto, so a new table, column or index goes into the baseline as
-though it had always been there rather than as a second migration file. Write the
+Postgres history above, and SQLite's own numbered history in
+`app/src/main/resources/db/migration/sqlite/` - a squashed `V1__baseline.sql`
+followed by `V2`, `V3`, ... with numbers of their own. **The baseline is frozen.**
+SQLite installations exist now, and one past V1 never reads it again: Flyway
+refuses to start a database whose applied V1 no longer matches its checksum. 1.0.4
+added two columns to the baseline and every SQLite installation that upgraded
+stopped at start-up; `SqliteBaselineMend` mends the ones made on it, and
+`SqliteBaselineMendTest` holds the baseline's checksum so an edit fails a test.
+A new table, column or index is the next numbered SQLite migration. Write the
 SQLite spelling: `INTEGER` rather than `BIGINT` for a key, because that is the
 only column SQLite fills in by itself, `TIMESTAMP` rather than `TIMESTAMPTZ`, and
 `BLOB` rather than `BYTEA`. `SqliteSchemaTest` starts the whole application on a
@@ -147,7 +152,7 @@ constraints on tables it went on to drop and a name that no longer exists is not
 drift. So a `CHECK` added to a table that already existed, and folded into only
 one of the two files, slips past it - one arriving with a new table does not,
 since `validate` is looking for the table itself. If a migration widens or adds a
-`CHECK` on an existing table, grep the baseline for the constraint's name
+`CHECK` on an existing table, grep the SQLite migrations for the constraint's name
 yourself rather than trusting a green run.
 
 **And neither guard reads a foreign key.** `validate` compares tables and
@@ -183,7 +188,7 @@ produces. Do not treat it as noise, which is how #169 lasted as long as it did.
 Postgres container by default, and a file in `app/target` for SQLite, which needs
 no Docker. `SqliteSchemaTest` keeps a database of its own, deleted at the start of
 every run - a file left behind refuses the next run with a checksum mismatch the
-moment the baseline is edited, which is precisely when somebody is editing it.
+moment a migration it has run is edited.
 
 Module tables carry no foreign keys across a module boundary, so a deleted workspace
 is reported to the module rather than cascaded.
