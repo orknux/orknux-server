@@ -221,6 +221,14 @@ class PluginParameters(
 
     /** Unsets one parameter. A required one goes back to being reported as missing. */
     @Transactional
+    /**
+     * The secret typed into one parameter, for the settings page's eye - or
+     * null where none was typed. Never carried in [viewOf]: it is handed out
+     * one at a time, to somebody who asked for it, and the asking is recorded.
+     */
+    fun typedSecret(plugin: Plugin, workspaceId: Long, name: String): String? =
+        settings.findByPluginIdAndWorkspaceIdAndName(requireNotNull(plugin.id), workspaceId, name)?.secretValue
+
     fun clear(plugin: Plugin, workspaceId: Long, name: String) {
         settings.findByPluginIdAndWorkspaceIdAndName(requireNotNull(plugin.id), workspaceId, name)
             ?.let(settings::delete)

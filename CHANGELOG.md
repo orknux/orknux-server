@@ -20,11 +20,13 @@ have failed.
 ### ✨ Added
 
 - An answer **read aloud shows how much of it has been heard**, as a bar and a percentage beside the speaker and under voice mode's caption.
+- A plugin's **secret parameter can be shown** on the workspace's Plugins page once it is stored, with the eye beside it; the workspace's audit log records that it was read.
 - A **chat timer chimes** when it reaches nought in the open chat. A workspace setting, on by default; an agent can make one timer sound or stay silent when you tell it to.
 
 ### 🐛 Fixed
 
 - A workspace's own connection can have its **URL changed** on its page - and a mail connection its server, which could not be changed at all. Before, only the URL override could move one.
+- Saving a plugin's secret parameter left the page saying "1 unsaved" with Save still pressable, and the typed secret in the box; it now clears once stored.
 - After sending a message, a chat sometimes stopped short of the end of the answer; it now follows the answer to the bottom, and leaves you where you are if you scroll up while it arrives.
 
 ## 1.0.4

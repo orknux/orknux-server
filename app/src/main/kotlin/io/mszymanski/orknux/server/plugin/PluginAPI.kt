@@ -2294,6 +2294,29 @@ class WorkspacePluginAPI(
         return parameters.viewOf(plugin, workspaceId)
     }
 
+    /**
+     * Hands a secret typed into one parameter to the settings page, behind its
+     * eye - the way a connection's credentials are revealed. Null where the
+     * parameter holds no typed secret. Recorded, by name and never by value,
+     * because a secret read back is the one read worth knowing about.
+     */
+    @MutationMapping
+    fun revealPluginParameter(
+        @Argument workspaceId: Long,
+        @Argument pluginId: Long,
+        @Argument name: String,
+    ): String? {
+        requireWorkspaceAccess(workspaceId)
+        val plugin = plugins.findByIdOrNull(pluginId) ?: throw PluginNotFoundException(pluginId)
+        val secret = parameters.typedSecret(plugin, workspaceId, name) ?: return null
+        auditRecorder.record(
+            workspaceId,
+            WorkspaceAuditCategory.INTEGRATION,
+            "Plugin ${plugin.key}: secret parameter $name revealed",
+        )
+        return secret
+    }
+
     private fun requireWorkspaceAccess(workspaceId: Long) {
         access.requireVisible(workspaceId)
     }

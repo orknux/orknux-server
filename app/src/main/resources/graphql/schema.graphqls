@@ -1155,6 +1155,11 @@ type Mutation {
     ): WorkspacePlugin!
     "Unsets one parameter. A required one is marked as missing again."
     clearPluginParameter(workspaceId: ID!, pluginId: ID!, name: String!): WorkspacePlugin!
+    """
+    The secret typed into one parameter, for the settings page's reveal; null
+    where none was typed. Recorded in the workspace's audit log by name.
+    """
+    revealPluginParameter(workspaceId: ID!, pluginId: ID!, name: String!): String
     "Turns attachments on or off for the whole installation. Administrators only."
     setAttachmentsEnabled(enabled: Boolean!): InstallationSettings!
     "Turns the chat on or off for the whole installation. Administrators only."

@@ -250,6 +250,25 @@ class PluginParameterTest(
      * not anything was ever encrypted - which is the assertion that would have
      * passed while the value sat in the clear.
      */
+    /**
+     * Asked for, one at a time, the typed secret comes back - for the settings
+     * page's eye - and a parameter with nothing typed answers null.
+     */
+    @Test
+    fun `a typed secret is revealed when asked for, and nothing else is`() {
+        graphQlTester.document(
+            """mutation { setPluginParameter(workspaceId: $workspaceId, pluginId: $pluginId, name: "token", literal: "hunter2") { missing } }""",
+        ).execute().errors().verify()
+
+        graphQlTester.document(
+            """mutation { revealPluginParameter(workspaceId: $workspaceId, pluginId: $pluginId, name: "token") }""",
+        ).execute().path("revealPluginParameter").entity(String::class.java).isEqualTo("hunter2")
+
+        graphQlTester.document(
+            """mutation { revealPluginParameter(workspaceId: $workspaceId, pluginId: $pluginId, name: "baseUrl") }""",
+        ).execute().path("revealPluginParameter").valueIsNull()
+    }
+
     @Test
     fun `the stored secret is not the secret`() {
         graphQlTester.document(
