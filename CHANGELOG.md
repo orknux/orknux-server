@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🔧 Changed
+
+- **Save is at the top** of Preferences, beside the title with the count of unsaved changes, and at the top of a connection's General card.
+
 ## 1.0.7
 
 ### ✨ Added
