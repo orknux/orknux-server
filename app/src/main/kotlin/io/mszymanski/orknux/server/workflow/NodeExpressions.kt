@@ -21,7 +21,11 @@ import tools.jackson.databind.ObjectMapper
  * it needs.
  */
 @Component
-class NodeExpressions(private val mapper: ObjectMapper) {
+class NodeExpressions(
+    private val mapper: ObjectMapper,
+    /** Where `variables.<id>` is answered from; see [StepVariables]. */
+    @param:org.springframework.context.annotation.Lazy private val variables: StepVariables? = null,
+) {
 
     /** The run's payload, or null when there is nothing to read from. */
     fun parse(input: String?): JsonNode? = input
@@ -116,6 +120,7 @@ class NodeExpressions(private val mapper: ObjectMapper) {
         }
         ?.toMap()
         .orEmpty()
+        .let { bindings -> variables?.resolved(step, bindings) ?: bindings }
 
     /**
      * What a parameter comes to, as text.
@@ -188,8 +193,11 @@ class NodeExpressions(private val mapper: ObjectMapper) {
         return if (steps.firstOrNull() == TRIGGER) trigger to steps.drop(1) else input to steps
     }
 
-    private companion object {
+    companion object {
         const val TRIGGER = "trigger"
+
+        /** What a reference to one of the workspace's variables starts with: `variables.<id>`. */
+        const val VARIABLES = "variables"
 
         /*
          * The kinds a field can be declared, by name.

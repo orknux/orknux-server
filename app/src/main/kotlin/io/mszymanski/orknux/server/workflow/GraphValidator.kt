@@ -337,7 +337,8 @@ class GraphValidator(
     private fun reads(mappings: List<NodeMapping>): List<ActionParamView> = mappings
         .filter { it.mode == MappingMode.REFERENCE }
         .map { it.expression.trim().substringBefore('.') }
-        .filter { it.isNotEmpty() && it != TRIGGER }
+        // Nor `variables.x`, which the workspace answers whatever reached the node.
+        .filter { it.isNotEmpty() && it != TRIGGER && it != NodeExpressions.VARIABLES }
         .distinct()
         .map { ActionParamView(it, ValueType.STRING) }
 

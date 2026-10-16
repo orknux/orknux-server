@@ -19,6 +19,7 @@ have failed.
 
 ### ✨ Added
 
+- **A node parameter can reference a workspace variable.** The Reference picker has a Workspace variables group, read when the step runs. Secrets are not offered and never resolve there: a parameter is handed on as text, into a message or a prompt, and a secret referenced into one would be published.
 - **An agent can build a workflow** through the orknux tools, over MCP or granted in its settings: read one (`orknux_workflow`), list what its nodes can point at (`orknux_workflow_parts`), read what every field means (`orknux_workflow_reference`), create the workflow and the triggers, actions and conditions it needs, save its graph and publish it. Everything goes through the checks the editor uses and is audited under the agent's name. Saving over a draft somebody has not published is refused unless the agent says so.
 - The **workflow editor has a Refresh button**: it reads the graph and the lists its nodes pick from again, so something made in another tab appears, and asks first when there are unsaved changes.
 
