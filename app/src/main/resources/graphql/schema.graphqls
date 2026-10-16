@@ -3678,6 +3678,10 @@ enum LlmSessionOrder {
     LINES
     "By how many sessions were started under it by an agent asking another."
     SUBAGENTS
+    "By how many tokens its model calls used, in and out together."
+    TOKENS
+    "By what its model calls cost, where the models have prices."
+    COST
 }
 
 """

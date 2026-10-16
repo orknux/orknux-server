@@ -35,6 +35,10 @@ enum class LlmSessionOrder {
      */
     LINES,
     SUBAGENTS,
+
+    /** By what the session has cost: its tokens in and out together, and its money. */
+    TOKENS,
+    COST,
 }
 
 /**
@@ -109,24 +113,31 @@ class LlmSessionAPI(
             LlmSessionOrder.LAST_EVENT -> "lastEventAt"
             // The two counts are ordered in the query; see below.
             LlmSessionOrder.LINES, LlmSessionOrder.SUBAGENTS -> "id"
+            LlmSessionOrder.COST -> "spentCost"
+            // A sum, not a column: ordered as an expression below.
+            LlmSessionOrder.TOKENS -> "id"
         }
         val direction = if (up) Sort.Direction.ASC else Sort.Direction.DESC
-        val sorted = Sort.by(
-            Sort.Order(direction, by)
-                /*
-                 * Case is ignored for the key and nowhere else. By the words
-                 * rather than by their case is what "sort by name" means, and
-                 * asking Postgres to lower() a timestamp is a function that does
-                 * not exist - the query fails rather than sorting badly.
-                 */
-                .let { if (by == "sessionKey") it.ignoreCase() else it }
-                /*
-                 * A session opened and not yet written to has no last event, and
-                 * Postgres sorts nulls first descending - which would open the
-                 * list with every session that has nothing in it.
-                 */
-                .let { if (by == "lastEventAt") it.nullsLast() else it },
-        )
+        val sorted = if (asking == LlmSessionOrder.TOKENS) {
+            org.springframework.data.jpa.domain.JpaSort.unsafe(direction, "(s.spentInputTokens + s.spentOutputTokens)")
+        } else {
+            Sort.by(
+                Sort.Order(direction, by)
+                    /*
+                     * Case is ignored for the key and nowhere else. By the words
+                     * rather than by their case is what "sort by name" means, and
+                     * asking Postgres to lower() a timestamp is a function that does
+                     * not exist - the query fails rather than sorting badly.
+                     */
+                    .let { if (by == "sessionKey") it.ignoreCase() else it }
+                    /*
+                     * A session opened and not yet written to has no last event, and
+                     * Postgres sorts nulls first descending - which would open the
+                     * list with every session that has nothing in it.
+                     */
+                    .let { if (by == "lastEventAt") it.nullsLast() else it },
+            )
+        }
 
         /*
          * A count is not a column, so the two that are counts carry their order
@@ -379,6 +390,13 @@ class LlmSessionAPI(
         active = active,
         subagentCount = subagentCount,
         agentDetails = session.agentDetails,
+        spent = SessionSpendView(
+            inputTokens = session.spentInputTokens,
+            outputTokens = session.spentOutputTokens,
+            cachedInputTokens = session.spentCachedInputTokens,
+            cost = session.spentCost.takeIf { it.signum() > 0 }?.stripTrailingZeros()?.toPlainString(),
+            partlyUnpriced = session.spentPartlyUnpriced,
+        ),
     )
 
     /**
@@ -469,19 +487,6 @@ class LlmSessionAPI(
     @SchemaMapping(typeName = "LlmSession")
     fun agentDetails(session: LlmSessionView): SessionAgentDetailsView? =
         session.agentDetails?.let(::agentDetailsOf)
-
-    /** What the session has cost, read off its row. */
-    @SchemaMapping(typeName = "LlmSession")
-    fun spent(session: LlmSessionView): SessionSpendView? =
-        sessions.findByIdOrNull(session.id)?.let { held ->
-            SessionSpendView(
-                inputTokens = held.spentInputTokens,
-                outputTokens = held.spentOutputTokens,
-                cachedInputTokens = held.spentCachedInputTokens,
-                cost = held.spentCost.takeIf { it.signum() > 0 }?.stripTrailingZeros()?.toPlainString(),
-                partlyUnpriced = held.spentPartlyUnpriced,
-            )
-        }
 
     /**
      * One snapshot, resolved into the shape the log draws. Shared by the
@@ -676,6 +681,8 @@ data class LlmSessionView(
     val subagentCount: Int,
     /** The setup of the agent that last started answering, as JSON; resolved into a shape by the field. Null on a session no agent wrote into. Issues #391, #441. */
     val agentDetails: String?,
+    /** What the session has cost, read off the row the view was made from - so a list of them asks nothing more. */
+    val spent: SessionSpendView,
 )
 
 /**

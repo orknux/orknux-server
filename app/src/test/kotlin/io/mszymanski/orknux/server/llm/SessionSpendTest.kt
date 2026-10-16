@@ -84,6 +84,34 @@ class SessionSpendTest(
             .path("llmSession.spent.partlyUnpriced").entity(Boolean::class.java).isEqualTo(false)
     }
 
+    /**
+     * The sessions list carries each row's spend, and sorts by tokens - in and
+     * out together - and by cost, so the dearest conversation can be found.
+     */
+    @Test
+    fun `the list shows each session's spend and sorts by tokens and by cost`() {
+        val priced = model(inputPrice = 1.0, outputPrice = 1.0)
+        val unpriced = model(inputPrice = null, outputPrice = null)
+        val big = recorder.open(workspaceId, "test", "big-${System.nanoTime()}")
+        val dear = recorder.open(workspaceId, "test", "dear-${System.nanoTime()}")
+        // big: the most tokens and no price; dear: fewer tokens, the most money; session: a little of both.
+        spend.add(big, unpriced, ChatCompletion.Answered("a", 1, inputTokens = 900_000, outputTokens = 300_000))
+        spend.add(dear, priced, ChatCompletion.Answered("b", 1, inputTokens = 600_000, outputTokens = 400_000))
+        spend.add(session, priced, ChatCompletion.Answered("c", 1, inputTokens = 1_000, outputTokens = 1_000))
+
+        fun listed(order: String) = graphQlTester.document(
+            """{ llmSessions(workspaceId: $workspaceId, order: $order, ascending: false) {
+                 content { id spent { inputTokens outputTokens cost partlyUnpriced } } } }""",
+        ).execute()
+
+        listed("TOKENS").path("llmSessions.content[*].id").entityList(Long::class.java).containsExactly(big, dear, session)
+        listed("COST").path("llmSessions.content[*].id").entityList(Long::class.java).containsExactly(dear, session, big)
+        listed("COST")
+            .path("llmSessions.content[0].spent.cost").entity(String::class.java).isEqualTo("1")
+            .path("llmSessions.content[0].spent.inputTokens").entity(Double::class.java).isEqualTo(600_000.0)
+            .path("llmSessions.content[2].spent.partlyUnpriced").entity(Boolean::class.java).isEqualTo(true)
+    }
+
     @Test
     fun `a model with no price counts its tokens and marks the cost as partial`() {
         val unpriced = model(inputPrice = null, outputPrice = null)
