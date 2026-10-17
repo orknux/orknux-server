@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🔧 Changed
+
+- **Voice mode is always on the chat bar.** Where the workspace has no speech or transcription model it is drawn off instead of hidden, and hovering it says which model is missing and links to where it is chosen.
+
 ## 1.1.2
 
 ### ✨ Added
