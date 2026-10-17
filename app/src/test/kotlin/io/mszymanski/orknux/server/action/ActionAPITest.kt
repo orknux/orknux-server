@@ -224,6 +224,20 @@ class ActionAPITest(
             .path("createAction.functionName").entity(String::class.java).isEqualTo("teammates_isTeammate")
     }
 
+    /** A plugin's function says whether its plugin is on, so a picker can leave a switched-off one out. */
+    @Test
+    fun `a plugin's function says whether its plugin is switched on`() {
+        val declared = pluginFunction()
+        fun enabled() = graphQlTester.document("""query { function(id: $declared) { plugin { name enabled } } }""")
+            .execute().path("function.plugin.enabled").entity(Boolean::class.java).get()
+
+        assertThat(enabled()).isTrue()
+        val plugin = plugins.findAll().first { it.name == "teammates" }
+        plugin.enabled = false
+        plugins.save(plugin)
+        assertThat(enabled()).isFalse()
+    }
+
     @Test
     fun `a function from another workspace is still refused`() {
         val elsewhere = requireNotNull(workspaces.save(Workspace(name = "frontend")).id)

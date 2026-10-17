@@ -7423,6 +7423,8 @@ picker can say "from Teammates" without being allowed to see what is loaded.
 type FunctionPlugin {
     id: ID!
     name: String!
+    "Whether the plugin is switched on; a picker offers nothing of one that is not."
+    enabled: Boolean!
 }
 
 "A named piece of JavaScript a workspace wrote, run in a sandbox with no host, files or network."

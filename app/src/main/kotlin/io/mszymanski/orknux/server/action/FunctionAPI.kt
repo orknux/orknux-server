@@ -768,7 +768,7 @@ class FunctionAPI(
         scope = function.scope,
         editable = function.editable,
         plugin = function.pluginId?.let { id ->
-            plugins.findByIdOrNull(id)?.let { FunctionPluginView(requireNotNull(it.id), it.name) }
+            plugins.findByIdOrNull(id)?.let { FunctionPluginView(requireNotNull(it.id), it.name, it.enabled) }
         },
         name = function.name,
         description = function.description,
@@ -1190,7 +1190,12 @@ data class FunctionView(
  * people picking functions are not administrators, and what they need is the name
  * of the thing that brought it, not everything about what was loaded.
  */
-data class FunctionPluginView(val id: Long, val name: String)
+data class FunctionPluginView(
+    val id: Long,
+    val name: String,
+    /** Whether the plugin is switched on - a picker offers nothing of one that is not. */
+    val enabled: Boolean = true,
+)
 
 /**
  * One thing a script imports.
