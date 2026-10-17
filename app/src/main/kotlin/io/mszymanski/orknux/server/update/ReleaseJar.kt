@@ -238,6 +238,27 @@ class ReleaseJarVerifier(private val trusted: List<X509Certificate>) {
         fun versionOf(jar: Path): String? = runCatching {
             JarFile(jar.toFile(), false).use { it.manifest?.mainAttributes?.getValue("Implementation-Version") }
         }.getOrNull()
+
+        /**
+         * The Java a server jar needs, read off the class it starts with: a
+         * class file's major version is the feature release less 44. Null
+         * where the jar names no `Start-Class` or it cannot be read.
+         *
+         * The desktop app ships its own runtime and is updated far less often
+         * than a release can be downloaded, so a release built for a newer Java
+         * than it carries is one it cannot start - and must be told so before
+         * the start, not by a crash it then counts against the release.
+         */
+        fun requiredJava(jar: Path): Int? = runCatching {
+            JarFile(jar.toFile(), false).use { file ->
+                val start = file.manifest?.mainAttributes?.getValue("Start-Class") ?: return@use null
+                val entry = file.getJarEntry("BOOT-INF/classes/" + start.replace('.', '/') + ".class") ?: return@use null
+                file.getInputStream(entry).use { input ->
+                    val head = input.readNBytes(8)
+                    if (head.size < 8) null else (((head[6].toInt() and 0xff) shl 8) or (head[7].toInt() and 0xff)) - 44
+                }
+            }
+        }.getOrNull()
     }
 }
 

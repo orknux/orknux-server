@@ -184,7 +184,21 @@ class ReleaseLauncher(
     }
 
     private fun started(release: LaunchableRelease): Path = try {
-        extracted(release)
+        extracted(release).let { jar ->
+            /*
+             * A release this runtime cannot load is not a broken release: the
+             * desktop app carries its own Java, and the next app update may
+             * well run it. So the image's jar runs and the release is left as
+             * it was rather than marked failed.
+             */
+            val refusal = javaRefusal(ReleaseJarVerifier.requiredJava(jar), Runtime.version().feature())
+            if (refusal == null) {
+                jar
+            } else {
+                loud("Release ${release.version} $refusal. Running the image's own jar, $imageVersion.")
+                imageJar
+            }
+        }
     } catch (failure: Exception) {
         val why = (failure as? ReleaseJarRefusedException)?.why ?: (failure.message ?: failure.javaClass.simpleName)
         store.fail(release.id, why)
@@ -462,6 +476,14 @@ object ReleasePin {
         else -> null
     }
 }
+
+/**
+ * Why a jar needing Java [required] cannot run on Java [running], or null
+ * where it can - including where what it needs could not be read, which is
+ * left to the start itself to find out.
+ */
+fun javaRefusal(required: Int?, running: Int): String? =
+    if (required != null && required > running) "needs Java $required, and this runtime is Java $running" else null
 
 /** The exit code that asks the start loop to choose a jar and start again. */
 const val RESTART_EXIT_CODE = 75
