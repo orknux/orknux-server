@@ -186,6 +186,15 @@ class Workspace(
     var chatShowTimestamps: Boolean = false,
 
     /**
+     * Whether this workspace's chats hide the voice mode button. Off by
+     * default: the button is shown, and drawn off where a model is missing,
+     * because a feature that is simply absent reads as not existing. Hiding it
+     * is a workspace's choice to make, not a default.
+     */
+    @Column(name = "voice_button_hidden", nullable = false)
+    var voiceButtonHidden: Boolean = false,
+
+    /**
      * Whether a timer an agent puts above a chat's message box sounds when it
      * reaches nought. On by default: a timer somebody asked for is one they
      * want to hear end. An agent can choose otherwise for one timer - only

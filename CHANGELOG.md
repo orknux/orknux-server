@@ -19,7 +19,7 @@ have failed.
 
 ### 🔧 Changed
 
-- **Voice mode is always on the chat bar.** Where the workspace has no speech or transcription model it is drawn off instead of hidden, and hovering it says which model is missing and links to where it is chosen.
+- **Voice mode is always on the chat bar.** Where the workspace has no speech or transcription model it is drawn off instead of hidden, and hovering it says which model is missing and links to where it is chosen. A workspace that wants it gone ticks **Hide the voice mode button** in its settings' Voice card.
 
 ## 1.1.2
 

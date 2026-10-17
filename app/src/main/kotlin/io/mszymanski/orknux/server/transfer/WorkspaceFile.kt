@@ -149,6 +149,7 @@ internal val WORKSPACE_SETTINGS: List<FileField<Workspace, *>> = listOf(
     FileField("compactionSummaryTokens", { it.compactionSummaryTokens }, { w, v -> w.compactionSummaryTokens = v }, WHOLE_OR_NULL),
     FileField("quickChatMayWrite", { it.quickChatMayWrite }, { w, v -> w.quickChatMayWrite = v }, YES_NO),
     FileField("chatShowTimestamps", { it.chatShowTimestamps }, { w, v -> w.chatShowTimestamps = v }, YES_NO),
+    FileField("voiceButtonHidden", { it.voiceButtonHidden }, { w, v -> w.voiceButtonHidden = v }, YES_NO),
     FileField("widgetTimerSound", { it.widgetTimerSound }, { w, v -> w.widgetTimerSound = v }, YES_NO),
     FileField("sessionCostShown", { it.sessionCostShown }, { w, v -> w.sessionCostShown = v }, YES_NO),
     FileField("defaultMemoryShare", { it.defaultMemoryShare }, { w, v -> w.defaultMemoryShare = v }, WHOLE_OR_NULL),

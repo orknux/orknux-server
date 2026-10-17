@@ -1865,6 +1865,8 @@ type Mutation {
     "Whether the quick chat may start things, or only look them up."
     setWorkspaceQuickChatWrites(workspaceId: ID!, allowed: Boolean!): Workspace!
     setWorkspaceChatTimestamps(workspaceId: ID!, shown: Boolean!): Workspace!
+    "Whether this workspace's chats hide the voice mode button."
+    setWorkspaceVoiceButtonHidden(workspaceId: ID!, hidden: Boolean!): Workspace!
     "Whether this workspace's chat timers sound when they end."
     setWorkspaceWidgetTimerSound(workspaceId: ID!, sound: Boolean!): Workspace!
     "Whether this workspace's session pages show what a session has cost."
@@ -2288,6 +2290,8 @@ type Workspace {
     """
     quickChatMayWrite: Boolean!
     chatShowTimestamps: Boolean!
+    "Whether this workspace's chats hide the voice mode button. False by default."
+    voiceButtonHidden: Boolean!
     """
     Whether a chat timer sounds when it ends, unless the agent chose otherwise
     for that timer. True by default.

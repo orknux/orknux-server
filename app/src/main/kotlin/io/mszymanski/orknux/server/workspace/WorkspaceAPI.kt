@@ -734,6 +734,17 @@ class WorkspaceAPI(
         return workspace
     }
 
+    /** Whether this workspace's chats hide the voice mode button. A display choice like the timestamps above. */
+    @MutationMapping
+    @Transactional
+    fun setWorkspaceVoiceButtonHidden(@Argument workspaceId: Long, @Argument hidden: Boolean): Workspace {
+        val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
+        access.requireAdministers(workspace)
+
+        workspace.voiceButtonHidden = hidden
+        return workspace
+    }
+
     /**
      * Whether this workspace's chat timers sound when they end. A display
      * choice like the timestamps above, and per workspace for the same reason.
