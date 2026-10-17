@@ -147,5 +147,13 @@ class ObjectInlineTest(
         graphQlTester.document(
             """mutation { createObjectFromSchema(workspaceId: $workspaceId, name: "NotOne", schema: "{\"type\":\"string\"}") { id } }""",
         ).execute().errors().expect { it.extensions["code"] == "ObjectSchemaUnreadable" }.verify()
+
+        // A key no reference could follow is written with underscores, and says what the JSON calls it.
+        val renamed = """{"type":"object","properties":{"issue-related-events":{"type":"string","description":"Which events"},"2fa":{"type":"boolean"},"issue_related_events":{"type":"number"}}}"""
+        graphQlTester.document(
+            """mutation(${'$'}schema: String!) { createObjectFromSchema(workspaceId: $workspaceId, name: "Renamed", schema: ${'$'}schema) { properties { name description } } }""",
+        ).variable("schema", renamed).execute()
+            .path("createObjectFromSchema.properties[*].name").entityList(String::class.java).containsExactly("issue_related_events", "_2fa", "issue_related_events_2")
+            .path("createObjectFromSchema.properties[0].description").entity(String::class.java).isEqualTo("Which events JSON key: issue-related-events")
     }
 }

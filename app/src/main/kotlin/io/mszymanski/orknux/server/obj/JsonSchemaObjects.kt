@@ -15,6 +15,11 @@ import tools.jackson.databind.json.JsonMapper
  * no fields. Everything else a schema can say - `required`, `enum`, formats,
  * bounds - is left behind, because nothing here could hold it to.
  *
+ * A key a reference could not follow - `issue-related-events`, `2fa` - is
+ * written with underscores (`issue_related_events`, `_2fa`), because a
+ * property is read after a dot everywhere else; the key it came from is kept
+ * in the description, so the shape still says what the JSON calls it.
+ *
  * Refused rather than guessed at where the text is not JSON, or is a schema of
  * something other than an object: the result would be an object with no
  * properties, which is not what anybody pasting a schema meant.
@@ -41,11 +46,24 @@ object JsonSchemaObjects {
         fun propertiesOf(node: JsonNode, depth: Int): List<InlineProperty> {
             val properties = resolve(node).path("properties")
             if (!properties.isObject) return emptyList()
-            return properties.properties().map { (name, held) -> propertyOf(name, resolve(held), depth) }
+            val taken = mutableSetOf<String>()
+            return properties.properties().map { (key, held) -> propertyOf(key, usable(key, taken), resolve(held), depth) }
         }
 
-        private fun propertyOf(name: String, node: JsonNode, depth: Int): InlineProperty {
-            val description = node.path("description").takeIf { it.isString }?.asText()?.take(DESCRIPTION_LIMIT)
+        /** The key as a reference can read it, and unique among its siblings once two keys fold to one name. */
+        private fun usable(key: String, taken: MutableSet<String>): String {
+            var name = key.replace(UNUSABLE, "_").ifEmpty { "_" }
+            if (name.first().isDigit()) name = "_$name"
+            var candidate = name
+            var n = 2
+            while (!taken.add(candidate)) candidate = "${name}_${n++}"
+            return candidate
+        }
+
+        private fun propertyOf(key: String, name: String, node: JsonNode, depth: Int): InlineProperty {
+            val said = node.path("description").takeIf { it.isString }?.asText()
+            // Renamed, the key it came from is said beside what it means, so the shape still names what the JSON calls it.
+            val description = (if (name == key) said else listOfNotNull(said, "JSON key: $key").joinToString(" "))?.take(DESCRIPTION_LIMIT)
             return when (val type = typeOf(node)) {
                 "string", "number", "integer", "boolean" ->
                     InlineProperty(name = name, kind = kindOf(type), description = description)
@@ -109,6 +127,7 @@ object JsonSchemaObjects {
     }
 
     private const val DESCRIPTION_LIMIT = 500
+    private val UNUSABLE = Regex("[^A-Za-z0-9_]")
 }
 
 /** The text pasted is not a JSON Schema of an object, and [says] which way. */
