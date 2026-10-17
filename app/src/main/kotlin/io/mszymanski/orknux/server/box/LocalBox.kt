@@ -4,6 +4,8 @@ import io.mszymanski.orknux.orkbox.Config
 import io.mszymanski.orknux.orkbox.DockerConfig
 import io.mszymanski.orknux.orkbox.LocalConfig
 import io.mszymanski.orknux.orkbox.Orkbox
+import io.mszymanski.orknux.orkbox.runtime.Runtime
+import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.DisposableBean
 import org.springframework.stereotype.Component
@@ -56,7 +58,10 @@ class LocalBox(private val settings: BoxSettings) : DisposableBean {
         val wanted = shape()
         running?.takeIf { it.first == wanted }?.let { return EmbeddedBoxClient(it.second) }
         stop()
-        val started = Orkbox(config(wanted)).start()
+        val config = config(wanted)
+        val runtimes = Orkbox.defaultRuntimes(config).mapValues { (_, runtime) -> ClearedBeforeStart(runtime) }
+        runtimes.values.forEach(ClearedBeforeStart::clear)
+        val started = Orkbox(config, runtimes).start()
         log.info("Local box started: {} runtime, sessions under {}", wanted.runtime, started.config.local.root)
         running = wanted to started
         startedAt = OffsetDateTime.now()
@@ -122,6 +127,27 @@ class LocalBox(private val settings: BoxSettings) : DisposableBean {
         docker = DockerConfig(cleanupOnStart = false),
         local = shape.location?.let { LocalConfig(root = Path.of(it), owner = shape.owner) } ?: LocalConfig(owner = shape.owner),
     )
+
+    /**
+     * A runtime whose clean-up of what a previous run left is done here, before
+     * the instance answers, rather than by orkbox's start.
+     *
+     * orkbox clears leftovers on a coroutine of its own and returns at once, and
+     * this box is started by the very call that wants a session. A session made
+     * before that coroutine had listed the root was in the listing, its marker
+     * naming this server, so it was taken for a previous run's and deleted: the
+     * session's first command answered `workspace_missing`. Done before the
+     * instance exists, the clean-up cannot meet a session at all.
+     */
+    private class ClearedBeforeStart(private val runtime: Runtime) : Runtime by runtime {
+        fun clear() {
+            runCatching { runBlocking { runtime.cleanupOrphans() } }
+                .onFailure { log.warn("The local box could not clear what a previous run left", it) }
+        }
+
+        /** Done already, by [clear]. */
+        override suspend fun cleanupOrphans() = Unit
+    }
 
     private companion object {
         val log = LoggerFactory.getLogger(LocalBox::class.java)

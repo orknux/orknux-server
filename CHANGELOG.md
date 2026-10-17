@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🐛 Fixed
+
+- **The first session on a freshly started local box keeps its workspace.** The box's clean-up of what a previous run left could take a session opened as the box came up for a leftover and delete it, and its first command answered that the workspace was gone.
+
 ## 1.1.0
 
 ### ✨ Added
