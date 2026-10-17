@@ -17,6 +17,10 @@ have failed.
 
 ## Unreleased
 
+### ✨ Added
+
+- **An access token can be read-only.** Chosen when it is made, beside its name: a read-only token answers queries and is refused every mutation, is offered only the MCP tools that read, and is refused any other request that is not a read. Existing tokens stay read and write.
+
 ### 🐛 Fixed
 
 - **The first session on a freshly started local box keeps its workspace.** The box's clean-up of what a previous run left could take a session opened as the box came up for a leftover and delete it, and its first command answered that the workspace was gone.

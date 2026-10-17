@@ -59,7 +59,14 @@ class InternalAuthentication(
         val owner = users.findById(held.userId).orElse(null) ?: return null
         held.lastUsedAt = OffsetDateTime.now()
         tokens.save(held)
-        return tokenFor(owner)
+        val signedIn = tokenFor(owner)
+        if (!held.readOnly) return signedIn
+        // The owner as they are, held to reading. See TokenAccess.
+        return UsernamePasswordAuthenticationToken(
+            signedIn.name,
+            null,
+            signedIn.authorities + SimpleGrantedAuthority(io.mszymanski.orknux.server.security.TokenAccess.READ_ONLY),
+        )
     }
 
     /**
@@ -70,11 +77,11 @@ class InternalAuthentication(
      * anonymous string nobody dares touch.
      */
     @Transactional
-    fun mint(user: AppUser, name: String): Pair<AppUserToken, String> {
+    fun mint(user: AppUser, name: String, readOnly: Boolean = false): Pair<AppUserToken, String> {
         val secret = "orkx_" + Base64.getUrlEncoder().withoutPadding()
             .encodeToString(ByteArray(32).also(random::nextBytes))
         val stored = tokens.save(
-            AppUserToken(userId = requireNotNull(user.id), name = name, tokenHash = hash(secret)),
+            AppUserToken(userId = requireNotNull(user.id), name = name, tokenHash = hash(secret), readOnly = readOnly),
         )
         log.info("Token \"{}\" minted for {}", name, user.username)
         return stored to secret
@@ -143,10 +150,29 @@ class TokenAuthenticationFilter(private val internal: InternalAuthentication) : 
             }
         }
 
+        /*
+         * A read-only token reads, and nothing else. GraphQL is told and refuses
+         * a mutation itself, since a query and a mutation both arrive as a POST;
+         * the MCP endpoint offers such a caller only the tools that read; every
+         * other request that is not a read is refused here.
+         */
+        if (io.mszymanski.orknux.server.security.TokenAccess.readOnly()) {
+            request.setAttribute(io.mszymanski.orknux.server.security.TokenAccess.READ_ONLY_ATTRIBUTE, true)
+            val path = request.requestURI.removePrefix(request.contextPath)
+            val reading = request.method.uppercase() in SAFE_METHODS
+            if (!reading && path != "/graphql" && !path.startsWith("/mcp/")) {
+                response.status = HttpServletResponse.SC_FORBIDDEN
+                response.contentType = "application/json"
+                response.writer.write("""{"error":"${io.mszymanski.orknux.server.security.TokenAccess.REFUSAL}"}""")
+                return
+            }
+        }
+
         chain.doFilter(request, response)
     }
 
     private companion object {
         const val BEARER = "Bearer "
+        val SAFE_METHODS = setOf("GET", "HEAD", "OPTIONS")
     }
 }

@@ -93,7 +93,8 @@ class McpAPI(
                 ),
             )
 
-        val scope = OrknuxScope(workspaceId = workspaceId, mayWrite = true)
+        // A read-only access token is offered only the tools that read. See TokenAccess.
+        val scope = OrknuxScope(workspaceId = workspaceId, mayWrite = !io.mszymanski.orknux.server.security.TokenAccess.readOnly())
         val id = requestId
 
         /*

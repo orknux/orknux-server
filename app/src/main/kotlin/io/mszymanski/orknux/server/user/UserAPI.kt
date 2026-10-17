@@ -301,7 +301,7 @@ class UserAPI(
      */
     @MutationMapping
     @Transactional
-    fun createUserToken(@Argument id: Long?, @Argument name: String): NewTokenView {
+    fun createUserToken(@Argument id: Long?, @Argument name: String, @Argument readOnly: Boolean?): NewTokenView {
         val held = if (id == null) {
             users.findByUsername(editor()) ?: throw UserNotFoundException(-1)
         } else {
@@ -310,8 +310,9 @@ class UserAPI(
         }
         if (held.type != UserType.INTERNAL) throw TokenNotIssuableException(held.username)
 
-        val (stored, secret) = internal.mint(held, name.trim().ifEmpty { "Token" })
-        audit.record(null, WorkspaceAuditCategory.WORKSPACE, "Access token ${stored.name} created for ${held.username}")
+        val (stored, secret) = internal.mint(held, name.trim().ifEmpty { "Token" }, readOnly = readOnly == true)
+        val access = if (stored.readOnly) " (read-only)" else ""
+        audit.record(null, WorkspaceAuditCategory.WORKSPACE, "Access token ${stored.name}$access created for ${held.username}")
         return NewTokenView(describe(stored), secret)
     }
 
@@ -343,6 +344,7 @@ class UserAPI(
         name = token.name,
         createdAt = token.createdAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         lastUsedAt = token.lastUsedAt?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+        readOnly = token.readOnly,
     )
 
     /** Resolved now rather than trusted: a role id that is not a role is a typo, not a grant. */
@@ -419,6 +421,8 @@ data class TokenView(
     val createdAt: String,
     /** Null until something uses it. */
     val lastUsedAt: String?,
+    /** Whether it may only read. */
+    val readOnly: Boolean = false,
 )
 
 /** A token and its secret, which is returned exactly once. */

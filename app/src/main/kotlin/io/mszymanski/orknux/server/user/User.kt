@@ -219,6 +219,10 @@ class AppUserToken(
     /** When it was last accepted, so an unused one can be found and removed. */
     @Column(name = "last_used_at")
     var lastUsedAt: OffsetDateTime? = null,
+
+    /** Whether it may only read; see [io.mszymanski.orknux.server.security.TokenAccess]. Chosen when it is made. */
+    @Column(name = "read_only", nullable = false)
+    val readOnly: Boolean = false,
 )
 
 interface AppUserTokenRepository : JpaRepository<AppUserToken, Long> {

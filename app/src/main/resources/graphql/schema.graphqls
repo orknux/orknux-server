@@ -1576,8 +1576,11 @@ type Mutation {
     no id to pass.
     """
     setChatCostShown(shown: Boolean!): AppUser!
-    "Mints a token. Yours when id is absent; anybody's, for an administrator."
-    createUserToken(id: ID, name: String!): NewUserToken!
+    """
+    Mints a token. Yours when id is absent; anybody's, for an administrator.
+    readOnly makes a token that may read and never change anything; left out, it may do both.
+    """
+    createUserToken(id: ID, name: String!, readOnly: Boolean): NewUserToken!
     deleteUserToken(id: ID!): Boolean!
     "Creates an INTERNAL user: an identity managed here. Administrators only."
     createUser(input: UserInput!): AppUser!
@@ -9287,6 +9290,8 @@ type UserToken {
     createdAt: String!
     "Null until something uses it."
     lastUsedAt: String
+    "Whether it may only read: every mutation, and every MCP tool that changes something, is refused it."
+    readOnly: Boolean!
 }
 
 "A token and its secret, which is returned exactly once."
