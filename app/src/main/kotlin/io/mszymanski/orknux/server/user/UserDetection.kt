@@ -41,7 +41,11 @@ import org.springframework.transaction.annotation.Transactional
  *   request by things that keep no session.
  */
 @Component
-class UserDetection(private val users: AppUserRepository) {
+class UserDetection(
+    private val users: AppUserRepository,
+    /** What the arriving authorities mean here, written down beside the person. */
+    private val resolver: io.mszymanski.orknux.server.security.RoleResolver,
+) {
 
     @EventListener
     @Transactional
@@ -73,6 +77,15 @@ class UserDetection(private val users: AppUserRepository) {
             else -> null
         }
 
+        /*
+         * The roles their groups resolve to, kept by id so a workspace can say
+         * who its roles let in. Resolved again on every sign-in, because a group
+         * membership changes in the directory and nothing here is told.
+         */
+        val authorities = authentication.authorities.mapNotNull { it.authority }.toSet()
+        val resolved = resolver.rolesFor(authorities).mapNotNull { it.id }.sorted().joinToString(",").ifEmpty { null }
+        val administers = resolver.administers(authorities)
+
         val held = users.findByUsername(username)
         if (held == null) {
             users.save(
@@ -81,6 +94,8 @@ class UserDetection(private val users: AppUserRepository) {
                     displayName = called ?: username,
                     type = UserType.EXTERNAL,
                     email = addressed,
+                    resolvedRoles = resolved,
+                    resolvedAdmin = administers,
                 ),
             )
             log.info("First sign-in recorded for {}", username)
@@ -100,6 +115,11 @@ class UserDetection(private val users: AppUserRepository) {
          */
         if (!held.emailChosen && addressed != null && held.email != addressed) {
             held.email = addressed
+            changed = true
+        }
+        if (held.resolvedRoles != resolved || held.resolvedAdmin != administers) {
+            held.resolvedRoles = resolved
+            held.resolvedAdmin = administers
             changed = true
         }
         if (changed) users.save(held)

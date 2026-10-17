@@ -114,6 +114,26 @@ class AppUser(
     var emailChosen: Boolean = false,
 
     /**
+     * The roles the directory or the identity provider gave this person the
+     * last time they signed in, by id and comma-separated. What [roles] holds
+     * is what an administrator gave them here; this is the other half, which
+     * was never written down - so a workspace could not list the people its
+     * roles let in unless each had been given a role by hand. Null until they
+     * sign in; see [resolvedRoleIds].
+     */
+    @Column(name = "resolved_role_ids", columnDefinition = "text")
+    var resolvedRoles: String? = null,
+
+    /**
+     * Whether they administered the installation the last time they signed in.
+     * Kept beside [resolvedRoles] because the admin authority may be the
+     * directory's alone - `ORKNUX_ADMIN_ROLE` names a group no role row here
+     * corresponds to - and would otherwise leave no trace.
+     */
+    @Column(name = "resolved_admin", nullable = false)
+    var resolvedAdmin: Boolean = false,
+
+    /**
      * Whether the news the bell rings is also posted to [email].
      *
      * The one preference, rather than one per kind of news: who hears about an
@@ -231,6 +251,10 @@ interface AppUserTokenRepository : JpaRepository<AppUserToken, Long> {
 
     fun findByUserId(userId: Long): List<AppUserToken>
 }
+
+/** The ids in [AppUser.resolvedRoles], or none. */
+fun AppUser.resolvedRoleIds(): Set<Long> =
+    resolvedRoles?.split(',')?.mapNotNull { it.trim().toLongOrNull() }?.toSet().orEmpty()
 
 interface AppUserRepository : JpaRepository<AppUser, Long> {
 

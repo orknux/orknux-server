@@ -37,6 +37,9 @@ class WorkspaceExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is CompactionSummaryInvalidException,
             is CompactionSummaryTooLongException,
             is ScriptTimeoutOutOfRangeException,
+            // Somebody who is not a member, or who administers everywhere already.
+            is WorkspaceMemberUnknownException,
+            is WorkspaceMemberFixedException,
             // A workspace file that is not one, is newer than this reads, or
             // says something impossible: refused before anything is made. #590.
             is io.mszymanski.orknux.server.transfer.WorkspaceFileUnreadableException,

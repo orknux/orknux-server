@@ -24,6 +24,8 @@ class WorkspaceAccess(
     private val workspaces: WorkspaceRepository,
     /** Who this is here, for the roles an administrator gave them. See [heldRoles]. */
     private val users: io.mszymanski.orknux.server.user.AppUserRepository,
+    /** The people named on a workspace as administering it. See [canAdminister]. */
+    private val adminUsers: io.mszymanski.orknux.server.workspace.WorkspaceAdminUserRepository,
 ) {
 
     fun roles(): Set<String> {
@@ -118,6 +120,11 @@ class WorkspaceAccess(
      */
     fun canAdminister(workspace: Workspace): Boolean {
         if (isAdmin()) return true
+        if (!canSee(workspace)) return false
+        // Named on the workspace itself, by somebody who already administered it.
+        val username = SecurityContextHolder.getContext().authentication?.name
+        val id = workspace.id
+        if (username != null && id != null && adminUsers.existsByIdWorkspaceIdAndIdUsername(id, username)) return true
         if (workspace.adminRoles.isEmpty()) return false
         val held = heldRoles().mapNotNull { it.id }.toSet()
         return workspace.adminRoles.any { it.id in held }

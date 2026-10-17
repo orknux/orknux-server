@@ -1,0 +1,37 @@
+# A workspace's members, and which of them administer it. Who is a member is
+# decided by roles in Admin > Roles; who among them may change the workspace's
+# settings is decided here, by somebody who already may.
+
+extend type Query {
+    "Everybody whose roles open this workspace, and what each may do here. Whoever administers it."
+    workspaceMembers(workspaceId: ID!): [WorkspaceMember!]!
+}
+
+extend type Mutation {
+    """
+    Makes a member a workspace admin, or an ordinary member again. Whoever
+    administers the workspace; an installation administrator's standing cannot
+    be changed here.
+    """
+    setWorkspaceMemberRole(workspaceId: ID!, username: String!, role: WorkspaceRole!): WorkspaceMember!
+}
+
+"What somebody may do in one workspace."
+enum WorkspaceRole {
+    "Works in it."
+    USER
+    "Works in it and changes its settings."
+    ADMIN
+}
+
+type WorkspaceMember {
+    username: String!
+    displayName: String!
+    "INTERNAL or EXTERNAL, as the Users page says it."
+    userType: String!
+    "The roles that open this workspace for them, by name."
+    through: [String!]!
+    role: WorkspaceRole!
+    "True for an installation administrator, who administers every workspace and is not changed here."
+    fixed: Boolean!
+}

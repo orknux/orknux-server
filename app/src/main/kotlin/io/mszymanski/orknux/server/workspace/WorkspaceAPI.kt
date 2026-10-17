@@ -512,7 +512,7 @@ class WorkspaceAPI(
     @Transactional
     fun setWorkspaceCompanionModel(@Argument workspaceId: Long, @Argument modelId: Long?): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
-        access.requireVisible(workspace)
+        access.requireAdministers(workspace)
 
         val chosen = modelId?.let { models.model(it) ?: throw ModelNotFoundForWorkspaceException(it) }
         if (chosen != null && chosen.workspaceId != workspaceId) throw ModelNotFoundForWorkspaceException(modelId)
@@ -538,7 +538,7 @@ class WorkspaceAPI(
     @Transactional
     fun setWorkspaceTranscriptionModel(@Argument workspaceId: Long, @Argument modelId: Long?): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
-        access.requireVisible(workspace)
+        access.requireAdministers(workspace)
 
         val chosen = modelId?.let { models.model(it) ?: throw ModelNotFoundForWorkspaceException(it) }
         if (chosen != null && chosen.workspaceId != workspaceId) throw ModelNotFoundForWorkspaceException(modelId)
@@ -566,7 +566,7 @@ class WorkspaceAPI(
     @Transactional
     fun setWorkspaceSpeechModel(@Argument workspaceId: Long, @Argument modelId: Long?): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
-        access.requireVisible(workspace)
+        access.requireAdministers(workspace)
 
         val chosen = modelId?.let { models.model(it) ?: throw ModelNotFoundForWorkspaceException(it) }
         if (chosen != null && chosen.workspaceId != workspaceId) throw ModelNotFoundForWorkspaceException(modelId)
@@ -606,7 +606,7 @@ class WorkspaceAPI(
         @Argument modelId: Long?,
     ): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
-        access.requireVisible(workspace)
+        access.requireAdministers(workspace)
 
         if (afterTokens != null && afterTokens <= 0) throw CompactionThresholdInvalidException()
         if (summaryTokens != null && summaryTokens <= 0) throw CompactionSummaryInvalidException()
@@ -652,7 +652,7 @@ class WorkspaceAPI(
     @Transactional
     fun setWorkspaceImageModel(@Argument workspaceId: Long, @Argument modelId: Long?): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
-        access.requireVisible(workspace)
+        access.requireAdministers(workspace)
 
         val chosen = modelId?.let { models.model(it) ?: throw ModelNotFoundForWorkspaceException(it) }
         if (chosen != null && chosen.workspaceId != workspaceId) throw ModelNotFoundForWorkspaceException(modelId)
@@ -680,7 +680,7 @@ class WorkspaceAPI(
     @Transactional
     fun setWorkspaceQuickChatModel(@Argument workspaceId: Long, @Argument modelId: Long?): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
-        access.requireVisible(workspace)
+        access.requireAdministers(workspace)
 
         val chosen = modelId?.let { models.model(it) ?: throw ModelNotFoundForWorkspaceException(it) }
         if (chosen != null && chosen.workspaceId != workspaceId) throw ModelNotFoundForWorkspaceException(modelId)
@@ -706,7 +706,7 @@ class WorkspaceAPI(
     @Transactional
     fun setWorkspaceQuickChatWrites(@Argument workspaceId: Long, @Argument allowed: Boolean): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
-        access.requireVisible(workspace)
+        access.requireAdministers(workspace)
 
         workspace.quickChatMayWrite = allowed
         auditRecorder.record(
@@ -728,7 +728,7 @@ class WorkspaceAPI(
     @Transactional
     fun setWorkspaceChatTimestamps(@Argument workspaceId: Long, @Argument shown: Boolean): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
-        access.requireVisible(workspace)
+        access.requireAdministers(workspace)
 
         workspace.chatShowTimestamps = shown
         return workspace
@@ -742,7 +742,7 @@ class WorkspaceAPI(
     @Transactional
     fun setWorkspaceWidgetTimerSound(@Argument workspaceId: Long, @Argument sound: Boolean): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
-        access.requireVisible(workspace)
+        access.requireAdministers(workspace)
 
         workspace.widgetTimerSound = sound
         return workspace
@@ -753,7 +753,7 @@ class WorkspaceAPI(
     @Transactional
     fun setWorkspaceSessionCostShown(@Argument workspaceId: Long, @Argument shown: Boolean): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
-        access.requireVisible(workspace)
+        access.requireAdministers(workspace)
 
         workspace.sessionCostShown = shown
         return workspace
@@ -794,7 +794,7 @@ class WorkspaceAPI(
     @Transactional
     fun setWorkspaceDefaultMemoryShare(@Argument workspaceId: Long, @Argument share: Int?): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
-        access.requireVisible(workspace)
+        access.requireAdministers(workspace)
 
         budgets.resolveDefault(share).refusal?.let { throw WorkspaceMemoryShareUnusableException(it) }
 
@@ -823,7 +823,7 @@ class WorkspaceAPI(
     @Transactional
     fun setWorkspaceTaskMaxTurns(@Argument workspaceId: Long, @Argument turns: Int?): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
-        access.requireVisible(workspace)
+        access.requireAdministers(workspace)
 
         if (turns != null && turns !in MIN_TASK_TURNS..MAX_TASK_TURNS) throw TaskTurnsOutOfRangeException(turns)
 
@@ -849,7 +849,7 @@ class WorkspaceAPI(
     @Transactional
     fun setWorkspaceCommandMarker(@Argument workspaceId: Long, @Argument marker: String?): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
-        access.requireVisible(workspace)
+        access.requireAdministers(workspace)
 
         val wanted = marker?.trim()?.ifEmpty { null }
         if (wanted == null) {
@@ -890,7 +890,7 @@ class WorkspaceAPI(
     @Transactional
     fun setWorkspaceUnsafeBuiltInTools(@Argument workspaceId: Long, @Argument allowed: Boolean): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
-        access.requireVisible(workspace)
+        access.requireAdministers(workspace)
 
         workspace.unsafeBuiltInTools = allowed
         auditRecorder.record(
@@ -909,7 +909,7 @@ class WorkspaceAPI(
     @Transactional
     fun setWorkspaceAgentMaxSubagents(@Argument workspaceId: Long, @Argument count: Int?): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
-        access.requireVisible(workspace)
+        access.requireAdministers(workspace)
 
         if (count != null && count !in MIN_SUBAGENTS..MAX_SUBAGENTS) {
             throw io.mszymanski.orknux.server.attachment.SubagentsOutOfRangeException(count)
@@ -936,7 +936,7 @@ class WorkspaceAPI(
     @Transactional
     fun setWorkspaceMaxToolCallsAtOnce(@Argument workspaceId: Long, @Argument count: Int?): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
-        access.requireVisible(workspace)
+        access.requireAdministers(workspace)
 
         if (count != null && count !in MIN_CALLS_AT_ONCE..MAX_CALLS_AT_ONCE) {
             throw io.mszymanski.orknux.server.attachment.ToolCallsAtOnceOutOfRangeException(count)
@@ -972,7 +972,7 @@ class WorkspaceAPI(
         @Argument modelId: Long?,
     ): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
-        access.requireVisible(workspace)
+        access.requireAdministers(workspace)
 
         if (keepTurns != null && keepTurns !in MIN_KEEP_TURNS..MAX_KEEP_TURNS) {
             throw io.mszymanski.orknux.server.attachment.CompactionKeepOutOfRangeException(keepTurns)
@@ -1016,7 +1016,7 @@ class WorkspaceAPI(
     @Transactional
     fun setWorkspaceFunctionTimeout(@Argument workspaceId: Long, @Argument seconds: Int?): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
-        access.requireVisible(workspace)
+        access.requireAdministers(workspace)
 
         if (seconds != null && seconds !in MIN_SCRIPT_TIMEOUT_SECONDS..MAX_SCRIPT_TIMEOUT_SECONDS) {
             throw ScriptTimeoutOutOfRangeException(seconds)
@@ -1047,7 +1047,7 @@ class WorkspaceAPI(
     @Transactional
     fun setWorkspaceToolTimeout(@Argument workspaceId: Long, @Argument seconds: Int?): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
-        access.requireVisible(workspace)
+        access.requireAdministers(workspace)
 
         if (seconds != null && seconds !in MIN_SCRIPT_TIMEOUT_SECONDS..MAX_SCRIPT_TIMEOUT_SECONDS) {
             throw ScriptTimeoutOutOfRangeException(seconds)
@@ -1098,7 +1098,7 @@ class WorkspaceAPI(
         @Argument bargeInWhileThinking: Boolean?,
     ): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
-        access.requireVisible(workspace)
+        access.requireAdministers(workspace)
 
         VoiceTurnTaking.refusalFor(pauseEndsTurnMs, speechOverRoomPercent, unattendedMicrophoneMs, bargeInMs)
             ?.let { throw WorkspaceVoiceTurnTakingUnusableException(it) }
@@ -1140,7 +1140,7 @@ class WorkspaceAPI(
         @Argument chunking: SpeechChunking,
     ): Workspace {
         val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
-        access.requireVisible(workspace)
+        access.requireAdministers(workspace)
 
         workspace.voiceSpeechChunking = chunking
 
