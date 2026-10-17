@@ -36,7 +36,7 @@ object JsonSchemaObjects {
         if (typeOf(root) != "object" && !root.has("properties")) {
             throw ObjectSchemaUnreadableException(
                 typeOf(root)?.let { "The schema describes a $it, not an object." }
-                    ?: "The schema says neither \"type\": \"object\" nor \"properties\", so there is nothing to read as one.",
+                    ?: "Not a JSON Schema: nothing at the root says \"type\": \"object\" or lists \"properties\". A payload is not its schema.",
             )
         }
         val fields = Reading(root, maxDepth).propertiesOf(root, depth = 0)
