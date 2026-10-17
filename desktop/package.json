@@ -1,0 +1,30 @@
+{
+  "name": "orknux-desktop",
+  "productName": "Orknux",
+  "version": "1.1.2",
+  "description": "Orknux on one machine: the server on SQLite, in a window of its own.",
+  "homepage": "https://orknux.ai",
+  "author": {
+    "name": "Michał Szymański",
+    "email": "michjak.szymanski@gmail.com"
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "src/main.js",
+  "desktopName": "orknux.desktop",
+  "orknux": {
+    "selfUpdate": true
+  },
+  "scripts": {
+    "start": "electron .",
+    "smoke": "electron . --no-sandbox",
+    "dist:linux": "electron-builder --linux deb AppImage",
+    "dist:linux:store": "electron-builder --linux deb AppImage -c.extraMetadata.orknux.selfUpdate=false",
+    "dist:win": "electron-builder --win nsis msi",
+    "dist:win:store": "electron-builder --win nsis msi -c.extraMetadata.orknux.selfUpdate=false"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.16.1"
+  }
+}

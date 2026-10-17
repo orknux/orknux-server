@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.smoke/
+# Fetched or built per platform, never committed: the server jar and the runtime.
+resources/server/
+resources/jre/

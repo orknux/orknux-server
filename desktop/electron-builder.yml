@@ -1,0 +1,80 @@
+# How the desktop app is packaged. See README.md for the commands.
+appId: ai.orknux.desktop
+productName: Orknux
+copyright: Copyright © 2026 Michał Szymański
+
+directories:
+  output: dist
+  buildResources: build
+
+# The main process only; the interface is served by the server it starts.
+files:
+  - src/**
+  - package.json
+
+# Outside the asar on purpose: the JVM reads the jar and its runtime from disk,
+# and a file inside an asar is not a file to a process that is not Electron.
+extraResources:
+  - from: resources/server
+    to: server
+  - from: resources/jre
+    to: jre
+  - from: resources/tray
+    to: tray
+
+asar: true
+
+linux:
+  target:
+    - deb
+    - AppImage
+  category: Development
+  # The window and the launcher entry are one app to the desktop environment, so the dock groups them.
+  syncDesktopName: true
+  executableName: orknux
+  icon: build/icon.png
+  synopsis: Workflows and agents, on this machine.
+  maintainer: Michał Szymański <michjak.szymanski@gmail.com>
+  vendor: Orknux
+
+deb:
+  packageCategory: devel
+  # Written out rather than left to electron-builder's defaults, which leave out
+  # ALSA: a clean Debian installed the package and then refused to start it on
+  # libasound.so.2. The t64 alternative is the same library under the name
+  # Ubuntu 24.04 and Debian 13 ship it as. The JVM inside needs only glibc.
+  depends:
+    - libgtk-3-0 | libgtk-3-0t64
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0 | libatspi2.0-0t64
+    - libuuid1
+    - libsecret-1-0
+    - libgbm1
+    - libasound2 | libasound2t64
+
+appImage:
+  artifactName: Orknux-${version}.${ext}
+
+win:
+  target:
+    - nsis
+    - msi
+  icon: build/icon.png
+
+nsis:
+  # Per user, so installing needs no administrator and the data directory under
+  # %APPDATA% belongs to the person who installed it.
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: Orknux-Setup-${version}.${ext}
+
+msi:
+  perMachine: false
+  artifactName: Orknux-${version}.${ext}
+
+publish: null

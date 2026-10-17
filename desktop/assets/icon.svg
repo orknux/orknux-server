@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="32" height="32">
+  <!--
+    The hollow cut, not the primary: a favicon renders at 16-32px, and at that
+    size the triad's three nodes merge into a blob. The silhouette is what
+    survives. The tile carries the dark ground so the icon reads the same in a
+    tab strip whichever theme the app is in.
+  -->
+  <defs>
+    <linearGradient id="moss" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#668A6B"/>
+      <stop offset="100%" stop-color="#4A6B52"/>
+    </linearGradient>
+    <mask id="void">
+      <rect width="200" height="200" fill="#fff"/>
+      <circle cx="100" cy="109" r="50" fill="#000"/>
+    </mask>
+  </defs>
+
+  <rect width="200" height="200" rx="44" fill="#09090b"/>
+  <g transform="translate(12 14) scale(.88)">
+    <path d="M42 29 L67 50 L133 50 L158 29 L154 64 L181 113 L151 167 L49 167 L19 113 L46 64 Z"
+          fill="url(#moss)" mask="url(#void)"/>
+  </g>
+</svg>
