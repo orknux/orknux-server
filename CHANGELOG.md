@@ -15,11 +15,15 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
-## Unreleased
+## 1.1.1
 
 ### ✨ Added
 
 - **An access token can be read-only.** Chosen when it is made, beside its name: a read-only token answers queries and is refused every mutation, is offered only the MCP tools that read, and is refused any other request that is not a read. Existing tokens stay read and write.
+
+### 🔧 Changed
+
+- **Access tokens are a table** - name, access, created, last used, and Revoke under Actions - and a new token's secret can be dismissed once it is copied.
 
 ### 🐛 Fixed
 
