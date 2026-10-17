@@ -123,6 +123,8 @@ class Server {
       // The server's default is /tmp/orknux-release, which is not a directory on Windows and not one that lasts on Linux.
       ORKNUX_RELEASE_DIR: prepared.releases,
       ORKNUX_SELF_UPDATE: this.selfUpdate ? 'true' : 'false',
+      // The server's desktop mode: its open-access warning names the person at the machine, and it stops when its input closes.
+      ORKNUX_DESKTOP: 'true',
       MALLOC_ARENA_MAX: process.env.MALLOC_ARENA_MAX ?? '2',
     };
     if (prepared.admin !== null) {
@@ -227,7 +229,7 @@ class Server {
         '-jar', jar,
         ...this.springArgs,
       ];
-      const child = spawn(this.java, args, { env: this.env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      const child = spawn(this.java, args, { env: this.env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
       this.child = child;
       child.stdout.on('data', (chunk) => this.log.server(chunk));
       child.stderr.on('data', (chunk) => this.log.server(chunk));
@@ -247,10 +249,11 @@ class Server {
   /**
    * Stops the server, asking first and insisting after a grace period.
    *
-   * On Linux the ask is SIGTERM, which Spring answers with a graceful shutdown.
-   * Windows has no such signal for a windowless process: taskkill without /F
-   * posts a close to windows the process does not have, so in practice it is
-   * the forced kill after the wait that ends it - see README.md, phase 2.
+   * The ask is closing the server's standard input, which under ORKNUX_DESKTOP
+   * it reads to its end and then shuts down gracefully - the one stop signal
+   * Windows has for a windowless process. SIGTERM is sent as well on Linux and
+   * macOS, for a jar older than desktop mode; the forced kill after the grace
+   * period is for a server that answers neither.
    */
   stop() {
     this.stopping = true;
@@ -267,8 +270,12 @@ class Server {
         if (process.platform === 'win32') execFile('taskkill', ['/PID', String(child.pid), '/T', '/F'], () => {});
         else child.kill('SIGKILL');
       }, STOP_GRACE_MS);
-      if (process.platform === 'win32') execFile('taskkill', ['/PID', String(child.pid), '/T'], () => {});
-      else child.kill('SIGTERM');
+      try {
+        child.stdin?.end();
+      } catch {
+        // Already closed: the server is on its way out either way.
+      }
+      if (process.platform !== 'win32') child.kill('SIGTERM');
     });
   }
 }

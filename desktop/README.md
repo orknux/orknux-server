@@ -105,24 +105,19 @@ The same works for the AppImage (`APPIMAGE_EXTRACT_AND_RUN=1`) and for the
 
 ## Phase 2
 
+Done: under `ORKNUX_DESKTOP=true` a loopback server with sign-in off shows no
+open-access warning and names its one account after the person at the machine;
+the server stops when this app closes its standard input, which is how a quit
+asks it on Windows too; and the release launcher skips a release built for a
+newer Java than the bundled runtime, leaving it for a later app to run.
+
 Not done yet, in roughly the order it matters:
 
 - **A switch in the interface for network access**, writing `desktop.json`, with
   the restart it needs. The server has to know it is a desktop
   (`ORKNUX_DESKTOP=true`) to offer it.
-- **The banner and the account name in local mode.** The interface says
-  "Authentication is off. Anyone who reaches this installation administers it"
-  and signs the person in as `everyone`. On a desktop listening on loopback only,
-  both are true but alarming; it should name the person at the machine.
-- **A graceful stop on Windows.** A windowless Java process has no signal to be
-  asked to stop with, so quitting ends it after a 15-second wait. SQLite in WAL
-  mode survives that, but the server should stop cleanly - for instance when its
-  standard input closes, which the main process can do on every platform.
 - **`ORKNUX_ADDRESS`** for the bind address, instead of passing Spring's
   `--server.address`, to match every other setting.
-- **The releases this app may switch to.** A jar `ReleaseLauncher` picks has to
-  run on the runtime bundled here; a release that needs a newer Java than the
-  installed app carries must be refused for desktops, not just for images.
 - **CI**: build the jar once, then a Windows and a Linux job each run
   `runtime.*`, `npm ci` and `dist:*`, and attach the packages to the GitHub
   release. Windows code signing, or SmartScreen warns on every install.

@@ -497,6 +497,10 @@ orknux:
     # changing the default would change what every existing one claims to have -
     # and with NONE among the values, the default has to be the closed one.
     auth-method: ${ORKNUX_AUTH_METHOD:LDAP}
+    # Set by the desktop app, never by hand: with NONE on a loopback-only
+    # address it is one person at their own machine, so the open-access warning
+    # becomes their name, and the server stops when the app closes its input.
+    desktop: ${ORKNUX_DESKTOP:false}
     admin-role: ${ORKNUX_ADMIN_ROLE:ROLE_ADMINS}
     sign-in:
       # How hard somebody may try. Sign-in is the one door anybody may knock on,

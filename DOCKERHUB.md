@@ -215,7 +215,7 @@ the step runs. The README's **Publishing** has the rest.
 | `ORKNUX_EXECUTION_SWEEP_ENABLED` | `false` sweeps nothing on a timer. | `true` | No |
 | `ORKNUX_REVISION_RETENTION_DAYS` | Days a replaced version of a component is kept. Also in Admin -> Settings. | `14` | No |
 | `ORKNUX_SCHEDULER_ENABLED` | The clock behind scheduled triggers; one instance fires a schedule however many run. | `true` | No |
-| `ORKNUX_CLUSTER_LEASE_SECONDS` | Replicas on one Postgres: the lease holder runs the sweeps and Slack; a dead one's work moves within this. Admin Settings overrides. | `30` | No |
+| `ORKNUX_CLUSTER_LEASE_SECONDS` | Replicas on one Postgres: a dead lease holder's sweeps and Slack move within this. Admin Settings overrides. | `30` | No |
 | `ORKNUX_SCHEDULER_TICK_INTERVAL` | How often scheduled triggers and watchers are looked at: the finest schedule either keeps. | `10s` | No |
 
 ## What a workspace's code may do
@@ -266,6 +266,7 @@ must be signed with the release key this image carries. **On by default.**
 | Variable | What it does | Default | Required |
 | --- | --- | --- | --- |
 | `ORKNUX_SELF_UPDATE` | `false` refuses every source and runs the image's jar. | `true` | No |
+| `ORKNUX_DESKTOP` | Set by the desktop app; never by hand. | `false` | No |
 | `ORKNUX_SELF_UPDATE_OFFICIAL` `ORKNUX_SELF_UPDATE_UPLOAD` `ORKNUX_SELF_UPDATE_URL` | `false` refuses that one source. | `true` | No |
 | `ORKNUX_RELEASE_SOURCE_URL` | Fills the URL field; ending in `/`, Check reads `releases.json` there. | empty | No |
 | `ORKNUX_RELEASE_DIR` | Where the chosen jar is written to run; on a read-only root, mount an `emptyDir`. | `/tmp/orknux-release` | No |
@@ -281,7 +282,7 @@ must be signed with the release key this image carries. **On by default.**
 | `ORKNUX_CONNECTION_CHECK_ENABLED` | The same, for connections. | `true` | No |
 | `ORKNUX_CONNECTION_CHECK_INTERVAL` | How often connections are checked. | `5m` | No |
 | `ORKNUX_CONNECTION_PROBE_TIMEOUT_SECONDS` | How long a check may take to find out whether anything is listening. | `5` | No |
-| `ORKNUX_CONNECTION_ALLOW_LINK_LOCAL` | Link-local addresses reach cloud instance metadata, so they are refused unless this is on. Private and loopback are reachable either way. | `false` | No |
+| `ORKNUX_CONNECTION_ALLOW_LINK_LOCAL` | Link-local addresses (cloud metadata) are refused unless this is on; private and loopback always reach. | `false` | No |
 | `ORKNUX_CONNECTION_ENTRA_AUTHORITY` | Where an Entra ID token is asked for; a sovereign cloud has its own. | `https://login.microsoftonline.com` | No |
 | `ORKNUX_SLACK_ENABLED` | One Socket Mode websocket per Slack connection holding an app-level token. | `true` | No |
 | `ORKNUX_SLACK_RECONCILE_SECONDS` | How often open sockets are compared with stored connections, so a new token listens without a restart. | `30` | No |
@@ -333,7 +334,7 @@ ORKNUX_WATCHER_LOOK_MAX_SECONDS are in
 | `ORKNUX_WEBHOOK_MAX_BODY_SIZE` | The most a webhook caller may post to `/api/webhooks/…`. More is refused with 413 before any trigger runs. | `1MB` | No |
 | `ORKNUX_ASYNC_REQUEST_TIMEOUT` | How long a request answered with a promise may stay open. | `330s` | No |
 | `ORKNUX_SESSION_TIMEOUT` | How long a session survives without being used. A fortnight suits a self-hosted tool behind an identity provider; shorten it otherwise. | `14d` | No |
-| `ORKNUX_SESSION_COOKIE_SAME_SITE` | `strict` where the interface shares this origin and nothing links into it; `lax` is what lets a link from elsewhere arrive signed in. | `lax` | No |
+| `ORKNUX_SESSION_COOKIE_SAME_SITE` | `lax` lets a link from elsewhere arrive signed in; `strict` where nothing links in. | `lax` | No |
 | `ORKNUX_SESSION_COOKIE_HTTP_ONLY` | Keeps the session cookie out of reach of scripts. | `true` | No |
 | `OPENAI_LOG` | What the model SDK prints to stderr: `info` each call's method and URL, `debug` headers and bodies, credentials redacted. | *none* | No |
 | `ORKNUX_LOG_LEVEL` | How much this application says: `TRACE` to `ERROR`. Its own code only - triggers, model calls, task handover - and not the frameworks. | `INFO` | No |

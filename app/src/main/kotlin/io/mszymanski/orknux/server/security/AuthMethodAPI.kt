@@ -25,7 +25,7 @@ import org.springframework.web.bind.annotation.RestController
  */
 @RestController
 @RequestMapping(AUTH_METHOD_PATH)
-class AuthMethodAPI(private val properties: SecurityProperties) {
+class AuthMethodAPI(private val properties: SecurityProperties, private val desktop: DesktopMode) {
 
     @GetMapping
     fun method(): AuthMethodView = AuthMethodView(
@@ -65,7 +65,8 @@ class AuthMethodAPI(private val properties: SecurityProperties) {
          * installation where this is set, the caller reading it may already do
          * everything. Saying so is strictly better than letting them find out.
          */
-        notice = if (properties.authMethod == AuthMethod.NONE) AUTHENTICATION_OFF else null,
+        // Not on the desktop app's own loopback server: there it is one person at their machine. See DesktopMode.
+        notice = if (properties.authMethod == AuthMethod.NONE && !desktop.localOnly) AUTHENTICATION_OFF else null,
     )
 }
 

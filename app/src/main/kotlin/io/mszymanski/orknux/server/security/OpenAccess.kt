@@ -63,6 +63,7 @@ class OpenAccess(
     private val users: AppUserRepository,
     private val roles: RoleRepository,
     private val properties: SecurityProperties,
+    private val desktop: DesktopMode,
 ) {
 
     /** Whether this installation asks anybody to sign in. */
@@ -153,6 +154,15 @@ class OpenAccess(
                 lastModifiedBy = "open-access",
             ),
         )
+        /*
+         * On the desktop app's own loopback server the one identity is the person
+         * at the machine, and is shown as them. The username stays: it is what
+         * the audit log and every row it wrote are keyed on.
+         */
+        if (desktop.localOnly && held.displayName != desktop.person) {
+            held.displayName = desktop.person
+            users.save(held)
+        }
 
         /*
          * The same authority spelling a directory would produce and the same one
