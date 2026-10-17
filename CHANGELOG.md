@@ -21,16 +21,18 @@ have failed.
 
 - **Admin > Reports: tokens by the person who prompted them.** A usage tracking switch, off until an administrator turns it on and recording nothing at all while off; what was recorded stays readable after. The report filters by period, workspace and source, lists people biggest first, and opens each to their sessions with their share of every one - two people in one session are two people. Slack members and Orknux users for now; Jira is left for later.
 - **Workspace members.** A Members section on a workspace's settings lists everybody whose roles open it and makes any of them a workspace admin, or an ordinary member again. Somebody let in by a directory group alone is listed once they have signed in.
-- **An object inside a property.** The object editor's type list offers `object`: fields of its own, drawn as rows inside the row, as deep as the installation allows. An object can also be made from a pasted JSON Schema, from the Objects page.
+- **An object inside a property.** The object editor's type list offers `object`: fields of its own, drawn as rows inside the row, as deep as the installation allows. An object can also be made from a pasted JSON Schema, from the Objects page and from the workflow editor's Create Object panel: the schema is read as it is typed - Valid or Invalid, the details on hover - and a key a reference could not follow (`issue-related-events`, `2fa`) is written with underscores, the key it came from kept in the description.
 - **Rectangle select on the workflow canvas.** A switch at the left of the editor's toolbar, or `S` on the canvas: on, a drag over empty canvas selects every node the rectangle touches instead of panning; the keystroke is rebound in Preferences. Shift-drag selects as before, and Escape lets a selection go.
 - **The Add menu takes the arrow keys.** Down from the plus steps onto the first entry, the arrows wrap, and Enter adds the entry under focus.
 - **Type filters** on the providers, models and connections lists, and the providers table says each row's type; the triggers list is narrowed by where a trigger listens.
 - **Reports can be searched by person, sorted by any column and exported as CSV.**
-- **A menu down the side of both settings pages**, read off their headings, with a search that narrows the page to the settings whose words match; the settings scroll under the top bar, the sidebar and that menu, which stay put. An object can also be made from a JSON Schema in the workflow editor's Create Object panel, and the schema is read as it is typed.
+- **A menu down the side of both settings pages**, read off their headings, with a search that narrows the page to the settings whose words match; the settings scroll under the top bar, the sidebar and that menu, which stay put.
+- **A row of the Users list opens the user**, and saving a user keeps the page open, with a Saved note beside the button.
 - **Object Depth** in Admin > Settings: how deep an object may nest and how deep a value is checked against one. `ORKNUX_OBJECT_MAX_DEPTH` is where a fresh installation starts, 30.
 
 ### 🔧 Changed
 
+- **Talking over the answer waits a second by default**, not half of one: half a second still let a word said to somebody else in the room stop the answer. A workspace that set its own value keeps it.
 - **A workspace's settings are its admins' to change.** Every setting on a workspace's settings page used to be changeable by anybody who could see the workspace; each now needs somebody who administers it - a role marked as administering in Admin, or a member made a workspace admin on the page itself. The Settings entry is offered in the menu only to them. On upgrade, somebody who changed a workspace's settings without administering it will find the page refused until an administrator makes them a workspace admin.
 
 ### 🐛 Fixed
@@ -38,6 +40,8 @@ have failed.
 - **A list that refreshes itself no longer jumps.** The audit logs and the triggers list drew a spinner above the rows on every reload, so with auto-refresh on the table moved once a second.
 - **A sortable heading starts where its column's cells start.** The Roles table drew NAME centred over left-aligned names.
 - **The line under a table starts where its first heading starts.** The pager sat ten pixels to the left of every list it was drawn under.
+- **An object node's Shape panel draws an object defined in place** as the object's page does. It asked for a type on every nested field and showed none of their fields; the panel's rows are also laid out evenly, the name and description boxed and the remove in the card's corner.
+- **Back from a user's page leaves in one press.** Opening a row pushed the page twice.
 
 ## 1.1.1
 
