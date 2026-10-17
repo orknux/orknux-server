@@ -34,7 +34,10 @@ object JsonSchemaObjects {
             ?: throw ObjectSchemaUnreadableException("The text is not JSON.")
         if (!root.isObject) throw ObjectSchemaUnreadableException("A JSON Schema is a JSON object.")
         if (typeOf(root) != "object" && !root.has("properties")) {
-            throw ObjectSchemaUnreadableException("The schema describes a ${typeOf(root) ?: "value of no stated type"}, not an object.")
+            throw ObjectSchemaUnreadableException(
+                typeOf(root)?.let { "The schema describes a $it, not an object." }
+                    ?: "The schema says neither \"type\": \"object\" nor \"properties\", so there is nothing to read as one.",
+            )
         }
         val fields = Reading(root, maxDepth).propertiesOf(root, depth = 0)
         if (fields.isEmpty()) throw ObjectSchemaUnreadableException("The schema names no properties.")
