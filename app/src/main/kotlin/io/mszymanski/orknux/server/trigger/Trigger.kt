@@ -17,6 +17,8 @@ import java.time.OffsetDateTime
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor
+import org.springframework.data.jpa.domain.Specification
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
 
@@ -192,7 +194,7 @@ class WorkflowTrigger(
     var icon: String? = null,
 )
 
-interface WorkflowTriggerRepository : JpaRepository<WorkflowTrigger, Long> {
+interface WorkflowTriggerRepository : JpaRepository<WorkflowTrigger, Long>, JpaSpecificationExecutor<WorkflowTrigger> {
 
     fun findByWorkspaceId(workspaceId: Long, pageable: Pageable): Page<WorkflowTrigger>
 
@@ -413,3 +415,30 @@ class TriggerScheduleUnreachableException(val cron: String) :
 
 class TriggerPayloadInvalidException :
     RuntimeException("The payload has to be a JSON object, so its fields can be read as input")
+
+/**
+ * The shared triggers of a workspace, narrowed by what was typed and by where
+ * they listen. A `Specification` rather than JPQL with optional parameters,
+ * for the reason the audit log's filter is one: `:type IS NULL OR …` on an
+ * enum fails in Hibernate 6.
+ *
+ * @param type one kind of trigger - the schedule, or the webhook - or null for any.
+ * @param connectionId one connection's triggers, or null for any.
+ */
+fun triggerFilter(
+    workspaceId: Long,
+    search: String?,
+    type: TriggerType?,
+    connectionId: Long?,
+): Specification<WorkflowTrigger> = Specification { root, _, builder ->
+    val predicates = mutableListOf(
+        builder.equal(root.get<Long>("workspaceId"), workspaceId),
+        root.get<Long?>("workflowId").isNull,
+    )
+    search?.trim()?.takeIf { it.isNotEmpty() }?.let { looking ->
+        predicates += builder.like(builder.lower(root.get("name")), "%${looking.lowercase()}%")
+    }
+    type?.let { predicates += builder.equal(root.get<TriggerType>("type"), it) }
+    connectionId?.let { predicates += builder.equal(root.get<Long>("connectionId"), it) }
+    builder.and(*predicates.toTypedArray())
+}

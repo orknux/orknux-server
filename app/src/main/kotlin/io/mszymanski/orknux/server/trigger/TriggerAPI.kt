@@ -81,20 +81,44 @@ class TriggerAPI(
         @Argument search: String?,
         @Argument order: String?,
         @Argument ascending: Boolean?,
+        @Argument source: String?,
     ): TriggerPage {
         requireWorkspaceAccess(workspaceId)
         // The shared ones only; see the note on workflowOwnedActions.
         val paged = pageRequest(page, size, sortBy(order, ascending, TRIGGER_ORDERS, "NAME"))
         val looking = search?.trim().orEmpty()
+        val where = TriggerSource.parse(source)
 
         return TriggerPage(
-            if (looking.isEmpty()) {
-                triggers.findByWorkspaceIdAndWorkflowIdIsNull(workspaceId, paged)
-            } else {
-                triggers.searching(workspaceId, looking, paged)
+            when {
+                where != null -> triggers.findAll(triggerFilter(workspaceId, looking, where.type, where.connectionId), paged)
+                looking.isEmpty() -> triggers.findByWorkspaceIdAndWorkflowIdIsNull(workspaceId, paged)
+                else -> triggers.searching(workspaceId, looking, paged)
             },
             ::describe,
         )
+    }
+
+    /**
+     * Where this workspace's triggers listen, for the list's Source sieve:
+     * the schedule, the webhook, and each connection one listens on - only
+     * the ones in use, labelled as the Source column labels them.
+     */
+    @QueryMapping
+    fun workspaceTriggerSources(@Argument workspaceId: Long): List<TriggerSourceView> {
+        requireWorkspaceAccess(workspaceId)
+        val held = triggers.findByWorkspaceIdAndWorkflowIdIsNull(workspaceId, org.springframework.data.domain.Pageable.unpaged()).content
+        val sources = linkedMapOf<String, String>()
+        held.forEach { trigger ->
+            when (trigger.type) {
+                TriggerType.SCHEDULED -> sources[TriggerSource.CRON] = "Cron"
+                TriggerType.WEBHOOK -> sources[TriggerSource.WEBHOOK] = "Webhook"
+                TriggerType.INCOMING_CONNECTION -> trigger.connectionId?.let { id ->
+                    sources["${TriggerSource.CONNECTION}$id"] = connections.workspaceConnection(id)?.name ?: "—"
+                }
+            }
+        }
+        return sources.map { (value, label) -> TriggerSourceView(value, label) }.sortedBy { it.label.lowercase() }
     }
 
     /** The "Custom" triggers one workflow owns; see workflowOwnedActions. */
@@ -846,4 +870,27 @@ data class TriggerPage(
         totalElements = page.totalElements.toInt(),
         totalPages = page.totalPages,
     )
+}
+
+/** One entry of the Source sieve: `cron`, `webhook`, or `connection:<id>`, with what the column shows for it. */
+data class TriggerSourceView(val value: String, val label: String)
+
+/** What a Source value means: one kind of trigger, or one connection. */
+data class TriggerSource(val type: TriggerType?, val connectionId: Long?) {
+    companion object {
+        const val CRON = "cron"
+        const val WEBHOOK = "webhook"
+        const val CONNECTION = "connection:"
+
+        /** Null for no sieve; a value nothing matches sieves to nothing rather than being refused. */
+        fun parse(value: String?): TriggerSource? {
+            val held = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+            return when {
+                held == CRON -> TriggerSource(TriggerType.SCHEDULED, null)
+                held == WEBHOOK -> TriggerSource(TriggerType.WEBHOOK, null)
+                held.startsWith(CONNECTION) -> TriggerSource(TriggerType.INCOMING_CONNECTION, held.removePrefix(CONNECTION).toLongOrNull() ?: -1)
+                else -> TriggerSource(null, -1)
+            }
+        }
+    }
 }

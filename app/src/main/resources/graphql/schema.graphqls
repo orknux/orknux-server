@@ -502,8 +502,12 @@ type Query {
         size: Int = 20,
         search: String,
         order: String,
-        ascending: Boolean
+        ascending: Boolean,
+        "Where they listen: `cron`, `webhook`, or `connection:<id>` - a value of workspaceTriggerSources. Null for any."
+        source: String
     ): TriggerPage!
+    "Where this workspace's triggers listen, for the list's Source sieve: only the sources in use."
+    workspaceTriggerSources(workspaceId: ID!): [TriggerSource!]!
 
     "The \"Custom\" triggers one workflow owns; see workflowOwnedActions."
     workflowOwnedTriggers(workspaceId: ID!, workflowId: ID!): [Trigger!]!
@@ -7307,6 +7311,14 @@ type TriggerFiringPage {
     size: Int!
     totalElements: Int!
     totalPages: Int!
+}
+
+"One entry of the triggers list's Source sieve."
+type TriggerSource {
+    "What workspaceTriggers takes as source."
+    value: String!
+    "What the Source column shows for it."
+    label: String!
 }
 
 type TriggerPage {

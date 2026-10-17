@@ -261,7 +261,7 @@ class WorkflowBuildTools(
     }
 
     private fun parts(scope: OrknuxScope): String {
-        val triggers = triggerApi.workspaceTriggers(scope.workspaceId, 0, MANY, null, null, null).content
+        val triggers = triggerApi.workspaceTriggers(scope.workspaceId, 0, MANY, null, null, null, source = null).content
         val actions = actionApi.workspaceActions(scope.workspaceId, 0, MANY, null, null, null).content
         val conditions = conditionApi.workspaceConditions(scope.workspaceId, 0, MANY, null, null, null).content
         return mapper.writeValueAsString(
