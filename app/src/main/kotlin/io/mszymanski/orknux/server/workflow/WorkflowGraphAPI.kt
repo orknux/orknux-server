@@ -10,6 +10,9 @@ import io.mszymanski.orknux.connector.model.ModelProviderRepository
 import io.mszymanski.orknux.server.action.WorkflowFunctionRepository
 import io.mszymanski.orknux.server.action.ActionParameters
 import io.mszymanski.orknux.server.agent.AgentRepository
+import io.mszymanski.orknux.server.obj.ObjectAPI
+import io.mszymanski.orknux.server.obj.ObjectPropertyInput
+import io.mszymanski.orknux.server.obj.ObjectPropertyView
 import io.mszymanski.orknux.server.obj.PropertyKind
 import io.mszymanski.orknux.server.obj.WorkflowObjectRepository
 import io.mszymanski.orknux.server.revision.ComponentRevisionKind
@@ -52,6 +55,8 @@ class WorkflowGraphAPI(
     private val parameters: ActionParameters,
     private val agents: AgentRepository,
     private val objects: WorkflowObjectRepository,
+    // For a node field that is an object defined in place: its fields are checked and written as a saved object's are.
+    private val objectApi: ObjectAPI,
     // Only for a condition node's parameters: the list is the function's, and
     // this is where a node's mappings are resolved against a definition.
     private val functions: WorkflowFunctionRepository,
@@ -110,7 +115,7 @@ class WorkflowGraphAPI(
         val workflow = workflows.findByIdOrNull(workflowId) ?: throw WorkflowNotFoundException(workflowId)
 
         val known = input.nodes.map { it.key }.toSet()
-        val proposed = shapedByTargets(input.nodes.map { nodeOf(workflowId, it, refusing = false) }, refusing = false)
+        val proposed = shapedByTargets(input.nodes.map { nodeOf(workspaceId, workflowId, it, refusing = false) }, refusing = false)
         // An edge to a node that is not there is something a half-drawn graph
         // has; the validator is given the graph, not an argument about it.
         val drawn = input.edges
@@ -126,7 +131,7 @@ class WorkflowGraphAPI(
             assignmentId = assignments.findByWorkspaceIdAndWorkflowId(workspaceId, workflowId)?.id,
             nodes = proposed.map { node ->
                 val ports = validator.portsOf(node, proposed)
-                WorkflowNodeView(node, ports.inputs, ports.outputs)
+                WorkflowNodeView(node, ports.inputs, ports.outputs, objectApi::inlineFieldViews)
             },
             edges = drawn.map(::WorkflowEdgeView),
             problems = validator.problems(proposed, drawn, workspaceId = workspaceId),
@@ -205,7 +210,7 @@ class WorkflowGraphAPI(
         nodes.flush()
         edges.flush()
 
-        nodes.saveAll(shapedByTargets(input.nodes.map { nodeOf(workflowId, it) }, refusing = true))
+        nodes.saveAll(shapedByTargets(input.nodes.map { nodeOf(workspaceId, workflowId, it) }, refusing = true))
         edges.saveAll(input.edges.map { edgeOf(workflowId, it) })
 
         // Editing puts a published workflow back into draft.
@@ -399,7 +404,7 @@ class WorkflowGraphAPI(
             assignmentId = assignments.findByWorkspaceIdAndWorkflowId(workspaceId, workflowId)?.id,
             nodes = held.map { node ->
                 val ports = validator.portsOf(node, held)
-                WorkflowNodeView(node, ports.inputs, ports.outputs)
+                WorkflowNodeView(node, ports.inputs, ports.outputs, objectApi::inlineFieldViews)
             },
             edges = drawn.map(::WorkflowEdgeView),
             problems = validator.problems(held, drawn, workspaceId = workspaceId),
@@ -438,7 +443,7 @@ class WorkflowGraphAPI(
      *   A save refuses; a preview is asked about a graph somebody is still
      *   typing into, where refusing would be arguing with them mid-word.
      */
-    private fun nodeOf(workflowId: Long, node: WorkflowNodeInput, refusing: Boolean = true): WorkflowNode {
+    private fun nodeOf(workspaceId: Long, workflowId: Long, node: WorkflowNodeInput, refusing: Boolean = true): WorkflowNode {
         // What the drawing is asked for beyond the prompt, kept only on the kind
         // that draws. Held to what the node's own model takes when saving, so a
         // size DALL-E 3 does not draw or a style gpt-image-1 does not take is
@@ -517,7 +522,7 @@ class WorkflowGraphAPI(
             // and what an older client that sends no flag still means. A
             // disabled trigger never gets this far: the validator refuses it.
             enabled = node.enabled ?: true,
-            mappings = mappingsFor(node, refusing),
+            mappings = mappingsFor(workspaceId, node, refusing),
         )
     }
 
@@ -603,7 +608,7 @@ class WorkflowGraphAPI(
      * they are what runs, so editing them cannot reach back into a definition
      * other nodes are using.
      */
-    private fun mappingsFor(node: WorkflowNodeInput, refusing: Boolean): MutableList<NodeMapping> {
+    private fun mappingsFor(workspaceId: Long, node: WorkflowNodeInput, refusing: Boolean): MutableList<NodeMapping> {
         val sent = node.mappings.orEmpty().associateBy { it.name }
 
         /*
@@ -616,7 +621,7 @@ class WorkflowGraphAPI(
          * the page was reopened.
          */
         if (node.kind == NodeKind.AGENT) {
-            return sent.values.map { mappingOf(it, refusing) }.toMutableList()
+            return sent.values.map { mappingOf(workspaceId, it, refusing) }.toMutableList()
         }
 
         /*
@@ -630,7 +635,7 @@ class WorkflowGraphAPI(
          */
         if (node.kind == NodeKind.SESSION) {
             return SESSION_PARAMETERS
-                .map { name -> sent[name]?.let { mappingOf(it, refusing) } ?: NodeMapping(name = name) }
+                .map { name -> sent[name]?.let { mappingOf(workspaceId, it, refusing) } ?: NodeMapping(name = name) }
                 .toMutableList()
         }
 
@@ -652,7 +657,7 @@ class WorkflowGraphAPI(
          */
         if (node.kind == NodeKind.IMAGE) {
             return IMAGE_PARAMETERS
-                .map { name -> sent[name]?.let { mappingOf(it, refusing) } ?: NodeMapping(name = name) }
+                .map { name -> sent[name]?.let { mappingOf(workspaceId, it, refusing) } ?: NodeMapping(name = name) }
                 .toMutableList()
         }
 
@@ -664,7 +669,7 @@ class WorkflowGraphAPI(
          */
         if (node.kind == NodeKind.DECISION) {
             return DECISION_PARAMETERS
-                .map { name -> sent[name]?.let { mappingOf(it, refusing) } ?: NodeMapping(name = name) }
+                .map { name -> sent[name]?.let { mappingOf(workspaceId, it, refusing) } ?: NodeMapping(name = name) }
                 .toMutableList()
         }
 
@@ -678,10 +683,10 @@ class WorkflowGraphAPI(
          */
         if (node.kind == NodeKind.OBJECT) {
             val shape = node.objectId?.let { objects.findByIdOrNull(it) }
-                ?: return sent.values.map { mappingOf(it, refusing) }.toMutableList()
+                ?: return sent.values.map { mappingOf(workspaceId, it, refusing) }.toMutableList()
 
             return shape.properties
-                .map { property -> sent[property.name]?.let { mappingOf(it, refusing) } ?: NodeMapping(name = property.name) }
+                .map { property -> sent[property.name]?.let { mappingOf(workspaceId, it, refusing) } ?: NodeMapping(name = property.name) }
                 .toMutableList()
         }
 
@@ -704,13 +709,13 @@ class WorkflowGraphAPI(
              * Issue #378.
              */
             if (asks.type == ConditionType.VALUE) {
-                val picked = sent[VALUE_SUBJECT]?.let { mappingOf(it, refusing) }
+                val picked = sent[VALUE_SUBJECT]?.let { mappingOf(workspaceId, it, refusing) }
                 return if (picked != null && picked.expression.isNotEmpty()) mutableListOf(picked) else mutableListOf()
             }
             val function = asks.functionId?.let { functions.findByIdOrNull(it) } ?: return mutableListOf()
 
             val filled = function.params
-                .map { declared -> sent[declared.name]?.let { mappingOf(it, refusing) } ?: NodeMapping(name = declared.name) }
+                .map { declared -> sent[declared.name]?.let { mappingOf(workspaceId, it, refusing) } ?: NodeMapping(name = declared.name) }
             // Nothing filled in is nothing kept: an empty list is what the
             // evaluator reads as "this node says nothing, use the condition's".
             return if (filled.any { it.expression.isNotEmpty() }) filled.toMutableList() else mutableListOf()
@@ -725,7 +730,7 @@ class WorkflowGraphAPI(
         return parameters.defaultsFor(action)
             .map { parameter ->
                 sent[parameter.name]
-                    ?.let { mappingOf(it, refusing) }
+                    ?.let { mappingOf(workspaceId, it, refusing) }
                     ?: NodeMapping(name = parameter.name, expression = parameter.expression, mode = parameter.mode)
             }
             .toMutableList()
@@ -745,7 +750,7 @@ class WorkflowGraphAPI(
         if (PLACEHOLDER_IN_VALUE.containsMatchIn(sent.expression)) throw ValueHoldsPlaceholderException(sent.name)
     }
 
-    private fun mappingOf(sent: NodeMappingInput, refusing: Boolean): NodeMapping {
+    private fun mappingOf(workspaceId: Long, sent: NodeMappingInput, refusing: Boolean): NodeMapping {
         if (refusing) requireNoPlaceholder(sent)
         return NodeMapping(
         name = sent.name,
@@ -761,6 +766,10 @@ class WorkflowGraphAPI(
             fieldElementKind = sent.fieldElementKind?.takeIf { sent.fieldKind == PropertyKind.ARRAY },
             fieldRefObjectId = sent.fieldRefObjectId
                 ?.takeIf { sent.fieldKind == PropertyKind.OBJECT || sent.fieldKind == PropertyKind.ARRAY },
+            // Fields of its own only where it is an object, or a list of them, that names no saved one.
+            fieldInlineProperties = sent.fieldProperties
+                ?.takeIf { (sent.fieldKind == PropertyKind.OBJECT || sent.fieldKind == PropertyKind.ARRAY) && sent.fieldRefObjectId == null }
+                ?.let { objectApi.inlineFields(workspaceId, it) },
         )
     }
 
@@ -993,6 +1002,8 @@ data class NodeMappingInput(
     val fieldKind: PropertyKind? = null,
     val fieldElementKind: PropertyKind? = null,
     val fieldRefObjectId: Long? = null,
+    /** The fields of an object defined in place, where the kind is OBJECT or ARRAY and no refObjectId is named. */
+    val fieldProperties: List<ObjectPropertyInput>? = null,
 )
 
 data class WorkflowEdgeInput(
@@ -1095,6 +1106,8 @@ data class WorkflowNodeView(
         node: WorkflowNode,
         inputs: List<ActionParamView> = emptyList(),
         outputs: List<ActionParamView> = emptyList(),
+        /** Reads a node field's own fields back off the column; the API lends ObjectAPI's, a bare view has none. */
+        fieldViews: (String?) -> List<ObjectPropertyView>? = { null },
     ) : this(
         key = node.nodeKey,
         kind = node.kind,
@@ -1148,6 +1161,7 @@ data class WorkflowNodeView(
                 it.fieldKind,
                 it.fieldElementKind,
                 it.fieldRefObjectId,
+                fieldViews(it.fieldInlineProperties),
             )
         },
     )
@@ -1162,6 +1176,7 @@ data class NodeMappingView(
     val fieldKind: PropertyKind? = null,
     val fieldElementKind: PropertyKind? = null,
     val fieldRefObjectId: Long? = null,
+    val fieldProperties: List<ObjectPropertyView>? = null,
 )
 
 data class WorkflowEdgeView(

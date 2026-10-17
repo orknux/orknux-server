@@ -919,6 +919,27 @@ class ComponentImporter(
         ).id!!
     }
 
+    /**
+     * The fields of an object defined in place, read as the top level is, as
+     * deep as the file goes - under an object's property, or under a field an
+     * Object node names for itself.
+     */
+    private fun inlineOf(
+        workspaceId: Long,
+        node: JsonNode,
+        component: ParsedComponent,
+        resolved: Map<Pair<ComponentKind, String>, Long>,
+    ): List<InlineProperty>? = node.path("properties").takeIf { it.isArray }?.values()?.map { field ->
+        InlineProperty(
+            name = field.text("name").orEmpty(),
+            kind = field.enumOf<PropertyKind>("kind", null, component),
+            refObjectId = field.text("objectRef")?.let { idFor(workspaceId, ComponentKind.OBJECT, it, resolved) },
+            elementKind = field.enumOrNull<PropertyKind>("elementKind", component),
+            description = field.text("description"),
+            properties = inlineOf(workspaceId, field, component, resolved),
+        )
+    }
+
     /** An object's properties, once every object in the file has an id. */
     private fun wireObject(
         workspaceId: Long,
@@ -926,17 +947,6 @@ class ComponentImporter(
         resolved: Map<Pair<ComponentKind, String>, Long>,
     ) {
         val held = objects.findById(resolved.getValue(ComponentKind.OBJECT to component.name)).orElseThrow()
-        // The fields of an object defined in place, read as the top level is, as deep as the file goes.
-        fun inlineOf(node: JsonNode): List<InlineProperty>? = node.path("properties").takeIf { it.isArray }?.values()?.map { field ->
-            InlineProperty(
-                name = field.text("name").orEmpty(),
-                kind = field.enumOf<PropertyKind>("kind", null, component),
-                refObjectId = field.text("objectRef")?.let { idFor(workspaceId, ComponentKind.OBJECT, it, resolved) },
-                elementKind = field.enumOrNull<PropertyKind>("elementKind", component),
-                description = field.text("description"),
-                properties = inlineOf(field),
-            )
-        }
         held.properties = component.node.path("properties").values().map { property ->
             ObjectProperty(
                 name = property.text("name").orEmpty(),
@@ -945,7 +955,7 @@ class ComponentImporter(
                     ?.let { idFor(workspaceId, ComponentKind.OBJECT, it, resolved) },
                 elementKind = property.enumOrNull<PropertyKind>("elementKind", component),
                 description = property.text("description"),
-                inlineProperties = InlineShapes.write(inlineOf(property)),
+                inlineProperties = InlineShapes.write(inlineOf(workspaceId, property, component, resolved)),
             )
         }.toMutableList()
     }
@@ -1342,6 +1352,7 @@ class ComponentImporter(
                             fieldElementKind = mapping.enumOrNull<PropertyKind>("fieldElementKind", component),
                             fieldRefObjectId = mapping.text("fieldObjectRef")
                                 ?.let { idFor(workspaceId, ComponentKind.OBJECT, it, resolved) },
+                            fieldInlineProperties = InlineShapes.write(inlineOf(workspaceId, mapping, component, resolved)),
                         )
                     }.toMutableList(),
                 )

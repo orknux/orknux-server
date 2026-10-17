@@ -430,6 +430,21 @@ class ObjectAPI(
      * a type out of three columns, and so a reference reads as the name it has
      * now rather than the one it had when it was pointed at.
      */
+    /**
+     * The fields of an object a node's own field defines in place, checked as
+     * a saved object's are and written as the column holds them. Lent to the
+     * graph so a node field and an object property are held to one rule.
+     */
+    fun inlineFields(workspaceId: Long, sent: List<ObjectPropertyInput>): String? =
+        InlineShapes.write(inlineOf(workspaceId, sent, self = null, depth = 1))
+
+    /** And back, as the editor reads them; a reference inside reads as the name it has now. */
+    fun inlineFieldViews(json: String?): List<ObjectPropertyView>? {
+        val fields = InlineShapes.read(json) ?: return null
+        val names = objects.findAllById(InlineShapes.references(fields)).associate { it.id to it.name }
+        return inlineViews(fields, names)
+    }
+
     /** An inline shape as the editor reads it back, field by field, as deep as it goes. */
     private fun inlineViews(fields: List<InlineProperty>?, names: Map<Long?, String>): List<ObjectPropertyView>? = fields?.map { field ->
         ObjectPropertyView(

@@ -2,6 +2,7 @@ package io.mszymanski.orknux.server.transfer
 
 import io.mszymanski.orknux.server.obj.InlineProperty
 import io.mszymanski.orknux.server.obj.references
+import io.mszymanski.orknux.server.obj.InlineShapes
 import io.mszymanski.orknux.server.obj.inline
 import io.mszymanski.orknux.server.action.WorkflowAction
 import io.mszymanski.orknux.server.action.WorkflowActionRepository
@@ -686,6 +687,8 @@ class ComponentExporter(
                 put("fieldKind", mapping.fieldKind?.name)
                 put("fieldElementKind", mapping.fieldElementKind?.name)
                 put("fieldObjectRef", mapping.fieldRefObjectId?.let { objects.findByIdOrNull(it)?.name })
+                // An object defined in place, written as an object's own property writes one.
+                InlineShapes.read(mapping.fieldInlineProperties)?.let { putInline(this, it) }
             }
         }
     }

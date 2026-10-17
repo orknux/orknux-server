@@ -2752,6 +2752,8 @@ type NodeMapping {
     fieldElementKind: PropertyKind
     "The object it points at, where it is one of those or a list of them."
     fieldRefObjectId: ID
+    "The fields of an object defined in place, where the kind is OBJECT or ARRAY and no object is pointed at."
+    fieldProperties: [ObjectProperty!]
 }
 
 "Which way out of a node an edge leaves by."
@@ -3127,6 +3129,8 @@ input NodeMappingInput {
     fieldKind: PropertyKind
     fieldElementKind: PropertyKind
     fieldRefObjectId: ID
+    "The fields of an object defined in place; kept only for an OBJECT or ARRAY naming no fieldRefObjectId."
+    fieldProperties: [ObjectPropertyInput!]
 }
 
 input WorkflowEdgeInput {

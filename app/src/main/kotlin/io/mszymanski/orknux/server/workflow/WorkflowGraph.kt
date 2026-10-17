@@ -142,6 +142,15 @@ class NodeMapping(
     /** The shape it points at, where it is one of those or a list of them. */
     @Column(name = "field_ref_object_id")
     var fieldRefObjectId: Long? = null,
+
+    /**
+     * The fields of an object defined here, in place, where [fieldKind] is
+     * `OBJECT` or `ARRAY` and [fieldRefObjectId] names nothing - as JSON, the
+     * shape `InlineShapes` writes and reads, because a saved object's property
+     * keeps its own the same way and the editor draws both with one form.
+     */
+    @Column(name = "field_inline_properties", columnDefinition = "TEXT")
+    var fieldInlineProperties: String? = null,
 ) {
 
     /** A separate one saying the same thing, for a node being copied. */
@@ -153,6 +162,7 @@ class NodeMapping(
         fieldKind = fieldKind,
         fieldElementKind = fieldElementKind,
         fieldRefObjectId = fieldRefObjectId,
+        fieldInlineProperties = fieldInlineProperties,
     )
 }
 
