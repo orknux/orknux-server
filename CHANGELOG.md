@@ -22,8 +22,9 @@ have failed.
 - **Admin > Reports: tokens by the person who prompted them.** A usage tracking switch, off until an administrator turns it on and recording nothing at all while off; what was recorded stays readable after. The report filters by period, workspace and source, lists people biggest first, and opens each to their sessions with their share of every one - two people in one session are two people. Slack members and Orknux users for now; Jira is left for later.
 - **Workspace members.** A Members section on a workspace's settings lists everybody whose roles open it and makes any of them a workspace admin, or an ordinary member again. Somebody let in by a directory group alone is listed once they have signed in.
 - **An object inside a property.** The object editor's type list offers `object`: fields of its own, drawn as rows inside the row, as deep as the installation allows. An object can also be made from a pasted JSON Schema, from the Objects page.
-- **Type filters** on the providers, models and connections lists, and the providers table says each row's type.
-- **A menu down the side of both settings pages**, read off their headings.
+- **Type filters** on the providers, models and connections lists, and the providers table says each row's type; the triggers list is narrowed by where a trigger listens.
+- **Reports can be searched by person, sorted by any column and exported as CSV.**
+- **A menu down the side of both settings pages**, read off their headings; the settings scroll under the top bar, the sidebar and that menu, which stay put.
 - **Object Depth** in Admin > Settings: how deep an object may nest and how deep a value is checked against one. `ORKNUX_OBJECT_MAX_DEPTH` is where a fresh installation starts, 30.
 
 ### 🔧 Changed
@@ -34,6 +35,7 @@ have failed.
 
 - **A list that refreshes itself no longer jumps.** The audit logs and the triggers list drew a spinner above the rows on every reload, so with auto-refresh on the table moved once a second.
 - **A sortable heading starts where its column's cells start.** The Roles table drew NAME centred over left-aligned names.
+- **The line under a table starts where its first heading starts.** The pager sat ten pixels to the left of every list it was drawn under.
 
 ## 1.1.1
 
