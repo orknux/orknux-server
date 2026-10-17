@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.plugin
 
+import io.mszymanski.orknux.server.obj.references
 import io.mszymanski.orknux.server.obj.ObjectProperty
 import io.mszymanski.orknux.server.obj.PropertyKind
 import io.mszymanski.orknux.server.obj.WorkflowObject
@@ -135,7 +136,7 @@ class PluginObjectRegistry(
      */
     private fun pointingAt(objectId: Long, except: Long): List<String> = objects.findAll()
         .filter { it.pluginId != except }
-        .filter { held -> held.properties.any { it.refObjectId == objectId } }
+        .filter { held -> held.properties.any { objectId in it.references() } }
         .map { it.name }
         .sorted()
 

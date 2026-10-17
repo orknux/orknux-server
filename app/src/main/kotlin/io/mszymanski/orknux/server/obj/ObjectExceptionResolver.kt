@@ -16,6 +16,7 @@ class ObjectExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ObjectNameInvalidException,
             is ObjectPropertyInvalidException,
             is ObjectInUseException,
+            is ObjectSchemaUnreadableException,
             -> ErrorType.BAD_REQUEST
 
             is ObjectNotFoundException -> ErrorType.NOT_FOUND

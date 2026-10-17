@@ -66,6 +66,7 @@ object SettingNames {
     const val PLUGIN_MAX_SOURCE_KB = "plugin.max.source.kb"
     const val PLUGIN_TIMEOUT_SECONDS = "plugin.timeout.seconds"
     const val CHAT_MAX_ROUNDS = "chat.max.rounds"
+    const val OBJECT_MAX_DEPTH = "objects.max.depth"
     const val AGENT_SLEEP_SECONDS = "agent.sleep.seconds"
     const val AGENT_SLEEP_TIMES = "agent.sleep.times"
     const val AGENT_MAX_SUBAGENTS = "agent.max.subagents"
@@ -193,6 +194,7 @@ class InstallationSettings(
     private val settings: InstallationSettingRepository,
     private val properties: AttachmentProperties,
     private val chat: ChatProperties,
+    private val objectsConfig: io.mszymanski.orknux.server.obj.ObjectsProperties,
     private val metrics: MetricsProperties,
     private val revisions: RevisionProperties,
     private val tasks: TaskSweepProperties,
@@ -440,6 +442,31 @@ class InstallationSettings(
 
     /** What a fresh installation allows - ORKNUX_CHAT_MAX_ROUNDS. */
     fun chatMaxRoundsConfigured(): Int = chat.maxRounds.coerceIn(MIN_CHAT_ROUNDS, MAX_CHAT_ROUNDS)
+
+    /**
+     * How deep an object's shape may go, and how deep a value is checked
+     * against one. One number for the editor, the JSON Schema reader, the
+     * describers and the webhook's matcher, because a shape the editor lets
+     * somebody draw and the checker then stops short of is a shape half held.
+     */
+    fun objectMaxDepth(): Int {
+        val held = settings.findByIdOrNull(SettingNames.OBJECT_MAX_DEPTH) ?: return objectMaxDepthConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_OBJECT_DEPTH..MAX_OBJECT_DEPTH } ?: objectMaxDepthConfigured()
+    }
+
+    /** What a fresh installation allows - ORKNUX_OBJECT_MAX_DEPTH. */
+    fun objectMaxDepthConfigured(): Int = objectsConfig.maxDepth.coerceIn(MIN_OBJECT_DEPTH, MAX_OBJECT_DEPTH)
+
+    @Transactional
+    fun setObjectMaxDepth(depth: Int, by: String) {
+        if (depth !in MIN_OBJECT_DEPTH..MAX_OBJECT_DEPTH) throw ObjectDepthOutOfRangeException(depth)
+        val held = settings.findByIdOrNull(SettingNames.OBJECT_MAX_DEPTH)
+            ?: InstallationSetting(name = SettingNames.OBJECT_MAX_DEPTH)
+        held.value = depth.toString()
+        held.lastModifiedAt = OffsetDateTime.now()
+        held.lastModifiedBy = by
+        settings.save(held)
+    }
 
     @Transactional
     fun setChatMaxRounds(rounds: Int, by: String) {
@@ -1892,6 +1919,16 @@ const val MAX_SWEEP_MINUTES = 1440
 const val MIN_CHAT_ROUNDS = 2
 const val MAX_CHAT_ROUNDS = 10000
 
+/** How deep an object may nest: one is a flat shape, and a hundred is past anything a model or a person reads. */
+const val MIN_OBJECT_DEPTH = 1
+const val MAX_OBJECT_DEPTH = 100
+
+class ObjectDepthOutOfRangeException(val depth: Int) : RuntimeException(
+    "An object may not be $depth levels deep. Choose between $MIN_OBJECT_DEPTH and $MAX_OBJECT_DEPTH.",
+), io.mszymanski.orknux.server.graphql.Refusal {
+    override val arguments get() = mapOf("depth" to depth)
+}
+
 class ChatRoundsOutOfRangeException(val rounds: Int) : RuntimeException(
     "$rounds is not a number of tool rounds an agent can be given. " +
         "Choose between $MIN_CHAT_ROUNDS and $MAX_CHAT_ROUNDS.",
@@ -2706,6 +2743,7 @@ class ReleaseRestartDelayOutOfRangeException(val seconds: Int) : RuntimeExceptio
 @EnableConfigurationProperties(
     AttachmentProperties::class,
     ChatProperties::class,
+    io.mszymanski.orknux.server.obj.ObjectsProperties::class,
     MetricsProperties::class,
     SessionProperties::class,
 )

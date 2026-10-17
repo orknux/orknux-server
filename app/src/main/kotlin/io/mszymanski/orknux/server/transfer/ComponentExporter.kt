@@ -1,5 +1,8 @@
 package io.mszymanski.orknux.server.transfer
 
+import io.mszymanski.orknux.server.obj.InlineProperty
+import io.mszymanski.orknux.server.obj.references
+import io.mszymanski.orknux.server.obj.inline
 import io.mszymanski.orknux.server.action.WorkflowAction
 import io.mszymanski.orknux.server.action.WorkflowActionRepository
 import io.mszymanski.orknux.server.action.WorkflowFunction
@@ -146,7 +149,7 @@ class ComponentExporter(
     /** The edges: what one component points at, within this workspace. */
     private fun reachedBy(workspaceId: Long, held: Held): List<Held> = when (held.kind) {
         ComponentKind.OBJECT -> object_(workspaceId, held.id).properties
-            .mapNotNull { it.refObjectId }
+            .flatMap { it.references() }
             .distinct()
             .map { Held(ComponentKind.OBJECT, it, nameOf(workspaceId, ComponentKind.OBJECT, it)) }
 
@@ -309,6 +312,22 @@ class ComponentExporter(
                 put("objectRef", property.refObjectId?.let { objects.findByIdOrNull(it)?.name })
                 put("elementKind", property.elementKind?.name)
                 put("description", property.description)
+                property.inline()?.let { putInline(this, it) }
+            }
+        }
+    }
+
+    /** The fields of an object defined in place, written as the top level is, as deep as they go. */
+    private fun putInline(into: ObjectNode, fields: List<InlineProperty>) {
+        val properties = into.putArray("properties")
+        fields.forEach { field ->
+            properties.addObject().apply {
+                put("name", field.name)
+                put("kind", field.kind.name)
+                put("objectRef", field.refObjectId?.let { objects.findByIdOrNull(it)?.name })
+                put("elementKind", field.elementKind?.name)
+                put("description", field.description)
+                field.properties?.let { putInline(this, it) }
             }
         }
     }

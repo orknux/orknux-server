@@ -1201,6 +1201,8 @@ type Mutation {
     its own - see `maxRounds` on an agent. Administrators only.
     """
     setChatMaxRounds(rounds: Int!): InstallationSettings!
+    "How deep an object's shape may go, and how deep a value is checked against one. Between 1 and 100."
+    setObjectMaxDepth(depth: Int!): InstallationSettings!
     """
     The longest an agent may put itself to sleep for; 1 to 86400 seconds.
 
@@ -1963,6 +1965,14 @@ type Mutation {
     setWorkspaceVoiceSpeechChunking(workspaceId: ID!, chunking: SpeechChunking!): Workspace!
 
     createObject(input: CreateObjectInput!): WorkflowObject!
+    """
+    An object read off a JSON Schema: its properties become the object's, an
+    object inside it an object defined in place, an array its element. $ref
+    within the document is followed; what the schema says beyond types and
+    descriptions is left behind. Refused where the text is not a schema of an
+    object.
+    """
+    createObjectFromSchema(workspaceId: ID!, name: String!, description: String, schema: String!): WorkflowObject!
     "Backs the object editor: the properties on the left, the details on the right."
     updateObject(id: ID!, input: UpdateObjectInput!): WorkflowObject!
     "Refused while another object still points at it."
@@ -6595,6 +6605,14 @@ type InstallationSettings {
     "What a fresh installation allows - ORKNUX_CHAT_MAX_ROUNDS."
     chatMaxRoundsConfigured: Int!
     """
+    How deep an object's shape may go - an object defined inside an object -
+    and how deep a value is checked against one. The same number bounds what a
+    JSON Schema is read to.
+    """
+    objectMaxDepth: Int!
+    "What a fresh installation allows - ORKNUX_OBJECT_MAX_DEPTH."
+    objectMaxDepthConfigured: Int!
+    """
     The longest one of an agent's own waits may be, in seconds.
 
     An agent may end its turn with a wake-up instead of an answer: the step parks
@@ -8383,6 +8401,8 @@ type ObjectProperty {
     description: String
     "Ready to show: `string`, `ApiResponse`, `array<FileObject>`."
     display: String!
+    "The fields of an object defined in place; null where the property points at a named one or holds a scalar."
+    properties: [ObjectProperty!]
 }
 
 enum PropertyKind {
@@ -8400,6 +8420,12 @@ input ObjectPropertyInput {
     elementKind: PropertyKind
     "What the field means, at most 500 characters. Blank says nothing."
     description: String
+    """
+    The fields of an object defined here, in place, for an OBJECT that names no
+    refObjectId - or an ARRAY of such objects. Each may be one itself, as deep
+    as Admin > Settings allows.
+    """
+    properties: [ObjectPropertyInput!]
 }
 
 input CreateObjectInput {

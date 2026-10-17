@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.transfer
 
+import io.mszymanski.orknux.server.obj.InlineShapes
+import io.mszymanski.orknux.server.obj.InlineProperty
 import io.mszymanski.orknux.server.action.ActionSubtype
 import io.mszymanski.orknux.server.action.ActionType
 import io.mszymanski.orknux.server.chat.BuiltInTools
@@ -924,6 +926,17 @@ class ComponentImporter(
         resolved: Map<Pair<ComponentKind, String>, Long>,
     ) {
         val held = objects.findById(resolved.getValue(ComponentKind.OBJECT to component.name)).orElseThrow()
+        // The fields of an object defined in place, read as the top level is, as deep as the file goes.
+        fun inlineOf(node: JsonNode): List<InlineProperty>? = node.path("properties").takeIf { it.isArray }?.values()?.map { field ->
+            InlineProperty(
+                name = field.text("name").orEmpty(),
+                kind = field.enumOf<PropertyKind>("kind", null, component),
+                refObjectId = field.text("objectRef")?.let { idFor(workspaceId, ComponentKind.OBJECT, it, resolved) },
+                elementKind = field.enumOrNull<PropertyKind>("elementKind", component),
+                description = field.text("description"),
+                properties = inlineOf(field),
+            )
+        }
         held.properties = component.node.path("properties").values().map { property ->
             ObjectProperty(
                 name = property.text("name").orEmpty(),
@@ -932,6 +945,7 @@ class ComponentImporter(
                     ?.let { idFor(workspaceId, ComponentKind.OBJECT, it, resolved) },
                 elementKind = property.enumOrNull<PropertyKind>("elementKind", component),
                 description = property.text("description"),
+                inlineProperties = InlineShapes.write(inlineOf(property)),
             )
         }.toMutableList()
     }

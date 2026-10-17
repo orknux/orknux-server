@@ -20,7 +20,11 @@ import tools.jackson.databind.JsonNode
  * circle. `WebhookAPI` keeps a copy of the same walk for payloads.
  */
 @Component
-class ObjectShapes(private val objects: WorkflowObjectRepository) {
+class ObjectShapes(
+    private val objects: WorkflowObjectRepository,
+    /** How deep a shape is read and a value checked: Admin > Settings. */
+    private val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
+) {
 
     /**
      * The shape as a model is told it: a JSON object literal with the type in
@@ -53,10 +57,12 @@ class ObjectShapes(private val objects: WorkflowObjectRepository) {
         return found
     }
 
-    private fun literal(shape: WorkflowObject, depth: Int): String {
-        if (depth > MAX_DEPTH) return "{}"
+    private fun literal(shape: WorkflowObject, depth: Int): String = literal(shape.properties, depth)
+
+    private fun literal(properties: List<ObjectProperty>, depth: Int): String {
+        if (depth > settings.objectMaxDepth()) return "{}"
         val pad = "  ".repeat(depth + 1)
-        val fields = shape.properties.joinToString(",\n") { property ->
+        val fields = properties.joinToString(",\n") { property ->
             val said = property.description?.takeIf { it.isNotBlank() }?.let { "  // $it" }.orEmpty()
             "$pad\"${property.name}\": ${typeOf(property, depth)}$said"
         }
@@ -70,8 +76,12 @@ class ObjectShapes(private val objects: WorkflowObjectRepository) {
         PropertyKind.ARRAY -> "[${elementOf(property, depth)}, …]"
         PropertyKind.OBJECT -> property.refObjectId?.let { ref ->
             objects.findByIdOrNull(ref)?.let { literal(it, depth + 1) }
-        } ?: "{…}"
+        } ?: inlineFields(property)?.let { literal(it, depth + 1) } ?: "{…}"
     }
+
+    /** The fields of an object this property defines in place, as properties, or null where it points instead. */
+    private fun inlineFields(property: ObjectProperty): List<ObjectProperty>? =
+        property.inline()?.map { it.asProperty() }
 
     private fun elementOf(property: ObjectProperty, depth: Int): String = when (property.elementKind) {
         PropertyKind.STRING -> "string"
@@ -80,7 +90,7 @@ class ObjectShapes(private val objects: WorkflowObjectRepository) {
         PropertyKind.ARRAY -> "[…]"
         PropertyKind.OBJECT, null -> property.refObjectId?.let { ref ->
             objects.findByIdOrNull(ref)?.let { literal(it, depth + 1) }
-        } ?: "{…}"
+        } ?: inlineFields(property)?.let { literal(it, depth + 1) } ?: "{…}"
     }
 
     private fun check(sent: JsonNode, properties: List<ObjectProperty>, path: String, depth: Int, found: MutableList<String>) {
@@ -88,7 +98,7 @@ class ObjectShapes(private val objects: WorkflowObjectRepository) {
             found += "${path.ifEmpty { "the answer" }} has to be a JSON object"
             return
         }
-        if (depth > MAX_DEPTH) return
+        if (depth > settings.objectMaxDepth()) return
 
         properties.forEach { property ->
             val at = if (path.isEmpty()) property.name else "$path.${property.name}"
@@ -119,8 +129,8 @@ class ObjectShapes(private val objects: WorkflowObjectRepository) {
     }
 
     private fun nested(value: JsonNode, property: ObjectProperty, path: String, depth: Int, found: MutableList<String>) {
-        val shape = property.refObjectId?.let { objects.findByIdOrNull(it) } ?: return
-        check(value, shape.properties, path, depth + 1, found)
+        val fields = property.refObjectId?.let { objects.findByIdOrNull(it)?.properties } ?: inlineFields(property) ?: return
+        check(value, fields, path, depth + 1, found)
     }
 
     private fun element(held: JsonNode, property: ObjectProperty, path: String, depth: Int, found: MutableList<String>) {
@@ -136,10 +146,5 @@ class ObjectShapes(private val objects: WorkflowObjectRepository) {
                     nested(held, property, path, depth, found)
                 }
         }
-    }
-
-    private companion object {
-        /** Deep enough for a shape somebody drew, shallow enough to be a bound. */
-        const val MAX_DEPTH = 5
     }
 }

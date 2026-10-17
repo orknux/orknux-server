@@ -402,6 +402,12 @@ orknux:
     # far past any real webhook; raise it where a sender genuinely posts more.
     # Anything larger is refused with 413 and never reaches a trigger.
     max-body-size: ${ORKNUX_WEBHOOK_MAX_BODY_SIZE:1MB}
+  objects:
+    # How deep an object's shape may go - an object defined inside an object
+    # inside an object - and how deep a value is checked against one. The same
+    # number bounds what a pasted JSON Schema is read to. This is where a fresh
+    # installation starts; Admin -> Settings holds what it is now.
+    max-depth: ${ORKNUX_OBJECT_MAX_DEPTH:30}
   mail:
     # The mail server this installation sends its own mail through: the password
     # reset link, and issue notifications for anybody who has not turned them off.

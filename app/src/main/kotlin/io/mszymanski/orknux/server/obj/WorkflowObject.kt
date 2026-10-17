@@ -71,6 +71,14 @@ class ObjectProperty(
      */
     @Column(length = 500)
     var description: String? = null,
+
+    /**
+     * The fields of an object defined in place, as JSON - see [InlineShapes].
+     * Set on an OBJECT with no [refObjectId], or an ARRAY of such objects;
+     * null everywhere else.
+     */
+    @Column(name = "inline_properties", columnDefinition = "text")
+    var inlineProperties: String? = null,
 )
 
 /**

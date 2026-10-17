@@ -37,6 +37,8 @@ class ObjectAPI(
     private val access: WorkspaceAccess,
     private val auditRecorder: WorkspaceAuditRecorder,
     private val dependants: ComponentDependants,
+    /** How deep a shape may go: Admin > Settings. */
+    private val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
 ) {
 
     /**
@@ -123,6 +125,50 @@ class ObjectAPI(
         auditRecorder.record(input.workspaceId, WorkspaceAuditCategory.OBJECT, "Object $name created")
         return describe(saved)
     }
+
+    /**
+     * An object read off a JSON Schema somebody pasted: what a schema says that
+     * a property here can hold becomes the object's properties, an object
+     * inside it a shape defined in place. See [JsonSchemaObjects] for what is
+     * kept and what is left behind.
+     */
+    @MutationMapping
+    @Transactional
+    fun createObjectFromSchema(
+        @Argument workspaceId: Long,
+        @Argument name: String,
+        @Argument description: String?,
+        @Argument schema: String,
+    ): ObjectView {
+        requireWorkspaceAccess(workspaceId)
+        val called = name.trim()
+        requireUsableName(called)
+        if (objects.findByWorkspaceIdAndName(workspaceId, called) != null) throw ObjectNameTakenException(called)
+
+        val read = JsonSchemaObjects.read(schema, settings.objectMaxDepth())
+        val saved = objects.save(
+            WorkflowObject(
+                workspaceId = workspaceId,
+                name = called,
+                description = description?.trim()?.ifEmpty { null },
+                properties = propertiesOf(workspaceId, read.map { it.asInput() }),
+                createdBy = currentUser(),
+                lastModifiedBy = currentUser(),
+            ),
+        )
+        auditRecorder.record(workspaceId, WorkspaceAuditCategory.OBJECT, "Object $called created from a JSON Schema")
+        return describe(saved)
+    }
+
+    /** What the schema reader found, as the editor would have sent it, so one path checks and stores both. */
+    private fun InlineProperty.asInput(): ObjectPropertyInput = ObjectPropertyInput(
+        name = name,
+        kind = kind,
+        refObjectId = refObjectId,
+        elementKind = elementKind,
+        description = description,
+        properties = properties?.map { it.asInput() },
+    )
 
     /** Backs the editor: the properties on the left, the details on the right. */
     @MutationMapping
@@ -211,13 +257,16 @@ class ObjectAPI(
         val seen = mutableSetOf<String>()
         properties.forEachIndexed { index, property ->
             val name = property.name.trim()
+            property.properties?.let { nested ->
+                inlineProblem(workspaceId, nested, depth = 1)?.let { return ObjectValidationView(valid = false, message = "$name: $it") }
+            }
             val says = when {
                 name.isEmpty() -> "Property ${index + 1} has no name"
                 !NAME.matches(name) -> "$name is not a usable property name"
                 !seen.add(name) -> "$name is named twice"
-                property.kind == PropertyKind.OBJECT && property.refObjectId == null ->
+                property.kind == PropertyKind.OBJECT && property.refObjectId == null && property.properties == null ->
                     "$name says it is an object but does not say which"
-                property.kind == PropertyKind.ARRAY && property.refObjectId == null && property.elementKind == null ->
+                property.kind == PropertyKind.ARRAY && property.refObjectId == null && property.elementKind == null && property.properties == null ->
                     "$name is an array but does not say of what"
                 property.refObjectId != null && objects.findByIdOrNull(property.refObjectId)?.workspaceId != workspaceId ->
                     "$name points at an object this workspace does not have"
@@ -254,21 +303,70 @@ class ObjectAPI(
                     throw ObjectPropertyInvalidException("$name points at an object this workspace does not have")
                 }
             }
-            if (property.kind == PropertyKind.OBJECT && property.refObjectId == null) {
+            if (property.kind == PropertyKind.OBJECT && property.refObjectId == null && property.properties == null) {
                 throw ObjectPropertyInvalidException("$name says it is an object but does not say which")
             }
-            if (property.kind == PropertyKind.ARRAY && property.refObjectId == null && property.elementKind == null) {
+            if (property.kind == PropertyKind.ARRAY && property.refObjectId == null && property.elementKind == null && property.properties == null) {
                 throw ObjectPropertyInvalidException("$name is an array but does not say of what")
             }
 
+            val inline = property.properties?.let { inlineOf(workspaceId, it, self, depth = 1) }
             ObjectProperty(
                 name = name,
                 kind = property.kind,
                 refObjectId = property.refObjectId,
-                elementKind = property.elementKind,
+                // A list of objects defined here is a list of objects, whatever the row left unsaid.
+                elementKind = if (property.kind == PropertyKind.ARRAY && inline != null) PropertyKind.OBJECT else property.elementKind,
                 description = describedAs(name, property.description),
+                inlineProperties = InlineShapes.write(inline),
             )
         }.toMutableList()
+    }
+
+    /**
+     * The fields of an object defined in place, checked as the top level is -
+     * names, references, depth - and refused the same way. [depth] counts the
+     * objects this sits inside; the ceiling is the administrator's.
+     */
+    private fun inlineOf(workspaceId: Long, sent: List<ObjectPropertyInput>, self: Long?, depth: Int): List<InlineProperty> {
+        inlineProblem(workspaceId, sent, depth, self)?.let { throw ObjectPropertyInvalidException(it) }
+        return sent.map { property ->
+            val nested = property.properties?.let { inlineOf(workspaceId, it, self, depth + 1) }
+            InlineProperty(
+                name = property.name.trim(),
+                kind = property.kind,
+                refObjectId = property.refObjectId,
+                elementKind = if (property.kind == PropertyKind.ARRAY && nested != null) PropertyKind.OBJECT else property.elementKind,
+                description = describedAs(property.name.trim(), property.description),
+                properties = nested,
+            )
+        }
+    }
+
+    /** What is wrong with an inline shape, in one sentence, or null where nothing is. The editor's Validate asks; a save throws it. */
+    private fun inlineProblem(workspaceId: Long, sent: List<ObjectPropertyInput>, depth: Int, self: Long? = null): String? {
+        val deepest = settings.objectMaxDepth()
+        if (depth > deepest) return "nests deeper than the $deepest levels this installation allows"
+        val seen = mutableSetOf<String>()
+        sent.forEachIndexed { index, property ->
+            val name = property.name.trim()
+            when {
+                name.isEmpty() -> return "field ${index + 1} has no name"
+                !NAME.matches(name) -> return "$name is not a usable property name"
+                !seen.add(name) -> return "$name is named twice"
+                property.kind == PropertyKind.OBJECT && property.refObjectId == null && property.properties == null ->
+                    return "$name says it is an object but does not say which"
+                property.kind == PropertyKind.ARRAY && property.refObjectId == null && property.elementKind == null && property.properties == null ->
+                    return "$name is an array but does not say of what"
+                property.refObjectId != null && property.refObjectId != self &&
+                    objects.findByIdOrNull(property.refObjectId)?.workspaceId != workspaceId ->
+                    return "$name points at an object this workspace does not have"
+                (property.description?.trim()?.length ?: 0) > DESCRIPTION_LIMIT ->
+                    return "$name has a description longer than $DESCRIPTION_LIMIT characters"
+            }
+            property.properties?.let { nested -> inlineProblem(workspaceId, nested, depth + 1, self)?.let { return "$name: $it" } }
+        }
+        return null
     }
 
     /**
@@ -315,6 +413,7 @@ class ObjectAPI(
                     elementKind = property.elementKind,
                     description = property.description,
                     display = display(property, names),
+                    properties = inlineViews(property.inline(), names),
                 )
             },
             propertyCount = held.properties.size,
@@ -331,8 +430,21 @@ class ObjectAPI(
      * a type out of three columns, and so a reference reads as the name it has
      * now rather than the one it had when it was pointed at.
      */
+    /** An inline shape as the editor reads it back, field by field, as deep as it goes. */
+    private fun inlineViews(fields: List<InlineProperty>?, names: Map<Long?, String>): List<ObjectPropertyView>? = fields?.map { field ->
+        ObjectPropertyView(
+            name = field.name,
+            kind = field.kind,
+            refObjectId = field.refObjectId,
+            elementKind = field.elementKind,
+            description = field.description,
+            display = display(field.asProperty(), names),
+            properties = inlineViews(field.properties, names),
+        )
+    }
+
     private fun display(property: ObjectProperty, names: Map<Long?, String>): String = when (property.kind) {
-        PropertyKind.OBJECT -> names[property.refObjectId] ?: "(deleted object)"
+        PropertyKind.OBJECT -> names[property.refObjectId] ?: if (property.inlineProperties != null) "object" else "(deleted object)"
         PropertyKind.ARRAY -> {
             val element = property.refObjectId
                 ?.let { names[it] ?: "(deleted object)" }
@@ -412,6 +524,8 @@ data class ObjectPropertyInput(
     val elementKind: PropertyKind? = null,
     /** What the field means; blank is the same as saying nothing. */
     val description: String? = null,
+    /** The fields of an object defined here, for an OBJECT naming no refObjectId or an ARRAY of such. */
+    val properties: List<ObjectPropertyInput>? = null,
 )
 
 data class ObjectPropertyView(
@@ -423,6 +537,8 @@ data class ObjectPropertyView(
     val description: String?,
     /** Ready to show: `string`, `ApiResponse`, `array<FileObject>`. */
     val display: String,
+    /** The fields of an object defined in place; null where it points at a named one or holds a scalar. */
+    val properties: List<ObjectPropertyView>? = null,
 )
 
 data class ObjectView(

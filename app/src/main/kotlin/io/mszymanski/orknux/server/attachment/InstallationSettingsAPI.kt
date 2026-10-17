@@ -51,6 +51,8 @@ class InstallationSettingsAPI(
         pluginTimeoutSecondsConfigured = settings.pluginTimeoutSecondsConfigured(),
         chatMaxRounds = settings.chatMaxRounds(),
         chatMaxRoundsConfigured = settings.chatMaxRoundsConfigured(),
+        objectMaxDepth = settings.objectMaxDepth(),
+        objectMaxDepthConfigured = settings.objectMaxDepthConfigured(),
         agentSleepSeconds = settings.agentSleepSeconds(),
         agentSleepSecondsConfigured = settings.agentSleepSecondsConfigured(),
         agentSleepTimes = settings.agentSleepTimes(),
@@ -646,6 +648,15 @@ class InstallationSettingsAPI(
      * and because somebody debugging "kept looking things up without reaching an
      * answer" should be able to raise it once rather than agent by agent.
      */
+    /** How deep an object's shape may go, and how deep a value is checked against one. */
+    @MutationMapping
+    fun setObjectMaxDepth(@Argument depth: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setObjectMaxDepth(depth, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "Objects may nest $depth levels deep")
+        return installationSettings()
+    }
+
     @MutationMapping
     fun setChatMaxRounds(@Argument rounds: Int): InstallationSettingsView {
         access.requireAdmin()
@@ -1054,6 +1065,8 @@ data class InstallationSettingsView(
      * number; this is what the rest of them follow.
      */
     val chatMaxRounds: Int,
+    val objectMaxDepth: Int,
+    val objectMaxDepthConfigured: Int,
     /** What a fresh installation allows - ORKNUX_CHAT_MAX_ROUNDS. */
     val chatMaxRoundsConfigured: Int,
     /**

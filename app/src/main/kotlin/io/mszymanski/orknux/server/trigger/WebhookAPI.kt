@@ -1,6 +1,7 @@
 package io.mszymanski.orknux.server.trigger
 
 import io.mszymanski.orknux.server.obj.ObjectProperty
+import io.mszymanski.orknux.server.obj.inline
 import io.mszymanski.orknux.server.obj.PropertyKind
 import io.mszymanski.orknux.server.action.FunctionScope
 import io.mszymanski.orknux.server.action.WorkflowFunction
@@ -61,6 +62,8 @@ import tools.jackson.databind.ObjectMapper
 class WebhookAPI(
     private val triggers: WorkflowTriggerRepository,
     private val objects: WorkflowObjectRepository,
+    /** How deep a body is matched against its shape: Admin > Settings. */
+    private val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
     private val runner: TriggerRunner,
     private val functions: WorkflowFunctionRepository,
     private val scripts: ScriptRunner,
@@ -307,7 +310,7 @@ class WebhookAPI(
      */
     private fun matches(sent: JsonNode, properties: List<ObjectProperty>, depth: Int): Boolean {
         if (!sent.isObject) return false
-        if (depth > MAX_DEPTH) return true
+        if (depth > settings.objectMaxDepth()) return true
 
         return properties.all { property ->
             val value = sent.get(property.name) ?: return@all false
@@ -323,8 +326,10 @@ class WebhookAPI(
 
     /** An object property is checked against the object it names, when it names one. */
     private fun nested(value: JsonNode, property: ObjectProperty, depth: Int): Boolean {
-        val shape = property.refObjectId?.let { objects.findByIdOrNull(it) } ?: return true
-        return matches(value, shape.properties, depth + 1)
+        val fields = property.refObjectId?.let { objects.findByIdOrNull(it)?.properties }
+            ?: property.inline()?.map { it.asProperty() }
+            ?: return true
+        return matches(value, fields, depth + 1)
     }
 
     /** One entry of an array: the scalar it holds, or the object it names. */
@@ -343,8 +348,5 @@ class WebhookAPI(
         val log = LoggerFactory.getLogger(WebhookAPI::class.java)
 
         const val PREFIX = "/api/webhooks/"
-
-        /** Deep enough for a shape somebody drew, shallow enough to be a bound. */
-        const val MAX_DEPTH = 5
     }
 }

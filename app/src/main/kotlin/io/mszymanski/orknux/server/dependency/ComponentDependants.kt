@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.dependency
 
+import io.mszymanski.orknux.server.obj.references
 import io.mszymanski.orknux.connector.connection.McpServerService
 import io.mszymanski.orknux.connector.connection.WorkspaceConnectionService
 import io.mszymanski.orknux.connector.model.ModelService
@@ -237,7 +238,7 @@ class ComponentDependants(
          * another plugin's, which is the same question asked the other way.
          */
         return (held.workspaceId?.let(objects::findByWorkspaceId).orEmpty() + objects.findByPluginIdIsNotNull())
-            .filter { it.id != id && it.properties.any { property -> property.refObjectId == id } }
+            .filter { it.id != id && it.properties.any { property -> id in property.references() } }
             .map { plain(DependencyKind.OBJECT, it.id, it.name, it.workspaceId) } +
             triggers.findByObjectId(id)
                 .map { qualified(DependencyKind.TRIGGER, it.id, it.name, it.workspaceId, "the webhook ${it.name}") }
