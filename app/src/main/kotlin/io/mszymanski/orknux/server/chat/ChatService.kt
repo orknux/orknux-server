@@ -1,5 +1,8 @@
 package io.mszymanski.orknux.server.chat
 
+import io.mszymanski.orknux.server.usage.PromptSource
+import io.mszymanski.orknux.server.usage.Prompter
+import io.mszymanski.orknux.server.usage.Prompting
 import io.mszymanski.orknux.connector.model.ChatCompletion
 import io.mszymanski.orknux.server.agent.AgentRepository
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
@@ -803,6 +806,21 @@ class ChatService(
         watch: RoundWatch? = null,
         shed: ToolShed? = null,
         hangup: Hangup? = null,
+    ): ChatCompletion = Prompting.by(prompterOf(start)) { asked(start, watch, shed, hangup) }
+
+    /**
+     * Who a chat's turn is booked to in Admin > Reports: the person whose chat it
+     * is, whether they typed the message or a reminder they set woke it.
+     */
+    private fun prompterOf(start: ChatSendStart): Prompter =
+        sessions.findByConversationId(start.conversationId)?.let { Prompter(PromptSource.ORKNUX, it.userId) }
+            ?: Prompter.NOBODY
+
+    private fun asked(
+        start: ChatSendStart,
+        watch: RoundWatch?,
+        shed: ToolShed?,
+        hangup: Hangup?,
     ): ChatCompletion =
         if (start.agentId == null) {
             // A bare model is offered nothing: no tools of its own, and nothing

@@ -1,0 +1,108 @@
+# Admin > Reports: how many tokens each person who prompted a model used, across
+# the installation. Recorded only while an administrator has usage tracking on;
+# what was recorded stays readable after it is switched off.
+
+extend type Query {
+    "Whether usage is being tracked, and when that last changed. Administrators."
+    usageTracking: UsageTracking!
+    """
+    Tokens by person over a period, biggest first, a page at a time; the totals
+    cover every person the filter matches, not only the page. Administrators.
+    """
+    usageReport(filter: UsageReportFilter, page: Int, size: Int): UsageReport!
+    """
+    One person's sessions over the same period, biggest share first, a page at a
+    time: what they used in each, out of what everybody used there. Administrators.
+    """
+    usagePersonSessions(person: String!, filter: UsageReportFilter, page: Int, size: Int): UsagePersonSessions!
+}
+
+extend type Mutation {
+    "Starts or stops recording who prompted each model call. Off writes nothing at all. Administrators."
+    setUsageTracking(enabled: Boolean!): UsageTracking!
+}
+
+"Where the person who prompted a model call is known from."
+enum PromptSource {
+    "A Slack member, on the connection their message came through."
+    SLACK
+    "A person signed in to Orknux: their chat, or a task they started."
+    ORKNUX
+    "Nobody: a schedule, a webhook, an API run, a run started by hand."
+    NONE
+}
+
+type UsageTracking {
+    enabled: Boolean!
+    "When the switch was last pressed; null if it never was."
+    changedAt: String
+    changedBy: String
+}
+
+input UsageReportFilter {
+    "The first day counted, as YYYY-MM-DD; the last 30 days when left out."
+    from: String
+    "The last day counted, as YYYY-MM-DD, inclusive; today when left out."
+    to: String
+    workspaceId: ID
+    source: PromptSource
+}
+
+type UsageReport {
+    inputTokens: Float!
+    cachedInputTokens: Float!
+    outputTokens: Float!
+    "From the prices on each model called, as a decimal; null where none was priced."
+    cost: String
+    "Whether some call's model had no price, so cost is part of the whole."
+    partlyUnpriced: Boolean!
+    "How many people the filter matches, Unattributed not counted."
+    people: Int!
+    sessions: Int!
+    "Input and output tokens nobody prompted."
+    unattributedTokens: Float!
+    "How many rows there are across every page."
+    total: Int!
+    rows: [UsagePerson!]!
+}
+
+"One person's use over the period."
+type UsagePerson {
+    "What usagePersonSessions takes to name them."
+    key: String!
+    source: PromptSource!
+    "Slack's id for them, or their Orknux username; empty for Unattributed."
+    personKey: String!
+    "What they were last called; null where it was never known."
+    name: String
+    "The connection a Slack member came through, by name."
+    connectionName: String
+    sessions: Int!
+    inputTokens: Float!
+    cachedInputTokens: Float!
+    outputTokens: Float!
+    cost: String
+    partlyUnpriced: Boolean!
+    lastActiveAt: String!
+}
+
+type UsagePersonSessions {
+    total: Int!
+    items: [UsageSessionShare!]!
+}
+
+"What one person used in one session, beside what everybody used there."
+type UsageSessionShare {
+    sessionId: ID!
+    "Null once the session was removed."
+    title: String
+    workspaceId: ID!
+    "Null once the workspace was removed."
+    workspaceName: String
+    "Their input and output tokens here."
+    tokens: Float!
+    "Everybody's, over the same period."
+    sessionTokens: Float!
+    "Who else prompted it in the period, by name."
+    others: [String!]!
+}

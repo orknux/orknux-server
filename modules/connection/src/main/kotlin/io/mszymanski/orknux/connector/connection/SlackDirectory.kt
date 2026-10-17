@@ -522,6 +522,30 @@ class SlackDirectory(
      * reasons and a second copy of these sentences is a second copy to keep
      * short.
      */
+    /**
+     * What a member is called, by Slack's id for them: their display name, else
+     * their real name, else their handle - or null where it cannot be asked.
+     *
+     * For a report that names who prompted a model, which would otherwise show
+     * `U04…`. Never throws: the name is a courtesy beside a row that is written
+     * either way.
+     */
+    fun memberName(connectionId: Long, userId: String): String? {
+        if (!USER_ID.matches(userId)) return null
+        val opening = open(connectionId)
+        if (opening is Opening.Shut) return null
+        val token = (opening as Opening.Ready).token
+        return try {
+            val answer = slack.methods(token).usersInfo { it.user(userId) }
+            val user = answer.user?.takeIf { answer.isOk } ?: return null
+            sequenceOf(user.profile?.displayName, user.realName, user.profile?.realName, user.name)
+                .firstOrNull { !it.isNullOrBlank() }
+        } catch (failure: Exception) {
+            log.warn("Could not look up member {} on connection {}", userId, connectionId, failure)
+            null
+        }
+    }
+
     private fun open(connectionId: Long): Opening {
         val connection = connections.findByIdOrNull(connectionId)
             ?: return Opening.Shut("That connection no longer exists.")

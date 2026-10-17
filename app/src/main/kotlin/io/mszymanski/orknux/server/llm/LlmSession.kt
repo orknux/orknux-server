@@ -441,6 +441,7 @@ class LlmSessionEvent(
 interface LlmSessionRepository : JpaRepository<LlmSession, Long> {
 
     /** One model call's spend, added in one statement so two turns finishing at once cannot lose either. */
+    @org.springframework.transaction.annotation.Transactional
     @org.springframework.data.jpa.repository.Modifying
     @org.springframework.data.jpa.repository.Query(
         "UPDATE LlmSession s SET s.spentInputTokens = s.spentInputTokens + :input, " +

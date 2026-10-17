@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.agent
 
+import io.mszymanski.orknux.server.usage.Prompter
+import io.mszymanski.orknux.server.usage.Prompting
 import java.time.Duration
 import io.mszymanski.orknux.connector.model.ChatCompletion
 import io.mszymanski.orknux.connector.model.ChatTurn
@@ -624,10 +626,13 @@ class AgentNodeRunner(
         val answer = try {
             stoppable(hangup) {
                 // gated = false: this step took its place in [run], before it read anything.
-                conversation.answer(
-                    modelId, agent, turns, session, shed = shed, watch = watching, hangup = hangup, gated = false,
-                    spoke = { spoken += it },
-                )
+                // Booked to the Slack member whose message started the run, if one did.
+                Prompting.by(Prompter.ofTrigger(trigger, mapper)) {
+                    conversation.answer(
+                        modelId, agent, turns, session, shed = shed, watch = watching, hangup = hangup, gated = false,
+                        spoke = { spoken += it },
+                    )
+                }
             }
         } catch (finished: AnswerFinished) {
             val wake = finished.wake

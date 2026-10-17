@@ -2,8 +2,8 @@ package io.mszymanski.orknux.server.llm
 
 import io.mszymanski.orknux.connector.model.ChatCompletion
 import io.mszymanski.orknux.connector.model.ModelService
+import io.mszymanski.orknux.server.usage.UsageTracking
 import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
 
 /**
@@ -21,10 +21,17 @@ import java.math.BigDecimal
 class SessionSpend(
     private val sessions: LlmSessionRepository,
     private val models: ModelService,
+    private val usage: UsageTracking,
 ) {
 
-    /** One model call made into [sessionId], whatever it answered. Nothing for a call that reported no counts. */
-    @Transactional
+    /**
+     * One model call made into [sessionId], whatever it answered. Nothing for a
+     * call that reported no counts.
+     *
+     * Not one transaction: the session's sum is its own statement, and the
+     * report's row its own save, so a row that could not be written cannot take
+     * the session's count back with it.
+     */
     fun add(sessionId: Long, modelId: Long, call: ChatCompletion) {
         val (input, output, cached) = when (call) {
             is ChatCompletion.Answered -> Triple(call.inputTokens, call.outputTokens, call.cachedInputTokens)
@@ -34,6 +41,8 @@ class SessionSpend(
         if (input == 0L && output == 0L) return
         val cost = models.costOf(modelId, input, output)
         sessions.addSpend(sessionId, input, output, cached, cost ?: BigDecimal.ZERO, cost == null)
+        // And to whoever prompted it, where an administrator is tracking that.
+        usage.record(sessionId, modelId, input, cached, output, cost)
     }
 }
 

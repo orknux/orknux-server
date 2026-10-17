@@ -58,6 +58,7 @@ interface InstallationSettingRepository : JpaRepository<InstallationSetting, Str
 object SettingNames {
     const val ATTACHMENTS_ENABLED = "attachments.enabled"
     const val CHAT_ENABLED = "chat.enabled"
+    const val USAGE_TRACKING = "usage.tracking"
     const val METRICS_ANONYMOUS = "metrics.anonymous"
     const val REVISION_RETENTION_DAYS = "revision.retention.days"
     const val EXECUTION_RETENTION_DAYS = "execution.retention.days"
@@ -304,6 +305,24 @@ class InstallationSettings(
 
     @Transactional
     fun setMetricsAnonymous(enabled: Boolean, by: String) = hold(SettingNames.METRICS_ANONYMOUS, enabled, by)
+
+    /**
+     * Whether every model call is written down against the person who prompted
+     * it, for Admin > Reports.
+     *
+     * Off unless an administrator turns it on, and off means nothing at all is
+     * recorded - not recorded and hidden. What was recorded while it was on
+     * stays, and stays readable, because a report of last month is not undone
+     * by stopping this month.
+     */
+    fun usageTracking(): Boolean =
+        settings.findByIdOrNull(SettingNames.USAGE_TRACKING)?.value?.toBooleanStrictOrNull() ?: false
+
+    /** When the switch was last pressed and by whom, or null for one never pressed. */
+    fun usageTrackingChanged(): InstallationSetting? = settings.findByIdOrNull(SettingNames.USAGE_TRACKING)
+
+    @Transactional
+    fun setUsageTracking(enabled: Boolean, by: String) = hold(SettingNames.USAGE_TRACKING, enabled, by)
 
     /**
      * How many days of a component's history are kept.

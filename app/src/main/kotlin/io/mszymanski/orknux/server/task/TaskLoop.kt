@@ -1,5 +1,8 @@
 package io.mszymanski.orknux.server.task
 
+import io.mszymanski.orknux.server.usage.PromptSource
+import io.mszymanski.orknux.server.usage.Prompter
+import io.mszymanski.orknux.server.usage.Prompting
 import io.mszymanski.orknux.connector.model.ChatCompletion
 import io.mszymanski.orknux.connector.model.ChatTurn
 import io.mszymanski.orknux.server.chat.AgentBriefing
@@ -252,15 +255,18 @@ class TaskLoop(
 
         val begun = System.nanoTime()
         val answer = try {
-            conversation.answer(
-                working.modelId,
-                agent,
-                turns,
-                session,
-                shed,
-                watching,
-                interjections = { pickUp(taskId, session) },
-            )
+            // Booked to whoever started the task; one an agent made is nobody's.
+            Prompting.by(Prompter(PromptSource.ORKNUX, task.createdBy)) {
+                conversation.answer(
+                    working.modelId,
+                    agent,
+                    turns,
+                    session,
+                    shed,
+                    watching,
+                    interjections = { pickUp(taskId, session) },
+                )
+            }
         } finally {
             // Before the turn is counted, and whatever the turn did. A line
             // left open is one a page reads as still being thought, and on a

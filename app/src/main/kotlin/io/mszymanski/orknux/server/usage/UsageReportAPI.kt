@@ -1,0 +1,336 @@
+package io.mszymanski.orknux.server.usage
+
+import io.mszymanski.orknux.connector.connection.WorkspaceConnectionRepository
+import io.mszymanski.orknux.server.attachment.InstallationSettings
+import io.mszymanski.orknux.server.llm.LlmSessionRepository
+import io.mszymanski.orknux.server.security.WorkspaceAccess
+import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
+import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
+import io.mszymanski.orknux.server.workspace.WorkspaceRepository
+import jakarta.persistence.EntityManager
+import org.springframework.graphql.data.method.annotation.Argument
+import org.springframework.graphql.data.method.annotation.MutationMapping
+import org.springframework.graphql.data.method.annotation.QueryMapping
+import org.springframework.security.core.context.SecurityContextHolder
+import org.springframework.stereotype.Controller
+import org.springframework.transaction.annotation.Transactional
+import java.math.BigDecimal
+import java.time.LocalDate
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+
+/**
+ * Admin > Reports: tokens by the person who prompted them, out of the ledger
+ * [UsageTracking] writes.
+ *
+ * Summed in the database and paged here. The number of people an installation
+ * has is small enough to hold, and paging a GROUP BY by offset would need a
+ * second query to count the groups that a list in memory already knows.
+ */
+@Controller
+class UsageReportAPI(
+    private val settings: InstallationSettings,
+    private val access: WorkspaceAccess,
+    private val audit: WorkspaceAuditRecorder,
+    private val entities: EntityManager,
+    private val sessions: LlmSessionRepository,
+    private val workspaces: WorkspaceRepository,
+    private val connections: WorkspaceConnectionRepository,
+) {
+
+    @QueryMapping
+    fun usageTracking(): UsageTrackingView {
+        access.requireAdmin()
+        return trackingView()
+    }
+
+    @MutationMapping
+    fun setUsageTracking(@Argument enabled: Boolean): UsageTrackingView {
+        access.requireAdmin()
+        settings.setUsageTracking(enabled, SecurityContextHolder.getContext().authentication?.name ?: "system")
+        audit.record(null, WorkspaceAuditCategory.WORKSPACE, if (enabled) "Usage tracking turned on" else "Usage tracking turned off")
+        return trackingView()
+    }
+
+    @QueryMapping
+    @Transactional(readOnly = true)
+    fun usageReport(@Argument filter: UsageReportFilter?, @Argument page: Int?, @Argument size: Int?): UsageReportView {
+        access.requireAdmin()
+        val period = Period.of(filter)
+        val people = people(period, filter)
+        val (at, take) = paging(page, size, DEFAULT_PEOPLE)
+        val named = connections.findAllById(people.mapNotNull { it.connectionId }.toSet()).associate { it.id to it.name }
+        return UsageReportView(
+            inputTokens = people.sumOf { it.input }.toDouble(),
+            cachedInputTokens = people.sumOf { it.cached }.toDouble(),
+            outputTokens = people.sumOf { it.output }.toDouble(),
+            cost = costOf(people.fold(BigDecimal.ZERO) { sum, one -> sum + one.cost }),
+            partlyUnpriced = people.any { it.unpriced },
+            people = people.count { it.source != PromptSource.NONE },
+            sessions = sessionCount(period, filter),
+            unattributedTokens = people.filter { it.source == PromptSource.NONE }.sumOf { it.input + it.output }.toDouble(),
+            total = people.size,
+            rows = people.drop(at * take).take(take).map { one ->
+                UsagePersonView(
+                    key = one.key,
+                    source = one.source,
+                    personKey = one.personKey,
+                    name = one.name,
+                    connectionName = one.connectionId?.let { named[it] },
+                    sessions = one.sessions,
+                    inputTokens = one.input.toDouble(),
+                    cachedInputTokens = one.cached.toDouble(),
+                    outputTokens = one.output.toDouble(),
+                    cost = costOf(one.cost),
+                    partlyUnpriced = one.unpriced,
+                    lastActiveAt = one.lastAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+                )
+            },
+        )
+    }
+
+    @QueryMapping
+    @Transactional(readOnly = true)
+    fun usagePersonSessions(
+        @Argument person: String,
+        @Argument filter: UsageReportFilter?,
+        @Argument page: Int?,
+        @Argument size: Int?,
+    ): UsagePersonSessionsView {
+        access.requireAdmin()
+        val period = Period.of(filter)
+        val who = PersonKey.parse(person) ?: return UsagePersonSessionsView(0, emptyList())
+        val (where, parameters) = conditions(period, filter)
+        val mine = query(
+            "SELECT u.sessionId, SUM(u.inputTokens + u.outputTokens) FROM PersonUsage u WHERE $where " +
+                "AND u.source = :who AND u.personKey = :key AND " +
+                (if (who.connectionId == null) "u.connectionId IS NULL " else "u.connectionId = :connection ") +
+                "GROUP BY u.sessionId",
+            parameters + buildMap {
+                put("who", who.source)
+                put("key", who.personKey)
+                who.connectionId?.let { put("connection", it) }
+            },
+        ).map { (it[0] as Long) to (it[1] as Number).toLong() }
+            .sortedByDescending { it.second }
+        val (at, take) = paging(page, size, DEFAULT_SESSIONS)
+        val shown = mine.drop(at * take).take(take)
+        if (shown.isEmpty()) return UsagePersonSessionsView(mine.size, emptyList())
+
+        // Everybody in those sessions over the same period, for the share and the others.
+        val ids = shown.map { it.first }
+        val everybody = query(
+            "SELECT u.sessionId, u.source, u.connectionId, u.personKey, MAX(u.personName), SUM(u.inputTokens + u.outputTokens) " +
+                "FROM PersonUsage u WHERE $where AND u.sessionId IN :ids " +
+                "GROUP BY u.sessionId, u.source, u.connectionId, u.personKey",
+            parameters + ("ids" to ids),
+        ).groupBy { it[0] as Long }
+        val held = sessions.findAllById(ids).associateBy { it.id }
+        // Off the rows rather than the session, which may have been removed since.
+        val workspaceOf = query(
+            "SELECT u.sessionId, MAX(u.workspaceId) FROM PersonUsage u WHERE u.sessionId IN :ids GROUP BY u.sessionId",
+            mapOf("ids" to ids),
+        ).associate { (it[0] as Long) to (it[1] as Long) }
+        val places = workspaces.findAllById(workspaceOf.values.toSet()).associate { it.id to it.name }
+
+        return UsagePersonSessionsView(
+            total = mine.size,
+            items = shown.map { (id, tokens) ->
+                val rows = everybody[id].orEmpty()
+                val workspaceId = workspaceOf[id] ?: 0L
+                UsageSessionShareView(
+                    sessionId = id,
+                    title = held[id]?.title,
+                    workspaceId = workspaceId,
+                    workspaceName = places[workspaceId],
+                    tokens = tokens.toDouble(),
+                    sessionTokens = rows.sumOf { (it[5] as Number).toLong() }.toDouble(),
+                    others = rows
+                        .filterNot { it[1] == who.source && it[2] == who.connectionId && it[3] == who.personKey }
+                        .sortedByDescending { (it[5] as Number).toLong() }
+                        .map { label(it[1] as PromptSource, it[3] as String, it[4] as String?) }
+                        .distinct(),
+                )
+            },
+        )
+    }
+
+    private fun trackingView(): UsageTrackingView {
+        val changed = settings.usageTrackingChanged()
+        return UsageTrackingView(
+            enabled = settings.usageTracking(),
+            changedAt = changed?.lastModifiedAt?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+            changedBy = changed?.lastModifiedBy?.takeIf { it.isNotBlank() },
+        )
+    }
+
+    /** Every person the filter matches, biggest first. */
+    private fun people(period: Period, filter: UsageReportFilter?): List<PersonTotal> {
+        val (where, parameters) = conditions(period, filter)
+        return query(
+            "SELECT u.source, u.connectionId, u.personKey, MAX(u.personName), COUNT(DISTINCT u.sessionId), " +
+                "SUM(u.inputTokens), SUM(u.cachedInputTokens), SUM(u.outputTokens), SUM(u.cost), " +
+                "MAX(CASE WHEN u.unpriced = true THEN 1 ELSE 0 END), MAX(u.at) " +
+                "FROM PersonUsage u WHERE $where GROUP BY u.source, u.connectionId, u.personKey",
+            parameters,
+        ).map {
+            PersonTotal(
+                source = it[0] as PromptSource,
+                connectionId = it[1] as Long?,
+                personKey = it[2] as String,
+                name = it[3] as String?,
+                sessions = (it[4] as Number).toInt(),
+                input = (it[5] as Number).toLong(),
+                cached = (it[6] as Number).toLong(),
+                output = (it[7] as Number).toLong(),
+                cost = (it[8] as BigDecimal?) ?: BigDecimal.ZERO,
+                unpriced = (it[9] as Number).toInt() == 1,
+                lastAt = it[10] as OffsetDateTime,
+            )
+        }.sortedByDescending { it.input + it.output }
+    }
+
+    private fun sessionCount(period: Period, filter: UsageReportFilter?): Int {
+        val (where, parameters) = conditions(period, filter)
+        return (query("SELECT COUNT(DISTINCT u.sessionId) FROM PersonUsage u WHERE $where", parameters, single = true)
+            .single()[0] as Number).toInt()
+    }
+
+    /** A filter's conditions, written only for what it sets - see AGENTS.md on optional parameters. */
+    private fun conditions(period: Period, filter: UsageReportFilter?): Pair<String, Map<String, Any>> {
+        val parameters = mutableMapOf<String, Any>("from" to period.from, "to" to period.to)
+        val where = buildList {
+            add("u.at >= :from AND u.at < :to")
+            filter?.workspaceId?.let {
+                add("u.workspaceId = :workspace")
+                parameters["workspace"] = it
+            }
+            filter?.source?.let {
+                add("u.source = :source")
+                parameters["source"] = it
+            }
+        }.joinToString(" AND ")
+        return where to parameters
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun query(jpql: String, parameters: Map<String, Any>, single: Boolean = false): List<Array<Any?>> {
+        val asked = entities.createQuery(jpql)
+        parameters.forEach { (name, value) -> asked.setParameter(name, value) }
+        val rows = asked.resultList
+        return if (single) rows.map { arrayOf(it) } else rows as List<Array<Any?>>
+    }
+
+    private fun paging(page: Int?, size: Int?, default: Int): Pair<Int, Int> =
+        (page ?: 0).coerceAtLeast(0) to (size ?: default).coerceIn(1, MAX_PAGE)
+
+    private fun costOf(cost: BigDecimal): String? = cost.takeIf { it.signum() > 0 }?.stripTrailingZeros()?.toPlainString()
+
+    private fun label(source: PromptSource, key: String, name: String?): String = when (source) {
+        PromptSource.NONE -> "Unattributed"
+        PromptSource.SLACK -> "${name ?: key} (Slack)"
+        PromptSource.ORKNUX -> "${name ?: key} (Orknux)"
+    }
+
+    /** The days a report covers: from the start of [from] to the end of [to], in the server's zone. */
+    private data class Period(val from: OffsetDateTime, val to: OffsetDateTime) {
+        companion object {
+            fun of(filter: UsageReportFilter?): Period {
+                val zone = ZoneId.systemDefault()
+                val last = filter?.to?.let(LocalDate::parse) ?: LocalDate.now(zone)
+                val first = filter?.from?.let(LocalDate::parse) ?: last.minusDays(29)
+                return Period(
+                    first.atStartOfDay(zone).toOffsetDateTime(),
+                    last.plusDays(1).atStartOfDay(zone).toOffsetDateTime(),
+                )
+            }
+        }
+    }
+
+    private data class PersonTotal(
+        val source: PromptSource,
+        val connectionId: Long?,
+        val personKey: String,
+        val name: String?,
+        val sessions: Int,
+        val input: Long,
+        val cached: Long,
+        val output: Long,
+        val cost: BigDecimal,
+        val unpriced: Boolean,
+        val lastAt: OffsetDateTime,
+    ) {
+        val key: String get() = PersonKey(source, connectionId, personKey).toString()
+    }
+
+    private companion object {
+        const val DEFAULT_PEOPLE = 25
+        const val DEFAULT_SESSIONS = 5
+        const val MAX_PAGE = 200
+    }
+}
+
+/** A person as one string, for the API to hand back: `SLACK:12:U04ABC`, `ORKNUX::alice`, `NONE::`. */
+data class PersonKey(val source: PromptSource, val connectionId: Long?, val personKey: String) {
+    override fun toString(): String = "${source.name}:${connectionId ?: ""}:$personKey"
+
+    companion object {
+        fun parse(text: String): PersonKey? {
+            val parts = text.split(":", limit = 3)
+            if (parts.size != 3) return null
+            val source = PromptSource.entries.firstOrNull { it.name == parts[0] } ?: return null
+            val connection = parts[1].takeIf { it.isNotEmpty() }?.let { it.toLongOrNull() ?: return null }
+            return PersonKey(source, connection, parts[2])
+        }
+    }
+}
+
+data class UsageReportFilter(
+    val from: String? = null,
+    val to: String? = null,
+    val workspaceId: Long? = null,
+    val source: PromptSource? = null,
+)
+
+data class UsageTrackingView(val enabled: Boolean, val changedAt: String?, val changedBy: String?)
+
+data class UsageReportView(
+    val inputTokens: Double,
+    val cachedInputTokens: Double,
+    val outputTokens: Double,
+    val cost: String?,
+    val partlyUnpriced: Boolean,
+    val people: Int,
+    val sessions: Int,
+    val unattributedTokens: Double,
+    val total: Int,
+    val rows: List<UsagePersonView>,
+)
+
+data class UsagePersonView(
+    val key: String,
+    val source: PromptSource,
+    val personKey: String,
+    val name: String?,
+    val connectionName: String?,
+    val sessions: Int,
+    val inputTokens: Double,
+    val cachedInputTokens: Double,
+    val outputTokens: Double,
+    val cost: String?,
+    val partlyUnpriced: Boolean,
+    val lastActiveAt: String,
+)
+
+data class UsagePersonSessionsView(val total: Int, val items: List<UsageSessionShareView>)
+
+data class UsageSessionShareView(
+    val sessionId: Long,
+    val title: String?,
+    val workspaceId: Long,
+    val workspaceName: String?,
+    val tokens: Double,
+    val sessionTokens: Double,
+    val others: List<String>,
+)
