@@ -24,7 +24,7 @@ have failed.
 - **An object inside a property.** The object editor's type list offers `object`: fields of its own, drawn as rows inside the row, as deep as the installation allows. An object can also be made from a pasted JSON Schema, from the Objects page.
 - **Type filters** on the providers, models and connections lists, and the providers table says each row's type; the triggers list is narrowed by where a trigger listens.
 - **Reports can be searched by person, sorted by any column and exported as CSV.**
-- **A menu down the side of both settings pages**, read off their headings; the settings scroll under the top bar, the sidebar and that menu, which stay put.
+- **A menu down the side of both settings pages**, read off their headings, with a search that narrows the page to the settings whose words match; the settings scroll under the top bar, the sidebar and that menu, which stay put. An object can also be made from a JSON Schema in the workflow editor's Create Object panel, and the schema is read as it is typed.
 - **Object Depth** in Admin > Settings: how deep an object may nest and how deep a value is checked against one. `ORKNUX_OBJECT_MAX_DEPTH` is where a fresh installation starts, 30.
 
 ### 🔧 Changed
