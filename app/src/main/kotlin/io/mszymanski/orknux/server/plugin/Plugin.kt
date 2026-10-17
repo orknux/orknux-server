@@ -591,6 +591,10 @@ data class PluginConnectionTypeView(
     val label: String,
     val description: String?,
     val urlPlaceholder: String?,
+    /** The setup page the connection form shows for this kind, as markdown. */
+    val guide: String? = null,
+    /** Whether the Test button asks the plugin rather than only whether the address answers. */
+    val checks: Boolean = false,
     val pluginKey: String,
     val pluginName: String,
 )

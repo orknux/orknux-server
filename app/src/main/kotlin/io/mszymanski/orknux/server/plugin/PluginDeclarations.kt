@@ -315,6 +315,15 @@ class PluginDeclarations(private val mapper: ObjectMapper) {
             node.put("label", label)
             kind.description?.trim()?.takeIf { it.isNotEmpty() }?.let { node.put("description", it) }
             kind.urlPlaceholder?.trim()?.takeIf { it.isNotEmpty() }?.let { node.put("urlPlaceholder", it) }
+            kind.guide?.trim()?.takeIf { it.isNotEmpty() }?.let { guide ->
+                if (guide.length > MAX_CONNECTION_GUIDE) {
+                    throw PluginDeclarationInvalidException(
+                        "the connection type $name has a guide of ${guide.length} characters, and a guide is at most $MAX_CONNECTION_GUIDE",
+                    )
+                }
+                node.put("guide", guide)
+            }
+            if (kind.checks) node.put("checks", true)
         }
         return mapper.writeValueAsString(array)
     }
@@ -332,6 +341,9 @@ class PluginDeclarations(private val mapper: ObjectMapper) {
                     label = node.get("label")?.asString() ?: name,
                     description = node.get("description")?.asString(),
                     urlPlaceholder = node.get("urlPlaceholder")?.asString(),
+                    // Absent from what a plugin loaded before either could be said.
+                    guide = node.get("guide")?.asString(),
+                    checks = node.get("checks")?.asBoolean() ?: false,
                     pluginKey = pluginKey,
                     pluginName = pluginName,
                 )
@@ -1070,6 +1082,9 @@ class PluginDeclarations(private val mapper: ObjectMapper) {
         if (exported.isEmpty()) "" else ", one of ${exported.sorted().joinToString(", ")}"
 
     companion object {
+        /** The longest setup guide a connection kind may bring; the extension package holds the same line. */
+        const val MAX_CONNECTION_GUIDE = 4000
+
         /** The same rule a workspace's own function names are held to. */
         val IDENTIFIER = Regex("[A-Za-z_$][A-Za-z0-9_$]{0,63}")
 

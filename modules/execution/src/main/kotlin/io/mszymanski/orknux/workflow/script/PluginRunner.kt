@@ -530,13 +530,20 @@ class PluginRunner(
             }
             (0 until declaredConnectionTypes.arraySize).map { at ->
                 val one = declaredConnectionTypes.getArrayElement(at)
+                val named = text(one, "name")
+                    ?: return PluginInspection.Unreadable("a connection type has no name")
+                // A check that is there and cannot be called is a mistake to say, not a check to skip.
+                if (one.hasMember("check") && !one.getMember("check").isNull && !one.getMember("check").canExecute()) {
+                    return PluginInspection.Unreadable("the connection type $named has a check that is not a function")
+                }
                 DeclaredConnectionType(
-                    name = text(one, "name")
-                        ?: return PluginInspection.Unreadable("a connection type has no name"),
+                    name = named,
                     label = text(one, "label")
                         ?: return PluginInspection.Unreadable("a connection type has no label"),
                     description = text(one, "description"),
                     urlPlaceholder = text(one, "urlPlaceholder"),
+                    guide = text(one, "guide"),
+                    checks = one.getMember("check")?.canExecute() == true,
                 )
             }
         } else {
@@ -1410,6 +1417,7 @@ class PluginRunner(
                 else if (surface === 'actions') { declared = plugin.actions(); method = 'run'; }
                 else if (surface === 'types:suggest') { declared = plugin.types(); method = 'suggest'; }
                 else if (surface === 'types:validate') { declared = plugin.types(); method = 'validate'; }
+                else if (surface === 'connectionTypes:check') { declared = plugin.connectionTypes(); method = 'check'; }
                 else { declared = plugin.functions(); method = 'run'; }
                 var wanted = null;
                 for (var at = 0; at < declared.length; at++) {
@@ -2182,6 +2190,10 @@ data class DeclaredConnectionType(
     val description: String?,
     /** What to show in the URL box before anything is typed, e.g. `https://prometheus.example.com`. */
     val urlPlaceholder: String?,
+    /** The setup page the connection form shows for this kind, as markdown. */
+    val guide: String? = null,
+    /** Whether the kind brings a `check` the Test button runs, on the `connectionTypes:check` surface. */
+    val checks: Boolean = false,
 )
 
 data class DeclaredTool(

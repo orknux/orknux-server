@@ -36,6 +36,12 @@ class WorkspaceConnectionService(
      * answer separately - see [SecretReferences].
      */
     private val references: SecretReferences,
+    /**
+     * The plugin's own check for a connection of a kind it declared. Provided
+     * rather than injected: the app's answer reaches back into this service for
+     * the connection's handle, and a plain dependency would be a cycle.
+     */
+    private val pluginChecks: org.springframework.beans.factory.ObjectProvider<PluginConnectionChecks>,
 ) {
 
     fun workspaceConnections(workspaceId: Long): List<WorkspaceConnectionView> =
@@ -272,7 +278,9 @@ class WorkspaceConnectionService(
         val result = if (connection.type == ConnectionType.SMTP) {
             mail.check(connection)
         } else {
-            probe.check(credentials.target(connection), connection.type)
+            // A plugin's kind is asked of the plugin first: whether what answers is the service, not only whether something does.
+            connection.pluginType?.let { pluginChecks.ifAvailable?.check(connection) }
+                ?: probe.check(credentials.target(connection), connection.type)
         }
         connection.lastCheckStatus = result.outcome
         connection.lastCheckMessage = result.message

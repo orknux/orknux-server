@@ -1868,6 +1868,14 @@ class PluginUploadAPI(
               description?: string;
               /** What the URL box shows before anything is typed, e.g. 'https://prometheus.example.com'. */
               urlPlaceholder?: string;
+              /** The setup page on the connection form for this kind, as markdown; at most 4000 characters. */
+              guide?: string;
+              /**
+               * Whether a connection of this kind really is one, asked when somebody tests
+               * it. Handed the connection as a function's parameter of this kind receives
+               * it; a throw is a failed check with its message as the reason.
+               */
+              check?: (connection: any) => { ok: boolean; message?: string };
             }
 
             /**

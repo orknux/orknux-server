@@ -306,6 +306,20 @@ class PluginParameters(
     }
 
     /**
+     * One connection as the plugin that declared its kind is handed it - address
+     * and credential included - for that plugin's own check. Null where the row
+     * has gone or is not of a kind this plugin declares.
+     */
+    fun ownHandle(plugin: Plugin, connectionId: Long, workspaceId: Long): String? {
+        val ownKinds = declarations.readConnectionTypes(plugin.declaredConnectionTypes, plugin.key, plugin.name)
+            .map { it.id }
+            .toSet()
+        val connection = connections.workspaceConnection(connectionId) ?: return null
+        if (connection.pluginType !in ownKinds) return null
+        return handleOf(connection, Opened(workspaceId, ownKinds))
+    }
+
+    /**
      * What crosses into the sandbox for one connection: the handle a setting
      * and an argument both arrive as. Null where the row has gone.
      */
