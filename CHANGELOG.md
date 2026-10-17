@@ -20,6 +20,7 @@ have failed.
 ### 🐛 Fixed
 
 - **The first session on a freshly started local box keeps its workspace.** The box's clean-up of what a previous run left could take a session opened as the box came up for a leftover and delete it, and its first command answered that the workspace was gone.
+- **Stopping a run mid-step on SQLite records the step as stopped.** The interrupt that ends the call could arrive after the step had already ended and break the write recording it, so the step failed instead of stopping.
 
 ## 1.1.0
 

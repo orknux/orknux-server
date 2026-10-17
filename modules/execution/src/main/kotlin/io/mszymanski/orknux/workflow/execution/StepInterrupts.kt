@@ -83,17 +83,25 @@ class StepInterrupts {
             }
         }
 
-        /** Ends the work: every hook first, and then the thread's own interrupt. */
+        /**
+         * Ends the work: every hook first, and then the thread's own interrupt.
+         *
+         * The interrupt is sent under the lock, to the carrier as it stands
+         * then, and not to the one read before the hooks ran. A hook is what
+         * ends the call, so by the time it returns the thread may already have
+         * left the step - [done], its interrupt cleared - and gone on to write
+         * down what happened. An interrupt aimed at it from before the hooks
+         * landed on that write: on SQLite the wait for the one writer is
+         * interruptible, so the stop was never recorded and the step failed.
+         */
         internal fun stop() {
-            val (held, thread) = synchronized(lock) {
+            val held = synchronized(lock) {
                 if (stopped) return
                 stopped = true
-                val taken = hooks.toList()
-                hooks.clear()
-                taken to carrier
+                hooks.toList().also { hooks.clear() }
             }
             held.forEach { runCatching(it) }
-            thread?.interrupt()
+            synchronized(lock) { carrier?.interrupt() }
         }
 
         /** The step is over; nothing here may reach the thread again. */
