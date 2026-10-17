@@ -11,7 +11,10 @@ import io.mszymanski.orknux.server.condition.ConditionProperty
 import io.mszymanski.orknux.server.condition.ConditionType
 import io.mszymanski.orknux.server.condition.WorkflowCondition
 import io.mszymanski.orknux.server.condition.WorkflowConditionRepository
+import io.mszymanski.orknux.server.obj.InlineProperty
+import io.mszymanski.orknux.server.obj.InlineShapes
 import io.mszymanski.orknux.server.obj.PropertyKind
+import io.mszymanski.orknux.server.obj.inline
 import io.mszymanski.orknux.server.obj.WorkflowObjectRepository
 import io.mszymanski.orknux.server.trigger.TriggerType
 import io.mszymanski.orknux.server.trigger.WorkflowTrigger
@@ -308,13 +311,24 @@ class GraphValidator(
      * A saved shape says; a shape of the node's own is the parameters it holds,
      * which are text until something says otherwise.
      */
+    /**
+     * An Object node's fields, and the fields of any object defined in place
+     * inside one, each under its dotted name - `customer`, `customer.name` -
+     * so the canvas and a reference picker can see into it. Not into a list:
+     * `lines.sku` would name no one element, so a list of objects stops at itself.
+     */
     private fun shapeOf(node: WorkflowNode): List<ActionParamView> {
         val saved = node.objectId?.let { objects.findByIdOrNull(it) }
         if (saved != null) {
-            return saved.properties.map { ActionParamView(it.name, typeOf(it.kind)) }
+            return saved.properties.flatMap { field(it.name, it.kind, it.inline()) }
         }
-        return node.mappings.map { ActionParamView(it.name, ValueType.STRING) }
+        // A field of the node's own says what it holds since V272; untyped is text, as it always was.
+        return node.mappings.flatMap { field(it.name, it.fieldKind ?: PropertyKind.STRING, InlineShapes.read(it.fieldInlineProperties)) }
     }
+
+    private fun field(name: String, kind: PropertyKind, inline: List<InlineProperty>?): List<ActionParamView> =
+        listOf(ActionParamView(name, typeOf(kind))) +
+            if (kind == PropertyKind.OBJECT) inline.orEmpty().flatMap { field("$name.${it.name}", it.kind, it.properties) } else emptyList()
 
     /** A property's shape, as the graph's own vocabulary of types. */
     private fun typeOf(kind: PropertyKind): ValueType = when (kind) {

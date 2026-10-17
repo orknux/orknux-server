@@ -81,6 +81,45 @@ class NodeFieldInlineTest(
     }
 
     @Test
+    fun `an Object node offers the fields inside an object defined in place, by their dotted names`() {
+        val saved = graphQlTester.document(
+            """mutation { createObject(input: { workspaceId: $workspaceId, name: "Order", properties: [
+                { name: "id", kind: STRING },
+                { name: "customer", kind: OBJECT, properties: [{ name: "name", kind: STRING }, { name: "age", kind: NUMBER }] },
+                { name: "lines", kind: ARRAY, properties: [{ name: "sku", kind: STRING }] }
+            ] }) { id } }""",
+        ).execute().path("createObject.id").entity(String::class.java).get()
+
+        graphQlTester.document(
+            """
+            mutation {
+              saveWorkflowGraph(workspaceId: $workspaceId, workflowId: "$workflowId", input: {
+                nodes: [
+                  { key: "own", kind: OBJECT, name: "Own", x: 0, y: 0, mappings: [
+                    { name: "count", expression: "3", mode: VALUE, fieldKind: NUMBER },
+                    { name: "home", expression: "", mode: VALUE, fieldKind: OBJECT, fieldProperties: [
+                      { name: "street", kind: STRING },
+                      { name: "geo", kind: OBJECT, properties: [{ name: "lat", kind: NUMBER }] }
+                    ] }
+                  ] },
+                  { key: "kept", kind: OBJECT, name: "Kept", x: 300, y: 0, objectId: $saved }
+                ],
+                edges: []
+              }) { nodes { key outputs { name type } } }
+            }
+            """,
+        ).execute()
+            .path("saveWorkflowGraph.nodes[0].outputs[*].name").entityList(String::class.java)
+            .containsExactly("count", "home", "home.street", "home.geo", "home.geo.lat")
+            // A field of the node's own is the type it was given, no longer text whatever it was.
+            .path("saveWorkflowGraph.nodes[0].outputs[0].type").entity(String::class.java).isEqualTo("NUMBER")
+            .path("saveWorkflowGraph.nodes[0].outputs[4].type").entity(String::class.java).isEqualTo("NUMBER")
+            // A saved shape the same; a list of objects stops at itself.
+            .path("saveWorkflowGraph.nodes[1].outputs[*].name").entityList(String::class.java)
+            .containsExactly("id", "customer", "customer.name", "customer.age", "lines")
+    }
+
+    @Test
     fun `a node field is held to the same rules as an object property`() {
         graphQlTester.document(
             """
