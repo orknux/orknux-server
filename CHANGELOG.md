@@ -21,6 +21,10 @@ have failed.
 
 - **A node's Action and Condition pickers offer what the plugins bring**: every loaded plugin's actions and functions beside the workspace's own, each marked with its plugin - and in a condition, the functions that answer yes or no. Picking one makes the node's own definition around it, which used to take Custom, a subtype and the plugin's entry.
 
+- **Shift+click selects several nodes** in the workflow editor. They move together, the panel says how many are selected, and Delete removes them all - Delete now works for one node too, not only Backspace.
+- **Quick filters in a node's Action and Condition pickers**: All, Workspace and each plugin, several at once.
+- The **field picker marks the row that hands on a whole object**, with its fields indented under it, so it is not missed among them.
+
 ### 🔧 Changed
 
 - **Creating a workflow opens its editor**, as duplicating one already did.
