@@ -6,10 +6,12 @@ extend type Query {
     "Whether usage is being tracked, and when that last changed. Administrators."
     usageTracking: UsageTracking!
     """
-    Tokens by person over a period, biggest first, a page at a time; the totals
-    cover every person the filter matches, not only the page. Administrators.
+    Tokens by person over a period, a page at a time; the totals cover every
+    person the filter matches, not only the page. `order` is one of NAME,
+    SOURCE, SESSIONS, INPUT, CACHED, OUTPUT, COST, LAST_ACTIVE, or left out for
+    tokens, biggest first. Administrators.
     """
-    usageReport(filter: UsageReportFilter, page: Int, size: Int): UsageReport!
+    usageReport(filter: UsageReportFilter, page: Int, size: Int, order: String, ascending: Boolean): UsageReport!
     """
     One person's sessions over the same period, biggest share first, a page at a
     time: what they used in each, out of what everybody used there. Administrators.
@@ -46,6 +48,8 @@ input UsageReportFilter {
     to: String
     workspaceId: ID
     source: PromptSource
+    "Over the person alone - their name or id - and the totals follow it."
+    search: String
 }
 
 type UsageReport {

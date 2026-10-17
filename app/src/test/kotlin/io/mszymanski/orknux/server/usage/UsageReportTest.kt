@@ -107,6 +107,24 @@ class UsageReportTest(
     }
 
     @Test
+    fun `the report is searched by person and put in a column's order`() {
+        track(true)
+        call(Prompter(PromptSource.SLACK, "U04SLACKER", connectionId = 7, name = "Sam"), 6_000, 300)
+        call(Prompter(PromptSource.ORKNUX, "alice", name = "Alice"), 3_000, 200)
+        call(Prompter.NOBODY, 500, 0)
+
+        graphQlTester.document("""query { usageReport(filter: { workspaceId: $workspaceId, search: "sam" }) { total inputTokens rows { name } } }""").execute()
+            .path("usageReport.total").entity(Int::class.java).isEqualTo(1)
+            .path("usageReport.inputTokens").entity(Double::class.java).isEqualTo(6_000.0)
+        graphQlTester.document("""query { usageReport(filter: { workspaceId: $workspaceId, search: "unattr" }) { total rows { source } } }""").execute()
+            .path("usageReport.rows[0].source").entity(String::class.java).isEqualTo("NONE")
+        graphQlTester.document("""query { usageReport(filter: { workspaceId: $workspaceId }, order: "NAME", ascending: true) { rows { source name } } }""").execute()
+            .path("usageReport.rows[*].source").entityList(String::class.java).containsExactly("ORKNUX", "SLACK", "NONE")
+        graphQlTester.document("""query { usageReport(filter: { workspaceId: $workspaceId }, order: "INPUT", ascending: true) { rows { inputTokens } } }""").execute()
+            .path("usageReport.rows[0].inputTokens").entity(Double::class.java).isEqualTo(500.0)
+    }
+
+    @Test
     fun `a person's sessions come a page at a time, biggest first`() {
         track(true)
         val who = Prompter(PromptSource.ORKNUX, "pager", name = "Pager")

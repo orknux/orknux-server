@@ -55,10 +55,17 @@ class UsageReportAPI(
 
     @QueryMapping
     @Transactional(readOnly = true)
-    fun usageReport(@Argument filter: UsageReportFilter?, @Argument page: Int?, @Argument size: Int?): UsageReportView {
+    fun usageReport(
+        @Argument filter: UsageReportFilter?,
+        @Argument page: Int?,
+        @Argument size: Int?,
+        @Argument order: String?,
+        @Argument ascending: Boolean?,
+    ): UsageReportView {
         access.requireAdmin()
         val period = Period.of(filter)
-        val people = people(period, filter)
+        // The search is over the person alone - who they are, not what they used - and the totals follow it.
+        val people = arranged(people(period, filter).filter { matches(it, filter?.search) }, order, ascending)
         val (at, take) = paging(page, size, DEFAULT_PEOPLE)
         val named = connections.findAllById(people.mapNotNull { it.connectionId }.toSet()).associate { it.id to it.name }
         return UsageReportView(
@@ -191,6 +198,36 @@ class UsageReportAPI(
         }.sortedByDescending { it.input + it.output }
     }
 
+    /** Whether a person answers to what was typed: their name, their id, or "unattributed" for the row with neither. */
+    private fun matches(person: PersonTotal, search: String?): Boolean {
+        val looking = search?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return true
+        val called = if (person.source == PromptSource.NONE) "unattributed" else listOfNotNull(person.name, person.personKey).joinToString(" ")
+        return called.lowercase().contains(looking)
+    }
+
+    /**
+     * The rows in the order a heading asked for; tokens, biggest first, where
+     * none did. A name sorts as it reads, the row with no person last among
+     * names; an unpriced cost sorts as nothing.
+     */
+    private fun arranged(people: List<PersonTotal>, order: String?, ascending: Boolean?): List<PersonTotal> {
+        val key: (PersonTotal) -> Comparable<*>? = when (order?.uppercase()) {
+            "NAME" -> { one -> if (one.source == PromptSource.NONE) "\uffff" else (one.name ?: one.personKey).lowercase() }
+            "SOURCE" -> { one -> one.source.name }
+            "SESSIONS" -> { one -> one.sessions }
+            "INPUT" -> { one -> one.input }
+            "CACHED" -> { one -> one.cached }
+            "OUTPUT" -> { one -> one.output }
+            "COST" -> { one -> one.cost }
+            "LAST_ACTIVE" -> { one -> one.lastAt }
+            else -> { one -> one.input + one.output }
+        }
+        @Suppress("UNCHECKED_CAST")
+        val comparator = compareBy<PersonTotal, Comparable<Any>?>(nullsFirst()) { key(it) as Comparable<Any>? }
+        val up = ascending ?: (order?.uppercase() in setOf("NAME", "SOURCE"))
+        return people.sortedWith(if (up) comparator else comparator.reversed())
+    }
+
     private fun sessionCount(period: Period, filter: UsageReportFilter?): Int {
         val (where, parameters) = conditions(period, filter)
         return (query("SELECT COUNT(DISTINCT u.sessionId) FROM PersonUsage u WHERE $where", parameters, single = true)
@@ -291,6 +328,8 @@ data class UsageReportFilter(
     val to: String? = null,
     val workspaceId: Long? = null,
     val source: PromptSource? = null,
+    /** Over the person alone: their name or id. */
+    val search: String? = null,
 )
 
 data class UsageTrackingView(val enabled: Boolean, val changedAt: String?, val changedBy: String?)
