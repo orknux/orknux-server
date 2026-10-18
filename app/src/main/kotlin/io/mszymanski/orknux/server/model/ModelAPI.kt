@@ -213,6 +213,18 @@ class ModelAPI(
     @MutationMapping
     fun removeModelProvider(@Argument id: Long): Boolean {
         val provider = models.provider(id)?.takeIf { access.canSee(it.workspaceId) } ?: return false
+        /*
+         * Refused while any of its models is in use, as removing that model is:
+         * the provider takes its models with it, so removing it was a way round
+         * the model's own refusal. Each model in use is named with what uses it;
+         * a provider whose models nothing uses is removed with them, as before.
+         */
+        val inUse = dependants.of(io.mszymanski.orknux.server.dependency.DependencyKind.MODEL_PROVIDER, id)
+            .mapNotNull { model ->
+                val users = dependants.of(io.mszymanski.orknux.server.dependency.DependencyKind.MODEL, model.id)
+                if (users.isEmpty()) null else "${model.name} (used by ${users.joinToString(", ") { it.phrase }})"
+            }
+        if (inUse.isNotEmpty()) throw ModelProviderInUseException(provider.name, inUse)
         if (!models.removeProvider(id)) return false
 
         auditRecorder.record(
@@ -440,6 +452,13 @@ data class ModelUsageDayResponse(val day: String, val requests: Int, val tokens:
 class ModelProviderNotFoundException(val id: Long) : RuntimeException("No model provider with id $id"), Refusal {
 
     override val arguments get() = mapOf("id" to id)
+}
+
+class ModelProviderInUseException(val name: String, val models: List<String>) : RuntimeException(
+    "$name cannot be removed while its models are in use: ${models.joinToString("; ")}",
+), Refusal {
+
+    override val arguments get() = mapOf("name" to name, "models" to models)
 }
 
 class ModelInUseException(val name: String, val users: List<String>) : RuntimeException(

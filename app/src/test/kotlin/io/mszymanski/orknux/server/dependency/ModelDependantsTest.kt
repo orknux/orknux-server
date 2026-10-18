@@ -70,6 +70,28 @@ class ModelDependantsTest(
             .path("removeModel").entity(Boolean::class.java).isEqualTo(true)
     }
 
+    /**
+     * A provider takes its models with it, so removing one was a way round the
+     * model's own refusal. It is refused while any of its models is in use,
+     * naming each with what uses it - and a provider whose models nothing uses
+     * still goes, models and all.
+     */
+    @Test
+    fun `a provider whose model is in use is not removed, and one whose models are unused is`() {
+        val model = model("Gemma", "gemma", "CHAT")
+        model("Spare", "spare", "CHAT")
+        requireNotNull(workspaces.findByIdOrNull(workspaceId)).also { it.companionModelId = model }.let(workspaces::save)
+
+        graphQlTester.document("mutation { removeModelProvider(id: $providerId) }").execute().errors().satisfy { errors ->
+            assertThat(errors.single().extensions["code"]).isEqualTo("ModelProviderInUse")
+            assertThat(errors.single().message).contains("Gemma (used by the workspace's companion model)").doesNotContain("Spare")
+        }
+
+        requireNotNull(workspaces.findByIdOrNull(workspaceId)).also { it.companionModelId = null }.let(workspaces::save)
+        graphQlTester.document("mutation { removeModelProvider(id: $providerId) }").execute()
+            .path("removeModelProvider").entity(Boolean::class.java).isEqualTo(true)
+    }
+
     @Test
     fun `an image model answers with the workflow whose node draws with it, and the provider with its models`() {
         val model = model("Painter", "gpt-image-1", "IMAGE")
