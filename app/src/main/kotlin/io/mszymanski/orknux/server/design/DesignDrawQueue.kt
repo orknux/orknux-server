@@ -37,6 +37,7 @@ class DesignDrawQueue(
     private val jobs: DesignImageJobRepository,
     private val images: DesignImageRepository,
     private val drawing: ModelImageClient,
+    private val upscaling: io.mszymanski.orknux.connector.model.ModelUpscaleClient,
     private val store: AttachmentStore,
     private val settings: InstallationSettings,
     private val auditRecorder: WorkspaceAuditRecorder,
@@ -106,7 +107,11 @@ class DesignDrawQueue(
             if (job.sourceId != null && source == null) return fail(id, "The picture to change is not here any more.")
             val original = source?.let { store.open(it.location).use { stream -> stream.readBytes() } }
             val mask = job.maskLocation?.let { store.open(it).use { stream -> stream.readBytes() } }
-            val asked = if (original != null && mask != null) {
+            val scale = job.scale
+            val asked = if (original != null && scale != null) {
+                log.info("Design image {} upscaling {} {}x by {} with {}", id, job.sourceId, scale, job.upscaler ?: "its own algorithm", job.modelName)
+                upscaling.upscale(modelId, original, job.upscaler, scale)
+            } else if (original != null && mask != null) {
                 log.info("Design image {} editing {} with {}", id, job.sourceId, job.modelName)
                 drawing.edit(modelId, job.prompt, original, mask)
             } else {

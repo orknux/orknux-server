@@ -434,7 +434,7 @@ class ToolSearchTest(
         assertThat(ProviderType.ANTHROPIC.toolLimit).isGreaterThan(ProviderType.OPENAI.toolLimit)
         // Every provider that holds chat models has a ceiling; a decision provider
         // and the image servers hold none and are offered no tools, so they have nothing to cap.
-        val noChat = setOf(ProviderType.SYSTEM_ONE, ProviderType.STABLE_DIFFUSION_CPP)
+        val noChat = setOf(ProviderType.SYSTEM_ONE, ProviderType.STABLE_DIFFUSION_CPP, ProviderType.STABLE_DIFFUSION_WEBUI)
         assertThat(ProviderType.entries.filter { it !in noChat }.map { it.toolLimit })
             .allSatisfy { assertThat(it).isGreaterThan(0) }
         assertThat(noChat.map { it.toolLimit }).containsOnly(0)

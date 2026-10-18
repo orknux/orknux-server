@@ -108,7 +108,7 @@ object ChatParameters {
         ProviderType.LLAMA_CPP -> OPENAI_SHAPED
         ProviderType.ANTHROPIC -> ANTHROPIC
         // Neither chats: a decision model answers questions, an image server draws.
-        ProviderType.SYSTEM_ONE, ProviderType.STABLE_DIFFUSION_CPP -> emptyList()
+        ProviderType.SYSTEM_ONE, ProviderType.STABLE_DIFFUSION_CPP, ProviderType.STABLE_DIFFUSION_WEBUI -> emptyList()
     }
 
     fun forProvider(provider: ModelProvider): List<ChatParameterSpec> = forProvider(provider.type, provider.endpoint)

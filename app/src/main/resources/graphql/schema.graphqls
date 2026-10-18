@@ -453,6 +453,11 @@ type Query {
     workspaceArtifact(workspaceId: ID!, id: ID!): Artifact
     "Pictures this workspace has waiting, being drawn, or failed in Design - oldest first."
     designImageQueue(workspaceId: ID!): [DesignImageJob!]!
+    """
+    The algorithms an UPSCALE model's server can make a picture larger with, the
+    model's own first - asked of the server, since they differ between servers.
+    """
+    designUpscaleAlgorithms(workspaceId: ID!, modelId: ID!): UpscaleAlgorithms!
     "One picture asked for in Design, in whatever state it is; null for one not here."
     designImageJob(workspaceId: ID!, id: ID!): DesignImageJob
 
@@ -2244,6 +2249,16 @@ type Mutation {
     saveDesignImageVersion or discardDesignImageVersions.
     """
     queueDesignImageEdit(input: EditDesignImageInput!): DesignImageJob!
+    """
+    Queues a picture made larger by an UPSCALE model. The result is an unsaved
+    version of the picture, as an edit's is.
+    """
+    queueDesignImageUpscale(input: UpscaleDesignImageInput!): DesignImageJob!
+    """
+    Keeps a picture brought in from outside - a file dropped on the editor - as
+    a Design picture. image is the file, base64.
+    """
+    importDesignImage(input: ImportDesignImageInput!): Artifact!
     "Takes a queued or failed picture off; one being drawn cannot be. False for one not here."
     dismissDesignImageJob(id: ID!): Boolean!
     "Calls a picture drawn in Design something else; its file is named after it too."
@@ -5372,6 +5387,13 @@ enum ProviderType {
     server answers /sdcpp/v1/capabilities is saved as this type.
     """
     STABLE_DIFFUSION_CPP
+    """
+    A Stable Diffusion WebUI - AUTOMATIC1111, Forge or SD.Next - by its
+    /sdapi/v1. Held for upscaling, which no standard interface offers; its
+    models are UPSCALE models. A key, where the server checks one, is the
+    user:password it was started with.
+    """
+    STABLE_DIFFUSION_WEBUI
 }
 
 "How a provider is authenticated. ENTRA_ID is Azure OpenAI only."
@@ -5418,6 +5440,8 @@ enum ModelKind {
     IMAGE
     "A state and typed questions in, calibrated probabilities out; only under a SYSTEM_ONE provider."
     DECISION
+    "A picture in, the same picture larger out, by an algorithm its server names; only under a STABLE_DIFFUSION_WEBUI provider."
+    UPSCALE
 }
 
 "How often a token quota starts again; NEVER makes it a total rather than a rate."
@@ -8161,8 +8185,46 @@ type DesignImageJob {
     name: String!
     "The picture an edit changes; null for one drawn from nothing."
     sourceId: ID
+    "The algorithm an upscale makes the picture larger with; null for anything else."
+    upscaler: String
+    "How many times larger an upscale makes it; null for anything else."
+    scale: Float
     "The picture, once DRAWN."
     image: Artifact
+}
+
+""" A picture made larger, by one upscale model. """
+input UpscaleDesignImageInput {
+    workspaceId: ID!
+    "The picture to make larger, by its artifact id."
+    imageId: ID!
+    "An UPSCALE model of this workspace."
+    modelId: ID!
+    "One of designUpscaleAlgorithms; null is the model's own."
+    algorithm: String
+    "How many times larger, 1 to 8."
+    scale: Float!
+}
+
+""" A picture brought in from outside, to keep in Design. """
+input ImportDesignImageInput {
+    workspaceId: ID!
+    "The file, base64: a PNG, JPEG, WebP or GIF."
+    image: String!
+    "Null names it Imported picture."
+    name: String
+    "What it was drawn from, where the file said - an .orkx file does."
+    prompt: String
+}
+
+"What an upscale model's server offers, or why it could not be asked."
+type UpscaleAlgorithms {
+    "By name, the model's own first."
+    names: [String!]!
+    "The model's own algorithm."
+    preferred: String
+    "Why the server could not be asked; names is then empty."
+    reason: String
 }
 
 """ A change to part of a picture, asked of one image model's edit endpoint. """

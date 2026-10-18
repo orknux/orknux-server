@@ -89,6 +89,14 @@ class DesignImageJob(
     /** Where the mask is kept, for an edit: transparent where the change goes. */
     @Column(name = "mask_location", length = 1000)
     val maskLocation: String? = null,
+
+    /** The algorithm an upscale makes [sourceId] larger with; null is the model's own. */
+    @Column(length = 255)
+    val upscaler: String? = null,
+
+    /** How many times larger an upscale makes it; null for anything but an upscale. */
+    @Column
+    val scale: Double? = null,
 )
 
 interface DesignImageJobRepository : JpaRepository<DesignImageJob, Long> {

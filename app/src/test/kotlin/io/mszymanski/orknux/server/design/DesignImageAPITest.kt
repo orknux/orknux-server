@@ -51,6 +51,7 @@ class DesignImageAPITest(
     private val drawn = CopyOnWriteArrayList<String>()
     private val edited = CopyOnWriteArrayList<String>()
     private val authorised = CopyOnWriteArrayList<String>()
+    private val upscaled = CopyOnWriteArrayList<String>()
 
     /** True for a model that refuses, the way these providers do: a 400 with the reason. */
     @Volatile
@@ -69,6 +70,7 @@ class DesignImageAPITest(
         workspaceId = requireNotNull(workspaces.save(Workspace(name = "backend")).id)
         drawn.clear()
         edited.clear()
+        upscaled.clear()
         authorised.clear()
         server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
         server.createContext("/images/generations") { exchange ->
@@ -87,6 +89,25 @@ class DesignImageAPITest(
         server.createContext("/images/edits") { exchange ->
             edited += exchange.requestBody.readBytes().toString(StandardCharsets.ISO_8859_1)
             val bytes = """{"data":[{"b64_json":"${Base64.getEncoder().encodeToString(png(2, 2) { _, _ -> RED })}"}]}"""
+                .toByteArray(StandardCharsets.UTF_8)
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+            exchange.close()
+        }
+        // A Stable Diffusion WebUI: its algorithms, and a picture made larger - four pixels for every one.
+        server.createContext("/sdapi/v1/upscalers") { exchange ->
+            authorised += exchange.requestHeaders.getFirst("Authorization").orEmpty()
+            val bytes = """[{"name":"None"},{"name":"Lanczos"},{"name":"R-ESRGAN 4x+"}]""".toByteArray(StandardCharsets.UTF_8)
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+            exchange.close()
+        }
+        server.createContext("/sdapi/v1/extra-single-image") { exchange ->
+            authorised += exchange.requestHeaders.getFirst("Authorization").orEmpty()
+            upscaled += exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
+            val bytes = """{"image":"${Base64.getEncoder().encodeToString(png(4, 4) { _, _ -> RED })}","html_info":""}"""
                 .toByteArray(StandardCharsets.UTF_8)
             exchange.responseHeaders.add("Content-Type", "application/json")
             exchange.sendResponseHeaders(200, bytes.size.toLong())
@@ -444,16 +465,79 @@ class DesignImageAPITest(
         }
     }
 
-    private fun model(name: String, kind: String, keyed: Boolean = true): Long {
+    @Test
+    fun `an upscale model offers its server's algorithms and makes a picture larger as a draft`() {
+        // Upscaling is the WebUI's alone: an upscale model under any other provider is refused.
+        val openAi = graphQlTester.document(
+            """mutation { createModelProvider(input: {
+                 workspaceId: $workspaceId, name: "Other", type: OPENAI, endpoint: "http://${server.address.hostString}:${server.address.port}"
+               }) { id } }""",
+        ).execute().path("createModelProvider.id").entity(Long::class.java).get()
+        graphQlTester.document("""mutation { createModel(input: { providerId: $openAi, name: "Big", modelId: "x", kind: UPSCALE }) { id } }""")
+            .execute().errors().satisfy { assertThat(it.single().message).contains("not a Stable Diffusion WebUI") }
+
+        val upscaler = model("Enlarger", "UPSCALE", type = "STABLE_DIFFUSION_WEBUI", keyed = false, modelId = "Lanczos")
+        // The server's own list, the model's own first, and "None" - no upscaling at all - left out.
+        graphQlTester.document("""query { designUpscaleAlgorithms(workspaceId: $workspaceId, modelId: $upscaler) { names preferred reason } }""")
+            .execute()
+            .path("designUpscaleAlgorithms.names").entityList(String::class.java).containsExactly("Lanczos", "R-ESRGAN 4x+")
+            .path("designUpscaleAlgorithms.preferred").entity(String::class.java).isEqualTo("Lanczos")
+            .path("designUpscaleAlgorithms.reason").valueIsNull()
+
+        val source = images.save(
+            DesignImage(
+                workspaceId = workspaceId, modelId = null, modelName = "Drawer", prompt = "A white square",
+                size = null, quality = null, style = null, filename = "white.png", contentType = "image/png",
+                sizeBytes = 1, location = store.put(workspaceId, "white.png", png(2, 2) { _, _ -> WHITE }), drawnBy = "alice",
+                name = "White",
+            ),
+        )
+        val version = drawnPicture(
+            graphQlTester.document(
+                """mutation { queueDesignImageUpscale(input: {
+                     workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", modelId: $upscaler, algorithm: "R-ESRGAN 4x+", scale: 2
+                   }) { id scale upscaler } }""",
+            ).execute()
+                .path("queueDesignImageUpscale.upscaler").entity(String::class.java).isEqualTo("R-ESRGAN 4x+")
+                .path("queueDesignImageUpscale.id").entity(String::class.java).get(),
+        )
+        assertThat(upscaled.single()).contains("\"upscaler_1\":\"R-ESRGAN 4x+\"", "\"upscaling_resize\":2.0")
+        // A draft of the picture, larger, with its name - not a picture of its own in the gallery.
+        val kept = requireNotNull(images.findByIdOrNull(version.removePrefix("DESIGN-").toLong()))
+        assertThat(kept.versionOf).isEqualTo("DESIGN-${source.id}")
+        assertThat(kept.name).isEqualTo("White")
+        assertThat(javax.imageio.ImageIO.read(store.open(kept.location)).width).isEqualTo(4)
+    }
+
+    @Test
+    fun `a picture brought in from outside is kept as a Design picture, by what its bytes are`() {
+        val png = Base64.getEncoder().encodeToString(png(3, 2) { _, _ -> RED })
+        graphQlTester.document(
+            """mutation { importDesignImage(input: { workspaceId: $workspaceId, image: "$png", name: "Holiday", prompt: "A beach" }) {
+                 kind name prompt drawnWith { model } } }""",
+        ).execute()
+            .path("importDesignImage.kind").entity(String::class.java).isEqualTo("DESIGN")
+            .path("importDesignImage.name").entity(String::class.java).isEqualTo("Holiday")
+            .path("importDesignImage.prompt").entity(String::class.java).isEqualTo("A beach")
+            .path("importDesignImage.drawnWith.model").entity(String::class.java).isEqualTo("Imported")
+        assertThat(images.findAll().single().contentType).isEqualTo("image/png")
+
+        val text = Base64.getEncoder().encodeToString("not a picture".toByteArray())
+        graphQlTester.document("""mutation { importDesignImage(input: { workspaceId: $workspaceId, image: "$text" }) { id } }""")
+            .execute().errors().satisfy { assertThat(it.single().message).contains("not a picture") }
+        assertThat(images.count()).isEqualTo(1)
+    }
+
+    private fun model(name: String, kind: String, keyed: Boolean = true, type: String = "OPENAI", modelId: String = "stub-$kind"): Long {
         val key = if (keyed) """, secret: "sk-test"""" else ""
         val providerId = graphQlTester.document(
             """mutation { createModelProvider(input: {
-                 workspaceId: $workspaceId, name: "$name provider", type: OPENAI,
+                 workspaceId: $workspaceId, name: "$name provider", type: $type,
                  endpoint: "http://${server.address.hostString}:${server.address.port}"$key
                }) { id } }""",
         ).execute().path("createModelProvider.id").entity(Long::class.java).get()
         return graphQlTester.document(
-            """mutation { createModel(input: { providerId: $providerId, name: "$name", modelId: "stub-$kind", kind: $kind }) { id } }""",
+            """mutation { createModel(input: { providerId: $providerId, name: "$name", modelId: "$modelId", kind: $kind }) { id } }""",
         ).execute().path("createModel.id").entity(Long::class.java).get()
     }
 

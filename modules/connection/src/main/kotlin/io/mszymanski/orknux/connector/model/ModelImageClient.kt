@@ -257,6 +257,10 @@ class ModelImageClient(
             "${provider.name} runs llama.cpp, which has no image generation. " +
                 "Run an image server beside it and add that as an OpenAI provider."
 
+        ProviderType.STABLE_DIFFUSION_WEBUI ->
+            "${provider.name} is a Stable Diffusion WebUI, which is held here for upscaling. " +
+                "Add its OpenAI-shaped server, if it has one, as an OpenAI provider to draw with."
+
         ProviderType.OPENAI, ProviderType.AZURE_OPENAI, ProviderType.STABLE_DIFFUSION_CPP -> null
     }
 

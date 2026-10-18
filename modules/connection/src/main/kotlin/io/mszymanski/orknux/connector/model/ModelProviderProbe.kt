@@ -107,6 +107,8 @@ class ModelProviderProbe(
         // A decision model speaks no OpenAI shape and may keep no key at all,
         // so it is asked its own way. Issue #577.
         if (provider.type == ProviderType.SYSTEM_ONE) return listedDecisionModels(provider)
+        // A WebUI lists no models in any shape; what it offers is its upscalers.
+        if (provider.type == ProviderType.STABLE_DIFFUSION_WEBUI) return listedUpscalers(provider)
         (key(provider) as? Key.Failed)?.let { return Listing.Failed(it.reason) }
 
         /*
@@ -274,6 +276,44 @@ class ModelProviderProbe(
      * are typed by hand. Nothing here knows one server from another - asked for:
      * the integration is the format, not any product implementing it.
      */
+    /**
+     * The upscaling algorithms a Stable Diffusion WebUI has, by name, off
+     * `/sdapi/v1/upscalers` - which differ between AUTOMATIC1111, Forge and
+     * SD.Next, and with the models each was given. "None" is left out: it is
+     * the WebUI's way of saying no upscaling at all.
+     */
+    private fun listedUpscalers(provider: ModelProvider): Listing {
+        val header = when (val resolved = credentials(provider)) {
+            is Credential.Failed -> return Listing.Failed(resolved.reason)
+            is Credential.Header -> resolved.header
+        }
+        val base = provider.endpoint.trimEnd('/')
+        val url = "$base$WEBUI_UPSCALERS"
+        return try {
+            probe.vet(url)?.let { return Listing.Failed(it) }
+            val answer = client.send(
+                HttpRequest.newBuilder(URI(url))
+                    .timeout(Duration.ofSeconds(properties.probeTimeoutSeconds))
+                    .header(header.name, header.value)
+                    .GET()
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(),
+            )
+            when (val status = answer.statusCode()) {
+                in 200..299 -> Listing.Models(
+                    mapper.readTree(answer.body()).mapNotNull { runCatching { it.path("name").stringValue() }.getOrNull() }
+                        .filter { it.isNotBlank() && !it.equals("None", ignoreCase = true) },
+                )
+                401, 403 -> Listing.Failed("The provider rejected the credentials ($status)" + said(answer.body()))
+                404 -> Listing.Failed("No Stable Diffusion WebUI API at $base - is it started with --api?", refused = false)
+                else -> Listing.Failed("The provider answered $status" + said(answer.body()))
+            }
+        } catch (failure: Exception) {
+            log.warn("Asking {} for its upscalers failed: {}", base, failure.toString())
+            Listing.Failed(Unreachable.describe(base, failure, Duration.ofSeconds(properties.probeTimeoutSeconds)))
+        }
+    }
+
     private fun listedDecisionModels(provider: ModelProvider): Listing {
         val header = when (val resolved = systemOneCredential(provider)) {
             null -> null
@@ -606,6 +646,9 @@ class ModelProviderProbe(
         return when (provider.type) {
             ProviderType.ANTHROPIC -> HttpHeader("x-api-key", key)
             ProviderType.AZURE_OPENAI -> HttpHeader("api-key", key)
+            // The WebUI's --api-auth is HTTP Basic, and its key is the user:password it was started with.
+            ProviderType.STABLE_DIFFUSION_WEBUI ->
+                HttpHeader("Authorization", "Basic " + java.util.Base64.getEncoder().encodeToString(key.toByteArray()))
             else -> HttpHeader("Authorization", "Bearer $key")
         }
     }
@@ -737,6 +780,9 @@ class ModelProviderProbe(
 
         /** What a provider that keeps no key is called with; see [keyOptional][ModelProvider.keyOptional]. */
         const val NO_KEY = "no-key"
+
+        /** Where a Stable Diffusion WebUI lists its upscaling algorithms. */
+        const val WEBUI_UPSCALERS = "/sdapi/v1/upscalers"
 
         /** What Azure OpenAI asks for when nothing else is said. */
         const val DEFAULT_SCOPE = "https://cognitiveservices.azure.com/.default"

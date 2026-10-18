@@ -53,6 +53,15 @@ enum class ModelKind {
      * and by nothing else. Issue #577.
      */
     DECISION,
+
+    /**
+     * A picture in, the same picture larger out, by an algorithm the server
+     * names - ESRGAN, SwinIR, Lanczos. Not a drawing: there is no prompt and
+     * nothing new is meant to appear. There is no standard interface for it, so
+     * only a [ProviderType.STABLE_DIFFUSION_WEBUI] provider holds one, asked by
+     * [ModelUpscaleClient].
+     */
+    UPSCALE,
 }
 
 /** How often a token quota starts again. */
@@ -143,6 +152,16 @@ enum class ProviderType {
      * where the standard marks it transparent. See [EditMask].
      */
     STABLE_DIFFUSION_CPP,
+
+    /**
+     * AUTOMATIC1111's Stable Diffusion WebUI, or Forge or SD.Next, which serve
+     * its API unchanged: `/sdapi/v1`. Not the OpenAI shape at all. What it is
+     * here for is the one thing no standard interface offers - upscaling, by
+     * `/sdapi/v1/extra-single-image` with the algorithms its
+     * `/sdapi/v1/upscalers` lists - so its models are [ModelKind.UPSCALE] ones.
+     * A key, when the server was started with `--api-auth`, is `user:password`.
+     */
+    STABLE_DIFFUSION_WEBUI,
     ;
 
     /** How this type's server reads an edit mask, when the provider has not said. */
@@ -171,7 +190,7 @@ enum class ProviderType {
             OLLAMA, LLAMA_CPP -> 128
             ANTHROPIC -> 256
             // Takes no tools at all; nothing offers it any. An image server is not a chat.
-            SYSTEM_ONE, STABLE_DIFFUSION_CPP -> 0
+            SYSTEM_ONE, STABLE_DIFFUSION_CPP, STABLE_DIFFUSION_WEBUI -> 0
         }
 }
 
@@ -462,7 +481,8 @@ class ModelProvider(
      */
     fun keyOptional(): Boolean =
         type == ProviderType.OPENAI || type == ProviderType.OLLAMA || type == ProviderType.LLAMA_CPP ||
-            type == ProviderType.STABLE_DIFFUSION_CPP || type == ProviderType.SYSTEM_ONE
+            type == ProviderType.STABLE_DIFFUSION_CPP || type == ProviderType.STABLE_DIFFUSION_WEBUI ||
+            type == ProviderType.SYSTEM_ONE
 
     /** A copy of its own, or a variable to read one from. Never both. */
     private fun credentialSet(): Boolean = secretVariableId != null || !secret.isNullOrBlank()
@@ -898,19 +918,25 @@ class ModelNameInvalidException : RuntimeException("A model name is required")
  * `/v1/systemone` answers 404, and a decision model handed a conversation has
  * nothing to say - so the pairing is refused where it is made. Issue #577.
  */
-class ModelKindNotOfferedException(provider: String, kind: ModelKind) : RuntimeException(
-    if (kind == ModelKind.DECISION) {
-        "$provider is not a decision model provider, so it has no decision models"
-    } else {
-        "$provider is a decision model provider, so its models are decision models"
+class ModelKindNotOfferedException(provider: String, kind: ModelKind, type: ProviderType) : RuntimeException(
+    when {
+        kind == ModelKind.DECISION -> "$provider is not a decision model provider, so it has no decision models"
+        type == ProviderType.SYSTEM_ONE -> "$provider is a decision model provider, so its models are decision models"
+        kind == ModelKind.UPSCALE -> "$provider is not a Stable Diffusion WebUI, so it has no upscale models"
+        else -> "$provider is a Stable Diffusion WebUI, so its models are upscale models"
     },
 )
 
-/** The one pairing of provider and model kind that can be called: see [ModelKindNotOfferedException]. */
+/**
+ * The pairings of provider and model kind that can be called: see
+ * [ModelKindNotOfferedException]. A Stable Diffusion WebUI holds upscale models
+ * and only those, for the same reason: upscaling is its own API, and nothing
+ * else speaks it.
+ */
 fun requireKindOffered(provider: ModelProvider, kind: ModelKind) {
-    if ((provider.type == ProviderType.SYSTEM_ONE) != (kind == ModelKind.DECISION)) {
-        throw ModelKindNotOfferedException(provider.name, kind)
-    }
+    val pairs = (provider.type == ProviderType.SYSTEM_ONE) == (kind == ModelKind.DECISION) &&
+        (provider.type == ProviderType.STABLE_DIFFUSION_WEBUI) == (kind == ModelKind.UPSCALE)
+    if (!pairs) throw ModelKindNotOfferedException(provider.name, kind, provider.type)
 }
 
 class ModelIdInvalidException : RuntimeException("A model id is required")

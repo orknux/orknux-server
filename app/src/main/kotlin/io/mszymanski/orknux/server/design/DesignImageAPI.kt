@@ -1,6 +1,7 @@
 package io.mszymanski.orknux.server.design
 
 import io.mszymanski.orknux.connector.model.ModelKind
+import io.mszymanski.orknux.connector.model.ModelUpscaleClient
 import io.mszymanski.orknux.connector.model.ModelService
 import io.mszymanski.orknux.server.attachment.AttachmentDownloads
 import io.mszymanski.orknux.server.attachment.AttachmentStore
@@ -51,6 +52,7 @@ class DesignImageAPI(
     private val access: WorkspaceAccess,
     private val auditRecorder: WorkspaceAuditRecorder,
     private val artifacts: WorkspaceArtifactAPI,
+    private val upscaling: ModelUpscaleClient,
 ) {
 
     /** Refused here, before it waits, for anything that could never be drawn. */
@@ -149,6 +151,116 @@ class DesignImageAPI(
         )
         queue.queued(job)
         return view(job)
+    }
+
+    /**
+     * A picture made larger by an upscale model: a version of the picture, as an
+     * edit is, kept until saved over it or thrown away.
+     */
+    @MutationMapping
+    @Transactional
+    fun queueDesignImageUpscale(@Argument input: UpscaleDesignImageInput): DesignImageJobView {
+        val workspaceId = input.workspaceId.toLong()
+        access.requireVisible(workspaceId)
+        val modelId = input.modelId.toLong()
+        val model = models.model(modelId)?.takeIf { it.workspaceId == workspaceId }
+            ?: throw ModelNotFoundForWorkspaceException(modelId)
+        if (model.kind != ModelKind.UPSCALE) throw DesignImageRefusedException("${model.name} is not an upscale model.")
+        if (input.scale !in 1.0..8.0) throw DesignImageRefusedException("A picture can be made 1 to 8 times larger.")
+        if (!settings.attachmentsEnabled()) {
+            throw DesignImageRefusedException("A drawn picture is kept as an attachment, and attachments are turned off for this installation.")
+        }
+        val source = artifacts.storedOf(workspaceId, input.imageId)
+            ?: throw DesignImageRefusedException("The picture to make larger is not here any more.")
+        val job = jobs.save(
+            DesignImageJob(
+                workspaceId = workspaceId,
+                modelId = modelId,
+                modelName = model.name,
+                prompt = source.view.prompt,
+                size = null,
+                quality = null,
+                style = null,
+                requestedBy = currentName(),
+                sourceId = input.imageId,
+                upscaler = input.algorithm.orNullIfBlank(),
+                scale = input.scale,
+            ),
+        )
+        auditRecorder.record(
+            workspaceId,
+            WorkspaceAuditCategory.WORKFLOW,
+            "${source.view.name ?: source.view.filename} queued to be made ${input.scale}x larger in Design with ${model.name}",
+        )
+        queue.queued(job)
+        return view(job)
+    }
+
+    /** The algorithms an upscale model's server offers, asked of it now. */
+    @QueryMapping
+    fun designUpscaleAlgorithms(@Argument workspaceId: Long, @Argument modelId: Long): UpscaleAlgorithmsView {
+        access.requireVisible(workspaceId)
+        val model = models.model(modelId)?.takeIf { it.workspaceId == workspaceId }
+            ?: throw ModelNotFoundForWorkspaceException(modelId)
+        return when (val offered = upscaling.algorithms(modelId)) {
+            is ModelUpscaleClient.Algorithms.Offered -> UpscaleAlgorithmsView(offered.names, offered.preferred, null)
+            is ModelUpscaleClient.Algorithms.Failed -> UpscaleAlgorithmsView(emptyList(), model.modelId, offered.reason)
+        }
+    }
+
+    /**
+     * A picture brought in from outside, kept as a Design picture of its own -
+     * there to be edited, upscaled and saved like one drawn here.
+     */
+    @MutationMapping
+    @Transactional
+    fun importDesignImage(@Argument input: ImportDesignImageInput): ArtifactView {
+        val workspaceId = input.workspaceId.toLong()
+        access.requireVisible(workspaceId)
+        if (!settings.attachmentsEnabled()) {
+            throw DesignImageRefusedException("A picture is kept as an attachment, and attachments are turned off for this installation.")
+        }
+        val bytes = runCatching { java.util.Base64.getDecoder().decode(input.image.substringAfter("base64,")) }.getOrNull()
+            ?.takeIf { it.isNotEmpty() }
+            ?: throw DesignImageRefusedException("The file could not be read.")
+        val contentType = pictureTypeOf(bytes)
+            ?: throw DesignImageRefusedException("That file is not a picture this can keep: a PNG, JPEG, WebP or GIF.")
+        val name = input.name.orNullIfBlank()?.take(NAME_LENGTH) ?: "Imported picture"
+        val filename = PictureFilenames.of(name, contentType)
+        val saved = images.save(
+            DesignImage(
+                workspaceId = workspaceId,
+                modelId = null,
+                modelName = IMPORTED,
+                prompt = input.prompt.orNullIfBlank() ?: name,
+                size = null,
+                quality = null,
+                style = null,
+                filename = filename,
+                contentType = contentType,
+                sizeBytes = bytes.size.toLong(),
+                location = store.put(workspaceId, filename, bytes),
+                drawnBy = currentName(),
+                name = name,
+            ),
+        )
+        auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Image $filename imported into Design")
+        return artifacts.describe(saved)
+    }
+
+    /**
+     * What a file is, by its first bytes rather than by what the browser said:
+     * the type is what the gallery serves it as, and a name is no evidence.
+     */
+    private fun pictureTypeOf(bytes: ByteArray): String? {
+        fun starts(vararg head: Int) = bytes.size >= head.size && head.indices.all { (bytes[it].toInt() and 0xFF) == head[it] }
+        return when {
+            starts(0x89, 0x50, 0x4E, 0x47) -> "image/png"
+            starts(0xFF, 0xD8, 0xFF) -> "image/jpeg"
+            starts(0x47, 0x49, 0x46, 0x38) -> "image/gif"
+            bytes.size >= 12 && starts(0x52, 0x49, 0x46, 0x46) && String(bytes, 8, 4, Charsets.US_ASCII) == "WEBP" -> "image/webp"
+            else -> null
+        }
     }
 
     /**
@@ -304,6 +416,8 @@ class DesignImageAPI(
             ahead = ahead,
             name = job.name ?: PictureFilenames.nameOf(job.prompt),
             sourceId = job.sourceId,
+            upscaler = job.upscaler,
+            scale = job.scale,
             image = job.imageId?.let { images.findByIdOrNull(it) }?.let(artifacts::describe),
         )
     }
@@ -318,6 +432,9 @@ class DesignImageAPI(
     private companion object {
         /** The column's own width: a name is a title, not a description. */
         const val NAME_LENGTH = 255
+
+        /** What an imported picture says it was drawn with: nothing here drew it. */
+        const val IMPORTED = "Imported"
 
         val SHOWN = listOf(DesignImageJobStatus.QUEUED, DesignImageJobStatus.DRAWING, DesignImageJobStatus.FAILED)
     }
@@ -345,6 +462,26 @@ data class EditDesignImageInput(
     val name: String? = null,
 )
 
+data class UpscaleDesignImageInput(
+    val workspaceId: String,
+    /** The picture to make larger, by its artifact id. */
+    val imageId: String,
+    val modelId: String,
+    /** One of the server's algorithms; null or blank is the model's own. */
+    val algorithm: String? = null,
+    val scale: Double,
+)
+
+data class ImportDesignImageInput(
+    val workspaceId: String,
+    /** The file, base64. */
+    val image: String,
+    val name: String? = null,
+    val prompt: String? = null,
+)
+
+data class UpscaleAlgorithmsView(val names: List<String>, val preferred: String?, val reason: String?)
+
 data class DesignImageJobView(
     val id: String,
     val status: DesignImageJobStatus,
@@ -363,6 +500,10 @@ data class DesignImageJobView(
     val name: String,
     /** The picture an edit changes; null for one drawn from nothing. */
     val sourceId: String?,
+    /** The algorithm an upscale uses; null for anything else. */
+    val upscaler: String? = null,
+    /** How many times larger an upscale makes it; null for anything else. */
+    val scale: Double? = null,
     val image: ArtifactView?,
 )
 
