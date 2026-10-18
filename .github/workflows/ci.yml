@@ -601,6 +601,15 @@ jobs:
             || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/changelog.md"
           gh release upload "$GITHUB_REF_NAME" "${{ steps.jar.outputs.file }}" --clobber
 
+      # The desktop packages carry this same signed jar, so they are built from
+      # it rather than from a second build that could differ.
+      - name: Hand the jar to the desktop packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-jar
+          path: ${{ steps.jar.outputs.file }}
+          retention-days: 3
+
       # Two steps, because orknux.ai sits behind Cloudflare, which refuses a
       # request body over 100 MB and a jar is three times that: the release is
       # announced with its hash and size, then its bytes go up in pieces, each
@@ -631,3 +640,92 @@ jobs:
             echo "orknux.ai has $(jq -r '.received' <<<"$answer") of $SIZE bytes"
           done
           echo "$VERSION is offered through orknux.ai: $(jq -r '.jarUrl' <<<"$answer")"
+
+  # The desktop app, for Windows and Linux: orknux-one in an Electron window,
+  # carrying the jar the release just signed and a Java runtime jlinked on each
+  # platform's own runner, since a runtime is per operating system.
+  #
+  # After both images are published, on purpose: the browser product ships
+  # first, and a desktop build that fails cannot hold it back. A red job here is
+  # a release with no desktop packages yet, fixed by re-running this job alone.
+  desktop:
+    name: Desktop packages (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    needs: [release-jar, publish, publish-one]
+    if: startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            os: windows-latest
+            targets: --win nsis msi
+          - platform: linux
+            os: ubuntu-latest
+            targets: --linux deb AppImage
+
+    permissions:
+      # To attach the packages to the GitHub release.
+      contents: write
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: desktop
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Take the signed jar
+        uses: actions/download-artifact@v4
+        with:
+          name: server-jar
+          path: desktop/resources/server
+
+      - name: Name it the way the package expects
+        run: mv resources/server/orknux-server-*.jar resources/server/app.jar
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Make the runtime
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            pwsh -NoProfile -File scripts/runtime.ps1 -Jdk "$JAVA_HOME"
+          else
+            sh scripts/runtime.sh "$JAVA_HOME"
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - run: npm ci --no-fund --no-audit
+
+      # Signed where a certificate is configured. Without one the installer
+      # still works, and Windows SmartScreen warns on every install until it is.
+      - name: Package
+        env:
+          CSC_LINK: ${{ secrets.ORKNUX_WINDOWS_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.ORKNUX_WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [ "$RUNNER_OS" = Windows ] && [ -z "$CSC_LINK" ]; then
+            echo "::warning::ORKNUX_WINDOWS_CERTIFICATE is not set, so the Windows installers are unsigned and SmartScreen will warn on install."
+            unset CSC_LINK CSC_KEY_PASSWORD
+          fi
+          npx electron-builder ${{ matrix.targets }} --publish never -c.extraMetadata.version="$version"
+
+      - name: Attach them to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s nullglob
+          packages=(dist/*.exe dist/*.msi dist/*.deb dist/*.AppImage)
+          [ ${#packages[@]} -gt 0 ] || { echo "::error::electron-builder left no package in dist/"; exit 1; }
+          gh release upload "$GITHUB_REF_NAME" "${packages[@]}" --clobber

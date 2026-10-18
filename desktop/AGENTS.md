@@ -38,4 +38,6 @@ Smoke-test a package on a clean image, not on the build image, which has
 everything.
 
 **No Node on the host.** Build and test in `docker/Dockerfile`. The Windows
-package can only be made on Windows - CI's job, not this machine's.
+`.exe` can be made here in `electronuserland/builder:wine` (see README) and
+`win-unpacked` smoke-tested on this machine; the MSI needs real Windows, which
+is CI's.

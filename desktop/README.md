@@ -82,6 +82,29 @@ npm run dist:linux        # dist/Orknux-<version>.AppImage and orknux-desktop_<v
 npm run dist:win          # dist/Orknux-Setup-<version>.exe and Orknux-<version>.msi - on Windows only
 ```
 
+On a Windows machine without Node, the `.exe` installer can still be made in
+electron-builder's own image, which runs NSIS under wine; the MSI cannot, since
+WiX does not run there. The runtime has to be the Windows one - `runtime.ps1`
+on the host - and `node_modules` the one the Linux image installed:
+
+```
+.\scripts\runtime.ps1
+docker run --rm -v "${PWD}:/project" -w /project electronuserland/builder:wine `
+  node_modules/.bin/electron-builder --win nsis
+```
+
+`dist/win-unpacked/Orknux.exe` runs as it is, and takes the same smoke test:
+`ORKNUX_DESKTOP_SMOKE=<dir>` and `ORKNUX_DATA=<dir>` in its environment.
+
+### In CI
+
+A `v*` tag builds both platforms after the images are published - the browser
+product ships first - from the jar `release-jar` signed, and attaches the
+`.exe`, `.msi`, `.deb` and `.AppImage` to the GitHub release. The Windows
+installers are signed when `ORKNUX_WINDOWS_CERTIFICATE` (a base64 `.pfx`) and
+`ORKNUX_WINDOWS_CERTIFICATE_PASSWORD` are set as repository secrets; without
+them they are built unsigned, with a warning, and SmartScreen warns on install.
+
 `dist:linux:store` and `dist:win:store` build the same packages with
 self-update switched off (`orknux.selfUpdate` in `package.json`, baked in at
 build time). Use them for anything a store or a distribution updates: those
@@ -118,7 +141,6 @@ Not done yet, in roughly the order it matters:
   (`ORKNUX_DESKTOP=true`) to offer it.
 - **`ORKNUX_ADDRESS`** for the bind address, instead of passing Spring's
   `--server.address`, to match every other setting.
-- **CI**: build the jar once, then a Windows and a Linux job each run
-  `runtime.*`, `npm ci` and `dist:*`, and attach the packages to the GitHub
-  release. Windows code signing, or SmartScreen warns on every install.
+- **A Windows code-signing certificate** in the two secrets above, or
+  SmartScreen warns on every install.
 - **Window title and native menus** (Edit for copy/paste shortcuts on Linux).
