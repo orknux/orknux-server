@@ -5425,6 +5425,10 @@ type DiscoveredModel {
     "What the provider's API is given."
     modelId: String!
     added: Boolean!
+    "The context the provider runs it with, where its listing says - llama.cpp does; null otherwise."
+    contextWindow: Int
+    "Whether it is a llama.cpp server's own model, which costs nothing per token."
+    selfHosted: Boolean!
 }
 
 "One model the workspace may use, with the quotas the workspace put on it."

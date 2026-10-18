@@ -268,13 +268,20 @@ class ModelService(
     fun discoverModels(providerId: Long): List<DiscoveredModelView> {
         val provider = providers.findByIdOrNull(providerId) ?: throw ModelProviderNotFoundException(providerId)
 
-        val offered = when (val listing = probe.list(provider)) {
+        val listing = when (val listing = probe.list(provider)) {
             is ModelProviderProbe.Listing.Failed -> throw ModelDiscoveryFailedException(provider.name, listing.reason)
-            is ModelProviderProbe.Listing.Models -> listing.ids
+            is ModelProviderProbe.Listing.Models -> listing
         }
 
         val added = models.findByProviderIdIn(setOf(providerId), Sort.by("name")).map { it.modelId }.toSet()
-        return offered.sorted().map { DiscoveredModelView(modelId = it, added = it in added) }
+        return listing.ids.sorted().map {
+            DiscoveredModelView(
+                modelId = it,
+                added = it in added,
+                contextWindow = listing.details[it]?.contextWindow,
+                selfHosted = listing.details[it]?.selfHosted ?: false,
+            )
+        }
     }
 
     /** Takes the models with it, which is what the cascade is for. */
@@ -1058,6 +1065,10 @@ data class LlmModelView(
 data class DiscoveredModelView(
     val modelId: String,
     val added: Boolean,
+    /** The context the provider runs it with, where its listing said; the form fills Context Window with it. */
+    val contextWindow: Int? = null,
+    /** A llama.cpp server's own model: free per token, so the form fills the prices with nothing. */
+    val selfHosted: Boolean = false,
 )
 
 /** One day of the chart. */

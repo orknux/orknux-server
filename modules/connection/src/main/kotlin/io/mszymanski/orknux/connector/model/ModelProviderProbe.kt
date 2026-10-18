@@ -182,7 +182,7 @@ class ModelProviderProbe(
             val response = client.send(request.build(), HttpResponse.BodyHandlers.ofString())
             if (response.statusCode() !in 200..299) log.warn("{} answered {}", url, response.statusCode())
             when (val status = response.statusCode()) {
-                in 200..299 -> Listing.Models(names(response.body()))
+                in 200..299 -> Listing.Models(names(response.body()), offered(response.body()))
                 401, 403 -> Listing.Failed(
                     "The provider rejected the credentials ($status)" + said(response.body()),
                 )
@@ -225,7 +225,19 @@ class ModelProviderProbe(
 
         return try {
             val listed = clients.again { clients.clientFor(provider, credential).models().list() }
-            Listing.Models(listed.data().map { it.id() }.distinct())
+            val details = listed.data().mapNotNull { model ->
+                /*
+                 * llama.cpp's own listing carries what the SDK has no field for:
+                 * `meta.n_ctx`, the context the server was started with, and
+                 * `owned_by: llamacpp`. Read off the extra properties, which the
+                 * SDK keeps rather than drops.
+                 */
+                val meta = model._additionalProperties()["meta"]?.asObject()?.orElse(null)
+                val context = meta?.get("n_ctx")?.asNumber()?.orElse(null)?.toInt()
+                val selfHosted = model._ownedBy().asString().orElse(null) == LLAMA_CPP_OWNER
+                if (context == null && !selfHosted) null else model.id() to OfferedModel(context, selfHosted)
+            }.toMap()
+            Listing.Models(listed.data().map { it.id() }.distinct(), details)
         } catch (refused: OpenAIServiceException) {
             log.warn("{} answered {} when asked for its models", base, refused.statusCode())
             when (refused.statusCode()) {
@@ -319,8 +331,14 @@ class ModelProviderProbe(
 
     /** What asking a provider for its models produced. */
     sealed interface Listing {
-        /** What it offers. Empty is an answer too: a server with nothing loaded. */
-        data class Models(val ids: List<String>) : Listing
+        /**
+         * What it offers. Empty is an answer too: a server with nothing loaded.
+         *
+         * @param details what the listing said about a model beyond its id, by
+         *   id, where it said anything - llama.cpp says how much context it was
+         *   started with. Most providers say nothing and this is empty.
+         */
+        data class Models(val ids: List<String>, val details: Map<String, OfferedModel> = emptyMap()) : Listing
 
         /**
          * @param refused whether the provider itself said no - a credential it
@@ -369,6 +387,17 @@ class ModelProviderProbe(
      * and llama.cpp answers with both — so `data` is read first and `models`
      * only when there was none, rather than merging two spellings of one list.
      */
+    /** What a listing in the OpenAI shape said about each model beyond its id; see [Listing.Models]. */
+    private fun offered(body: String): Map<String, OfferedModel> {
+        val tree = runCatching { mapper.readTree(body) }.getOrNull() ?: return emptyMap()
+        return tree.path("data").mapNotNull { entry ->
+            val id = entry.path("id").stringValue() ?: return@mapNotNull null
+            val context = entry.path("meta").path("n_ctx").takeIf { it.isNumber }?.asInt()
+            val selfHosted = entry.path("owned_by").stringValue() == LLAMA_CPP_OWNER
+            if (context == null && !selfHosted) null else id to OfferedModel(context, selfHosted)
+        }.toMap()
+    }
+
     private fun names(body: String): List<String> {
         val tree = try {
             mapper.readTree(body)
@@ -715,3 +744,14 @@ class ModelProviderProbe(
         const val MESSAGE_LIMIT = 200
     }
 }
+
+/** What a provider's listing said about one model beyond its id. */
+data class OfferedModel(
+    /** The context the server runs it with, where it said - llama.cpp's `meta.n_ctx`. */
+    val contextWindow: Int?,
+    /** Whether it is a llama.cpp server's own model, which costs nothing per token. */
+    val selfHosted: Boolean,
+)
+
+/** What a llama.cpp server answers as `owned_by` for the model it serves. */
+const val LLAMA_CPP_OWNER = "llamacpp"

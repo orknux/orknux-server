@@ -182,6 +182,24 @@ class ModelAPITest(
     }
 
     @Test
+    fun `a llama cpp listing says how much context its model runs with, and that it is its own`() {
+        val body = """
+            {"object":"list","data":[{"id":"/models/gemma.gguf","object":"model","owned_by":"llamacpp",
+              "meta":{"n_ctx":262144,"n_ctx_train":262144,"n_params":30697345596}},
+             {"id":"hosted","object":"model","owned_by":"someone"}]}
+        """.trimIndent()
+        val id = provider("Llama", serve(200, body))
+
+        graphQlTester.document("""{ discoveredModels(providerId: $id) { modelId contextWindow selfHosted } }""")
+            .execute()
+            .path("discoveredModels[0].modelId").entity(String::class.java).isEqualTo("/models/gemma.gguf")
+            .path("discoveredModels[0].contextWindow").entity(Int::class.java).isEqualTo(262144)
+            .path("discoveredModels[0].selfHosted").entity(Boolean::class.java).isEqualTo(true)
+            .path("discoveredModels[1].contextWindow").valueIsNull()
+            .path("discoveredModels[1].selfHosted").entity(Boolean::class.java).isEqualTo(false)
+    }
+
+    @Test
     fun `an Ollama-shaped listing is read too`() {
         val body = """{"models":[{"name":"llama3.2:latest","model":"llama3.2:latest"}]}"""
         val id = provider("Ollama", serve(200, body))
