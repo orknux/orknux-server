@@ -66,7 +66,7 @@ class AgentFromModelTest(
     }
 
     @Test
-    fun `an agent is made on the model, named after it, and granted nothing`() {
+    fun `an agent is made on the model, named after it, and granted nothing of the workspace's`() {
         val modelId = model("Gemma 3")
 
         val agentId = graphQlTester.document(
@@ -104,7 +104,8 @@ class AgentFromModelTest(
         assertThat(made.skillCatalogs).isEmpty()
         assertThat(made.memoryCatalogs).isEmpty()
         assertThat(made.mcpServers).isEmpty()
-        assertThat(made.orknuxAccess).isFalse()
+        // Except asking Orknux about Orknux, which every new agent starts with.
+        assertThat(made.orknuxAccess).isTrue()
 
         // It is a change to the workspace's agents, so it is in the log the same
         // as one built by hand. A door that wrote nothing down would be a way of

@@ -320,8 +320,10 @@ class SessionShedsTest(
         server.createContext("/chat/completions") { exchange ->
             val body = exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
             received += body
-            val reply = if (body.contains("Plan the release") && !body.contains("\"tool_call_id\"") &&
-                !body.contains("What is left")
+            // Read off the conversation, not the whole body: a tool's description may say anything.
+            val said = mapper.readTree(body).path("messages").toString()
+            val reply = if (said.contains("Plan the release") && !said.contains("\"tool_call_id\"") &&
+                !said.contains("What is left")
             ) {
                 """
                 {"choices":[{"message":{"role":"assistant","content":null,

@@ -915,7 +915,8 @@ class TaskLoopTest(
 
     private fun agent(name: String, modelId: Long): Long {
         val id = graphQlTester.document(
-            """mutation { createAgent(input: { workspaceId: $workspaceId, name: "$name", type: LLM }) { id } }""",
+            // Without the Orknux access a new agent now starts with: these tests are about a task asking for it.
+            """mutation { createAgent(input: { workspaceId: $workspaceId, name: "$name", type: LLM, orknuxAccess: false }) { id } }""",
         ).execute().path("createAgent.id").entity(Long::class.java).get()
         graphQlTester.document(
             """mutation { updateAgent(id: $id, input: { name: "$name", modelId: $modelId }) { id } }""",
