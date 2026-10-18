@@ -532,6 +532,9 @@
                              TaskSweepTest calls the sweep itself. Same bargain:
                              the bean is still built, which is what lets it. -->
                         <orknux.task.sweep.enabled>false</orknux.task.sweep.enabled>
+                        <!-- No workspace appears on start: contexts share a database
+                             other tests count workspaces in. FirstWorkspaceTest calls it. -->
+                        <orknux.workspace.first-enabled>false</orknux.workspace.first-enabled>
                         <!-- The tick is called directly by the test that wants it. -->
                         <db-scheduler.enabled>false</db-scheduler.enabled>
                         <!-- No reminder is announced on a clock; SessionDueSweeperTest calls the sweep itself. -->

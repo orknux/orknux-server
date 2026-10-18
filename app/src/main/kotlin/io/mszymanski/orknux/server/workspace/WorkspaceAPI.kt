@@ -224,11 +224,21 @@ class WorkspaceAPI(
     @Transactional
     fun createWorkspace(@Argument input: CreateWorkspaceInput): Workspace {
         access.requireAdmin()
-        val name = input.name.trim()
+        return create(input.name, input.description)
+    }
+
+    /**
+     * A workspace and everything one arrives with, for whoever has already been
+     * let in: [createWorkspace] after its access check, and [FirstWorkspace] on a
+     * fresh installation, where nobody is signed in to check.
+     */
+    @Transactional
+    fun create(givenName: String, givenDescription: String?): Workspace {
+        val name = givenName.trim()
         if (name.isEmpty()) throw WorkspaceNameInvalidException()
         if (repository.findByName(name) != null) throw WorkspaceNameTakenException(name)
 
-        val workspace = repository.save(Workspace(name = name, description = input.description?.trim()?.ifEmpty { null }))
+        val workspace = repository.save(Workspace(name = name, description = givenDescription?.trim()?.ifEmpty { null }))
         auditRecorder.record(
             workspaceId = requireNotNull(workspace.id),
             operationType = WorkspaceOperationType.ADD,
