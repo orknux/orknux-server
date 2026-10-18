@@ -42,6 +42,8 @@ class DesignImageAPITest(
     @Autowired val store: AttachmentStore,
     @Autowired val api: DesignImageAPI,
     @Autowired val jobs: DesignImageJobRepository,
+    @Autowired val savedArtifacts: io.mszymanski.orknux.server.workflow.SavedArtifacts,
+    @Autowired val savedRows: io.mszymanski.orknux.server.workflow.SavedArtifactRepository,
 ) {
 
     private var workspaceId: Long = 0
@@ -58,6 +60,7 @@ class DesignImageAPITest(
     fun reset() {
         jobs.deleteAll()
         images.deleteAll()
+        savedRows.deleteAll()
         refusing = false
         usage.deleteAll()
         models.deleteAll()
@@ -251,6 +254,7 @@ class DesignImageAPITest(
                 workspaceId = workspaceId, modelId = modelId, modelName = "Editor", prompt = "A white square",
                 size = null, quality = null, style = null, filename = "white.png", contentType = "image/png",
                 sizeBytes = white.size.toLong(), location = store.put(workspaceId, "white.png", white), drawnBy = "alice",
+                name = "Blank",
             ),
         )
         val mask = Base64.getEncoder().encodeToString(png(2, 2) { x, _ -> if (x == 0) 0x00000000 else 0xFF000000.toInt() })
@@ -265,6 +269,18 @@ class DesignImageAPITest(
         val first = edit("DESIGN-${source.id}")
         val second = edit(first)
         assertThat(images.findByIdOrNull(second.removePrefix("DESIGN-").toLong())?.versionOf).isEqualTo("DESIGN-${source.id}")
+
+        // Saved as a copy: a picture of its own, the original as it was, and no version left.
+        val copy = graphQlTester.document("""mutation { saveDesignImageVersion(workspaceId: $workspaceId, id: "$second", asCopy: true) { id name versionOf } }""")
+            .execute()
+            .path("saveDesignImageVersion.name").entity(String::class.java).isEqualTo("Blank (copy)")
+            .path("saveDesignImageVersion.versionOf").valueIsNull()
+            .path("saveDesignImageVersion.id").entity(String::class.java).get()
+        assertThat(copy).isNotEqualTo("DESIGN-${source.id}")
+        assertThat(images.findAll().map { "DESIGN-${it.id}" }).containsExactlyInAnyOrder("DESIGN-${source.id}", copy)
+        assertThat(javax.imageio.ImageIO.read(store.open(source.location)).getRGB(0, 0)).isEqualTo(WHITE)
+        images.deleteById(copy.removePrefix("DESIGN-").toLong())
+        edit("DESIGN-${source.id}")
 
         graphQlTester.document("""mutation { discardDesignImageVersions(workspaceId: $workspaceId, id: "DESIGN-${source.id}") }""")
             .execute().path("discardDesignImageVersions").entity(Boolean::class.java).isEqualTo(true)
@@ -343,6 +359,35 @@ class DesignImageAPITest(
         val image = requireNotNull(javax.imageio.ImageIO.read(bytes.inputStream()))
         val alpha = image.colorModel.hasAlpha()
         return (0 until 2).map { x -> if (alpha) image.getRGB(x, 0) else image.getRGB(x, 0) and 0xFFFFFF }
+    }
+
+    @Test
+    fun `saving changes to a picture an agent saved writes over that picture`() {
+        val modelId = model("Editor", "IMAGE")
+        val white = png(2, 2) { _, _ -> WHITE }
+        val filed = savedArtifacts.save(
+            workspaceId = workspaceId,
+            savedBy = "Support responder",
+            name = "white.png",
+            description = "A white square",
+            content = Base64.getEncoder().encodeToString(white),
+            base64 = true,
+        )
+        val kept = (filed as io.mszymanski.orknux.server.workflow.SavedArtifacts.Saving.Saved).artifact
+        val mask = Base64.getEncoder().encodeToString(png(2, 2) { x, _ -> if (x == 0) 0x00000000 else 0xFF000000.toInt() })
+        val version = drawnPicture(
+            graphQlTester.document(
+                """mutation { queueDesignImageEdit(input: {
+                     workspaceId: $workspaceId, imageId: "SAVED-${kept.id}", modelId: $modelId, prompt: "Make it red", mask: "$mask"
+                   }) { id } }""",
+            ).execute().path("queueDesignImageEdit.id").entity(String::class.java).get(),
+        )
+
+        graphQlTester.document("""mutation { saveDesignImageVersion(workspaceId: $workspaceId, id: "$version") { id } }""")
+            .execute().path("saveDesignImageVersion.id").entity(String::class.java).isEqualTo("SAVED-${kept.id}")
+        val after = requireNotNull(savedRows.findByIdOrNull(requireNotNull(kept.id)))
+        assertThat(javax.imageio.ImageIO.read(store.open(after.location)).getRGB(0, 0)).isEqualTo(RED)
+        assertThat(images.count()).isZero()
     }
 
     /** Waits for the request to be drawn, and answers its picture's id. */

@@ -157,6 +157,53 @@ class WorkspaceArtifactAPI(
     }
 
     /**
+     * Another picture's bytes put in place of an artifact's own, for the image
+     * editor's Save - whatever drew the artifact: a run's, a task's, a saved
+     * file's. The row keeps everything else; the file it held is removed.
+     * False for one not in this workspace. Access is the caller's to have checked.
+     */
+    fun replaceBytes(workspaceId: Long, id: String, location: String, contentType: String, sizeBytes: Long): Boolean {
+        val (kind, rowId) = parse(id) ?: return false
+        val before: String = when (kind) {
+            ArtifactKind.IMAGE -> pictures.findByIdOrNull(rowId)?.takeIf { it.workspaceId == workspaceId }?.let {
+                val was = it.location
+                it.location = location
+                it.contentType = contentType
+                it.sizeBytes = sizeBytes
+                pictures.save(it)
+                was
+            }
+            ArtifactKind.TASK -> taskPictures.findByIdOrNull(rowId)?.takeIf { it.workspaceId == workspaceId }?.let {
+                val was = it.location
+                it.location = location
+                it.contentType = contentType
+                it.sizeBytes = sizeBytes
+                taskPictures.save(it)
+                was
+            }
+            ArtifactKind.SAVED -> saved.findByIdOrNull(rowId)?.takeIf { it.workspaceId == workspaceId }?.let {
+                val was = it.location
+                it.location = location
+                it.contentType = contentType
+                it.sizeBytes = sizeBytes
+                saved.save(it)
+                was
+            }
+            ArtifactKind.DESIGN -> designImages.findByIdOrNull(rowId)?.takeIf { it.workspaceId == workspaceId }?.let {
+                val was = it.location
+                it.location = location
+                it.contentType = contentType
+                it.sizeBytes = sizeBytes
+                designImages.save(it)
+                was
+            }
+        } ?: return false
+        runCatching { store.remove(before) }
+            .onFailure { log.warn("Artifact {} took new bytes but its old file at {} was not removed", id, before, it) }
+        return true
+    }
+
+    /**
      * Gone from the list and gone from the disk.
      *
      * The row first, then the bytes: a row with no file behind it is a broken

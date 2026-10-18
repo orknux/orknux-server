@@ -51,14 +51,14 @@ class TaskPicture(
     val filename: String,
 
     @Column(name = "content_type", nullable = false, length = 120)
-    val contentType: String,
+    var contentType: String,
 
     @Column(name = "size_bytes", nullable = false)
-    val sizeBytes: Long,
+    var sizeBytes: Long,
 
     /** Where the bytes are, as the storage that wrote them understands it. */
     @Column(name = "location", nullable = false, length = 1000)
-    val location: String,
+    var location: String,
 
     @Column(name = "drawn_at", nullable = false)
     val drawnAt: OffsetDateTime = OffsetDateTime.now(),

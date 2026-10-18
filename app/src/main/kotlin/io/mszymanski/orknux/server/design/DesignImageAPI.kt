@@ -212,38 +212,42 @@ class DesignImageAPI(
     }
 
     /**
-     * A version saved: over the picture it is a version of where that is a
-     * Design picture - its pixels, the name and the rest kept - or as a Design
-     * picture of its own where it is not, since a run's or a task's picture is
-     * not written over. Either way the picture's other versions go.
+     * A version saved: over the picture it is a version of - its pixels, the
+     * picture's name and everything else kept, whatever drew it - or, asCopy, as
+     * a Design picture of its own beside it. Either way the picture's other
+     * versions go.
      */
     @MutationMapping
     @Transactional
-    fun saveDesignImageVersion(@Argument workspaceId: Long, @Argument id: String): ArtifactView {
+    fun saveDesignImageVersion(@Argument workspaceId: Long, @Argument id: String, @Argument asCopy: Boolean?): ArtifactView {
         access.requireVisible(workspaceId)
         val version = id.removePrefix("DESIGN-").toLongOrNull()?.let { images.findByIdOrNull(it) }
             ?.takeIf { it.workspaceId == workspaceId && it.versionOf != null }
             ?: throw DesignImageRefusedException("There is no unsaved change to save.")
         val of = requireNotNull(version.versionOf)
-        val target = of.takeIf { it.startsWith("DESIGN-") }?.removePrefix("DESIGN-")?.toLongOrNull()
-            ?.let { images.findByIdOrNull(it) }?.takeIf { it.workspaceId == workspaceId }
 
-        val kept = if (target != null) {
-            val before = target.location
-            target.location = version.location
-            target.contentType = version.contentType
-            target.sizeBytes = version.sizeBytes
-            images.save(target)
-            images.delete(version)
-            runCatching { store.remove(before) }
-            target
-        } else {
+        val kept: ArtifactView = if (asCopy == true) {
+            // A picture of its own, beside the one it was made from, which stays as it was saved.
+            val from = artifacts.storedOf(workspaceId, of)?.view
             version.versionOf = null
-            images.save(version)
+            version.name = "${from?.name ?: version.name ?: PictureFilenames.nameOf(version.prompt)} (copy)"
+            version.filename = PictureFilenames.of(requireNotNull(version.name), version.contentType)
+            artifacts.describe(images.save(version))
+        } else {
+            // Written over the picture itself, whatever drew it; the version's file becomes the picture's.
+            if (!artifacts.replaceBytes(workspaceId, of, version.location, version.contentType, version.sizeBytes)) {
+                throw DesignImageRefusedException("The picture these changes were made to is not here any more; save them as a copy.")
+            }
+            images.delete(version)
+            requireNotNull(artifacts.storedOf(workspaceId, of)).view
         }
         discard(workspaceId, of)
-        auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Changes to ${kept.name ?: kept.filename} saved in Design")
-        return artifacts.describe(kept)
+        auditRecorder.record(
+            workspaceId,
+            WorkspaceAuditCategory.WORKFLOW,
+            if (asCopy == true) "Changes saved as ${kept.name ?: kept.filename} in Design" else "Changes to ${kept.name ?: kept.filename} saved in Design",
+        )
+        return kept
     }
 
     /** Every unsaved version of a picture thrown away, files and all. */

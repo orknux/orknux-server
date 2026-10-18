@@ -2249,12 +2249,12 @@ type Mutation {
     "Calls a picture drawn in Design something else; its file is named after it too."
     renameDesignImage(workspaceId: ID!, id: ID!, name: String!): Artifact!
     """
-    Saves an unsaved version over the picture it is a version of, and throws
-    the picture's other versions away. A picture drawn in Design takes the
-    version's pixels and keeps its name; one drawn by a run or a task is not
-    written over, and the version becomes a Design picture of its own.
+    Saves an unsaved version over the picture it is a version of - the
+    picture takes its pixels and keeps everything else, whatever drew it - and
+    throws the picture's other versions away. asCopy saves it as a new Design
+    picture, named "(copy)", and leaves the picture as it was.
     """
-    saveDesignImageVersion(workspaceId: ID!, id: ID!): Artifact!
+    saveDesignImageVersion(workspaceId: ID!, id: ID!, asCopy: Boolean = false): Artifact!
     "Throws away every unsaved version of a picture. True where there were any."
     discardDesignImageVersions(workspaceId: ID!, id: ID!): Boolean!
 
