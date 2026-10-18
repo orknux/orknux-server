@@ -139,6 +139,18 @@ class Agent(
     var orknuxAccess: Boolean = false,
 
     /**
+     * Whether it may ask the person for tools it was not granted.
+     *
+     * On, it is offered [io.mszymanski.orknux.server.chat.GrantRequestTools]:
+     * one tool that lists what it could be given, one that asks, and a person
+     * answers in the conversation - accepted, the grant is the agent's for good.
+     * Off, it is offered neither and cannot even ask. On by default, existing
+     * agents included (V377): asking grants nothing by itself.
+     */
+    @Column(name = "may_ask_for_tools", nullable = false)
+    var mayAskForTools: Boolean = true,
+
+    /**
      * Which boxes this agent may open a sandbox session on, by the box's name,
      * one per line; null or empty is none. Read and written through
      * [boxLabels], which keeps the name it had when a grant named a label.

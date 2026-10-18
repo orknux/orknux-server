@@ -75,6 +75,12 @@ enum class BuiltInGovernance {
      * those grants.
      */
     VARIABLE_CATALOGS,
+
+    /**
+     * Offered while the agent may ask for more tools: listing what it could be
+     * granted and asking for it. See [GrantRequestTools].
+     */
+    MAY_ASK_FOR_TOOLS,
 }
 
 /** One of the server's own tools, and what switches it. */
@@ -133,6 +139,7 @@ class BuiltInTools(
         }
         boxes.specs().forEach { add(BuiltInTool(it.name, BuiltInGovernance.BOX_ACCESS)) }
         variables.specs().forEach { add(BuiltInTool(it.name, BuiltInGovernance.VARIABLE_CATALOGS)) }
+        GrantRequestTools.SPECS.forEach { add(BuiltInTool(it.name, BuiltInGovernance.MAY_ASK_FOR_TOOLS)) }
     }
 
     companion object {

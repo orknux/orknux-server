@@ -1181,6 +1181,8 @@ class ComponentImporter(
                     enabled = node.path("enabled").asBoolean(true),
                     modelId = boundId(externalIn(node.path("modelRef"), ExternalKind.MODEL)),
                     orknuxAccess = node.path("orknuxAccess").asBoolean(false),
+                    // A file from before the switch carries none, and the agent may ask, as every agent may.
+                    mayAskForTools = node.path("mayAskForTools").asBoolean(true),
                     // A file from before boxes carries none, and grants none.
                     boxLabelsText = node.path("boxLabels").values()
                         .mapNotNull { if (it.isString) it.stringValue() else null }

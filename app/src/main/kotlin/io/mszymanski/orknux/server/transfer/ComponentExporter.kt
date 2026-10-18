@@ -561,6 +561,7 @@ class ComponentExporter(
             put("systemPrompt", held.systemPrompt)
             put("enabled", held.enabled)
             put("orknuxAccess", held.orknuxAccess)
+            put("mayAskForTools", held.mayAskForTools)
             // The boxes it may use, by label: an installation's labels, which a
             // file carries as words and the importing side reads as its own.
             putArray("boxLabels").let { labels -> held.boxLabels.forEach(labels::add) }

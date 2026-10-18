@@ -53,6 +53,15 @@ class InteractionRequest(
     @Column(nullable = false, columnDefinition = "text")
     val options: String = "[]",
 
+    /**
+     * What it is about, item by item, as [InteractionItems] writes them - the
+     * tools an agent asks for, each with its kind and what it does - for the
+     * interface to draw as a list under the question. Null where the question
+     * already names the one thing it is about.
+     */
+    @Column(columnDefinition = "text")
+    val items: String? = null,
+
     /** The id of the option chosen, or null while nobody has. */
     @Column(length = 60)
     var chosen: String? = null,
@@ -80,6 +89,12 @@ interface InteractionRequestRepository : JpaRepository<InteractionRequest, Long>
 
     fun findByKindAndSubjectId(kind: String, subjectId: Long): List<InteractionRequest>
 }
+
+/**
+ * One thing a request is about: [name] what it is called, [kind] what sort of
+ * thing it is ("plugin tool"), [description] a line on what it does.
+ */
+data class InteractionItem(val name: String, val kind: String? = null, val description: String? = null)
 
 /** One answer on offer: [id] is what is sent back, [label] what the button says. */
 data class InteractionOption(val id: String, val label: String, val style: String? = null)

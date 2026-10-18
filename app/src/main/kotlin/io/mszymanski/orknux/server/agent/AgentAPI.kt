@@ -233,6 +233,8 @@ class AgentAPI(
                 // that can read the workspace it lives in is the one people expect.
                 // New agents only - the column's default leaves existing ones as they were.
                 orknuxAccess = input.orknuxAccess ?: STARTS_WITH_ORKNUX_ACCESS,
+                // May ask the person for more tools unless the caller says not.
+                mayAskForTools = input.mayAskForTools ?: true,
                 lastModifiedBy = currentUser(),
             ).also { made -> input.boxLabels?.let { made.boxLabels = it } },
         )
@@ -370,6 +372,7 @@ class AgentAPI(
         val previousPrompt = agent.systemPrompt
         val previousServers = agent.mcpServers.toList()
         val previousOrknux = agent.orknuxAccess
+        val previousMayAsk = agent.mayAskForTools
         val previousCatalogs = agent.memoryCatalogs.toList()
         val previousSecretCatalogs = agent.secretCatalogs.toList()
         val previousVariableCatalogs = agent.variableCatalogs.toList()
@@ -436,6 +439,7 @@ class AgentAPI(
             agent.mcpServers = input.mcpServers.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
         }
         if (input.orknuxAccess != null) agent.orknuxAccess = input.orknuxAccess
+        if (input.mayAskForTools != null) agent.mayAskForTools = input.mayAskForTools
         // Which boxes it may open a session on, by label. Null leaves it alone.
         if (input.boxLabels != null) agent.boxLabels = input.boxLabels
         if (input.memoryCatalogs != null) {
@@ -628,6 +632,7 @@ class AgentAPI(
             previousPrompt,
             previousServers,
             previousOrknux,
+            previousMayAsk,
         )
         /*
          * Its own entry: this is the grant that lets an agent run commands in a
@@ -813,6 +818,7 @@ class AgentAPI(
         previousPrompt: String?,
         previousServers: List<String>,
         previousOrknux: Boolean,
+        previousMayAsk: Boolean,
     ) {
         if (agent.name != previousName) {
             auditRecorder.record(agent.workspaceId, WorkspaceAuditCategory.AGENT, "Agent $previousName renamed to ${agent.name}")
@@ -847,6 +853,17 @@ class AgentAPI(
                     "Orknux access granted to ${agent.name}"
                 } else {
                     "Orknux access withdrawn from ${agent.name}"
+                },
+            )
+        }
+        if (agent.mayAskForTools != previousMayAsk) {
+            auditRecorder.record(
+                agent.workspaceId,
+                WorkspaceAuditCategory.AGENT,
+                if (agent.mayAskForTools) {
+                    "Agent ${agent.name} may ask for more tools"
+                } else {
+                    "Agent ${agent.name} may no longer ask for more tools"
                 },
             )
         }
@@ -910,6 +927,8 @@ data class CreateAgentInput(
     val boxLabels: List<String>? = null,
     /** Whether it may ask orknux about orknux; null starts it on, as the form does. */
     val orknuxAccess: Boolean? = null,
+    /** Whether it may ask the person for tools it was not granted; null starts it on. */
+    val mayAskForTools: Boolean? = null,
 )
 
 data class UpdateAgentInput(
@@ -923,6 +942,8 @@ data class UpdateAgentInput(
     val mcpServers: List<String>? = null,
     /** Whether it may ask orknux about orknux; null leaves the grant alone. */
     val orknuxAccess: Boolean? = null,
+    /** Whether it may ask the person for tools it was not granted; null leaves it alone. */
+    val mayAskForTools: Boolean? = null,
     /** Which boxes it may use, by label; null leaves the grant alone, an empty list clears it. */
     val boxLabels: List<String>? = null,
     /**
@@ -992,6 +1013,8 @@ data class AgentView(
     val mcpServers: List<String>,
     /** Whether it may ask orknux about orknux. */
     val orknuxAccess: Boolean,
+    /** Whether it may ask the person for tools it was not granted. */
+    val mayAskForTools: Boolean,
     /** Which boxes it may open a sandbox session on, by label; empty is none. */
     val boxLabels: List<String>,
     /** Whether it may keep a file it made - `save_artifact` in `tools`; see [Agent.artifactAccess]. */
@@ -1036,6 +1059,7 @@ data class AgentView(
         modelName = modelName,
         mcpServers = agent.mcpServers.toList(),
         orknuxAccess = agent.orknuxAccess,
+        mayAskForTools = agent.mayAskForTools,
         boxLabels = agent.boxLabels,
         artifactAccess = agent.artifactAccess,
         finishAccess = agent.finishAccess,

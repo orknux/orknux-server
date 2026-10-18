@@ -39,6 +39,26 @@ interface InteractionHandler {
     fun answered(request: InteractionRequest, option: String, by: String): String
 }
 
+/** The items of a request, as the column holds them; see [InteractionRequest.items]. */
+object InteractionItems {
+    private val json = JsonMapper.builder().build()
+
+    fun encode(items: List<InteractionItem>): String? =
+        if (items.isEmpty()) null else json.writeValueAsString(
+            items.map { mapOf("name" to it.name, "kind" to it.kind, "description" to it.description) },
+        )
+
+    fun decode(text: String?): List<InteractionItem> = if (text.isNullOrBlank()) emptyList() else runCatching {
+        json.readTree(text).values().map { one ->
+            InteractionItem(
+                name = one.path("name").stringValue(),
+                kind = one.path("kind").takeIf { it.isString }?.stringValue(),
+                description = one.path("description").takeIf { it.isString }?.stringValue(),
+            )
+        }
+    }.getOrDefault(emptyList())
+}
+
 /** The options of a request, as the column holds them. */
 internal object InteractionOptions {
     private val json = JsonMapper.builder().build()
@@ -74,6 +94,8 @@ class Interactions(
         askedBy: String?,
         question: String,
         options: List<InteractionOption>,
+        /** What it is about, item by item, drawn as a list under the question; empty for none. */
+        items: List<InteractionItem> = emptyList(),
     ): InteractionRequest {
         require(kind in byKind) { "No handler answers requests of kind $kind" }
         return requests.save(
@@ -85,6 +107,7 @@ class Interactions(
                 askedBy = askedBy,
                 question = question,
                 options = InteractionOptions.encode(options),
+                items = InteractionItems.encode(items),
             ),
         )
     }
@@ -130,12 +153,15 @@ class Interactions(
 
 data class InteractionOptionView(val id: String, val label: String, val style: String?)
 
+data class InteractionItemView(val name: String, val kind: String?, val description: String?)
+
 data class InteractionRequestView(
     val id: Long,
     val kind: String,
     val askedBy: String?,
     val question: String,
     val options: List<InteractionOptionView>,
+    val items: List<InteractionItemView>,
     val chosen: String?,
     val chosenBy: String?,
     val chosenAt: String?,
@@ -149,6 +175,7 @@ data class InteractionRequestView(
             askedBy = request.askedBy,
             question = request.question,
             options = InteractionOptions.decode(request.options).map { InteractionOptionView(it.id, it.label, it.style) },
+            items = InteractionItems.decode(request.items).map { InteractionItemView(it.name, it.kind, it.description) },
             chosen = request.chosen,
             chosenBy = request.chosenBy,
             chosenAt = request.chosenAt?.toString(),

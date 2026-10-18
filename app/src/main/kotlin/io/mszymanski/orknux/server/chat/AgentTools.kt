@@ -64,6 +64,8 @@ class AgentTools(
     private val mapper: ObjectMapper,
     /** Whether the HTTP tools are switched on in Admin Settings. Issue #602. */
     private val httpPolicy: io.mszymanski.orknux.server.embedded.HttpToolPolicy,
+    /** Listing what it could be granted, and asking a person for it; see [GrantRequestTools]. */
+    private val grantRequests: GrantRequestTools,
 ) {
 
     /**
@@ -180,6 +182,14 @@ class AgentTools(
 
         // The workspace's variables, for an agent granted a secret or variable catalog.
         if (variables.offered(agent)) addAll(variables.specs())
+
+        /*
+         * What it could be given and is not, and asking a person for it, for an
+         * agent that may ask. Core rather than searchable: an agent that had to
+         * find the way to ask for a missing tool would look for the missing
+         * tool instead, find nothing, and say it cannot.
+         */
+        if (grantRequests.offered(agent)) addAll(GrantRequestTools.SPECS)
 
         /*
          * And the ids of the connections it was granted, however many: one
@@ -434,6 +444,9 @@ class AgentTools(
         } else if (boxes.handles(call.name)) {
             // Checked by the thing that would run it as well as left off the menu.
             boxes.run(agent, call.name, call.arguments, sessionId)
+        } else if (grantRequests.handles(call.name)) {
+            // The switch is read fresh by the tool itself, as the box tools read their grant.
+            grantRequests.run(agent, call.name, call.arguments, sessionId)
         } else if (variables.handles(call.name)) {
             // The grant is read fresh by the tool itself, as the box tools read theirs.
             variables.run(agent, call.name, call.arguments)

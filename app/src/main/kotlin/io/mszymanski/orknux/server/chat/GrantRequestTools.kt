@@ -1,0 +1,357 @@
+package io.mszymanski.orknux.server.chat
+
+import io.mszymanski.orknux.connector.connection.McpServerService
+import io.mszymanski.orknux.connector.model.ToolParameterSpec
+import io.mszymanski.orknux.connector.model.ToolSpec
+import io.mszymanski.orknux.server.agent.Agent
+import io.mszymanski.orknux.server.agent.AgentNotFoundException
+import io.mszymanski.orknux.server.agent.AgentRepository
+import io.mszymanski.orknux.server.agent.AgentToolRepository
+import io.mszymanski.orknux.server.interaction.InteractionHandler
+import io.mszymanski.orknux.server.interaction.InteractionItem
+import io.mszymanski.orknux.server.interaction.InteractionItems
+import io.mszymanski.orknux.server.interaction.InteractionOption
+import io.mszymanski.orknux.server.interaction.InteractionRequest
+import io.mszymanski.orknux.server.interaction.InteractionRequestRepository
+import io.mszymanski.orknux.server.interaction.Interactions
+import io.mszymanski.orknux.server.llm.SessionEventKind
+import io.mszymanski.orknux.server.llm.SessionInbox
+import io.mszymanski.orknux.server.plugin.PluginDeclarations
+import io.mszymanski.orknux.server.plugin.PluginRepository
+import io.mszymanski.orknux.server.revision.ComponentRevisionRecorder
+import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
+import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
+import org.springframework.beans.factory.ObjectProvider
+import org.springframework.data.domain.Pageable
+import org.springframework.data.repository.findByIdOrNull
+import org.springframework.stereotype.Component
+import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
+import tools.jackson.databind.ObjectMapper
+import java.time.OffsetDateTime
+
+/**
+ * What an agent could be granted and is not, and a way to ask a person for it.
+ *
+ * An agent that lacked a tool could only say it could not do the thing - and
+ * the person, who would have granted it in a click, had to go and find the
+ * agent's page, find the tool among hundreds, tick it and ask again. Two
+ * built-ins close that loop: [LIST] says what is grantable and not granted,
+ * [ASK] puts the ones it wants to the person as a question in the
+ * conversation, with each tool named, its kind and what it does. Accepted, the
+ * grant is written to the agent itself - the same lists the agent page edits,
+ * with a revision and an audit line - so it is permanent; the agent hears the
+ * outcome through its inbox and is offered the tools from its next round.
+ *
+ * Switched by [Agent.mayAskForTools], on by default: asking grants nothing by
+ * itself, a person still decides.
+ *
+ * What counts as a tool here is what the agent's Tools list grants by name -
+ * built-ins it has hidden or that are off until asked for, the workspace's own
+ * tools, the loaded plugins' - plus the two grants that bring a family of tools
+ * at once: an MCP server, and Orknux access. Catalogs, connections and boxes are
+ * grants of what to reach rather than of what to call, and stay the page's.
+ */
+@Service
+class GrantRequestTools(
+    private val agents: AgentRepository,
+    private val workspaceTools: AgentToolRepository,
+    private val plugins: PluginRepository,
+    private val declarations: PluginDeclarations,
+    private val mcpServers: McpServerService,
+    private val summaries: BuiltInToolSummaries,
+    private val httpPolicy: io.mszymanski.orknux.server.embedded.HttpToolPolicy,
+    private val requests: InteractionRequestRepository,
+    private val revisions: ComponentRevisionRecorder,
+    private val inbox: SessionInbox,
+    private val auditRecorder: WorkspaceAuditRecorder,
+    private val mapper: ObjectMapper,
+    /** A provider: the handler that answers these questions is built on this. */
+    private val interactions: ObjectProvider<Interactions>,
+) {
+
+    /** What sort of grant a [Grantable] is, which is also how it is granted. */
+    enum class Kind(val label: String) {
+        BUILT_IN("built-in tool"),
+        WORKSPACE_TOOL("workspace tool"),
+        PLUGIN_TOOL("plugin tool"),
+        MCP_SERVER("MCP server"),
+        ORKNUX("Orknux access"),
+    }
+
+    /** One thing an agent could be granted and is not. */
+    data class Grantable(val name: String, val kind: Kind, val description: String?)
+
+    /** Read once: the built-ins and what the model is told about them are fixed for a release. */
+    private val summaryByName: Map<String, String> by lazy { summaries.summaries() }
+
+    fun offered(agent: Agent): Boolean = agent.mayAskForTools
+
+    fun handles(name: String): Boolean = name == LIST || name == ASK
+
+    /**
+     * Everything this agent could be granted and is not, read fresh: the row it
+     * was handed at the start of a turn may be older than a grant made since.
+     */
+    fun grantables(given: Agent): List<Grantable> {
+        val agent = given.id?.let { agents.findByIdOrNull(it) } ?: given
+        return buildList {
+            // Built-ins: the ones on by default that it has hidden, and the ones off until asked for.
+            BuiltInTools.GRANTED.filter { it in agent.hiddenTools }.forEach {
+                add(Grantable(it, Kind.BUILT_IN, summaryByName[it]))
+            }
+            BuiltInTools.REACHING
+                .filter { it !in agent.tools && httpPolicy.offers(it) }
+                .forEach { add(Grantable(it, Kind.BUILT_IN, summaryByName[it])) }
+            workspaceTools.findByWorkspaceId(agent.workspaceId, Pageable.unpaged()).content
+                .filter { it.enabled && it.name !in agent.tools }
+                .sortedBy { it.name }
+                .forEach { add(Grantable(it.name, Kind.WORKSPACE_TOOL, line(it.summary ?: it.description))) }
+            plugins.declared().filter { it.enabled }.flatMap { plugin ->
+                declarations.readTools(plugin.declaredTools).map { tool ->
+                    Grantable("${plugin.key}_${tool.name}", Kind.PLUGIN_TOOL, line(tool.description))
+                }
+            }.filter { it.name !in agent.tools }.sortedBy { it.name }.forEach(::add)
+            mcpServers.mcpServers(agent.workspaceId)
+                .filter { it.name !in agent.mcpServers }
+                .sortedBy { it.name }
+                .forEach { add(Grantable(it.name, Kind.MCP_SERVER, "The tools the MCP server at ${it.address} offers.")) }
+            if (!agent.orknuxAccess) {
+                add(Grantable(ORKNUX, Kind.ORKNUX, "The orknux_* tools: reading and building this workspace's workflows, runs and issues."))
+            }
+        }
+    }
+
+    fun run(agent: Agent, name: String, arguments: String, sessionId: Long?): String = try {
+        // Asked of the switch now, as the box tools ask of their grant.
+        val fresh = agent.id?.let { agents.findByIdOrNull(it) } ?: agent
+        if (!fresh.mayAskForTools) {
+            refuse("This agent may not ask for more tools; a person switched that off on its page")
+        } else when (name) {
+            LIST -> listed(fresh)
+            ASK -> asked(fresh, arguments, sessionId)
+            else -> refuse("There is no tool called $name")
+        }
+    } catch (refused: Refused) {
+        refuse(refused.message)
+    }
+
+    private fun listed(agent: Agent): String {
+        val found = grantables(agent)
+        return mapper.writeValueAsString(
+            mapOf(
+                "tools" to found.map { mapOf("name" to it.name, "kind" to it.kind.label, "description" to it.description) },
+                "note" to if (found.isEmpty()) {
+                    "You hold everything this workspace could grant you."
+                } else {
+                    "None of these is yours yet. To have some, call $ASK with their names and why you need them; " +
+                        "a person decides."
+                },
+            ),
+        )
+    }
+
+    private fun asked(agent: Agent, arguments: String, sessionId: Long?): String {
+        val conversation = sessionId ?: throw Refused("There is no conversation to ask in, so there is nobody to ask")
+        val args = runCatching { mapper.readTree(arguments.ifBlank { "{}" }) }.getOrNull()
+            ?: throw Refused("The arguments were not a JSON object")
+        val wanted = args.path("tools").let { node ->
+            if (node.isArray) node.values().mapNotNull { if (it.isString) it.stringValue().trim() else null } else emptyList()
+        }.filter { it.isNotEmpty() }.distinct()
+        if (wanted.isEmpty()) throw Refused("Name the tools you want in tools - $LIST says which you could be given")
+        if (wanted.size > MOST_AT_ONCE) throw Refused("Ask for at most $MOST_AT_ONCE tools at once")
+        val why = args.path("why").takeIf { it.isString }?.stringValue()?.trim()?.ifEmpty { null }
+            ?: throw Refused("Say in why what you need them for - the person decides on that")
+
+        val grantable = grantables(agent).associateBy { it.name }
+        val unknown = wanted.filter { it !in grantable }
+        if (unknown.isNotEmpty()) {
+            throw Refused(
+                "${unknown.joinToString(", ")} " + (if (unknown.size == 1) "is" else "are") +
+                    " not something you could be granted - either you already hold it, or it does not exist here. " +
+                    "$LIST says what you could be given.",
+            )
+        }
+        val asking = wanted.map { grantable.getValue(it) }
+
+        // The same tools asked for again while the first question is open answer the first question.
+        val open = requests.findByLlmSessionIdOrderByCreatedAtAscIdAsc(conversation).firstOrNull { request ->
+            request.kind == KIND && request.chosen == null && request.subjectId == agent.id &&
+                InteractionItems.decode(request.items).map { it.name }.toSet() == wanted.toSet()
+        }
+        if (open == null) {
+            interactions.getObject().ask(
+                workspaceId = agent.workspaceId,
+                llmSessionId = conversation,
+                kind = KIND,
+                subjectId = agent.id,
+                askedBy = agent.name,
+                question = "${agent.name} asks to be given " +
+                    (if (asking.size == 1) "this tool" else "these ${asking.size} tools") + " for good: $why",
+                options = listOf(
+                    InteractionOption(ACCEPT, "Accept", "primary"),
+                    InteractionOption(REFUSE, "Refuse", "danger"),
+                ),
+                items = asking.map { InteractionItem(it.name, it.kind.label, it.description) },
+            )
+            auditRecorder.recordAutomated(
+                agent.workspaceId,
+                WorkspaceAuditCategory.AGENT,
+                "${agent.name} asked for tools ${wanted.joinToString(", ")}",
+                agent.name,
+            )
+        }
+        return mapper.writeValueAsString(
+            mapOf(
+                "asked" to wanted,
+                "status" to "pending",
+                "note" to "The person has been asked in the conversation to accept or refuse. You will be told " +
+                    "the answer; until then you do not hold these tools. Tell the person what you asked for and " +
+                    "why, then carry on without them or end your turn.",
+            ),
+        )
+    }
+
+    /**
+     * Writes the tools of [request] to the agent it is about, for good, and
+     * tells the agent. Whatever is no longer grantable - removed since, or
+     * granted some other way - is left out and said.
+     */
+    @Transactional
+    fun accept(request: InteractionRequest, by: String): String {
+        val agent = request.subjectId?.let { agents.findByIdOrNull(it) }
+            ?: throw AgentNotFoundException(request.subjectId ?: 0)
+        val wanted = InteractionItems.decode(request.items).map { it.name }
+        val grantable = grantables(agent).associateBy { it.name }
+        val granting = wanted.mapNotNull { grantable[it] }
+        val gone = wanted.filter { it !in grantable }
+
+        if (granting.isNotEmpty()) {
+            // What it is about to stop being: a grant is a change to the agent like any save on its page.
+            revisions.saved(agent)
+            granting.forEach { one ->
+                when (one.kind) {
+                    Kind.BUILT_IN ->
+                        if (BuiltInTools.reaches(one.name)) agent.tools.add(one.name) else agent.hiddenTools.remove(one.name)
+                    Kind.WORKSPACE_TOOL, Kind.PLUGIN_TOOL -> agent.tools.add(one.name)
+                    Kind.MCP_SERVER -> agent.mcpServers.add(one.name)
+                    Kind.ORKNUX -> agent.orknuxAccess = true
+                }
+            }
+            agent.lastModifiedAt = OffsetDateTime.now()
+            agent.lastModifiedBy = by
+            agents.save(agent)
+            auditRecorder.record(
+                agent.workspaceId,
+                WorkspaceAuditCategory.AGENT,
+                "Agent ${agent.name} granted tools ${granting.joinToString(", ") { it.name }} (asked in chat)",
+            )
+        }
+        val names = granting.joinToString(", ") { it.name }
+        inbox.post(
+            request.llmSessionId,
+            SessionEventKind.ANSWER,
+            buildString {
+                if (granting.isNotEmpty()) append("$by granted you $names for good; they are offered from your next round on.")
+                if (gone.isNotEmpty()) {
+                    if (isNotEmpty()) append(" ")
+                    append("${gone.joinToString(", ")} could not be granted: you hold it already, or it is gone.")
+                }
+            },
+        )
+        return when {
+            granting.isEmpty() -> "Nothing left to grant"
+            gone.isEmpty() -> "Granted - $names"
+            else -> "Granted - $names (not ${gone.joinToString(", ")})"
+        }
+    }
+
+    /** Says no, and tells the agent, which then knows to carry on without them. */
+    @Transactional
+    fun refuse(request: InteractionRequest, by: String): String {
+        val names = InteractionItems.decode(request.items).joinToString(", ") { it.name }
+        inbox.post(
+            request.llmSessionId,
+            SessionEventKind.ANSWER,
+            "$by refused to give you $names. Carry on without them, or tell the person what you cannot do instead.",
+        )
+        auditRecorder.record(
+            request.workspaceId,
+            WorkspaceAuditCategory.AGENT,
+            "Tools $names refused to ${request.askedBy ?: "an agent"}",
+        )
+        return "Refused"
+    }
+
+    private fun refuse(message: String): String = mapper.writeValueAsString(mapOf("error" to message))
+
+    private class Refused(override val message: String) : RuntimeException(message)
+
+    /** A description's first sentence, which is what a line in a list has room for. */
+    private fun line(text: String?): String? =
+        text?.trim()?.ifEmpty { null }?.let { whole ->
+            val end = whole.indexOf(". ")
+            (if (end in 1 until FIRST_SENTENCE) whole.substring(0, end + 1) else whole).take(FIRST_SENTENCE)
+        }
+
+    companion object {
+        const val LIST = "tools_ungranted"
+        const val ASK = "tools_request"
+
+        /** The kind of [InteractionRequest] these ask, answered by [ToolGrantRequests]. */
+        const val KIND = "agent.tools"
+        const val ACCEPT = "accept"
+        const val REFUSE = "refuse"
+
+        /** What [Kind.ORKNUX] is asked for by. */
+        const val ORKNUX = "orknux"
+
+        /** How many tools one question may carry: a person reads every one before saying yes. */
+        private const val MOST_AT_ONCE = 20
+        private const val FIRST_SENTENCE = 200
+
+        val SPECS: List<ToolSpec> = listOf(
+            ToolSpec(
+                name = LIST,
+                description = "Lists the tools you could be given and have not been: built-in tools switched off " +
+                    "for you, this workspace's tools, plugins' tools, MCP servers and Orknux access - each with " +
+                    "its kind and what it does. Use it when a task needs something you do not hold, before " +
+                    "telling the person you cannot do it; then ask for what you need with $ASK.",
+                summary = "list the tools you could be given and do not hold",
+            ),
+            ToolSpec(
+                name = ASK,
+                description = "Asks the person, in this conversation, to give you tools for good - names from " +
+                    "$LIST, and why you need them. They are shown each tool and choose Accept or Refuse; nothing " +
+                    "is granted until they accept. The answer reaches you later, so after asking tell the person " +
+                    "what you asked for and why, and carry on without the tools or end your turn. Ask only for " +
+                    "what the task in front of you needs.",
+                parameters = listOf(
+                    ToolParameterSpec(
+                        name = "tools",
+                        description = "The names to ask for, exactly as $LIST gives them.",
+                        required = true,
+                        schema = mapOf("type" to "array", "items" to mapOf("type" to "string")),
+                    ),
+                    ToolParameterSpec(
+                        name = "why",
+                        description = "One sentence on what you need them for, which the person reads before deciding.",
+                        required = true,
+                    ),
+                ),
+                summary = "ask the person to give you tools you do not hold",
+            ),
+        )
+    }
+}
+
+/** The questions [GrantRequestTools] asks: may this agent have these tools. */
+@Component
+class ToolGrantRequests(private val grants: GrantRequestTools) : InteractionHandler {
+    override val kind = GrantRequestTools.KIND
+
+    override fun answered(request: InteractionRequest, option: String, by: String): String = when (option) {
+        GrantRequestTools.ACCEPT -> grants.accept(request, by)
+        else -> grants.refuse(request, by)
+    }
+}

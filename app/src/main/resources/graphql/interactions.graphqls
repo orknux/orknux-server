@@ -26,6 +26,8 @@ type InteractionRequest {
     askedBy: String
     question: String!
     options: [InteractionOption!]!
+    "What it is about, item by item - the tools an agent asks for - drawn as a list under the question; empty for none."
+    items: [InteractionItem!]!
     "The id of the option chosen; `settled` when it was decided somewhere else; null while open."
     chosen: String
     chosenBy: String
@@ -40,4 +42,12 @@ type InteractionOption {
     label: String!
     "A hint for drawing it: primary, danger, or null."
     style: String
+}
+
+"One thing a request is about: a tool asked for, with what sort of tool it is and what it does."
+type InteractionItem {
+    name: String!
+    "What sort of thing it is, such as \"plugin tool\"."
+    kind: String
+    description: String
 }

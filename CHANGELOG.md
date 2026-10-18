@@ -21,9 +21,11 @@ have failed.
 
 - **Chat answers render LaTeX maths.** `$x$`, `$$x$$`, `\(x\)` and `\[x\]` are set by KaTeX wherever the product draws markdown - chat, task outcomes, issues - while a price like "$5 and $10" and anything inside code stay as written.
 - **A fresh installation starts with a workspace.** The first start on an empty database - the desktop app, a new orknux-one, a new server - makes one called Default, set up as the admin page sets one up, so chat works straight away. An installation that already has workspaces is not given one, and removing every workspace later does not bring it back.
+- **An agent can ask for the tools it lacks.** Instead of saying it cannot do something, an agent lists the tools it could be given - built-ins switched off for it, the workspace's and plugins' tools, MCP servers, Orknux access - and asks for the ones it needs. The question in the chat names each tool, its kind and what it does, with Accept and Refuse; accepted, the tools are the agent's for good, recorded as a change to the agent.
 
 ### 🔧 Changed
 
+- **Every agent may ask for more tools, existing ones included.** Asking grants nothing until a person accepts. To stop an agent asking at all, untick **May ask for more tools** on its page.
 - **Voice mode is always on the chat bar.** Where the workspace has no speech or transcription model it is drawn off instead of hidden, and hovering it says which model is missing and links to where it is chosen. A workspace that wants it gone ticks **Hide the voice mode button** in its settings' Voice card.
 
 ## 1.1.2

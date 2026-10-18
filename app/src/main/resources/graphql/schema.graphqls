@@ -3295,6 +3295,8 @@ type Agent {
     one of the workspace's own and never appears among them.
     """
     orknuxAccess: Boolean!
+    "Whether it may ask the person for tools it was not granted, who answers Accept or Refuse in the conversation. On by default."
+    mayAskForTools: Boolean!
     "Whether it may keep a file it made, on the workspace's Artifacts page. On by default."
     artifactAccess: Boolean!
     """
@@ -4552,6 +4554,8 @@ input CreateAgentInput {
     boxLabels: [String!]
     "Whether it may ask orknux about orknux; left out, a new agent may."
     orknuxAccess: Boolean
+    "Whether it may ask the person for tools it was not granted; left out, a new agent may."
+    mayAskForTools: Boolean
 }
 
 input UpdateAgentInput {
@@ -4565,6 +4569,8 @@ input UpdateAgentInput {
     mcpServers: [String!]
     "Whether it may ask orknux about orknux; null leaves the grant alone."
     orknuxAccess: Boolean
+    "Whether it may ask the person for tools it was not granted; null leaves it alone."
+    mayAskForTools: Boolean
     "Whether it may keep a file it made. On by default."
     artifactAccess: Boolean
     "Whether it may end its turn by saying so rather than writing prose. On by default."
@@ -6401,6 +6407,8 @@ type BuiltInTool {
 enum BuiltInToolGovernance {
     "Its name in the agent's Tools list."
     GRANT
+    "Offered while the agent may ask for more tools."
+    MAY_ASK_FOR_TOOLS
     """
     Its name in the agent's Tools list, but off until somebody asks for it, and
     switchable without the workspace's unsafe-visibility setting.
