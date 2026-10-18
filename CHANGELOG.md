@@ -17,6 +17,10 @@ have failed.
 
 ## Unreleased
 
+### ✨ Added
+
+- **Chat answers render LaTeX maths.** `$x$`, `$$x$$`, `\(x\)` and `\[x\]` are set by KaTeX wherever the product draws markdown - chat, task outcomes, issues - while a price like "$5 and $10" and anything inside code stay as written.
+
 ### 🔧 Changed
 
 - **Voice mode is always on the chat bar.** Where the workspace has no speech or transcription model it is drawn off instead of hidden, and hovering it says which model is missing and links to where it is chosen. A workspace that wants it gone ticks **Hide the voice mode button** in its settings' Voice card.
