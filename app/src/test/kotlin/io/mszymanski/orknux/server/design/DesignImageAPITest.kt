@@ -126,6 +126,16 @@ class DesignImageAPITest(
         graphQlTester.document("""mutation { saveDesignImage(workspaceId: $workspaceId, id: "$id") { draft } }""")
             .execute().path("saveDesignImage.draft").entity(Boolean::class.java).isEqualTo(false)
         assertThat(listed(false)).containsExactly(id)
+
+        // Called after its prompt's first words, and renamed, with its file.
+        graphQlTester.document("""query { workspaceArtifact(workspaceId: $workspaceId, id: "$id") { name } }""")
+            .execute().path("workspaceArtifact.name").entity(String::class.java).isEqualTo("A red square")
+        graphQlTester.document("""mutation { renameDesignImage(workspaceId: $workspaceId, id: "$id", name: "  Brand mark ") { name filename } }""")
+            .execute()
+            .path("renameDesignImage.name").entity(String::class.java).isEqualTo("Brand mark")
+            .path("renameDesignImage.filename").entity(String::class.java).isEqualTo("brand-mark.png")
+        graphQlTester.document("""mutation { renameDesignImage(workspaceId: $workspaceId, id: "$id", name: " ") { name } }""")
+            .execute().errors().satisfy { assertThat(it.single().message).isEqualTo("A picture needs a name.") }
     }
 
     @Test

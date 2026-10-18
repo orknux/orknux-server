@@ -124,6 +124,7 @@ class DesignDrawQueue(
                             location = store.put(job.workspaceId, filename, picture.image),
                             drawnBy = job.requestedBy,
                             saved = false,
+                            name = PictureFilenames.nameOf(job.prompt),
                         ),
                     )
                     job.status = DesignImageJobStatus.DRAWN

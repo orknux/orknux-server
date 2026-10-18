@@ -265,6 +265,7 @@ class WorkspaceArtifactAPI(
         at = image.drawnAt,
         drawnWith = ArtifactDrawing(image.modelId?.toString(), image.modelName, image.size, image.quality, image.style, image.drawnBy),
         draft = !image.saved,
+        name = image.name ?: io.mszymanski.orknux.server.attachment.PictureFilenames.nameOf(image.prompt),
     )
 
     private fun describe(picture: TaskPicture) = ArtifactView(
@@ -345,10 +346,13 @@ data class ArtifactView(
     val drawnWith: ArtifactDrawing? = null,
     /** Drawn in the image editor and not yet saved. */
     val draft: Boolean = false,
+    /** What a picture drawn in Design is called; null for anything else, which goes by its prompt. */
+    val name: String? = null,
 ) {
     /** What the page shows is what a search reads: the caption and the name. */
     fun matches(looking: String): Boolean =
-        prompt.contains(looking, ignoreCase = true) || filename.contains(looking, ignoreCase = true)
+        prompt.contains(looking, ignoreCase = true) || filename.contains(looking, ignoreCase = true) ||
+            name?.contains(looking, ignoreCase = true) == true
 }
 
 data class ArtifactDrawing(

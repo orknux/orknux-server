@@ -26,6 +26,18 @@ object PictureFilenames {
      *   because a provider that answered with a type nobody expected is not a
      *   reason to write it into a filename.
      */
+    /**
+     * A name for a picture out of its description: its first words, as written.
+     *
+     * What a picture is called until somebody calls it something else - the
+     * opening of a prompt says what the picture is, and the rest is how.
+     */
+    fun nameOf(prompt: String): String =
+        prompt.trim().split(Regex("\\s+")).take(WORDS).joinToString(" ")
+            .trimEnd(',', '.', ';', ':', '-')
+            .replaceFirstChar { it.uppercase() }
+            .ifEmpty { "Picture" }
+
     fun of(prompt: String, contentType: String): String {
         val stem = prompt.lowercase()
             .map { if (it.isLetterOrDigit()) it else '-' }

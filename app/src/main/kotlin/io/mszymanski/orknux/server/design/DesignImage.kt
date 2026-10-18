@@ -48,7 +48,7 @@ class DesignImage(
     val style: String?,
 
     @Column(nullable = false, length = 255)
-    val filename: String,
+    var filename: String,
 
     @Column(name = "content_type", nullable = false, length = 120)
     val contentType: String,
@@ -76,6 +76,10 @@ class DesignImage(
      */
     @Column(nullable = false)
     var saved: Boolean = false,
+
+    /** What it is called; null for one drawn before pictures had names, which reads its prompt instead. */
+    @Column(length = 255)
+    var name: String? = null,
 )
 
 interface DesignImageRepository : JpaRepository<DesignImage, Long> {

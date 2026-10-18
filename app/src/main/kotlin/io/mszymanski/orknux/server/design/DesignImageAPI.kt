@@ -5,6 +5,7 @@ import io.mszymanski.orknux.connector.model.ModelService
 import io.mszymanski.orknux.server.attachment.AttachmentDownloads
 import io.mszymanski.orknux.server.attachment.AttachmentStore
 import io.mszymanski.orknux.server.attachment.InstallationSettings
+import io.mszymanski.orknux.server.attachment.PictureFilenames
 import io.mszymanski.orknux.server.security.WorkspaceAccess
 import io.mszymanski.orknux.server.workflow.ArtifactView
 import io.mszymanski.orknux.server.workflow.WorkspaceArtifactAPI
@@ -141,6 +142,26 @@ class DesignImageAPI(
         return artifacts.describe(image)
     }
 
+    /** A new name, and the file named after it, so a download says what the picture is called. */
+    @MutationMapping
+    @Transactional
+    fun renameDesignImage(@Argument workspaceId: Long, @Argument id: String, @Argument name: String): ArtifactView {
+        access.requireVisible(workspaceId)
+        val image = id.removePrefix("DESIGN-").toLongOrNull()?.let { images.findByIdOrNull(it) }?.takeIf { it.workspaceId == workspaceId }
+            ?: throw DesignImageRefusedException("That picture is not here any more.")
+        val called = name.trim()
+        if (called.isEmpty()) throw DesignImageRefusedException("A picture needs a name.")
+        if (called.length > NAME_LENGTH) throw DesignImageRefusedException("A picture's name is at most $NAME_LENGTH characters.")
+        if (called != image.name) {
+            val before = image.name ?: PictureFilenames.nameOf(image.prompt)
+            image.name = called
+            image.filename = PictureFilenames.of(called, image.contentType)
+            images.save(image)
+            auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Image $before renamed to $called in Design")
+        }
+        return artifacts.describe(image)
+    }
+
     /** To anybody who can see the workspace, answered as missing otherwise - as a task's picture is. */
     @GetMapping("/api/design-images/{id}")
     @ResponseBody
@@ -188,6 +209,9 @@ class DesignImageAPI(
     private fun String?.orNullIfBlank(): String? = this?.trim()?.takeIf { it.isNotEmpty() }
 
     private companion object {
+        /** The column's own width: a name is a title, not a description. */
+        const val NAME_LENGTH = 255
+
         val SHOWN = listOf(DesignImageJobStatus.QUEUED, DesignImageJobStatus.DRAWING, DesignImageJobStatus.FAILED)
     }
 }

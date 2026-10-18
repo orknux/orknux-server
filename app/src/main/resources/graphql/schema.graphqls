@@ -2240,6 +2240,8 @@ type Mutation {
     dismissDesignImageJob(id: ID!): Boolean!
     "Keeps a draft drawn in the image editor. Discarding one is deleteArtifact."
     saveDesignImage(workspaceId: ID!, id: ID!): Artifact!
+    "Calls a picture drawn in Design something else; its file is named after it too."
+    renameDesignImage(workspaceId: ID!, id: ID!, name: String!): Artifact!
 
     """ Gone from the list and gone from the disk. False if there was no such artifact. """
     deleteArtifact(id: ID!): Boolean!
@@ -8075,6 +8077,8 @@ type Artifact {
     drawnWith: ArtifactDrawing
     "Drawn in Design's image editor and not yet saved; Artifacts lists only what was saved."
     draft: Boolean!
+    "What a picture drawn in Design is called - its prompt's first words until renamed; null for anything else."
+    name: String
 }
 
 """ The model a picture was drawn with, the parameters it was asked for, and who asked. """
