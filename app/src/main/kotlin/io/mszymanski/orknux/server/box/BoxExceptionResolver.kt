@@ -18,7 +18,6 @@ class BoxExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is BoxAddressInvalidException,
             is LocalBoxNotRemovableException,
             is LocalBoxNotEditableException,
-            is BoxLabelRequiredException,
             is LocalBoxRuntimeUnknownException,
             is LocalBoxMaxSessionsOutOfRangeException,
             is BoxMaxPortsOutOfRangeException,

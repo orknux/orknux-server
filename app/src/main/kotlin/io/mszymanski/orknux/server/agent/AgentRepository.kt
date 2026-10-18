@@ -10,7 +10,7 @@ import org.springframework.data.repository.query.Param
 interface AgentRepository : JpaRepository<Agent, Long> {
 
     /**
-     * The box labels an agent holds now, read from the row rather than from an
+     * The boxes an agent is granted now, read from the row rather than from an
      * entity: a query for a column goes to the database, where a lookup by id
      * hands back whatever copy the persistence context already holds.
      */

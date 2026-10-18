@@ -83,13 +83,6 @@ const val MAX_BOX_EDIT_UNDO_STEPS = 100
 const val DEFAULT_BOX_EDIT_UNDO_STEPS = 10
 
 /**
- * The local box's label, which is fixed: there is one local box on every
- * installation, and an agent granted `local` should mean the same thing on all
- * of them.
- */
-const val LOCAL_BOX_LABEL = "local"
-
-/**
  * How the local box is set up, and how every box is spoken to.
  *
  * Rows in `installation_setting`, like every other Admin setting, read through

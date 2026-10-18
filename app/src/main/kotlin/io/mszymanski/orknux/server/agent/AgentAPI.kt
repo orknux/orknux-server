@@ -237,7 +237,7 @@ class AgentAPI(
             auditRecorder.record(
                 input.workspaceId,
                 WorkspaceAuditCategory.AGENT,
-                "Agent $name box labels set to ${agent.boxLabels.joinToString(", ")}",
+                "Agent $name boxes set to ${agent.boxLabels.joinToString(", ")}",
             )
         }
         return describe(agent)
@@ -633,9 +633,9 @@ class AgentAPI(
                 agent.workspaceId,
                 WorkspaceAuditCategory.AGENT,
                 if (agent.boxLabels.isEmpty()) {
-                    "Agent ${agent.name} box labels cleared"
+                    "Agent ${agent.name} boxes cleared"
                 } else {
-                    "Agent ${agent.name} box labels set to ${agent.boxLabels.joinToString(", ")}"
+                    "Agent ${agent.name} boxes set to ${agent.boxLabels.joinToString(", ")}"
                 },
             )
         }

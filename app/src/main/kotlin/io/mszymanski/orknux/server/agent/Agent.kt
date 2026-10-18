@@ -139,14 +139,13 @@ class Agent(
     var orknuxAccess: Boolean = false,
 
     /**
-     * Which boxes this agent may open a sandbox session on, by label, one per
-     * line; null or empty is none. Read and written through [boxLabels].
+     * Which boxes this agent may open a sandbox session on, by the box's name,
+     * one per line; null or empty is none. Read and written through
+     * [boxLabels], which keeps the name it had when a grant named a label.
      *
-     * By label rather than by box, for the reason the shells were unnamed: an
-     * agent's question is "may I run a command somewhere of this kind", and a
-     * box replaced by another under the same label should not leave every
-     * agent's grant pointing at nothing. None by default, the local box
-     * included - the local runtime runs commands as this server's own user.
+     * A box renamed takes its grants with it (`BoxGrantsByName.rename`). None
+     * by default, the local box included - the local runtime runs commands as
+     * this server's own user.
      *
      * A column of text rather than a table of rows, so a patch release could
      * add it: a nullable column is the one change an older jar does not notice.
@@ -445,7 +444,7 @@ class Agent(
             .granted(this, io.mszymanski.orknux.server.workflow.StepPictureTools.LINK)
 
     /**
-     * The box labels this agent may use, trimmed, each once, in the order given.
+     * The boxes this agent may use, by name, trimmed, each once, in the order given.
      * A view of [boxLabelsText], with no field of its own for Hibernate to map.
      */
     var boxLabels: List<String>

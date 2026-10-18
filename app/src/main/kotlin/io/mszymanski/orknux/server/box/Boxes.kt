@@ -13,7 +13,6 @@ data class KnownBox(
     val id: String,
     val name: String,
     val kind: BoxKind,
-    val label: String?,
     /** The row behind a remote box; null for the local one. */
     val row: Box? = null,
 )
@@ -62,18 +61,22 @@ class Boxes(
         if (name.trim().equals(LOCAL_BOX_NAME, ignoreCase = true)) localBox() else boxes.findByName(name.trim())?.let(::known)
 
     /**
-     * The boxes [agent] may open a session on: those whose label is one it was
-     * granted. A box with no label is nobody's, and an agent granted no label
-     * reaches none - the local box included.
+     * The boxes [agent] may open a session on: those it was granted by name. An
+     * agent granted none reaches none - the local box included.
+     *
+     * By name and nothing else. A box used to carry a label as well, and a grant
+     * named the label; two names for one box was one more thing to set, and the
+     * label was the one nobody could see from anywhere an agent used it.
+     * [BoxGrantsByName] moved the grants over.
      */
     fun usableBy(agent: Agent): List<KnownBox> {
         val granted = labelsNow(agent)
         if (granted.isEmpty()) return emptyList()
-        return all().filter { it.label != null && it.label in granted }
+        return all().filter { it.name in granted }
     }
 
     /** Whether [agent] may use [box] now. Asked on every call, so a grant taken back is taken back at once. */
-    fun mayUse(agent: Agent, box: KnownBox): Boolean = box.label != null && box.label in labelsNow(agent)
+    fun mayUse(agent: Agent, box: KnownBox): Boolean = box.name in labelsNow(agent)
 
     /**
      * Whether [agent] may work in a session on [box] that the agent [openerId]
@@ -135,9 +138,9 @@ class Boxes(
     fun requestTimeout(): Duration = Duration.ofSeconds(settings.requestTimeoutSeconds().toLong())
 
     private fun localBox(): KnownBox? =
-        if (local.enabled()) KnownBox(LOCAL_BOX_ID, LOCAL_BOX_NAME, BoxKind.LOCAL, LOCAL_BOX_LABEL) else null
+        if (local.enabled()) KnownBox(LOCAL_BOX_ID, LOCAL_BOX_NAME, BoxKind.LOCAL) else null
 
-    private fun known(row: Box) = KnownBox(requireNotNull(row.id).toString(), row.name, BoxKind.REMOTE, row.label, row)
+    private fun known(row: Box) = KnownBox(requireNotNull(row.id).toString(), row.name, BoxKind.REMOTE, row)
 
     companion object {
         /**

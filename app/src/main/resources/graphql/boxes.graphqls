@@ -1,7 +1,7 @@
 # Boxes: orkbox instances an agent can open a sandbox session on - a workspace
 # filesystem and a way to run commands in it. The local box is embedded in this
 # server and configured in Admin Settings; remote boxes are orkbox servers an
-# administrator registered. An agent reaches a box through its label.
+# administrator registered. An agent reaches a box through its name.
 
 extend type Query {
     "The ports a conversation's agents asked to expose out of their box sessions, oldest first."
@@ -25,7 +25,7 @@ extend type Query {
     was recorded. Administrators only.
     """
     boxSessions(id: ID!): [BoxRemoteSession!]!
-    "The labels in use on boxes, sorted, for suggesting an agent's box labels."
+    "Every box's name, sorted: what an agent's box grant names. Called labels from when a grant named a label."
     boxLabels: [String!]!
     """
     The box sessions a conversation's agents opened, newest first (by when they
@@ -59,8 +59,9 @@ extend type Mutation {
     "Registers a remote box. Administrators only."
     createBox(input: BoxInput!): Box!
     """
-    Changes a remote box. Refused for the local box, whose label is always
-    `local` and whose settings are Admin Settings. Administrators only.
+    Changes a remote box. Refused for the local box, whose name is always
+    `local` and whose settings are Admin Settings. Renaming a box moves the
+    agents granted it to the new name. Administrators only.
     """
     updateBox(id: ID!, input: BoxInput!): Box!
     "A remote box's stored token, for showing it on its page. Audited. Administrators only."
@@ -210,8 +211,8 @@ type Box {
     "What an agent opens a session on it by."
     name: String!
     kind: BoxKind!
-    "What an agent's grant names; null is a box no agent may use."
-    label: String
+    "The name again, for an older client: a box no longer has a label of its own."
+    label: String @deprecated(reason: "A box is granted by its name; read name.")
     "Remote boxes only."
     address: String
     "Whether a token is stored; the token itself is never sent."
@@ -321,7 +322,7 @@ type SessionBox {
     createdAt: String!
     lastUsedAt: String
     """
-    The box's label as it is now, not when the session was opened: always
+    The box's name as it is now, not when the session was opened: always
     `local` for the local box, null for a remote box since removed.
     """
     boxLabel: String
@@ -385,8 +386,8 @@ type BoxOutput {
 input BoxInput {
     "Unique, and never `local`. Ignored for the local box."
     name: String!
-    "Required: what an agent is granted the box by. Ignored for the local box, whose label is always local."
-    label: String
+    "Ignored: a box is granted by its name. Accepted so an older client's form still saves."
+    label: String @deprecated(reason: "A box is granted by its name.")
     "An http or https URL. Ignored for the local box."
     address: String
     "On update: null keeps the stored token, empty clears it. Ignored for the local box."
@@ -402,7 +403,7 @@ type BoxPort {
     "The box session it is in."
     sessionBoxId: ID!
     boxName: String!
-    "The label of the box the session runs on, as it is now."
+    "The name of the box the session runs on, as it is now."
     boxLabel: String
     "The port inside the session."
     port: Int!

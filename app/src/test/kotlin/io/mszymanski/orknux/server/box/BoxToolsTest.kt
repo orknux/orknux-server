@@ -100,7 +100,7 @@ class BoxToolsTest(
     }
 
     @Test
-    fun `an agent granted no label is offered no box tool, and one granted a label all of them`() {
+    fun `an agent granted no box is offered no box tool, and one granted a box all of them`() {
         val without = agents.save(Agent(workspaceId = workspaceId, name = "Plain", type = AgentType.LLM))
         assertThat(tools.specsFor(without).map { it.name }).noneMatch { it.startsWith("orkbox_") }
         assertThat(call("orkbox_open", who = without).path("error").stringValue()).contains("not been given any boxes")
@@ -109,16 +109,16 @@ class BoxToolsTest(
     }
 
     @Test
-    fun `a label no box has reaches nothing, and a box with no label is nobody's`() {
+    fun `a name no box has reaches nothing, and a box granted to nobody is nobody's`() {
         agent.boxLabels = listOf("elsewhere")
         agents.save(agent)
         assertThat(call("orkbox_list").path("boxes").size()).isZero()
         assertThat(call("orkbox_open").path("error").stringValue()).contains("No box you may use")
 
-        boxes.save(Box(name = "unlabelled", label = null, address = "http://unlabelled.invalid"))
+        boxes.save(Box(name = "ungranted", address = "http://ungranted.invalid"))
         agent.boxLabels = listOf("local")
         agents.save(agent)
-        assertThat(call("orkbox_open", mapOf("box" to "unlabelled")).path("error").stringValue()).contains("may not use")
+        assertThat(call("orkbox_open", mapOf("box" to "ungranted")).path("error").stringValue()).contains("may not use")
     }
 
     @Test
@@ -576,7 +576,7 @@ class BoxToolsTest(
      * a box that orkbox_list and orkbox_open then said was not there.
      */
     @Test
-    fun `a label granted while a turn runs reaches that turn's box tools`() {
+    fun `a box granted while a turn runs reaches that turn's box tools`() {
         val stale = agents.save(Agent(workspaceId = workspaceId, name = "Waiting", type = AgentType.LLM).apply { boxLabels = listOf("elsewhere") })
         assertThat(call("orkbox_list", who = stale).path("boxes").size()).isZero()
 

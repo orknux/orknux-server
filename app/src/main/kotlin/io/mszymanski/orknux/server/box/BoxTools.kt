@@ -181,7 +181,6 @@ class BoxTools(
                     buildMap {
                         put("name", box.name)
                         put("kind", box.kind.name.lowercase())
-                        put("label", box.label)
                         val info = runCatching { boxes.client(box).info() }
                         info.onSuccess { said ->
                             put("defaultRuntime", said.defaultRuntime)
