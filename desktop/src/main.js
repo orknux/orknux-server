@@ -106,6 +106,58 @@ async function start() {
   if (smoke !== null) photograph();
 }
 
+/**
+ * Where links from a window go.
+ *
+ * The app's own pages stay in the app; anything else is the web, and opens
+ * where the web is read - a GitHub issue opening inside the app is a window
+ * with no address bar and no way back. A link the page opens "in a new tab" -
+ * an open-definition icon, Add a model - opens in a new window: there are no
+ * tabs here, and loading it in place threw away whatever the page had not
+ * saved, which is exactly why the page asked for a new tab.
+ */
+function guard(win) {
+  const ours = (target) => {
+    try {
+      return server !== null && new URL(target).port === String(server.port) && ['127.0.0.1', 'localhost'].includes(new URL(target).hostname);
+    } catch {
+      return false;
+    }
+  };
+  /** The splash's own address, the one file: page a window may be on. */
+  const splashUrl = require('node:url').pathToFileURL(path.join(__dirname, 'splash.html')).href;
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (ours(url)) {
+      const [width, height] = win.getSize();
+      const child = new BrowserWindow({
+        width,
+        height,
+        minWidth: 900,
+        minHeight: 600,
+        title: 'Orknux',
+        backgroundColor: '#09090b',
+        icon: trayImage(),
+        webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+      });
+      guard(child);
+      child.loadURL(url);
+    } else if (/^https?:/.test(url)) {
+      shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+  win.webContents.on('will-navigate', (event, url) => {
+    /*
+     * The splash is the only file a window shows. Any other file: address is
+     * a file dropped where the page did not take it, which would otherwise
+     * replace Orknux with the picture until the app was restarted.
+     */
+    if (ours(url) || url === splashUrl) return;
+    event.preventDefault();
+    if (/^https?:/.test(url)) shell.openExternal(url);
+  });
+}
+
 function createWindow() {
   const state = windowState.restore(data);
   const created = new BrowserWindow({
@@ -125,35 +177,7 @@ function createWindow() {
   windowState.track(created, data);
   created.loadFile(path.join(__dirname, 'splash.html'));
 
-  /*
-   * The app's own pages stay in the window; anything else is the web, and opens
-   * where the web is read. A link to a GitHub issue opening inside the app is a
-   * window with no address bar and no way back.
-   */
-  const ours = (target) => {
-    try {
-      return server !== null && new URL(target).port === String(server.port) && ['127.0.0.1', 'localhost'].includes(new URL(target).hostname);
-    } catch {
-      return false;
-    }
-  };
-  /** The splash's own address, the one file: page this window may be on. */
-  const splashUrl = require('node:url').pathToFileURL(path.join(__dirname, 'splash.html')).href;
-  created.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:/.test(url) && !ours(url)) shell.openExternal(url);
-    else if (ours(url)) created.loadURL(url);
-    return { action: 'deny' };
-  });
-  created.webContents.on('will-navigate', (event, url) => {
-    /*
-     * The splash is the only file this window shows. Any other file: address
-     * is a file dropped where the page did not take it, which would otherwise
-     * replace Orknux with the picture until the app was restarted.
-     */
-    if (ours(url) || url === splashUrl) return;
-    event.preventDefault();
-    if (/^https?:/.test(url)) shell.openExternal(url);
-  });
+  guard(created);
 
   /*
    * Closing the window leaves Orknux running in the tray, because a workflow on
