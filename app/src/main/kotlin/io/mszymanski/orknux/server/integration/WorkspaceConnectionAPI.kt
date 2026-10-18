@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.integration
 
+import io.mszymanski.orknux.connector.connection.CheckOutcome
 import io.mszymanski.orknux.connector.connection.ConnectionType
 import io.mszymanski.orknux.connector.connection.CreateWorkspaceConnectionInput
 import io.mszymanski.orknux.connector.connection.SlackDirectory
@@ -174,6 +175,24 @@ class WorkspaceConnectionAPI(
         val created = connections.createWorkspaceConnection(input)
         auditRecorder.record(input.workspaceId, WorkspaceAuditCategory.INTEGRATION, "Connection ${created.name} added")
         return created
+    }
+
+    /**
+     * The Add dialog's Test: what checking the connection would find, before it
+     * is added. Nothing is stored, so the entry says it was tried, not changed.
+     */
+    @MutationMapping
+    fun testNewWorkspaceConnection(@Argument input: CreateWorkspaceConnectionInput): ConnectionDraftCheck {
+        requireWorkspaceAccess(input.workspaceId)
+        requireKnownKind(input.pluginType)
+        val result = connections.testDraftConnection(input)
+        val name = input.name.trim().ifEmpty { input.url.orEmpty().trim() }
+        auditRecorder.record(
+            input.workspaceId,
+            WorkspaceAuditCategory.INTEGRATION,
+            "Connection $name tried before adding: ${result.outcome.name.lowercase()}",
+        )
+        return ConnectionDraftCheck(result.outcome, result.message)
     }
 
     /**
@@ -388,3 +407,6 @@ enum class MessageTarget {
     CHANNEL,
     USER,
 }
+
+/** What testing a connection not yet added found. */
+data class ConnectionDraftCheck(val status: CheckOutcome, val message: String)

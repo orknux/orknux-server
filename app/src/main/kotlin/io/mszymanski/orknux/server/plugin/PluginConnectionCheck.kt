@@ -45,8 +45,11 @@ class PluginConnectionCheck(
         val declared = declarations.readConnectionTypes(plugin.declaredConnectionTypes, plugin.key, plugin.name)
             .firstOrNull { it.name == name } ?: return null
         if (!declared.checks) return null
-        val id = connection.id ?: return null
-        val handle = parameters.ownHandle(plugin, id, connection.workspaceId) ?: return null
+        // A saved connection by its id; one the Add dialog is testing, as it was typed.
+        val handle = connection.id
+            ?.let { parameters.ownHandle(plugin, it, connection.workspaceId) }
+            ?: parameters.draftHandle(plugin, connection).takeIf { connection.id == null }
+            ?: return null
 
         val result = runner.call(
             sources.sourceOf(plugin),

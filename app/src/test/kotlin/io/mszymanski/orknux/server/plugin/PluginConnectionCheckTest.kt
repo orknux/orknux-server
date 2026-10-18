@@ -114,6 +114,26 @@ class PluginConnectionCheckTest(
     }
 
     @Test
+    fun `a connection not yet added is tested as typed, and nothing is stored`() {
+        load()
+
+        fun draft(url: String) = graphQlTester.document(
+            """mutation { testNewWorkspaceConnection(input: {
+                 workspaceId: $workspaceId, name: "", type: HTTP, pluginType: "cards/deck",
+                 url: "$url", authType: API_KEY, secret: "typed"
+               }) { status message } }""",
+        ).execute()
+
+        draft("http://real.invalid:8765")
+            .path("testNewWorkspaceConnection.status").entity(String::class.java).isEqualTo("CONNECTED")
+            .path("testNewWorkspaceConnection.message").entity(String::class.java).isEqualTo("Deck server 6, key typed")
+        draft("http://fake.invalid:8765")
+            .path("testNewWorkspaceConnection.status").entity(String::class.java).isEqualTo("FAILED")
+            .path("testNewWorkspaceConnection.message").entity(String::class.java).isEqualTo("that is a login page, not a deck server")
+        assertThat(workspaceConnections.findAll()).isEmpty()
+    }
+
+    @Test
     fun `a kind without a check is asked only whether its address answers`() {
         load()
 

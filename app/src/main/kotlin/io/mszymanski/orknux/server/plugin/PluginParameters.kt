@@ -1,6 +1,7 @@
 package io.mszymanski.orknux.server.plugin
 
 import io.mszymanski.orknux.connector.connection.ConnectionCredentials
+import io.mszymanski.orknux.connector.connection.WorkspaceConnection
 import io.mszymanski.orknux.connector.connection.WorkspaceConnectionRepository
 import io.mszymanski.orknux.connector.connection.WorkspaceConnectionService
 import io.mszymanski.orknux.connector.connection.WorkspaceConnectionView
@@ -320,6 +321,22 @@ class PluginParameters(
     }
 
     /**
+     * The same for a connection not yet saved - the Add dialog's Test. It has no
+     * id to hand over, and needs none: a check reaches the address it is given.
+     */
+    fun draftHandle(plugin: Plugin, draft: WorkspaceConnection): String? {
+        val ownKinds = declarations.readConnectionTypes(plugin.declaredConnectionTypes, plugin.key, plugin.name)
+            .map { it.id }
+            .toSet()
+        if (draft.pluginType !in ownKinds) return null
+        val handle = mapper.createObjectNode()
+        handle.put("type", draft.type.name)
+        draft.pluginType?.let { handle.put("pluginType", it) }
+        reach(handle, draft)
+        return mapper.writeValueAsString(handle)
+    }
+
+    /**
      * What crosses into the sandbox for one connection: the handle a setting
      * and an argument both arrive as. Null where the row has gone.
      */
@@ -354,14 +371,19 @@ class PluginParameters(
          */
         if (opened != null && connection.pluginType in opened.ownKinds && connection.workspaceId == opened.workspaceId) {
             val row = connectionRows.findByIdOrNull(id) ?: return null
-            val target = credentials.target(row)
-            handle.put("url", target.url)
-            handle.put("authType", target.authType.name)
-            target.secret?.let { handle.put("secret", it) }
-            val headers = handle.putObject("headers")
-            target.requestHeaders().forEach { (name, value) -> headers.put(name, value) }
+            reach(handle, row)
         }
         return mapper.writeValueAsString(handle)
+    }
+
+    /** What reaching a host of the plugin's own kind takes, read through [ConnectionCredentials]. */
+    private fun reach(handle: ObjectNode, row: WorkspaceConnection) {
+        val target = credentials.target(row)
+        handle.put("url", target.url)
+        handle.put("authType", target.authType.name)
+        target.secret?.let { handle.put("secret", it) }
+        val headers = handle.putObject("headers")
+        target.requestHeaders().forEach { (name, value) -> headers.put(name, value) }
     }
 
     /* ------------------------------------------------ connection arguments ---- */

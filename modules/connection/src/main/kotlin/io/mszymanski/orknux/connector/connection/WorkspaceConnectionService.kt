@@ -289,6 +289,47 @@ class WorkspaceConnectionService(
     }
 
     /**
+     * The same question about a connection not yet added: the Add dialog's Test.
+     *
+     * Nothing is written. The row is built as [createWorkspaceConnection] would
+     * build it and handed to the same checks, unsaved - rather than saved and
+     * rolled back, because a plugin's check reaches the network, and on SQLite a
+     * transaction held open across that holds every other writer with it.
+     */
+    fun testDraftConnection(input: CreateWorkspaceConnectionInput): CheckResult {
+        val slack = input.type == ConnectionType.SLACK
+        val url = if (slack) SLACK_API_URL else input.url.orEmpty().trim()
+        if (url.isEmpty()) throw ConnectionUrlInvalidException()
+        val pluginType = input.pluginType?.trim()?.ifEmpty { null }
+        if (pluginType != null && input.type != ConnectionType.HTTP) {
+            throw ConnectionPluginTypeInvalidException("A plugin's kind of connection is an HTTP connection")
+        }
+        val ownSecret = input.secret?.trim()?.ifEmpty { null }
+        val secretVariable = references.bind(input.workspaceId, input.secretVariableId, ownSecret)
+        val draft = WorkspaceConnection(
+            workspaceId = input.workspaceId,
+            name = input.name.trim(),
+            type = input.type,
+            pluginType = pluginType,
+            url = url,
+            authType = if (slack) AuthType.BEARER_TOKEN else input.authType ?: AuthType.NONE,
+            secret = if (secretVariable == null) ownSecret else null,
+            secretVariableId = secretVariable,
+            smtpPort = input.smtpPort,
+            smtpUsername = input.smtpUsername?.trim()?.ifEmpty { null },
+            smtpFrom = input.smtpFrom?.trim()?.ifEmpty { null },
+            smtpSecurity = input.smtpSecurity ?: MailSecurity.STARTTLS,
+            headers = input.headers.orEmpty().toHttpHeaders(),
+        )
+        return if (draft.type == ConnectionType.SMTP) {
+            mail.check(draft)
+        } else {
+            draft.pluginType?.let { pluginChecks.ifAvailable?.check(draft) }
+                ?: probe.check(credentials.target(draft), draft.type)
+        }
+    }
+
+    /**
      * Hands the stored credentials back, for the settings form's "Reveal" action.
      *
      * The audit entry belongs in orknux-server, where it can be attributed to
