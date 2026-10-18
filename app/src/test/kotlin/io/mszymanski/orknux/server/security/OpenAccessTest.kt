@@ -121,6 +121,8 @@ class OpenAccessSignInTest(
 
         assertThat(answer.statusCode).isEqualTo(HttpStatus.OK)
         assertThat(answer.body?.username).isEqualTo(OPEN_ACCESS_USERNAME)
+        // The top bar is told the row's own name - which a desktop start before this one in the suite may have changed.
+        assertThat(answer.body?.displayName).isEqualTo(users.findByUsername(OPEN_ACCESS_USERNAME)?.displayName)
     }
 
     /**
@@ -246,5 +248,25 @@ class OpenAccessHealthTest(@Autowired val graphQlTester: ExecutionGraphQlService
             .path("components[0].status").entity(String::class.java).isEqualTo("HEALTHY")
             .path("components[0].dependencies[*].name").entityList(String::class.java)
             .containsExactly("Database")
+    }
+}
+
+/**
+ * The desktop app's server: the one identity is the person at the machine, and
+ * the session says so, which is what the top bar prints.
+ */
+@SpringBootTest(
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+    properties = ["orknux.security.auth-method=NONE", "orknux.security.desktop=true", "server.address=127.0.0.1"],
+)
+class OpenAccessDesktopTest(@LocalServerPort val port: Int) {
+
+    @Test
+    fun `the session names the person at the machine`() {
+        val answer = RestClient.builder().baseUrl("http://127.0.0.1:$port").defaultStatusHandler({ true }, { _, _ -> }).build()
+            .get().uri("/api/session").retrieve().toEntity(SessionUser::class.java)
+
+        assertThat(answer.body?.username).isEqualTo(OPEN_ACCESS_USERNAME)
+        assertThat(answer.body?.displayName).isEqualTo(System.getProperty("user.name"))
     }
 }

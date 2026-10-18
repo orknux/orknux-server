@@ -298,6 +298,7 @@ class SessionAPI(
              */
             admin = resolver.administers(user.roles.toSet()) || held?.roles.orEmpty().any { it.administers },
             email = recorded ?: user.email,
+            displayName = held?.displayName?.trim()?.ifEmpty { null },
             /*
              * Sent with the session because the preferences page is where it is
              * changed and the session is what that page already has. True for
@@ -389,6 +390,12 @@ data class SessionUser @JsonCreator constructor(
     @JsonProperty("timeZone") val timeZone: String? = null,
     /** Whether they may make access tokens for themselves: internal users only. Issue #2. */
     @JsonProperty("tokensAllowed") val tokensAllowed: Boolean = false,
+    /**
+     * What the top bar calls them: their recorded display name, or null where
+     * there is none and the username is all there is. On the desktop app this
+     * is the person at the machine rather than the open-access account's name.
+     */
+    @JsonProperty("displayName") val displayName: String? = null,
 ) {
     constructor(authentication: Authentication) : this(
         username = authentication.name,

@@ -82,6 +82,15 @@ class ServerRelease(
     @Column(length = 500)
     var failure: String? = null,
 
+    /**
+     * Why the launcher ran something else in its place, where it was chosen and
+     * not started - a release built for a newer Java than this runtime. Not a
+     * failure: a later desktop app with a newer runtime will run it. Written by
+     * the launcher on every start, so it is null again once the release runs.
+     */
+    @Column(name = "held_back", length = 500)
+    var heldBack: String? = null,
+
     /** False until a server that came up has put the failure in the audit log. */
     @Column(name = "failure_reported", nullable = false)
     var failureReported: Boolean = true,

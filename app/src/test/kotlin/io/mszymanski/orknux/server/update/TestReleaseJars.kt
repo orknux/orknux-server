@@ -80,6 +80,8 @@ object TestReleaseJars {
         val schemaFloor: Int? = 333,
         /** Bytes of a stored library, to make a jar bigger than one piece. */
         val padding: Int = 0,
+        /** The Java its start class says it was compiled for; null leaves it unreadable. */
+        val java: Int? = null,
     )
 
     /** An unsigned jar of [shape]. */
@@ -97,7 +99,13 @@ object TestReleaseJars {
                 jar.closeEntry()
             }
             put("org/springframework/boot/loader/launch/JarLauncher.class", byteArrayOf(1, 2, 3))
-            put("BOOT-INF/classes/io/mszymanski/orknux/server/OrknuxServerKt.class", byteArrayOf(4, 5, 6))
+            put(
+                "BOOT-INF/classes/io/mszymanski/orknux/server/OrknuxServerKt.class",
+                shape.java?.let { feature ->
+                    val major = feature + 44
+                    byteArrayOf(0xCA.toByte(), 0xFE.toByte(), 0xBA.toByte(), 0xBE.toByte(), 0, 0, (major shr 8).toByte(), major.toByte())
+                } ?: byteArrayOf(4, 5, 6),
+            )
             // Random, so a padded jar really is that big; stored rather than
             // deflated, so a jar of a hundred megabytes is quick to build.
             val library = ByteArray(shape.padding.coerceAtLeast(16)).also { java.util.Random(7).nextBytes(it) }

@@ -66,6 +66,8 @@ interface ReleaseStore {
     fun countAttempt(id: Long)
     /** FAILED, with the reason, and flagged so the server reports it once it is up. */
     fun fail(id: Long, why: String)
+    /** Why a chosen release was not started this time, or null where it was; shown on the Updates page. */
+    fun holdBack(id: Long, why: String?)
     fun restore(id: Long)
     fun deactivate(id: Long)
     /** The jar's bytes, a piece at a time, into [to]. */
@@ -91,6 +93,8 @@ class ReleaseLauncher(
      */
     private val lastExit: Int? = null,
     private val lastJar: String? = null,
+    /** The Java this launcher runs on; a parameter so a test can be an older runtime than the build's. */
+    private val runningJava: Int = Runtime.version().feature(),
     /** The image's own schema floor, below which nothing may run here. */
     private val imageFloor: Int = ReleaseJarVerifier.ownFloor(),
 ) {
@@ -191,11 +195,14 @@ class ReleaseLauncher(
              * well run it. So the image's jar runs and the release is left as
              * it was rather than marked failed.
              */
-            val refusal = javaRefusal(ReleaseJarVerifier.requiredJava(jar), Runtime.version().feature())
+            val refusal = javaRefusal(ReleaseJarVerifier.requiredJava(jar), runningJava)
             if (refusal == null) {
+                store.holdBack(release.id, null)
                 jar
             } else {
                 loud("Release ${release.version} $refusal. Running the image's own jar, $imageVersion.")
+                // Said where an administrator looks, not only in a log they would have to go and read.
+                store.holdBack(release.id, "Not started: it $refusal. The image's own jar${imageVersion?.let { ", $it," } ?: ""} runs instead.")
                 imageJar
             }
         }
@@ -341,6 +348,23 @@ class JdbcReleaseStore(private val connect: () -> Connection) : ReleaseStore {
             it.executeUpdate()
         }
         Unit
+    }
+
+    /**
+     * Quietly nothing where the column is not there yet: the first start after
+     * upgrading to the release that brought it runs this before the server has
+     * migrated, and a note is not worth refusing a start over.
+     */
+    override fun holdBack(id: Long, why: String?) {
+        runCatching {
+            connect().use { connection ->
+                connection.prepareStatement("UPDATE server_release SET held_back = ? WHERE id = ?").use {
+                    it.setString(1, why?.take(500))
+                    it.setLong(2, id)
+                    it.executeUpdate()
+                }
+            }
+        }
     }
 
     override fun restore(id: Long) =

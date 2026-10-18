@@ -7049,6 +7049,8 @@ type StoredServerRelease {
     bootAttempts: Int!
     "Why it is FAILED."
     failure: String
+    "Why it was chosen and not started - built for a newer Java than this runtime carries; null otherwise."
+    heldBack: String
     "Whether this server runs it."
     running: Boolean!
     "Whether it may be started; see refusal where not."

@@ -292,6 +292,7 @@ class ServerReleaseAPI(
             state = release.state,
             bootAttempts = release.bootAttempts,
             failure = release.failure,
+            heldBack = release.heldBack,
             running = release.id == running,
             activatable = refusal == null,
             refusal = refusal,
@@ -372,6 +373,8 @@ data class StoredServerReleaseView(
     val state: ServerReleaseState,
     val bootAttempts: Int,
     val failure: String?,
+    /** Why it was chosen and not started, e.g. built for a newer Java than this runtime; null otherwise. */
+    val heldBack: String?,
     val running: Boolean,
     val activatable: Boolean,
     val refusal: String?,

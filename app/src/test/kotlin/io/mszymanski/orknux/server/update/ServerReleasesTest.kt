@@ -326,6 +326,7 @@ class ServerReleasesTest(
         lastExit: Int? = null,
         lastJar: String? = null,
         err: ByteArrayOutputStream = ByteArrayOutputStream(),
+        runningJava: Int = Runtime.version().feature(),
     ) = ReleaseLauncher(
         store = store(),
         verifier = TestReleaseJars.verifier(),
@@ -337,6 +338,7 @@ class ServerReleasesTest(
         lastExit = lastExit,
         lastJar = lastJar,
         imageFloor = 0,
+        runningJava = runningJava,
     )
 
     // ORKNUX_RELEASE_PIN and the way back from a jar that does not start, #593.
@@ -444,6 +446,25 @@ class ServerReleasesTest(
         assertThat(after.bootAttempts).isEqualTo(0)
         assertThat(after.bootedAt).isNotNull()
         assertThat(after.state).isEqualTo(ServerReleaseState.STORED)
+    }
+
+    @Test
+    fun `a release built for a newer Java is held back, and the Updates page says why`() {
+        val release = stored(Shape(version = "8.0.7", java = 26))
+        updates.activate(release.id!!, "alice")
+        val dir = Files.createTempDirectory("orknux-release-")
+
+        assertThat(launcher(dir, runningJava = 25).choose()).isEqualTo(IMAGE)
+        val held = releases.findById(release.id!!).get()
+        assertThat(held.state).isNotEqualTo(ServerReleaseState.FAILED)
+        assertThat(held.heldBack).startsWith("Not started: it needs Java 26, and this runtime is Java 25.")
+        graphQlTester.document("query { serverUpdates { stored { version heldBack } } }").execute()
+            .path("serverUpdates.stored[0].heldBack").entity(String::class.java)
+            .satisfies { assertThat(it).contains("needs Java 26") }
+
+        // A runtime that can run it starts it, and the note goes.
+        launcher(dir, runningJava = 26).choose()
+        assertThat(releases.findById(release.id!!).get().heldBack).isNull()
     }
 
     @Test
