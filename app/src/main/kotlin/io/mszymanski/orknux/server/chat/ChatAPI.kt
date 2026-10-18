@@ -79,7 +79,10 @@ class ChatAPI(
         requireWorkspaceAccess(workspaceId)
         // Names looked up once per list rather than once per chat: a list of 69 chats loaded the same agent 69 times.
         val names = Names()
-        return chats.sessions(workspaceId, currentUser()).map { describe(it, names) }
+        val held = chats.sessions(workspaceId, currentUser())
+        // Every chat's answers in one query, for the counts beside their names.
+        val answers = chats.answersIn(held.map { it.conversationId })
+        return held.map { describe(it, names, chats.unread(it, answers)) }
     }
 
     /**
@@ -98,7 +101,20 @@ class ChatAPI(
         // Somebody else's chat reads as one that is not there, which is the same
         // answer ChatOwnership gives everywhere else and for the same reason.
         val session = chats.session(id)?.takeIf(ownership::owns) ?: return null
-        return describe(session)
+        return describe(session, unread = chats.unread(session))
+    }
+
+    /**
+     * The chat read up to now, which clears the count beside its name. The
+     * page asks when a chat is opened and again when an answer lands while it
+     * is open - somebody looking at it has read it.
+     */
+    @MutationMapping
+    fun markChatRead(@Argument id: Long): ChatSessionView {
+        val session = chats.session(id) ?: throw ChatSessionNotFoundException(id)
+        requireOwn(session)
+        val read = requireNotNull(chats.markRead(id))
+        return describe(read, unread = 0)
     }
 
     @QueryMapping
@@ -284,7 +300,7 @@ class ChatAPI(
         fun agent(id: Long): String? = agentNames.getOrPut(id) { agents.findByIdOrNull(id)?.name }
     }
 
-    private fun describe(session: ChatSession, names: Names = Names()): ChatSessionView {
+    private fun describe(session: ChatSession, names: Names = Names(), unread: Int = 0): ChatSessionView {
         return ChatSessionView(
             id = requireNotNull(session.id),
             workspaceId = session.workspaceId,
@@ -301,6 +317,7 @@ class ChatAPI(
             spentOutputTokens = session.spentOutputTokens,
             spentCachedInputTokens = session.spentCachedInputTokens,
             spentPictures = session.spentPictures,
+            unreadCount = unread,
         )
     }
 
@@ -397,6 +414,8 @@ data class ChatSessionView(
     val spentCachedInputTokens: Long = 0,
     /** How many pictures were drawn here; a picture reports no tokens at all. */
     val spentPictures: Int,
+    /** Answers that arrived since its owner last had it open; nought where there are none. */
+    val unreadCount: Int = 0,
 )
 
 data class ChatMessageView(

@@ -188,6 +188,46 @@ class ChatService(
     fun session(id: Long): ChatSession? = sessions.findByIdOrNull(id)
 
     /**
+     * How many answers each of these conversations holds, by conversation id -
+     * one query for a whole sidebar. What the model said, not what the person
+     * did: a message they wrote themselves is never news to them.
+     */
+    fun answersIn(conversationIds: Collection<String>): Map<String, Int> {
+        if (conversationIds.isEmpty()) return emptyMap()
+        @Suppress("UNCHECKED_CAST")
+        val rows = entityManager
+            .createNativeQuery(
+                """
+                SELECT conversation_id, COUNT(*) FROM spring_ai_chat_memory
+                WHERE conversation_id IN (:conversations) AND type = 'ASSISTANT'
+                GROUP BY conversation_id
+                """.trimIndent(),
+            )
+            .setParameter("conversations", conversationIds)
+            .resultList as List<Array<Any?>>
+        return rows.associate { (it[0] as String) to (it[1] as Number).toInt() }
+    }
+
+    /** What has arrived in [chat] since its owner last read it; never below nought. */
+    fun unread(chat: ChatSession, answers: Map<String, Int> = answersIn(listOf(chat.conversationId))): Int =
+        ((answers[chat.conversationId] ?: 0) - chat.readAnswers).coerceAtLeast(0)
+
+    /**
+     * Read up to now. Set to what is there rather than added to, so a thread a
+     * summary made shorter is read again from where it now stands.
+     */
+    @Transactional
+    fun markRead(id: Long): ChatSession? {
+        val chat = sessions.findByIdOrNull(id) ?: return null
+        val now = answersIn(listOf(chat.conversationId))[chat.conversationId] ?: 0
+        if (chat.readAnswers != now) {
+            chat.readAnswers = now
+            sessions.save(chat)
+        }
+        return chat
+    }
+
+    /**
      * Everything said in one chat, oldest first, as the store kept it - and for
      * a chat continuing a session, who said the part it did not say itself, and
      * what was looked up in between.

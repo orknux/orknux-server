@@ -2032,6 +2032,8 @@ type Mutation {
     chooseChatAgent(id: ID!, agentId: ID!): ChatSession!
     "Deletes the chat and the history with it."
     deleteChat(id: ID!): Boolean!
+    "Reads the chat up to now, which clears the count beside its name. Only the chat's owner."
+    markChatRead(id: ID!): ChatSession!
     """
     Writes into a turn being answered, for the agent to read at its next round.
     False where no turn is running, and the message is then to be sent as a turn
@@ -4156,6 +4158,8 @@ type ChatSession {
     "ISO-8601 offset date-times. `lastMessageAt` is null until something is said."
     createdAt: String!
     lastMessageAt: String
+    "Answers that arrived since its owner last had it open - the count beside its name. Nought where there are none."
+    unreadCount: Int!
     """
     What this whole chat has read and written, kept and added to as each turn
     lands - not the last answer's, which `ChatAnswer` carries and which is gone

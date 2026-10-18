@@ -22,6 +22,7 @@ have failed.
 - **Chat answers render LaTeX maths.** `$x$`, `$$x$$`, `\(x\)` and `\[x\]` are set by KaTeX wherever the product draws markdown - chat, task outcomes, issues - while a price like "$5 and $10" and anything inside code stay as written.
 - **A fresh installation starts with a workspace.** The first start on an empty database - the desktop app, a new orknux-one, a new server - makes one called Default, set up as the admin page sets one up, so chat works straight away. An installation that already has workspaces is not given one, and removing every workspace later does not bring it back.
 - **An agent can ask for the tools it lacks.** Instead of saying it cannot do something, an agent lists the tools it could be given - built-ins switched off for it, the workspace's and plugins' tools, MCP servers, Orknux access - and asks for the ones it needs. The question in the chat names each tool, its kind and what it does, with Accept and Refuse; accepted, the tools are the agent's for good, recorded as a change to the agent.
+- **Unread answers beside each chat.** The chat sidebar shows, beside a chat's name, how many answers arrived since it was last open - a solid pill and a bold name, so news stands out in a long list - and opening the chat clears it. Existing chats start as read.
 
 ### 🔧 Changed
 

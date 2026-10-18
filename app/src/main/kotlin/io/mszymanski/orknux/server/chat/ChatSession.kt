@@ -87,6 +87,14 @@ class ChatSession(
     @Column(nullable = false)
     var pinned: Boolean = false,
 
+    /**
+     * How many of the thread's answers its owner has seen; the sidebar's
+     * unread count is the answers there are less this. A count, not a time:
+     * the thread is rewritten whole on every save, timestamps and all.
+     */
+    @Column(name = "read_answers", nullable = false)
+    var readAnswers: Int = 0,
+
     @Column(name = "created_at", nullable = false)
     val createdAt: OffsetDateTime = OffsetDateTime.now(),
 
