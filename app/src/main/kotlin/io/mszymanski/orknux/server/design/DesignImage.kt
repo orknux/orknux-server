@@ -66,17 +66,6 @@ class DesignImage(
     @Column(name = "drawn_at", nullable = false)
     val drawnAt: OffsetDateTime = OffsetDateTime.now(),
 
-    /**
-     * Kept by somebody, or still a draft.
-     *
-     * A picture drawn in the image editor is a draft until it is saved, and a
-     * draft discarded is deleted - so trying a prompt five times leaves the one
-     * that was wanted, not five. Drafts are on Design's gallery, marked, so
-     * leaving the editor loses nothing; the Artifacts page lists what was kept.
-     */
-    @Column(nullable = false)
-    var saved: Boolean = false,
-
     /** What it is called; null for one drawn before pictures had names, which reads its prompt instead. */
     @Column(length = 255)
     var name: String? = null,

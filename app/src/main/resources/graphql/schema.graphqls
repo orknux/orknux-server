@@ -2238,8 +2238,6 @@ type Mutation {
     queueDesignImage(input: DrawDesignImageInput!): DesignImageJob!
     "Takes a queued or failed picture off; one being drawn cannot be. False for one not here."
     dismissDesignImageJob(id: ID!): Boolean!
-    "Keeps a draft drawn in the image editor. Discarding one is deleteArtifact."
-    saveDesignImage(workspaceId: ID!, id: ID!): Artifact!
     "Calls a picture drawn in Design something else; its file is named after it too."
     renameDesignImage(workspaceId: ID!, id: ID!, name: String!): Artifact!
 
@@ -8075,8 +8073,6 @@ type Artifact {
     previewUrl: String
     "What drew it and how, where that was kept - a picture drawn in Design; null elsewhere."
     drawnWith: ArtifactDrawing
-    "Drawn in Design's image editor and not yet saved; Artifacts lists only what was saved."
-    draft: Boolean!
     "What a picture drawn in Design is called - its prompt's first words until renamed; null for anything else."
     name: String
 }

@@ -131,22 +131,6 @@ class DesignImageAPI(
         return true
     }
 
-    /** Keeps a draft; saving one already kept changes nothing. Discarding is `deleteArtifact`. */
-    @MutationMapping
-    @Transactional
-    fun saveDesignImage(@Argument workspaceId: Long, @Argument id: String): ArtifactView {
-        access.requireVisible(workspaceId)
-        val rowId = id.removePrefix("DESIGN-").toLongOrNull()
-        val image = rowId?.let { images.findByIdOrNull(it) }?.takeIf { it.workspaceId == workspaceId }
-            ?: throw DesignImageRefusedException("That picture is not here any more.")
-        if (!image.saved) {
-            image.saved = true
-            images.save(image)
-            auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Image ${image.filename} saved in Design")
-        }
-        return artifacts.describe(image)
-    }
-
     /** A new name, and the file named after it, so a download says what the picture is called. */
     @MutationMapping
     @Transactional

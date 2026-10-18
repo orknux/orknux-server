@@ -82,7 +82,7 @@ class DesignImageAPITest(
     fun stop() = server.stop(0)
 
     @Test
-    fun `a picture is queued, drawn in turn with the model chosen, and kept as a draft until saved`() {
+    fun `a picture is queued, drawn in turn with the model chosen, and kept with what it was drawn with`() {
         val modelId = model("Drawer", "IMAGE")
 
         val jobId = graphQlTester.document(
@@ -99,11 +99,10 @@ class DesignImageAPITest(
         val id = drawnPicture(jobId)
         graphQlTester.document(
             """query { designImageJob(workspaceId: $workspaceId, id: $jobId) {
-                 status image { id kind draft drawnWith { modelId model size quality style drawnBy } } } }""",
+                 status image { id kind drawnWith { modelId model size quality style drawnBy } } } }""",
         ).execute()
             .path("designImageJob.status").entity(String::class.java).isEqualTo("DRAWN")
             .path("designImageJob.image.kind").entity(String::class.java).isEqualTo("DESIGN")
-            .path("designImageJob.image.draft").entity(Boolean::class.java).isEqualTo(true)
             .path("designImageJob.image.drawnWith.modelId").entity(Long::class.java).isEqualTo(modelId)
             .path("designImageJob.image.drawnWith.size").entity(String::class.java).isEqualTo("1024x1024")
             .path("designImageJob.image.drawnWith.quality").entity(String::class.java).isEqualTo("hd")
@@ -116,15 +115,11 @@ class DesignImageAPITest(
         assertThat(store.open(kept.location).use { it.readBytes() }).isEqualTo(Base64.getDecoder().decode(PIXEL))
         assertThat(api.download(requireNotNull(kept.id)).statusCode.value()).isEqualTo(200)
 
-        // A draft is on Design's gallery and not on Artifacts; saved, it is on both.
+        // On Design's gallery and on Artifacts alike.
         fun listed(drawnOnly: Boolean) = graphQlTester.document(
             """query { workspaceArtifacts(workspaceId: $workspaceId, drawn: $drawnOnly) { content { id } } }""",
         ).execute().path("workspaceArtifacts.content[*].id").entityList(String::class.java).get()
         assertThat(listed(true)).containsExactly(id)
-        assertThat(listed(false)).isEmpty()
-
-        graphQlTester.document("""mutation { saveDesignImage(workspaceId: $workspaceId, id: "$id") { draft } }""")
-            .execute().path("saveDesignImage.draft").entity(Boolean::class.java).isEqualTo(false)
         assertThat(listed(false)).containsExactly(id)
 
         // Called after its prompt's first words, and renamed, with its file.

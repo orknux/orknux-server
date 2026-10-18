@@ -123,7 +123,6 @@ class DesignDrawQueue(
                             sizeBytes = picture.image.size.toLong(),
                             location = store.put(job.workspaceId, filename, picture.image),
                             drawnBy = job.requestedBy,
-                            saved = false,
                             name = job.name ?: PictureFilenames.nameOf(job.prompt),
                         ),
                     )

@@ -85,8 +85,7 @@ class WorkspaceArtifactAPI(
         val all = (
             pictures.findByWorkspaceId(workspaceId).map(::describe) +
                 taskPictures.findByWorkspaceId(workspaceId).map(::describe) +
-                // Drafts belong to Design's gallery; Artifacts lists what was kept.
-                designImages.findByWorkspaceId(workspaceId).filter { drawn == true || it.saved }.map(::describe) +
+                designImages.findByWorkspaceId(workspaceId).map(::describe) +
                 keptFiles
             )
             .filter { looking.isEmpty() || it.matches(looking) }
@@ -264,7 +263,6 @@ class WorkspaceArtifactAPI(
         drawnAt = image.drawnAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         at = image.drawnAt,
         drawnWith = ArtifactDrawing(image.modelId?.toString(), image.modelName, image.size, image.quality, image.style, image.drawnBy),
-        draft = !image.saved,
         name = image.name ?: io.mszymanski.orknux.server.attachment.PictureFilenames.nameOf(image.prompt),
     )
 
@@ -344,8 +342,6 @@ data class ArtifactView(
     val at: OffsetDateTime,
     /** What drew it and how, where that was kept - a picture drawn in Design; null elsewhere. */
     val drawnWith: ArtifactDrawing? = null,
-    /** Drawn in the image editor and not yet saved. */
-    val draft: Boolean = false,
     /** What a picture drawn in Design is called; null for anything else, which goes by its prompt. */
     val name: String? = null,
 ) {
