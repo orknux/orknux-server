@@ -8116,6 +8116,8 @@ type Artifact {
     name: String
     "The picture this is an unsaved version of, in the image editor; null for a picture of its own."
     versionOf: ID
+    "This picture's draft - its newest unsaved version - kept until saved over it or discarded; null where it has none."
+    draft: ID
 }
 
 """ The model a picture was drawn with, the parameters it was asked for, and who asked. """

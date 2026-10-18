@@ -88,4 +88,7 @@ interface DesignImageRepository : JpaRepository<DesignImage, Long> {
 
     /** Every unsaved version of one picture. */
     fun findByWorkspaceIdAndVersionOf(workspaceId: Long, versionOf: String): List<DesignImage>
+
+    /** Every unsaved version in a workspace: which pictures have a draft. */
+    fun findByWorkspaceIdAndVersionOfIsNotNull(workspaceId: Long): List<DesignImage>
 }

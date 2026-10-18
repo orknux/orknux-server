@@ -90,6 +90,11 @@ class WorkspaceArtifactAPI(
             )
             .filter { looking.isEmpty() || it.matches(looking) }
             .sortedWith(compareByDescending<ArtifactView> { it.at }.thenByDescending { it.id })
+            .let { listed ->
+                // Which of them carry a draft: unsaved changes kept until Save or Discard.
+                val drafts = draftsIn(workspaceId)
+                if (drafts.isEmpty()) listed else listed.map { it.copy(draft = drafts[it.id]) }
+            }
 
         val pageable = pageRequest(page, size, Sort.unsorted())
         return ArtifactPage(
@@ -116,6 +121,19 @@ class WorkspaceArtifactAPI(
     @QueryMapping
     fun workspaceArtifact(@Argument workspaceId: Long, @Argument id: String): ArtifactView? {
         access.requireVisible(workspaceId)
+        return artifactAt(workspaceId, id)?.let { found -> found.copy(draft = draftsIn(workspaceId)[found.id]) }
+    }
+
+    /**
+     * The newest unsaved version of each picture that has any, by the picture's
+     * artifact id: its draft, which the editor opens at and the gallery marks.
+     */
+    private fun draftsIn(workspaceId: Long): Map<String, String> =
+        designImages.findByWorkspaceIdAndVersionOfIsNotNull(workspaceId)
+            .groupBy { requireNotNull(it.versionOf) }
+            .mapValues { (_, versions) -> "${ArtifactKind.DESIGN.name}-${versions.maxBy { requireNotNull(it.id) }.id}" }
+
+    private fun artifactAt(workspaceId: Long, id: String): ArtifactView? {
         val (kind, rowId) = parse(id) ?: return null
 
         return when (kind) {
@@ -242,6 +260,11 @@ class WorkspaceArtifactAPI(
 
         runCatching { store.remove(gone.location) }
             .onFailure { log.warn("Artifact {} row deleted but its file at {} was not", id, gone.location, it) }
+        // Its draft goes with it: unsaved changes to a picture that is gone have nothing to be saved over.
+        designImages.findByWorkspaceIdAndVersionOf(gone.workspaceId, id).forEach { version ->
+            designImages.delete(version)
+            runCatching { store.remove(version.location) }
+        }
 
         auditRecorder.record(
             gone.workspaceId,
@@ -250,6 +273,14 @@ class WorkspaceArtifactAPI(
         )
         return true
     }
+
+    /**
+     * An artifact's address with a mark of which file it holds: the image
+     * editor's Save puts new bytes behind the same artifact, and an address that
+     * stayed the same was answered from the browser's cache with the picture as
+     * it was before. The server reads no part of the mark.
+     */
+    private fun versioned(path: String, location: String): String = "$path?v=${Integer.toHexString(location.hashCode())}"
 
     /** What a delete took, so the audit and the sweep read one shape for both kinds. */
     private data class Removed(val workspaceId: Long, val filename: String, val location: String)
@@ -276,7 +307,7 @@ class WorkspaceArtifactAPI(
         filename = picture.filename,
         contentType = picture.contentType,
         sizeBytes = picture.sizeBytes,
-        url = "/api/execution-pictures/${picture.id}",
+        url = versioned("/api/execution-pictures/${picture.id}", picture.location),
         drawnAt = picture.drawnAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         at = picture.drawnAt,
     )
@@ -306,7 +337,7 @@ class WorkspaceArtifactAPI(
         filename = artifact.name,
         contentType = artifact.contentType,
         sizeBytes = artifact.sizeBytes,
-        url = "/api/artifacts/" + artifact.id,
+        url = versioned("/api/artifacts/" + artifact.id, artifact.location),
         previewUrl = "/api/artifacts/${artifact.id}/preview".takeIf { readable(artifact.contentType) },
         drawnAt = artifact.savedAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         at = artifact.savedAt,
@@ -325,7 +356,7 @@ class WorkspaceArtifactAPI(
         filename = image.filename,
         contentType = image.contentType,
         sizeBytes = image.sizeBytes,
-        url = "/api/design-images/${image.id}",
+        url = versioned("/api/design-images/${image.id}", image.location),
         drawnAt = image.drawnAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         at = image.drawnAt,
         drawnWith = ArtifactDrawing(image.modelId?.toString(), image.modelName, image.size, image.quality, image.style, image.drawnBy),
@@ -342,7 +373,7 @@ class WorkspaceArtifactAPI(
         filename = picture.filename,
         contentType = picture.contentType,
         sizeBytes = picture.sizeBytes,
-        url = "/api/task-pictures/${picture.id}",
+        url = versioned("/api/task-pictures/${picture.id}", picture.location),
         drawnAt = picture.drawnAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         at = picture.drawnAt,
     )
@@ -413,6 +444,8 @@ data class ArtifactView(
     val name: String? = null,
     /** The picture this is an unsaved version of, in the image editor; null for a picture of its own. */
     val versionOf: String? = null,
+    /** This picture's draft - its newest unsaved version, by id - or null where it has none. */
+    val draft: String? = null,
 ) {
     /** What the page shows is what a search reads: the caption and the name. */
     fun matches(looking: String): Boolean =

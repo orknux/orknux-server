@@ -234,9 +234,13 @@ class DesignImageAPITest(
         graphQlTester.document("""query { designImageQueue(workspaceId: $workspaceId) { id } }""")
             .execute().path("designImageQueue").entityList(Any::class.java).hasSize(0)
 
+        val urlBefore = graphQlTester.document("""query { workspaceArtifact(workspaceId: $workspaceId, id: "DESIGN-${source.id}") { url } }""")
+            .execute().path("workspaceArtifact.url").entity(String::class.java).get()
         // Saved: the picture itself takes the change, keeps its name, and the version is gone.
-        graphQlTester.document("""mutation { saveDesignImageVersion(workspaceId: $workspaceId, id: "$id") { id name versionOf } }""")
+        graphQlTester.document("""mutation { saveDesignImageVersion(workspaceId: $workspaceId, id: "$id") { id name versionOf url } }""")
             .execute()
+            // A new address for the new bytes, or a browser shows the picture from its cache as it was.
+            .path("saveDesignImageVersion.url").entity(String::class.java).satisfies { assertThat(it).isNotEqualTo(urlBefore) }
             .path("saveDesignImageVersion.id").entity(String::class.java).isEqualTo("DESIGN-${source.id}")
             .path("saveDesignImageVersion.name").entity(String::class.java).isEqualTo("Blank")
             .path("saveDesignImageVersion.versionOf").valueIsNull()
@@ -269,6 +273,11 @@ class DesignImageAPITest(
         val first = edit("DESIGN-${source.id}")
         val second = edit(first)
         assertThat(images.findByIdOrNull(second.removePrefix("DESIGN-").toLong())?.versionOf).isEqualTo("DESIGN-${source.id}")
+        // The picture's draft is its newest version, wherever it is asked for.
+        graphQlTester.document("""query { workspaceArtifact(workspaceId: $workspaceId, id: "DESIGN-${source.id}") { draft } }""")
+            .execute().path("workspaceArtifact.draft").entity(String::class.java).isEqualTo(second)
+        graphQlTester.document("""query { workspaceArtifacts(workspaceId: $workspaceId, drawn: true) { content { id draft } } }""")
+            .execute().path("workspaceArtifacts.content[0].draft").entity(String::class.java).isEqualTo(second)
 
         // Saved as a copy: a picture of its own, the original as it was, and no version left.
         val copy = graphQlTester.document("""mutation { saveDesignImageVersion(workspaceId: $workspaceId, id: "$second", asCopy: true) { id name versionOf } }""")
