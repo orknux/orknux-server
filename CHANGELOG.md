@@ -20,6 +20,7 @@ have failed.
 ### ✨ Added
 
 - **Chat answers render LaTeX maths.** `$x$`, `$$x$$`, `\(x\)` and `\[x\]` are set by KaTeX wherever the product draws markdown - chat, task outcomes, issues - while a price like "$5 and $10" and anything inside code stay as written.
+- **A fresh installation starts with a workspace.** The first start on an empty database - the desktop app, a new orknux-one, a new server - makes one called Default, set up as the admin page sets one up, so chat works straight away. An installation that already has workspaces is not given one, and removing every workspace later does not bring it back.
 
 ### 🔧 Changed
 
