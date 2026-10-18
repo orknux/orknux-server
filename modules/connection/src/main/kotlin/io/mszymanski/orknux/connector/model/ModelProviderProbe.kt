@@ -558,7 +558,14 @@ class ModelProviderProbe(
         val read = references.read(provider.workspaceId, provider.secret, provider.secretVariableId)
         return when (read) {
             is HeldCredential.Held -> Key.Held(read.value)
-            HeldCredential.Absent -> Key.Failed("There are no credentials to call this provider with")
+            /*
+             * No key, on a provider that may go without one: called with a
+             * stand-in, because the SDK sends some bearer whatever it is given.
+             * A server that checks no key ignores it; one that does answers 401,
+             * and that is what the provider's card then says.
+             */
+            HeldCredential.Absent ->
+                if (provider.keyOptional() && provider.type != ProviderType.SYSTEM_ONE) Key.Held(NO_KEY) else Key.Failed("There are no credentials to call this provider with")
             is HeldCredential.Missing -> Key.Failed(
                 "This provider reads its credential from a workspace secret that no longer exists " +
                     "(variable ${read.variableId}). Point it at another one, or give it a key of its own.",
@@ -727,6 +734,9 @@ class ModelProviderProbe(
 
     private companion object {
         val log = LoggerFactory.getLogger(ModelProviderProbe::class.java)
+
+        /** What a provider that keeps no key is called with; see [keyOptional][ModelProvider.keyOptional]. */
+        const val NO_KEY = "no-key"
 
         /** What Azure OpenAI asks for when nothing else is said. */
         const val DEFAULT_SCOPE = "https://cognitiveservices.azure.com/.default"

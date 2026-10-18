@@ -48,6 +48,7 @@ class DesignImageAPITest(
     private lateinit var server: HttpServer
     private val drawn = CopyOnWriteArrayList<String>()
     private val edited = CopyOnWriteArrayList<String>()
+    private val authorised = CopyOnWriteArrayList<String>()
 
     /** True for a model that refuses, the way these providers do: a 400 with the reason. */
     @Volatile
@@ -65,8 +66,10 @@ class DesignImageAPITest(
         workspaceId = requireNotNull(workspaces.save(Workspace(name = "backend")).id)
         drawn.clear()
         edited.clear()
+        authorised.clear()
         server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
         server.createContext("/images/generations") { exchange ->
+            authorised += exchange.requestHeaders.getFirst("Authorization").orEmpty()
             drawn += exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
             val bytes = (
                 if (refusing) """{"error":{"message":"That is something it would not draw"}}"""
@@ -234,6 +237,18 @@ class DesignImageAPITest(
         }
     }
 
+    @Test
+    fun `a server on somebody's own machine is called with no key at all`() {
+        val modelId = model("Local", "IMAGE", keyed = false)
+        val jobId = graphQlTester.document(
+            """mutation { queueDesignImage(input: { workspaceId: $workspaceId, modelId: $modelId, prompt: "A red square" }) { id } }""",
+        ).execute().path("queueDesignImage.id").entity(String::class.java).get()
+
+        drawnPicture(jobId)
+        // A stand-in bearer, which a server that checks no key ignores.
+        assertThat(authorised.single()).isEqualTo("Bearer no-key")
+    }
+
     /** Waits for the request to be drawn, and answers its picture's id. */
     private fun drawnPicture(jobId: String): String {
         await().atMost(Duration.ofSeconds(10)).until { jobs.findByIdOrNull(jobId.toLong())?.status == DesignImageJobStatus.DRAWN }
@@ -279,11 +294,12 @@ class DesignImageAPITest(
         }
     }
 
-    private fun model(name: String, kind: String): Long {
+    private fun model(name: String, kind: String, keyed: Boolean = true): Long {
+        val key = if (keyed) """, secret: "sk-test"""" else ""
         val providerId = graphQlTester.document(
             """mutation { createModelProvider(input: {
                  workspaceId: $workspaceId, name: "$name provider", type: OPENAI,
-                 endpoint: "http://${server.address.hostString}:${server.address.port}", secret: "sk-test"
+                 endpoint: "http://${server.address.hostString}:${server.address.port}"$key
                }) { id } }""",
         ).execute().path("createModelProvider.id").entity(Long::class.java).get()
         return graphQlTester.document(

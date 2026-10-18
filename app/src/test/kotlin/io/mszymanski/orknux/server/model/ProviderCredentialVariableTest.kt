@@ -282,7 +282,8 @@ class ProviderCredentialVariableTest(
         val cleared = requireNotNull(providers.findById(provider).orElse(null))
         assertThat(cleared.secret).isNull()
         assertThat(cleared.secretVariableId).isNull()
-        assertThat(cleared.configured()).isFalse()
+        // Still worth calling: an OpenAI-shaped server may check no key at all.
+        assertThat(cleared.configured()).isTrue()
     }
 
     /**

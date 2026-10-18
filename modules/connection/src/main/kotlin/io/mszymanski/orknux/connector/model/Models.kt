@@ -409,12 +409,21 @@ class ModelProvider(
      * setting up, which is not what happened.
      */
     fun configured(): Boolean = when (authMethod) {
-        // A self-hosted Laya runs without a key unless its operator set
-        // LAYA_API_KEY, so for this type the key is optional and the endpoint
-        // is enough to be worth asking.
-        ProviderAuthMethod.API_KEY -> credentialSet() || type == ProviderType.SYSTEM_ONE
+        ProviderAuthMethod.API_KEY -> credentialSet() || keyOptional()
         ProviderAuthMethod.ENTRA_ID -> credentialSet() && !tenantId.isNullOrBlank() && !clientId.isNullOrBlank()
     }
+
+    /**
+     * Whether this provider may be called with no key at all.
+     *
+     * The types a server on somebody's own machine speaks - the OpenAI shape,
+     * Ollama, and a self-hosted Laya - because those servers mostly check no
+     * key, and making somebody type a placeholder to call one is a form that
+     * lies about what it needs. Anthropic and Azure are only ever hosted, and a
+     * key is the whole of the arrangement there.
+     */
+    fun keyOptional(): Boolean =
+        type == ProviderType.OPENAI || type == ProviderType.OLLAMA || type == ProviderType.SYSTEM_ONE
 
     /** A copy of its own, or a variable to read one from. Never both. */
     private fun credentialSet(): Boolean = secretVariableId != null || !secret.isNullOrBlank()

@@ -81,7 +81,7 @@ class ModelAPITest(
 
     @Test
     fun `a key makes a provider worth checking, not connected, and is never listed`() {
-        val id = provider("Google AI", "https://generativelanguage.googleapis.com", key = null)
+        val id = provider("Google AI", "https://generativelanguage.googleapis.com", key = null, type = "ANTHROPIC")
 
         graphQlTester.document("""{ modelProviders(workspaceId: $workspaceId) { id name endpoint status secretSet } }""")
             .execute()
@@ -91,7 +91,7 @@ class ModelAPITest(
         graphQlTester.document(
             """
             mutation { updateModelProvider(id: $id, input: {
-              name: "Google AI", endpoint: "https://generativelanguage.googleapis.com", secret: "sk-test"
+              name: "Google AI", endpoint: "https://generativelanguage.googleapis.com", secret: "sk-test", type: ANTHROPIC
             }) { status secretSet } }
             """,
         ).execute()
@@ -224,8 +224,9 @@ class ModelAPITest(
     }
 
     @Test
-    fun `discovery needs credentials before it can ask`() {
-        val id = provider("Unconfigured", serve(200, """{"data":[]}"""), key = null)
+    fun `discovery needs credentials before it can ask, where the provider needs a key`() {
+        // Anthropic is only ever hosted, and a key is the whole of the arrangement.
+        val id = provider("Unconfigured", serve(200, """{"data":[]}"""), key = null, type = "ANTHROPIC")
 
         graphQlTester.document("""{ discoveredModels(providerId: $id) { modelId } }""")
             .execute()
@@ -233,6 +234,19 @@ class ModelAPITest(
             .satisfy { errors ->
                 assertThat(errors.single().message).contains("no credentials")
             }
+    }
+
+    @Test
+    fun `a server on somebody's own machine is asked with no key at all`() {
+        // The OpenAI shape and Ollama: what a local server speaks, and what mostly checks no key.
+        val id = provider("Local", serve(200, """{"data":[{"id":"m1"}]}"""), key = null)
+
+        graphQlTester.document("""{ discoveredModels(providerId: $id) { modelId } }""")
+            .execute()
+            .path("discoveredModels[*].modelId").entityList(String::class.java).containsExactly("m1")
+        graphQlTester.document("""{ modelProviders(workspaceId: $workspaceId) { status } }""")
+            .execute()
+            .path("modelProviders[0].status").entity(String::class.java).isEqualTo("NOT_CHECKED")
     }
 
     @Test
@@ -269,8 +283,8 @@ class ModelAPITest(
     fun `the periodic sweep checks what is configured and leaves the rest alone`() {
         // Configured, and unreachable: the sweep should record that.
         provider("Broken", "https://api.example.invalid/v1")
-        // Nothing to check with, which is not the same as broken.
-        provider("Unconfigured", "https://api.example.invalid/v1", key = null)
+        // Nothing to check with, which is not the same as broken - on a type that needs a key.
+        provider("Unconfigured", "https://api.example.invalid/v1", key = null, type = "ANTHROPIC")
 
         ModelProviderMonitor(providers, service, ModelProviderCheckProperties()).sweep()
 
@@ -814,7 +828,8 @@ class ModelAPITest(
         copy.path("duplicateModelProvider.name").entity(String::class.java).isEqualTo("Local (copy)")
         copy.path("duplicateModelProvider.endpoint").entity(String::class.java).isEqualTo("https://local.example.invalid/v1")
         copy.path("duplicateModelProvider.secretSet").entity(Boolean::class.java).isEqualTo(false)
-        copy.path("duplicateModelProvider.status").entity(String::class.java).isEqualTo("NOT_CONFIGURED")
+        // Without its key, and still worth checking: an OpenAI-shaped server may need none.
+        copy.path("duplicateModelProvider.status").entity(String::class.java).isEqualTo("NOT_CHECKED")
         val copyId = copy.path("duplicateModelProvider.id").entity(Long::class.java).get()
 
         assertThat(models.findByProviderId(copyId).map { it.name to it.modelId })
@@ -828,11 +843,12 @@ class ModelAPITest(
             .path("duplicateModelProvider.name").entity(String::class.java).isEqualTo("Local (copy 2)")
     }
 
-    private fun provider(name: String, endpoint: String, key: String? = "sk-test"): Long {
+    private fun provider(name: String, endpoint: String, key: String? = "sk-test", type: String? = null): Long {
         val secret = if (key == null) "" else """, secret: "$key""""
+        val typed = if (type == null) "" else ", type: $type"
         return graphQlTester.document(
             """mutation { createModelProvider(input: {
-                 workspaceId: $workspaceId, name: "$name", endpoint: "$endpoint"$secret
+                 workspaceId: $workspaceId, name: "$name", endpoint: "$endpoint"$secret$typed
                }) { id } }""",
         ).execute().path("createModelProvider.id").entity(Long::class.java).get()
     }
