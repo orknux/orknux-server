@@ -4550,6 +4550,8 @@ input CreateAgentInput {
     icon: String
     "Which boxes it may use, by label; null or empty is none."
     boxLabels: [String!]
+    "Whether it may ask orknux about orknux; left out, a new agent may."
+    orknuxAccess: Boolean
 }
 
 input UpdateAgentInput {

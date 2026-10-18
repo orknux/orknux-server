@@ -229,6 +229,10 @@ class AgentAPI(
                 // Every memory catalog the workspace has, which it may untick. See DefaultGrants.
                 memoryCatalogs = defaultGrants.memoryCatalogsFor(input.workspaceId),
                 requiredSkills = STARTING_ALWAYS_SKILLS.toMutableList(),
+                // May ask orknux about orknux unless the caller says not: an agent
+                // that can read the workspace it lives in is the one people expect.
+                // New agents only - the column's default leaves existing ones as they were.
+                orknuxAccess = input.orknuxAccess ?: STARTS_WITH_ORKNUX_ACCESS,
                 lastModifiedBy = currentUser(),
             ).also { made -> input.boxLabels?.let { made.boxLabels = it } },
         )
@@ -309,6 +313,8 @@ class AgentAPI(
                 skillCatalogs = startingCatalogs(),
                 memoryCatalogs = defaultGrants.memoryCatalogsFor(model.workspaceId),
                 requiredSkills = STARTING_ALWAYS_SKILLS.toMutableList(),
+                // As a hand-made agent: it may ask orknux about orknux.
+                orknuxAccess = STARTS_WITH_ORKNUX_ACCESS,
                 lastModifiedBy = currentUser(),
             ),
         )
@@ -886,6 +892,9 @@ class AgentAPI(
 
         /** What a fresh agent's icon is, unless one is named: the bot in the interface's own set. Issue #415. */
         const val DEFAULT_AGENT_ICON = "bot"
+
+        /** Whether a new agent may ask orknux about orknux before anybody says otherwise. */
+        const val STARTS_WITH_ORKNUX_ACCESS = true
     }
 }
 
@@ -899,6 +908,8 @@ data class CreateAgentInput(
     val icon: String? = null,
     /** Which boxes it may use, by label; null or empty is none. */
     val boxLabels: List<String>? = null,
+    /** Whether it may ask orknux about orknux; null starts it on, as the form does. */
+    val orknuxAccess: Boolean? = null,
 )
 
 data class UpdateAgentInput(

@@ -56,6 +56,18 @@ class AgentAPITest(
     }
 
     @Test
+    fun `a new agent may ask orknux about orknux unless told not to`() {
+        graphQlTester.document(
+            """mutation { createAgent(input: { workspaceId: $workspaceId, name: "Asker", type: LLM }) { orknuxAccess } }""",
+        ).execute().path("createAgent.orknuxAccess").entity(Boolean::class.java).isEqualTo(true)
+        graphQlTester.document(
+            """mutation { createAgent(input: { workspaceId: $workspaceId, name: "Quiet", type: LLM, orknuxAccess: false }) { orknuxAccess } }""",
+        ).execute().path("createAgent.orknuxAccess").entity(Boolean::class.java).isEqualTo(false)
+        // The entity's own default is untouched, which is what keeps existing agents as they were.
+        assertThat(io.mszymanski.orknux.server.agent.Agent(workspaceId = workspaceId, name = "x", type = AgentType.LLM).orknuxAccess).isFalse()
+    }
+
+    @Test
     fun `an agent created with its own icon keeps it, not the bot default`() {
         graphQlTester.document(
             """mutation { createAgent(input: { workspaceId: $workspaceId, name: "Owl", type: LLM, icon: "owl" }) { icon } }""",
