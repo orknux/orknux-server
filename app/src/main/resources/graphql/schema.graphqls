@@ -2255,6 +2255,13 @@ type Mutation {
     """
     queueDesignImageUpscale(input: UpscaleDesignImageInput!): DesignImageJob!
     """
+    Reads a models file - written by GET /api/workspaces/{id}/models/export -
+    into this workspace: each provider by name, reusing one already here, and
+    each model under it unless that provider already has one of that name. No
+    key travels; a provider that held one arrives needing one.
+    """
+    importModels(workspaceId: ID!, content: String!): ModelImport!
+    """
     Keeps a picture brought in from outside - a file dropped on the editor, or
     an .orkx archive with its project - as a Design picture.
     """
@@ -8226,6 +8233,18 @@ input ImportDesignImageInput {
     name: String
     "What it was drawn from; null takes the archive's."
     prompt: String
+}
+
+"What reading a models file made, and what it left alone."
+type ModelImport {
+    "Providers made, by name."
+    providers: [String!]!
+    "Of those, the ones that held a key where they came from and now need one."
+    needsKey: [String!]!
+    "Models made, as provider / model."
+    models: [String!]!
+    "Models left alone because their provider here already has one of that name."
+    skipped: [String!]!
 }
 
 "What an upscale model's server offers, or why it could not be asked."
