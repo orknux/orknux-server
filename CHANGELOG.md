@@ -15,6 +15,26 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## 1.1.4
+
+### ✨ Added
+
+- **Design, a new section with an Images page.** Every picture a model drew in the workspace, as a gallery that keeps loading as it is scrolled. A picture opened shows its name, its prompt and what it was drawn with - model, size, quality, style and who drew it - with Remove and Edit beside it, and the gallery scrolls on its own down its left.
+- **An image editor.** The canvas, and beside it the prompt, the image model and that model's own parameters. Generate queues the picture and is drawn behind it, so several can be asked for and the editor left: queued and drawing pictures show in the gallery, marked, and open in the editor from there. Zoom in and out with Ctrl+= and Ctrl+-, undo and redo, and name a picture before or after it is drawn.
+- **Magic edit: select part of a picture and say what to change.** Rectangle, lasso and select all - M, L and Ctrl+A, each changeable in Preferences. The change is asked of the image model through the standard `/v1/images/edits`, and every pixel outside the selection comes back exactly as it was.
+- **Changes are a draft until saved.** Save writes them over the picture, whatever drew it; Save as copy keeps them as a new picture and leaves the original as it was; Discard throws them away. A draft is kept through leaving the editor and restarts, and its picture is marked Draft. Ctrl+S saves.
+- **Open in Design** on a picture on the Artifacts page.
+- **A stable-diffusion.cpp provider type**, whose picture edits send the mask that server reads, and an **Edit mask** setting on a provider to say which way its server reads one.
+- **Longest image prompt** and **Images drawn at once** in Admin › Settings, with `ORKNUX_IMAGE_MAX_PROMPT` (2000) and `ORKNUX_IMAGE_DRAWS_AT_ONCE` (1) where a fresh installation starts.
+
+### 🔧 Changed
+
+- **The top bar is in the alphabet's order**, with Design in it: AI, Chat, Design, Flow, Workspace.
+- **OpenAI-compatible, Ollama and llama.cpp providers work without an API key.** A server on your own machine usually checks none; one that does answers 401, and the provider's card says so. Anthropic and Azure still need one.
+- **An OpenAI provider whose server is stable-diffusion.cpp's is saved as that type**, recognised by its `/sdcpp/v1/capabilities`. An existing one changes the next time it is saved; until then its edits are sent the standard mask, which that server reads as "change nothing".
+- **How long a picture's description may be is one setting** for chat, tasks, workflows and Design, where each had its own fixed limit. It starts at the same 2000 characters.
+- **A chat's header has one link to its session**, not two.
+
 ## 1.1.3
 
 ### ✨ Added
