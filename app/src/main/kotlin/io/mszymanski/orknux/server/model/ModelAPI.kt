@@ -40,6 +40,8 @@ class ModelAPI(
     private val workspaces: WorkspaceRepository,
     private val access: WorkspaceAccess,
     private val auditRecorder: WorkspaceAuditRecorder,
+    /** What uses a model, asked before it is removed. */
+    private val dependants: io.mszymanski.orknux.server.dependency.ComponentDependants,
 ) {
 
     @QueryMapping
@@ -355,6 +357,16 @@ class ModelAPI(
     @MutationMapping
     fun removeModel(@Argument id: Long): Boolean {
         val model = models.model(id)?.takeIf { access.canSee(it.workspaceId) } ?: return false
+        /*
+         * Refused while something uses it, as an agent or an action is: removed,
+         * the agents thinking with it were left with no model and could not run,
+         * and the workspace settings naming it pointed at nothing - each found out
+         * on its next use rather than here. The page lists the same rows.
+         */
+        val users = dependants.of(io.mszymanski.orknux.server.dependency.DependencyKind.MODEL, id)
+        if (users.isNotEmpty()) {
+            throw ModelInUseException(model.name, users.map { it.phrase })
+        }
         if (!models.removeModel(id)) return false
 
         auditRecorder.record(model.workspaceId, WorkspaceAuditCategory.MODEL, "Model ${model.name} removed")
@@ -428,6 +440,13 @@ data class ModelUsageDayResponse(val day: String, val requests: Int, val tokens:
 class ModelProviderNotFoundException(val id: Long) : RuntimeException("No model provider with id $id"), Refusal {
 
     override val arguments get() = mapOf("id" to id)
+}
+
+class ModelInUseException(val name: String, val users: List<String>) : RuntimeException(
+    "$name is used by ${users.joinToString(", ")}, so it cannot be removed",
+), Refusal {
+
+    override val arguments get() = mapOf("name" to name, "users" to users)
 }
 
 class ModelNotFoundException(val id: Long) : RuntimeException("No model with id $id"), Refusal {

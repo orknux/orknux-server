@@ -25,6 +25,8 @@ data class DependantView(
     val workspaceId: Long?,
     val workspaceName: String?,
     val published: Boolean,
+    /** Where on its page it is, for a part of a page - a workspace setting's anchor. */
+    val section: String? = null,
 )
 
 /** The rows, and how many there are that this reader may not be told about. */
@@ -110,6 +112,7 @@ class DependencyAPI(
                     workspaceId = it.workspaceId,
                     workspaceName = it.workspaceName ?: named[it.workspaceId],
                     published = it.published,
+                    section = it.section,
                 )
             },
             hidden = hidden.size,

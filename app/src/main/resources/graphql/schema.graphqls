@@ -2896,7 +2896,7 @@ a reason - a variable, a library and a connection all hold something that cannot
 travel. This one is what can point at what, and those three are exactly the
 interesting cases.
 
-`WORKFLOW`, `CONNECTION` and `MODEL_PROVIDER` are only ever answers: nothing in
+`WORKFLOW`, `CONNECTION` and `WORKSPACE` are only ever answers: nothing in
 this product points at one, so asking about them is refused rather than answered
 with an empty list, which would read as "nothing uses it".
 
@@ -2922,7 +2922,12 @@ enum DependencyKind {
     CONNECTION
     "An agent is granted one by name, which is what asking about it answers."
     MCP_SERVER
+    "Asked what it holds: the models reached through it."
     MODEL_PROVIDER
+    "The agents, workspace settings, actions and workflow nodes that use it."
+    MODEL
+    "Only ever an answer: a workspace setting naming the thing asked about; `section` says which."
+    WORKSPACE
 }
 
 "One thing that depends on a component, and where to open it."
@@ -2940,6 +2945,8 @@ type Dependant {
     draft is redrawn, a publication is republished.
     """
     published: Boolean!
+    "Where on its page it is, for a part of a page - a workspace setting's anchor; null otherwise."
+    section: String
 }
 
 """

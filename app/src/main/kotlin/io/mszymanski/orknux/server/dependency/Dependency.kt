@@ -54,8 +54,22 @@ enum class DependencyKind {
      */
     MCP_SERVER,
 
-    /** Only ever an answer. */
+    /** Asked what it holds: the models reached through it. */
     MODEL_PROVIDER,
+
+    /**
+     * A model, asked what uses it: the agents thinking with it, the
+     * workspace's settings that name it, the actions that speak with it and the
+     * workflow nodes that draw or decide with it.
+     */
+    MODEL,
+
+    /**
+     * Only ever an answer: a workspace's own setting naming the thing asked
+     * about - its companion model, say. [Dependant.section] says which, so a
+     * screen can open the settings page there.
+     */
+    WORKSPACE,
     ;
 
     /** "skill catalog", for a sentence somebody reads. */
@@ -69,7 +83,7 @@ enum class DependencyKind {
      * refused for the reason it is refused for and not as a missing row.
      */
     val askable: Boolean
-        get() = this !in setOf(WORKFLOW, CONNECTION, MODEL_PROVIDER)
+        get() = this !in setOf(WORKFLOW, CONNECTION, WORKSPACE)
 }
 
 /**
@@ -108,6 +122,8 @@ data class Dependant(
     val workspaceName: String?,
     val published: Boolean,
     val phrase: String,
+    /** Where on its page the dependant is, for one that is a part of a page - a workspace setting's anchor. */
+    val section: String? = null,
 )
 
 /**

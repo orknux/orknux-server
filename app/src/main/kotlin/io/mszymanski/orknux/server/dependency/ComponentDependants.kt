@@ -95,9 +95,11 @@ class ComponentDependants(
         DependencyKind.VARIABLE -> ofVariable(id)
         DependencyKind.LIBRARY -> ofLibrary(id)
         DependencyKind.MCP_SERVER -> ofMcpServer(id)
+        DependencyKind.MODEL -> ofModel(id)
+        DependencyKind.MODEL_PROVIDER -> ofModelProvider(id)
         DependencyKind.WORKFLOW,
         DependencyKind.CONNECTION,
-        DependencyKind.MODEL_PROVIDER,
+        DependencyKind.WORKSPACE,
         -> throw DependencyKindNotAskableException(kind)
     }
 
@@ -121,6 +123,8 @@ class ComponentDependants(
         DependencyKind.VARIABLE -> variables.findByIdOrNull(id)?.workspaceId
         DependencyKind.LIBRARY -> null
         DependencyKind.MCP_SERVER -> mcpServers.mcpServer(id)?.workspaceId
+        DependencyKind.MODEL -> models.model(id)?.workspaceId
+        DependencyKind.MODEL_PROVIDER -> models.provider(id)?.workspaceId
         else -> null
     }
 
@@ -138,6 +142,8 @@ class ComponentDependants(
         DependencyKind.VARIABLE -> variables.existsById(id)
         DependencyKind.LIBRARY -> libraries.existsById(id)
         DependencyKind.MCP_SERVER -> mcpServers.mcpServer(id) != null
+        DependencyKind.MODEL -> models.model(id) != null
+        DependencyKind.MODEL_PROVIDER -> models.provider(id) != null
         else -> false
     }
 
@@ -341,6 +347,60 @@ class ComponentDependants(
         val server = mcpServers.mcpServer(id) ?: return emptyList()
         return agents.findGrantedMcpServer(server.workspaceId, server.name)
             .map { plain(DependencyKind.AGENT, it.id, it.name, it.workspaceId) }
+            .sortedBy { it.name }
+    }
+
+    /**
+     * What would stop working without this model.
+     *
+     * The agents that think with it; the workspace's own settings that name it -
+     * each a row of its own, said by the setting and opened at it; the actions
+     * that speak with it; and the workflows whose image or decision nodes name
+     * it, published copies first, as every workflow answer is. A chat or a task
+     * that ran on it once is history, and is not here.
+     */
+    private fun ofModel(id: Long): List<Dependant> {
+        val model = models.model(id) ?: return emptyList()
+        val workspaceId = model.workspaceId
+        val workspace = workspaces.findByIdOrNull(workspaceId)
+        val settings = workspace?.let { held ->
+            listOf(
+                Triple(held.companionModelId, "Companion model", "companion-model"),
+                Triple(held.quickChatModelId, "Quick chat model", "quick-chat-model"),
+                Triple(held.transcriptionModelId, "Transcription model", "transcription-model"),
+                Triple(held.speechModelId, "Speech model", "speech-model"),
+                Triple(held.imageModelId, "Image model", "image-model"),
+                Triple(held.compactionModelId, "Compaction model", "compaction-model"),
+                Triple(held.sessionCompactionModelId, "Session compaction model", "compaction-model"),
+            ).filter { (named, _, _) -> named == id }.map { (_, setting, section) ->
+                Dependant(
+                    kind = DependencyKind.WORKSPACE,
+                    id = workspaceId,
+                    name = setting,
+                    workspaceId = workspaceId,
+                    workspaceName = held.name,
+                    published = false,
+                    phrase = "the workspace's ${setting.lowercase()}",
+                    section = section,
+                )
+            }
+        }.orEmpty()
+        return agents.findByWorkspaceIdAndModelId(workspaceId, id)
+            .map { plain(DependencyKind.AGENT, it.id, it.name, it.workspaceId) }
+            .sortedBy { it.name } +
+            settings +
+            actions.findByWorkspaceId(workspaceId)
+                .filter { it.speechModelId == id }
+                .map { plain(DependencyKind.ACTION, it.id, it.name, it.workspaceId) } +
+            references.toModel(workspaceId, id)
+    }
+
+    /** The models reached through this provider, which go with it. */
+    private fun ofModelProvider(id: Long): List<Dependant> {
+        val provider = models.provider(id) ?: return emptyList()
+        return models.models(provider.workspaceId)
+            .filter { it.providerId == id }
+            .map { qualified(DependencyKind.MODEL, it.id, it.name, it.workspaceId, "the model ${it.name}") }
             .sortedBy { it.name }
     }
 

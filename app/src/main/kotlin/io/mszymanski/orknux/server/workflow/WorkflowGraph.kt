@@ -622,6 +622,24 @@ interface WorkflowNodeRepository : JpaRepository<WorkflowNode, Long> {
     @Query(
         """
         SELECT DISTINCT n.workflowId FROM WorkflowNode n
+        WHERE n.imageModelId = :id
+          AND n.workflowId IN (SELECT a.workflow.id FROM WorkspaceWorkflow a WHERE a.workspaceId = :workspaceId)
+        """,
+    )
+    fun draftsNamingImageModel(@Param("workspaceId") workspaceId: Long, @Param("id") id: Long): List<Long>
+
+    @Query(
+        """
+        SELECT DISTINCT n.workflowId FROM WorkflowNode n
+        WHERE n.decisionModelId = :id
+          AND n.workflowId IN (SELECT a.workflow.id FROM WorkspaceWorkflow a WHERE a.workspaceId = :workspaceId)
+        """,
+    )
+    fun draftsNamingDecisionModel(@Param("workspaceId") workspaceId: Long, @Param("id") id: Long): List<Long>
+
+    @Query(
+        """
+        SELECT DISTINCT n.workflowId FROM WorkflowNode n
         WHERE n.actionId = :id
           AND n.workflowId IN (SELECT a.workflow.id FROM WorkspaceWorkflow a WHERE a.workspaceId = :workspaceId)
         """,

@@ -9,6 +9,9 @@ import org.springframework.data.repository.query.Param
 
 interface AgentRepository : JpaRepository<Agent, Long> {
 
+    /** The agents of a workspace that think with this model. */
+    fun findByWorkspaceIdAndModelId(workspaceId: Long, modelId: Long): List<Agent>
+
     /**
      * The boxes an agent is granted now, read from the row rather than from an
      * entity: a query for a column goes to the database, where a lookup by id

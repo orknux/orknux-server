@@ -42,6 +42,7 @@ class ModelExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ModelParameterValueInvalidException,
             is ProviderChatApiNotTakenException,
             is io.mszymanski.orknux.connector.model.ModelProviderToolCapInvalidException,
+            is ModelInUseException,
             -> ErrorType.BAD_REQUEST
 
             // The provider would not answer. Nothing the caller sent is wrong,

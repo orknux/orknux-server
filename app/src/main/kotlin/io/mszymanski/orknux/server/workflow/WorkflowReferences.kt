@@ -70,6 +70,19 @@ class WorkflowReferences(
     fun toAgent(workspaceId: Long, agentId: Long): List<Dependant> =
         using(workspaceId, nodes.draftsNamingAgent(workspaceId, agentId), "agentId", agentId)
 
+    /**
+     * Which of the workspace's workflows draw or decide with this model: an
+     * image node names one, a decision node names one. A workflow naming it
+     * both ways is one row, the published answer kept where either has one.
+     */
+    fun toModel(workspaceId: Long, modelId: Long): List<Dependant> =
+        (
+            using(workspaceId, nodes.draftsNamingImageModel(workspaceId, modelId), "imageModelId", modelId) +
+                using(workspaceId, nodes.draftsNamingDecisionModel(workspaceId, modelId), "decisionModelId", modelId)
+            )
+            .sortedByDescending { it.published }
+            .distinctBy { it.id }
+
     /** Which of the workspace's workflows ask this condition. */
     fun toCondition(workspaceId: Long, conditionId: Long): List<Dependant> =
         using(workspaceId, nodes.draftsNamingCondition(workspaceId, conditionId), "conditionId", conditionId)
