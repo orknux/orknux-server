@@ -55,6 +55,8 @@ class InstallationSettingsAPI(
         objectMaxDepthConfigured = settings.objectMaxDepthConfigured(),
         imageMaxPrompt = settings.imageMaxPrompt(),
         imageMaxPromptConfigured = settings.imageMaxPromptConfigured(),
+        imageDrawsAtOnce = settings.imageDrawsAtOnce(),
+        imageDrawsAtOnceConfigured = settings.imageDrawsAtOnceConfigured(),
         agentSleepSeconds = settings.agentSleepSeconds(),
         agentSleepSecondsConfigured = settings.agentSleepSecondsConfigured(),
         agentSleepTimes = settings.agentSleepTimes(),
@@ -661,6 +663,14 @@ class InstallationSettingsAPI(
 
     /** The longest description a picture is drawn from, wherever it is drawn. */
     @MutationMapping
+    fun setImageDrawsAtOnce(@Argument draws: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setImageDrawsAtOnce(draws, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "Design draws $draws pictures at once")
+        return installationSettings()
+    }
+
+    @MutationMapping
     fun setImageMaxPrompt(@Argument characters: Int): InstallationSettingsView {
         access.requireAdmin()
         settings.setImageMaxPrompt(characters, currentUser())
@@ -1080,6 +1090,8 @@ data class InstallationSettingsView(
     val objectMaxDepthConfigured: Int,
     val imageMaxPrompt: Int,
     val imageMaxPromptConfigured: Int,
+    val imageDrawsAtOnce: Int,
+    val imageDrawsAtOnceConfigured: Int,
     /** What a fresh installation allows - ORKNUX_CHAT_MAX_ROUNDS. */
     val chatMaxRoundsConfigured: Int,
     /**

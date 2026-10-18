@@ -271,6 +271,7 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is io.mszymanski.orknux.server.attachment.ChatRoundsOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.ObjectDepthOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.ImagePromptOutOfRangeException,
+            is io.mszymanski.orknux.server.attachment.ImageDrawsOutOfRangeException,
             /* The two bounds on an agent's waiting, refused the same way. */
             is io.mszymanski.orknux.server.attachment.SleepSecondsOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.SleepTimesOutOfRangeException,

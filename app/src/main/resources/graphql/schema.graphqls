@@ -451,6 +451,10 @@ type Query {
     opening at the list and being clicked through to it.
     """
     workspaceArtifact(workspaceId: ID!, id: ID!): Artifact
+    "Pictures this workspace has waiting, being drawn, or failed in Design - oldest first."
+    designImageQueue(workspaceId: ID!): [DesignImageJob!]!
+    "One picture asked for in Design, in whatever state it is; null for one not here."
+    designImageJob(workspaceId: ID!, id: ID!): DesignImageJob
 
     """
     The "Custom" actions one workflow owns - exactly what workspaceActions
@@ -1226,6 +1230,8 @@ type Mutation {
     setObjectMaxDepth(depth: Int!): InstallationSettings!
     "The longest description a picture is drawn from, in characters - in Design, a chat and a task. Between 100 and 32000."
     setImageMaxPrompt(characters: Int!): InstallationSettings!
+    "How many of Design's queued pictures are drawn at the same time. Between 1 and 16."
+    setImageDrawsAtOnce(draws: Int!): InstallationSettings!
     """
     The longest an agent may put itself to sleep for; 1 to 86400 seconds.
 
@@ -2224,12 +2230,16 @@ type Mutation {
     deleteAction(id: ID!): Boolean!
 
     """
-    Draws a picture with one image model and keeps it on Design's Images page,
-    with the model and the parameters it was drawn with. Refused where the model
-    is not an image model of this workspace or the installation keeps no
-    attachments.
+    Queues a picture to be drawn with one image model, and answers at once; it
+    is drawn in turn and kept on Design's Images page with the model and the
+    parameters it was drawn with. Refused where the model is not an image model
+    of this workspace or the installation keeps no attachments.
     """
-    drawDesignImage(input: DrawDesignImageInput!): Artifact!
+    queueDesignImage(input: DrawDesignImageInput!): DesignImageJob!
+    "Takes a queued or failed picture off; one being drawn cannot be. False for one not here."
+    dismissDesignImageJob(id: ID!): Boolean!
+    "Keeps a draft drawn in the image editor. Discarding one is deleteArtifact."
+    saveDesignImage(workspaceId: ID!, id: ID!): Artifact!
 
     """ Gone from the list and gone from the disk. False if there was no such artifact. """
     deleteArtifact(id: ID!): Boolean!
@@ -6694,6 +6704,10 @@ type InstallationSettings {
     imageMaxPrompt: Int!
     "What a fresh installation allows - ORKNUX_IMAGE_MAX_PROMPT."
     imageMaxPromptConfigured: Int!
+    "How many of Design's queued pictures are drawn at the same time."
+    imageDrawsAtOnce: Int!
+    "What a fresh installation allows - ORKNUX_IMAGE_DRAWS_AT_ONCE."
+    imageDrawsAtOnceConfigured: Int!
     """
     The longest one of an agent's own waits may be, in seconds.
 
@@ -8059,6 +8073,8 @@ type Artifact {
     previewUrl: String
     "What drew it and how, where that was kept - a picture drawn in Design; null elsewhere."
     drawnWith: ArtifactDrawing
+    "Drawn in Design's image editor and not yet saved; Artifacts lists only what was saved."
+    draft: Boolean!
 }
 
 """ The model a picture was drawn with, the parameters it was asked for, and who asked. """
@@ -8071,6 +8087,35 @@ type ArtifactDrawing {
     quality: String
     style: String
     drawnBy: String!
+}
+
+enum DesignImageJobStatus {
+    QUEUED
+    DRAWING
+    DRAWN
+    FAILED
+}
+
+""" A picture asked for on Design's Images page, and where it is on its way to being drawn. """
+type DesignImageJob {
+    id: ID!
+    status: DesignImageJobStatus!
+    prompt: String!
+    "Null once that model is removed; model still names it."
+    modelId: ID
+    model: String!
+    size: String
+    quality: String
+    style: String
+    requestedBy: String!
+    requestedAt: String!
+    startedAt: String
+    "Why it was not drawn, on a FAILED one."
+    reason: String
+    "How many queued pictures are drawn before this one; null unless QUEUED."
+    ahead: Int
+    "The picture, once DRAWN."
+    image: Artifact
 }
 
 """ A picture to draw on Design's Images page, straight from one image model. """

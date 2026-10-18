@@ -12,4 +12,10 @@ data class ImagesProperties(
      * what a model could be handed.
      */
     val maxPrompt: Int = 2_000,
+    /**
+     * How many of Design's queued pictures are drawn at the same time. One,
+     * because a local image server draws one picture at a time and a second
+     * sent beside it only makes both slower; a hosted model can take more.
+     */
+    val drawsAtOnce: Int = 1,
 )

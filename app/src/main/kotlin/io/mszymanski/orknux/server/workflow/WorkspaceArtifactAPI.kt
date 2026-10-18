@@ -85,7 +85,8 @@ class WorkspaceArtifactAPI(
         val all = (
             pictures.findByWorkspaceId(workspaceId).map(::describe) +
                 taskPictures.findByWorkspaceId(workspaceId).map(::describe) +
-                designImages.findByWorkspaceId(workspaceId).map(::describe) +
+                // Drafts belong to Design's gallery; Artifacts lists what was kept.
+                designImages.findByWorkspaceId(workspaceId).filter { drawn == true || it.saved }.map(::describe) +
                 keptFiles
             )
             .filter { looking.isEmpty() || it.matches(looking) }
@@ -263,6 +264,7 @@ class WorkspaceArtifactAPI(
         drawnAt = image.drawnAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         at = image.drawnAt,
         drawnWith = ArtifactDrawing(image.modelId?.toString(), image.modelName, image.size, image.quality, image.style, image.drawnBy),
+        draft = !image.saved,
     )
 
     private fun describe(picture: TaskPicture) = ArtifactView(
@@ -341,6 +343,8 @@ data class ArtifactView(
     val at: OffsetDateTime,
     /** What drew it and how, where that was kept - a picture drawn in Design; null elsewhere. */
     val drawnWith: ArtifactDrawing? = null,
+    /** Drawn in the image editor and not yet saved. */
+    val draft: Boolean = false,
 ) {
     /** What the page shows is what a search reads: the caption and the name. */
     fun matches(looking: String): Boolean =

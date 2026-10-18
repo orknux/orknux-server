@@ -413,6 +413,9 @@ orknux:
     # Design, a chat and a task. This is where a fresh installation starts;
     # Admin -> Settings holds what it is now.
     max-prompt: ${ORKNUX_IMAGE_MAX_PROMPT:2000}
+    # How many of Design's queued pictures are drawn at the same time. One
+    # suits a local image server, which draws one at a time anyway.
+    draws-at-once: ${ORKNUX_IMAGE_DRAWS_AT_ONCE:1}
   mail:
     # The mail server this installation sends its own mail through: the password
     # reset link, and issue notifications for anybody who has not turned them off.

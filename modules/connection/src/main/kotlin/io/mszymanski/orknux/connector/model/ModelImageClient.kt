@@ -316,9 +316,6 @@ class ModelImageClient(
 
         const val CONNECT_SECONDS = 10L
 
-        /** Drawing is slow; a hosted model takes tens of seconds and a local one more. */
-        const val REQUEST_SECONDS = 180L
-
         /** Collecting bytes that already exist, which is not slow. */
         const val FETCH_SECONDS = 60L
     }

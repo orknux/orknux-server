@@ -68,6 +68,7 @@ object SettingNames {
     const val CHAT_MAX_ROUNDS = "chat.max.rounds"
     const val OBJECT_MAX_DEPTH = "objects.max.depth"
     const val IMAGE_MAX_PROMPT = "images.max.prompt"
+    const val IMAGE_DRAWS_AT_ONCE = "images.draws.at.once"
     const val AGENT_SLEEP_SECONDS = "agent.sleep.seconds"
     const val AGENT_SLEEP_TIMES = "agent.sleep.times"
     const val AGENT_MAX_SUBAGENTS = "agent.max.subagents"
@@ -470,6 +471,26 @@ class InstallationSettings(
 
     /** What a fresh installation allows - ORKNUX_IMAGE_MAX_PROMPT. */
     fun imageMaxPromptConfigured(): Int = imagesConfig.maxPrompt.coerceIn(MIN_IMAGE_PROMPT, MAX_IMAGE_PROMPT)
+
+    /** How many of Design's queued pictures are drawn at the same time. */
+    fun imageDrawsAtOnce(): Int {
+        val held = settings.findByIdOrNull(SettingNames.IMAGE_DRAWS_AT_ONCE) ?: return imageDrawsAtOnceConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_IMAGE_DRAWS..MAX_IMAGE_DRAWS } ?: imageDrawsAtOnceConfigured()
+    }
+
+    /** What a fresh installation allows - ORKNUX_IMAGE_DRAWS_AT_ONCE. */
+    fun imageDrawsAtOnceConfigured(): Int = imagesConfig.drawsAtOnce.coerceIn(MIN_IMAGE_DRAWS, MAX_IMAGE_DRAWS)
+
+    @Transactional
+    fun setImageDrawsAtOnce(draws: Int, by: String) {
+        if (draws !in MIN_IMAGE_DRAWS..MAX_IMAGE_DRAWS) throw ImageDrawsOutOfRangeException(draws)
+        val held = settings.findByIdOrNull(SettingNames.IMAGE_DRAWS_AT_ONCE)
+            ?: InstallationSetting(name = SettingNames.IMAGE_DRAWS_AT_ONCE)
+        held.value = draws.toString()
+        held.lastModifiedAt = OffsetDateTime.now()
+        held.lastModifiedBy = by
+        settings.save(held)
+    }
 
     @Transactional
     fun setImageMaxPrompt(characters: Int, by: String) {
@@ -1950,6 +1971,15 @@ const val MAX_OBJECT_DEPTH = 100
 
 const val MIN_IMAGE_PROMPT = 100
 const val MAX_IMAGE_PROMPT = 32_000
+
+const val MIN_IMAGE_DRAWS = 1
+const val MAX_IMAGE_DRAWS = 16
+
+class ImageDrawsOutOfRangeException(val draws: Int) : RuntimeException(
+    "$draws pictures cannot be drawn at once. Choose between $MIN_IMAGE_DRAWS and $MAX_IMAGE_DRAWS.",
+), io.mszymanski.orknux.server.graphql.Refusal {
+    override val arguments get() = mapOf("draws" to draws)
+}
 
 class ImagePromptOutOfRangeException(val characters: Int) : RuntimeException(
     "A picture's description cannot be limited to $characters characters. Choose between $MIN_IMAGE_PROMPT and $MAX_IMAGE_PROMPT.",
