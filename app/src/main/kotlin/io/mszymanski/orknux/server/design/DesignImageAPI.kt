@@ -53,6 +53,7 @@ class DesignImageAPI(
     private val auditRecorder: WorkspaceAuditRecorder,
     private val artifacts: WorkspaceArtifactAPI,
     private val upscaling: ModelUpscaleClient,
+    private val mapper: tools.jackson.databind.ObjectMapper,
 ) {
 
     /** Refused here, before it waits, for anything that could never be drawn. */
@@ -220,27 +221,37 @@ class DesignImageAPI(
         if (!settings.attachmentsEnabled()) {
             throw DesignImageRefusedException("A picture is kept as an attachment, and attachments are turned off for this installation.")
         }
-        val bytes = runCatching { java.util.Base64.getDecoder().decode(input.image.substringAfter("base64,")) }.getOrNull()
+        fun decoded(text: String) = runCatching { java.util.Base64.getDecoder().decode(text.substringAfter("base64,")) }.getOrNull()
             ?.takeIf { it.isNotEmpty() }
             ?: throw DesignImageRefusedException("The file could not be read.")
+        val maxBytes = settings.maxFileSizeMb() * 1024 * 1024
+        // An .orkx archive brings its project with it; a picture alone brings only what the page says.
+        val archived = input.archive.orNullIfBlank()?.let { DesignArchive.read(mapper, decoded(it), maxBytes) }
+        val bytes = archived?.image ?: decoded(input.image.orNullIfBlank() ?: throw DesignImageRefusedException("There is no file to import."))
+        if (bytes.size > maxBytes) throw DesignImageRefusedException("That picture is larger than this installation keeps.")
         val contentType = pictureTypeOf(bytes)
             ?: throw DesignImageRefusedException("That file is not a picture this can keep: a PNG, JPEG, WebP or GIF.")
-        val name = input.name.orNullIfBlank()?.take(NAME_LENGTH) ?: "Imported picture"
+        val project = archived?.project
+        val name = (input.name.orNullIfBlank() ?: project?.name)?.take(NAME_LENGTH) ?: "Imported picture"
         val filename = PictureFilenames.of(name, contentType)
+        // The model it was drawn with, where this workspace has one of that name; named either way.
+        val drawnWith = project?.model?.let { wanted ->
+            models.models(workspaceId).firstOrNull { it.name == wanted && it.kind == ModelKind.IMAGE }
+        }
         val saved = images.save(
             DesignImage(
                 workspaceId = workspaceId,
-                modelId = null,
-                modelName = IMPORTED,
-                prompt = input.prompt.orNullIfBlank() ?: name,
-                size = null,
-                quality = null,
-                style = null,
+                modelId = drawnWith?.id,
+                modelName = project?.model?.take(255) ?: IMPORTED,
+                prompt = input.prompt.orNullIfBlank() ?: project?.prompt ?: name,
+                size = project?.size?.take(40),
+                quality = project?.quality?.take(40),
+                style = project?.style?.take(40),
                 filename = filename,
                 contentType = contentType,
                 sizeBytes = bytes.size.toLong(),
                 location = store.put(workspaceId, filename, bytes),
-                drawnBy = currentName(),
+                drawnBy = project?.drawnBy?.take(255) ?: currentName(),
                 name = name,
             ),
         )
@@ -379,6 +390,43 @@ class DesignImageAPI(
         return versions.size
     }
 
+    /**
+     * Any picture in the workspace's gallery as an .orkx archive: its file and
+     * its project - name, prompt, and what it was drawn with.
+     */
+    @GetMapping("/api/workspaces/{workspaceId}/design/archive/{artifactId}")
+    @ResponseBody
+    fun archive(@PathVariable workspaceId: Long, @PathVariable artifactId: String): ResponseEntity<ByteArray> {
+        if (!access.canSee(workspaceId)) return ResponseEntity.notFound().build()
+        val stored = artifacts.storedOf(workspaceId, artifactId)?.takeIf { store.exists(it.location) }
+            ?: return ResponseEntity.notFound().build()
+        val view = stored.view
+        val drawn = view.drawnWith
+        val bytes = DesignArchive.write(
+            mapper,
+            DesignArchive.Project(
+                name = view.name ?: PictureFilenames.nameOf(view.prompt),
+                prompt = view.prompt,
+                model = drawn?.model,
+                size = drawn?.size,
+                quality = drawn?.quality,
+                style = drawn?.style,
+                drawnBy = drawn?.drawnBy,
+                drawnAt = view.drawnAt,
+            ),
+            store.open(stored.location).use { it.readBytes() },
+            stored.contentType,
+        )
+        val filename = PictureFilenames.of(view.name ?: PictureFilenames.nameOf(view.prompt), "image/png").substringBeforeLast('.') + ".orkx"
+        return ResponseEntity.ok()
+            .contentType(org.springframework.http.MediaType.parseMediaType("application/zip"))
+            .header(
+                org.springframework.http.HttpHeaders.CONTENT_DISPOSITION,
+                org.springframework.http.ContentDisposition.attachment().filename(filename, Charsets.UTF_8).build().toString(),
+            )
+            .body(bytes)
+    }
+
     /** To anybody who can see the workspace, answered as missing otherwise - as a task's picture is. */
     @GetMapping("/api/design-images/{id}")
     @ResponseBody
@@ -474,8 +522,10 @@ data class UpscaleDesignImageInput(
 
 data class ImportDesignImageInput(
     val workspaceId: String,
-    /** The file, base64. */
-    val image: String,
+    /** A picture's file, base64; or [archive]. */
+    val image: String? = null,
+    /** An .orkx archive, base64: the picture with its project. */
+    val archive: String? = null,
     val name: String? = null,
     val prompt: String? = null,
 )

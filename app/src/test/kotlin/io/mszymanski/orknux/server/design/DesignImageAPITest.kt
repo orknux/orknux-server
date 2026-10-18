@@ -522,6 +522,36 @@ class DesignImageAPITest(
             .path("importDesignImage.drawnWith.model").entity(String::class.java).isEqualTo("Imported")
         assertThat(images.findAll().single().contentType).isEqualTo("image/png")
 
+        // As an .orkx archive and back: the picture byte for byte, with its name, prompt and what drew it.
+        val drawer = model("Drawer", "IMAGE")
+        val kept = images.save(
+            DesignImage(
+                workspaceId = workspaceId, modelId = drawer, modelName = "Drawer", prompt = "A red field",
+                size = "1024x1024", quality = "hd", style = null, filename = "red.png", contentType = "image/png",
+                sizeBytes = 1, location = store.put(workspaceId, "red.png", png(3, 2) { _, _ -> RED }), drawnBy = "bob",
+                name = "Red field",
+            ),
+        )
+        val archive = api.archive(workspaceId, "DESIGN-${kept.id}")
+        assertThat(archive.headers.contentDisposition.filename).isEqualTo("red-field.orkx")
+        val entries = java.util.zip.ZipInputStream(archive.body!!.inputStream()).use { zip ->
+            generateSequence { zip.nextEntry }.map { it.name to zip.readBytes() }.toMap()
+        }
+        assertThat(entries.keys).containsExactlyInAnyOrder("project.json", "picture.png")
+        assertThat(entries["picture.png"]).isEqualTo(store.open(kept.location).use { it.readBytes() })
+        graphQlTester.document(
+            """mutation { importDesignImage(input: { workspaceId: $workspaceId, archive: "${Base64.getEncoder().encodeToString(archive.body)}" }) {
+                 name prompt drawnWith { modelId model size quality drawnBy } } }""",
+        ).execute()
+            .path("importDesignImage.name").entity(String::class.java).isEqualTo("Red field")
+            .path("importDesignImage.prompt").entity(String::class.java).isEqualTo("A red field")
+            .path("importDesignImage.drawnWith.modelId").entity(Long::class.java).isEqualTo(drawer)
+            .path("importDesignImage.drawnWith.size").entity(String::class.java).isEqualTo("1024x1024")
+            .path("importDesignImage.drawnWith.quality").entity(String::class.java).isEqualTo("hd")
+            .path("importDesignImage.drawnWith.drawnBy").entity(String::class.java).isEqualTo("bob")
+        images.deleteById(requireNotNull(kept.id))
+        images.findAll().filter { it.name == "Red field" }.forEach { images.delete(it) }
+
         val text = Base64.getEncoder().encodeToString("not a picture".toByteArray())
         graphQlTester.document("""mutation { importDesignImage(input: { workspaceId: $workspaceId, image: "$text" }) { id } }""")
             .execute().errors().satisfy { assertThat(it.single().message).contains("not a picture") }

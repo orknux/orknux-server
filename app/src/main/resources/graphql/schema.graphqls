@@ -2255,8 +2255,8 @@ type Mutation {
     """
     queueDesignImageUpscale(input: UpscaleDesignImageInput!): DesignImageJob!
     """
-    Keeps a picture brought in from outside - a file dropped on the editor - as
-    a Design picture. image is the file, base64.
+    Keeps a picture brought in from outside - a file dropped on the editor, or
+    an .orkx archive with its project - as a Design picture.
     """
     importDesignImage(input: ImportDesignImageInput!): Artifact!
     "Takes a queued or failed picture off; one being drawn cannot be. False for one not here."
@@ -8209,11 +8209,16 @@ input UpscaleDesignImageInput {
 """ A picture brought in from outside, to keep in Design. """
 input ImportDesignImageInput {
     workspaceId: ID!
-    "The file, base64: a PNG, JPEG, WebP or GIF."
-    image: String!
-    "Null names it Imported picture."
+    "A picture's file, base64: a PNG, JPEG, WebP or GIF. Or archive."
+    image: String
+    """
+    An .orkx archive, base64: a ZIP of the picture and project.json - its name,
+    prompt and what it was drawn with - which the picture is kept with.
+    """
+    archive: String
+    "Null names it after the archive's project, or Imported picture."
     name: String
-    "What it was drawn from, where the file said - an .orkx file does."
+    "What it was drawn from; null takes the archive's."
     prompt: String
 }
 
