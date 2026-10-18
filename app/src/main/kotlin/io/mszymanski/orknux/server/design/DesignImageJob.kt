@@ -74,6 +74,10 @@ class DesignImageJob(
 
     @Column(name = "image_id")
     var imageId: Long? = null,
+
+    /** What it was named before it was drawn; null names it after its prompt. */
+    @Column(length = 255)
+    val name: String? = null,
 )
 
 interface DesignImageJobRepository : JpaRepository<DesignImageJob, Long> {

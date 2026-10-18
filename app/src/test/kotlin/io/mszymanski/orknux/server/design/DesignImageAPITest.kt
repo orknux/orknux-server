@@ -159,6 +159,24 @@ class DesignImageAPITest(
         assertThat(images.count()).isZero()
     }
 
+    @Test
+    fun `a picture named before it is drawn keeps that name, and its file is named after it`() {
+        val modelId = model("Drawer", "IMAGE")
+        val jobId = graphQlTester.document(
+            """mutation { queueDesignImage(input: {
+                 workspaceId: $workspaceId, modelId: $modelId, prompt: "A red square", name: "Brand mark"
+               }) { id name } }""",
+        ).execute()
+            .path("queueDesignImage.name").entity(String::class.java).isEqualTo("Brand mark")
+            .path("queueDesignImage.id").entity(String::class.java).get()
+
+        val id = drawnPicture(jobId)
+        graphQlTester.document("""query { workspaceArtifact(workspaceId: $workspaceId, id: "$id") { name filename } }""")
+            .execute()
+            .path("workspaceArtifact.name").entity(String::class.java).isEqualTo("Brand mark")
+            .path("workspaceArtifact.filename").entity(String::class.java).isEqualTo("brand-mark.png")
+    }
+
     /** Waits for the request to be drawn, and answers its picture's id. */
     private fun drawnPicture(jobId: String): String {
         await().atMost(Duration.ofSeconds(10)).until { jobs.findByIdOrNull(jobId.toLong())?.status == DesignImageJobStatus.DRAWN }

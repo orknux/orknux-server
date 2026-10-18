@@ -108,7 +108,7 @@ class DesignDrawQueue(
                     fail(id, picture.reason)
                 }
                 is Picture.Drawn -> {
-                    val filename = PictureFilenames.of(job.prompt, picture.contentType)
+                    val filename = PictureFilenames.of(job.name ?: job.prompt, picture.contentType)
                     val saved = images.save(
                         DesignImage(
                             workspaceId = job.workspaceId,
@@ -124,7 +124,7 @@ class DesignDrawQueue(
                             location = store.put(job.workspaceId, filename, picture.image),
                             drawnBy = job.requestedBy,
                             saved = false,
-                            name = PictureFilenames.nameOf(job.prompt),
+                            name = job.name ?: PictureFilenames.nameOf(job.prompt),
                         ),
                     )
                     job.status = DesignImageJobStatus.DRAWN

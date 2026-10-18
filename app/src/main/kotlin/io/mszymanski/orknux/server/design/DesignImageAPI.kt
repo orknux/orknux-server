@@ -74,6 +74,10 @@ class DesignImageAPI(
         if (!settings.attachmentsEnabled()) {
             throw DesignImageRefusedException("A drawn picture is kept as an attachment, and attachments are turned off for this installation.")
         }
+        val called = input.name.orNullIfBlank()
+        if (called != null && called.length > NAME_LENGTH) {
+            throw DesignImageRefusedException("A picture's name is at most $NAME_LENGTH characters.")
+        }
 
         val job = jobs.save(
             DesignImageJob(
@@ -85,6 +89,7 @@ class DesignImageAPI(
                 quality = input.quality.orNullIfBlank(),
                 style = input.style.orNullIfBlank(),
                 requestedBy = currentName(),
+                name = called,
             ),
         )
         auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Image queued in Design with ${model.name}")
@@ -197,6 +202,7 @@ class DesignImageAPI(
             startedAt = job.startedAt?.toString(),
             reason = job.reason,
             ahead = ahead,
+            name = job.name ?: PictureFilenames.nameOf(job.prompt),
             image = job.imageId?.let { images.findByIdOrNull(it) }?.let(artifacts::describe),
         )
     }
@@ -223,6 +229,8 @@ data class DrawDesignImageInput(
     val size: String? = null,
     val quality: String? = null,
     val style: String? = null,
+    /** What to call it; null or blank names it after its prompt's first words. */
+    val name: String? = null,
 )
 
 data class DesignImageJobView(
@@ -240,6 +248,7 @@ data class DesignImageJobView(
     val reason: String?,
     /** How many queued pictures are drawn before this one; null unless it is queued. */
     val ahead: Int?,
+    val name: String,
     val image: ArtifactView?,
 )
 

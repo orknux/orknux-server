@@ -8118,6 +8118,8 @@ type DesignImageJob {
     reason: String
     "How many queued pictures are drawn before this one; null unless QUEUED."
     ahead: Int
+    "What it will be called: the name given, or its prompt's first words."
+    name: String!
     "The picture, once DRAWN."
     image: Artifact
 }
@@ -8132,6 +8134,8 @@ input DrawDesignImageInput {
     size: String
     quality: String
     style: String
+    "What to call it; null or blank names it after its prompt's first words."
+    name: String
 }
 
 type ArtifactPage {
