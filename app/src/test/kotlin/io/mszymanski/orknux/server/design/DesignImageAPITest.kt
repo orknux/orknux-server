@@ -47,6 +47,7 @@ class DesignImageAPITest(
     private var workspaceId: Long = 0
     private lateinit var server: HttpServer
     private val drawn = CopyOnWriteArrayList<String>()
+    private val edited = CopyOnWriteArrayList<String>()
 
     /** True for a model that refuses, the way these providers do: a 400 with the reason. */
     @Volatile
@@ -63,6 +64,7 @@ class DesignImageAPITest(
         workspaces.deleteAll()
         workspaceId = requireNotNull(workspaces.save(Workspace(name = "backend")).id)
         drawn.clear()
+        edited.clear()
         server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
         server.createContext("/images/generations") { exchange ->
             drawn += exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
@@ -72,6 +74,16 @@ class DesignImageAPITest(
                 ).toByteArray(StandardCharsets.UTF_8)
             exchange.responseHeaders.add("Content-Type", "application/json")
             exchange.sendResponseHeaders(if (refusing) 400 else 200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+            exchange.close()
+        }
+        // The edit endpoint: a red picture of its own, whatever it was handed - as a model that redraws everything would.
+        server.createContext("/images/edits") { exchange ->
+            edited += exchange.requestBody.readBytes().toString(StandardCharsets.ISO_8859_1)
+            val bytes = """{"data":[{"b64_json":"${Base64.getEncoder().encodeToString(png(2, 2) { _, _ -> RED })}"}]}"""
+                .toByteArray(StandardCharsets.UTF_8)
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
             exchange.responseBody.use { it.write(bytes) }
             exchange.close()
         }
@@ -172,6 +184,56 @@ class DesignImageAPITest(
             .path("workspaceArtifact.filename").entity(String::class.java).isEqualTo("brand-mark.png")
     }
 
+    @Test
+    fun `an edit changes only the selection, through images edits, into a new picture`() {
+        val modelId = model("Editor", "IMAGE")
+        // A white two-by-two picture to change.
+        val white = png(2, 2) { _, _ -> WHITE }
+        val source = images.save(
+            DesignImage(
+                workspaceId = workspaceId, modelId = modelId, modelName = "Editor", prompt = "A white square",
+                size = null, quality = null, style = null, filename = "white.png", contentType = "image/png",
+                sizeBytes = white.size.toLong(), location = store.put(workspaceId, "white.png", white), drawnBy = "alice",
+                name = "Blank",
+            ),
+        )
+        // Transparent - change here - on the left column only.
+        val mask = png(2, 2) { x, _ -> if (x == 0) 0x00000000 else 0xFF000000.toInt() }
+
+        val jobId = graphQlTester.document(
+            """mutation { queueDesignImageEdit(input: {
+                 workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", modelId: $modelId,
+                 prompt: "Make it red", mask: "data:image/png;base64,${Base64.getEncoder().encodeToString(mask)}"
+               }) { id sourceId name } }""",
+        ).execute()
+            .path("queueDesignImageEdit.sourceId").entity(String::class.java).isEqualTo("DESIGN-${source.id}")
+            .path("queueDesignImageEdit.id").entity(String::class.java).get()
+
+        val id = drawnPicture(jobId)
+        // Through the standard edit interface, with the picture and the mask as named PNG parts.
+        assertThat(edited.single()).contains("Make it red", "filename=\"image.png\"", "filename=\"mask.png\"")
+        assertThat(drawn).isEmpty()
+
+        // A new picture, named after the one changed: red where selected, the original's white elsewhere.
+        val made = requireNotNull(images.findByIdOrNull(id.removePrefix("DESIGN-").toLong()))
+        assertThat(made.id).isNotEqualTo(source.id)
+        assertThat(made.name).isEqualTo("Blank")
+        val result = javax.imageio.ImageIO.read(store.open(made.location))
+        assertThat(result.getRGB(0, 0)).isEqualTo(RED)
+        assertThat(result.getRGB(0, 1)).isEqualTo(RED)
+        assertThat(result.getRGB(1, 0)).isEqualTo(WHITE)
+        assertThat(result.getRGB(1, 1)).isEqualTo(WHITE)
+    }
+
+    private fun png(width: Int, height: Int, colour: (Int, Int) -> Int): ByteArray {
+        val image = java.awt.image.BufferedImage(width, height, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+        for (y in 0 until height) for (x in 0 until width) image.setRGB(x, y, colour(x, y))
+        return java.io.ByteArrayOutputStream().use { out ->
+            javax.imageio.ImageIO.write(image, "png", out)
+            out.toByteArray()
+        }
+    }
+
     /** Waits for the request to be drawn, and answers its picture's id. */
     private fun drawnPicture(jobId: String): String {
         await().atMost(Duration.ofSeconds(10)).until { jobs.findByIdOrNull(jobId.toLong())?.status == DesignImageJobStatus.DRAWN }
@@ -230,6 +292,8 @@ class DesignImageAPITest(
     }
 
     private companion object {
+        const val RED = 0xFFFF0000.toInt()
+        const val WHITE = 0xFFFFFFFF.toInt()
         const val PIXEL =
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
     }

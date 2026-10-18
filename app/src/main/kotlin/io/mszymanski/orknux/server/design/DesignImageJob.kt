@@ -78,6 +78,17 @@ class DesignImageJob(
     /** What it was named before it was drawn; null names it after its prompt. */
     @Column(length = 255)
     val name: String? = null,
+
+    /**
+     * The picture this changes, by its artifact id, for an edit; null for a
+     * picture drawn from nothing. Any picture in the gallery can be the source.
+     */
+    @Column(name = "source_id", length = 80)
+    val sourceId: String? = null,
+
+    /** Where the mask is kept, for an edit: transparent where the change goes. */
+    @Column(name = "mask_location", length = 1000)
+    val maskLocation: String? = null,
 )
 
 interface DesignImageJobRepository : JpaRepository<DesignImageJob, Long> {

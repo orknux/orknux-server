@@ -97,6 +97,60 @@ class DesignImageAPI(
         return view(job)
     }
 
+    /**
+     * Queues a change to part of a picture: the picture, a mask the same size
+     * that is transparent where the change goes, and what to change. Any
+     * picture in the gallery can be changed; the result is a new picture, and
+     * the one changed stays as it was.
+     */
+    @MutationMapping
+    @Transactional
+    fun queueDesignImageEdit(@Argument input: EditDesignImageInput): DesignImageJobView {
+        val workspaceId = input.workspaceId.toLong()
+        access.requireVisible(workspaceId)
+        val modelId = input.modelId.toLong()
+        val model = models.model(modelId)?.takeIf { it.workspaceId == workspaceId }
+            ?: throw ModelNotFoundForWorkspaceException(modelId)
+        if (model.kind != ModelKind.IMAGE) throw ModelNotImageException(model.name)
+        val prompt = input.prompt.trim()
+        if (prompt.isEmpty()) throw DesignImageRefusedException("Say what to change.")
+        val longest = settings.imageMaxPrompt()
+        if (prompt.length > longest) {
+            throw DesignImageRefusedException("That description is too long to draw from; say it in under $longest characters.")
+        }
+        if (!settings.attachmentsEnabled()) {
+            throw DesignImageRefusedException("A drawn picture is kept as an attachment, and attachments are turned off for this installation.")
+        }
+        val source = artifacts.storedOf(workspaceId, input.imageId)
+            ?: throw DesignImageRefusedException("The picture to change is not here any more.")
+        val mask = runCatching { java.util.Base64.getDecoder().decode(input.mask.substringAfter("base64,")) }.getOrNull()
+            ?.takeIf { it.isNotEmpty() }
+            ?: throw DesignImageRefusedException("The selection could not be read; select again.")
+
+        val job = jobs.save(
+            DesignImageJob(
+                workspaceId = workspaceId,
+                modelId = modelId,
+                modelName = model.name,
+                prompt = prompt,
+                size = null,
+                quality = null,
+                style = null,
+                requestedBy = currentName(),
+                name = input.name.orNullIfBlank(),
+                sourceId = input.imageId,
+                maskLocation = store.put(workspaceId, "mask.png", mask),
+            ),
+        )
+        auditRecorder.record(
+            workspaceId,
+            WorkspaceAuditCategory.WORKFLOW,
+            "Change to ${source.view.name ?: source.view.filename} queued in Design with ${model.name}",
+        )
+        queue.queued(job)
+        return view(job)
+    }
+
     /** What the workspace has waiting, being drawn, or failed - oldest first. */
     @QueryMapping
     fun designImageQueue(@Argument workspaceId: Long): List<DesignImageJobView> {
@@ -187,6 +241,7 @@ class DesignImageAPI(
             reason = job.reason,
             ahead = ahead,
             name = job.name ?: PictureFilenames.nameOf(job.prompt),
+            sourceId = job.sourceId,
             image = job.imageId?.let { images.findByIdOrNull(it) }?.let(artifacts::describe),
         )
     }
@@ -217,6 +272,17 @@ data class DrawDesignImageInput(
     val name: String? = null,
 )
 
+data class EditDesignImageInput(
+    val workspaceId: String,
+    /** The picture to change, by its artifact id. */
+    val imageId: String,
+    val modelId: String,
+    val prompt: String,
+    /** A PNG the picture's size, base64, transparent where the change goes. */
+    val mask: String,
+    val name: String? = null,
+)
+
 data class DesignImageJobView(
     val id: String,
     val status: DesignImageJobStatus,
@@ -233,6 +299,8 @@ data class DesignImageJobView(
     /** How many queued pictures are drawn before this one; null unless it is queued. */
     val ahead: Int?,
     val name: String,
+    /** The picture an edit changes; null for one drawn from nothing. */
+    val sourceId: String?,
     val image: ArtifactView?,
 )
 

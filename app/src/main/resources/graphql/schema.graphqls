@@ -2236,6 +2236,13 @@ type Mutation {
     of this workspace or the installation keeps no attachments.
     """
     queueDesignImage(input: DrawDesignImageInput!): DesignImageJob!
+    """
+    Queues a change to part of a picture, through the image model's
+    /images/edits: the picture, a mask the same size that is transparent where
+    the change goes, and what to change. The result is a new picture with every
+    pixel outside the selection kept as it was; the one changed stays.
+    """
+    queueDesignImageEdit(input: EditDesignImageInput!): DesignImageJob!
     "Takes a queued or failed picture off; one being drawn cannot be. False for one not here."
     dismissDesignImageJob(id: ID!): Boolean!
     "Calls a picture drawn in Design something else; its file is named after it too."
@@ -8116,8 +8123,23 @@ type DesignImageJob {
     ahead: Int
     "What it will be called: the name given, or its prompt's first words."
     name: String!
+    "The picture an edit changes; null for one drawn from nothing."
+    sourceId: ID
     "The picture, once DRAWN."
     image: Artifact
+}
+
+""" A change to part of a picture, asked of one image model's edit endpoint. """
+input EditDesignImageInput {
+    workspaceId: ID!
+    "The picture to change, by its artifact id."
+    imageId: ID!
+    "An IMAGE model of this workspace that edits."
+    modelId: ID!
+    prompt: String!
+    "A PNG the picture's size, base64, transparent where the change goes."
+    mask: String!
+    name: String
 }
 
 """ A picture to draw on Design's Images page, straight from one image model. """

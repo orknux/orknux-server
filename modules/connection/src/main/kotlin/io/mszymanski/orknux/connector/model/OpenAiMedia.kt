@@ -3,6 +3,7 @@ package io.mszymanski.orknux.connector.model
 import com.openai.models.audio.speech.SpeechCreateParams
 import com.openai.core.MultipartField
 import com.openai.models.audio.transcriptions.TranscriptionCreateParams
+import com.openai.models.images.ImageEditParams
 import com.openai.models.images.ImageGenerateParams
 import org.springframework.stereotype.Component
 import java.io.InputStream
@@ -69,6 +70,46 @@ class OpenAiMedia(private val clients: ModelClients, private val probe: ModelPro
         val first = answer.data().orElse(null)?.firstOrNull()
             ?: return Drawn.Failed("${model.name} answered without a picture")
 
+        first.b64Json().orElse(null)?.takeIf { it.isNotBlank() }?.let { return Drawn.Bytes(it) }
+        first.url().orElse(null)?.takeIf { it.isNotBlank() }?.let { return Drawn.Elsewhere(it) }
+        return Drawn.Failed("${model.name} answered without a picture")
+    }
+
+    /**
+     * A picture changed where its mask says, by the model - `POST /images/edits`.
+     *
+     * The standard image edit interface: the picture, a mask the same size
+     * whose transparent pixels are where the change goes, and what to change.
+     * It is what OpenAI's image models answer and what local image servers put
+     * up beside their generation endpoint, whichever edit model they run. Both parts are sent named as PNG files, because
+     * servers that read the multipart body decide what a part is from its name.
+     */
+    fun edit(provider: ModelProvider, model: LlmModel, prompt: String, image: ByteArray, mask: ByteArray): Drawn {
+        val client = when (val ready = ready(provider)) {
+            is Ready.No -> return Drawn.Failed(ready.reason)
+            is Ready.Yes -> ready.client
+        }
+        val params = ImageEditParams.builder()
+            .model(model.modelId)
+            .prompt(prompt)
+            .n(1)
+            .image(
+                MultipartField.builder<ImageEditParams.Image>()
+                    .value(ImageEditParams.Image.ofInputStream(image.inputStream()))
+                    .filename("image.png")
+                    .contentType("image/png")
+                    .build(),
+            )
+            .mask(
+                MultipartField.builder<InputStream>()
+                    .value(mask.inputStream())
+                    .filename("mask.png")
+                    .contentType("image/png")
+                    .build(),
+            )
+        val answer = clients.again { client.images().edit(params.build()) }
+        val first = answer.data().orElse(null)?.firstOrNull()
+            ?: return Drawn.Failed("${model.name} answered without a picture")
         first.b64Json().orElse(null)?.takeIf { it.isNotBlank() }?.let { return Drawn.Bytes(it) }
         first.url().orElse(null)?.takeIf { it.isNotBlank() }?.let { return Drawn.Elsewhere(it) }
         return Drawn.Failed("${model.name} answered without a picture")

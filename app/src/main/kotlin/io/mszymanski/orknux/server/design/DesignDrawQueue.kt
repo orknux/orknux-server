@@ -40,6 +40,7 @@ class DesignDrawQueue(
     private val store: AttachmentStore,
     private val settings: InstallationSettings,
     private val auditRecorder: WorkspaceAuditRecorder,
+    private val artifacts: io.mszymanski.orknux.server.workflow.WorkspaceArtifactAPI,
 ) : SmartLifecycle {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -100,15 +101,32 @@ class DesignDrawQueue(
             if (!settings.attachmentsEnabled()) {
                 return fail(id, "A drawn picture is kept as an attachment, and attachments are turned off for this installation.")
             }
-            log.info("Design image {} drawing with {} at {}", id, job.modelName, job.size ?: "the model's size")
             val started = System.currentTimeMillis()
-            when (val picture = drawing.draw(modelId, job.prompt, ImageOptions(job.size, job.quality, job.style))) {
+            val source = job.sourceId?.let { artifacts.storedOf(job.workspaceId, it) }
+            if (job.sourceId != null && source == null) return fail(id, "The picture to change is not here any more.")
+            val original = source?.let { store.open(it.location).use { stream -> stream.readBytes() } }
+            val mask = job.maskLocation?.let { store.open(it).use { stream -> stream.readBytes() } }
+            val asked = if (original != null && mask != null) {
+                log.info("Design image {} editing {} with {}", id, job.sourceId, job.modelName)
+                drawing.edit(modelId, job.prompt, original, mask)
+            } else {
+                log.info("Design image {} drawing with {} at {}", id, job.modelName, job.size ?: "the model's size")
+                drawing.draw(modelId, job.prompt, ImageOptions(job.size, job.quality, job.style))
+            }
+            // An edit keeps every pixel outside the selection: the original's own, not the model's redrawing of it.
+            val result = if (asked is Picture.Drawn && original != null && mask != null) {
+                MaskedComposite.keepOutside(original, asked.image, mask)
+                    ?.let { Picture.Drawn(it, "image/png", asked.millis) } ?: asked
+            } else {
+                asked
+            }
+            when (val picture = result) {
                 is Picture.Failed -> {
                     log.warn("Design image {} was not drawn by {} after {} ms: {}", id, job.modelName, System.currentTimeMillis() - started, picture.reason)
                     fail(id, picture.reason)
                 }
                 is Picture.Drawn -> {
-                    val filename = PictureFilenames.of(job.name ?: job.prompt, picture.contentType)
+                    val filename = PictureFilenames.of(job.name ?: source?.view?.name ?: job.prompt, picture.contentType)
                     val saved = images.save(
                         DesignImage(
                             workspaceId = job.workspaceId,
@@ -123,7 +141,7 @@ class DesignDrawQueue(
                             sizeBytes = picture.image.size.toLong(),
                             location = store.put(job.workspaceId, filename, picture.image),
                             drawnBy = job.requestedBy,
-                            name = job.name ?: PictureFilenames.nameOf(job.prompt),
+                            name = job.name ?: source?.view?.name ?: PictureFilenames.nameOf(job.prompt),
                         ),
                     )
                     job.status = DesignImageJobStatus.DRAWN

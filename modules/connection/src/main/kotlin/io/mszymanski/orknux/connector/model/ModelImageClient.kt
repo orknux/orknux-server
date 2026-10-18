@@ -131,7 +131,22 @@ class ModelImageClient(
      * @param options size, quality and style where the caller has a say; an
      *   image node names its own. Left out, the model's defaults stand.
      */
-    fun draw(modelId: Long, prompt: String, options: ImageOptions = ImageOptions.NONE): Picture {
+    fun draw(modelId: Long, prompt: String, options: ImageOptions = ImageOptions.NONE): Picture =
+        call(modelId, prompt) { provider, model, asked -> media.draw(provider, model, asked, options) }
+
+    /**
+     * Changes a picture where its mask is transparent, as the prompt says -
+     * the standard `/images/edits` interface, by the same model checks, guard
+     * and accounting as [draw].
+     */
+    fun edit(modelId: Long, prompt: String, image: ByteArray, mask: ByteArray): Picture =
+        call(modelId, prompt) { provider, model, asked -> media.edit(provider, model, asked, image, mask) }
+
+    private fun call(
+        modelId: Long,
+        prompt: String,
+        ask: (ModelProvider, LlmModel, String) -> OpenAiMedia.Drawn,
+    ): Picture {
         val model = models.findByIdOrNull(modelId)
             ?: return Picture.Failed("That model no longer exists")
         if (model.kind != ModelKind.IMAGE) {
@@ -171,7 +186,7 @@ class ModelImageClient(
 
         val started = System.currentTimeMillis()
         return try {
-            when (val drawn = media.draw(provider, model, asked, options)) {
+            when (val drawn = ask(provider, model, asked)) {
                 is OpenAiMedia.Drawn.Failed -> Picture.Failed(drawn.reason)
                 is OpenAiMedia.Drawn.Bytes -> {
                     val bytes = runCatching { Base64.getDecoder().decode(drawn.base64) }.getOrNull()

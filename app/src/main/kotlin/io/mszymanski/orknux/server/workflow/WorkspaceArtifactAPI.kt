@@ -138,6 +138,25 @@ class WorkspaceArtifactAPI(
     }
 
     /**
+     * Where one artifact's bytes are, and what it is - for the image editor,
+     * which changes any picture in the gallery whatever drew it. Null for one
+     * not in this workspace. Access is the caller's to have checked.
+     */
+    fun storedOf(workspaceId: Long, id: String): StoredArtifact? {
+        val (kind, rowId) = parse(id) ?: return null
+        return when (kind) {
+            ArtifactKind.IMAGE -> pictures.findByIdOrNull(rowId)?.takeIf { it.workspaceId == workspaceId }
+                ?.let { StoredArtifact(it.location, it.contentType, describe(it)) }
+            ArtifactKind.TASK -> taskPictures.findByIdOrNull(rowId)?.takeIf { it.workspaceId == workspaceId }
+                ?.let { StoredArtifact(it.location, it.contentType, describe(it)) }
+            ArtifactKind.SAVED -> saved.findByIdOrNull(rowId)?.takeIf { it.workspaceId == workspaceId }
+                ?.let { StoredArtifact(it.location, it.contentType, describe(it)) }
+            ArtifactKind.DESIGN -> designImages.findByIdOrNull(rowId)?.takeIf { it.workspaceId == workspaceId }
+                ?.let { StoredArtifact(it.location, it.contentType, describe(it)) }
+        }
+    }
+
+    /**
      * Gone from the list and gone from the disk.
      *
      * The row first, then the bytes: a row with no file behind it is a broken
@@ -350,6 +369,9 @@ data class ArtifactView(
         prompt.contains(looking, ignoreCase = true) || filename.contains(looking, ignoreCase = true) ||
             name?.contains(looking, ignoreCase = true) == true
 }
+
+/** An artifact's bytes on the store, and how the page shows it. */
+data class StoredArtifact(val location: String, val contentType: String, val view: ArtifactView)
 
 data class ArtifactDrawing(
     /** Null once that model is removed; [model] still names it. */
