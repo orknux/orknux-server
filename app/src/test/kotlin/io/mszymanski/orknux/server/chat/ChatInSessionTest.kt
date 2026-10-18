@@ -802,6 +802,33 @@ class ChatInSessionTest(
         assertThat(chats.findByIdOrNull(chatId)?.title).isEqualTo("How big is the disk")
     }
 
+    /**
+     * The page is told the chat is being named before its model is asked, and
+     * what it was named once it is - in that order, after the answer. Naming
+     * takes as long as a short answer, and the bar said nothing while it did.
+     */
+    @Test
+    fun `the open chat is told it is being named, then its name`() {
+        val endpoint = serve { body ->
+            val content = if (body.contains("You name conversations")) "Disk usage check" else "Forty gigabytes."
+            """{"choices":[{"message":{"role":"assistant","content":"$content"}}],"usage":{"prompt_tokens":5,"completion_tokens":3}}"""
+        }
+        val chatId = bareChat(llmSessionId = null, endpoint = endpoint)
+        chats.save(requireNotNull(chats.findByIdOrNull(chatId)).apply { title = "New chat" })
+
+        val response = org.springframework.mock.web.MockHttpServletResponse()
+        streaming.stream(chatId, ChatStreamRequest("How big is the disk?"), response).writeTo(response.outputStream)
+
+        val frames = response.contentAsString
+        assertThat(frames).contains("event: titling", "event: titled", "\"title\":\"Disk usage check\"")
+        assertThat(frames.indexOf("event: titling")).isLessThan(frames.indexOf("event: titled"))
+
+        // A chat that already has a name is not named again, and says nothing about it.
+        val again = org.springframework.mock.web.MockHttpServletResponse()
+        streaming.stream(chatId, ChatStreamRequest("And the logs?"), again).writeTo(again.outputStream)
+        assertThat(again.contentAsString).doesNotContain("event: titling")
+    }
+
     @Test
     fun `a chat with no agent opens no session even after it is used`() {
         val chatId = bareChat(llmSessionId = null, endpoint = serveAnswer("Hello."))

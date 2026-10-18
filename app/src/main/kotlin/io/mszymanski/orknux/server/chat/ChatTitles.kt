@@ -55,6 +55,21 @@ class ChatTitles(
      * for a moment; null when it named it, or when there was nothing to name.
      */
     fun nameFrom(sessionId: Long, question: String, answer: String): String? {
+        return nameWith(sessionId, question, answer)
+    }
+
+    /** Whether [nameFrom] would ask a model for this chat's title: it is still the default, and there is one to ask. */
+    fun wouldName(sessionId: Long): Boolean {
+        val session = sessions.findByIdOrNull(sessionId) ?: return false
+        if (session.title != DEFAULT_TITLE) return false
+        val workspace = workspaces.findByIdOrNull(session.workspaceId) ?: return false
+        return (workspace.companionModelId ?: session.modelId) != null
+    }
+
+    /** What the chat is called now. */
+    fun titleOf(sessionId: Long): String? = sessions.findByIdOrNull(sessionId)?.title
+
+    private fun nameWith(sessionId: Long, question: String, answer: String): String? {
         val session = sessions.findByIdOrNull(sessionId) ?: return null
         if (session.title != DEFAULT_TITLE) return null
 

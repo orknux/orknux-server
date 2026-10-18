@@ -403,11 +403,18 @@ class ChatStreamAPI(
                             // companion model that will not answer costs the
                             // chat nothing.
                             if (said != null) {
+                                /*
+                                 * Said before the model is asked: naming takes as long as a
+                                 * short answer does, and the page showed nothing while it did.
+                                 */
+                                val naming = runCatching { titles.wouldName(id) }.getOrDefault(false)
+                                if (naming) send("titling", mapOf<String, Any>())
                                 // A naming that failed is said to the page for a moment: it was silent, and a bad key left every chat New chat.
-                                runCatching { titles.nameFrom(id, said, answer.content) }
+                                val failed = runCatching { titles.nameFrom(id, said, answer.content) }
                                     .onFailure { log.warn("Could not name chat {}", id, it) }
                                     .getOrNull()
-                                    ?.let { why -> send("titleFailed", mapOf("reason" to why)) }
+                                failed?.let { why -> send("titleFailed", mapOf("reason" to why)) }
+                                if (naming) titles.titleOf(id)?.let { send("titled", mapOf("title" to it)) }
                             }
                             /*
                              * What the turn took and what it cost, in one frame.
