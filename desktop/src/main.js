@@ -137,13 +137,20 @@ function createWindow() {
       return false;
     }
   };
+  /** The splash's own address, the one file: page this window may be on. */
+  const splashUrl = require('node:url').pathToFileURL(path.join(__dirname, 'splash.html')).href;
   created.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url) && !ours(url)) shell.openExternal(url);
     else if (ours(url)) created.loadURL(url);
     return { action: 'deny' };
   });
   created.webContents.on('will-navigate', (event, url) => {
-    if (url.startsWith('file:') || ours(url)) return;
+    /*
+     * The splash is the only file this window shows. Any other file: address
+     * is a file dropped where the page did not take it, which would otherwise
+     * replace Orknux with the picture until the app was restarted.
+     */
+    if (ours(url) || url === splashUrl) return;
     event.preventDefault();
     if (/^https?:/.test(url)) shell.openExternal(url);
   });
