@@ -25,6 +25,8 @@ have failed.
 - **Unread answers beside each chat.** The chat sidebar shows, beside a chat's name, how many answers arrived since it was last open - a solid pill and a bold name, so news stands out in a long list - and opening the chat clears it. Existing chats start as read.
 - **A model's page says what uses it.** Used by on a model lists the agents that think with it, the workspace settings that name it, the actions that speak with it and the workflows whose image or decision nodes use it; a provider's page lists its models. Removing a model still in use is refused with that list, where it used to leave agents without a model.
 
+- **Network access for the desktop app, in Admin › Settings.** Switch between this computer only, with nobody signing in, and anyone on the network, with everybody signing in: going to the network sets the password you sign in with, and the app starts again to apply it. Only the desktop app's server shows the card.
+
 ### 🔧 Changed
 
 - **Every agent may ask for more tools, existing ones included.** Asking grants nothing until a person accepts. To stop an agent asking at all, untick **May ask for more tools** on its page.

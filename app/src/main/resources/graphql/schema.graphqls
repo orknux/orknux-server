@@ -1,5 +1,11 @@
 type Query {
     """
+    The desktop app's network switch: this computer only, or the network with
+    everybody signing in. Null on a server that is not the desktop app's, where
+    Admin › Settings draws no such card. Administrators only.
+    """
+    desktopNetwork: DesktopNetwork
+    """
     Whether this installation is configured correctly, which is a different question
     from whether it can reach things. Administrators only.
     """
@@ -970,6 +976,13 @@ type Query {
 }
 
 type Mutation {
+    """
+    Sets who can reach the desktop app. EXPOSED takes the password the person at
+    the machine will sign in with, on the account `desktopNetwork.account` names;
+    LOCAL opens it to this computer only, signed in or not. Written for the next
+    start, and the desktop app starts the server again to apply it.
+    """
+    setDesktopNetwork(mode: DesktopNetworkMode!, password: String): DesktopNetwork!
     """
     A copy of one component in its own workspace, under the next free name. It
     points at the same function, model, tools and objects as the original.
@@ -9486,4 +9499,27 @@ type SessionWriting {
     promptCached: Float
     "How many it has read so far, the cached ones included."
     promptProcessed: Float
+}
+
+"Who can reach the desktop app's server."
+enum DesktopNetworkMode {
+    "This computer only, and nobody signs in."
+    LOCAL
+    "Anyone on the network, and everybody signs in."
+    EXPOSED
+}
+
+"The desktop app's network switch, as Admin › Settings draws it."
+type DesktopNetwork {
+    "What the server runs as now."
+    mode: DesktopNetworkMode!
+    "What the next start will be; differs from mode only until the restart that applies it."
+    chosen: DesktopNetworkMode!
+    restartRequired: Boolean!
+    "Where others on the network reach it once exposed."
+    addresses: [String!]!
+    "Who signs in once exposed: the person at the machine, by the name the switch gives them."
+    account: String!
+    "Whether the server starts again by itself once the setting is saved."
+    restarts: Boolean!
 }

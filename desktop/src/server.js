@@ -100,8 +100,8 @@ class Server {
    * window should load once the server answers, and rejects if it stops first.
    */
   async start({ data, prepared, network }) {
-    const host = network === 'exposed' ? '0.0.0.0' : '127.0.0.1';
-    this.port = await choosePort(host);
+    // Free on every address, whichever this start binds: a later switch to the network keeps the port.
+    this.port = await choosePort('0.0.0.0');
     // The window always goes the loopback way, whichever address the server is open on.
     const url = `http://127.0.0.1:${this.port}`;
 
@@ -127,17 +127,31 @@ class Server {
       ORKNUX_DESKTOP: 'true',
       MALLOC_ARENA_MAX: process.env.MALLOC_ARENA_MAX ?? '2',
     };
+    this.apply(prepared, network);
+    this.temp = prepared.temp;
+
+    this.loop();
+    await this.ready(`${url}/api/auth/method`);
+    return url;
+  }
+
+  /**
+   * Who signs in and where it listens, from what was prepared - at the first
+   * start, and again when the server asks to be started again, which is how a
+   * change to Network access in Admin › Settings takes effect.
+   */
+  apply(prepared, network) {
+    const host = network === 'exposed' ? '0.0.0.0' : '127.0.0.1';
+    this.env.ORKNUX_AUTH_METHOD = prepared.authMethod;
+    delete this.env.ORKNUX_BOOTSTRAP_ADMIN_USERNAME;
+    delete this.env.ORKNUX_BOOTSTRAP_ADMIN_PASSWORD;
     if (prepared.admin !== null) {
       this.env.ORKNUX_BOOTSTRAP_ADMIN_USERNAME = prepared.admin.username;
       this.env.ORKNUX_BOOTSTRAP_ADMIN_PASSWORD = prepared.admin.password;
     }
     // No ORKNUX_ variable says where to listen; Spring's own argument does.
     this.springArgs = [`--server.address=${host}`];
-    this.temp = prepared.temp;
-
-    this.loop();
-    await this.ready(`${url}/api/auth/method`);
-    return url;
+    this.network = network;
   }
 
   /** Waits for the server to answer, or for it to stop trying. */
@@ -202,6 +216,13 @@ class Server {
       if (this.stopping) return;
       if (code === START_AGAIN) {
         this.log.note('the server asked to be started again; choosing a jar');
+        // Read again: a change to Network access is applied by exactly this restart.
+        const again = this.reconfigure?.();
+        if (again) {
+          this.apply(again.prepared, again.network);
+          this.log.note(`network access: ${again.network}`);
+          this.onNetwork?.(again.network);
+        }
         lastExit = null;
         lastJar = null;
         this.restarting = true;

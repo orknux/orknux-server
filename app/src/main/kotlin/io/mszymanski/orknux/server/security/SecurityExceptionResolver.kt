@@ -30,6 +30,8 @@ class SecurityExceptionResolver : DataFetcherExceptionResolverAdapter() {
             // only ever thrown at somebody already looking at that workspace, so
             // there is nothing left to give away and a lot left to explain.
             is WorkspaceAdminRequiredException -> ErrorType.FORBIDDEN
+            // Not a desktop server: there is no such switch to set, and the question cannot be put better.
+            is DesktopNetworkUnavailableException -> ErrorType.BAD_REQUEST
             else -> return null
         }
 

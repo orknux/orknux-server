@@ -34,11 +34,15 @@ start again.
 
 By default nobody: the server listens on `127.0.0.1` only and runs with
 `ORKNUX_AUTH_METHOD=NONE`, so the only person who can reach it is the one at
-this machine. `desktop.json` in the data directory can say
-`{ "network": "exposed" }` instead: the server then listens on every address,
-everybody signs in with an account this installation holds, and the first such
-start generates an administrator password and shows it once. Phase 2 puts that
-switch in the interface; until then the file is edited by hand.
+this machine. Admin › Settings › **Network access** switches it: "Anyone on the network" asks
+for the password the person at the machine will sign in with, under an account
+named after their user on this computer, and writes `desktop.json` in the data
+directory (`{ "network": "exposed", "account": "<name>" }`). The server then
+leaves with exit code 75, the start loop reads `desktop.json` again, and the
+next start listens on every address with everybody signing in; the page waits
+and reloads. "This computer only" goes back the same way. Edited by hand, a
+`desktop.json` without an `account` still works as before: the first exposed
+start generates an administrator password and shows it once.
 
 ### Where the data lives
 
@@ -136,9 +140,6 @@ newer Java than the bundled runtime, leaving it for a later app to run.
 
 Not done yet, in roughly the order it matters:
 
-- **A switch in the interface for network access**, writing `desktop.json`, with
-  the restart it needs. The server has to know it is a desktop
-  (`ORKNUX_DESKTOP=true`) to offer it.
 - **`ORKNUX_ADDRESS`** for the bind address, instead of passing Spring's
   `--server.address`, to match every other setting.
 - **A Windows code-signing certificate** in the two secrets above, or

@@ -78,6 +78,16 @@ async function start() {
   }
 
   server = new Server({ java, imageJar, selfUpdate, log });
+  // What a restart the server asked for starts with: desktop.json read again, in case Network access changed it.
+  server.reconfigure = () => {
+    const next = readSettings(data);
+    const again = prepare(data, next);
+    again.said.forEach((line) => log.note(line));
+    return { prepared: again, network: next.network };
+  };
+  server.onNetwork = (network) => {
+    if (window && !window.isDestroyed()) window.setTitle(network === 'exposed' ? 'Orknux — open to the network' : 'Orknux');
+  };
   server.onExit = (code) => {
     if (quitting) return;
     unexpected(`The server stopped with exit code ${code}.`);

@@ -22,17 +22,20 @@ const NETWORK_EXPOSED = 'exposed';
  *
  * A file rather than a row, because what it decides - the address the server
  * binds and how anyone signs in - has to be known before the server starts, and
- * the database is the server's. Phase 2 gives it a knob in the interface; until
- * then it is edited by hand, and anything unreadable is read as the default,
- * which is the safe one: this machine only.
+ * the database is the server's. Admin › Settings › Network access writes it,
+ * through the server, and the server then asks to be started again so it is
+ * read anew; anything unreadable is read as the default, which is the safe
+ * one: this machine only. `account` is who signs in once exposed, named by
+ * that switch, which set their password - so no password is generated.
  */
 function readSettings(data) {
   const file = path.join(data, 'desktop.json');
   try {
     const held = JSON.parse(fs.readFileSync(file, 'utf8'));
-    return { network: held.network === NETWORK_EXPOSED ? NETWORK_EXPOSED : NETWORK_LOCAL };
+    const account = typeof held.account === 'string' && held.account.trim() !== '' ? held.account.trim() : null;
+    return { network: held.network === NETWORK_EXPOSED ? NETWORK_EXPOSED : NETWORK_LOCAL, account };
   } catch {
-    return { network: NETWORK_LOCAL };
+    return { network: NETWORK_LOCAL, account: null };
   }
 }
 
@@ -96,7 +99,10 @@ function prepare(data, settings) {
     authMethod = 'INTERNAL';
     const adminFile = path.join(data, 'admin-password');
     const seeded = path.join(data, '.admin-seeded');
-    if (process.env.ORKNUX_BOOTSTRAP_ADMIN_PASSWORD) {
+    if (settings.account) {
+      // Set from Admin › Settings, with a password chosen there: nothing to generate or show.
+      said.push(`Open to the network; ${settings.account} signs in with the password set in Network access.`);
+    } else if (process.env.ORKNUX_BOOTSTRAP_ADMIN_PASSWORD) {
       admin = { username: process.env.ORKNUX_BOOTSTRAP_ADMIN_USERNAME || 'admin', password: process.env.ORKNUX_BOOTSTRAP_ADMIN_PASSWORD, first: false };
     } else {
       let first = false;
