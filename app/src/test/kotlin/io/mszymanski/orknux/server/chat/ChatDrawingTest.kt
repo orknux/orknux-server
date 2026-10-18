@@ -82,6 +82,7 @@ class ChatDrawingTest(
     @Autowired val llmEvents: LlmSessionEventRepository,
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val audit: WorkspaceAuditRepository,
+    @Autowired val scratch: io.mszymanski.orknux.server.llm.LlmSessionStore,
 ) {
 
     private var workspaceId: Long = 0
@@ -193,6 +194,44 @@ class ChatDrawingTest(
      * a few characters at a time. The chat's two doors pick one path each, and
      * what an agent may do must not depend on which of them the browser used.
      */
+    /**
+     * A file that is not a picture is put where the agent's tools can read it,
+     * and the model is told the key - not only its name. Asked about an attached
+     * PDF, an agent called its reader with the file's name and was told the
+     * session held nothing under it, because nothing had put the file anywhere.
+     * The person's own thread is left as they wrote it.
+     */
+    @Test
+    fun `an attached file is in the session's store, and the model is told its key`() {
+        val chatId = chatWithAgent(serve { saying("Read it.") })
+        fun attach(name: String, type: String, bytes: ByteArray) = attachments.save(
+            io.mszymanski.orknux.server.attachment.ChatAttachment(
+                workspaceId = workspaceId, chatSessionId = chatId, filename = name, contentType = type,
+                sizeBytes = bytes.size.toLong(), location = store.put(workspaceId, name, bytes),
+            ),
+        )
+        val pdf = attach("guide.pdf", "application/pdf", "%PDF-1.4 hello".toByteArray())
+        val log = attach("run.log", "text/plain", "started\nfinished".toByteArray())
+
+        val start = chats.beginSend(chatId, "what about this?", attachmentIds = listOf(requireNotNull(pdf.id), requireNotNull(log.id)))
+
+        val told = start.turns.last().content
+        assertThat(told).startsWith("what about this?")
+        assertThat(told).contains("attachment.${pdf.id}: guide.pdf (application/pdf", "attachment.${log.id}: run.log (text/plain")
+        assertThat(told).contains("not the file's name")
+
+        // In the store as a stored value has to be: bytes as base64, text as text.
+        val session = requireNotNull(start.llmSessionId)
+        assertThat(scratch.get(session, "attachment.${pdf.id}"))
+            .isEqualTo("\"" + Base64.getEncoder().encodeToString("%PDF-1.4 hello".toByteArray()) + "\"")
+        assertThat(scratch.kindOf(session, "attachment.${pdf.id}")?.binary).isTrue()
+        assertThat(scratch.get(session, "attachment.${log.id}")).isEqualTo("\"started\\nfinished\"")
+        assertThat(scratch.kindOf(session, "attachment.${log.id}")?.binary).isFalse()
+
+        // The person's thread holds what they wrote, not the note for the model.
+        assertThat(thread(chatId).last()).isEqualTo("user:what about this?")
+    }
+
     /**
      * A file is drawn under the message it was sent with. The chat drew every
      * file in one strip above the composer, which said nothing about which

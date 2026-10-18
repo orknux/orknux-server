@@ -75,6 +75,8 @@ class ChatService(
     private val files: io.mszymanski.orknux.server.attachment.ChatAttachmentRepository,
     /** Where a message written while the agent answers waits for its next round. */
     private val inbox: io.mszymanski.orknux.server.llm.SessionInbox,
+    /** Puts a message's non-picture files where the agent's tools can read them. */
+    private val shelf: io.mszymanski.orknux.server.attachment.ChatAttachmentShelf,
     transactions: PlatformTransactionManager,
 ) {
 
@@ -1001,16 +1003,26 @@ class ChatService(
         val thread = history.findByConversationId(session.conversationId)
         history.saveAll(session.conversationId, thread + UserMessage(message))
         // Placed under the message they came with, whose place is the thread's length before it was added.
-        if (attachmentIds.isNotEmpty()) {
+        val attached = if (attachmentIds.isEmpty()) {
+            emptyList()
+        } else {
             files.findAllById(attachmentIds)
                 .filter { it.chatSessionId == session.id && it.messageIndex == null }
-                .forEach {
+                .onEach {
                     it.messageIndex = thread.size
                     files.save(it)
                 }
         }
         session.lastMessageAt = OffsetDateTime.now()
         val into = recording(session)
+        /*
+         * Files that are not pictures, put where the agent's tools can read
+         * them, and the keys said with the message - in what the model reads,
+         * the session, and not in the thread the person reads back, which
+         * already shows the files. See [ChatAttachmentShelf].
+         */
+        val shelved = into?.let { shelf.shelve(it, attached) }
+        val toModel = if (shelved == null) message else "$message\n\n$shelved".trimStart()
         /*
          * A summary took the place of the thread's beginning, so what was sent
          * before is not what the model is to read now: dropped, and the turn is
@@ -1020,7 +1032,7 @@ class ChatService(
         // Read before the message is written into the session, or it would come
         // back as something said since and be sent twice.
         val sent = sentBefore(session, into)
-        recordSaid(session, into, message)
+        recordSaid(session, into, toModel)
 
         return ChatSendStart(
             modelId = modelId,
@@ -1032,7 +1044,7 @@ class ChatService(
             // thing in the list: what the tools returned goes between.
             turns = briefed(session) +
                 (sent ?: (standing(session, into) + thread.map { ChatTurn(role(it), it.text.orEmpty()) } + recalled(session, into))) +
-                ChatTurn("user", message, images),
+                ChatTurn("user", toModel, images),
             compacted = compacted,
         )
     }
