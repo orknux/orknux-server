@@ -60,7 +60,7 @@ object InteractionItems {
 }
 
 /** The options of a request, as the column holds them. */
-internal object InteractionOptions {
+object InteractionOptions {
     private val json = JsonMapper.builder().build()
 
     fun encode(options: List<InteractionOption>): String =
@@ -75,6 +75,9 @@ internal object InteractionOptions {
             )
         }
     }.getOrDefault(emptyList())
+
+    /** The ids a request offers, for a handler checking which answer it put on offer. */
+    fun ids(text: String): Set<String> = decode(text).map { it.id }.toSet()
 }
 
 @Service

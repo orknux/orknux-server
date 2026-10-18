@@ -11,6 +11,7 @@ import io.mszymanski.orknux.server.interaction.InteractionHandler
 import io.mszymanski.orknux.server.interaction.InteractionItem
 import io.mszymanski.orknux.server.interaction.InteractionItems
 import io.mszymanski.orknux.server.interaction.InteractionOption
+import io.mszymanski.orknux.server.interaction.InteractionOptions
 import io.mszymanski.orknux.server.interaction.InteractionRequest
 import io.mszymanski.orknux.server.interaction.InteractionRequestRepository
 import io.mszymanski.orknux.server.interaction.Interactions
@@ -66,6 +67,10 @@ class GrantRequestTools(
     private val inbox: SessionInbox,
     private val auditRecorder: WorkspaceAuditRecorder,
     private val mapper: ObjectMapper,
+    /** Where a conversation keeps the tools it has loaded; see [ToolSearchTools]. */
+    private val recorder: io.mszymanski.orknux.server.llm.LlmSessionRecorder,
+    /** The orknux_* names, which granting Orknux access brings and loading it loads. */
+    private val builtIns: BuiltInTools,
     /** A provider: the handler that answers these questions is built on this. */
     private val interactions: ObjectProvider<Interactions>,
 ) {
@@ -155,13 +160,14 @@ class GrantRequestTools(
         val conversation = sessionId ?: throw Refused("There is no conversation to ask in, so there is nobody to ask")
         val args = runCatching { mapper.readTree(arguments.ifBlank { "{}" }) }.getOrNull()
             ?: throw Refused("The arguments were not a JSON object")
-        val wanted = args.path("tools").let { node ->
+        val wanted = args.path(TOOLS).let { node ->
             if (node.isArray) node.values().mapNotNull { if (it.isString) it.stringValue().trim() else null } else emptyList()
         }.filter { it.isNotEmpty() }.distinct()
-        if (wanted.isEmpty()) throw Refused("Name the tools you want in tools - $LIST says which you could be given")
+        if (wanted.isEmpty()) throw Refused("Name the tools you want in $TOOLS - $LIST says which you could be given")
         if (wanted.size > MOST_AT_ONCE) throw Refused("Ask for at most $MOST_AT_ONCE tools at once")
-        val why = args.path("why").takeIf { it.isString }?.stringValue()?.trim()?.ifEmpty { null }
-            ?: throw Refused("Say in why what you need them for - the person decides on that")
+        val why = args.path(WHY).takeIf { it.isString }?.stringValue()?.trim()?.ifEmpty { null }
+            ?: throw Refused("Say in $WHY what you need them for - the person decides on that")
+        val load = args.path(LOAD).let { it.isBoolean && it.asBoolean() }
 
         val grantable = grantables(agent).associateBy { it.name }
         val unknown = wanted.filter { it !in grantable }
@@ -177,6 +183,7 @@ class GrantRequestTools(
         // The same tools asked for again while the first question is open answer the first question.
         val open = requests.findByLlmSessionIdOrderByCreatedAtAscIdAsc(conversation).firstOrNull { request ->
             request.kind == KIND && request.chosen == null && request.subjectId == agent.id &&
+                InteractionOptions.ids(request.options).contains(acceptOption(load)) &&
                 InteractionItems.decode(request.items).map { it.name }.toSet() == wanted.toSet()
         }
         if (open == null) {
@@ -187,9 +194,11 @@ class GrantRequestTools(
                 subjectId = agent.id,
                 askedBy = agent.name,
                 question = "${agent.name} asks to be given " +
-                    (if (asking.size == 1) "this tool" else "these ${asking.size} tools") + " for good: $why",
+                    (if (asking.size == 1) "this tool" else "these ${asking.size} tools") + " for good" +
+                    (if (load) " and loaded now" else "") + ": $why",
+                // Whether accepting also loads them rides on the option, so the answer carries it with no column of its own.
                 options = listOf(
-                    InteractionOption(ACCEPT, "Accept", "primary"),
+                    InteractionOption(acceptOption(load), "Accept", "primary"),
                     InteractionOption(REFUSE, "Refuse", "danger"),
                 ),
                 items = asking.map { InteractionItem(it.name, it.kind.label, it.description) },
@@ -206,8 +215,9 @@ class GrantRequestTools(
                 "asked" to wanted,
                 "status" to "pending",
                 "note" to "The person has been asked in the conversation to accept or refuse. You will be told " +
-                    "the answer; until then you do not hold these tools. Tell the person what you asked for and " +
-                    "why, then carry on without them or end your turn.",
+                    "the answer; until then you do not hold these tools" +
+                    (if (load) ", and once accepted they are loaded for you" else "") + ". Tell the person what you " +
+                    "asked for and why, then carry on without them or end your turn.",
             ),
         )
     }
@@ -218,7 +228,7 @@ class GrantRequestTools(
      * granted some other way - is left out and said.
      */
     @Transactional
-    fun accept(request: InteractionRequest, by: String): String {
+    fun accept(request: InteractionRequest, by: String, load: Boolean = false): String {
         val agent = request.subjectId?.let { agents.findByIdOrNull(it) }
             ?: throw AgentNotFoundException(request.subjectId ?: 0)
         val wanted = InteractionItems.decode(request.items).map { it.name }
@@ -248,11 +258,34 @@ class GrantRequestTools(
             )
         }
         val names = granting.joinToString(", ") { it.name }
+        /*
+         * And loaded into this conversation, where the agent asked for that:
+         * the names written where tool_load writes what it finds, so the next
+         * round declares them without a load of its own. An MCP server's tools
+         * are named by the server and not known here, so those are left to load.
+         */
+        val loaded = if (load && granting.isNotEmpty()) {
+            val loading = granting.flatMap { one ->
+                when (one.kind) {
+                    Kind.MCP_SERVER -> emptyList()
+                    Kind.ORKNUX -> builtIns.orknuxNames()
+                    else -> listOf(one.name)
+                }
+            }
+            recorder.toolsFound(request.llmSessionId, recorder.toolsFound(request.llmSessionId) + loading)
+            granting.filter { it.kind != Kind.MCP_SERVER }.map { it.name }
+        } else {
+            emptyList()
+        }
         inbox.post(
             request.llmSessionId,
             SessionEventKind.ANSWER,
             buildString {
-                if (granting.isNotEmpty()) append("$by granted you $names for good; they are offered from your next round on.")
+                if (granting.isNotEmpty()) {
+                    append("$by granted you $names for good; they are offered from your next round on")
+                    append(if (loaded.isEmpty()) "." else ", and ${loaded.joinToString(", ")} " +
+                        (if (loaded.size == 1) "is" else "are") + " loaded already - call them directly.")
+                }
                 if (gone.isNotEmpty()) {
                     if (isNotEmpty()) append(" ")
                     append("${gone.joinToString(", ")} could not be granted: you hold it already, or it is gone.")
@@ -301,7 +334,16 @@ class GrantRequestTools(
         /** The kind of [InteractionRequest] these ask, answered by [ToolGrantRequests]. */
         const val KIND = "agent.tools"
         const val ACCEPT = "accept"
+        /** Accept, where the agent asked for the tools to be loaded as well. */
+        const val ACCEPT_AND_LOAD = "accept-load"
         const val REFUSE = "refuse"
+
+        /** The request's parameters, named once so no description spells them twice. */
+        const val TOOLS = "tools"
+        const val WHY = "why"
+        const val LOAD = "load"
+
+        fun acceptOption(load: Boolean) = if (load) ACCEPT_AND_LOAD else ACCEPT
 
         /** What [Kind.ORKNUX] is asked for by. */
         const val ORKNUX = "orknux"
@@ -325,18 +367,24 @@ class GrantRequestTools(
                     "$LIST, and why you need them. They are shown each tool and choose Accept or Refuse; nothing " +
                     "is granted until they accept. The answer reaches you later, so after asking tell the person " +
                     "what you asked for and why, and carry on without the tools or end your turn. Ask only for " +
-                    "what the task in front of you needs.",
+                    "what the task in front of you needs. With $LOAD true, accepted tools are also loaded for you, " +
+                    "as ${ToolSearchTools.FIND} would, so you can call them without loading them yourself.",
                 parameters = listOf(
                     ToolParameterSpec(
-                        name = "tools",
+                        name = TOOLS,
                         description = "The names to ask for, exactly as $LIST gives them.",
                         required = true,
                         schema = mapOf("type" to "array", "items" to mapOf("type" to "string")),
                     ),
                     ToolParameterSpec(
-                        name = "why",
+                        name = WHY,
                         description = "One sentence on what you need them for, which the person reads before deciding.",
                         required = true,
+                    ),
+                    ToolParameterSpec(
+                        name = LOAD,
+                        description = "Whether accepted tools are also loaded into this conversation at once. False if left out.",
+                        schema = mapOf("type" to "boolean"),
                     ),
                 ),
                 summary = "ask the person to give you tools you do not hold",
@@ -352,6 +400,7 @@ class ToolGrantRequests(private val grants: GrantRequestTools) : InteractionHand
 
     override fun answered(request: InteractionRequest, option: String, by: String): String = when (option) {
         GrantRequestTools.ACCEPT -> grants.accept(request, by)
+        GrantRequestTools.ACCEPT_AND_LOAD -> grants.accept(request, by, load = true)
         else -> grants.refuse(request, by)
     }
 }

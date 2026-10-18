@@ -47,6 +47,7 @@ class GrantRequestToolsTest(
     @Autowired val lines: LlmSessionEventRepository,
     @Autowired val audit: WorkspaceAuditRepository,
     @Autowired val revisions: ComponentRevisionRepository,
+    @Autowired val sessions: LlmSessionRecorder,
     @Autowired val mapper: ObjectMapper,
 ) {
 
@@ -87,7 +88,7 @@ class GrantRequestToolsTest(
     private fun offered(): List<String> = tools.specsFor(agents.findByIdOrNull(agent.id!!)!!).map { it.name }
 
     private fun answer(option: String) = graphQlTester.document(
-        "mutation { answerRequest(id: ${requests.findAll().single().id}, option: \"$option\") { chosen outcome items { name kind } } }",
+        "mutation { answerRequest(id: ${requests.findAll().single { it.chosen == null }.id}, option: \"$option\") { chosen outcome items { name kind } } }",
     ).execute()
 
     @Test
@@ -134,6 +135,20 @@ class GrantRequestToolsTest(
         assertThat(told().single()).contains("alice granted you lookupOrder, ${DateTools.NOW} for good")
         assertThat(audit.findAll().map { it.message }).contains("Agent Helper granted tools lookupOrder, ${DateTools.NOW} (asked in chat)")
         assertThat(revisions.findAll().map { it.componentId }).contains(agent.id)
+    }
+
+    @Test
+    fun `asked to, accepting also loads them into the conversation, and by default it does not`() {
+        call(GrantRequestTools.ASK, mapOf("tools" to listOf("lookupOrder"), "why" to "orders"))
+        answer(GrantRequestTools.ACCEPT)
+        assertThat(sessions.toolsFound(conversation)).doesNotContain("lookupOrder")
+
+        call(GrantRequestTools.ASK, mapOf("tools" to listOf(DateTools.NOW), "why" to "the time", "load" to true))
+        val open = requests.findAll().single { it.chosen == null }
+        assertThat(open.question).contains("and loaded now")
+        graphQlTester.document("mutation { answerRequest(id: ${open.id}, option: \"${GrantRequestTools.ACCEPT_AND_LOAD}\") { outcome } }").execute()
+        assertThat(sessions.toolsFound(conversation)).contains(DateTools.NOW)
+        assertThat(told().last()).contains("${DateTools.NOW} is loaded already")
     }
 
     @Test
