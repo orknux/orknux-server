@@ -19,18 +19,53 @@ have failed.
 
 ### ✨ Added
 
-- **Chat answers render LaTeX maths.** `$x$`, `$$x$$`, `\(x\)` and `\[x\]` are set by KaTeX wherever the product draws markdown - chat, task outcomes, issues - while a price like "$5 and $10" and anything inside code stay as written.
-- **A fresh installation starts with a workspace.** The first start on an empty database - the desktop app, a new orknux-one, a new server - makes one called Default, set up as the admin page sets one up, so chat works straight away. An installation that already has workspaces is not given one, and removing every workspace later does not bring it back.
-- **An agent can ask for the tools it lacks.** Instead of saying it cannot do something, an agent lists the tools it could be given - built-ins switched off for it, the workspace's and plugins' tools, MCP servers, Orknux access - and asks for the ones it needs. The question in the chat names each tool, its kind and what it does, with Accept and Refuse; accepted, the tools are the agent's for good, recorded as a change to the agent.
-- **Unread answers beside each chat.** The chat sidebar shows, beside a chat's name, how many answers arrived since it was last open - a solid pill and a bold name, so news stands out in a long list - and opening the chat clears it. Existing chats start as read.
-- **A model's page says what uses it.** Used by on a model lists the agents that think with it, the workspace settings that name it, the actions that speak with it and the workflows whose image or decision nodes use it; a provider's page lists its models. Removing a model still in use is refused with that list, where it used to leave agents without a model.
-
+- **Orknux on the desktop, for Windows and Linux.** The orknux-one server in a window of its own, with its own Java and a SQLite database in your profile: a `.exe`/`.msi` installer and a `.deb`/AppImage, built and attached to each release after the images are published. It keeps running in the tray when the window is closed, updates itself through the same signed releases as the server, and names its one account after the person at the machine.
 - **Network access for the desktop app, in Admin › Settings.** Switch between this computer only, with nobody signing in, and anyone on the network, with everybody signing in: going to the network sets the password you sign in with, and the app starts again to apply it. Only the desktop app's server shows the card.
+- **A fresh installation starts with a workspace.** The first start on an empty database - the desktop app, a new orknux-one, a new server - makes one called Default, set up as the admin page sets one up, so chat works straight away. An installation that already has workspaces is not given one, and removing every workspace later does not bring it back.
+- **An agent can ask for the tools it lacks.** Instead of saying it cannot do something, an agent lists the tools it could be given - built-ins switched off for it, the workspace's and plugins' tools, MCP servers, Orknux access - and asks for the ones it needs. The question in the chat names each tool, its kind and what it does, with Accept and Refuse; accepted, the tools are the agent's for good, recorded as a change to the agent. An agent may also ask for them to be loaded at once, so it can call them on its next step.
+- **Unread answers beside each chat.** The chat sidebar shows, beside a chat's name, how many answers arrived since it was last open - a silver pill and a bold name, so news stands out in a long list - and opening the chat clears it. An answer that finishes in a chat you left counts at once, and one that lands in the open chat while the window is in the background waits for you to come back. Existing chats start as read.
+- **Attached files reach the agent.** A PDF, a log or any other file attached to a chat message is kept where the agent's tools can read it, and the agent is told how - before, only pictures reached it, and it could only guess at the rest.
+- **Drop files on a chat to attach them**, any kind and several at once, as the attach button does.
+- **A chat being named says so**: "Naming this chat…" stands in the title and a spinner turns beside it in the list until the name comes.
+- **The chat list can be dragged wider** by its edge; the width is remembered, and a double-click puts it back.
+- **Chat opens a new chat by itself** when the workspace has none yet.
+- **Chat answers render LaTeX maths.** `$x$`, `$$x$$`, `\(x\)` and `\[x\]` are set by KaTeX wherever the product draws markdown - chat, task outcomes, issues - while a price like "$5 and $10" and anything inside code stay as written.
+- **A model's page says what uses it.** Used by on a model lists the agents that think with it, the workspace settings that name it, the actions that speak with it and the workflows whose image or decision nodes use it; a provider's page lists its models. Removing a model still in use is refused with that list, and so is removing a provider while any of its models is in use.
+- **Test a connection before adding it.** The Add Connection dialog has Test Connection, which checks what is typed and stores nothing.
+- **A plugin's connection kind can bring a setup guide, a check and a default address.** The guide is shown beside the Add Connection form; Test asks the plugin whether the address really is its service, not only whether something answers; and a kind with a default address may be added with the URL left empty. The Anki plugin's AnkiConnect uses all three.
+- **Picking a model a llama.cpp server offers fills its context window**, the one the server runs it with, and puts 0 in both prices.
+- **"+ New function" opens a panel** with a name and a description, beside the node panel in the workflow editor and as a dialog on the action, condition and trigger pages; the function is made at once and chosen.
+- **Save and Discard along the foot of every page that saves**, always in the same place, off until something has changed.
+- **A menu down the side of an agent's settings**, as the settings pages have.
+- **An "Add a model" link under an agent's Model**, opening the Models page with the Add Model dialog.
+- **Used by is paged** where it runs long.
+- **The Updates page says why a chosen release was not started** - one built for a newer Java than the desktop app carries - where it used to say so only in the log.
+- **The top bar shows your display name** where the installation has one, rather than your username.
 
 ### 🔧 Changed
 
 - **Every agent may ask for more tools, existing ones included.** Asking grants nothing until a person accepts. To stop an agent asking at all, untick **May ask for more tools** on its page.
+- **New agents start with Orknux access on** - asking Orknux about Orknux. Existing agents keep what they had.
+- **A box has a name only.** The label is gone; an agent's box grant names the box, and existing grants were moved from the label to the boxes that had it on upgrade. Renaming a box moves the agents granted it.
+- **An agent's Boxes grant is a list of ticks**, as Connections is.
+- **Test Connection sits beside the status line under the form** on a provider, connection, MCP server and box page, rather than in the page's header.
 - **Voice mode is always on the chat bar.** Where the workspace has no speech or transcription model it is drawn off instead of hidden, and hovering it says which model is missing and links to where it is chosen. A workspace that wants it gone ticks **Hide the voice mode button** in its settings' Voice card.
+- **The release launcher skips a release built for a newer Java** than the runtime it has, and keeps running the one it has, rather than restarting into a release that cannot start.
+
+### 🐛 Fixed
+
+- **Function pickers showed only the first hundred functions.** A workspace with more could not find or choose the rest, even by searching.
+- **Testing a new provider emptied the API key** and left Create switched off.
+- **A function name refused as taken stayed refused** after it was changed, and a node's panel stopped saving.
+- **"Writing the answer…" stayed under an answer** that was already showing.
+- **Admin pages pushed their footer off the screen**, and a long admin menu now scrolls in its own column.
+- **A settings page opened at `#section` lands there**, and long menu entries wrap instead of being cut off.
+- **Tool calls in a row sat a whole message apart**; they are one stack now.
+- **Table headings and cells mix fonts no more**: every heading in a table is drawn alike, the sorted one included, and a cell no longer falls back to a larger size; every pager is the same pager.
+- **Ctrl+Q closes the quick actions** it opened.
+- **The notification bell said "Nothing yet." when its list could not be loaded**; it says it could not load, and drops a count it could not refresh.
+- **The connection type filter shows** even when a workspace has one type.
+- **In the desktop app, a dropped file replaced the window**, and a link meant for a new tab threw away unsaved work; such links open a new window.
 
 ## 1.1.2
 
