@@ -83,6 +83,11 @@ class AnthropicBodyTest(
         workspaceId = requireNotNull(workspaces.save(Workspace(name = "backend")).id)
 
         provider = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
+        // Not stable-diffusion.cpp's server: an OpenAI provider saved here is asked, and must stay OpenAI.
+        provider.createContext("/sdcpp") { exchange ->
+            exchange.sendResponseHeaders(404, -1)
+            exchange.close()
+        }
         provider.createContext("/") { exchange ->
             sent += exchange.requestBody.readBytes().toString(StandardCharsets.UTF_8)
             val body = """{"content":[{"type":"text","text":"A picture of nothing much."}],

@@ -433,9 +433,10 @@ class ToolSearchTest(
         // handed three hundred tools chooses badly long before a provider minds.
         assertThat(ProviderType.ANTHROPIC.toolLimit).isGreaterThan(ProviderType.OPENAI.toolLimit)
         // Every provider that holds chat models has a ceiling; a decision provider
-        // holds none and is offered no tools, so it has nothing to cap.
-        assertThat(ProviderType.entries.filter { it != ProviderType.SYSTEM_ONE }.map { it.toolLimit })
+        // and the image servers hold none and are offered no tools, so they have nothing to cap.
+        val noChat = setOf(ProviderType.SYSTEM_ONE, ProviderType.STABLE_DIFFUSION_CPP)
+        assertThat(ProviderType.entries.filter { it !in noChat }.map { it.toolLimit })
             .allSatisfy { assertThat(it).isGreaterThan(0) }
-        assertThat(ProviderType.SYSTEM_ONE.toolLimit).isZero()
+        assertThat(noChat.map { it.toolLimit }).containsOnly(0)
     }
 }
