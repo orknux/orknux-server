@@ -94,6 +94,24 @@ enum class ResetInterval {
  * The part of such a provider that is genuinely custom is its endpoint, and the
  * endpoint field carries that untouched.
  */
+/**
+ * Where a picture edit's mask says the change goes.
+ *
+ * The standard edit interface marks the change with transparent pixels, and
+ * that is what OpenAI reads. stable-diffusion.cpp's server takes the same
+ * request and reads the mask as greyscale, white for the change, with the
+ * transparency thrown away - so a standard mask reads as "change nothing" and
+ * the picture comes back as it went. Which a server wants is a property of the
+ * server, so it is the provider's to say.
+ */
+enum class EditMask {
+    /** Transparent marks the change: the standard, and OpenAI's. */
+    TRANSPARENT,
+
+    /** White marks the change on opaque black: stable-diffusion.cpp's server. */
+    WHITE,
+}
+
 enum class ProviderType {
     OPENAI,
     ANTHROPIC,
@@ -117,7 +135,19 @@ enum class ProviderType {
      * Issue #627.
      */
     LLAMA_CPP,
+
+    /**
+     * stable-diffusion.cpp's server. Spoken to exactly as [OPENAI] is - its
+     * `/v1/images/generations` and `/v1/images/edits` are the OpenAI shape - and
+     * kept apart for how it reads a picture edit's mask: white for the change,
+     * where the standard marks it transparent. See [EditMask].
+     */
+    STABLE_DIFFUSION_CPP,
     ;
+
+    /** How this type's server reads an edit mask, when the provider has not said. */
+    val editMask: EditMask
+        get() = if (this == STABLE_DIFFUSION_CPP) EditMask.WHITE else EditMask.TRANSPARENT
 
     /**
      * The most tools this provider will accept on one request.
@@ -140,8 +170,8 @@ enum class ProviderType {
             OPENAI, AZURE_OPENAI -> 128
             OLLAMA, LLAMA_CPP -> 128
             ANTHROPIC -> 256
-            // Takes no tools at all; nothing offers it any.
-            SYSTEM_ONE -> 0
+            // Takes no tools at all; nothing offers it any. An image server is not a chat.
+            SYSTEM_ONE, STABLE_DIFFUSION_CPP -> 0
         }
 }
 
@@ -368,6 +398,14 @@ class ModelProvider(
     var offerAllTools: Boolean? = null,
 
     /**
+     * How the mask of a picture edit is drawn for this provider's server; null
+     * is what its type's server reads. See [EditMask].
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "edit_mask", length = 20)
+    var editMask: EditMask? = null,
+
+    /**
      * The most tools one request to this provider may carry; null is what the
      * type takes - see [ProviderType.toolLimit]. Set where a server refuses
      * fewer than its type is known for, or to keep a small model's list short.
@@ -423,7 +461,8 @@ class ModelProvider(
      * key is the whole of the arrangement there.
      */
     fun keyOptional(): Boolean =
-        type == ProviderType.OPENAI || type == ProviderType.OLLAMA || type == ProviderType.SYSTEM_ONE
+        type == ProviderType.OPENAI || type == ProviderType.OLLAMA || type == ProviderType.LLAMA_CPP ||
+            type == ProviderType.STABLE_DIFFUSION_CPP || type == ProviderType.SYSTEM_ONE
 
     /** A copy of its own, or a variable to read one from. Never both. */
     private fun credentialSet(): Boolean = secretVariableId != null || !secret.isNullOrBlank()
@@ -555,6 +594,7 @@ fun ModelProvider.copied(workspaceId: Long, name: String): ModelProvider = Model
         acceptRetryAfter = acceptRetryAfter,
         chatApi = chatApi,
         sendsReasoning = sendsReasoning,
+        editMask = editMask,
 )
 
 /**

@@ -107,7 +107,8 @@ object ChatParameters {
         // llama.cpp's own sampler: top-k, min-p and the repeat penalty, as any OpenAI-shaped server takes.
         ProviderType.LLAMA_CPP -> OPENAI_SHAPED
         ProviderType.ANTHROPIC -> ANTHROPIC
-        ProviderType.SYSTEM_ONE -> emptyList()
+        // Neither chats: a decision model answers questions, an image server draws.
+        ProviderType.SYSTEM_ONE, ProviderType.STABLE_DIFFUSION_CPP -> emptyList()
     }
 
     fun forProvider(provider: ModelProvider): List<ChatParameterSpec> = forProvider(provider.type, provider.endpoint)

@@ -42,6 +42,8 @@ class ModelService(
      * one - see [SecretReferences].
      */
     private val references: SecretReferences,
+    /** Asked whether a provider's server is stable-diffusion.cpp's; see [recognised]. */
+    private val imageServers: ModelImageClient,
     /** Defaulted rather than a bean, the way `ConditionEvaluator` takes one. */
     private val clock: Clock = Clock.systemDefaultZone(),
 ) {
@@ -116,8 +118,10 @@ class ModelService(
         input.acceptRetryAfter?.let { provider.acceptRetryAfter = it }
         provider.sendsReasoning = input.sendsReasoning ?: false
         provider.offerAllTools = input.offerAllTools
+        provider.editMask = input.editMask
         provider.maxTools = toolCapOf(input.maxTools)
         provider.chatApi = chatApiFor(provider.type, input.chatApi, null)
+        recognised(provider)
         provider.forgetCheck()
         val saved = providers.save(provider)
         // Checked as soon as the transaction lands, so a provider that was just
@@ -190,8 +194,10 @@ class ModelService(
         input.sendsReasoning?.let { provider.sendsReasoning = it }
         // Set as given, like the throttle: the form sends both, and null is the type's default.
         provider.offerAllTools = input.offerAllTools
+        provider.editMask = input.editMask
         provider.maxTools = toolCapOf(input.maxTools)
         provider.chatApi = chatApiFor(provider.type, input.chatApi, provider.chatApi)
+        recognised(provider)
 
         provider.forgetCheck()
         events.publishEvent(ModelProviderSaved(id))
@@ -204,6 +210,18 @@ class ModelService(
      * asked, and starts on Responses. Any other type holds none, and asking one
      * for a choice it does not have is refused rather than stored unread.
      */
+    /**
+     * An OpenAI provider whose server is stable-diffusion.cpp's is saved as
+     * that type: it speaks the OpenAI shape and reads a picture edit's mask its
+     * own way, so as a generic provider it takes edits and changes nothing. The
+     * server is asked - `/sdcpp/v1/capabilities` answers there alone - and one
+     * that does not answer stays as it was.
+     */
+    private fun recognised(provider: ModelProvider) {
+        if (provider.type != ProviderType.OPENAI) return
+        if (imageServers.servesStableDiffusionCpp(provider)) provider.type = ProviderType.STABLE_DIFFUSION_CPP
+    }
+
     /** A cap as given, or refused outside the range; null is the type's own. */
     private fun toolCapOf(asked: Int?): Int? {
         if (asked != null && asked !in ModelProviderToolCaps.FEWEST..ModelProviderToolCaps.MOST) {
@@ -769,6 +787,8 @@ data class CreateProviderInput(
     val sendsReasoning: Boolean? = null,
     /** Every tool from the first round; null is the type's default. See [ModelProvider.offerAllTools]. */
     val offerAllTools: Boolean? = null,
+    /** How a picture edit's mask is drawn; null is its type's. See [EditMask]. */
+    val editMask: EditMask? = null,
     /** The most tools one request carries; null is the type's. See [ModelProvider.maxTools]. */
     val maxTools: Int? = null,
 )
@@ -811,6 +831,8 @@ data class UpdateProviderInput(
     val sendsReasoning: Boolean? = null,
     /** Set as given: null is the type's default. See [ModelProvider.offerAllTools]. */
     val offerAllTools: Boolean? = null,
+    /** Set as given: null is its type's. See [EditMask]. */
+    val editMask: EditMask? = null,
     /** Set as given: null is the type's cap. See [ModelProvider.maxTools]. */
     val maxTools: Int? = null,
 )
@@ -926,6 +948,8 @@ data class ModelProviderView(
     val sendsReasoning: Boolean,
     /** Every tool from the first round, as set; null is the type's default, which [offersAllTools] resolves. */
     val offerAllTools: Boolean?,
+    /** How a picture edit's mask is drawn; null is its type's. */
+    val editMask: EditMask?,
     /** Whether it does, the default resolved. */
     val offersAllTools: Boolean,
     /** The most tools one request carries, as set; null is the type's, which [toolCap] resolves. */
@@ -974,6 +998,7 @@ data class ModelProviderView(
         chatApi = if (provider.type == ProviderType.AZURE_OPENAI) provider.chatApi ?: ChatApi.RESPONSES else null,
         sendsReasoning = provider.sendsReasoning,
         offerAllTools = provider.offerAllTools,
+        editMask = provider.editMask,
         offersAllTools = provider.offersAllTools(),
         maxTools = provider.maxTools,
         toolCap = provider.toolCap(),

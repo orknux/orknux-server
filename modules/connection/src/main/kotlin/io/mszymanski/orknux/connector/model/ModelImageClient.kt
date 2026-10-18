@@ -140,7 +140,31 @@ class ModelImageClient(
      * and accounting as [draw].
      */
     fun edit(modelId: Long, prompt: String, image: ByteArray, mask: ByteArray): Picture =
-        call(modelId, prompt) { provider, model, asked -> media.edit(provider, model, asked, image, mask) }
+        call(modelId, prompt) { provider, model, asked ->
+            val style = provider.editMask ?: when {
+                provider.type == ProviderType.OPENAI && servesStableDiffusionCpp(provider) -> EditMask.WHITE
+                else -> provider.type.editMask
+            }
+            media.edit(provider, model, asked, image, if (style == EditMask.WHITE) EditMasks.whiteOnBlack(mask) else mask)
+        }
+
+    /**
+     * Whether an OpenAI-shaped provider is stable-diffusion.cpp's server, by
+     * asking it: `GET /sdcpp/v1/capabilities` answers there and nowhere else.
+     * Anything but an answer - a 404, no route, a refusal by the proxy rules -
+     * is a server that follows the standard.
+     */
+    fun servesStableDiffusionCpp(provider: ModelProvider): Boolean {
+        val base = runCatching { URI(provider.openAiBase()) }.getOrNull() ?: return false
+        val asked = runCatching { base.resolve(SD_CPP_CAPABILITIES) }.getOrNull() ?: return false
+        if (connections.vet(asked.toString()) != null) return false
+        return runCatching {
+            http.send(
+                HttpRequest.newBuilder(asked).timeout(Duration.ofSeconds(CONNECT_SECONDS)).GET().build(),
+                HttpResponse.BodyHandlers.discarding(),
+            ).statusCode() in 200..299
+        }.getOrDefault(false).also { if (it) log.info("{} answers as stable-diffusion.cpp's server", provider.name) }
+    }
 
     private fun call(
         modelId: Long,
@@ -233,7 +257,7 @@ class ModelImageClient(
             "${provider.name} runs llama.cpp, which has no image generation. " +
                 "Run an image server beside it and add that as an OpenAI provider."
 
-        ProviderType.OPENAI, ProviderType.AZURE_OPENAI -> null
+        ProviderType.OPENAI, ProviderType.AZURE_OPENAI, ProviderType.STABLE_DIFFUSION_CPP -> null
     }
 
 
@@ -330,6 +354,9 @@ class ModelImageClient(
         const val PNG = "image/png"
 
         const val CONNECT_SECONDS = 10L
+
+        /** What only stable-diffusion.cpp's server answers, from its host's root. */
+        const val SD_CPP_CAPABILITIES = "/sdcpp/v1/capabilities"
 
         /** Collecting bytes that already exist, which is not slow. */
         const val FETCH_SECONDS = 60L

@@ -5356,12 +5356,28 @@ enum ProviderType {
     the session page show while a long one is read.
     """
     LLAMA_CPP
+    """
+    stable-diffusion.cpp's server, spoken to as OpenAI is. Its picture edits
+    read a mask as greyscale, white for the change. An OPENAI provider whose
+    server answers /sdcpp/v1/capabilities is saved as this type.
+    """
+    STABLE_DIFFUSION_CPP
 }
 
 "How a provider is authenticated. ENTRA_ID is Azure OpenAI only."
 enum ProviderAuthMethod {
     API_KEY
     ENTRA_ID
+}
+
+"""
+Where a picture edit's mask says the change goes. TRANSPARENT is the standard
+edit interface's, and OpenAI's; WHITE - one greyscale channel, white for the
+change - is how stable-diffusion.cpp's server reads it.
+"""
+enum EditMask {
+    TRANSPARENT
+    WHITE
 }
 
 """
@@ -5445,6 +5461,8 @@ type ModelProvider {
     sendsReasoning: Boolean!
     "Whether every tool goes out from an agent's first round, as set. Null is the type's default: on for Ollama and OpenAI."
     offerAllTools: Boolean
+    "How a picture edit's mask is drawn for this provider's server. Null is its type's: WHITE for STABLE_DIFFUSION_CPP, TRANSPARENT for the rest."
+    editMask: EditMask
     "Whether it does, the default resolved."
     offersAllTools: Boolean!
     "The most tools one request carries, as set. Null is what the type takes."
@@ -5647,6 +5665,8 @@ input CreateModelProviderInput {
     sendsReasoning: Boolean
     "Every tool up front from an agent's first round. Null is the type's default: on for Ollama and OpenAI."
     offerAllTools: Boolean
+    "How a picture edit's mask is drawn. Null is its type's."
+    editMask: EditMask
     "The most tools one request carries, 8 to 1024. Null is what the type takes."
     maxTools: Int
 }
@@ -5688,6 +5708,8 @@ input UpdateModelProviderInput {
     sendsReasoning: Boolean
     "Every tool up front from an agent's first round. Set as given: null is the type's default."
     offerAllTools: Boolean
+    "How a picture edit's mask is drawn. Set as given: null is its type's."
+    editMask: EditMask
     "The most tools one request carries, 8 to 1024. Set as given: null is what the type takes."
     maxTools: Int
 }

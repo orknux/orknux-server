@@ -249,6 +249,58 @@ class DesignImageAPITest(
         assertThat(authorised.single()).isEqualTo("Bearer no-key")
     }
 
+    @Test
+    fun `stable-diffusion cpp's server is saved as its own type, and sent the mask it reads unless the provider says otherwise`() {
+        // What stable-diffusion.cpp's server answers, and nothing else does.
+        server.createContext("/sdcpp/v1/capabilities") { exchange ->
+            val bytes = """{"current_mode":"img_gen"}""".toByteArray(StandardCharsets.UTF_8)
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+            exchange.close()
+        }
+        val modelId = model("Editor", "IMAGE")
+        // Added as a generic OpenAI provider, saved as the server it is.
+        val providerId = requireNotNull(models.findById(modelId).orElse(null)).providerId
+        assertThat(providers.findById(providerId).get().type)
+            .isEqualTo(io.mszymanski.orknux.connector.model.ProviderType.STABLE_DIFFUSION_CPP)
+        val white = png(2, 2) { _, _ -> WHITE }
+        val source = images.save(
+            DesignImage(
+                workspaceId = workspaceId, modelId = modelId, modelName = "Editor", prompt = "A white square",
+                size = null, quality = null, style = null, filename = "white.png", contentType = "image/png",
+                sizeBytes = white.size.toLong(), location = store.put(workspaceId, "white.png", white), drawnBy = "alice",
+            ),
+        )
+        val mask = Base64.getEncoder().encodeToString(png(2, 2) { x, _ -> if (x == 0) 0x00000000 else 0xFF000000.toInt() })
+        fun edit(): String = graphQlTester.document(
+            """mutation { queueDesignImageEdit(input: {
+                 workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", modelId: $modelId, prompt: "Make it red", mask: "$mask"
+               }) { id } }""",
+        ).execute().path("queueDesignImageEdit.id").entity(String::class.java).get()
+
+        // Nobody said: its type's mask - one greyscale channel, white for the change.
+        drawnPicture(edit())
+        assertThat(sentMask(edited.last())).isEqualTo(listOf(0xFFFFFF, 0x000000))
+
+        // Said on the provider: the standard, transparent for the change, whatever the type.
+        providers.findById(providerId).get().also {
+            it.editMask = io.mszymanski.orknux.connector.model.EditMask.TRANSPARENT
+            providers.save(it)
+        }
+        drawnPicture(edit())
+        assertThat(sentMask(edited.last())).isEqualTo(listOf(0x00000000, 0xFF000000.toInt()))
+    }
+
+    /** The mask part of a multipart body, read back: its top row's two pixels, alpha and all. */
+    private fun sentMask(body: String): List<Int> {
+        val part = body.indexOf("filename=\"mask.png\"")
+        val start = body.indexOf("PNG", part)
+        val bytes = body.substring(start).toByteArray(StandardCharsets.ISO_8859_1)
+        val image = requireNotNull(javax.imageio.ImageIO.read(bytes.inputStream()))
+        val alpha = image.colorModel.hasAlpha()
+        return (0 until 2).map { x -> if (alpha) image.getRGB(x, 0) else image.getRGB(x, 0) and 0xFFFFFF }
+    }
+
     /** Waits for the request to be drawn, and answers its picture's id. */
     private fun drawnPicture(jobId: String): String {
         await().atMost(Duration.ofSeconds(10)).until { jobs.findByIdOrNull(jobId.toLong())?.status == DesignImageJobStatus.DRAWN }
