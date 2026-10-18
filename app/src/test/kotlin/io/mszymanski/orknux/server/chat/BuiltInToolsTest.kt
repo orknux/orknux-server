@@ -401,7 +401,9 @@ class BuiltInToolsTest(
     private fun created(name: String): Long {
         agents.findByWorkspaceIdAndName(workspaceId, name)?.let { agents.delete(it) }
         return graphQlTester.document(
-            """mutation { createAgent(input: { workspaceId: $workspaceId, name: "$name", type: LLM }) { id } }""",
+            // Without the orknux_* grant a new agent now starts with: these tests are about the built-ins,
+            // and that default is AgentAPITest's to hold.
+            """mutation { createAgent(input: { workspaceId: $workspaceId, name: "$name", type: LLM, orknuxAccess: false }) { id } }""",
         ).execute().path("createAgent.id").entity(Long::class.java).get()
     }
 
