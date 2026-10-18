@@ -142,17 +142,22 @@ class DesignDrawQueue(
                             location = store.put(job.workspaceId, filename, picture.image),
                             drawnBy = job.requestedBy,
                             name = job.name ?: source?.view?.name ?: PictureFilenames.nameOf(job.prompt),
+                            // An edit is a version of the picture it changes - of the picture itself, not of the round before.
+                            versionOf = source?.let { it.view.versionOf ?: job.sourceId },
                         ),
                     )
                     job.status = DesignImageJobStatus.DRAWN
                     job.imageId = saved.id
                     jobs.save(job)
-                    auditRecorder.recordAutomated(
-                        job.workspaceId,
-                        WorkspaceAuditCategory.WORKFLOW,
-                        "Image $filename drawn in Design with ${job.modelName}",
-                        job.requestedBy,
-                    )
+                    // A version is no picture yet: Save is what puts one in the log.
+                    if (source == null) {
+                        auditRecorder.recordAutomated(
+                            job.workspaceId,
+                            WorkspaceAuditCategory.WORKFLOW,
+                            "Image $filename drawn in Design with ${job.modelName}",
+                            job.requestedBy,
+                        )
+                    }
                     log.info("Design image {} drawn by {} in {} ms, {} bytes", id, job.modelName, picture.millis, picture.image.size)
                 }
             }

@@ -217,15 +217,59 @@ class DesignImageAPITest(
         assertThat(edited.single()).contains("Make it red", "filename=\"image.png\"", "filename=\"mask.png\"")
         assertThat(drawn).isEmpty()
 
-        // A new picture, named after the one changed: red where selected, the original's white elsewhere.
+        // A version of the picture changed, on no list: red where selected, the original's white elsewhere.
         val made = requireNotNull(images.findByIdOrNull(id.removePrefix("DESIGN-").toLong()))
         assertThat(made.id).isNotEqualTo(source.id)
-        assertThat(made.name).isEqualTo("Blank")
+        assertThat(made.versionOf).isEqualTo("DESIGN-${source.id}")
         val result = javax.imageio.ImageIO.read(store.open(made.location))
         assertThat(result.getRGB(0, 0)).isEqualTo(RED)
         assertThat(result.getRGB(0, 1)).isEqualTo(RED)
         assertThat(result.getRGB(1, 0)).isEqualTo(WHITE)
         assertThat(result.getRGB(1, 1)).isEqualTo(WHITE)
+        graphQlTester.document("""query { workspaceArtifacts(workspaceId: $workspaceId, drawn: true) { content { id } } }""")
+            .execute().path("workspaceArtifacts.content[*].id").entityList(String::class.java).containsExactly("DESIGN-${source.id}")
+        graphQlTester.document("""query { designImageQueue(workspaceId: $workspaceId) { id } }""")
+            .execute().path("designImageQueue").entityList(Any::class.java).hasSize(0)
+
+        // Saved: the picture itself takes the change, keeps its name, and the version is gone.
+        graphQlTester.document("""mutation { saveDesignImageVersion(workspaceId: $workspaceId, id: "$id") { id name versionOf } }""")
+            .execute()
+            .path("saveDesignImageVersion.id").entity(String::class.java).isEqualTo("DESIGN-${source.id}")
+            .path("saveDesignImageVersion.name").entity(String::class.java).isEqualTo("Blank")
+            .path("saveDesignImageVersion.versionOf").valueIsNull()
+        val saved = requireNotNull(images.findByIdOrNull(requireNotNull(source.id)))
+        assertThat(javax.imageio.ImageIO.read(store.open(saved.location)).getRGB(0, 0)).isEqualTo(RED)
+        assertThat(images.findAll().map { it.id }).containsExactly(source.id)
+    }
+
+    @Test
+    fun `discarding throws every unsaved version of a picture away, and the picture is as it was`() {
+        val modelId = model("Editor", "IMAGE")
+        val white = png(2, 2) { _, _ -> WHITE }
+        val source = images.save(
+            DesignImage(
+                workspaceId = workspaceId, modelId = modelId, modelName = "Editor", prompt = "A white square",
+                size = null, quality = null, style = null, filename = "white.png", contentType = "image/png",
+                sizeBytes = white.size.toLong(), location = store.put(workspaceId, "white.png", white), drawnBy = "alice",
+            ),
+        )
+        val mask = Base64.getEncoder().encodeToString(png(2, 2) { x, _ -> if (x == 0) 0x00000000 else 0xFF000000.toInt() })
+        fun edit(of: String): String = drawnPicture(
+            graphQlTester.document(
+                """mutation { queueDesignImageEdit(input: {
+                     workspaceId: $workspaceId, imageId: "$of", modelId: $modelId, prompt: "Make it red", mask: "$mask"
+                   }) { id } }""",
+            ).execute().path("queueDesignImageEdit.id").entity(String::class.java).get(),
+        )
+        // Two rounds, the second over the first: both versions of the picture itself.
+        val first = edit("DESIGN-${source.id}")
+        val second = edit(first)
+        assertThat(images.findByIdOrNull(second.removePrefix("DESIGN-").toLong())?.versionOf).isEqualTo("DESIGN-${source.id}")
+
+        graphQlTester.document("""mutation { discardDesignImageVersions(workspaceId: $workspaceId, id: "DESIGN-${source.id}") }""")
+            .execute().path("discardDesignImageVersions").entity(Boolean::class.java).isEqualTo(true)
+        assertThat(images.findAll().map { it.id }).containsExactly(source.id)
+        assertThat(javax.imageio.ImageIO.read(store.open(source.location)).getRGB(0, 0)).isEqualTo(WHITE)
     }
 
     private fun png(width: Int, height: Int, colour: (Int, Int) -> Int): ByteArray {

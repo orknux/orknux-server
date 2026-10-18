@@ -2239,14 +2239,24 @@ type Mutation {
     """
     Queues a change to part of a picture, through the image model's
     /images/edits: the picture, a mask the same size that is transparent where
-    the change goes, and what to change. The result is a new picture with every
-    pixel outside the selection kept as it was; the one changed stays.
+    the change goes, and what to change. The result is an unsaved version of the
+    picture, every pixel outside the selection kept as it was, until
+    saveDesignImageVersion or discardDesignImageVersions.
     """
     queueDesignImageEdit(input: EditDesignImageInput!): DesignImageJob!
     "Takes a queued or failed picture off; one being drawn cannot be. False for one not here."
     dismissDesignImageJob(id: ID!): Boolean!
     "Calls a picture drawn in Design something else; its file is named after it too."
     renameDesignImage(workspaceId: ID!, id: ID!, name: String!): Artifact!
+    """
+    Saves an unsaved version over the picture it is a version of, and throws
+    the picture's other versions away. A picture drawn in Design takes the
+    version's pixels and keeps its name; one drawn by a run or a task is not
+    written over, and the version becomes a Design picture of its own.
+    """
+    saveDesignImageVersion(workspaceId: ID!, id: ID!): Artifact!
+    "Throws away every unsaved version of a picture. True where there were any."
+    discardDesignImageVersions(workspaceId: ID!, id: ID!): Boolean!
 
     """ Gone from the list and gone from the disk. False if there was no such artifact. """
     deleteArtifact(id: ID!): Boolean!
@@ -8104,6 +8114,8 @@ type Artifact {
     drawnWith: ArtifactDrawing
     "What a picture drawn in Design is called - its prompt's first words until renamed; null for anything else."
     name: String
+    "The picture this is an unsaved version of, in the image editor; null for a picture of its own."
+    versionOf: ID
 }
 
 """ The model a picture was drawn with, the parameters it was asked for, and who asked. """

@@ -85,7 +85,7 @@ class WorkspaceArtifactAPI(
         val all = (
             pictures.findByWorkspaceId(workspaceId).map(::describe) +
                 taskPictures.findByWorkspaceId(workspaceId).map(::describe) +
-                designImages.findByWorkspaceId(workspaceId).map(::describe) +
+                designImages.findByWorkspaceIdAndVersionOfIsNull(workspaceId).map(::describe) +
                 keptFiles
             )
             .filter { looking.isEmpty() || it.matches(looking) }
@@ -283,6 +283,7 @@ class WorkspaceArtifactAPI(
         at = image.drawnAt,
         drawnWith = ArtifactDrawing(image.modelId?.toString(), image.modelName, image.size, image.quality, image.style, image.drawnBy),
         name = image.name ?: io.mszymanski.orknux.server.attachment.PictureFilenames.nameOf(image.prompt),
+        versionOf = image.versionOf,
     )
 
     private fun describe(picture: TaskPicture) = ArtifactView(
@@ -363,6 +364,8 @@ data class ArtifactView(
     val drawnWith: ArtifactDrawing? = null,
     /** What a picture drawn in Design is called; null for anything else, which goes by its prompt. */
     val name: String? = null,
+    /** The picture this is an unsaved version of, in the image editor; null for a picture of its own. */
+    val versionOf: String? = null,
 ) {
     /** What the page shows is what a search reads: the caption and the name. */
     fun matches(looking: String): Boolean =

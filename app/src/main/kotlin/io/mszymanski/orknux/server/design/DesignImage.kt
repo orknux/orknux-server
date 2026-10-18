@@ -51,14 +51,14 @@ class DesignImage(
     var filename: String,
 
     @Column(name = "content_type", nullable = false, length = 120)
-    val contentType: String,
+    var contentType: String,
 
     @Column(name = "size_bytes", nullable = false)
-    val sizeBytes: Long,
+    var sizeBytes: Long,
 
     /** Where the bytes are, as the attachment store that wrote them understands it. */
     @Column(nullable = false, length = 1000)
-    val location: String,
+    var location: String,
 
     @Column(name = "drawn_by", nullable = false, length = 255)
     val drawnBy: String,
@@ -69,10 +69,23 @@ class DesignImage(
     /** What it is called; null for one drawn before pictures had names, which reads its prompt instead. */
     @Column(length = 255)
     var name: String? = null,
+
+    /**
+     * The picture this is a version of, by its artifact id, while it is one:
+     * a change made in the image editor and not saved yet. Such a row is on no
+     * list. Saved, it becomes that picture; thrown away, it is deleted. Every
+     * round of changes is a version of the same picture, not of the round
+     * before, so one Save or one Discard settles them all.
+     */
+    @Column(name = "version_of", length = 80)
+    var versionOf: String? = null,
 )
 
 interface DesignImageRepository : JpaRepository<DesignImage, Long> {
 
-    /** Unpaged: the Artifacts list merges this with the other tables and pages the whole. */
-    fun findByWorkspaceId(workspaceId: Long): List<DesignImage>
+    /** Unpaged: the Artifacts list merges this with the other tables and pages the whole. Versions are on no list. */
+    fun findByWorkspaceIdAndVersionOfIsNull(workspaceId: Long): List<DesignImage>
+
+    /** Every unsaved version of one picture. */
+    fun findByWorkspaceIdAndVersionOf(workspaceId: Long, versionOf: String): List<DesignImage>
 }

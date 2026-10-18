@@ -151,11 +151,17 @@ class DesignImageAPI(
         return view(job)
     }
 
-    /** What the workspace has waiting, being drawn, or failed - oldest first. */
+    /**
+     * What the workspace has waiting, being drawn, or failed - oldest first.
+     * Not a change to a picture: that becomes a version in the editor, not a
+     * picture in the gallery.
+     */
     @QueryMapping
     fun designImageQueue(@Argument workspaceId: Long): List<DesignImageJobView> {
         access.requireVisible(workspaceId)
-        return jobs.findByWorkspaceIdAndStatusInOrderByRequestedAtAscIdAsc(workspaceId, SHOWN).map(::view)
+        return jobs.findByWorkspaceIdAndStatusInOrderByRequestedAtAscIdAsc(workspaceId, SHOWN)
+            .filter { it.sourceId == null }
+            .map(::view)
     }
 
     /** One request, in whatever state it is - with its picture once drawn. Null for one not here. */
@@ -203,6 +209,58 @@ class DesignImageAPI(
             auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Image $before renamed to $called in Design")
         }
         return artifacts.describe(image)
+    }
+
+    /**
+     * A version saved: over the picture it is a version of where that is a
+     * Design picture - its pixels, the name and the rest kept - or as a Design
+     * picture of its own where it is not, since a run's or a task's picture is
+     * not written over. Either way the picture's other versions go.
+     */
+    @MutationMapping
+    @Transactional
+    fun saveDesignImageVersion(@Argument workspaceId: Long, @Argument id: String): ArtifactView {
+        access.requireVisible(workspaceId)
+        val version = id.removePrefix("DESIGN-").toLongOrNull()?.let { images.findByIdOrNull(it) }
+            ?.takeIf { it.workspaceId == workspaceId && it.versionOf != null }
+            ?: throw DesignImageRefusedException("There is no unsaved change to save.")
+        val of = requireNotNull(version.versionOf)
+        val target = of.takeIf { it.startsWith("DESIGN-") }?.removePrefix("DESIGN-")?.toLongOrNull()
+            ?.let { images.findByIdOrNull(it) }?.takeIf { it.workspaceId == workspaceId }
+
+        val kept = if (target != null) {
+            val before = target.location
+            target.location = version.location
+            target.contentType = version.contentType
+            target.sizeBytes = version.sizeBytes
+            images.save(target)
+            images.delete(version)
+            runCatching { store.remove(before) }
+            target
+        } else {
+            version.versionOf = null
+            images.save(version)
+        }
+        discard(workspaceId, of)
+        auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Changes to ${kept.name ?: kept.filename} saved in Design")
+        return artifacts.describe(kept)
+    }
+
+    /** Every unsaved version of a picture thrown away, files and all. */
+    @MutationMapping
+    @Transactional
+    fun discardDesignImageVersions(@Argument workspaceId: Long, @Argument id: String): Boolean {
+        access.requireVisible(workspaceId)
+        return discard(workspaceId, id) > 0
+    }
+
+    private fun discard(workspaceId: Long, of: String): Int {
+        val versions = images.findByWorkspaceIdAndVersionOf(workspaceId, of)
+        versions.forEach {
+            images.delete(it)
+            runCatching { store.remove(it.location) }
+        }
+        return versions.size
     }
 
     /** To anybody who can see the workspace, answered as missing otherwise - as a task's picture is. */
