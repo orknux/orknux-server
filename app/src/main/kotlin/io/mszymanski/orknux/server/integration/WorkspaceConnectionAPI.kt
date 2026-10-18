@@ -172,7 +172,7 @@ class WorkspaceConnectionAPI(
     fun createWorkspaceConnection(@Argument input: CreateWorkspaceConnectionInput): WorkspaceConnectionView {
         requireWorkspaceAccess(input.workspaceId)
         requireKnownKind(input.pluginType)
-        val created = connections.createWorkspaceConnection(input)
+        val created = connections.createWorkspaceConnection(withDefaultUrl(input))
         auditRecorder.record(input.workspaceId, WorkspaceAuditCategory.INTEGRATION, "Connection ${created.name} added")
         return created
     }
@@ -185,7 +185,7 @@ class WorkspaceConnectionAPI(
     fun testNewWorkspaceConnection(@Argument input: CreateWorkspaceConnectionInput): ConnectionDraftCheck {
         requireWorkspaceAccess(input.workspaceId)
         requireKnownKind(input.pluginType)
-        val result = connections.testDraftConnection(input)
+        val result = connections.testDraftConnection(withDefaultUrl(input))
         val name = input.name.trim().ifEmpty { input.url.orEmpty().trim() }
         auditRecorder.record(
             input.workspaceId,
@@ -219,6 +219,18 @@ class WorkspaceConnectionAPI(
      * will ever offer to a picker is a connection nobody can choose. An empty
      * string is the clearing of one and passes. Issue #363.
      */
+    /**
+     * The input with its kind's default address where the URL was left empty -
+     * AnkiConnect is http://localhost:8765 unless told otherwise. Here, where the
+     * plugins are known, so that the module's own rule - a URL is required -
+     * still holds for every other caller.
+     */
+    private fun withDefaultUrl(input: CreateWorkspaceConnectionInput): CreateWorkspaceConnectionInput {
+        if (!input.url.isNullOrBlank()) return input
+        val kind = input.pluginType?.trim()?.ifEmpty { null } ?: return input
+        return pluginKinds.defaultUrl(kind)?.let { input.copy(url = it) } ?: input
+    }
+
     private fun requireKnownKind(pluginType: String?) {
         val wanted = pluginType?.trim()?.ifEmpty { null } ?: return
         if (!pluginKinds.known(wanted)) {

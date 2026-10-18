@@ -315,6 +315,15 @@ class PluginDeclarations(private val mapper: ObjectMapper) {
             node.put("label", label)
             kind.description?.trim()?.takeIf { it.isNotEmpty() }?.let { node.put("description", it) }
             kind.urlPlaceholder?.trim()?.takeIf { it.isNotEmpty() }?.let { node.put("urlPlaceholder", it) }
+            kind.defaultUrl?.trim()?.takeIf { it.isNotEmpty() }?.let { address ->
+                // The extension package refuses the same: a default is filled into the URL as it is.
+                if (!DEFAULT_URL.matches(address)) {
+                    throw PluginDeclarationInvalidException(
+                        "the connection type $name has a default address that is not an http or https URL: $address",
+                    )
+                }
+                node.put("defaultUrl", address)
+            }
             kind.guide?.trim()?.takeIf { it.isNotEmpty() }?.let { guide ->
                 if (guide.length > MAX_CONNECTION_GUIDE) {
                     throw PluginDeclarationInvalidException(
@@ -341,6 +350,7 @@ class PluginDeclarations(private val mapper: ObjectMapper) {
                     label = node.get("label")?.asString() ?: name,
                     description = node.get("description")?.asString(),
                     urlPlaceholder = node.get("urlPlaceholder")?.asString(),
+                    defaultUrl = node.get("defaultUrl")?.asString(),
                     // Absent from what a plugin loaded before either could be said.
                     guide = node.get("guide")?.asString(),
                     checks = node.get("checks")?.asBoolean() ?: false,
@@ -1082,6 +1092,9 @@ class PluginDeclarations(private val mapper: ObjectMapper) {
         if (exported.isEmpty()) "" else ", one of ${exported.sorted().joinToString(", ")}"
 
     companion object {
+        /** What a connection kind's default address has to look like: an http or https URL with a host. */
+        private val DEFAULT_URL = Regex("^https?://[^\\s/]+.*$")
+
         /** The longest setup guide a connection kind may bring; the extension package holds the same line. */
         const val MAX_CONNECTION_GUIDE = 4000
 

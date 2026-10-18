@@ -34,4 +34,7 @@ class PluginConnectionTypes(
 
     /** Whether [id] - a plugin key and a declared name joined - names a kind an enabled plugin declares. */
     fun known(id: String): Boolean = all().any { it.id == id }
+
+    /** The address a connection of kind [id] takes when none is typed, or null where the kind names none. */
+    fun defaultUrl(id: String): String? = all().firstOrNull { it.id == id }?.defaultUrl
 }

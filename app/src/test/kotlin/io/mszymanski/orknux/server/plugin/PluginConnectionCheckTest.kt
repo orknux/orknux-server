@@ -52,6 +52,7 @@ class PluginConnectionCheckTest(
                 name: 'deck',
                 label: 'Deck server',
                 urlPlaceholder: 'http://localhost:8765',
+                defaultUrl: 'http://real.invalid:8765',
                 guide: '## Setting one up\n\nInstall the add-on, then keep the app running.',
                 check: (connection) => {
                   if (connection.url.includes('broken')) throw new Error('could not reach the deck server - is it running?');
@@ -131,6 +132,40 @@ class PluginConnectionCheckTest(
             .path("testNewWorkspaceConnection.status").entity(String::class.java).isEqualTo("FAILED")
             .path("testNewWorkspaceConnection.message").entity(String::class.java).isEqualTo("that is a login page, not a deck server")
         assertThat(workspaceConnections.findAll()).isEmpty()
+    }
+
+    @Test
+    fun `a URL left empty takes the kind's default address, tested and added alike`() {
+        load()
+
+        graphQlTester.document("query { pluginConnectionTypes { id defaultUrl } }").execute()
+            .path("pluginConnectionTypes[0].defaultUrl").entity(String::class.java).isEqualTo("http://real.invalid:8765")
+            .path("pluginConnectionTypes[1].defaultUrl").valueIsNull()
+
+        graphQlTester.document(
+            """mutation { testNewWorkspaceConnection(input: {
+                 workspaceId: $workspaceId, name: "", type: HTTP, pluginType: "cards/deck", url: "", authType: API_KEY, secret: "k"
+               }) { status message } }""",
+        ).execute()
+            .path("testNewWorkspaceConnection.status").entity(String::class.java).isEqualTo("CONNECTED")
+        graphQlTester.document(
+            """mutation { createWorkspaceConnection(input: {
+                 workspaceId: $workspaceId, name: "defaulted", type: HTTP, pluginType: "cards/deck"
+               }) { url } }""",
+        ).execute()
+            .path("createWorkspaceConnection.url").entity(String::class.java).isEqualTo("http://real.invalid:8765")
+        // A kind with no default still needs its address.
+        graphQlTester.document(
+            """mutation { createWorkspaceConnection(input: {
+                 workspaceId: $workspaceId, name: "bare", type: HTTP, pluginType: "cards/plain"
+               }) { url } }""",
+        ).execute().errors().satisfy { assertThat(it).isNotEmpty() }
+    }
+
+    @Test
+    fun `a default address that is not a URL is refused at load`() {
+        val refused = runCatching { load(source.replace("defaultUrl: 'http://real.invalid:8765'", "defaultUrl: 'localhost:8765'")) }
+        assertThat(refused.exceptionOrNull()?.message).contains("has a default address that is not an http or https URL: localhost:8765")
     }
 
     @Test

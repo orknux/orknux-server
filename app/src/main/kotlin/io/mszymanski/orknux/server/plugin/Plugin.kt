@@ -591,6 +591,8 @@ data class PluginConnectionTypeView(
     val label: String,
     val description: String?,
     val urlPlaceholder: String?,
+    /** The address a connection of this kind has unless another is typed; the URL box is optional where there is one. */
+    val defaultUrl: String? = null,
     /** The setup page the connection form shows for this kind, as markdown. */
     val guide: String? = null,
     /** Whether the Test button asks the plugin rather than only whether the address answers. */

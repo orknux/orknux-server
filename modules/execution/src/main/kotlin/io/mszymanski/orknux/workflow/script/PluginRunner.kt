@@ -542,6 +542,7 @@ class PluginRunner(
                         ?: return PluginInspection.Unreadable("a connection type has no label"),
                     description = text(one, "description"),
                     urlPlaceholder = text(one, "urlPlaceholder"),
+                    defaultUrl = text(one, "defaultUrl"),
                     guide = text(one, "guide"),
                     checks = one.getMember("check")?.canExecute() == true,
                 )
@@ -2190,6 +2191,8 @@ data class DeclaredConnectionType(
     val description: String?,
     /** What to show in the URL box before anything is typed, e.g. `https://prometheus.example.com`. */
     val urlPlaceholder: String?,
+    /** The address a connection of this kind has unless another is typed, which makes the URL optional. */
+    val defaultUrl: String? = null,
     /** The setup page the connection form shows for this kind, as markdown. */
     val guide: String? = null,
     /** Whether the kind brings a `check` the Test button runs, on the `connectionTypes:check` surface. */

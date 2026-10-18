@@ -6001,6 +6001,8 @@ type PluginConnectionType {
     description: String
     "What the URL box shows before anything is typed."
     urlPlaceholder: String
+    "The address a connection of this kind has unless another is typed; where there is one, the URL may be left empty."
+    defaultUrl: String
     "How to set one up, as markdown, for the connection form to show beside it."
     guide: String
     "Whether testing a connection of this kind asks the plugin whether it really is one."
