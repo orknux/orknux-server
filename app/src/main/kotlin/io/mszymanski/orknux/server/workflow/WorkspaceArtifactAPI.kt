@@ -75,14 +75,16 @@ class WorkspaceArtifactAPI(
         @Argument page: Int?,
         @Argument size: Int?,
         @Argument search: String?,
+        @Argument drawn: Boolean?,
     ): ArtifactPage {
         access.requireVisible(workspaceId)
         val looking = search?.trim().orEmpty()
+        val keptFiles = if (drawn == true) emptyList() else saved.findByWorkspaceId(workspaceId).map(::describe)
 
         val all = (
             pictures.findByWorkspaceId(workspaceId).map(::describe) +
                 taskPictures.findByWorkspaceId(workspaceId).map(::describe) +
-                saved.findByWorkspaceId(workspaceId).map(::describe)
+                keptFiles
             )
             .filter { looking.isEmpty() || it.matches(looking) }
             .sortedWith(compareByDescending<ArtifactView> { it.at }.thenByDescending { it.id })

@@ -437,8 +437,12 @@ type Query {
     A picture an image node drew was reachable only from the run that drew it,
     which is no way to find one afterwards and no way to see what is taking up
     the disk. Listed here instead, with a copy and a delete beside each.
+
+    `drawn` keeps only what an image model drew - a workflow's image node or a
+    task's - which is what Design's Images page is: a file an agent saved may be
+    a picture, and nothing says a model made it.
     """
-    workspaceArtifacts(workspaceId: ID!, page: Int = 0, size: Int = 20, search: String): ArtifactPage!
+    workspaceArtifacts(workspaceId: ID!, page: Int = 0, size: Int = 20, search: String, drawn: Boolean = false): ArtifactPage!
     """
     One artifact, by the id the list gave it, or null for one that is not here
     or not yours to see.

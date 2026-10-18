@@ -175,6 +175,14 @@ class WorkspaceArtifactAPITest(
             .path("workspaceArtifacts.content[0].prompt").entity(String::class.java)
             .isEqualTo("The login flow, as a diagram.")
 
+        // What a model drew, and only that: Design's Images page.
+        graphQlTester.document(
+            """query { workspaceArtifacts(workspaceId: $workspaceId, drawn: true) {
+                 totalElements content { kind } } }""",
+        ).execute()
+            .path("workspaceArtifacts.totalElements").entity(Int::class.java).isEqualTo(1)
+            .path("workspaceArtifacts.content[0].kind").entity(String::class.java).isEqualTo("IMAGE")
+
         graphQlTester.document(
             """mutation { deleteArtifact(id: "SAVED-${artifact.id}") }""",
         ).execute().path("deleteArtifact").entity(Boolean::class.java).isEqualTo(true)
