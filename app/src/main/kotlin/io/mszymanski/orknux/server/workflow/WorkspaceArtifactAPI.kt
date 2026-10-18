@@ -48,6 +48,7 @@ class WorkspaceArtifactAPI(
     private val pictures: ExecutionPictureRepository,
     private val taskPictures: TaskPictureRepository,
     private val saved: SavedArtifactRepository,
+    private val designImages: io.mszymanski.orknux.server.design.DesignImageRepository,
     private val store: AttachmentStore,
     private val access: WorkspaceAccess,
     private val auditRecorder: WorkspaceAuditRecorder,
@@ -84,6 +85,7 @@ class WorkspaceArtifactAPI(
         val all = (
             pictures.findByWorkspaceId(workspaceId).map(::describe) +
                 taskPictures.findByWorkspaceId(workspaceId).map(::describe) +
+                designImages.findByWorkspaceId(workspaceId).map(::describe) +
                 keptFiles
             )
             .filter { looking.isEmpty() || it.matches(looking) }
@@ -128,6 +130,10 @@ class WorkspaceArtifactAPI(
             ArtifactKind.SAVED -> saved.findByIdOrNull(rowId)
                 ?.takeIf { it.workspaceId == workspaceId }
                 ?.let(::describe)
+
+            ArtifactKind.DESIGN -> designImages.findByIdOrNull(rowId)
+                ?.takeIf { it.workspaceId == workspaceId }
+                ?.let(::describe)
         }
     }
 
@@ -161,6 +167,11 @@ class WorkspaceArtifactAPI(
                 ?.takeIf { access.canSee(it.workspaceId) }
                 ?.also { saved.delete(it) }
                 ?.let { Removed(it.workspaceId, it.name, it.location) }
+
+            ArtifactKind.DESIGN -> designImages.findByIdOrNull(rowId)
+                ?.takeIf { access.canSee(it.workspaceId) }
+                ?.also { designImages.delete(it) }
+                ?.let { Removed(it.workspaceId, it.filename, it.location) }
         } ?: return false
 
         runCatching { store.remove(gone.location) }
@@ -235,6 +246,25 @@ class WorkspaceArtifactAPI(
         at = artifact.savedAt,
     )
 
+    /**
+     * Drawn on Design's Images page, so it carries what it was drawn with: the
+     * model, the parameters asked for, and who asked.
+     */
+    fun describe(image: io.mszymanski.orknux.server.design.DesignImage) = ArtifactView(
+        id = "${ArtifactKind.DESIGN.name}-${requireNotNull(image.id)}",
+        kind = ArtifactKind.DESIGN,
+        source = "Design",
+        sourcePath = "design/images/${ArtifactKind.DESIGN.name}-${image.id}",
+        prompt = image.prompt,
+        filename = image.filename,
+        contentType = image.contentType,
+        sizeBytes = image.sizeBytes,
+        url = "/api/design-images/${image.id}",
+        drawnAt = image.drawnAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+        at = image.drawnAt,
+        drawnWith = ArtifactDrawing(image.modelId?.toString(), image.modelName, image.size, image.quality, image.style, image.drawnBy),
+    )
+
     private fun describe(picture: TaskPicture) = ArtifactView(
         id = "${ArtifactKind.TASK.name}-${requireNotNull(picture.id)}",
         kind = ArtifactKind.TASK,
@@ -256,9 +286,9 @@ class WorkspaceArtifactAPI(
  * [IMAGE] and [TASK] are drawn - by a workflow's image node and by an agent
  * working a task. [SAVED] is not drawn at all: it is a file an agent made and
  * decided was worth keeping, which is why it has a name it chose rather than a
- * prompt it was given.
+ * prompt it was given. [DESIGN] is drawn by a person, on Design's Images page.
  */
-enum class ArtifactKind { IMAGE, TASK, SAVED }
+enum class ArtifactKind { IMAGE, TASK, SAVED, DESIGN }
 
 data class ArtifactView(
     /** Prefixed with the kind: the two tables number their rows separately. */
@@ -309,11 +339,23 @@ data class ArtifactView(
      * for the sort and nothing asks for it.
      */
     val at: OffsetDateTime,
+    /** What drew it and how, where that was kept - a picture drawn in Design; null elsewhere. */
+    val drawnWith: ArtifactDrawing? = null,
 ) {
     /** What the page shows is what a search reads: the caption and the name. */
     fun matches(looking: String): Boolean =
         prompt.contains(looking, ignoreCase = true) || filename.contains(looking, ignoreCase = true)
 }
+
+data class ArtifactDrawing(
+    /** Null once that model is removed; [model] still names it. */
+    val modelId: String?,
+    val model: String,
+    val size: String?,
+    val quality: String?,
+    val style: String?,
+    val drawnBy: String,
+)
 
 data class ArtifactPage(
     val content: List<ArtifactView>,

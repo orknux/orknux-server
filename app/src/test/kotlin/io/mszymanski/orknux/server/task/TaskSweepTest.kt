@@ -310,6 +310,7 @@ class TaskSweepTest(
         AttachmentProperties(),
         ChatProperties(),
         io.mszymanski.orknux.server.obj.ObjectsProperties(),
+        io.mszymanski.orknux.server.design.ImagesProperties(),
         MetricsProperties(),
         RevisionProperties(),
         TaskSweepProperties(),

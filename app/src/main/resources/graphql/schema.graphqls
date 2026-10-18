@@ -1224,6 +1224,8 @@ type Mutation {
     setChatMaxRounds(rounds: Int!): InstallationSettings!
     "How deep an object's shape may go, and how deep a value is checked against one. Between 1 and 100."
     setObjectMaxDepth(depth: Int!): InstallationSettings!
+    "The longest description a picture is drawn from, in characters - in Design, a chat and a task. Between 100 and 32000."
+    setImageMaxPrompt(characters: Int!): InstallationSettings!
     """
     The longest an agent may put itself to sleep for; 1 to 86400 seconds.
 
@@ -2220,6 +2222,14 @@ type Mutation {
     "Saves the action settings form."
     updateAction(id: ID!, input: UpdateActionInput!): Action!
     deleteAction(id: ID!): Boolean!
+
+    """
+    Draws a picture with one image model and keeps it on Design's Images page,
+    with the model and the parameters it was drawn with. Refused where the model
+    is not an image model of this workspace or the installation keeps no
+    attachments.
+    """
+    drawDesignImage(input: DrawDesignImageInput!): Artifact!
 
     """ Gone from the list and gone from the disk. False if there was no such artifact. """
     deleteArtifact(id: ID!): Boolean!
@@ -6680,6 +6690,10 @@ type InstallationSettings {
     objectMaxDepth: Int!
     "What a fresh installation allows - ORKNUX_OBJECT_MAX_DEPTH."
     objectMaxDepthConfigured: Int!
+    "The longest description a picture is drawn from, in characters - in Design, a chat and a task."
+    imageMaxPrompt: Int!
+    "What a fresh installation allows - ORKNUX_IMAGE_MAX_PROMPT."
+    imageMaxPromptConfigured: Int!
     """
     The longest one of an agent's own waits may be, in seconds.
 
@@ -8015,6 +8029,8 @@ enum ArtifactKind {
     IMAGE
     TASK
     SAVED
+    "Drawn by a person on Design's Images page."
+    DESIGN
 }
 
 """ One thing a run produced: today a picture an image node drew. """
@@ -8041,6 +8057,32 @@ type Artifact {
     it turns out to be: `url` hands the file over, always, and this one opens.
     """
     previewUrl: String
+    "What drew it and how, where that was kept - a picture drawn in Design; null elsewhere."
+    drawnWith: ArtifactDrawing
+}
+
+""" The model a picture was drawn with, the parameters it was asked for, and who asked. """
+type ArtifactDrawing {
+    "The model's id, so it can be drawn with again; null once that model is removed."
+    modelId: ID
+    model: String!
+    "WIDTHxHEIGHT as asked; null where the model drew at its own default."
+    size: String
+    quality: String
+    style: String
+    drawnBy: String!
+}
+
+""" A picture to draw on Design's Images page, straight from one image model. """
+input DrawDesignImageInput {
+    workspaceId: ID!
+    "An IMAGE model of this workspace."
+    modelId: ID!
+    prompt: String!
+    "WIDTHxHEIGHT, from what imageModelParameters says the model takes; null for its default."
+    size: String
+    quality: String
+    style: String
 }
 
 type ArtifactPage {

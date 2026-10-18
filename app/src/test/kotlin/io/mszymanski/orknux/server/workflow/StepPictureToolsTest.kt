@@ -47,7 +47,10 @@ class StepPictureToolsTest {
     private val drawing = mock(ModelImageClient::class.java)
     private val pictures = mock(ExecutionPictureRepository::class.java)
     private val store = mock(AttachmentStore::class.java)
-    private val settings = mock(InstallationSettings::class.java)
+    // What a fresh installation allows a description to be; a stand-in answers 0 otherwise.
+    private val settings = mock(InstallationSettings::class.java).also {
+        `when`(it.imageMaxPrompt()).thenReturn(io.mszymanski.orknux.server.design.ImagesProperties().maxPrompt)
+    }
     /**
      * Where this installation is, which a picture's link has to carry: a model
      * pastes what it was handed, and a path has no host behind it wherever it

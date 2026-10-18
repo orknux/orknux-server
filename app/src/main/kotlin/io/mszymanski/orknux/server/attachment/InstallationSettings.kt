@@ -67,6 +67,7 @@ object SettingNames {
     const val PLUGIN_TIMEOUT_SECONDS = "plugin.timeout.seconds"
     const val CHAT_MAX_ROUNDS = "chat.max.rounds"
     const val OBJECT_MAX_DEPTH = "objects.max.depth"
+    const val IMAGE_MAX_PROMPT = "images.max.prompt"
     const val AGENT_SLEEP_SECONDS = "agent.sleep.seconds"
     const val AGENT_SLEEP_TIMES = "agent.sleep.times"
     const val AGENT_MAX_SUBAGENTS = "agent.max.subagents"
@@ -195,6 +196,7 @@ class InstallationSettings(
     private val properties: AttachmentProperties,
     private val chat: ChatProperties,
     private val objectsConfig: io.mszymanski.orknux.server.obj.ObjectsProperties,
+    private val imagesConfig: io.mszymanski.orknux.server.design.ImagesProperties,
     private val metrics: MetricsProperties,
     private val revisions: RevisionProperties,
     private val tasks: TaskSweepProperties,
@@ -456,6 +458,29 @@ class InstallationSettings(
 
     /** What a fresh installation allows - ORKNUX_OBJECT_MAX_DEPTH. */
     fun objectMaxDepthConfigured(): Int = objectsConfig.maxDepth.coerceIn(MIN_OBJECT_DEPTH, MAX_OBJECT_DEPTH)
+
+    /**
+     * The longest description a picture is drawn from - one number for Design,
+     * a chat and a task, which each held a constant of their own before.
+     */
+    fun imageMaxPrompt(): Int {
+        val held = settings.findByIdOrNull(SettingNames.IMAGE_MAX_PROMPT) ?: return imageMaxPromptConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_IMAGE_PROMPT..MAX_IMAGE_PROMPT } ?: imageMaxPromptConfigured()
+    }
+
+    /** What a fresh installation allows - ORKNUX_IMAGE_MAX_PROMPT. */
+    fun imageMaxPromptConfigured(): Int = imagesConfig.maxPrompt.coerceIn(MIN_IMAGE_PROMPT, MAX_IMAGE_PROMPT)
+
+    @Transactional
+    fun setImageMaxPrompt(characters: Int, by: String) {
+        if (characters !in MIN_IMAGE_PROMPT..MAX_IMAGE_PROMPT) throw ImagePromptOutOfRangeException(characters)
+        val held = settings.findByIdOrNull(SettingNames.IMAGE_MAX_PROMPT)
+            ?: InstallationSetting(name = SettingNames.IMAGE_MAX_PROMPT)
+        held.value = characters.toString()
+        held.lastModifiedAt = OffsetDateTime.now()
+        held.lastModifiedBy = by
+        settings.save(held)
+    }
 
     @Transactional
     fun setObjectMaxDepth(depth: Int, by: String) {
@@ -1923,6 +1948,15 @@ const val MAX_CHAT_ROUNDS = 10000
 const val MIN_OBJECT_DEPTH = 1
 const val MAX_OBJECT_DEPTH = 100
 
+const val MIN_IMAGE_PROMPT = 100
+const val MAX_IMAGE_PROMPT = 32_000
+
+class ImagePromptOutOfRangeException(val characters: Int) : RuntimeException(
+    "A picture's description cannot be limited to $characters characters. Choose between $MIN_IMAGE_PROMPT and $MAX_IMAGE_PROMPT.",
+), io.mszymanski.orknux.server.graphql.Refusal {
+    override val arguments get() = mapOf("characters" to characters)
+}
+
 class ObjectDepthOutOfRangeException(val depth: Int) : RuntimeException(
     "An object may not be $depth levels deep. Choose between $MIN_OBJECT_DEPTH and $MAX_OBJECT_DEPTH.",
 ), io.mszymanski.orknux.server.graphql.Refusal {
@@ -2744,6 +2778,7 @@ class ReleaseRestartDelayOutOfRangeException(val seconds: Int) : RuntimeExceptio
     AttachmentProperties::class,
     ChatProperties::class,
     io.mszymanski.orknux.server.obj.ObjectsProperties::class,
+    io.mszymanski.orknux.server.design.ImagesProperties::class,
     MetricsProperties::class,
     SessionProperties::class,
 )

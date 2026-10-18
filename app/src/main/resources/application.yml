@@ -408,6 +408,11 @@ orknux:
     # number bounds what a pasted JSON Schema is read to. This is where a fresh
     # installation starts; Admin -> Settings holds what it is now.
     max-depth: ${ORKNUX_OBJECT_MAX_DEPTH:30}
+  images:
+    # The longest description a picture is drawn from, in characters - in
+    # Design, a chat and a task. This is where a fresh installation starts;
+    # Admin -> Settings holds what it is now.
+    max-prompt: ${ORKNUX_IMAGE_MAX_PROMPT:2000}
   mail:
     # The mail server this installation sends its own mail through: the password
     # reset link, and issue notifications for anybody who has not turned them off.

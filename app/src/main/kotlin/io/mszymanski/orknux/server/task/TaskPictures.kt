@@ -116,8 +116,9 @@ class TaskPictures(
 
         val asked = prompt.trim()
         if (asked.isEmpty()) return Drawing.Refused("There is nothing to draw: say what the picture should be of.")
-        if (asked.length > MOST_PROMPT) {
-            return Drawing.Refused("That description is too long to draw from; say it in under $MOST_PROMPT characters.")
+        val longest = settings.imageMaxPrompt()
+        if (asked.length > longest) {
+            return Drawing.Refused("That description is too long to draw from; say it in under $longest characters.")
         }
 
         val drawn = when (val picture = drawing.draw(modelId, asked, options)) {
@@ -236,14 +237,6 @@ class TaskPictures(
     private companion object {
         /** As many pictures as one task may draw. See [draw] for why there is a number at all. */
         const val MOST_PICTURES = 20
-
-        /**
-         * As long a description as is worth sending, the same figure the chat's
-         * door uses: these providers cap the prompt themselves, and refusing
-         * here says so in words where a provider's own refusal arrives as a 400
-         * about a field name.
-         */
-        const val MOST_PROMPT = 2_000
 
         /** As much of the description as belongs in the alt text of one image. */
         const val ALT_LENGTH = 120

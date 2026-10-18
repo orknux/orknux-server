@@ -1,0 +1,20 @@
+package io.mszymanski.orknux.server.design
+
+import graphql.GraphQLError
+import graphql.schema.DataFetchingEnvironment
+import io.mszymanski.orknux.server.graphql.refused
+import org.springframework.graphql.execution.DataFetcherExceptionResolverAdapter
+import org.springframework.graphql.execution.ErrorType
+import org.springframework.stereotype.Component
+
+@Component
+class DesignExceptionResolver : DataFetcherExceptionResolverAdapter() {
+
+    override fun resolveToSingleError(exception: Throwable, environment: DataFetchingEnvironment): GraphQLError? {
+        val errorType = when (exception) {
+            is DesignImageRefusedException -> ErrorType.BAD_REQUEST
+            else -> return null
+        }
+        return refused(exception, errorType, environment)
+    }
+}
