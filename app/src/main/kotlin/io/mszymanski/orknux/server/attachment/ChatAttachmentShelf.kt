@@ -51,9 +51,20 @@ class ChatAttachmentShelf(
                 log.warn("Attachment {} could not be put in session {}'s store", file.filename, sessionId, failure)
                 "it could not be read from storage"
             }
-            if (refused == null) "- $key: $described" else "- $described could not be kept for tools: $refused"
+            if (refused == null) "- $key: $described${readWith(file.contentType)}" else "- $described could not be kept for tools: $refused"
         }
         return (listOf(NOTE) + lines).joinToString("\n")
+    }
+
+    /**
+     * Which of the server's own tools reads a file of this type, said beside its
+     * key. Only built-ins are named - a plugin's tool exists only where it is
+     * loaded - and only where one reads the type whole.
+     */
+    private fun readWith(contentType: String): String = when (contentType.substringBefore(';').trim().lowercase()) {
+        "application/pdf" -> " - read it with pdf_read"
+        "application/zip", "application/x-zip-compressed" -> " - open it with zip_extract"
+        else -> ""
     }
 
     private fun isText(contentType: String): Boolean {
@@ -68,11 +79,13 @@ class ChatAttachmentShelf(
         const val KEY_PREFIX = "attachment."
 
         /**
-         * Says what a tool needs and nothing about which tool: which ones can
-         * read a stored file depends on what this agent was granted.
+         * Says what a tool needs - the key, as `contentKey` - and where the file
+         * is not: an agent with a scratchpad took "this session's store" for it,
+         * and asked the scratchpad for the key three times. Which tool reads a
+         * type is said per file, by [readWith].
          */
-        const val NOTE = "Files attached to this message are in this session's store. " +
-            "To read one, pass its key to a tool that reads a stored file - not the file's name:"
+        const val NOTE = "Files attached to this message are kept in this session's value store - not in a " +
+            "scratchpad. A tool reads one when you pass its key as contentKey; pass the key below, not the file's name:"
 
         private val TEXT_TYPES = setOf("application/json", "application/xml", "application/x-yaml", "application/yaml", "application/csv")
         private val log = LoggerFactory.getLogger(ChatAttachmentShelf::class.java)

@@ -218,7 +218,8 @@ class ChatDrawingTest(
         val told = start.turns.last().content
         assertThat(told).startsWith("what about this?")
         assertThat(told).contains("attachment.${pdf.id}: guide.pdf (application/pdf", "attachment.${log.id}: run.log (text/plain")
-        assertThat(told).contains("not the file's name")
+        // Said as the argument it is, apart from the scratchpad an agent also has, and with the tool that reads a PDF.
+        assertThat(told).contains("as contentKey", "not in a scratchpad", "not the file's name", "read it with pdf_read")
 
         // In the store as a stored value has to be: bytes as base64, text as text.
         val session = requireNotNull(start.llmSessionId)
