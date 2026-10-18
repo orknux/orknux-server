@@ -106,6 +106,7 @@ class PdfCapability(
                 EmbeddedParam(FROM, ValueType.NUMBER, "First page, counting from 1. Left out, the start."),
                 EmbeddedParam(TO, ValueType.NUMBER, "Last page. Left out, the end."),
             ),
+            reads = StoredReader(setOf("application/pdf"), KEY),
         ),
         EmbeddedTool(
             name = PREVIEW,

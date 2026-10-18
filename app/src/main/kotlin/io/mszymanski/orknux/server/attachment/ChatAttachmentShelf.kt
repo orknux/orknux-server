@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.attachment
 
+import io.mszymanski.orknux.server.chat.ZipTools
 import io.mszymanski.orknux.workflow.script.SessionScratch
 import io.mszymanski.orknux.workflow.script.StoredKind
 import org.slf4j.LoggerFactory
@@ -29,6 +30,8 @@ class ChatAttachmentShelf(
     private val store: AttachmentStore,
     private val scratch: SessionScratch,
     private val mapper: ObjectMapper,
+    /** Which of our tools reads a type; provided, since the capabilities reach back into much of the app. */
+    private val readers: org.springframework.beans.factory.ObjectProvider<io.mszymanski.orknux.server.embedded.EmbeddedCapabilities>,
 ) {
 
     /**
@@ -51,20 +54,24 @@ class ChatAttachmentShelf(
                 log.warn("Attachment {} could not be put in session {}'s store", file.filename, sessionId, failure)
                 "it could not be read from storage"
             }
-            if (refused == null) "- $key: $described${readWith(file.contentType)}" else "- $described could not be kept for tools: $refused"
+            if (refused == null) "- $key: $described${readWith(file.contentType, key)}" else "- $described could not be kept for tools: $refused"
         }
         return (listOf(NOTE) + lines).joinToString("\n")
     }
 
     /**
-     * Which of the server's own tools reads a file of this type, said beside its
-     * key. Only built-ins are named - a plugin's tool exists only where it is
-     * loaded - and only where one reads the type whole.
+     * Which tool reads a file of this type, and the call written out - a small
+     * model told only the tool's name still set up a scratchpad first. Asked of
+     * the tools' own declarations rather than spelled here, so a renamed tool
+     * or parameter is said by its new name; a type nothing declares gets no
+     * line, and the note's general sentence covers it.
      */
-    private fun readWith(contentType: String): String = when (contentType.substringBefore(';').trim().lowercase()) {
-        "application/pdf" -> " - read it with pdf_read"
-        "application/zip", "application/x-zip-compressed" -> " - open it with zip_extract"
-        else -> ""
+    private fun readWith(contentType: String, key: String): String {
+        val type = contentType.substringBefore(';').trim().lowercase()
+        val reader = readers.ifAvailable?.readerOf(type)
+            ?: (ZipTools.ZIP_EXTRACT to ZipTools.KEY).takeIf { type in ZIP_TYPES }
+            ?: return ""
+        return " - read it with ${reader.first} {\"${reader.second}\": \"$key\"}"
     }
 
     private fun isText(contentType: String): Boolean {
@@ -79,13 +86,16 @@ class ChatAttachmentShelf(
         const val KEY_PREFIX = "attachment."
 
         /**
-         * Says what a tool needs - the key, as `contentKey` - and where the file
+         * Says what a tool needs - the key - and where the file
          * is not: an agent with a scratchpad took "this session's store" for it,
          * and asked the scratchpad for the key three times. Which tool reads a
          * type is said per file, by [readWith].
          */
         const val NOTE = "Files attached to this message are kept in this session's value store - not in a " +
-            "scratchpad. A tool reads one when you pass its key as contentKey; pass the key below, not the file's name:"
+            "scratchpad. A tool reads one when you pass its key; pass the key below, not the file's name:"
+
+        /** What a zip is sent as; the zip tool reads one by key. */
+        private val ZIP_TYPES = setOf("application/zip", "application/x-zip-compressed")
 
         private val TEXT_TYPES = setOf("application/json", "application/xml", "application/x-yaml", "application/yaml", "application/csv")
         private val log = LoggerFactory.getLogger(ChatAttachmentShelf::class.java)

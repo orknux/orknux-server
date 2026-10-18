@@ -342,6 +342,21 @@ class EmbeddedCapabilities(
         }
     }
 
+    /**
+     * The tool that reads a stored file of [contentType] whole, as an agent
+     * calls it, and the parameter its key goes in - or null where none of ours
+     * does. Read off the tools' own declarations ([EmbeddedTool.reads]), so a
+     * renamed tool is named by its new name.
+     */
+    fun readerOf(contentType: String): Pair<String, String>? {
+        val type = contentType.substringBefore(';').trim().lowercase()
+        return native.firstNotNullOfOrNull { one ->
+            one.tools().firstNotNullOfOrNull { tool ->
+                tool.reads?.takeIf { type in it.contentTypes }?.let { "${one.key}_${tool.name}" to it.keyParam }
+            }
+        }
+    }
+
     fun handles(name: String): Boolean =
         nativeFor(name) != null || held.any { one -> one.read.tools.any { one.key + "_" + it.name == name } }
 

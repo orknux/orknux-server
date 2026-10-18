@@ -83,6 +83,7 @@ class ChatDrawingTest(
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val audit: WorkspaceAuditRepository,
     @Autowired val scratch: io.mszymanski.orknux.server.llm.LlmSessionStore,
+    @Autowired val capabilities: io.mszymanski.orknux.server.embedded.EmbeddedCapabilities,
 ) {
 
     private var workspaceId: Long = 0
@@ -219,7 +220,12 @@ class ChatDrawingTest(
         assertThat(told).startsWith("what about this?")
         assertThat(told).contains("attachment.${pdf.id}: guide.pdf (application/pdf", "attachment.${log.id}: run.log (text/plain")
         // Said as the argument it is, apart from the scratchpad an agent also has, and with the tool that reads a PDF.
-        assertThat(told).contains("as contentKey", "not in a scratchpad", "not the file's name", "read it with pdf_read")
+        assertThat(told).contains("not in a scratchpad", "not the file's name")
+        // The tool and its key parameter as the PDF tool declares them, and a tool an agent is really offered.
+        val (reader, keyParam) = requireNotNull(capabilities.readerOf("application/pdf"))
+        assertThat(BuiltInTools.GRANTED).contains(reader)
+        assertThat(capabilities.toolSpecs().single { it.name == reader }.parameters.map { it.name }).contains(keyParam)
+        assertThat(told).contains("read it with $reader {\"$keyParam\": \"attachment.${pdf.id}\"}")
 
         // In the store as a stored value has to be: bytes as base64, text as text.
         val session = requireNotNull(start.llmSessionId)

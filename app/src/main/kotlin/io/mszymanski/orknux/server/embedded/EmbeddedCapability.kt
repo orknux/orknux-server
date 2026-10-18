@@ -80,7 +80,16 @@ data class EmbeddedTool(
      * description read at the moment of calling. Issue #481.
      */
     val summary: String? = null,
+    /**
+     * The kinds of stored file it reads whole, and which of its parameters
+     * takes the key - so a note about an attached PDF can name the tool that
+     * reads one from the tool itself, and a rename of either carries through.
+     */
+    val reads: StoredReader? = null,
 )
+
+/** What a tool reads out of a session's store: content types, and the parameter the key goes in. */
+data class StoredReader(val contentTypes: Set<String>, val keyParam: String)
 
 /** One workflow function, which is a row rather than a call. */
 data class EmbeddedFunction(
