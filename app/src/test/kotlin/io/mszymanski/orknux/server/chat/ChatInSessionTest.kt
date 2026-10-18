@@ -748,6 +748,68 @@ class ChatInSessionTest(
         assertThat(chats.findByIdOrNull(chatId)?.title).isEqualTo("Pool sizing")
     }
 
+    /**
+     * One naming of a chat at a time. A slow model naming it while the next
+     * turn finished was asked again by that turn - "Naming this chat…" came
+     * back on every short voice turn - and the last answer won.
+     */
+    @Test
+    fun `a chat being named is not named again by a turn finishing meanwhile`() {
+        val asked = java.util.concurrent.atomic.AtomicInteger()
+        val release = java.util.concurrent.CountDownLatch(1)
+        val chatId = bareChat(
+            llmSessionId = null,
+            endpoint = serve {
+                asked.incrementAndGet()
+                release.await(5, java.util.concurrent.TimeUnit.SECONDS)
+                """{"choices":[{"message":{"role":"assistant","content":"Pool sizing"}}]}"""
+            },
+        )
+        chats.save(requireNotNull(chats.findByIdOrNull(chatId)).apply { title = "New chat" })
+
+        val first = java.util.concurrent.CompletableFuture.runAsync { titles.nameFrom(chatId, "How big should the pool be?", "Twenty.") }
+        org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5)).until { asked.get() == 1 }
+        assertThat(titles.wouldName(chatId)).describedAs("a chat being named is not one to name").isFalse()
+        assertThat(titles.nameFrom(chatId, "And the timeout?", "Thirty seconds.")).isNull()
+        release.countDown()
+        first.get(10, java.util.concurrent.TimeUnit.SECONDS)
+
+        assertThat(asked.get()).isEqualTo(1)
+        val named = requireNotNull(chats.findByIdOrNull(chatId))
+        assertThat(named.title).isEqualTo("Pool sizing")
+        assertThat(named.titleGenerated).isTrue()
+    }
+
+    /**
+     * A title a model gave is given again every configured number of exchanges;
+     * one somebody typed never is, and is not counted towards it.
+     */
+    @Test
+    fun `a model's title is renewed every configured number of exchanges, and a typed one never`() {
+        graphQlTester.document("mutation { setChatRetitleEvery(exchanges: 3) { chatRetitleEvery } }").execute()
+            .path("setChatRetitleEvery.chatRetitleEvery").entity(Int::class.java).isEqualTo(3)
+        try {
+            val chatId = bareChat(llmSessionId = null, endpoint = serveAnswer("Timeouts and retries"))
+            chats.save(requireNotNull(chats.findByIdOrNull(chatId)).apply { title = "Pool sizing"; titleGenerated = true })
+
+            repeat(2) { titles.nameFrom(chatId, "And then?", "More.") }
+            assertThat(chats.findByIdOrNull(chatId)?.title).isEqualTo("Pool sizing")
+            assertThat(chats.findByIdOrNull(chatId)?.turnsSinceTitle).isEqualTo(2)
+            assertThat(titles.wouldName(chatId)).describedAs("the third exchange names it again").isTrue()
+            titles.nameFrom(chatId, "And the retries?", "Three.")
+            assertThat(chats.findByIdOrNull(chatId)?.title).isEqualTo("Timeouts and retries")
+            assertThat(chats.findByIdOrNull(chatId)?.turnsSinceTitle).isZero()
+
+            // Typed by a person: never named again, and not counted.
+            graphQlTester.document("""mutation { renameChat(id: $chatId, title: "My pool notes") { title } }""").execute()
+            repeat(4) { titles.nameFrom(chatId, "And then?", "More.") }
+            assertThat(chats.findByIdOrNull(chatId)?.title).isEqualTo("My pool notes")
+            assertThat(titles.wouldName(chatId)).isFalse()
+        } finally {
+            graphQlTester.document("mutation { setChatRetitleEvery(exchanges: 20) { chatRetitleEvery } }").execute()
+        }
+    }
+
     /** With no companion model in the workspace, the chat's own model names it rather than nothing doing. */
     @Test
     fun `a chat in a workspace with no companion model is named by its own model`() {

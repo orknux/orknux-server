@@ -759,6 +759,8 @@ class ChatService(
     fun rename(id: Long, title: String): ChatSession {
         val session = sessions.findByIdOrNull(id) ?: throw ChatSessionNotFoundException(id)
         session.title = title.trim().ifEmpty { throw ChatTitleInvalidException() }.take(TITLE_LENGTH)
+        // Named by a person now, and never renamed under them.
+        session.titleGenerated = false
         return session
     }
 

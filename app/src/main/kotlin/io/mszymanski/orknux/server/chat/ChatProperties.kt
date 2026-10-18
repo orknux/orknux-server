@@ -28,6 +28,13 @@ data class ChatProperties(
     val maxRounds: Int = 8,
 
     /**
+     * After how many exchanges a chat named by a model is named again, from
+     * what it has become; 0 names it once and leaves it. A conversation drifts
+     * from its first exchange, and a title written then describes how it began.
+     */
+    val retitleEvery: Int = 20,
+
+    /**
      * The longest an agent may put itself to sleep for, in seconds.
      *
      * An agent ending its turn with a wake-up parks the step, and the run comes

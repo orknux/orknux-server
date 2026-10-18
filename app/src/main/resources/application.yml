@@ -278,6 +278,10 @@ orknux:
     # starts; Admin -> Settings is the switch and what it holds wins, and an
     # agent may carry its own number on its page.
     max-rounds: ${ORKNUX_CHAT_MAX_ROUNDS:100}
+    # After how many exchanges a chat a model named is named again, from what
+    # it has become; 0 names it once. A title somebody typed is never replaced.
+    # Admin -> Settings holds what it is now.
+    retitle-every: ${ORKNUX_CHAT_RETITLE_EVERY:20}
     # How many other agents one agent may ask in one conversation. Each ask is
     # a conversation of its own, so this bounds what one question fans out
     # into. Admin -> Settings overrides it, and a workspace may carry its own.

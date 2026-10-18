@@ -38,6 +38,17 @@ class ChatSession(
     @Column(nullable = false, length = 200)
     var title: String,
 
+    /**
+     * Whether a model gave [title] rather than a person. Only a given title is
+     * ever replaced: one somebody typed stays what they typed.
+     */
+    @Column(name = "title_generated", nullable = false)
+    var titleGenerated: Boolean = false,
+
+    /** Exchanges finished since the title was last given, counted towards naming it again. */
+    @Column(name = "turns_since_title", nullable = false)
+    var turnsSinceTitle: Int = 0,
+
     /** The LDAP uid of whoever started it; the sidebar says USER CHATS. */
     @Column(name = "user_id", nullable = false, length = 120)
     val userId: String,

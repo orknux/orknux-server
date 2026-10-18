@@ -29,10 +29,21 @@ class ChatTitles(
     private val sessions: ChatSessionRepository,
     private val workspaces: WorkspaceRepository,
     private val models: ModelChatClient,
+    private val history: org.springframework.ai.chat.memory.ChatMemoryRepository,
+    private val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
     transactions: PlatformTransactionManager,
 ) {
 
     private val writing = TransactionTemplate(transactions)
+
+    /**
+     * The chats a model is being asked to name right now. Without it every turn
+     * that finished while a slow model was still naming the chat found it still
+     * called New chat and asked again - short voice turns put "Naming this
+     * chat…" back on the page turn after turn, and the last answer to come back
+     * won, describing whichever turn asked last.
+     */
+    private val naming: MutableSet<Long> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     /**
      * Renames a chat still carrying its default name, from the exchange just had.
@@ -55,15 +66,32 @@ class ChatTitles(
      * for a moment; null when it named it, or when there was nothing to name.
      */
     fun nameFrom(sessionId: Long, question: String, answer: String): String? {
-        return nameWith(sessionId, question, answer)
+        // One naming of a chat at a time; a turn finishing meanwhile neither asks again nor counts.
+        if (!naming.add(sessionId)) return null
+        try {
+            return nameWith(sessionId, question, answer)
+        } finally {
+            naming.remove(sessionId)
+        }
     }
 
-    /** Whether [nameFrom] would ask a model for this chat's title: it is still the default, and there is one to ask. */
+    /**
+     * Whether [nameFrom] would ask a model for this chat's title: it is not
+     * being named already, there is a model to ask, and it is still the default
+     * - or a title a model gave that this exchange makes due again.
+     */
     fun wouldName(sessionId: Long): Boolean {
+        if (sessionId in naming) return false
         val session = sessions.findByIdOrNull(sessionId) ?: return false
-        if (session.title != DEFAULT_TITLE) return false
+        if (session.title != DEFAULT_TITLE && !dueAgain(session)) return false
         val workspace = workspaces.findByIdOrNull(session.workspaceId) ?: return false
         return (workspace.companionModelId ?: session.modelId) != null
+    }
+
+    /** A title a model gave, and the exchange finishing now is the one that names it again. */
+    private fun dueAgain(session: ChatSession): Boolean {
+        val every = settings.chatRetitleEvery()
+        return session.titleGenerated && every > 0 && session.turnsSinceTitle + 1 >= every
     }
 
     /** What the chat is called now. */
@@ -71,7 +99,19 @@ class ChatTitles(
 
     private fun nameWith(sessionId: Long, question: String, answer: String): String? {
         val session = sessions.findByIdOrNull(sessionId) ?: return null
-        if (session.title != DEFAULT_TITLE) return null
+        if (session.title != DEFAULT_TITLE) {
+            if (dueAgain(session)) return renameFromHistory(session)
+            // Not due: the exchange is counted, and a title somebody typed is never counted towards anything.
+            if (session.titleGenerated) {
+                writing.executeWithoutResult {
+                    sessions.findByIdOrNull(sessionId)?.let { held ->
+                        held.turnsSinceTitle += 1
+                        sessions.save(held)
+                    }
+                }
+            }
+            return null
+        }
 
         val workspace = workspaces.findByIdOrNull(session.workspaceId) ?: return null
         val companion = workspace.companionModelId ?: session.modelId ?: return null
@@ -93,9 +133,42 @@ class ChatTitles(
             val held = sessions.findByIdOrNull(sessionId) ?: return@executeWithoutResult
             if (held.title == DEFAULT_TITLE) {
                 held.title = suggested
+                held.titleGenerated = true
+                held.turnsSinceTitle = 0
                 sessions.save(held)
             }
         }
+        return failed[0]
+    }
+
+    /**
+     * Names a chat again from what it has become: its latest messages rather
+     * than the one exchange, since the point is that it has moved on. Kept as it
+     * was where the model gives nothing - the old title is still a title - and
+     * where somebody renamed it while the model was answering.
+     */
+    private fun renameFromHistory(session: ChatSession): String? {
+        val sessionId = requireNotNull(session.id)
+        val workspace = workspaces.findByIdOrNull(session.workspaceId) ?: return null
+        val companion = workspace.companionModelId ?: session.modelId ?: return null
+        val recent = history.findByConversationId(session.conversationId)
+            .filter { it.messageType.name == "USER" || it.messageType.name == "ASSISTANT" }
+            .mapNotNull { message -> message.text?.takeIf { it.isNotBlank() }?.let { message.messageType.name to it } }
+            .takeLast(RECENT_MESSAGES)
+        val question = recent.filter { it.first == "USER" }.joinToString("\n") { it.second.take(ANSWER_SAMPLE) }
+        val answer = recent.filter { it.first == "ASSISTANT" }.joinToString("\n") { it.second.take(ANSWER_SAMPLE) }
+        val failed = arrayOfNulls<String>(1)
+        val suggested = ask(companion, question, answer) { failed[0] = it }
+        val before = session.title
+        writing.executeWithoutResult {
+            val held = sessions.findByIdOrNull(sessionId) ?: return@executeWithoutResult
+            if (held.title == before && held.titleGenerated) {
+                if (suggested != null) held.title = suggested
+                held.turnsSinceTitle = 0
+                sessions.save(held)
+            }
+        }
+        if (suggested != null) log.info("Chat {} named again after {} exchanges", sessionId, settings.chatRetitleEvery())
         return failed[0]
     }
 
@@ -162,6 +235,9 @@ class ChatTitles(
 
         /** Enough of the answer to name it by; the whole of it is not needed. */
         const val ANSWER_SAMPLE = 500
+
+        /** How many of the latest messages a chat is named again from. */
+        const val RECENT_MESSAGES = 8
 
         /** Matches the column. */
         const val TITLE_LENGTH = 200

@@ -1237,6 +1237,8 @@ type Mutation {
     setImageMaxPrompt(characters: Int!): InstallationSettings!
     "How many of Design's queued pictures are drawn at the same time. Between 1 and 16."
     setImageDrawsAtOnce(draws: Int!): InstallationSettings!
+    "After how many exchanges a chat a model named is named again from what it has become; 0 names it once."
+    setChatRetitleEvery(exchanges: Int!): InstallationSettings!
     """
     The longest an agent may put itself to sleep for; 1 to 86400 seconds.
 
@@ -6768,6 +6770,10 @@ type InstallationSettings {
     chatMaxRounds: Int!
     "What a fresh installation allows - ORKNUX_CHAT_MAX_ROUNDS."
     chatMaxRoundsConfigured: Int!
+    "After how many exchanges a chat a model named is named again; 0 names it once. A title somebody typed is never replaced."
+    chatRetitleEvery: Int!
+    "What a fresh installation does - ORKNUX_CHAT_RETITLE_EVERY."
+    chatRetitleEveryConfigured: Int!
     """
     How deep an object's shape may go - an object defined inside an object -
     and how deep a value is checked against one. The same number bounds what a

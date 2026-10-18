@@ -50,6 +50,8 @@ class InstallationSettingsAPI(
         pluginTimeoutSeconds = settings.pluginTimeoutSeconds(),
         pluginTimeoutSecondsConfigured = settings.pluginTimeoutSecondsConfigured(),
         chatMaxRounds = settings.chatMaxRounds(),
+        chatRetitleEvery = settings.chatRetitleEvery(),
+        chatRetitleEveryConfigured = settings.chatRetitleEveryConfigured(),
         chatMaxRoundsConfigured = settings.chatMaxRoundsConfigured(),
         objectMaxDepth = settings.objectMaxDepth(),
         objectMaxDepthConfigured = settings.objectMaxDepthConfigured(),
@@ -661,6 +663,19 @@ class InstallationSettingsAPI(
         return installationSettings()
     }
 
+    /** After how many exchanges a chat a model named is named again. */
+    @MutationMapping
+    fun setChatRetitleEvery(@Argument exchanges: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setChatRetitleEvery(exchanges, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            if (exchanges == 0) "Chats are named once" else "Chats are named again every $exchanges exchanges",
+        )
+        return installationSettings()
+    }
+
     /** The longest description a picture is drawn from, wherever it is drawn. */
     @MutationMapping
     fun setImageDrawsAtOnce(@Argument draws: Int): InstallationSettingsView {
@@ -1086,6 +1101,9 @@ data class InstallationSettingsView(
      * number; this is what the rest of them follow.
      */
     val chatMaxRounds: Int,
+    /** After how many exchanges a chat a model named is named again; 0 never. */
+    val chatRetitleEvery: Int,
+    val chatRetitleEveryConfigured: Int,
     val objectMaxDepth: Int,
     val objectMaxDepthConfigured: Int,
     val imageMaxPrompt: Int,

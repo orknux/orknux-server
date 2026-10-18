@@ -66,6 +66,7 @@ object SettingNames {
     const val PLUGIN_MAX_SOURCE_KB = "plugin.max.source.kb"
     const val PLUGIN_TIMEOUT_SECONDS = "plugin.timeout.seconds"
     const val CHAT_MAX_ROUNDS = "chat.max.rounds"
+    const val CHAT_RETITLE_EVERY = "chat.retitle.every"
     const val OBJECT_MAX_DEPTH = "objects.max.depth"
     const val IMAGE_MAX_PROMPT = "images.max.prompt"
     const val IMAGE_DRAWS_AT_ONCE = "images.draws.at.once"
@@ -445,6 +446,26 @@ class InstallationSettings(
 
     /** What a fresh installation allows - ORKNUX_CHAT_MAX_ROUNDS. */
     fun chatMaxRoundsConfigured(): Int = chat.maxRounds.coerceIn(MIN_CHAT_ROUNDS, MAX_CHAT_ROUNDS)
+
+    /** After how many exchanges a chat a model named is named again; 0 never. */
+    fun chatRetitleEvery(): Int {
+        val held = settings.findByIdOrNull(SettingNames.CHAT_RETITLE_EVERY) ?: return chatRetitleEveryConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in 0..MAX_CHAT_RETITLE } ?: chatRetitleEveryConfigured()
+    }
+
+    /** What a fresh installation does - ORKNUX_CHAT_RETITLE_EVERY. */
+    fun chatRetitleEveryConfigured(): Int = chat.retitleEvery.coerceIn(0, MAX_CHAT_RETITLE)
+
+    @Transactional
+    fun setChatRetitleEvery(exchanges: Int, by: String) {
+        if (exchanges !in 0..MAX_CHAT_RETITLE) throw ChatRetitleOutOfRangeException(exchanges)
+        val held = settings.findByIdOrNull(SettingNames.CHAT_RETITLE_EVERY)
+            ?: InstallationSetting(name = SettingNames.CHAT_RETITLE_EVERY)
+        held.value = exchanges.toString()
+        held.lastModifiedAt = OffsetDateTime.now()
+        held.lastModifiedBy = by
+        settings.save(held)
+    }
 
     /**
      * How deep an object's shape may go, and how deep a value is checked
@@ -1963,6 +1984,15 @@ const val MAX_SWEEP_MINUTES = 1440
  * uses is the administrator's, a hundred until somebody changes it.
  */
 const val MIN_CHAT_ROUNDS = 2
+
+/** The most exchanges between namings: past it a chat is, for all purposes, named once. */
+const val MAX_CHAT_RETITLE = 1000
+
+class ChatRetitleOutOfRangeException(val exchanges: Int) : RuntimeException(
+    "A chat cannot be named again every $exchanges exchanges. Choose between 0, which never does, and $MAX_CHAT_RETITLE.",
+), io.mszymanski.orknux.server.graphql.Refusal {
+    override val arguments get() = mapOf("exchanges" to exchanges)
+}
 const val MAX_CHAT_ROUNDS = 10000
 
 /** How deep an object may nest: one is a flat shape, and a hundred is past anything a model or a person reads. */
