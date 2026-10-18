@@ -97,6 +97,7 @@ class WorkspaceConnectionService(
 
         val connection = workspaceConnections.save(
             WorkspaceConnection(
+                grantNewAgents = input.grantNewAgents == true,
                 workspaceId = input.workspaceId,
                 name = name,
                 type = input.type,
@@ -156,6 +157,7 @@ class WorkspaceConnectionService(
 
         input.authType?.let { connection.authType = it }
         input.urlOverride?.let { connection.urlOverride = it.trim().ifEmpty { null } }
+        input.grantNewAgents?.let { connection.grantNewAgents = it }
 
         /*
          * The two credentials, each answering for itself.
@@ -434,6 +436,8 @@ data class CreateWorkspaceConnectionInput(
     val smtpFrom: String? = null,
     val smtpSecurity: MailSecurity? = null,
     val headers: List<HttpHeaderInput>? = null,
+    /** Whether new agents start with it granted; null is no. */
+    val grantNewAgents: Boolean? = null,
 )
 
 data class UpdateWorkspaceConnectionInput(
@@ -446,6 +450,8 @@ data class UpdateWorkspaceConnectionInput(
     /** Null leaves it as it is; empty takes it off. Ignored for inherited connections. */
     val description: String? = null,
     val urlOverride: String? = null,
+    /** Null leaves it as it is. */
+    val grantNewAgents: Boolean? = null,
     val authType: AuthType? = null,
     /**
      * Null leaves the stored credential alone; empty clears it, reference and
@@ -485,6 +491,8 @@ data class WorkspaceConnectionView(
     /** What it is for, in a sentence, or null. */
     val description: String?,
     val urlOverride: String?,
+    /** Whether a new agent starts with it granted. */
+    val grantNewAgents: Boolean,
     /** Where requests actually go: the override when set, the default otherwise. */
     val effectiveUrl: String,
     val authType: AuthType,
@@ -553,6 +561,7 @@ data class WorkspaceConnectionView(
         url = connection.url,
         description = connection.description,
         urlOverride = connection.urlOverride,
+        grantNewAgents = connection.grantNewAgents,
         effectiveUrl = connection.effectiveUrl,
         authType = connection.authType,
         pluginType = connection.pluginType,

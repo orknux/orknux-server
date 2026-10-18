@@ -265,7 +265,7 @@ class WorkspaceDuplicateTest(
             "lastCheckedAt", "status", "reachable", "checkDetail", "toolCount")
         val copied = mapOf(
             io.mszymanski.orknux.connector.connection.WorkspaceConnection::class.java to setOf(
-                "connectionId", "name", "type", "url", "description", "urlOverride", "pluginType", "authType", "smtpPort",
+                "connectionId", "name", "type", "url", "description", "urlOverride", "grantNewAgents", "pluginType", "authType", "smtpPort",
                 "smtpUsername", "smtpFrom", "smtpSecurity", "headers",
             ),
             io.mszymanski.orknux.connector.connection.McpServer::class.java to setOf(

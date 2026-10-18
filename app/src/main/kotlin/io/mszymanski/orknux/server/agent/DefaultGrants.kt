@@ -7,8 +7,8 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
 /**
- * The memory catalogs and plugin skills an agent holds without anybody ticking
- * them.
+ * The memory catalogs, plugin skills and connections an agent holds without
+ * anybody ticking them.
  *
  * A new agent starts with every memory catalog its workspace has and every
  * plugin's skill catalog; a memory catalog made later, or a plugin that brings
@@ -23,7 +23,15 @@ class DefaultGrants(
     private val memoryCatalogs: MemoryCatalogRepository,
     private val pluginSkills: PluginSkills,
     private val auditRecorder: WorkspaceAuditRecorder,
+    private val connections: io.mszymanski.orknux.connector.connection.WorkspaceConnectionRepository,
 ) {
+
+    /** The connections of [workspaceId] marked to be granted to a new agent, by id. */
+    fun connectionsFor(workspaceId: Long): MutableList<Long> =
+        connections.findByWorkspaceId(workspaceId, org.springframework.data.domain.Sort.by("name"))
+            .filter { it.grantNewAgents }
+            .mapNotNull { it.id }
+            .toMutableList()
 
     /** Every memory catalog of [workspaceId], by name, for a new agent. */
     fun memoryCatalogsFor(workspaceId: Long): MutableList<String> =

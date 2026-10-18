@@ -4932,6 +4932,8 @@ type WorkspaceConnection {
     "The admin default, or the workspace's own URL for a connection it added."
     url: String!
     urlOverride: String
+    "Whether a new agent starts with this connection granted; it may be unticked there."
+    grantNewAgents: Boolean!
     "Where requests actually go: the override when set, the default otherwise."
     effectiveUrl: String!
     authType: AuthType!
@@ -5231,6 +5233,8 @@ input CreateWorkspaceConnectionInput {
     smtpFrom: String
     smtpSecurity: MailSecurity
     headers: [HttpHeaderInput!]
+    "Whether a new agent starts with it granted. Null is no on create, and leaves it alone on update."
+    grantNewAgents: Boolean
 }
 
 input UpdateWorkspaceConnectionInput {
@@ -5268,6 +5272,8 @@ input UpdateWorkspaceConnectionInput {
     smtpFrom: String
     smtpSecurity: MailSecurity
     headers: [HttpHeaderInput!]
+    "Whether a new agent starts with it granted. Null is no on create, and leaves it alone on update."
+    grantNewAgents: Boolean
 }
 
 "An MCP server a workspace's agents may connect to."

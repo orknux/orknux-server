@@ -228,6 +228,8 @@ class AgentAPI(
                 skillCatalogs = startingCatalogs(),
                 // Every memory catalog the workspace has, which it may untick. See DefaultGrants.
                 memoryCatalogs = defaultGrants.memoryCatalogsFor(input.workspaceId),
+                // The connections marked to be given to every new agent; the caller's list, below, replaces them.
+                connections = defaultGrants.connectionsFor(input.workspaceId),
                 requiredSkills = STARTING_ALWAYS_SKILLS.toMutableList(),
                 // May ask orknux about orknux unless the caller says not: an agent
                 // that can read the workspace it lives in is the one people expect.
@@ -314,6 +316,7 @@ class AgentAPI(
                 // installation's, and a skill runs nothing. Issues #471 and #4.
                 skillCatalogs = startingCatalogs(),
                 memoryCatalogs = defaultGrants.memoryCatalogsFor(model.workspaceId),
+                connections = defaultGrants.connectionsFor(model.workspaceId),
                 requiredSkills = STARTING_ALWAYS_SKILLS.toMutableList(),
                 // As a hand-made agent: it may ask orknux about orknux.
                 orknuxAccess = STARTS_WITH_ORKNUX_ACCESS,

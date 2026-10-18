@@ -193,6 +193,14 @@ class WorkspaceConnection(
     var urlOverride: String? = null,
 
     /**
+     * Whether a new agent starts with this connection granted. A default and
+     * nothing more: the agent's own list is what is read, so unticking it there
+     * holds, and turning this on grants nothing to the agents already made.
+     */
+    @Column(name = "grant_new_agents", nullable = false)
+    var grantNewAgents: Boolean = false,
+
+    /**
      * Which plugin-declared kind of host this is, where it is one. Issue #363.
      *
      * The plugin key and its declared name, joined - `prometheus/server` - so

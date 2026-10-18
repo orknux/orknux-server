@@ -642,6 +642,7 @@ class WorkspaceDuplicator(
                     url = held.url,
                     description = held.description,
                     urlOverride = held.urlOverride,
+                    grantNewAgents = held.grantNewAgents,
                     pluginType = held.pluginType,
                     authType = held.authType,
                     smtpPort = held.smtpPort,
