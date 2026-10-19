@@ -336,6 +336,17 @@ class ExecutionAPITest(
     }
 
     @Test
+    fun `a webhook run logs the payload it was sent`() {
+        val run = runs.startExecution(
+            StartExecutionInput(
+                workspaceId = workspaceId, workflowId = workflowId, trigger = ExecutionTrigger.WEBHOOK,
+                payload = """{"order":{"total":12}}""",
+            ),
+        )
+        assertThat(run.logs.map { it.message }).contains("""Webhook payload: {"order":{"total":12}}""")
+    }
+
+    @Test
     fun `a workflow with no runs is not offered by the executions filter`() {
         graphQlTester.document("""query { executionWorkflows(workspaceId: $workspaceId) { workflowId } }""")
             .execute()
