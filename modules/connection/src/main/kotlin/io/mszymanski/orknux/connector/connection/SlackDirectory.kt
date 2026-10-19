@@ -537,6 +537,10 @@ class SlackDirectory(
         val token = (opening as Opening.Ready).token
         return try {
             val answer = slack.methods(token).usersInfo { it.user(userId) }
+            // Said, because a refusal here - a missing users:read, a member of
+            // another organisation - otherwise reads as a report that cannot name
+            // somebody, with nothing anywhere saying why.
+            if (!answer.isOk) log.info("Slack would not name member {} on connection {}: {}", userId, connectionId, answer.error)
             val user = answer.user?.takeIf { answer.isOk } ?: return null
             sequenceOf(user.profile?.displayName, user.realName, user.profile?.realName, user.name)
                 .firstOrNull { !it.isNullOrBlank() }

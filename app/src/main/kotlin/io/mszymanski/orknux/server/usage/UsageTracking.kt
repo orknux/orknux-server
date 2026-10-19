@@ -39,8 +39,10 @@ enum class PromptSource {
  * Who prompted the turn a model call runs in.
  *
  * A person in one system, not a human: the same human on Slack and in Orknux is
- * two prompters, because nothing here says they are one. [key] is unique within
- * [source] and [connectionId] - a Slack id means nothing outside its Slack.
+ * two prompters, because nothing here says they are one. [connectionId] is the
+ * connection a Slack member's message came through, which is how their name is
+ * looked up - not part of who they are: the report counts one Slack id as one
+ * person whichever connection it arrived on (see [UsageReportAPI]).
  */
 data class Prompter(
     val source: PromptSource,
@@ -218,14 +220,27 @@ class UsageTracking(
         return when (prompter.source) {
             PromptSource.NONE -> null
             PromptSource.ORKNUX -> users.findByUsername(prompter.key)?.displayName?.takeIf { it.isNotBlank() }
-            PromptSource.SLACK -> {
-                val connection = prompter.connectionId ?: return null
-                val key = connection to prompter.key
-                val now = Instant.now()
-                names[key]?.takeIf { Duration.between(it.second, now) < NAME_KEPT }?.let { return it.first }
-                slack.memberName(connection, prompter.key).also { names[key] = it to now }
-            }
+            PromptSource.SLACK -> prompter.connectionId?.let { slackName(it, prompter.key) }
         }
+    }
+
+    /**
+     * What a Slack member is called, asked through [connectionId] and kept for
+     * an hour - or null where Slack would not say.
+     *
+     * [askAgain] is the report's: a row's name is fixed when its call is booked,
+     * so one lookup that failed while a member's calls were booked - a token
+     * being replaced, Slack refusing for a moment - left every one of those rows
+     * nameless for good, and the report showed `U…` beside members it could name
+     * a minute later. The report asks again for those, past a remembered miss;
+     * booking does not, because it runs on every model call.
+     */
+    fun slackName(connectionId: Long, member: String, askAgain: Boolean = false): String? {
+        val key = connectionId to member
+        val now = Instant.now()
+        names[key]?.takeIf { Duration.between(it.second, now) < NAME_KEPT && (it.first != null || !askAgain) }
+            ?.let { return it.first }
+        return slack.memberName(connectionId, member).also { names[key] = it to now }
     }
 
     private companion object {

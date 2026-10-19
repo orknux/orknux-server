@@ -77,9 +77,9 @@ type UsagePerson {
     source: PromptSource!
     "Slack's id for them, or their Orknux username; empty for Unattributed."
     personKey: String!
-    "What they were last called; null where it was never known."
+    "What they were last called, or what Slack calls them now; null where neither is known."
     name: String
-    "The connection a Slack member came through, by name."
+    "The connections a Slack member came through, by name, comma separated."
     connectionName: String
     sessions: Int!
     inputTokens: Float!
@@ -98,7 +98,7 @@ type UsagePersonSessions {
 "What one person used in one session, beside what everybody used there."
 type UsageSessionShare {
     sessionId: ID!
-    "Null once the session was removed."
+    "Its title, else its key; null only once the session was removed."
     title: String
     workspaceId: ID!
     "Null once the workspace was removed."

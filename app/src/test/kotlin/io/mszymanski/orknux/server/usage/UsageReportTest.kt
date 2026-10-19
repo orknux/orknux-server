@@ -1,6 +1,8 @@
 package io.mszymanski.orknux.server.usage
 
+import io.mszymanski.orknux.connector.connection.SlackDirectory
 import io.mszymanski.orknux.connector.model.ChatCompletion
+import io.mszymanski.orknux.server.llm.LlmSessionRepository
 import io.mszymanski.orknux.server.llm.LlmSessionRecorder
 import io.mszymanski.orknux.server.llm.SessionSpend
 import io.mszymanski.orknux.server.workspace.Workspace
@@ -13,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.graphql.test.autoconfigure.tester.AutoConfigureGraphQlTester
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.graphql.test.tester.ExecutionGraphQlServiceTester
+import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.security.test.context.support.WithMockUser
 import tools.jackson.databind.ObjectMapper
 
@@ -30,7 +33,12 @@ class UsageReportTest(
     @Autowired val recorder: LlmSessionRecorder,
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val mapper: ObjectMapper,
+    @Autowired val llmSessions: LlmSessionRepository,
 ) {
+
+    /** Slack itself, which a test has no token for: what a member is called is what a test says. */
+    @MockitoBean
+    private lateinit var slack: SlackDirectory
 
     private var workspaceId: Long = 0
     private var session: Long = 0
@@ -92,10 +100,10 @@ class UsageReportTest(
         read.path("usageReport.rows[*].source").entityList(String::class.java).containsExactly("SLACK", "ORKNUX", "NONE")
         read.path("usageReport.rows[0].name").entity(String::class.java).isEqualTo("Sam")
         read.path("usageReport.rows[0].inputTokens").entity(Double::class.java).isEqualTo(7_000.0)
-        read.path("usageReport.rows[0].key").entity(String::class.java).isEqualTo("SLACK:7:U04SLACKER")
+        read.path("usageReport.rows[0].key").entity(String::class.java).isEqualTo("SLACK::U04SLACKER")
 
         val shares = graphQlTester.document(
-            """query { usagePersonSessions(person: "SLACK:7:U04SLACKER", filter: { workspaceId: $workspaceId }) {
+            """query { usagePersonSessions(person: "SLACK::U04SLACKER", filter: { workspaceId: $workspaceId }) {
                  total items { sessionId tokens sessionTokens others }
                } }""",
         ).execute()
@@ -122,6 +130,75 @@ class UsageReportTest(
             .path("usageReport.rows[*].source").entityList(String::class.java).containsExactly("ORKNUX", "SLACK", "NONE")
         graphQlTester.document("""query { usageReport(filter: { workspaceId: $workspaceId }, order: "INPUT", ascending: true) { rows { inputTokens } } }""").execute()
             .path("usageReport.rows[0].inputTokens").entity(Double::class.java).isEqualTo(500.0)
+    }
+
+    /**
+     * Every workspace has a Slack connection of its own, often to one Slack, so
+     * a member who wrote in two workspaces arrived through two connections and
+     * was drawn as two rows with the same id. They are one person.
+     */
+    @Test
+    fun `a Slack member who came through two connections is one person`() {
+        track(true)
+        val other = recorder.open(workspaceId, "test", "usage-other-${System.nanoTime()}")
+        call(Prompter(PromptSource.SLACK, "U01PKNA3DNZ", connectionId = 7, name = "Jakub"), 4_000, 100)
+        call(Prompter(PromptSource.SLACK, "U01PKNA3DNZ", connectionId = 8, name = "Jakub"), 2_000, 50, into = other)
+
+        val read = report()
+        read.path("usageReport.total").entity(Int::class.java).isEqualTo(1)
+        read.path("usageReport.people").entity(Int::class.java).isEqualTo(1)
+        read.path("usageReport.rows[0].key").entity(String::class.java).isEqualTo("SLACK::U01PKNA3DNZ")
+        read.path("usageReport.rows[0].sessions").entity(Int::class.java).isEqualTo(2)
+        read.path("usageReport.rows[0].inputTokens").entity(Double::class.java).isEqualTo(6_000.0)
+
+        graphQlTester.document(
+            """query { usagePersonSessions(person: "SLACK::U01PKNA3DNZ", filter: { workspaceId: $workspaceId }) {
+                 total items { sessionId others }
+               } }""",
+        ).execute()
+            .path("usagePersonSessions.total").entity(Int::class.java).isEqualTo(2)
+            .path("usagePersonSessions.items[*].sessionId").entityList(Long::class.java).containsExactly(session, other)
+            .path("usagePersonSessions.items[0].others").entityList(String::class.java).hasSize(0)
+        // A link written while a member was one row per connection still opens that connection's share.
+        graphQlTester.document(
+            """query { usagePersonSessions(person: "SLACK:8:U01PKNA3DNZ", filter: { workspaceId: $workspaceId }) { total } }""",
+        ).execute().path("usagePersonSessions.total").entity(Int::class.java).isEqualTo(1)
+    }
+
+    /**
+     * A name was asked for once, when a call was booked, and a lookup that
+     * failed then - and was remembered for an hour - left the member as `U…`
+     * in the report for good. The report asks again.
+     */
+    @Test
+    fun `a Slack member Slack could not name when booked is named when the report is read`() {
+        track(true)
+        call(Prompter(PromptSource.SLACK, "UM0LLMKN3", connectionId = 9), 1_000, 10)
+        org.mockito.Mockito.`when`(slack.memberName(9L, "UM0LLMKN3")).thenReturn("Marta")
+
+        report().path("usageReport.rows[0].name").entity(String::class.java).isEqualTo("Marta")
+    }
+
+    /**
+     * Only a session an agent started from another has a title (#379), so the
+     * report called every other one removed while it was there to be opened.
+     */
+    @Test
+    fun `a session is called removed only once it is gone`() {
+        track(true)
+        val gone = recorder.open(workspaceId, "test", "usage-gone-${System.nanoTime()}")
+        call(Prompter(PromptSource.ORKNUX, "titles"), 2_000, 0)
+        call(Prompter(PromptSource.ORKNUX, "titles"), 1_000, 0, into = gone)
+        llmSessions.deleteById(gone)
+
+        graphQlTester.document(
+            """query { usagePersonSessions(person: "ORKNUX::titles", filter: { workspaceId: $workspaceId }) {
+                 items { sessionId title }
+               } }""",
+        ).execute()
+            .path("usagePersonSessions.items[0].title").entity(String::class.java)
+            .isEqualTo(llmSessions.findById(session).orElseThrow().sessionKey)
+            .path("usagePersonSessions.items[1].title").valueIsNull()
     }
 
     @Test

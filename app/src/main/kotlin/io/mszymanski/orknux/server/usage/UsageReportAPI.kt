@@ -37,6 +37,7 @@ class UsageReportAPI(
     private val sessions: LlmSessionRepository,
     private val workspaces: WorkspaceRepository,
     private val connections: WorkspaceConnectionRepository,
+    private val tracking: UsageTracking,
 ) {
 
     @QueryMapping
@@ -67,7 +68,7 @@ class UsageReportAPI(
         // The search is over the person alone - who they are, not what they used - and the totals follow it.
         val people = arranged(people(period, filter).filter { matches(it, filter?.search) }, order, ascending)
         val (at, take) = paging(page, size, DEFAULT_PEOPLE)
-        val named = connections.findAllById(people.mapNotNull { it.connectionId }.toSet()).associate { it.id to it.name }
+        val named = connections.findAllById(people.flatMap { it.connectionIds }.toSet()).associate { it.id to it.name }
         return UsageReportView(
             inputTokens = people.sumOf { it.input }.toDouble(),
             cachedInputTokens = people.sumOf { it.cached }.toDouble(),
@@ -83,8 +84,8 @@ class UsageReportAPI(
                     key = one.key,
                     source = one.source,
                     personKey = one.personKey,
-                    name = one.name,
-                    connectionName = one.connectionId?.let { named[it] },
+                    name = one.name ?: nameNow(one),
+                    connectionName = one.connectionIds.mapNotNull { named[it] }.distinct().joinToString(", ").ifEmpty { null },
                     sessions = one.sessions,
                     inputTokens = one.input.toDouble(),
                     cachedInputTokens = one.cached.toDouble(),
@@ -110,9 +111,11 @@ class UsageReportAPI(
         val who = PersonKey.parse(person) ?: return UsagePersonSessionsView(0, emptyList())
         val (where, parameters) = conditions(period, filter)
         val mine = query(
+            // A connection in the key is a link written before a Slack member was
+            // one person across connections; it still narrows to that one.
             "SELECT u.sessionId, SUM(u.inputTokens + u.outputTokens) FROM PersonUsage u WHERE $where " +
-                "AND u.source = :who AND u.personKey = :key AND " +
-                (if (who.connectionId == null) "u.connectionId IS NULL " else "u.connectionId = :connection ") +
+                "AND u.source = :who AND u.personKey = :key " +
+                (if (who.connectionId == null) "" else "AND u.connectionId = :connection ") +
                 "GROUP BY u.sessionId",
             parameters + buildMap {
                 put("who", who.source)
@@ -128,9 +131,9 @@ class UsageReportAPI(
         // Everybody in those sessions over the same period, for the share and the others.
         val ids = shown.map { it.first }
         val everybody = query(
-            "SELECT u.sessionId, u.source, u.connectionId, u.personKey, MAX(u.personName), SUM(u.inputTokens + u.outputTokens) " +
+            "SELECT u.sessionId, u.source, u.personKey, MAX(u.personName), SUM(u.inputTokens + u.outputTokens) " +
                 "FROM PersonUsage u WHERE $where AND u.sessionId IN :ids " +
-                "GROUP BY u.sessionId, u.source, u.connectionId, u.personKey",
+                "GROUP BY u.sessionId, u.source, u.personKey",
             parameters + ("ids" to ids),
         ).groupBy { it[0] as Long }
         val held = sessions.findAllById(ids).associateBy { it.id }
@@ -148,15 +151,18 @@ class UsageReportAPI(
                 val workspaceId = workspaceOf[id] ?: 0L
                 UsageSessionShareView(
                     sessionId = id,
-                    title = held[id]?.title,
+                    // A session has a title only when an agent started it from
+                    // another (#379); every other one is named by its key, as the
+                    // session list names it. Null is kept for a session that is gone.
+                    title = held[id]?.let { it.title ?: it.sessionKey },
                     workspaceId = workspaceId,
                     workspaceName = places[workspaceId],
                     tokens = tokens.toDouble(),
-                    sessionTokens = rows.sumOf { (it[5] as Number).toLong() }.toDouble(),
+                    sessionTokens = rows.sumOf { (it[4] as Number).toLong() }.toDouble(),
                     others = rows
-                        .filterNot { it[1] == who.source && it[2] == who.connectionId && it[3] == who.personKey }
-                        .sortedByDescending { (it[5] as Number).toLong() }
-                        .map { label(it[1] as PromptSource, it[3] as String, it[4] as String?) }
+                        .filterNot { it[1] == who.source && it[2] == who.personKey }
+                        .sortedByDescending { (it[4] as Number).toLong() }
+                        .map { label(it[1] as PromptSource, it[2] as String, it[3] as String?) }
                         .distinct(),
                 )
             },
@@ -172,31 +178,55 @@ class UsageReportAPI(
         )
     }
 
-    /** Every person the filter matches, biggest first. */
+    /**
+     * Every person the filter matches, biggest first.
+     *
+     * A person is a source and an id, and not the connection a Slack member
+     * came through. Each workspace has a Slack connection of its own, often to
+     * the same Slack, so grouping by connection made one member as many rows as
+     * workspaces they had written in - two rows reading "Jakub · Slack". A
+     * Slack id is not reused between Slack workspaces, and on an Enterprise Grid
+     * a member keeps one id in all of them, so the id alone is the person; the
+     * connections are only where their name can be asked.
+     */
     private fun people(period: Period, filter: UsageReportFilter?): List<PersonTotal> {
         val (where, parameters) = conditions(period, filter)
+        val through = query(
+            "SELECT DISTINCT u.personKey, u.connectionId FROM PersonUsage u WHERE $where AND u.connectionId IS NOT NULL",
+            parameters,
+        ).groupBy({ it[0] as String }, { it[1] as Long })
         return query(
-            "SELECT u.source, u.connectionId, u.personKey, MAX(u.personName), COUNT(DISTINCT u.sessionId), " +
+            "SELECT u.source, u.personKey, MAX(u.personName), COUNT(DISTINCT u.sessionId), " +
                 "SUM(u.inputTokens), SUM(u.cachedInputTokens), SUM(u.outputTokens), SUM(u.cost), " +
                 "MAX(CASE WHEN u.unpriced = true THEN 1 ELSE 0 END), MAX(u.at) " +
-                "FROM PersonUsage u WHERE $where GROUP BY u.source, u.connectionId, u.personKey",
+                "FROM PersonUsage u WHERE $where GROUP BY u.source, u.personKey",
             parameters,
         ).map {
+            val source = it[0] as PromptSource
+            val personKey = it[1] as String
             PersonTotal(
-                source = it[0] as PromptSource,
-                connectionId = it[1] as Long?,
-                personKey = it[2] as String,
-                name = it[3] as String?,
-                sessions = (it[4] as Number).toInt(),
-                input = (it[5] as Number).toLong(),
-                cached = (it[6] as Number).toLong(),
-                output = (it[7] as Number).toLong(),
-                cost = (it[8] as BigDecimal?) ?: BigDecimal.ZERO,
-                unpriced = (it[9] as Number).toInt() == 1,
-                lastAt = it[10] as OffsetDateTime,
+                source = source,
+                connectionIds = if (source == PromptSource.SLACK) through[personKey].orEmpty().sorted() else emptyList(),
+                personKey = personKey,
+                name = it[2] as String?,
+                sessions = (it[3] as Number).toInt(),
+                input = (it[4] as Number).toLong(),
+                cached = (it[5] as Number).toLong(),
+                output = (it[6] as Number).toLong(),
+                cost = (it[7] as BigDecimal?) ?: BigDecimal.ZERO,
+                unpriced = (it[8] as Number).toInt() == 1,
+                lastAt = it[9] as OffsetDateTime,
             )
         }.sortedByDescending { it.input + it.output }
     }
+
+    /**
+     * A Slack member none of whose rows carries a name, asked for now through
+     * each connection they came through - only for the rows on the page shown.
+     */
+    private fun nameNow(person: PersonTotal): String? =
+        if (person.source != PromptSource.SLACK) null
+        else person.connectionIds.firstNotNullOfOrNull { tracking.slackName(it, person.personKey, askAgain = true) }
 
     /** Whether a person answers to what was typed: their name, their id, or "unattributed" for the row with neither. */
     private fun matches(person: PersonTotal, search: String?): Boolean {
@@ -287,7 +317,8 @@ class UsageReportAPI(
 
     private data class PersonTotal(
         val source: PromptSource,
-        val connectionId: Long?,
+        /** Every connection a Slack member's calls came through; empty for anybody else. */
+        val connectionIds: List<Long>,
         val personKey: String,
         val name: String?,
         val sessions: Int,
@@ -298,7 +329,7 @@ class UsageReportAPI(
         val unpriced: Boolean,
         val lastAt: OffsetDateTime,
     ) {
-        val key: String get() = PersonKey(source, connectionId, personKey).toString()
+        val key: String get() = PersonKey(source, null, personKey).toString()
     }
 
     private companion object {
@@ -308,7 +339,12 @@ class UsageReportAPI(
     }
 }
 
-/** A person as one string, for the API to hand back: `SLACK:12:U04ABC`, `ORKNUX::alice`, `NONE::`. */
+/**
+ * A person as one string, for the API to hand back: `SLACK::U04ABC`,
+ * `ORKNUX::alice`, `NONE::`. The middle place held a Slack member's connection
+ * until a member became one person across connections; a key that still names
+ * one is read as that connection's share alone.
+ */
 data class PersonKey(val source: PromptSource, val connectionId: Long?, val personKey: String) {
     override fun toString(): String = "${source.name}:${connectionId ?: ""}:$personKey"
 
