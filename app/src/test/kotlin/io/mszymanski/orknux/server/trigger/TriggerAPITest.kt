@@ -35,6 +35,7 @@ class TriggerAPITest(
     @Autowired val assignments: WorkspaceWorkflowRepository,
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val audit: WorkspaceAuditRepository,
+    @Autowired val runner: TriggerRunner,
 ) {
 
     private var workspaceId: Long = 0
@@ -280,6 +281,25 @@ class TriggerAPITest(
 
         graphQlTester.document("""mutation { setTriggerEnabled(id: $id, enabled: false) { enabled } }""").execute()
         assertThat(triggers.findByConnectionIdAndActionAndEnabledTrue(connectionId, TriggerAction.MENTION)).isEmpty()
+    }
+
+    /** Last fired orders by the trigger's firing log, newest first, with one that never fired last. */
+    @Test
+    fun `the list orders by when each trigger last fired`() {
+        val never = createIncoming("Never fired")
+        val earlier = createIncoming("Fired earlier")
+        val later = createIncoming("Fired later")
+        runner.note(triggers.findById(earlier).orElseThrow(), FiringOutcome.STARTED, "one")
+        Thread.sleep(20)
+        runner.note(triggers.findById(later).orElseThrow(), FiringOutcome.STARTED, "two")
+
+        fun ordered(ascending: Boolean) = graphQlTester.document(
+            """query { workspaceTriggers(workspaceId: $workspaceId, order: "LAST_FIRED", ascending: $ascending) { content { name } } }""",
+        ).execute().path("workspaceTriggers.content[*].name").entityList(String::class.java)
+
+        ordered(false).containsExactly("Fired later", "Fired earlier", "Never fired")
+        ordered(true).containsExactly("Fired earlier", "Fired later", "Never fired")
+        assertThat(never).isPositive()
     }
 
     private fun createIncoming(name: String): Long = graphQlTester.document(

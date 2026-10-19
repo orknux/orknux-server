@@ -85,7 +85,20 @@ class TriggerAPI(
     ): TriggerPage {
         requireWorkspaceAccess(workspaceId)
         // The shared ones only; see the note on workflowOwnedActions.
-        val paged = pageRequest(page, size, sortBy(order, ascending, TRIGGER_ORDERS, "NAME"))
+        val sort = if (order?.trim()?.uppercase() == "LAST_FIRED") {
+            // A trigger that has never fired has no time, and goes last either way
+            // round: no answer is not the newest one, and not the oldest either.
+            org.springframework.data.domain.Sort.by(
+                org.springframework.data.domain.Sort.Order(
+                    if (ascending == false) org.springframework.data.domain.Sort.Direction.DESC else org.springframework.data.domain.Sort.Direction.ASC,
+                    "lastFiringAt",
+                ).nullsLast(),
+                org.springframework.data.domain.Sort.Order.asc("name"),
+            )
+        } else {
+            sortBy(order, ascending, TRIGGER_ORDERS, "NAME")
+        }
+        val paged = pageRequest(page, size, sort)
         val looking = search?.trim().orEmpty()
         val where = TriggerSource.parse(source)
 

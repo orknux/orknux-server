@@ -185,6 +185,15 @@ class WorkflowTrigger(
     var lastFiredAt: OffsetDateTime? = null,
 
     /**
+     * When anything was last written in this trigger's firing log, kept here so
+     * the list can be ordered by Last fired - the log is another table, whose
+     * newest row per trigger a page of triggers cannot sort by. Not
+     * [lastFiredAt], which is the schedule's own clock and moves only on a tick.
+     */
+    @Column(name = "last_firing_at")
+    var lastFiringAt: OffsetDateTime? = null,
+
+    /**
      * Which icon a node drawn from this starts with.
      *
      * A seed, not a rule: the node owns its icon once it has one, the same way
@@ -197,6 +206,11 @@ class WorkflowTrigger(
 interface WorkflowTriggerRepository : JpaRepository<WorkflowTrigger, Long>, JpaSpecificationExecutor<WorkflowTrigger> {
 
     fun findByWorkspaceId(workspaceId: Long, pageable: Pageable): Page<WorkflowTrigger>
+
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.transaction.annotation.Transactional
+    @org.springframework.data.jpa.repository.Query("update WorkflowTrigger t set t.lastFiringAt = :at where t.id = :id")
+    fun firedAt(@org.springframework.data.repository.query.Param("id") id: Long, @org.springframework.data.repository.query.Param("at") at: OffsetDateTime): Int
 
     /** The shared ones: what the workspace's own list is. */
     fun findByWorkspaceIdAndWorkflowIdIsNull(workspaceId: Long, pageable: Pageable): Page<WorkflowTrigger>

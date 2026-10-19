@@ -35,6 +35,8 @@ import tools.jackson.databind.node.ObjectNode
  */
 @Service
 class TriggerRunner(
+    /** Where Last fired is kept for ordering; see [WorkflowTrigger.lastFiringAt]. */
+    private val triggerRows: WorkflowTriggerRepository,
     private val instances: WorkflowNodeRepository,
     private val assignments: WorkspaceWorkflowRepository,
     private val runs: ExecutionService,
@@ -247,7 +249,7 @@ class TriggerRunner(
                     detail = detail,
                     runsStarted = started,
                 ),
-            )
+            ).also { triggerRows.firedAt(requireNotNull(trigger.id), it.at) }
         }.onFailure { log.warn("Could not record what trigger {} did", trigger.name, it) }
     }
 
