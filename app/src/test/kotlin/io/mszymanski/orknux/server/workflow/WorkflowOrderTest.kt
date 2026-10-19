@@ -138,6 +138,17 @@ class WorkflowOrderTest(
             .containsExactly("Alerting", "Cleanup")
     }
 
+    /** By description, a pressable column like the others; one without goes last either way. */
+    @Test
+    fun `orders by description, with none last whichever way round`() {
+        workflows.save(Workflow(name = "Zeta", description = "answers mail")).also { assignments.save(WorkspaceWorkflow(workspaceId = workspaceId, workflow = it)) }
+        workflows.save(Workflow(name = "Alpha", description = "backs up")).also { assignments.save(WorkspaceWorkflow(workspaceId = workspaceId, workflow = it)) }
+        assign("Middle")
+
+        namesOn(page = 0, size = 3, order = "DESCRIPTION", ascending = true).containsExactly("Zeta", "Alpha", "Middle")
+        namesOn(page = 0, size = 3, order = "DESCRIPTION", ascending = false).containsExactly("Alpha", "Zeta", "Middle")
+    }
+
     /** The list is still only this workspace's, whatever it is ordered by. */
     @Test
     fun `orders within the workspace that was asked for`() {

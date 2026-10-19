@@ -37,6 +37,7 @@ import org.springframework.transaction.annotation.Transactional
  */
 enum class WorkflowOrder {
     NAME,
+    DESCRIPTION,
     LAST_RUN,
     ENABLED,
 }
@@ -261,6 +262,11 @@ class WorkflowAPI(
              */
             WorkflowOrder.LAST_RUN -> Sort.by(
                 Sort.Order(direction, "lastRunAt").nullsLast(),
+                Sort.Order(Sort.Direction.ASC, "workflow.name").ignoreCase(),
+            )
+            // One with none goes last either way round, as a workflow never run does.
+            WorkflowOrder.DESCRIPTION -> Sort.by(
+                Sort.Order(direction, "workflow.description").ignoreCase().nullsLast(),
                 Sort.Order(Sort.Direction.ASC, "workflow.name").ignoreCase(),
             )
             WorkflowOrder.ENABLED -> Sort.by(

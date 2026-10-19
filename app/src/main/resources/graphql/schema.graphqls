@@ -3341,6 +3341,8 @@ type WorkspaceWorkflow {
 enum WorkflowOrder {
     "By name, which is how a catalogue is read."
     NAME
+    "By description; one without goes last, whichever way round."
+    DESCRIPTION
     """
     By when it last started a run. A workflow nobody has ever run has no answer
     here and sorts last, whichever way round.
