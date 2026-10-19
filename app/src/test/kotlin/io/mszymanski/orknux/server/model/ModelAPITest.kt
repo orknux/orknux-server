@@ -546,6 +546,19 @@ class ModelAPITest(
             .containsExactly(100, 100)
     }
 
+    /** What the provider served from its prompt cache is counted per model, as part of the input. */
+    @Test
+    fun `the input a provider served from its cache is summed beside it`() {
+        val providerId = provider("Azure", "https://example.invalid/openai/v1")
+        val modelId = model(providerId, "gpt", "gpt-6.1")
+        recorder.record(modelId, inputTokens = 5_000, outputTokens = 30, millis = 900, cachedTokens = 4_096)
+        recorder.record(modelId, inputTokens = 6_000, outputTokens = 20, millis = 800, cachedTokens = 5_120)
+
+        graphQlTester.document("""{ modelUsage(id: $modelId) { inputTokens cachedInputTokens } }""").execute()
+            .path("modelUsage.inputTokens").entity(Double::class.java).isEqualTo(11_000.0)
+            .path("modelUsage.cachedInputTokens").entity(Double::class.java).isEqualTo(9_216.0)
+    }
+
     /* --------------------------------------- the window somebody asked for */
 
     /**

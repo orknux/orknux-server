@@ -296,14 +296,14 @@ class ModelChatClient(
         // time, so it counts: an agent's real cost is every round it took.
         when (answer) {
             is ChatCompletion.Answered -> {
-                runCatching { usage.record(modelId, answer.inputTokens, answer.outputTokens, answer.millis) }
+                runCatching { usage.record(modelId, answer.inputTokens, answer.outputTokens, answer.millis, answer.cachedInputTokens) }
                 // The tokens this call spent, into the throttle's window, so the
                 // rate it holds the model to reflects what was actually used and
                 // not just how often it was called. Issue #426.
                 runCatching { throttle.recordUsage(modelId, answer.inputTokens + answer.outputTokens) }
             }
             is ChatCompletion.CalledTools -> {
-                runCatching { usage.record(modelId, answer.inputTokens, answer.outputTokens, answer.millis) }
+                runCatching { usage.record(modelId, answer.inputTokens, answer.outputTokens, answer.millis, answer.cachedInputTokens) }
                 runCatching { throttle.recordUsage(modelId, answer.inputTokens + answer.outputTokens) }
             }
             is ChatCompletion.Failed -> Unit

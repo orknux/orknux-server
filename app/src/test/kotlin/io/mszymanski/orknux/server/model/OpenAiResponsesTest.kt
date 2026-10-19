@@ -131,6 +131,23 @@ class OpenAiResponsesTest {
         assertThat(sent.path("include").toList().map { it.asString() }).containsExactly("reasoning.encrypted_content")
     }
 
+    /** Azure's prompt cache is reported here, and was dropped: every call read as nothing cached. */
+    @Test
+    fun `the input the provider served from its cache is counted`() {
+        answer = """
+            {"id":"r","object":"response","created_at":1,"model":"m","status":"completed","output":[
+              {"type":"message","id":"m1","role":"assistant","status":"completed",
+               "content":[{"type":"output_text","text":"Sunny.","annotations":[]}]}],
+             "usage":{"input_tokens":5000,"input_tokens_details":{"cached_tokens":4096},
+                      "output_tokens":30,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":5030}}
+        """.trimIndent()
+
+        val answered = chat().complete(azure(), model(null), listOf(ChatTurn("user", "Weather?")), emptyList()) as OpenAiChat.Outcome.Answered
+
+        assertThat(answered.inputTokens).isEqualTo(5000)
+        assertThat(answered.cachedInputTokens).isEqualTo(4096)
+    }
+
     @Test
     fun `a model asking for a tool is heard, and the tool is declared as not strict`() {
         answer = """

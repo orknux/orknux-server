@@ -638,6 +638,7 @@ class ModelService(
             requests = totals.requests,
             inputTokens = totals.inputTokens,
             outputTokens = totals.outputTokens,
+            cachedInputTokens = totals.cachedTokens,
             totalTokens = totals.tokens,
             averageLatencyMillis = totals.averageLatencyMillis,
             costEstimate = cost(model, totals),
@@ -738,6 +739,7 @@ class ModelService(
         val requests: Int = days.sumOf { it.requests }
         val inputTokens: Long = days.sumOf { it.inputTokens }
         val outputTokens: Long = days.sumOf { it.outputTokens }
+        val cachedTokens: Long = days.sumOf { it.cachedTokens }
         val tokens: Long = inputTokens + outputTokens
         val averageLatencyMillis: Double =
             if (requests == 0) 0.0 else days.sumOf { it.latencyMillisTotal }.toDouble() / requests
@@ -1111,6 +1113,8 @@ data class ModelUsageView(
     val requests: Int,
     val inputTokens: Long,
     val outputTokens: Long,
+    /** Of [inputTokens], how many the provider served from its prompt cache. */
+    val cachedInputTokens: Long,
     val totalTokens: Long,
     val averageLatencyMillis: Double,
     /** Null when the model carries no prices to work it out from. */

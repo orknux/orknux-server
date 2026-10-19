@@ -414,6 +414,8 @@ data class ModelUsageResponse(
     val requests: Int,
     val inputTokens: Long,
     val outputTokens: Long,
+    /** Of inputTokens, how many the provider served from its prompt cache. */
+    val cachedInputTokens: Long,
     val totalTokens: Long,
     val averageLatencyMillis: Double,
     val costEstimate: Double?,
@@ -433,6 +435,7 @@ data class ModelUsageResponse(
         requests = usage.requests,
         inputTokens = usage.inputTokens,
         outputTokens = usage.outputTokens,
+        cachedInputTokens = usage.cachedInputTokens,
         totalTokens = usage.totalTokens,
         averageLatencyMillis = usage.averageLatencyMillis,
         costEstimate = usage.costEstimate?.toDouble(),

@@ -829,6 +829,10 @@ class ModelUsageDay(
     @Column(name = "output_tokens", nullable = false)
     var outputTokens: Long = 0,
 
+    /** Of [inputTokens], how many the provider served from its prompt cache. */
+    @Column(name = "cached_tokens", nullable = false)
+    var cachedTokens: Long = 0,
+
     @Column(name = "latency_millis_total", nullable = false)
     var latencyMillisTotal: Long = 0,
 )
@@ -878,12 +882,13 @@ interface ModelUsageRepository : JpaRepository<ModelUsageDay, Long> {
     @Query(
         nativeQuery = true,
         value = """
-            INSERT INTO model_usage_day (model_id, day, requests, input_tokens, output_tokens, latency_millis_total)
-            VALUES (:modelId, :day, 1, :inputTokens, :outputTokens, :millis)
+            INSERT INTO model_usage_day (model_id, day, requests, input_tokens, output_tokens, cached_tokens, latency_millis_total)
+            VALUES (:modelId, :day, 1, :inputTokens, :outputTokens, :cachedTokens, :millis)
             ON CONFLICT (model_id, day) DO UPDATE SET
                 requests = model_usage_day.requests + 1,
                 input_tokens = model_usage_day.input_tokens + excluded.input_tokens,
                 output_tokens = model_usage_day.output_tokens + excluded.output_tokens,
+                cached_tokens = model_usage_day.cached_tokens + excluded.cached_tokens,
                 latency_millis_total = model_usage_day.latency_millis_total + excluded.latency_millis_total
         """,
     )
@@ -893,6 +898,7 @@ interface ModelUsageRepository : JpaRepository<ModelUsageDay, Long> {
         @Param("inputTokens") inputTokens: Long,
         @Param("outputTokens") outputTokens: Long,
         @Param("millis") millis: Long,
+        @Param("cachedTokens") cachedTokens: Long = 0,
     ): Int
 }
 

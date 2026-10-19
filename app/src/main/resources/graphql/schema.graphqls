@@ -5656,6 +5656,8 @@ type ModelUsage {
     "Whole tokens, as Float for the range rather than for the precision."
     inputTokens: Float!
     outputTokens: Float!
+    "Of inputTokens, how many the provider served from its prompt cache."
+    cachedInputTokens: Float!
     totalTokens: Float!
     averageLatencyMillis: Float!
     "Null when the model carries no prices to work it out from."

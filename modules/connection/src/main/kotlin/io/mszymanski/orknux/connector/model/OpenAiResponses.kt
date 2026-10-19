@@ -193,6 +193,7 @@ internal class OpenAiResponses(private val clients: ModelClients) {
             thoughtMillis = if (thinking.isEmpty()) 0L else (thoughtTo - started) / 1_000_000,
             inputTokens = usage?.inputTokens() ?: 0,
             outputTokens = usage?.outputTokens() ?: 0,
+            cachedInputTokens = cachedOf(usage),
             reasoningItems = finished?.let { carried(it.output()) }.orEmpty(),
         )
     }
@@ -244,9 +245,19 @@ internal class OpenAiResponses(private val clients: ModelClients) {
             thought = thought,
             inputTokens = usage?.inputTokens() ?: 0,
             outputTokens = usage?.outputTokens() ?: 0,
+            cachedInputTokens = cachedOf(usage),
             reasoningItems = carried(output),
         )
     }
+
+    /**
+     * How much of the input the provider served from its prompt cache, in
+     * `usage.input_tokens_details.cached_tokens`. Read on the chat-completions
+     * path and not here, so every call through the Responses API - Azure's
+     * default - was booked as nothing cached while Azure was caching it.
+     */
+    private fun cachedOf(usage: com.openai.models.responses.ResponseUsage?): Long =
+        runCatching { usage?.inputTokensDetails()?.cachedTokens() }.getOrNull() ?: 0
 
     /** The summary a model wrote of its thinking, or the thinking itself where it shares that instead. */
     private fun thoughtOf(item: ResponseReasoningItem): String {
