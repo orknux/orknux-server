@@ -430,6 +430,11 @@ orknux:
     # How many of Design's queued pictures are drawn at the same time. One
     # suits a local image server, which draws one at a time anyway.
     draws-at-once: ${ORKNUX_IMAGE_DRAWS_AT_ONCE:1}
+    # How strongly Harmonize redraws a picture through a Stable Diffusion
+    # WebUI, as its denoising strength - low, to blend the seams a Magic edit
+    # left rather than draw another picture. 0.05 to 0.9; where a fresh
+    # installation starts, and Admin -> Settings holds what it is now.
+    harmonize-strength: ${ORKNUX_IMAGE_HARMONIZE_STRENGTH:0.3}
   mail:
     # The mail server this installation sends its own mail through: the password
     # reset link, and issue notifications for anybody who has not turned them off.

@@ -18,4 +18,10 @@ data class ImagesProperties(
      * sent beside it only makes both slower; a hosted model can take more.
      */
     val drawsAtOnce: Int = 1,
+    /**
+     * How strongly Harmonize redraws a picture through a Stable Diffusion
+     * WebUI, as its denoising strength. Low, because the point is to blend the
+     * seams a Magic edit left, not to draw another picture.
+     */
+    val harmonizeStrength: Double = 0.3,
 )

@@ -108,7 +108,11 @@ class DesignDrawQueue(
             val original = source?.let { store.open(it.location).use { stream -> stream.readBytes() } }
             val mask = job.maskLocation?.let { store.open(it).use { stream -> stream.readBytes() } }
             val scale = job.scale
-            val asked = if (original != null && scale != null) {
+            val strength = job.strength
+            val asked = if (original != null && strength != null) {
+                log.info("Design image {} harmonizing {} at {} by {} with {}", id, job.sourceId, strength, job.checkpoint ?: "its loaded checkpoint", job.modelName)
+                upscaling.harmonize(modelId, original, job.prompt, strength, job.checkpoint)
+            } else if (original != null && scale != null) {
                 log.info("Design image {} upscaling {} {}x by {} with {}", id, job.sourceId, scale, job.upscaler ?: "its own algorithm", job.modelName)
                 upscaling.upscale(modelId, original, job.upscaler, scale)
             } else if (original != null && mask != null) {

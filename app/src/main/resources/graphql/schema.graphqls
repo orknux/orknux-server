@@ -458,6 +458,8 @@ type Query {
     model's own first - asked of the server, since they differ between servers.
     """
     designUpscaleAlgorithms(workspaceId: ID!, modelId: ID!): UpscaleAlgorithms!
+    "What Harmonize can be asked with one model: its strength and, for a WebUI, its checkpoints."
+    designHarmonizeOptions(workspaceId: ID!, modelId: ID!): HarmonizeOptions!
     "One picture asked for in Design, in whatever state it is; null for one not here."
     designImageJob(workspaceId: ID!, id: ID!): DesignImageJob
 
@@ -1237,6 +1239,8 @@ type Mutation {
     setImageMaxPrompt(characters: Int!): InstallationSettings!
     "How many of Design's queued pictures are drawn at the same time. Between 1 and 16."
     setImageDrawsAtOnce(draws: Int!): InstallationSettings!
+    "Where Harmonize's strength starts, for a redraw through a Stable Diffusion WebUI. Between 0.05 and 0.9."
+    setImageHarmonizeStrength(strength: Float!): InstallationSettings!
     "After how many exchanges a chat a model named is named again from what it has become; 0 names it once."
     setChatRetitleEvery(exchanges: Int!): InstallationSettings!
     """
@@ -2256,6 +2260,11 @@ type Mutation {
     version of the picture, as an edit's is.
     """
     queueDesignImageUpscale(input: UpscaleDesignImageInput!): DesignImageJob!
+    """
+    Queues the whole picture redrawn lightly, so the seams a Magic edit left
+    blend. The result is an unsaved version of the picture, as an edit's is.
+    """
+    queueDesignImageHarmonize(input: HarmonizeDesignImageInput!): DesignImageJob!
     """
     Reads a models file - written by GET /api/workspaces/{id}/models/export -
     into this workspace: each provider by name, reusing one already here, and
@@ -6823,6 +6832,10 @@ type InstallationSettings {
     imageDrawsAtOnce: Int!
     "What a fresh installation allows - ORKNUX_IMAGE_DRAWS_AT_ONCE."
     imageDrawsAtOnceConfigured: Int!
+    "Where Harmonize's strength starts, for a redraw through a Stable Diffusion WebUI."
+    imageHarmonizeStrength: Float!
+    "What a fresh installation starts at - ORKNUX_IMAGE_HARMONIZE_STRENGTH."
+    imageHarmonizeStrengthConfigured: Float!
     """
     The longest one of an agent's own waits may be, in seconds.
 
@@ -8241,6 +8254,10 @@ type DesignImageJob {
     upscaler: String
     "How many times larger an upscale makes it; null for anything else."
     scale: Float
+    "How strongly a Harmonize through a WebUI redraws; null for anything else."
+    strength: Float
+    "The WebUI checkpoint a Harmonize redraws with; null for anything else."
+    checkpoint: String
     "The picture, once DRAWN."
     image: Artifact
 }
@@ -8293,6 +8310,35 @@ type UpscaleAlgorithms {
     "The model's own algorithm."
     preferred: String
     "Why the server could not be asked; names is then empty."
+    reason: String
+}
+
+""" The whole picture redrawn lightly, by one model, so the seams between redrawn parts blend. """
+input HarmonizeDesignImageInput {
+    workspaceId: ID!
+    "The picture to redraw, by its artifact id."
+    imageId: ID!
+    "An IMAGE model, redrawing through its edit endpoint, or an UPSCALE model, through its Stable Diffusion WebUI's img2img."
+    modelId: ID!
+    "What the picture is of."
+    prompt: String!
+    "The WebUI's denoising strength, 0.05 to 0.9; null is the installation's. Ignored for an IMAGE model, whose edit takes none."
+    strength: Float
+    "A WebUI checkpoint, one of designHarmonizeOptions; null is the one it has loaded."
+    checkpoint: String
+}
+
+"What Harmonize can be asked with one model."
+type HarmonizeOptions {
+    "Whether the model takes a strength: a WebUI does, the standard edit endpoint does not."
+    strengthTaken: Boolean!
+    "Where the strength starts - the installation's setting."
+    strength: Float!
+    "A WebUI's checkpoints by title, the loaded one first; empty for an IMAGE model."
+    checkpoints: [String!]!
+    "The checkpoint the WebUI has loaded, where it said."
+    preferredCheckpoint: String
+    "Why the WebUI could not be asked; checkpoints is then empty."
     reason: String
 }
 

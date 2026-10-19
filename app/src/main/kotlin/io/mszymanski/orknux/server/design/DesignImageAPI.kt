@@ -6,6 +6,8 @@ import io.mszymanski.orknux.connector.model.ModelService
 import io.mszymanski.orknux.server.attachment.AttachmentDownloads
 import io.mszymanski.orknux.server.attachment.AttachmentStore
 import io.mszymanski.orknux.server.attachment.InstallationSettings
+import io.mszymanski.orknux.server.attachment.MAX_HARMONIZE_STRENGTH
+import io.mszymanski.orknux.server.attachment.MIN_HARMONIZE_STRENGTH
 import io.mszymanski.orknux.server.attachment.PictureFilenames
 import io.mszymanski.orknux.server.security.WorkspaceAccess
 import io.mszymanski.orknux.server.workflow.ArtifactView
@@ -195,6 +197,96 @@ class DesignImageAPI(
         )
         queue.queued(job)
         return view(job)
+    }
+
+    /**
+     * The whole picture redrawn lightly, so the seams a Magic edit left become
+     * one picture - a version of it, as an edit is.
+     *
+     * Two roads, by the model chosen. An upscale model stands for its Stable
+     * Diffusion WebUI, which redraws by img2img at the strength asked. Any
+     * image model gets the standard `/images/edits` with a mask over the whole
+     * picture - which takes no strength, so none is sent rather than one that
+     * would be ignored.
+     */
+    @MutationMapping
+    @Transactional
+    fun queueDesignImageHarmonize(@Argument input: HarmonizeDesignImageInput): DesignImageJobView {
+        val workspaceId = input.workspaceId.toLong()
+        access.requireVisible(workspaceId)
+        val modelId = input.modelId.toLong()
+        val model = models.model(modelId)?.takeIf { it.workspaceId == workspaceId }
+            ?: throw ModelNotFoundForWorkspaceException(modelId)
+        val webUi = when (model.kind) {
+            ModelKind.UPSCALE -> true
+            ModelKind.IMAGE -> false
+            else -> throw ModelNotImageException(model.name)
+        }
+        val prompt = input.prompt.trim()
+        if (prompt.isEmpty()) throw DesignImageRefusedException("Say what the picture is of.")
+        val longest = settings.imageMaxPrompt()
+        if (prompt.length > longest) {
+            throw DesignImageRefusedException("That description is too long to draw from; say it in under $longest characters.")
+        }
+        val strength = if (webUi) input.strength ?: settings.imageHarmonizeStrength() else null
+        if (strength != null && strength !in MIN_HARMONIZE_STRENGTH..MAX_HARMONIZE_STRENGTH) {
+            throw DesignImageRefusedException("A strength is between $MIN_HARMONIZE_STRENGTH and $MAX_HARMONIZE_STRENGTH.")
+        }
+        if (!settings.attachmentsEnabled()) {
+            throw DesignImageRefusedException("A drawn picture is kept as an attachment, and attachments are turned off for this installation.")
+        }
+        val source = artifacts.storedOf(workspaceId, input.imageId)
+            ?: throw DesignImageRefusedException("The picture to harmonize is not here any more.")
+        val mask = if (webUi) {
+            null
+        } else {
+            val picture = runCatching { store.open(source.location).use { javax.imageio.ImageIO.read(it) } }.getOrNull()
+                ?: throw DesignImageRefusedException("The picture to harmonize could not be read.")
+            // Transparent everywhere: the edit's own way of saying change all of it.
+            val clear = java.awt.image.BufferedImage(picture.width, picture.height, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+            val bytes = java.io.ByteArrayOutputStream().also { javax.imageio.ImageIO.write(clear, "png", it) }.toByteArray()
+            store.put(workspaceId, "mask.png", bytes)
+        }
+        val job = jobs.save(
+            DesignImageJob(
+                workspaceId = workspaceId,
+                modelId = modelId,
+                modelName = model.name,
+                prompt = prompt,
+                size = null,
+                quality = null,
+                style = null,
+                requestedBy = currentName(),
+                sourceId = input.imageId,
+                maskLocation = mask,
+                strength = strength,
+                checkpoint = if (webUi) input.checkpoint.orNullIfBlank() else null,
+            ),
+        )
+        auditRecorder.record(
+            workspaceId,
+            WorkspaceAuditCategory.WORKFLOW,
+            "${source.view.name ?: source.view.filename} queued to be harmonized in Design with ${model.name}",
+        )
+        queue.queued(job)
+        return view(job)
+    }
+
+    /**
+     * What Harmonize can be asked with one model: whether it takes a strength,
+     * where it starts, and - for a WebUI - the checkpoints it redraws with.
+     */
+    @QueryMapping
+    fun designHarmonizeOptions(@Argument workspaceId: Long, @Argument modelId: Long): HarmonizeOptionsView {
+        access.requireVisible(workspaceId)
+        val model = models.model(modelId)?.takeIf { it.workspaceId == workspaceId }
+            ?: throw ModelNotFoundForWorkspaceException(modelId)
+        val strength = settings.imageHarmonizeStrength()
+        if (model.kind != ModelKind.UPSCALE) return HarmonizeOptionsView(false, strength, emptyList(), null, null)
+        return when (val offered = upscaling.checkpoints(modelId)) {
+            is ModelUpscaleClient.Checkpoints.Offered -> HarmonizeOptionsView(true, strength, offered.titles, offered.preferred, null)
+            is ModelUpscaleClient.Checkpoints.Failed -> HarmonizeOptionsView(true, strength, emptyList(), null, offered.reason)
+        }
     }
 
     /** The algorithms an upscale model's server offers, asked of it now. */
@@ -465,6 +557,8 @@ class DesignImageAPI(
             name = job.name ?: PictureFilenames.nameOf(job.prompt),
             sourceId = job.sourceId,
             upscaler = job.upscaler,
+            strength = job.strength,
+            checkpoint = job.checkpoint,
             scale = job.scale,
             image = job.imageId?.let { images.findByIdOrNull(it) }?.let(artifacts::describe),
         )
@@ -532,6 +626,27 @@ data class ImportDesignImageInput(
 
 data class UpscaleAlgorithmsView(val names: List<String>, val preferred: String?, val reason: String?)
 
+data class HarmonizeDesignImageInput(
+    val workspaceId: String,
+    /** The picture to redraw, by its artifact id. */
+    val imageId: String,
+    /** An image model, or an upscale model for its Stable Diffusion WebUI. */
+    val modelId: String,
+    val prompt: String,
+    /** A WebUI's denoising strength; null is the installation's. An image model takes none. */
+    val strength: Double? = null,
+    /** A WebUI checkpoint by title; null or blank is the one it has loaded. */
+    val checkpoint: String? = null,
+)
+
+data class HarmonizeOptionsView(
+    val strengthTaken: Boolean,
+    val strength: Double,
+    val checkpoints: List<String>,
+    val preferredCheckpoint: String?,
+    val reason: String?,
+)
+
 data class DesignImageJobView(
     val id: String,
     val status: DesignImageJobStatus,
@@ -554,6 +669,10 @@ data class DesignImageJobView(
     val upscaler: String? = null,
     /** How many times larger an upscale makes it; null for anything else. */
     val scale: Double? = null,
+    /** How strongly a Harmonize through a WebUI redraws; null for anything else. */
+    val strength: Double? = null,
+    /** The WebUI checkpoint a Harmonize redraws with; null for anything else. */
+    val checkpoint: String? = null,
     val image: ArtifactView?,
 )
 

@@ -97,6 +97,18 @@ class DesignImageJob(
     /** How many times larger an upscale makes it; null for anything but an upscale. */
     @Column
     val scale: Double? = null,
+
+    /**
+     * How strongly a Harmonize through a Stable Diffusion WebUI redraws the
+     * whole of [sourceId]; null for anything else. A Harmonize by an image
+     * model is an edit whose mask covers everything, and keeps none.
+     */
+    @Column
+    val strength: Double? = null,
+
+    /** The WebUI checkpoint a Harmonize redraws with; null is the one it has loaded. */
+    @Column(length = 255)
+    val checkpoint: String? = null,
 )
 
 interface DesignImageJobRepository : JpaRepository<DesignImageJob, Long> {

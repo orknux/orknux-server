@@ -59,6 +59,8 @@ class InstallationSettingsAPI(
         imageMaxPromptConfigured = settings.imageMaxPromptConfigured(),
         imageDrawsAtOnce = settings.imageDrawsAtOnce(),
         imageDrawsAtOnceConfigured = settings.imageDrawsAtOnceConfigured(),
+        imageHarmonizeStrength = settings.imageHarmonizeStrength(),
+        imageHarmonizeStrengthConfigured = settings.imageHarmonizeStrengthConfigured(),
         agentSleepSeconds = settings.agentSleepSeconds(),
         agentSleepSecondsConfigured = settings.agentSleepSecondsConfigured(),
         agentSleepTimes = settings.agentSleepTimes(),
@@ -685,6 +687,15 @@ class InstallationSettingsAPI(
         return installationSettings()
     }
 
+    /** Where Harmonize's strength starts, for a redraw through a Stable Diffusion WebUI. */
+    @MutationMapping
+    fun setImageHarmonizeStrength(@Argument strength: Double): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setImageHarmonizeStrength(strength, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "Design harmonizes at strength $strength")
+        return installationSettings()
+    }
+
     @MutationMapping
     fun setImageMaxPrompt(@Argument characters: Int): InstallationSettingsView {
         access.requireAdmin()
@@ -1110,6 +1121,8 @@ data class InstallationSettingsView(
     val imageMaxPromptConfigured: Int,
     val imageDrawsAtOnce: Int,
     val imageDrawsAtOnceConfigured: Int,
+    val imageHarmonizeStrength: Double,
+    val imageHarmonizeStrengthConfigured: Double,
     /** What a fresh installation allows - ORKNUX_CHAT_MAX_ROUNDS. */
     val chatMaxRoundsConfigured: Int,
     /**

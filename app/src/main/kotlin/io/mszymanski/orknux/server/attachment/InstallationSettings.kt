@@ -70,6 +70,7 @@ object SettingNames {
     const val OBJECT_MAX_DEPTH = "objects.max.depth"
     const val IMAGE_MAX_PROMPT = "images.max.prompt"
     const val IMAGE_DRAWS_AT_ONCE = "images.draws.at.once"
+    const val IMAGE_HARMONIZE_STRENGTH = "images.harmonize.strength"
     const val AGENT_SLEEP_SECONDS = "agent.sleep.seconds"
     const val AGENT_SLEEP_TIMES = "agent.sleep.times"
     const val AGENT_MAX_SUBAGENTS = "agent.max.subagents"
@@ -508,6 +509,28 @@ class InstallationSettings(
         val held = settings.findByIdOrNull(SettingNames.IMAGE_DRAWS_AT_ONCE)
             ?: InstallationSetting(name = SettingNames.IMAGE_DRAWS_AT_ONCE)
         held.value = draws.toString()
+        held.lastModifiedAt = OffsetDateTime.now()
+        held.lastModifiedBy = by
+        settings.save(held)
+    }
+
+    /** How strongly Harmonize redraws through a Stable Diffusion WebUI: the dialog's starting strength. */
+    fun imageHarmonizeStrength(): Double {
+        val held = settings.findByIdOrNull(SettingNames.IMAGE_HARMONIZE_STRENGTH) ?: return imageHarmonizeStrengthConfigured()
+        return held.value.toDoubleOrNull()?.takeIf { it in MIN_HARMONIZE_STRENGTH..MAX_HARMONIZE_STRENGTH }
+            ?: imageHarmonizeStrengthConfigured()
+    }
+
+    /** What a fresh installation starts at - ORKNUX_IMAGE_HARMONIZE_STRENGTH. */
+    fun imageHarmonizeStrengthConfigured(): Double =
+        imagesConfig.harmonizeStrength.coerceIn(MIN_HARMONIZE_STRENGTH, MAX_HARMONIZE_STRENGTH)
+
+    @Transactional
+    fun setImageHarmonizeStrength(strength: Double, by: String) {
+        if (strength !in MIN_HARMONIZE_STRENGTH..MAX_HARMONIZE_STRENGTH) throw ImageHarmonizeStrengthOutOfRangeException(strength)
+        val held = settings.findByIdOrNull(SettingNames.IMAGE_HARMONIZE_STRENGTH)
+            ?: InstallationSetting(name = SettingNames.IMAGE_HARMONIZE_STRENGTH)
+        held.value = strength.toString()
         held.lastModifiedAt = OffsetDateTime.now()
         held.lastModifiedBy = by
         settings.save(held)
@@ -2009,6 +2032,19 @@ class ImageDrawsOutOfRangeException(val draws: Int) : RuntimeException(
     "$draws pictures cannot be drawn at once. Choose between $MIN_IMAGE_DRAWS and $MAX_IMAGE_DRAWS.",
 ), io.mszymanski.orknux.server.graphql.Refusal {
     override val arguments get() = mapOf("draws" to draws)
+}
+
+/**
+ * Below it a WebUI's redraw changes nothing anybody can see; above it, it draws
+ * another picture rather than blending the one there.
+ */
+const val MIN_HARMONIZE_STRENGTH = 0.05
+const val MAX_HARMONIZE_STRENGTH = 0.9
+
+class ImageHarmonizeStrengthOutOfRangeException(val strength: Double) : RuntimeException(
+    "A picture cannot be harmonized at strength $strength. Choose between $MIN_HARMONIZE_STRENGTH and $MAX_HARMONIZE_STRENGTH.",
+), io.mszymanski.orknux.server.graphql.Refusal {
+    override val arguments get() = mapOf("strength" to strength)
 }
 
 class ImagePromptOutOfRangeException(val characters: Int) : RuntimeException(

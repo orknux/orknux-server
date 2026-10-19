@@ -52,6 +52,7 @@ class DesignImageAPITest(
     private val edited = CopyOnWriteArrayList<String>()
     private val authorised = CopyOnWriteArrayList<String>()
     private val upscaled = CopyOnWriteArrayList<String>()
+    private val harmonized = CopyOnWriteArrayList<String>()
 
     /** True for a model that refuses, the way these providers do: a 400 with the reason. */
     @Volatile
@@ -71,6 +72,7 @@ class DesignImageAPITest(
         drawn.clear()
         edited.clear()
         upscaled.clear()
+        harmonized.clear()
         authorised.clear()
         server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
         server.createContext("/images/generations") { exchange ->
@@ -108,6 +110,31 @@ class DesignImageAPITest(
             authorised += exchange.requestHeaders.getFirst("Authorization").orEmpty()
             upscaled += exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
             val bytes = """{"image":"${Base64.getEncoder().encodeToString(png(4, 4) { _, _ -> RED })}","html_info":""}"""
+                .toByteArray(StandardCharsets.UTF_8)
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+            exchange.close()
+        }
+        // Its checkpoints, the one it has loaded, and img2img: a blue picture the size it was asked for.
+        server.createContext("/sdapi/v1/sd-models") { exchange ->
+            val bytes = """[{"title":"alpha.safetensors [aaaa]","model_name":"alpha"},{"title":"beta.safetensors [bbbb]","model_name":"beta"}]"""
+                .toByteArray(StandardCharsets.UTF_8)
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+            exchange.close()
+        }
+        server.createContext("/sdapi/v1/options") { exchange ->
+            val bytes = """{"sd_model_checkpoint":"beta.safetensors [bbbb]"}""".toByteArray(StandardCharsets.UTF_8)
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+            exchange.close()
+        }
+        server.createContext("/sdapi/v1/img2img") { exchange ->
+            harmonized += exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
+            val bytes = """{"images":["${Base64.getEncoder().encodeToString(png(2, 2) { _, _ -> BLUE })}"],"parameters":{},"info":""}"""
                 .toByteArray(StandardCharsets.UTF_8)
             exchange.responseHeaders.add("Content-Type", "application/json")
             exchange.sendResponseHeaders(200, bytes.size.toLong())
@@ -510,6 +537,130 @@ class DesignImageAPITest(
     }
 
     @Test
+    fun `harmonizing through a WebUI redraws the whole picture by img2img at the installation's strength, as a draft`() {
+        val webUi = model("Forge", "UPSCALE", type = "STABLE_DIFFUSION_WEBUI", keyed = false, modelId = "Lanczos")
+        // A strength, starting at the installation's, and the WebUI's checkpoints - the loaded one first.
+        graphQlTester.document(
+            """query { designHarmonizeOptions(workspaceId: $workspaceId, modelId: $webUi) { strengthTaken strength checkpoints preferredCheckpoint reason } }""",
+        ).execute()
+            .path("designHarmonizeOptions.strengthTaken").entity(Boolean::class.java).isEqualTo(true)
+            .path("designHarmonizeOptions.strength").entity(Double::class.java).isEqualTo(0.3)
+            .path("designHarmonizeOptions.checkpoints").entityList(String::class.java)
+            .containsExactly("beta.safetensors [bbbb]", "alpha.safetensors [aaaa]")
+            .path("designHarmonizeOptions.preferredCheckpoint").entity(String::class.java).isEqualTo("beta.safetensors [bbbb]")
+            .path("designHarmonizeOptions.reason").valueIsNull()
+
+        val white = png(2, 2) { _, _ -> WHITE }
+        val source = images.save(
+            DesignImage(
+                workspaceId = workspaceId, modelId = null, modelName = "Drawer", prompt = "A white square",
+                size = null, quality = null, style = null, filename = "white.png", contentType = "image/png",
+                sizeBytes = white.size.toLong(), location = store.put(workspaceId, "white.png", white), drawnBy = "alice",
+                name = "White",
+            ),
+        )
+        val version = drawnPicture(
+            graphQlTester.document(
+                """mutation { queueDesignImageHarmonize(input: {
+                     workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", modelId: $webUi,
+                     prompt: "A white square, evenly lit", checkpoint: "alpha.safetensors [aaaa]"
+                   }) { id strength checkpoint } }""",
+            ).execute()
+                .path("queueDesignImageHarmonize.strength").entity(Double::class.java).isEqualTo(0.3)
+                .path("queueDesignImageHarmonize.checkpoint").entity(String::class.java).isEqualTo("alpha.safetensors [aaaa]")
+                .path("queueDesignImageHarmonize.id").entity(String::class.java).get(),
+        )
+        // The whole picture, the prompt, the strength, the checkpoint, and the picture's own size.
+        val asked = tools.jackson.databind.json.JsonMapper.builder().build().readTree(harmonized.single())
+        assertThat(Base64.getDecoder().decode(asked.path("init_images").path(0).stringValue())).isEqualTo(white)
+        assertThat(asked.path("prompt").stringValue()).isEqualTo("A white square, evenly lit")
+        assertThat(asked.path("denoising_strength").doubleValue()).isEqualTo(0.3)
+        assertThat(asked.path("override_settings").path("sd_model_checkpoint").stringValue()).isEqualTo("alpha.safetensors [aaaa]")
+        assertThat(asked.path("width").intValue()).isEqualTo(2)
+        assertThat(asked.path("height").intValue()).isEqualTo(2)
+        // A draft of the picture, redrawn everywhere - no part of the original kept.
+        val kept = requireNotNull(images.findByIdOrNull(version.removePrefix("DESIGN-").toLong()))
+        assertThat(kept.versionOf).isEqualTo("DESIGN-${source.id}")
+        assertThat(kept.name).isEqualTo("White")
+        assertThat(javax.imageio.ImageIO.read(store.open(kept.location)).getRGB(1, 1)).isEqualTo(BLUE)
+
+        // The installation's setting is where it starts; a strength asked for overrides it.
+        try {
+            graphQlTester.document("mutation { setImageHarmonizeStrength(strength: 0.5) { imageHarmonizeStrength imageHarmonizeStrengthConfigured } }")
+                .execute()
+                .path("setImageHarmonizeStrength.imageHarmonizeStrength").entity(Double::class.java).isEqualTo(0.5)
+                .path("setImageHarmonizeStrength.imageHarmonizeStrengthConfigured").entity(Double::class.java).isEqualTo(0.3)
+            graphQlTester.document("""query { designHarmonizeOptions(workspaceId: $workspaceId, modelId: $webUi) { strength } }""")
+                .execute().path("designHarmonizeOptions.strength").entity(Double::class.java).isEqualTo(0.5)
+            harmonized.clear()
+            drawnPicture(
+                graphQlTester.document(
+                    """mutation { queueDesignImageHarmonize(input: {
+                         workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", modelId: $webUi, prompt: "A white square"
+                       }) { id } }""",
+                ).execute().path("queueDesignImageHarmonize.id").entity(String::class.java).get(),
+            )
+            assertThat(harmonized.single()).contains("\"denoising_strength\":0.5").doesNotContain("override_settings")
+            harmonized.clear()
+            drawnPicture(
+                graphQlTester.document(
+                    """mutation { queueDesignImageHarmonize(input: {
+                         workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", modelId: $webUi, prompt: "A white square", strength: 0.2
+                       }) { id } }""",
+                ).execute().path("queueDesignImageHarmonize.id").entity(String::class.java).get(),
+            )
+            assertThat(harmonized.single()).contains("\"denoising_strength\":0.2")
+
+            graphQlTester.document("mutation { setImageHarmonizeStrength(strength: 0.95) { imageHarmonizeStrength } }").execute()
+                .errors().satisfy { assertThat(it.single().extensions["code"]).isEqualTo("ImageHarmonizeStrengthOutOfRange") }
+            graphQlTester.document(
+                """mutation { queueDesignImageHarmonize(input: {
+                     workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", modelId: $webUi, prompt: "A white square", strength: 0.95
+                   }) { id } }""",
+            ).execute().errors().satisfy { assertThat(it.single().message).isEqualTo("A strength is between 0.05 and 0.9.") }
+        } finally {
+            graphQlTester.document("mutation { setImageHarmonizeStrength(strength: 0.3) { imageHarmonizeStrength } }").execute()
+        }
+    }
+
+    @Test
+    fun `harmonizing with an image model is an edit of the whole picture, which takes no strength`() {
+        val editor = model("Editor", "IMAGE")
+        graphQlTester.document(
+            """query { designHarmonizeOptions(workspaceId: $workspaceId, modelId: $editor) { strengthTaken strength checkpoints } }""",
+        ).execute()
+            .path("designHarmonizeOptions.strengthTaken").entity(Boolean::class.java).isEqualTo(false)
+            .path("designHarmonizeOptions.checkpoints").entityList(String::class.java).hasSize(0)
+
+        val white = png(2, 2) { _, _ -> WHITE }
+        val source = images.save(
+            DesignImage(
+                workspaceId = workspaceId, modelId = editor, modelName = "Editor", prompt = "A white square",
+                size = null, quality = null, style = null, filename = "white.png", contentType = "image/png",
+                sizeBytes = white.size.toLong(), location = store.put(workspaceId, "white.png", white), drawnBy = "alice",
+                name = "Blank",
+            ),
+        )
+        val version = drawnPicture(
+            graphQlTester.document(
+                """mutation { queueDesignImageHarmonize(input: {
+                     workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", modelId: $editor, prompt: "A white square", strength: 0.4
+                   }) { id strength } }""",
+            ).execute()
+                .path("queueDesignImageHarmonize.strength").valueIsNull()
+                .path("queueDesignImageHarmonize.id").entity(String::class.java).get(),
+        )
+        // Through the standard edit interface, with a mask; no img2img.
+        assertThat(edited.single()).contains("A white square", "filename=\"image.png\"", "filename=\"mask.png\"")
+        assertThat(harmonized).isEmpty()
+        // The mask covered everything, so nothing of the original is kept.
+        val kept = requireNotNull(images.findByIdOrNull(version.removePrefix("DESIGN-").toLong()))
+        assertThat(kept.versionOf).isEqualTo("DESIGN-${source.id}")
+        val result = javax.imageio.ImageIO.read(store.open(kept.location))
+        for (x in 0..1) for (y in 0..1) assertThat(result.getRGB(x, y)).isEqualTo(RED)
+    }
+
+    @Test
     fun `a picture brought in from outside is kept as a Design picture, by what its bytes are`() {
         val png = Base64.getEncoder().encodeToString(png(3, 2) { _, _ -> RED })
         graphQlTester.document(
@@ -574,6 +725,7 @@ class DesignImageAPITest(
     private companion object {
         const val RED = 0xFFFF0000.toInt()
         const val WHITE = 0xFFFFFFFF.toInt()
+        const val BLUE = 0xFF0000FF.toInt()
         const val PIXEL =
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
     }
