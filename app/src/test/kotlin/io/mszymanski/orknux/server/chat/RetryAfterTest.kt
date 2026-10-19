@@ -154,6 +154,39 @@ class RetryAfterTest(
             .path("installationSettings.rateLimitBackoffSecondsConfigured").entity(Int::class.java).isEqualTo(5)
     }
 
+    /**
+     * An error inside a stream that began with 200 is said as the provider
+     * stopping part way, not as "200: ..." - a success code in front of a
+     * failure, which is what a chat showed for Azure's "high demand".
+     */
+    @Test
+    fun `an error inside a 200 stream is not said with the 200`() {
+        val modelId = openAi(failingInStream("The system is currently experiencing high demand and cannot process your request."))
+
+        val answer = chat.stream(modelId, asked) { }
+
+        assertThat(answer).isInstanceOf(ChatCompletion.Failed::class.java)
+        val reason = (answer as ChatCompletion.Failed).reason
+        assertThat(reason).startsWith("The provider stopped part way: The system is currently experiencing high demand")
+        assertThat(reason).doesNotContain("200")
+    }
+
+    private fun failingInStream(message: String): String {
+        server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
+        server.createContext("/chat/completions") { exchange ->
+            exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
+            calls.incrementAndGet()
+            val events = """data: {"error":{"code":"server_error","message":"$message"}}""" + "\n\n"
+            exchange.responseHeaders.add("Content-Type", "text/event-stream")
+            val bytes = events.toByteArray(StandardCharsets.UTF_8)
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+            exchange.close()
+        }
+        server.start()
+        return "http://${server.address.hostString}:${server.address.port}"
+    }
+
     private fun rateLimitedInStreamOnce(): String {
         server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
         server.createContext("/chat/completions") { exchange ->

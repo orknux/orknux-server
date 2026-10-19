@@ -1019,7 +1019,7 @@ class ModelChatClient(
                  */
                 log.warn("{} answered {}", endpoint, status)
                 return ChatCompletion.Failed(
-                    refused.message ?: "The provider refused the request",
+                    saidBy(refused),
                     settled(status),
                     replyFault = aboutTheCall(refused.message.orEmpty()),
                 )
@@ -1746,6 +1746,19 @@ class ModelChatClient(
      * says: a rate limit is a 429, anything else is the provider failing part
      * way, which is not the request's fault either.
      */
+    /**
+     * The provider's sentence, without the SDK's status in front of it. An error
+     * inside a stream that had begun arrives with the stream's 200, and
+     * "200: The system is currently experiencing high demand" reads as a success
+     * code next to a failure; it is said as what it was, the provider stopping
+     * part way.
+     */
+    private fun saidBy(refused: OpenAIServiceException): String {
+        val message = refused.message?.takeIf { it.isNotBlank() } ?: return "The provider refused the request"
+        if (refused.statusCode() !in 200..299) return message
+        return "The provider stopped part way: " + message.replace(Regex("""^\s*\d{3}\s*:\s*"""), "")
+    }
+
     private fun statusOf(refused: OpenAIServiceException): Int {
         val status = refused.statusCode()
         if (status !in 200..299) return status
