@@ -21,6 +21,7 @@ import io.mszymanski.orknux.workflow.execution.ExecutionView
 import io.mszymanski.orknux.workflow.execution.GraphVersion
 import io.mszymanski.orknux.workflow.execution.ResumePoint
 import io.mszymanski.orknux.workflow.execution.StartExecutionInput
+import org.springframework.data.repository.findByIdOrNull
 import org.springframework.graphql.data.method.annotation.Argument
 import org.springframework.graphql.data.method.annotation.MutationMapping
 import org.springframework.graphql.data.method.annotation.QueryMapping
@@ -47,6 +48,9 @@ class WorkflowExecutionAPI(
     /** Which trigger fired a connection run, and so which event on which kind of connection. */
     private val triggers: WorkflowTriggerRepository,
     private val connections: WorkspaceConnectionRepository,
+    /** Which version a run ran, said against the workflow as it is now. */
+    private val publications: WorkflowPublicationRepository,
+    private val workflows: WorkflowRepository,
 ) {
 
     /**
@@ -155,6 +159,33 @@ class WorkflowExecutionAPI(
             speechesOf(run.id),
         ).copy(
             source = connectionFired(run.trigger, run.firedTriggerId)?.let { sourcesOf(listOf(it))[it] },
+            version = versionOf(run),
+        )
+    }
+
+    /**
+     * Which version the run ran, said against the workflow as it is now. A run
+     * page draws the graph the run kept, which reads as the workflow on screen
+     * in the editor; a run of a version since replaced has to say so loudly, or
+     * the difference is found by somebody wondering why a node behaved as it
+     * no longer does.
+     */
+    private fun versionOf(run: ExecutionDetailView): RanVersionView? {
+        val draft = run.ranDraft ?: return null
+        if (draft) return RanVersionView(draft = true)
+        val ran = run.publicationId?.let { publications.findByIdOrNull(it) }
+        val newest = publications.findFirstByWorkflowIdOrderByIdDesc(run.workflowId)
+        val current = ran != null && newest?.id == ran.id
+        val edited = current && workflows.findByIdOrNull(run.workflowId)?.status == WorkflowStatus.DRAFT
+        return RanVersionView(
+            draft = false,
+            publicationId = run.publicationId,
+            publishedAt = ran?.publishedAt?.format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+            publishedBy = ran?.publishedBy,
+            current = current,
+            editedSince = edited,
+            newestPublishedAt = newest?.takeIf { !current }?.publishedAt
+                ?.format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         )
     }
 
@@ -498,6 +529,8 @@ data class RunDetailView(
     val speeches: List<ExecutionSpeechView> = emptyList(),
     /** For a run an event on a connection started, which connection and event; null otherwise. */
     val source: ExecutionSourceView? = null,
+    /** Which version of the workflow it ran, against what the workflow is now; null on runs from before that was kept. */
+    val version: RanVersionView? = null,
 ) {
     constructor(
         run: ExecutionDetailView,
@@ -529,6 +562,23 @@ data class RunDetailView(
         speeches = speeches,
     )
 }
+
+/**
+ * Which copy of its workflow a run ran. [current] false is a publication that
+ * has been replaced since (or one no longer kept); [editedSince] is the newest
+ * publication with a draft that has moved on from it - either way the run did
+ * not run what the editor now shows.
+ */
+data class RanVersionView(
+    val draft: Boolean,
+    val publicationId: Long? = null,
+    val publishedAt: String? = null,
+    val publishedBy: String? = null,
+    val current: Boolean = true,
+    val editedSince: Boolean = false,
+    /** When the publication that replaced it was made, where one has. */
+    val newestPublishedAt: String? = null,
+)
 
 /**
  * What started a run an event on a connection started: the kind of connection

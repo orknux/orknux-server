@@ -422,6 +422,10 @@ data class ExecutionDetailView(
     val firedTriggerId: Long? = null,
     /** The edges it was planned with, as JSON; null on a run from before they were kept. */
     val plannedEdges: String? = null,
+    /** Whether it ran the draft; null on a run from before that was kept. */
+    val ranDraft: Boolean? = null,
+    /** The publication it ran, where it ran one. */
+    val publicationId: Long? = null,
 ) {
     constructor(execution: WorkflowExecution, steps: List<ExecutionStep>, logs: List<ExecutionLog>) : this(
         id = requireNotNull(execution.id),
@@ -442,6 +446,8 @@ data class ExecutionDetailView(
         logs = logs.map(::ExecutionLogLineView),
         firedTriggerId = execution.firedTriggerId,
         plannedEdges = execution.plannedEdges,
+        ranDraft = execution.ranDraft,
+        publicationId = execution.publicationId,
     )
 }
 

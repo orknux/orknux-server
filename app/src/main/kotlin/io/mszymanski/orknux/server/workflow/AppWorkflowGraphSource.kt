@@ -69,7 +69,7 @@ class AppWorkflowGraphSource(
         // publishes the old graph again rather than reviving its row, so what
         // runs is always the most recent one here.
         publications.current(workflowId)?.let { held ->
-            return WorkflowSnapshot.read(held.graph, mapper)
+            return WorkflowSnapshot.read(held.graph, mapper).copy(publicationId = held.id)
         }
 
         /*
@@ -84,14 +84,14 @@ class AppWorkflowGraphSource(
          */
         if (workflow.status == WorkflowStatus.PUBLISHED) {
             val taken = drafted(workflowId, workflow.name)
-            publications.save(
+            val saved = publications.save(
                 WorkflowPublication(
                     workflowId = workflowId,
                     publishedBy = "upgrade",
                     graph = WorkflowSnapshot.write(taken, mapper),
                 ),
             )
-            return taken
+            return taken.copy(publicationId = saved.id)
         }
 
         throw WorkflowNotPublishedException(workflowId)

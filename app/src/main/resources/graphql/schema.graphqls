@@ -5912,6 +5912,21 @@ type ExecutionLogLine {
     message: String!
 }
 
+"Which copy of its workflow a run ran."
+type RanVersion {
+    "It ran the draft - a run somebody started by hand."
+    draft: Boolean!
+    publicationId: ID
+    publishedAt: String
+    publishedBy: String
+    "False when the publication it ran has been replaced since."
+    current: Boolean!
+    "True when it ran the newest publication and the draft has changed since."
+    editedSince: Boolean!
+    "When the publication that replaced it was made."
+    newestPublishedAt: String
+}
+
 type ExecutionDetail {
     id: ID!
     workspaceId: ID!
@@ -5956,6 +5971,8 @@ type ExecutionDetail {
     node, because keeping the file and sending it are two decisions.
     """
     speeches: [ExecutionSpeech!]!
+    "Which version of the workflow it ran, against the workflow now; null on runs from before that was kept."
+    version: RanVersion
 }
 
 "One thing a run said out loud, as the run graph plays it."

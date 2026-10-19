@@ -335,6 +335,39 @@ class ExecutionAPITest(
             .path("execution.edges[*].source").entityList(String::class.java).containsExactly("trigger")
     }
 
+    /** A run says which version it ran, against the workflow as it is now. */
+    @Test
+    fun `a run of a version since edited or replaced says so`() {
+        val id = start().id
+        fun version() = graphQlTester.document(
+            """query { execution(id: $id) { version { draft current editedSince publicationId } } }""",
+        ).execute()
+
+        version().path("execution.version.draft").entity(Boolean::class.java).isEqualTo(false)
+            .path("execution.version.current").entity(Boolean::class.java).isEqualTo(true)
+            .path("execution.version.editedSince").entity(Boolean::class.java).isEqualTo(false)
+
+        graphQlTester.document(
+            """
+            mutation {
+              saveWorkflowGraph(workspaceId: $workspaceId, workflowId: $workflowId, input: {
+                nodes: [
+                  { key: "trigger", kind: TRIGGER, name: "Webhook Trigger", x: 0, y: 0 },
+                  { key: "fetch", kind: AGENT, name: "Fetch Data, renamed", x: 200, y: 0 }
+                ],
+                edges: [{ source: "trigger", target: "fetch" }]
+              }) { status }
+            }
+            """,
+        ).execute()
+        version().path("execution.version.editedSince").entity(Boolean::class.java).isEqualTo(true)
+
+        graphQlTester.document("""mutation { publishWorkflow(workspaceId: $workspaceId, workflowId: $workflowId) { status } }""")
+            .execute()
+        version().path("execution.version.current").entity(Boolean::class.java).isEqualTo(false)
+            .path("execution.version.editedSince").entity(Boolean::class.java).isEqualTo(false)
+    }
+
     @Test
     fun `a webhook run logs the payload it was sent`() {
         val run = runs.startExecution(

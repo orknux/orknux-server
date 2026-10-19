@@ -223,6 +223,8 @@ data class WorkflowGraph(
     val name: String,
     val nodes: List<GraphNode>,
     val edges: List<GraphEdge>,
+    /** The publication this graph is, or null for the draft. Kept on the run, so it can say which version it ran. */
+    val publicationId: Long? = null,
 )
 
 /**

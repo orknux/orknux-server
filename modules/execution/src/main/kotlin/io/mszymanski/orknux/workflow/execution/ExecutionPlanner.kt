@@ -200,6 +200,8 @@ class ExecutionPlanner(
                 startedFrom = startedFrom ?: resumeFrom?.executionId,
                 // The wiring it runs on, kept with it: the workflow may be edited, or published again, while it runs and after.
                 plannedEdges = mapper.writeValueAsString(graph.edges),
+                ranDraft = graph.publicationId == null,
+                publicationId = graph.publicationId,
                 // Carried onto the run so a repeat of *this* one has the same
                 // thing to go on that this one had.
                 firedTriggerId = fired,

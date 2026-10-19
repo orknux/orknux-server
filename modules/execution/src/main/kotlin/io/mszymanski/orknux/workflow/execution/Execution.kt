@@ -148,6 +148,18 @@ class WorkflowExecution(
     @Column(name = "planned_edges", columnDefinition = "text")
     var plannedEdges: String? = null,
 
+    /**
+     * Which copy of the workflow this run ran: the draft, or a publication by
+     * id. A run of an older publication, or of one the draft has moved on from,
+     * looks like a run of the workflow on screen now, and says otherwise only
+     * through these. Both null on runs from before they were kept.
+     */
+    @Column(name = "ran_draft")
+    var ranDraft: Boolean? = null,
+
+    @Column(name = "publication_id")
+    var publicationId: Long? = null,
+
     /** Why the run stopped, when it stopped badly. */
     @Column(length = 1000)
     var error: String? = null,
