@@ -426,6 +426,8 @@ data class ExecutionDetailView(
     val ranDraft: Boolean? = null,
     /** The publication it ran, where it ran one. */
     val publicationId: Long? = null,
+    /** Whether the draft was ahead of that publication when it started; null on earlier runs. */
+    val ranBehindDraft: Boolean? = null,
 ) {
     constructor(execution: WorkflowExecution, steps: List<ExecutionStep>, logs: List<ExecutionLog>) : this(
         id = requireNotNull(execution.id),
@@ -448,6 +450,7 @@ data class ExecutionDetailView(
         plannedEdges = execution.plannedEdges,
         ranDraft = execution.ranDraft,
         publicationId = execution.publicationId,
+        ranBehindDraft = execution.ranBehindDraft,
     )
 }
 

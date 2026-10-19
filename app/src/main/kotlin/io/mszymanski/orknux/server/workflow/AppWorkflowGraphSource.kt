@@ -69,7 +69,9 @@ class AppWorkflowGraphSource(
         // publishes the old graph again rather than reviving its row, so what
         // runs is always the most recent one here.
         publications.current(workflowId)?.let { held ->
-            return WorkflowSnapshot.read(held.graph, mapper).copy(publicationId = held.id)
+            // DRAFT status is the workflow's own word for a draft that differs from what is published.
+            return WorkflowSnapshot.read(held.graph, mapper)
+                .copy(publicationId = held.id, draftAhead = workflow.status == WorkflowStatus.DRAFT)
         }
 
         /*

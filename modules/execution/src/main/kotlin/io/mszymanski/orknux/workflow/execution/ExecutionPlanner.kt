@@ -202,6 +202,7 @@ class ExecutionPlanner(
                 plannedEdges = mapper.writeValueAsString(graph.edges),
                 ranDraft = graph.publicationId == null,
                 publicationId = graph.publicationId,
+                ranBehindDraft = graph.publicationId != null && graph.draftAhead,
                 // Carried onto the run so a repeat of *this* one has the same
                 // thing to go on that this one had.
                 firedTriggerId = fired,

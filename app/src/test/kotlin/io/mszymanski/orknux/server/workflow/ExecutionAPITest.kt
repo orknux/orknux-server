@@ -335,17 +335,19 @@ class ExecutionAPITest(
             .path("execution.edges[*].source").entityList(String::class.java).containsExactly("trigger")
     }
 
-    /** A run says which version it ran, against the workflow as it is now. */
+    /**
+     * A run says it ran an older version only when it did, as it started: the
+     * published copy while the draft had changes. A run of what was newest is
+     * not made old by the workflow being edited afterwards.
+     */
     @Test
-    fun `a run of a version since edited or replaced says so`() {
-        val id = start().id
-        fun version() = graphQlTester.document(
-            """query { execution(id: $id) { version { draft current editedSince publicationId } } }""",
-        ).execute()
+    fun `a run is older only if the draft was ahead when it started`() {
+        val first = start().id
+        fun behind(id: Any) = graphQlTester.document(
+            """query { execution(id: $id) { version { draft editedSince } } }""",
+        ).execute().path("execution.version.editedSince").entity(Boolean::class.java)
 
-        version().path("execution.version.draft").entity(Boolean::class.java).isEqualTo(false)
-            .path("execution.version.current").entity(Boolean::class.java).isEqualTo(true)
-            .path("execution.version.editedSince").entity(Boolean::class.java).isEqualTo(false)
+        behind(first).isEqualTo(false)
 
         graphQlTester.document(
             """
@@ -360,12 +362,11 @@ class ExecutionAPITest(
             }
             """,
         ).execute()
-        version().path("execution.version.editedSince").entity(Boolean::class.java).isEqualTo(true)
 
-        graphQlTester.document("""mutation { publishWorkflow(workspaceId: $workspaceId, workflowId: $workflowId) { status } }""")
-            .execute()
-        version().path("execution.version.current").entity(Boolean::class.java).isEqualTo(false)
-            .path("execution.version.editedSince").entity(Boolean::class.java).isEqualTo(false)
+        // Edited after it ran: still the newest at the time, so not an older version.
+        behind(first).isEqualTo(false)
+        // Run now, with the draft ahead of what is published: an older version.
+        behind(start().id).isEqualTo(true)
     }
 
     @Test

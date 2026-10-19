@@ -174,18 +174,16 @@ class WorkflowExecutionAPI(
         val draft = run.ranDraft ?: return null
         if (draft) return RanVersionView(draft = true)
         val ran = run.publicationId?.let { publications.findByIdOrNull(it) }
-        val newest = publications.findFirstByWorkflowIdOrderByIdDesc(run.workflowId)
-        val current = ran != null && newest?.id == ran.id
-        val edited = current && workflows.findByIdOrNull(run.workflowId)?.status == WorkflowStatus.DRAFT
+        // Older at the time it ran, and only then: a run of what was newest is not
+        // made old by the workflow being edited or published again afterwards.
+        val behind = run.ranBehindDraft == true
         return RanVersionView(
             draft = false,
             publicationId = run.publicationId,
             publishedAt = ran?.publishedAt?.format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME),
             publishedBy = ran?.publishedBy,
-            current = current,
-            editedSince = edited,
-            newestPublishedAt = newest?.takeIf { !current }?.publishedAt
-                ?.format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+            current = !behind,
+            editedSince = behind,
         )
     }
 
@@ -564,10 +562,9 @@ data class RunDetailView(
 }
 
 /**
- * Which copy of its workflow a run ran. [current] false is a publication that
- * has been replaced since (or one no longer kept); [editedSince] is the newest
- * publication with a draft that has moved on from it - either way the run did
- * not run what the editor now shows.
+ * Which copy of its workflow a run ran, as it stood when the run started.
+ * [editedSince] (and [current] false) is a publication run while the draft had
+ * unpublished changes: an older version than the one being edited then.
  */
 data class RanVersionView(
     val draft: Boolean,

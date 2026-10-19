@@ -160,6 +160,15 @@ class WorkflowExecution(
     @Column(name = "publication_id")
     var publicationId: Long? = null,
 
+    /**
+     * Whether, when it started, the draft had changes the publication it ran
+     * did not - so it ran an older version than the one being edited. Decided
+     * then rather than read against the workflow now: a run of what was newest
+     * at the time is not an old run because the workflow moved on afterwards.
+     */
+    @Column(name = "ran_behind_draft")
+    var ranBehindDraft: Boolean? = null,
+
     /** Why the run stopped, when it stopped badly. */
     @Column(length = 1000)
     var error: String? = null,

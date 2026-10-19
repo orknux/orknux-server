@@ -5921,9 +5921,9 @@ type RanVersion {
     publicationId: ID
     publishedAt: String
     publishedBy: String
-    "False when the publication it ran has been replaced since."
+    "False when, as it started, the draft had changes the publication it ran did not."
     current: Boolean!
-    "True when it ran the newest publication and the draft has changed since."
+    "True when, as it started, the draft had changes the publication it ran did not."
     editedSince: Boolean!
     "When the publication that replaced it was made."
     newestPublishedAt: String

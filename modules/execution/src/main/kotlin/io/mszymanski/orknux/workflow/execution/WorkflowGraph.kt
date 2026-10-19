@@ -225,6 +225,8 @@ data class WorkflowGraph(
     val edges: List<GraphEdge>,
     /** The publication this graph is, or null for the draft. Kept on the run, so it can say which version it ran. */
     val publicationId: Long? = null,
+    /** A publication run while the draft had changes nobody had published: an older version than the one being edited. */
+    val draftAhead: Boolean = false,
 )
 
 /**
