@@ -61,6 +61,7 @@ class WorkflowBuildTools(
     @param:Lazy private val conditionApi: ConditionAPI,
     @param:Lazy private val graphQl: GraphQlSource,
     private val web: WebProperties,
+    private val address: io.mszymanski.orknux.server.security.InstallationAddress,
     private val mapper: ObjectMapper,
 ) {
 
@@ -400,7 +401,7 @@ class WorkflowBuildTools(
             .filterValues { it != null }
 
     private fun workflowLink(scope: OrknuxScope, id: Long?): String =
-        web.allowedOrigins.firstOrNull()?.trimEnd('/').orEmpty() + "/workspace/${scope.workspaceId}/workflows/$id/editor"
+        address.base().ifEmpty { web.allowedOrigins.firstOrNull()?.trimEnd('/').orEmpty() } + "/workspace/${scope.workspaceId}/workflows/$id/editor"
 
     private fun text(arguments: String, name: String): String? = runCatching {
         mapper.readTree(arguments).path(name).let { if (it.isNumber) it.asText() else it.stringValue() }?.takeIf { it.isNotBlank() }

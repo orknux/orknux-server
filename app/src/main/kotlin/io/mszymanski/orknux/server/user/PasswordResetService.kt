@@ -5,7 +5,6 @@ import io.mszymanski.orknux.connector.connection.MailMessage
 import io.mszymanski.orknux.server.mail.InstallationMail
 import io.mszymanski.orknux.server.security.SignInThrottle
 import io.mszymanski.orknux.server.security.SignInThrottleProperties
-import io.mszymanski.orknux.server.security.WebProperties
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.context.properties.ConfigurationProperties
@@ -147,7 +146,7 @@ class PasswordResetService(
     private val resets: PasswordResetRepository,
     private val encoder: PasswordEncoder,
     private val mail: InstallationMail,
-    private val web: WebProperties,
+    private val address: io.mszymanski.orknux.server.security.InstallationAddress,
     private val properties: PasswordResetProperties,
     private val sessions: JdbcIndexedSessionRepository,
     @Qualifier("passwordResetThrottle") private val throttle: SignInThrottle,
@@ -334,7 +333,7 @@ class PasswordResetService(
      * than no mail at all.
      */
     private fun link(secret: String): String? {
-        val base = web.baseUrl.trim().trimEnd('/').ifEmpty { return null }
+        val base = address.base().ifEmpty { return null }
         return "$base/reset-password?token=$secret"
     }
 

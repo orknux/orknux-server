@@ -36,7 +36,7 @@ import java.util.Base64
 class TaskPictures(
     private val workspaces: WorkspaceRepository,
     /** Where this installation is; see [base]. */
-    private val web: io.mszymanski.orknux.server.security.WebProperties,
+    private val address: io.mszymanski.orknux.server.security.InstallationAddress,
     private val drawing: ModelImageClient,
     private val pictures: TaskPictureRepository,
     private val store: AttachmentStore,
@@ -175,7 +175,7 @@ class TaskPictures(
      * nowhere.
      */
     private fun base(): String =
-        web.baseUrl.trim().trimEnd('/').ifEmpty { "http://localhost:5173" }
+        address.base().ifEmpty { "http://localhost:5173" }
 
     /**
      * The outcome as a task's outcome actually is: what the agent said, and

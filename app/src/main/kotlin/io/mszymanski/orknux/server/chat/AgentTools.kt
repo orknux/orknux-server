@@ -35,7 +35,7 @@ import tools.jackson.databind.ObjectMapper
 @Service
 class AgentTools(
     /** Where this installation is, for the one answer that carries a link. */
-    private val web: io.mszymanski.orknux.server.security.WebProperties,
+    private val address: io.mszymanski.orknux.server.security.InstallationAddress,
     private val skills: SkillTool,
     /** Whether a document is the thing it claims to be. Issue #416. */
     private val validator: FormatValidator,
@@ -643,7 +643,7 @@ class AgentTools(
      * is punctuation.
      */
     private fun base(): String =
-        web.baseUrl.trim().trimEnd('/').ifEmpty { "http://localhost:5173" }
+        address.base().ifEmpty { "http://localhost:5173" }
 
     private fun argument(call: ToolCall, name: String): String? = runCatching {
         mapper.readTree(call.arguments).path(name).stringValue()?.takeIf { it.isNotBlank() }

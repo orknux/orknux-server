@@ -19,7 +19,6 @@ import io.mszymanski.orknux.orkbox.model.Source
 import io.mszymanski.orknux.orkbox.model.UpdateSessionRequest
 import io.mszymanski.orknux.server.agent.Agent
 import io.mszymanski.orknux.server.llm.LlmSessionStore
-import io.mszymanski.orknux.server.security.WebProperties
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
 import io.mszymanski.orknux.workflow.script.StoredKind
@@ -73,7 +72,7 @@ class BoxTools(
     private val auditRecorder: WorkspaceAuditRecorder,
     private val mapper: ObjectMapper,
     private val sessionLog: BoxSessionLog,
-    private val web: WebProperties,
+    private val address: io.mszymanski.orknux.server.security.InstallationAddress,
     private val history: BoxEditHistory,
     /** Masks what a session given secrets prints; see [BoxSecrets]. */
     private val secrets: BoxSecrets,
@@ -1036,7 +1035,7 @@ class BoxTools(
      * model that pastes it somewhere with no address of its own.
      */
     private fun linkOf(row: BoxSession): String =
-        web.baseUrl.trim().trimEnd('/').ifEmpty { "http://localhost:5173" } +
+        address.base().ifEmpty { "http://localhost:5173" } +
             "/workspace/${row.workspaceId}/sessions/${row.llmSessionId}?box=${row.id}"
 
     private fun executed(row: BoxSession, ran: ExecutionDto): Map<String, Any?> = buildMap {

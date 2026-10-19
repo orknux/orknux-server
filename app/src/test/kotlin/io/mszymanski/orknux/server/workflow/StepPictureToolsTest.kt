@@ -57,7 +57,7 @@ class StepPictureToolsTest {
      * lands. Named here rather than left at the default so the assertions say
      * which half of the address they are about.
      */
-    private val web = io.mszymanski.orknux.server.security.WebProperties(baseUrl = "https://orknux.example")
+    private val web = io.mszymanski.orknux.server.security.InstallationAddress.fixed("https://orknux.example")
 
     private val mapper = ObjectMapper()
 
@@ -526,7 +526,7 @@ class StepPictureToolsTest {
     fun `a blank base url still produces a link, not a path`() {
         val unsaid = StepPictures(
             workspaces,
-            io.mszymanski.orknux.server.security.WebProperties(baseUrl = ""),
+            io.mszymanski.orknux.server.security.InstallationAddress.fixed(""),
             drawing,
             pictures,
             store,
@@ -541,7 +541,7 @@ class StepPictureToolsTest {
     fun `a base url is joined once`() {
         val trailing = StepPictures(
             workspaces,
-            io.mszymanski.orknux.server.security.WebProperties(baseUrl = "https://orknux.example/"),
+            io.mszymanski.orknux.server.security.InstallationAddress.fixed("https://orknux.example/"),
             drawing,
             pictures,
             store,

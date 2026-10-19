@@ -33,7 +33,7 @@ import java.util.Base64
 class StepPictures(
     private val workspaces: WorkspaceRepository,
     /** Where this installation is; see [base]. */
-    private val web: io.mszymanski.orknux.server.security.WebProperties,
+    private val address: io.mszymanski.orknux.server.security.InstallationAddress,
     private val drawing: ModelImageClient,
     private val pictures: ExecutionPictureRepository,
     private val store: AttachmentStore,
@@ -182,7 +182,7 @@ class StepPictures(
      * nowhere.
      */
     private fun base(): String =
-        web.baseUrl.trim().trimEnd('/').ifEmpty { "http://localhost:5173" }
+        address.base().ifEmpty { "http://localhost:5173" }
 
     /**
      * As much of the description as belongs in one image's alt text.

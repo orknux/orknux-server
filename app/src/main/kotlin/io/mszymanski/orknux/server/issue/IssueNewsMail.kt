@@ -3,7 +3,6 @@ package io.mszymanski.orknux.server.issue
 import io.mszymanski.orknux.connector.connection.MailDelivery
 import io.mszymanski.orknux.connector.connection.MailMessage
 import io.mszymanski.orknux.server.mail.InstallationMail
-import io.mszymanski.orknux.server.security.WebProperties
 import io.mszymanski.orknux.server.user.AppUserRepository
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import org.slf4j.LoggerFactory
@@ -78,7 +77,7 @@ class IssueNewsMailer(
     private val users: AppUserRepository,
     private val workspaces: WorkspaceRepository,
     private val mail: InstallationMail,
-    private val web: WebProperties,
+    private val address: io.mszymanski.orknux.server.security.InstallationAddress,
     @Qualifier("issueNewsPost") private val mailer: Executor,
     /** Only to say what a status a subject line names means in that workspace. */
     private val statuses: IssueStatusCatalogue,
@@ -118,7 +117,7 @@ class IssueNewsMailer(
             if (saidAboutTheBaseUrl.compareAndSet(false, true)) {
                 log.warn(
                     "Issue notifications cannot be mailed because ORKNUX_BASE_URL " +
-                        "(orknux.web.base-url) is empty, so there is no address to build a link " +
+                        "(Admin Settings -> Address, or orknux.web.base-url) is empty, so there is no address to build a link " +
                         "from. Said once.",
                 )
             }
@@ -322,7 +321,7 @@ class IssueNewsMailer(
         ?.let { "${base()}/workspace/${item.workspaceId}/tasks/$it" }
         ?: "${base()}/workspace/${item.workspaceId}/issues/${item.issueNumber}"
 
-    private fun base(): String? = web.baseUrl.trim().trimEnd('/').ifEmpty { null }
+    private fun base(): String? = address.base().ifEmpty { null }
 
     private fun shortened(text: String, longest: Int): String =
         if (text.length <= longest) text else text.take(longest - 1).trimEnd() + "…"

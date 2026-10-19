@@ -204,6 +204,7 @@ class OrknuxTools(
     private val access: io.mszymanski.orknux.server.security.WorkspaceAccess,
     private val newsTools: NewsTools,
     private val web: WebProperties,
+    private val address: io.mszymanski.orknux.server.security.InstallationAddress,
     private val mapper: ObjectMapper,
     /**
      * The browser's door to an agent, walked through by orknux_create_agent and
@@ -246,7 +247,7 @@ class OrknuxTools(
      */
     private fun link(path: String): String =
         io.mszymanski.orknux.server.chat.LinkTools.absolute(
-            web.baseUrl.trim().trimEnd('/').ifEmpty { web.allowedOrigins.firstOrNull()?.trimEnd('/').orEmpty() },
+            address.base().ifEmpty { web.allowedOrigins.firstOrNull()?.trimEnd('/').orEmpty() },
             path,
         )
 

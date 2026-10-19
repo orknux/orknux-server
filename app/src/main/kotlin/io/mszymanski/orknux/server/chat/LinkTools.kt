@@ -3,7 +3,6 @@ package io.mszymanski.orknux.server.chat
 import io.mszymanski.orknux.connector.model.ToolCall
 import io.mszymanski.orknux.connector.model.ToolParameterSpec
 import io.mszymanski.orknux.connector.model.ToolSpec
-import io.mszymanski.orknux.server.security.WebProperties
 import org.springframework.stereotype.Service
 import tools.jackson.databind.ObjectMapper
 
@@ -14,7 +13,7 @@ import tools.jackson.databind.ObjectMapper
  * hands back its address as a path, `/workspace/9/tasks/28`, because that is
  * what the browser follows. Pasted into Slack or a mail by a model, a path has
  * no host behind it and reads as punctuation. This answers the host the
- * installation is reached at - [WebProperties.baseUrl], the same one its mails
+ * installation is reached at - [io.mszymanski.orknux.server.security.InstallationAddress], the same one its mails
  * link from - and turns a path into the absolute link to put in front of a
  * person.
  *
@@ -22,7 +21,7 @@ import tools.jackson.databind.ObjectMapper
  */
 @Service
 class LinkTools(
-    private val web: WebProperties,
+    private val address: io.mszymanski.orknux.server.security.InstallationAddress,
     private val mapper: ObjectMapper,
 ) {
 
@@ -57,7 +56,7 @@ class LinkTools(
     }
 
     /** The configured host, without a trailing slash; the development address where none is set, as links elsewhere fall back. */
-    private fun base(): String = web.baseUrl.trim().trimEnd('/').ifEmpty { "http://localhost:5173" }
+    private fun base(): String = address.base().ifEmpty { "http://localhost:5173" }
 
     companion object {
         const val LINK = "app_link"

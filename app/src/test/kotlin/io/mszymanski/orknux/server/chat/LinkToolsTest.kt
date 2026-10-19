@@ -1,7 +1,7 @@
 package io.mszymanski.orknux.server.chat
 
 import io.mszymanski.orknux.connector.model.ToolCall
-import io.mszymanski.orknux.server.security.WebProperties
+import io.mszymanski.orknux.server.security.InstallationAddress
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import tools.jackson.databind.json.JsonMapper
@@ -10,7 +10,7 @@ import tools.jackson.databind.json.JsonMapper
 class LinkToolsTest {
 
     private val mapper = JsonMapper.builder().build()
-    private val shed = LinkTools(WebProperties(baseUrl = "https://orknux.example.com/"), mapper).shed()
+    private val shed = LinkTools(InstallationAddress.fixed("https://orknux.example.com/"), mapper).shed()
 
     private fun call(arguments: String) = mapper.readTree(shed.run(ToolCall(id = "1", name = LinkTools.LINK, arguments = arguments)))
 

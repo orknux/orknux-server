@@ -53,6 +53,7 @@ class NewsTools(
     private val desk: IssueNewsDesk,
     private val agents: AgentRepository,
     private val web: WebProperties,
+    private val address: io.mszymanski.orknux.server.security.InstallationAddress,
     private val mapper: ObjectMapper,
 ) : DisposableBean {
 
@@ -229,7 +230,7 @@ class NewsTools(
 
     /** Where to look, which depends on which of the two subjects this is about. */
     private fun link(item: IssueNewsItem): String {
-        val base = web.allowedOrigins.firstOrNull()?.trimEnd('/').orEmpty()
+        val base = address.base().ifEmpty { web.allowedOrigins.firstOrNull()?.trimEnd('/').orEmpty() }
         return item.taskId
             ?.let { "$base/workspace/${item.workspaceId}/tasks/$it" }
             ?: "$base/workspace/${item.workspaceId}/issues/${item.issueNumber}"

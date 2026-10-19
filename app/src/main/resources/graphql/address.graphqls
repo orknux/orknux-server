@@ -1,0 +1,22 @@
+# Where this installation is reached from: what the links it writes into mails,
+# agents' answers and app_link are built on. Admin -> Settings -> Address sets
+# it; ORKNUX_BASE_URL is what it falls back to.
+
+extend type Query {
+    "The installation's address. Administrators only."
+    installationAddress: InstallationAddress!
+}
+
+extend type Mutation {
+    "Sets the installation's address, an absolute http or https URL; blank goes back to ORKNUX_BASE_URL. Administrators only."
+    setInstallationAddress(url: String): InstallationAddress!
+}
+
+type InstallationAddress {
+    "The address links are built on now; empty where none is set anywhere."
+    url: String!
+    "What Admin Settings set, or null where ORKNUX_BASE_URL rules."
+    stored: String
+    "ORKNUX_BASE_URL."
+    configured: String!
+}

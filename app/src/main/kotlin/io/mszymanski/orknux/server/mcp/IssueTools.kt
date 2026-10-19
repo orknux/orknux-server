@@ -78,6 +78,7 @@ class IssueTools(
     private val relations: IssueRelationRepository,
     private val models: ModelService,
     private val web: WebProperties,
+    private val address: io.mszymanski.orknux.server.security.InstallationAddress,
     private val mapper: ObjectMapper,
     /** What this workspace's statuses are, and which one a model meant. */
     private val statuses: IssueStatusCatalogue,
@@ -106,7 +107,7 @@ class IssueTools(
 
     /** Where an issue can be opened, sent back with the issue itself. */
     private fun issueLink(workspaceId: Long, number: Int): String {
-        val base = web.allowedOrigins.firstOrNull()?.trimEnd('/').orEmpty()
+        val base = address.base().ifEmpty { web.allowedOrigins.firstOrNull()?.trimEnd('/').orEmpty() }
         return "$base/workspace/$workspaceId/issues/$number"
     }
 
