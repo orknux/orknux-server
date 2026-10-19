@@ -95,7 +95,7 @@ class WorkflowBuildToolsTest(
         assertThat(saved.has("error")).describedAs(saved.toString()).isFalse()
         assertThat(listed(saved.path("nodes"), "key")).containsExactly("start", "fetch")
         // Laid out left to right where no position was given.
-        assertThat((0 until saved.path("nodes").size()).map { saved.path("nodes").get(it).path("x").asDouble() }).containsExactly(0.0, 280.0)
+        assertThat((0 until saved.path("nodes").size()).map { saved.path("nodes").get(it).path("x").asDouble() }).containsExactly(0.0, 380.0)
         assertThat(listed(saved.path("edges"), "target")).containsExactly("fetch")
 
         val published = call("orknux_publish_workflow", """{"workflow":"$workflowId"}""")
@@ -107,6 +107,26 @@ class WorkflowBuildToolsTest(
         // Under the agent's own name, there being nobody signed in to name.
         assertThat(audit.findAll().filter { it.message == "Workflow Nightly report created" }.map { it.userId })
             .containsExactly("Builder")
+    }
+
+    /**
+     * A model places nodes as points and a card is 260 pixels wide: positions
+     * that put two cards on each other are laid out instead, and ones that do
+     * not are kept.
+     */
+    @Test
+    fun `overlapping positions are laid out, apart ones are kept`() {
+        call("orknux_create_workflow", """{"name":"Piled up"}""")
+        fun xs(saved: JsonNode) = (0 until saved.path("nodes").size()).map { saved.path("nodes").get(it).path("x").asDouble() }
+        fun save(ax: Int, bx: Int) = call(
+            "orknux_save_workflow_graph",
+            """{"workflow":"Piled up","overwrite_draft":true,
+               "nodes":[{"key":"a","kind":"OBJECT","name":"A","x":$ax,"y":0},{"key":"b","kind":"OBJECT","name":"B","x":$bx,"y":0}],
+               "edges":[{"source":"a","target":"b"}]}""",
+        )
+
+        assertThat(xs(save(0, 100))).containsExactly(0.0, 380.0)
+        assertThat(xs(save(0, 500))).containsExactly(0.0, 500.0)
     }
 
     @Test

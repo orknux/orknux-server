@@ -23,6 +23,7 @@ import io.mszymanski.orknux.server.workflow.WorkflowGraphInput
 import io.mszymanski.orknux.server.workflow.WorkflowGraphView
 import io.mszymanski.orknux.server.workflow.WorkflowStatus
 import io.mszymanski.orknux.server.workflow.WorkspaceWorkflowRepository
+import kotlin.math.abs
 import org.springframework.context.annotation.Lazy
 import org.springframework.core.ResolvableType
 import org.springframework.data.domain.PageRequest
@@ -122,8 +123,8 @@ class WorkflowBuildTools(
                 name = "orknux_save_workflow_graph",
                 description =
                     "Saves a workflow's whole graph, replacing what is drawn: the nodes and the edges between " +
-                        "them, as orknux_workflow_reference part graph describes them. Positions are optional " +
-                        "and laid out left to right when left out. A graph that could never run is refused with " +
+                        "them, as orknux_workflow_reference part graph describes them. Leave x and y out: the " +
+                        "graph is laid out left to right, and given positions that overlap are laid out anyway. A graph that could never run is refused with " +
                         "the reason; anything else is saved and answered with the problems still in it, which " +
                         "you should fix and save again. Saving puts a published workflow back into draft until " +
                         "it is published again.",
@@ -239,11 +240,31 @@ class WorkflowBuildTools(
     }
 
     /**
-     * Positions for the nodes that came without one, so the editor opens on a
-     * drawing rather than a pile: a column per step from the start, a row per
-     * node in its column. A node that was given a position keeps it.
+     * Positions for the nodes, so the editor opens on a drawing rather than a
+     * pile: a column per step from the start, a row per node in its column.
+     *
+     * Positions a model gave are kept only while no two of them collide. A
+     * model places nodes as if they were points, a node is 260 pixels of card,
+     * and a graph saved with its nodes touching came back as cards on top of
+     * each other with the edges hidden underneath - so one collision and the
+     * whole graph is laid out, rather than one node moved into another's place.
      */
     private fun laidOut(nodes: List<Map<String, Any?>>, edges: List<Map<String, Any?>>): List<Map<String, Any?>> {
+        val placed = nodes.mapNotNull { node ->
+            val x = (node["x"] as? Number)?.toDouble() ?: node["x"]?.toString()?.toDoubleOrNull()
+            val y = (node["y"] as? Number)?.toDouble() ?: node["y"]?.toString()?.toDoubleOrNull()
+            if (x == null || y == null) null else x to y
+        }
+        val collide = placed.indices.any { i ->
+            (i + 1 until placed.size).any { j ->
+                abs(placed[i].first - placed[j].first) < CARD_WIDTH && abs(placed[i].second - placed[j].second) < CARD_HEIGHT
+            }
+        }
+        val asGiven = if (collide) nodes.map { it - "x" - "y" } else nodes
+        return laidOutWhereMissing(asGiven, edges)
+    }
+
+    private fun laidOutWhereMissing(nodes: List<Map<String, Any?>>, edges: List<Map<String, Any?>>): List<Map<String, Any?>> {
         val keys = nodes.mapNotNull { it["key"]?.toString() }
         val into = edges.groupBy({ it["target"]?.toString() }, { it["source"]?.toString() })
         val depth = mutableMapOf<String, Int>()
@@ -394,7 +415,12 @@ class WorkflowBuildTools(
             "orknux_create_trigger", "orknux_create_action", "orknux_create_condition",
         )
         const val MANY = 500
-        const val COLUMN = 280
-        const val ROW = 160
+        /** A column apart: a card is up to 260 wide, and the edge between two needs room to be seen. */
+        const val COLUMN = 380
+        const val ROW = 200
+
+        /** Two given positions closer than this, both ways, put one card on another. */
+        const val CARD_WIDTH = 280.0
+        const val CARD_HEIGHT = 120.0
     }
 }
