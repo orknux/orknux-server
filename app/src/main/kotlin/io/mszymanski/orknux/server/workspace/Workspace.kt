@@ -179,11 +179,13 @@ class Workspace(
      * Whether this workspace's chats show when each message was sent.
      *
      * The time has been stored all along; this decides whether it is drawn.
-     * Off by default because a visual change to every chat is not something an
-     * upgrade should decide. Issue #323.
+     * On by default: it started off, on the grounds that an upgrade should not
+     * change every chat, and was asked for on - when something was said is
+     * what a conversation read back is most often missing. V392 turned it on
+     * for the workspaces that had it off by that default. Issue #323.
      */
     @Column(name = "chat_show_timestamps", nullable = false)
-    var chatShowTimestamps: Boolean = false,
+    var chatShowTimestamps: Boolean = true,
 
     /**
      * Whether this workspace's chats hide the voice mode button. Off by
