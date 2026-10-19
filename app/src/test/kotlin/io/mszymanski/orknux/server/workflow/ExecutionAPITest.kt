@@ -306,6 +306,35 @@ class ExecutionAPITest(
      * what the runs name. A workflow with no runs belongs to the workflows
      * screen, and the executions filter goes on offering those separately.
      */
+    /**
+     * A run is drawn with the graph it ran. Its edges were read off the workflow
+     * as it is now, so a run of the published version showed the wiring of a
+     * draft edited since.
+     */
+    @Test
+    fun `a run keeps the edges it was planned with, whatever the workflow became`() {
+        val id = start().id
+
+        graphQlTester.document(
+            """
+            mutation {
+              saveWorkflowGraph(workspaceId: $workspaceId, workflowId: $workflowId, input: {
+                nodes: [
+                  { key: "trigger", kind: TRIGGER, name: "Webhook Trigger", x: 0, y: 0 },
+                  { key: "fetch", kind: AGENT, name: "Fetch Data", x: 200, y: 0 },
+                  { key: "store", kind: AGENT, name: "Store", x: 400, y: 0 }
+                ],
+                edges: [{ source: "trigger", target: "store" }, { source: "store", target: "fetch" }]
+              }) { status }
+            }
+            """,
+        ).execute()
+
+        graphQlTester.document("""query { execution(id: $id) { edges { source target } } }""").execute()
+            .path("execution.edges[*].target").entityList(String::class.java).containsExactly("fetch")
+            .path("execution.edges[*].source").entityList(String::class.java).containsExactly("trigger")
+    }
+
     @Test
     fun `a workflow with no runs is not offered by the executions filter`() {
         graphQlTester.document("""query { executionWorkflows(workspaceId: $workspaceId) { workflowId } }""")

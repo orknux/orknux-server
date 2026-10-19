@@ -420,6 +420,8 @@ data class ExecutionDetailView(
     val logs: List<ExecutionLogLineView>,
     /** The trigger definition that fired this run, where one did. */
     val firedTriggerId: Long? = null,
+    /** The edges it was planned with, as JSON; null on a run from before they were kept. */
+    val plannedEdges: String? = null,
 ) {
     constructor(execution: WorkflowExecution, steps: List<ExecutionStep>, logs: List<ExecutionLog>) : this(
         id = requireNotNull(execution.id),
@@ -439,6 +441,7 @@ data class ExecutionDetailView(
         steps = steps.map(::ExecutionStepView),
         logs = logs.map(::ExecutionLogLineView),
         firedTriggerId = execution.firedTriggerId,
+        plannedEdges = execution.plannedEdges,
     )
 }
 

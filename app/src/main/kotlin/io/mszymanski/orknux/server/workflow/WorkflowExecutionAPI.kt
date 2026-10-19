@@ -35,6 +35,7 @@ import org.springframework.stereotype.Controller
 class WorkflowExecutionAPI(
     private val runs: ExecutionService,
     private val edges: WorkflowEdgeRepository,
+    private val mapper: tools.jackson.databind.ObjectMapper,
     private val assignments: WorkspaceWorkflowRepository,
     private val workspaces: WorkspaceRepository,
     private val access: WorkspaceAccess,
@@ -147,7 +148,7 @@ class WorkflowExecutionAPI(
         val run = runs.execution(id)?.takeIf { access.canSee(it.workspaceId) } ?: return null
         return RunDetailView(
             run,
-            edgesOf(run.workflowId),
+            edgesOf(run),
             temporal.forExecution(run.id),
             assignments.existsByWorkspaceIdAndWorkflowId(run.workspaceId, run.workflowId),
             picturesOf(run.id),
@@ -302,7 +303,7 @@ class WorkflowExecutionAPI(
     private fun startedView(started: ExecutionDetailView): RunDetailView =
         RunDetailView(
             started,
-            edgesOf(started.workflowId),
+            edgesOf(started),
             temporal.forExecution(started.id),
             assignments.existsByWorkspaceIdAndWorkflowId(started.workspaceId, started.workflowId),
             picturesOf(started.id),
@@ -310,11 +311,28 @@ class WorkflowExecutionAPI(
         )
 
     /**
-     * A run keeps its own copy of the nodes it ran, but not of the edges between
-     * them, so the shape of the graph is read from the definition here.
+     * The edges the run was planned with - the graph it ran, beside the copy of
+     * its nodes it keeps. Read off the workflow as it is now, an old run was
+     * drawn with today's wiring: a version published since, or a draft being
+     * edited, showed on a run that never had it. A run from before the edges
+     * were kept has only the definition to be drawn from.
      */
-    private fun edgesOf(workflowId: Long): List<WorkflowEdgeView> =
-        edges.findByWorkflowId(workflowId).map(::WorkflowEdgeView)
+    private fun edgesOf(run: ExecutionDetailView): List<WorkflowEdgeView> {
+        val kept = run.plannedEdges?.let { runCatching { mapper.readTree(it) }.getOrNull() }
+            ?: return edges.findByWorkflowId(run.workflowId).map(::WorkflowEdgeView)
+        // Read field by field: the app's mapper does not bind a Kotlin constructor.
+        return kept.toList().mapNotNull { edge: tools.jackson.databind.JsonNode ->
+            val source = edge.path("source").takeIf { it.isString }?.stringValue() ?: return@mapNotNull null
+            val target = edge.path("target").takeIf { it.isString }?.stringValue() ?: return@mapNotNull null
+            WorkflowEdgeView(
+                source = source,
+                target = target,
+                branch = edge.path("branch").takeIf { it.isString }?.stringValue()
+                    ?.let { name -> EdgeBranch.entries.firstOrNull { it.name == name } },
+                option = edge.path("option").takeIf { it.isString }?.stringValue(),
+            )
+        }
+    }
 
     /** The workflow definitions this workspace lists, as one set for a page of rows. */
     private fun assignedIn(workspaceId: Long): Set<Long> =

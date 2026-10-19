@@ -139,6 +139,15 @@ class WorkflowExecution(
     @Column(columnDefinition = "text")
     var carried: String? = null,
 
+    /**
+     * The edges this run was planned with, as JSON - the graph it ran, which a
+     * later edit of the workflow does not change. A run kept its own copy of
+     * its nodes and read its edges off the workflow as it is now, so an old run
+     * was drawn with today's wiring. Null on runs from before it was kept.
+     */
+    @Column(name = "planned_edges", columnDefinition = "text")
+    var plannedEdges: String? = null,
+
     /** Why the run stopped, when it stopped badly. */
     @Column(length = 1000)
     var error: String? = null,
