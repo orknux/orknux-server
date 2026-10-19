@@ -369,6 +369,33 @@ class ExecutionAPITest(
         behind(start().id).isEqualTo(true)
     }
 
+    /** A step's parameters are shown as it was handed them: placeholders filled from what started the run. */
+    @Test
+    fun `a run shows what each step was handed for its parameters`() {
+        graphQlTester.document(
+            """
+            mutation {
+              saveWorkflowGraph(workspaceId: $workspaceId, workflowId: $workflowId, input: {
+                nodes: [
+                  { key: "trigger", kind: TRIGGER, name: "Webhook Trigger", x: 0, y: 0 },
+                  { key: "fetch", kind: AGENT, name: "Fetch Data", x: 200, y: 0,
+                    mappings: [{ name: "prompt", expression: "Look at order {{ trigger.order }}" }] }
+                ],
+                edges: [{ source: "trigger", target: "fetch" }]
+              }) { status }
+            }
+            """,
+        ).execute()
+        graphQlTester.document("""mutation { publishWorkflow(workspaceId: $workspaceId, workflowId: $workflowId) { status } }""").execute()
+        val id = runs.startExecution(
+            StartExecutionInput(workspaceId = workspaceId, workflowId = workflowId, trigger = ExecutionTrigger.WEBHOOK, payload = """{"order":"A-17"}"""),
+        ).id
+
+        graphQlTester.document("""query { execution(id: $id) { parameters { nodeKey name value expression } } }""").execute()
+            .path("execution.parameters[?(@.name == 'prompt')].value").entityList(String::class.java).containsExactly("Look at order A-17")
+            .path("execution.parameters[?(@.name == 'prompt')].nodeKey").entityList(String::class.java).containsExactly("fetch")
+    }
+
     @Test
     fun `a webhook run logs the payload it was sent`() {
         val run = runs.startExecution(

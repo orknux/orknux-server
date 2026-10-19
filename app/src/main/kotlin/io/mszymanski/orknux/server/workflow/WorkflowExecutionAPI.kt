@@ -51,6 +51,9 @@ class WorkflowExecutionAPI(
     /** Which version a run ran, said against the workflow as it is now. */
     private val publications: WorkflowPublicationRepository,
     private val workflows: WorkflowRepository,
+    /** What each step was told to pass, read back for the run page. */
+    private val stepRows: io.mszymanski.orknux.workflow.execution.ExecutionStepRepository,
+    private val expressions: NodeExpressions,
 ) {
 
     /**
@@ -160,7 +163,36 @@ class WorkflowExecutionAPI(
         ).copy(
             source = connectionFired(run.trigger, run.firedTriggerId)?.let { sourcesOf(listOf(it))[it] },
             version = versionOf(run),
+            parameters = parametersOf(run),
         )
+    }
+
+    /**
+     * What each step was handed for its parameters - an agent's prompt and
+     * system prompt, an action's arguments - worked out from what the step
+     * recorded receiving and what started the run, the way the step worked
+     * them out. A step keeps its input and its output and not these, so a run
+     * page showed an agent's input as the trigger's payload and its prompt
+     * nowhere.
+     *
+     * Workspace variables are left as written: one may be a secret, and a run
+     * page is no place to print it.
+     */
+    private fun parametersOf(run: ExecutionDetailView): List<StepParameterView> {
+        val trigger = expressions.parse(run.input)
+        return stepRows.findByExecutionIdOrderByOrderAsc(run.id).flatMap { step ->
+            val input = expressions.parse(step.input)
+            expressions.mappingsOf(step, withVariables = false).map { (name, binding) ->
+                val value = runCatching { expressions.textOf(binding, input, trigger) }.getOrDefault("")
+                StepParameterView(
+                    nodeKey = step.nodeKey,
+                    name = name,
+                    value = value.ifBlank { binding.expression },
+                    reference = binding.reference,
+                    expression = binding.expression,
+                )
+            }
+        }
     }
 
     /**
@@ -527,8 +559,10 @@ data class RunDetailView(
     val speeches: List<ExecutionSpeechView> = emptyList(),
     /** For a run an event on a connection started, which connection and event; null otherwise. */
     val source: ExecutionSourceView? = null,
-    /** Which version of the workflow it ran, against what the workflow is now; null on runs from before that was kept. */
+    /** Which version of the workflow it ran, as it started; null on runs from before that was kept. */
     val version: RanVersionView? = null,
+    /** What each step was handed for its parameters; see [WorkflowExecutionAPI.parametersOf]. */
+    val parameters: List<StepParameterView> = emptyList(),
 ) {
     constructor(
         run: ExecutionDetailView,
@@ -560,6 +594,16 @@ data class RunDetailView(
         speeches = speeches,
     )
 }
+
+/** One parameter of one step, as the step was handed it. */
+data class StepParameterView(
+    val nodeKey: String,
+    val name: String,
+    val value: String,
+    val reference: Boolean,
+    /** As written on the node: the text, or the field a reference reads. */
+    val expression: String,
+)
 
 /**
  * Which copy of its workflow a run ran, as it stood when the run started.

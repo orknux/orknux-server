@@ -5914,6 +5914,16 @@ type ExecutionLogLine {
     message: String!
 }
 
+"One parameter of one step of a run, as the step was handed it."
+type StepParameter {
+    nodeKey: String!
+    name: String!
+    value: String!
+    reference: Boolean!
+    "As written on the node: the text, or the field a reference reads."
+    expression: String!
+}
+
 "Which copy of its workflow a run ran."
 type RanVersion {
     "It ran the draft - a run somebody started by hand."
@@ -5975,6 +5985,8 @@ type ExecutionDetail {
     speeches: [ExecutionSpeech!]!
     "Which version of the workflow it ran, against the workflow now; null on runs from before that was kept."
     version: RanVersion
+    "What each step was handed for its parameters, worked out from what it received; workspace variables left as written."
+    parameters: [StepParameter!]!
 }
 
 "One thing a run said out loud, as the run graph plays it."

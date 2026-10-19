@@ -103,7 +103,7 @@ class NodeExpressions(
      * reference wrote a plain name-to-text map. Those are read as written
      * values, which is what they were.
      */
-    fun mappingsOf(step: ExecutionStep): Map<String, NodeBinding> = step.mappings
+    fun mappingsOf(step: ExecutionStep, withVariables: Boolean = true): Map<String, NodeBinding> = step.mappings
         ?.let { runCatching { mapper.readValue(it, Map::class.java) }.getOrNull() }
         ?.entries
         ?.mapNotNull { (name, held) ->
@@ -121,7 +121,7 @@ class NodeExpressions(
         }
         ?.toMap()
         .orEmpty()
-        .let { bindings -> variables?.resolved(step, bindings) ?: bindings }
+        .let { bindings -> if (withVariables) variables?.resolved(step, bindings) ?: bindings else bindings }
 
     /**
      * What a parameter comes to, as text.
