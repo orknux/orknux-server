@@ -623,15 +623,14 @@ class DesignImageAPITest(
         }
     }
 
+    /**
+     * An image model cannot harmonize: its edit endpoint takes no strength, so
+     * it redrew the whole picture rather than lightly - "add birds flying" put
+     * birds over all of it. Refused, saying where the light redraw is.
+     */
     @Test
-    fun `harmonizing with an image model is an edit of the whole picture, which takes no strength`() {
+    fun `harmonizing with an image model is refused, since it cannot redraw lightly`() {
         val editor = model("Editor", "IMAGE")
-        graphQlTester.document(
-            """query { designHarmonizeOptions(workspaceId: $workspaceId, modelId: $editor) { strengthTaken strength checkpoints } }""",
-        ).execute()
-            .path("designHarmonizeOptions.strengthTaken").entity(Boolean::class.java).isEqualTo(false)
-            .path("designHarmonizeOptions.checkpoints").entityList(String::class.java).hasSize(0)
-
         val white = png(2, 2) { _, _ -> WHITE }
         val source = images.save(
             DesignImage(
@@ -641,23 +640,13 @@ class DesignImageAPITest(
                 name = "Blank",
             ),
         )
-        val version = drawnPicture(
-            graphQlTester.document(
-                """mutation { queueDesignImageHarmonize(input: {
-                     workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", modelId: $editor, prompt: "A white square", strength: 0.4
-                   }) { id strength } }""",
-            ).execute()
-                .path("queueDesignImageHarmonize.strength").valueIsNull()
-                .path("queueDesignImageHarmonize.id").entity(String::class.java).get(),
-        )
-        // Through the standard edit interface, with a mask; no img2img.
-        assertThat(edited.single()).contains("A white square", "filename=\"image.png\"", "filename=\"mask.png\"")
+        graphQlTester.document(
+            """mutation { queueDesignImageHarmonize(input: {
+                 workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", modelId: $editor, prompt: "A white square"
+               }) { id } }""",
+        ).execute().errors().satisfy { assertThat(it.single().message).contains("Stable Diffusion WebUI") }
+        assertThat(edited).isEmpty()
         assertThat(harmonized).isEmpty()
-        // The mask covered everything, so nothing of the original is kept.
-        val kept = requireNotNull(images.findByIdOrNull(version.removePrefix("DESIGN-").toLong()))
-        assertThat(kept.versionOf).isEqualTo("DESIGN-${source.id}")
-        val result = javax.imageio.ImageIO.read(store.open(kept.location))
-        for (x in 0..1) for (y in 0..1) assertThat(result.getRGB(x, y)).isEqualTo(RED)
     }
 
     @Test

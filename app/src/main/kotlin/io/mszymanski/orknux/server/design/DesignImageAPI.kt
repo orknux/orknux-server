@@ -203,11 +203,12 @@ class DesignImageAPI(
      * The whole picture redrawn lightly, so the seams a Magic edit left become
      * one picture - a version of it, as an edit is.
      *
-     * Two roads, by the model chosen. An upscale model stands for its Stable
-     * Diffusion WebUI, which redraws by img2img at the strength asked. Any
-     * image model gets the standard `/images/edits` with a mask over the whole
-     * picture - which takes no strength, so none is sent rather than one that
-     * would be ignored.
+     * Only through a Stable Diffusion WebUI - an upscale model stands for it -
+     * which redraws by img2img at the strength asked. An image model was a
+     * second road, the standard `/images/edits` with a mask over the whole
+     * picture, and it is refused: that endpoint takes no strength, so it is not
+     * a light redraw but a whole one, and a prompt such as "add birds" put
+     * birds over all of it. The light redraw is the point of the tool.
      */
     @MutationMapping
     @Transactional
@@ -217,11 +218,14 @@ class DesignImageAPI(
         val modelId = input.modelId.toLong()
         val model = models.model(modelId)?.takeIf { it.workspaceId == workspaceId }
             ?: throw ModelNotFoundForWorkspaceException(modelId)
-        val webUi = when (model.kind) {
-            ModelKind.UPSCALE -> true
-            ModelKind.IMAGE -> false
+        when (model.kind) {
+            ModelKind.UPSCALE -> Unit
+            ModelKind.IMAGE -> throw DesignImageRefusedException(
+                "${model.name} redraws a picture whole. Harmonize redraws it lightly through a Stable Diffusion WebUI; choose one of its models.",
+            )
             else -> throw ModelNotImageException(model.name)
         }
+        val webUi = true
         val prompt = input.prompt.trim()
         if (prompt.isEmpty()) throw DesignImageRefusedException("Say what the picture is of.")
         val longest = settings.imageMaxPrompt()
@@ -237,16 +241,7 @@ class DesignImageAPI(
         }
         val source = artifacts.storedOf(workspaceId, input.imageId)
             ?: throw DesignImageRefusedException("The picture to harmonize is not here any more.")
-        val mask = if (webUi) {
-            null
-        } else {
-            val picture = runCatching { store.open(source.location).use { javax.imageio.ImageIO.read(it) } }.getOrNull()
-                ?: throw DesignImageRefusedException("The picture to harmonize could not be read.")
-            // Transparent everywhere: the edit's own way of saying change all of it.
-            val clear = java.awt.image.BufferedImage(picture.width, picture.height, java.awt.image.BufferedImage.TYPE_INT_ARGB)
-            val bytes = java.io.ByteArrayOutputStream().also { javax.imageio.ImageIO.write(clear, "png", it) }.toByteArray()
-            store.put(workspaceId, "mask.png", bytes)
-        }
+        val mask: String? = null
         val job = jobs.save(
             DesignImageJob(
                 workspaceId = workspaceId,
