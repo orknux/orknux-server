@@ -10,9 +10,10 @@ import tools.jackson.databind.ObjectMapper
  * What a node was told to pass on, and what that comes to once the run is
  * carrying something.
  *
- * A parameter is either a value, used exactly as written, or a reference to a
- * field the run is carrying. There is no substitution and no syntax: text that
- * looks like a placeholder is text.
+ * A parameter is either a value, used as written, or a reference to a field the
+ * run is carrying. A value may hold `{{field}}` placeholders, filled from what
+ * the run carries - see [Placeholders], and [GraphValidator] for why one that
+ * nothing will answer never reaches a run.
  *
  * There are two ways to want the answer, and the difference matters. An action
  * argument is JSON — a string argument has to arrive quoted, or the function
@@ -129,13 +130,12 @@ class NodeExpressions(
      * reference reads the field it names, out of what the run is carrying or out
      * of the event that started it.
      *
-     * There is no third thing. A value that happens to contain braces is a value
-     * containing braces, which is why the editor refuses to save one: text that
-     * looks like it should be substituted, and is not, is the failure that sent
-     * `{{llmResult}}` to Slack as those eleven characters.
+     * A value's `{{field}}` placeholders are filled in as it is read. One that
+     * nothing answers was refused on save, which is what keeps this from being
+     * the failure that sent `{{llmResult}}` to Slack as those eleven characters.
      */
     fun textOf(binding: NodeBinding, input: JsonNode?, trigger: JsonNode? = null): String {
-        if (!binding.reference) return binding.expression
+        if (!binding.reference) return filled(binding.expression, input, trigger)
 
         val (source, path) = read(binding.expression, input, trigger)
         val value = path.fold(source) { node, step -> node?.get(step) } ?: return ""
@@ -158,10 +158,21 @@ class NodeExpressions(
      * perfectly well see.
      */
     fun jsonOf(binding: NodeBinding, input: JsonNode?, trigger: JsonNode? = null): String {
-        if (!binding.reference) return written(binding)
+        if (!binding.reference) return written(binding.copy(expression = filled(binding.expression, input, trigger)))
 
         val (source, path) = read(binding.expression, input, trigger)
         return path.fold(source) { node, step -> node?.get(step) }?.toString() ?: "null"
+    }
+
+    /** A written value with its placeholders filled: a field's text as it is, anything else as its JSON. */
+    private fun filled(text: String, input: JsonNode?, trigger: JsonNode?): String = Placeholders.filled(text) { field ->
+        val (source, path) = read(field, input, trigger)
+        val value = path.fold(source) { node, step -> node?.get(step) }
+        when {
+            value == null || value.isNull || value.isMissingNode -> ""
+            value.isTextual -> value.stringValue()
+            else -> value.toString()
+        }
     }
 
     /** A written value, as what its field says it is - or as the text it is. */

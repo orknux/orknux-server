@@ -202,7 +202,14 @@ class WorkflowGraphAPI(
             )
         }
         val proposedEdges = input.edges.map { edgeOf(workflowId, it) }
-        val refusals = validator.problems(proposed, proposedEdges, hardOnly = true, workspaceId = workspaceId)
+        /*
+         * Placeholders are judged against the graph as it will be saved - with
+         * its triggers, actions and outputs - since what answers one is what the
+         * nodes produce, and the skeleton above knows none of that.
+         */
+        val built = shapedByTargets(input.nodes.map { nodeOf(workspaceId, workflowId, it, refusing = false) }, refusing = false)
+        val refusals = validator.problems(proposed, proposedEdges, hardOnly = true, workspaceId = workspaceId) +
+            validator.placeholderProblems(built)
         if (refusals.isNotEmpty()) throw GraphInvalidException(refusals)
 
         nodes.deleteByWorkflowId(workflowId)
@@ -736,22 +743,8 @@ class WorkflowGraphAPI(
             .toMutableList()
     }
 
-    /**
-     * A value is text, so text is all it may be.
-     *
-     * `{{something}}` in a value is somebody expecting a substitution that no
-     * longer happens — and the way it fails is silent: the braces are sent, into
-     * a Slack message or a channel name, and nothing reports a problem. Refused
-     * at the save, where the person who typed it is still looking, with the
-     * thing they should have used instead.
-     */
-    private fun requireNoPlaceholder(sent: NodeMappingInput) {
-        if (sent.mode == MappingMode.REFERENCE) return
-        if (PLACEHOLDER_IN_VALUE.containsMatchIn(sent.expression)) throw ValueHoldsPlaceholderException(sent.name)
-    }
-
+    // A value's {{field}} placeholders are checked by GraphValidator, which knows what the graph produces.
     private fun mappingOf(workspaceId: Long, sent: NodeMappingInput, refusing: Boolean): NodeMapping {
-        if (refusing) requireNoPlaceholder(sent)
         return NodeMapping(
         name = sent.name,
         expression = sent.expression,
@@ -1261,9 +1254,6 @@ class WorkflowGraphEmptyException : RuntimeException("Add at least one node befo
  */
 private val REFERENCEABLE = Regex("[A-Za-z_][A-Za-z0-9_]*")
 
-/** Braces in a value: the substitution somebody still expects and will not get. */
-private val PLACEHOLDER_IN_VALUE = Regex("""\{\{[^}]*\}\}""")
-
 /**
  * What a retry policy may be set to.
  *
@@ -1329,11 +1319,6 @@ class DecisionModelNotInWorkspaceException(val id: Long) :
     RuntimeException("Model $id is not one of this workspace's decision or chat models, so a decision node cannot ask it"), Refusal {
     override val arguments get() = mapOf("id" to id)
 }
-
-class ValueHoldsPlaceholderException(parameter: String) : RuntimeException(
-    "\"$parameter\" is a value holding {{...}}, which is sent as those characters. " +
-        "Switch it to a reference and pick the field instead.",
-)
 
 class OutputNameInvalidException(name: String) : RuntimeException(
     "\"$name\" cannot be referred to. An output name is letters, digits and underscores, " +

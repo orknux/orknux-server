@@ -349,8 +349,11 @@ class GraphValidator(
      * edge carries; the rest is inside it.
      */
     private fun reads(mappings: List<NodeMapping>): List<ActionParamView> = mappings
-        .filter { it.mode == MappingMode.REFERENCE }
-        .map { it.expression.trim().substringBefore('.') }
+        .flatMap { mapping ->
+            // A value's placeholders read the run as a reference does.
+            if (mapping.mode == MappingMode.REFERENCE) listOf(mapping.expression) else Placeholders.fieldsIn(mapping.expression)
+        }
+        .map { it.trim().substringBefore('.') }
         // Nor `variables.x`, which the workspace answers whatever reached the node.
         .filter { it.isNotEmpty() && it != TRIGGER && it != NodeExpressions.VARIABLES }
         .distinct()
@@ -546,6 +549,9 @@ class GraphValidator(
             }
 
         if (hardOnly) return problems
+
+        // Refused on save as well, from the built graph; said here so the editor shows it as it is typed.
+        problems += placeholderProblems(nodes)
 
         // --- What each node can see, followed along the edges ---
         val ports = nodes.associate { it.nodeKey to portsOf(it, nodes) }
@@ -855,6 +861,56 @@ class GraphValidator(
             .orEmpty()
 
         return (fromPayload + fromFiring + fromContract).distinctBy { it.name }
+    }
+
+    /**
+     * A value's placeholders that nothing will answer. Refused rather than
+     * warned about, and that is the whole condition placeholders came back on:
+     * a placeholder nothing fills is sent as its own braces, silently, which is
+     * how `{{llmResult}}` once reached Slack. The editor says the same as it is
+     * typed; this is the save's half.
+     *
+     * What answers one is what answers a reference: the event that started the
+     * run, or a field some node in the graph produces. A node that cannot say
+     * what it produces is given the benefit of the doubt, as a reference is.
+     */
+    fun placeholderProblems(nodes: List<WorkflowNode>): List<GraphProblem> {
+        val holding = nodes.filter { node -> node.mappings.any { it.mode != MappingMode.REFERENCE && Placeholders.mentions(it.expression) } }
+        if (holding.isEmpty()) return emptyList()
+        val ports = nodes.associate { it.nodeKey to portsOf(it, nodes) }
+        val triggers = nodes.filter { it.kind == NodeKind.TRIGGER }
+        val triggerFields = triggers.flatMap { ports.getValue(it.nodeKey).outputs.map { out -> out.name } }.toSet()
+        val triggerOpaque = triggers.any { ports.getValue(it.nodeKey).opaque }
+        val others = nodes.filter { it.kind != NodeKind.TRIGGER }
+        val produced = others.flatMap { node ->
+            ports.getValue(node.nodeKey).outputs.map { it.name } + listOfNotNull(node.outputName?.trim()?.takeIf { it.isNotEmpty() })
+        }.toSet()
+        val othersOpaque = others.any { ports.getValue(it.nodeKey).opaque }
+
+        fun answered(field: String): Boolean {
+            val steps = field.split('.')
+            return if (steps.first() == TRIGGER) {
+                triggers.isNotEmpty() && (steps.size == 1 || triggerOpaque || steps[1] in triggerFields)
+            } else {
+                steps.first() != NodeExpressions.VARIABLES && (othersOpaque || steps.first() in produced)
+            }
+        }
+
+        return holding.flatMap { node ->
+            node.mappings.filter { it.mode != MappingMode.REFERENCE }.flatMap { mapping ->
+                val malformed = Placeholders.malformedIn(mapping.expression).map {
+                    "${node.name}: \"${mapping.name}\" holds $it, which is not a placeholder - write {{field}}, a field's name between double braces"
+                }
+                val unanswered = Placeholders.fieldsIn(mapping.expression).filter { !answered(it) }.map {
+                    if (it.startsWith(NodeExpressions.VARIABLES + ".")) {
+                        "${node.name}: \"${mapping.name}\" holds {{$it}}; a workspace variable is a reference of its own, not a placeholder"
+                    } else {
+                        "${node.name}: \"${mapping.name}\" holds {{$it}}, which nothing in this workflow produces, so it would be sent as written"
+                    }
+                }
+                (malformed + unanswered).map { GraphProblem(severity = GraphProblemSeverity.ERROR, nodeKey = node.nodeKey, message = it) }
+            }
+        }
     }
 
     /** Which fields a condition reads, so a node asking it needs those. */

@@ -95,6 +95,47 @@ class GraphValidatorTest(
             .containsExactly("result: map")
     }
 
+    /**
+     * A written value may hold `{{field}}` placeholders, on one condition: each
+     * names something that will be there. One that nothing answers is refused
+     * on save - sent, it would be its own braces, which is how `{{llmResult}}`
+     * once reached Slack.
+     */
+    @Test
+    fun `a value's placeholders are saved when the graph answers them, and refused when nothing does`() {
+        val functionId = function("summarize")
+        val first = functionAction(functionId, "Summarize", emptyMap())
+        val second = functionAction(functionId, "Report", emptyMap())
+        val triggerId = scheduled("nightly", """{ "order": { "id": 7 } }""")
+        fun nodes(value: String) = """
+            { key: "start", kind: TRIGGER, name: "Nightly", triggerId: $triggerId, x: 0, y: 0 },
+            { key: "sum", kind: ACTION, name: "Summarize", actionId: $first, x: 200, y: 0,
+              mappings: [{ name: "order", expression: "trigger.order", mode: REFERENCE }] },
+            { key: "rep", kind: ACTION, name: "Report", actionId: $second, x: 400, y: 0,
+              mappings: [{ name: "order", expression: "$value", mode: VALUE }] }
+        """
+        val edges = """{ source: "start", target: "sum" }, { source: "sum", target: "rep" }"""
+
+        // The event's field and what the node before it produced: both answered.
+        assertThat(save(nodes("Order {{ trigger.order.id }} came to {{result}}"), edges).filter { it.startsWith("ERROR") }).isEmpty()
+
+        fun refused(value: String): String? = graphQlTester.document(
+            """mutation { saveWorkflowGraph(workspaceId: $workspaceId, workflowId: $workflowId, input: {
+                 nodes: [${nodes(value)}], edges: [$edges] }) { workflowId } }""",
+        ).execute().errors().satisfy { assertThat(it).hasSize(1) }.let { null }
+        refused("Order {{nowhere}}")
+        graphQlTester.document(
+            """mutation { saveWorkflowGraph(workspaceId: $workspaceId, workflowId: $workflowId, input: {
+                 nodes: [${nodes("Order {{nowhere}} and {{trigger.missing}} and {{ broken")}], edges: [$edges] }) { workflowId } }""",
+        ).execute().errors().satisfy {
+            val said = it.single().message.orEmpty()
+            assertThat(said).contains("{{nowhere}}", "nothing in this workflow produces", "{{trigger.missing}}", "{{ broken", "not a placeholder")
+        }
+        // What was saved before is what is there: a refused save writes nothing.
+        assertThat(nodes.findAll().first { it.nodeKey == "rep" }.mappings.single().expression)
+            .isEqualTo("Order {{ trigger.order.id }} came to {{result}}")
+    }
+
     @Test
     fun `a node asking for something nothing produces is warned about`() {
         val functionId = function("summarize")
