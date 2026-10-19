@@ -131,6 +131,11 @@ class GraphValidatorTest(
             val said = it.single().message.orEmpty()
             assertThat(said).contains("{{nowhere}}", "nothing in this workflow produces", "{{trigger.missing}}", "{{ broken", "not a placeholder")
         }
+        // A trigger's field written bare is pointed at the way it is read.
+        graphQlTester.document(
+            """mutation { saveWorkflowGraph(workspaceId: $workspaceId, workflowId: $workflowId, input: {
+                 nodes: [${nodes("Order {{order}}")}], edges: [$edges] }) { workflowId } }""",
+        ).execute().errors().satisfy { assertThat(it.single().message).contains("the trigger's order is {{trigger.order}}") }
         // What was saved before is what is there: a refused save writes nothing.
         assertThat(nodes.findAll().first { it.nodeKey == "rep" }.mappings.single().expression)
             .isEqualTo("Order {{ trigger.order.id }} came to {{result}}")

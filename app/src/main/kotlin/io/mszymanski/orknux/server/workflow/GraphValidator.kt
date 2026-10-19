@@ -920,7 +920,10 @@ class GraphValidator(
                     "${node.name}: \"${mapping.name}\" holds $it, which is not a placeholder - write {{field}}, a field's name between double braces"
                 }
                 val unanswered = Placeholders.fieldsIn(mapping.expression).filter { !answered(it) }.map {
-                    if (it.startsWith(NodeExpressions.VARIABLES + ".")) {
+                    if (!it.startsWith("$TRIGGER.") && answered("$TRIGGER.$it")) {
+                        // The trigger's fields are read under its name, as the edges show them.
+                        "${node.name}: \"${mapping.name}\" holds {{$it}}; the trigger's $it is {{$TRIGGER.$it}}"
+                    } else if (it.startsWith(NodeExpressions.VARIABLES + ".")) {
                         "${node.name}: \"${mapping.name}\" holds {{$it}}; a workspace variable is a reference of its own, not a placeholder"
                     } else {
                         "${node.name}: \"${mapping.name}\" holds {{$it}}, which nothing in this workflow produces, so it would be sent as written"
