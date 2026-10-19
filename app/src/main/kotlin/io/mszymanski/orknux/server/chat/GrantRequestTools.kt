@@ -50,7 +50,9 @@ import java.time.OffsetDateTime
  * What counts as a tool here is what the agent's Tools list grants by name -
  * built-ins it has hidden or that are off until asked for, the workspace's own
  * tools, the loaded plugins' - plus the two grants that bring a family of tools
- * at once: an MCP server, and Orknux access. Catalogs, connections and boxes are
+ * at once: an MCP server, and Orknux access - and the workspace's connections,
+ * which a tool names to reach a service: an agent holding a Jira tool and no
+ * Jira connection could only say it was not let through. Catalogs and boxes are
  * grants of what to reach rather than of what to call, and stay the page's.
  */
 @Service
@@ -60,6 +62,8 @@ class GrantRequestTools(
     private val plugins: PluginRepository,
     private val declarations: PluginDeclarations,
     private val mcpServers: McpServerService,
+    /** The workspace's connections, which an agent may ask to be let use. */
+    private val connections: io.mszymanski.orknux.connector.connection.WorkspaceConnectionService,
     private val summaries: BuiltInToolSummaries,
     private val httpPolicy: io.mszymanski.orknux.server.embedded.HttpToolPolicy,
     private val requests: InteractionRequestRepository,
@@ -82,10 +86,11 @@ class GrantRequestTools(
         PLUGIN_TOOL("plugin tool"),
         MCP_SERVER("MCP server"),
         ORKNUX("Orknux access"),
+        CONNECTION("connection"),
     }
 
     /** One thing an agent could be granted and is not. */
-    data class Grantable(val name: String, val kind: Kind, val description: String?)
+    data class Grantable(val name: String, val kind: Kind, val description: String?, val connectionId: Long? = null)
 
     /** Read once: the built-ins and what the model is told about them are fixed for a release. */
     private val summaryByName: Map<String, String> by lazy { summaries.summaries() }
@@ -124,6 +129,14 @@ class GrantRequestTools(
             if (!agent.orknuxAccess) {
                 add(Grantable(ORKNUX, Kind.ORKNUX, "The orknux_* tools: reading and building this workspace's workflows, runs and issues."))
             }
+            // Asked for by name, which is what a tool's error and a person both say; granted by id, as the page holds it.
+            connections.workspaceConnections(agent.workspaceId)
+                .filter { it.id !in agent.connections }
+                .sortedBy { it.name }
+                .forEach {
+                    add(Grantable(it.name, Kind.CONNECTION, "The ${it.type.name.lowercase().replace('_', ' ')} connection" +
+                        (it.description?.let { said -> ": ${line(said)}" } ?: "."), it.id))
+                }
         }
     }
 
@@ -246,6 +259,7 @@ class GrantRequestTools(
                     Kind.WORKSPACE_TOOL, Kind.PLUGIN_TOOL -> agent.tools.add(one.name)
                     Kind.MCP_SERVER -> agent.mcpServers.add(one.name)
                     Kind.ORKNUX -> agent.orknuxAccess = true
+                    Kind.CONNECTION -> one.connectionId?.let { agent.connections.add(it) }
                 }
             }
             agent.lastModifiedAt = OffsetDateTime.now()
@@ -267,13 +281,14 @@ class GrantRequestTools(
         val loaded = if (load && granting.isNotEmpty()) {
             val loading = granting.flatMap { one ->
                 when (one.kind) {
-                    Kind.MCP_SERVER -> emptyList()
+                    // Nothing to load: a connection is what a tool reaches, not a tool.
+                    Kind.MCP_SERVER, Kind.CONNECTION -> emptyList()
                     Kind.ORKNUX -> builtIns.orknuxNames()
                     else -> listOf(one.name)
                 }
             }
             recorder.toolsFound(request.llmSessionId, recorder.toolsFound(request.llmSessionId) + loading)
-            granting.filter { it.kind != Kind.MCP_SERVER }.map { it.name }
+            granting.filter { it.kind != Kind.MCP_SERVER && it.kind != Kind.CONNECTION }.map { it.name }
         } else {
             emptyList()
         }
@@ -356,8 +371,10 @@ class GrantRequestTools(
             ToolSpec(
                 name = LIST,
                 description = "Lists the tools you could be given and have not been: built-in tools switched off " +
-                    "for you, this workspace's tools, plugins' tools, MCP servers and Orknux access - each with " +
-                    "its kind and what it does. Use it when a task needs something you do not hold, before " +
+                    "for you, this workspace's tools, plugins' tools, MCP servers, Orknux access and the " +
+                    "workspace's connections a tool reaches a service through - each with its kind and what it " +
+                    "does. Use it when a task needs something you do not hold, or a tool says it may not use a " +
+                    "connection, before " +
                     "telling the person you cannot do it; then ask for what you need with $ASK.",
                 summary = "list the tools you could be given and do not hold",
             ),

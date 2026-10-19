@@ -49,6 +49,7 @@ class GrantRequestToolsTest(
     @Autowired val revisions: ComponentRevisionRepository,
     @Autowired val sessions: LlmSessionRecorder,
     @Autowired val mapper: ObjectMapper,
+    @Autowired val workspaceConnections: io.mszymanski.orknux.connector.connection.WorkspaceConnectionRepository,
 ) {
 
     private var workspaceId = 0L
@@ -71,6 +72,7 @@ class GrantRequestToolsTest(
     @AfterEach
     fun clean() {
         requests.deleteAll()
+        workspaceConnections.deleteAll()
         inbox.deleteAll()
         lines.deleteAll()
         revisions.deleteAll()
@@ -149,6 +151,29 @@ class GrantRequestToolsTest(
         graphQlTester.document("mutation { answerRequest(id: ${open.id}, option: \"${GrantRequestTools.ACCEPT_AND_LOAD}\") { outcome } }").execute()
         assertThat(sessions.toolsFound(conversation)).contains(DateTools.NOW)
         assertThat(told().last()).contains("${DateTools.NOW} is loaded already")
+    }
+
+    /** A connection is asked for by name and granted by id, as the agent's page holds it; nothing is loaded for it. */
+    @Test
+    fun `an agent may ask to use a connection, and accepting lets it`() {
+        val jira = graphQlTester.document(
+            """mutation { createWorkspaceConnection(input: {
+                 workspaceId: $workspaceId, name: "Jira", type: SLACK, url: "https://hooks.slack.com", description: "The support desk. More."
+               }) { id } }""",
+        ).execute().path("createWorkspaceConnection.id").entity(Long::class.java).get()
+
+        val listed = call(GrantRequestTools.LIST).path("tools").values().associate { it.path("name").stringValue() to it }
+        assertThat(listed["Jira"]?.path("kind")?.stringValue()).isEqualTo("connection")
+        assertThat(listed["Jira"]?.path("description")?.stringValue()).contains("The support desk.")
+
+        call(GrantRequestTools.ASK, mapOf("tools" to listOf("Jira"), "why" to "to read ticket 7", "load" to true))
+        answer(GrantRequestTools.ACCEPT_AND_LOAD)
+            .path("answerRequest.outcome").entity(String::class.java).isEqualTo("Granted - Jira")
+
+        assertThat(agents.findByIdOrNull(agent.id!!)!!.connections).containsExactly(jira)
+        // A connection is not a tool: nothing was loaded under its name.
+        assertThat(recorder.toolsFound(conversation)).doesNotContain("Jira")
+        assertThat(call(GrantRequestTools.LIST).path("tools").values().map { it.path("name").stringValue() }).doesNotContain("Jira")
     }
 
     @Test
