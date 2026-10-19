@@ -153,6 +153,37 @@ class TimerStepWakeTest(
     }
 
     /**
+     * An agent the step's agent asked, answering after the step ended, wakes it
+     * as a reminder does. It woke nobody, so an agent that had told the person
+     * what it was doing sat in agent_wait to be there for the answer, and held
+     * the Slack reply with it.
+     */
+    @Test
+    fun `an asked agent's answer after the step ended wakes the agent, and its reply follows`() {
+        val first = start()
+        assertThat(executions.findById(first).orElseThrow().status).isEqualTo(ExecutionStatus.COMPLETED)
+        val session = requireNotNull(steps.findAll().single { it.executionId == first && it.nodeKey == "think" }.sessionId)
+
+        inbox.save(
+            SessionEvent(
+                sessionId = session, kind = SessionEventKind.ANSWER,
+                body = "Qwen responder answered what you asked: there are no open pull requests.",
+                dueAt = OffsetDateTime.now().minusSeconds(1),
+            ),
+        )
+        published.publishEvent(SessionEventDue(session))
+
+        await().atMost(Duration.ofSeconds(20)).untilAsserted {
+            val carried = executions.findAll().singleOrNull { it.id != first }
+            assertThat(carried).isNotNull
+            assertThat(carried!!.status).isEqualTo(ExecutionStatus.COMPLETED)
+            assertThat(carried.startedFrom).isEqualTo(first)
+        }
+        assertThat(asked.last()).contains("no open pull requests").contains("started by the answer of an agent you asked")
+        assertThat(lines.findAll().any { "was woken by an answer it asked for" in (it.content ?: "") }).isTrue()
+    }
+
+    /**
      * A wait the agent asks for is said once in the run's log. The runner wrote
      * the line and so did the engine, on the first park, so every park read
      * twice.

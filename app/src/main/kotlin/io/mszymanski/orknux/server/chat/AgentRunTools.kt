@@ -295,7 +295,9 @@ class AgentRunTools(
             "something you asked for has not come back yet. It returns as soon as one of them finishes, " +
             "or after the seconds you gave, whichever is first - so waiting costs nothing when the work " +
             "is already done. Then call " + ASKS + " to see what came back. Do not call this before you " +
-            "have run out of other work: an ask runs while you carry on.",
+            "have run out of other work: an ask runs while you carry on. Nor once you have told the person " +
+            "what you are doing: nothing you write reaches them until your turn ends, so end it - an answer " +
+            "still to come wakes you again, and what you say then is sent after.",
         parameters = listOf(
             ToolParameterSpec(
                 SECONDS,

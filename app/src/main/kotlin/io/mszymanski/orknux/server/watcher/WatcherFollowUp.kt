@@ -168,9 +168,18 @@ class WatcherFollowUp(
      */
     private fun reminded(session: Long): Boolean =
         // A schedule's run is a reminder that comes back, and wakes the run's agent the same way.
-        (inbox.due(session, SessionEventKind.TIMER) || inbox.due(session, SessionEventKind.SCHEDULE)) &&
+        (inbox.due(session, SessionEventKind.TIMER) || inbox.due(session, SessionEventKind.SCHEDULE) || answered(session)) &&
             steps.existsBySessionId(session) &&
             chats.findFirstByLlmSessionId(session) == null
+
+    /**
+     * Whether an agent the run's agent asked has answered here. Such an answer
+     * that came after the step ended woke nobody, so an agent that had told the
+     * person "I'm checking your PRs" sat in agent_wait to be there for it - and
+     * the step, and the Slack reply after it, waited with it. Now it wakes the
+     * agent as a reminder does, and what it says then follows the first reply.
+     */
+    private fun answered(session: Long): Boolean = inbox.due(session, SessionEventKind.ANSWER)
 
     /** Whether the turn is for a reminder alone; a watcher's news comes first, being the one that names an agent. */
     private fun remindedOnly(session: Long): Boolean =
@@ -214,7 +223,10 @@ class WatcherFollowUp(
         } else {
             watchers.findFirstBySessionIdAndAgentIdIsNotNullOrderByLastCheckedAtDescIdDesc(session) ?: return null
         }
-        val woken = watcher?.let { "watcher #${it.id}" } ?: "a reminder"
+        // Asked before the inbox is taken, which is what says it.
+        val byAnswer = watcher == null && answered(session) &&
+            !inbox.due(session, SessionEventKind.TIMER) && !inbox.due(session, SessionEventKind.SCHEDULE)
+        val woken = watcher?.let { "watcher #${it.id}" } ?: if (byAnswer) "an answer it asked for" else "a reminder"
         val agent = if (watcher != null) {
             service.getObject().agentFor(watcher)?.takeIf { it.enabled }
                 ?: agents.findByIdOrNull(requireNotNull(watcher.agentId))?.takeIf { it.enabled }
@@ -252,7 +264,7 @@ class WatcherFollowUp(
             add(ChatTurn("system", system))
             addAll(history)
             arrived.forEach { add(ChatTurn("user", it)) }
-            add(ChatTurn("user", followUp(mayFinish, reminder)))
+            add(ChatTurn("user", followUp(mayFinish, reminder, answer = byAnswer)))
         }
         // The tools every turn in a session is lent, and the ending, which is this door's own.
         val shed = sheds(
@@ -261,7 +273,7 @@ class WatcherFollowUp(
         )
 
         if (!again) {
-            val by = if (watcher != null) "watcher #${watcher.id}" else "a reminder it set"
+            val by = if (watcher != null) "watcher #${watcher.id}" else if (byAnswer) "an answer it asked for" else "a reminder it set"
             sessions.note(session, "${agent.name} was woken by $by, after the step that set it had finished.")
         }
         val thinking = SessionThinking(session, agent.name, sessions)
@@ -349,8 +361,14 @@ class WatcherFollowUp(
          * posted into their thread every few minutes is the agent talking to
          * itself in public.
          */
-        fun followUp(mayFinish: Boolean, reminder: Boolean = false): String =
-            "This turn was started by ${if (reminder) "a reminder you set" else "your watcher"}, not by a person. " +
+        fun followUp(mayFinish: Boolean, reminder: Boolean = false, answer: Boolean = false): String =
+            "This turn was started by ${
+                when {
+                    answer -> "the answer of an agent you asked"
+                    reminder -> "a reminder you set"
+                    else -> "your watcher"
+                }
+            }, not by a person. " +
                 "Whatever you answer is sent to the " +
                 "person you were answering before, in the same place, so write it for them: what changed and " +
                 "what it means for them. Leave your own bookkeeping out of it - watcher numbers, which tool " +
