@@ -378,7 +378,12 @@ class StepRunner(
             executionId,
             nodeKey,
             if (result.status == StepStatus.COMPLETED) LogLevel.SUCCESS else LogLevel.INFO,
-            result.output ?: "${step.name} ${result.status.name.lowercase()}",
+            when {
+                // What started the run, labelled: bare, it was a line of JSON nobody could place.
+                step.kind == NodeKind.TRIGGER && result.status == StepStatus.COMPLETED ->
+                    "${step.name} fired with: ${result.output ?: "nothing"}"
+                else -> result.output ?: "${step.name} ${result.status.name.lowercase()}"
+            },
         )
         return StepOutcome(result.status, result.output, result.halt, result.branch, result.option)
     }

@@ -274,9 +274,6 @@ class ExecutionPlanner(
             "${graph.name} restarted at ${resumeFrom.nodeKey}, carrying what run ${resumeFrom.executionId} produced"
         }
         log.write(executionId, null, LogLevel.INFO, opening)
-        // What the sender posted, where a person debugging a webhook looks first. The
-        // run's input holds it too, but the log is what is read top to bottom;
-        // credential headers never reach the input. Cut at the log column's length.
         // A trigger nothing is joined to is the commonest way a run does nothing, and
         // every skipped step saying "nothing leads to it" does not say which line is
         // missing. Said once, first, naming the trigger and what to draw.
@@ -292,9 +289,6 @@ class ExecutionPlanner(
                         "Draw a line from the trigger to the first step in the editor.",
                 )
             }
-        }
-        if (trigger == ExecutionTrigger.WEBHOOK && resumeFrom == null && !input.isNullOrBlank()) {
-            log.write(executionId, null, LogLevel.INFO, "Webhook payload: $input")
         }
 
         // Only what this run is to carry out. A carried-over step has already

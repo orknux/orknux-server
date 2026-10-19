@@ -98,6 +98,8 @@ class RunBeginningTest(
         val said = logs.findAll().sortedBy { it.sequence }.map { it.message }
         assertThat(said).anySatisfy { assertThat(it).contains("Nothing is joined to the trigger Start").contains("Draw a line") }
         assertThat(said).noneSatisfy { assertThat(it).contains("no runtime yet") }
+        // And what follows the first detached step says it did not run, not that a condition chose - there is none before it.
+        assertThat(step("gate").output).isEqualTo("the step before it did not run")
         assertThat(executions.findAll().single().let { run -> step("start").status }).isEqualTo(StepStatus.COMPLETED)
 
         // And the canvas said so before it ran, about the line that is missing.

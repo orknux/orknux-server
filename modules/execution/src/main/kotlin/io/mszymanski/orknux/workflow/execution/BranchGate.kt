@@ -57,6 +57,10 @@ class BranchGate(
     /** The edges whose answer has been given, and which therefore lead somewhere. */
     private val taken = mutableSetOf<GraphEdge>()
 
+    /** The nodes that ran and chose their way out, and the ones whose outcome ended their path. */
+    private val followed = mutableSetOf<String>()
+    private val ended = mutableSetOf<String>()
+
     /**
      * A node nothing points at is a beginning, and beginnings always run —
      * unless this run was told it does not begin here.
@@ -79,10 +83,22 @@ class BranchGate(
      * the plan, and a run that explained itself differently depending on which
      * one carried it is the kind of difference nobody can act on.
      */
-    fun refusal(nodeKey: String): String = when (nodeKey) {
-        in blocked -> "it is not the trigger that fired"
-        in detached -> DETACHED
-        else -> "the condition before it went the other way"
+    fun refusal(nodeKey: String): String {
+        if (nodeKey in blocked) return "it is not the trigger that fired"
+        if (nodeKey in detached) return DETACHED
+        /*
+         * Said from what the steps before it did. Every refusal here used to
+         * read "the condition before it went the other way" - in a workflow
+         * with no condition in it, after a step that was itself skipped, which
+         * sent whoever read it looking for a condition that does not exist.
+         */
+        val before = incoming[nodeKey].orEmpty().map { it.source }
+        return when {
+            before.any { it in followed && branches(it) } -> "the condition before it went the other way"
+            before.any { it in followed } -> "the step before it took its failure path"
+            before.any { it in ended } -> "the step before it ended the run's path there"
+            else -> "the step before it did not run"
+        }
     }
 
     /**
@@ -101,7 +117,7 @@ class BranchGate(
      * walkers ask it, and they must not answer it three ways.
      */
     fun ends(nodeKey: String, halt: Boolean, branch: EdgeBranch?): Boolean =
-        halt && (branch == null || !branches(nodeKey))
+        (halt && (branch == null || !branches(nodeKey))).also { if (it) ended += nodeKey }
 
     /**
      * What a node's own outcome opens up.
@@ -119,6 +135,7 @@ class BranchGate(
      * one reading of an unmarked edge nobody means.
      */
     fun follow(nodeKey: String, branch: EdgeBranch?, option: String? = null) {
+        followed += nodeKey
         val out = outgoing[nodeKey] ?: return
         taken += when (branch) {
             EdgeBranch.FAILURE -> out.filter { it.branch == EdgeBranch.FAILURE }

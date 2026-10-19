@@ -376,7 +376,8 @@ class ExecutionAPITest(
                 payload = """{"order":{"total":12}}""",
             ),
         )
-        assertThat(run.logs.map { it.message }).contains("""Webhook payload: {"order":{"total":12}}""")
+        // Said by the trigger step, which is where the run began.
+        assertThat(run.logs.map { it.message }).anySatisfy { assertThat(it).contains("fired with: ").contains(""""order":{"total":12}""") }
     }
 
     @Test
