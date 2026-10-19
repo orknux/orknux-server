@@ -89,7 +89,8 @@ class PublishedGraphTest(
         draw("Half-written change")
 
         // What a trigger, a schedule or the API would run.
-        val live = source.graph(workspaceId, workflowId, GraphVersion.PUBLISHED)
+        // Which publication it is aside, which the draft has none of.
+        val live = source.graph(workspaceId, workflowId, GraphVersion.PUBLISHED).copy(publicationId = null)
         assertThat(live.nodes.single().name).isEqualTo("Answer politely")
 
         // And publishing again is what moves it on.
@@ -190,7 +191,8 @@ class PublishedGraphTest(
         )
         publish()
 
-        val live = source.graph(workspaceId, workflowId, GraphVersion.PUBLISHED)
+        // Which publication it is aside, which the draft has none of.
+        val live = source.graph(workspaceId, workflowId, GraphVersion.PUBLISHED).copy(publicationId = null)
 
         // Not a step, so not in what runs - and neither is the edge that said
         // which agent reads it.
@@ -266,7 +268,8 @@ class PublishedGraphTest(
         )
         publish()
 
-        val live = source.graph(workspaceId, workflowId, GraphVersion.PUBLISHED)
+        // Which publication it is aside, which the draft has none of.
+        val live = source.graph(workspaceId, workflowId, GraphVersion.PUBLISHED).copy(publicationId = null)
 
         val action = live.nodes.single { it.key == "call" }
         assertThat(action.retryAttempts).isEqualTo(3)

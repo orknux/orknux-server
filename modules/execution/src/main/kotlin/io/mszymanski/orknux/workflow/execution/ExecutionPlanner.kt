@@ -277,6 +277,22 @@ class ExecutionPlanner(
         // What the sender posted, where a person debugging a webhook looks first. The
         // run's input holds it too, but the log is what is read top to bottom;
         // credential headers never reach the input. Cut at the log column's length.
+        // A trigger nothing is joined to is the commonest way a run does nothing, and
+        // every skipped step saying "nothing leads to it" does not say which line is
+        // missing. Said once, first, naming the trigger and what to draw.
+        if (resumeFrom == null) {
+            val detached = graph.detached()
+            val out = graph.edges.mapTo(HashSet()) { it.source }
+            graph.nodes.filter { it.kind == NodeKind.TRIGGER && it.key !in out && detached.isNotEmpty() }.forEach {
+                log.write(
+                    executionId,
+                    it.key,
+                    LogLevel.ERROR,
+                    "Nothing is joined to the trigger ${it.name}, so no step after it runs. " +
+                        "Draw a line from the trigger to the first step in the editor.",
+                )
+            }
+        }
         if (trigger == ExecutionTrigger.WEBHOOK && resumeFrom == null && !input.isNullOrBlank()) {
             log.write(executionId, null, LogLevel.INFO, "Webhook payload: $input")
         }

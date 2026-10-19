@@ -93,6 +93,13 @@ class RunBeginningTest(
         assertThat(step("prepare").output).contains("nothing leads to it from the trigger")
         assertThat(executions.findAll().single().status).isEqualTo(ExecutionStatus.COMPLETED)
 
+        // The run's log says first which line is missing, and the trigger itself
+        // is where the run began - not a node "with no runtime yet".
+        val said = logs.findAll().sortedBy { it.sequence }.map { it.message }
+        assertThat(said).anySatisfy { assertThat(it).contains("Nothing is joined to the trigger Start").contains("Draw a line") }
+        assertThat(said).noneSatisfy { assertThat(it).contains("no runtime yet") }
+        assertThat(executions.findAll().single().let { run -> step("start").status }).isEqualTo(StepStatus.COMPLETED)
+
         // And the canvas said so before it ran, about the line that is missing.
         assertThat(problems).anySatisfy { assertThat(it).contains("WARNING").contains("Start leads nowhere") }
         assertThat(problems).anySatisfy { assertThat(it).contains("Prepare has nothing before it") }
