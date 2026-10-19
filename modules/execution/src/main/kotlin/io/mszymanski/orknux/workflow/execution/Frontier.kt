@@ -234,7 +234,7 @@ class Frontier(
     fun completed(key: String, branch: EdgeBranch?, option: String?, halt: Boolean, output: String?) {
         finish(key)
         gate.follow(key, branch, option)
-        if (halt && !gate.branches(key)) {
+        if (gate.ends(key, halt, branch)) {
             closed += key
             if (this.halt == null) this.halt = key to output
         }

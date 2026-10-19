@@ -185,4 +185,40 @@ class BranchGateTest {
         assertThat(gate.mayRun("refund")).isFalse()
         assertThat(gate.mayRun("person")).isFalse()
     }
+
+    /** A condition that could not be answered halts with no branch: an ending, not both ways. */
+    @Test
+    fun `a condition that answers nothing ends its path rather than going both ways`() {
+        val gate = BranchGate(fork())
+
+        assertThat(gate.ends("ask", halt = true, branch = null)).isTrue()
+        // A "no" with somewhere to go is a direction; without branches it is an ending.
+        assertThat(gate.ends("ask", halt = true, branch = EdgeBranch.NO)).isFalse()
+        assertThat(BranchGate(listOf(GraphEdge("ask", "file"))).ends("ask", halt = true, branch = EdgeBranch.NO)).isTrue()
+        assertThat(gate.ends("ask", halt = false, branch = EdgeBranch.YES)).isFalse()
+    }
+
+    @Test
+    fun `a path the trigger does not lead to is not a beginning`() {
+        val graph = WorkflowGraph(
+            workflowId = 1,
+            name = "detached",
+            nodes = listOf(
+                GraphNode("trigger", NodeKind.TRIGGER, "trigger"),
+                GraphNode("prepare", NodeKind.ACTION, "prepare"),
+                GraphNode("ask", NodeKind.CONDITION, "ask"),
+            ),
+            edges = listOf(GraphEdge("prepare", "ask")),
+        )
+        assertThat(graph.detached()).containsExactly("prepare")
+        val gate = BranchGate(graph.edges, detached = graph.detached())
+
+        assertThat(gate.mayRun("trigger")).isTrue()
+        assertThat(gate.mayRun("prepare")).isFalse()
+        assertThat(gate.refusal("prepare")).contains("from the trigger")
+        assertThat(gate.mayRun("ask")).isFalse()
+
+        // No trigger drawn at all: every node nothing points at still begins a run.
+        assertThat(graph.copy(nodes = graph.nodes.drop(1)).detached()).isEmpty()
+    }
 }

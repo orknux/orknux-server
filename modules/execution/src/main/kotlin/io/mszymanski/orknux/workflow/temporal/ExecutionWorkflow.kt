@@ -79,6 +79,14 @@ data class RunPlan(
      */
     @JsonProperty("blocked") val blocked: List<String> = emptyList(),
     /**
+     * The nodes this run does not begin at because nothing leads to them from
+     * a trigger; see [io.mszymanski.orknux.workflow.execution.detached].
+     *
+     * Defaulted like [blocked]: a history written before it existed reads as
+     * the run it was, every node nothing points at a beginning.
+     */
+    @JsonProperty("detached") val detached: List<String> = emptyList(),
+    /**
      * The nodes whose lines out are walked side by side. Issue #285.
      *
      * Defaulted like [blocked], and an absent list is what keeps every run in
@@ -121,6 +129,7 @@ data class RunPlan(
             @JsonProperty("edges") edges: List<PlanEdge>?,
             @JsonProperty("carried") carried: List<PlanExit>?,
             @JsonProperty("blocked") blocked: List<String>?,
+            @JsonProperty("detached") detached: List<String>?,
             @JsonProperty("splits") splits: List<String>?,
             @JsonProperty("parallelism") parallelism: Int?,
             @JsonProperty("heartbeatSeconds") heartbeatSeconds: Long?,
@@ -132,6 +141,7 @@ data class RunPlan(
             edges = edges.orEmpty(),
             carried = carried.orEmpty(),
             blocked = blocked.orEmpty(),
+            detached = detached.orEmpty(),
             splits = splits.orEmpty(),
             parallelism = parallelism?.takeIf { it > 0 } ?: 1,
             heartbeatSeconds = heartbeatSeconds,
@@ -306,7 +316,11 @@ class ExecutionWorkflowImpl(
          * does - a run that took different paths depending on which engine
          * carried it would be the worst kind of difference.
          */
-        val gate = BranchGate(plan.edges.map { GraphEdge(it.source, it.target, it.branch, it.option) }, plan.blocked.toSet())
+        val gate = BranchGate(
+            plan.edges.map { GraphEdge(it.source, it.target, it.branch, it.option) },
+            plan.blocked.toSet(),
+            plan.detached.toSet(),
+        )
 
         // A run that begins partway down starts with the exits an earlier run
         // took already open, or the first step it walks would have nothing
@@ -378,8 +392,9 @@ class ExecutionWorkflowImpl(
                     /*
                      * A condition that did not hold ends the run - unless it has
                      * branches, where it chose a direction rather than an ending.
+                     * One that could not be answered chose none; see BranchGate.ends.
                      */
-                    if (outcome.halt && !gate.branches(nodeKey)) {
+                    if (gate.ends(nodeKey, outcome.halt, outcome.branch)) {
                         activities.finishRun(FinishRunCommand(plan.executionId, nodeKey, outcome.output))
                         return ExecutionStatus.COMPLETED
                     }

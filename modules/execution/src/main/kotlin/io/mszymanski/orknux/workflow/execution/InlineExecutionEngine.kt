@@ -132,7 +132,7 @@ class InlineExecutionEngine(
          * reached if something that actually happened leads to it, so the gate
          * is asked before each one and told what each one decided.
          */
-        val gate = BranchGate(plan.edges, plan.blocked)
+        val gate = BranchGate(plan.edges, plan.blocked, plan.detached)
 
         // A run that begins partway down starts with the exits an earlier run
         // took already open, or the first step it walks would have nothing
@@ -188,9 +188,10 @@ class InlineExecutionEngine(
             /*
              * A condition that did not hold ends the run - unless it has
              * branches, in which case it decided a direction rather than an
-             * ending, and the gate has already closed the way not taken.
+             * ending, and the gate has already closed the way not taken. One
+             * that could not be answered chose no direction; see BranchGate.ends.
              */
-            if (outcome.halt && !gate.branches(step.nodeKey)) {
+            if (gate.ends(step.nodeKey, outcome.halt, outcome.branch)) {
                 log.info("Execution {} stopped at {}: the run has nothing further to do", executionId, step.nodeKey)
                 return steps.finishRun(executionId, stoppedAt = step.nodeKey, reason = outcome.output)
             }
@@ -214,7 +215,7 @@ class InlineExecutionEngine(
      * from the installation's settings when the run was planned.
      */
     private fun walkSideBySide(plan: ExecutionPlan, executionId: Long): WorkflowExecution {
-        val gate = BranchGate(plan.edges, plan.blocked)
+        val gate = BranchGate(plan.edges, plan.blocked, plan.detached)
         plan.carried.forEach { gate.follow(it.nodeKey, it.branch, it.option) }
 
         val frontier = Frontier(

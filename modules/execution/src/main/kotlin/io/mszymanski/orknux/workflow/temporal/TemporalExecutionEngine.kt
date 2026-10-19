@@ -92,6 +92,7 @@ fun runPlanOf(plan: ExecutionPlan, input: String?, heartbeatSeconds: Long? = nul
     edges = plan.edges.map { PlanEdge(it.source, it.target, it.branch, it.option) },
     carried = plan.carried.map { PlanExit(it.nodeKey, it.branch, it.option) },
     blocked = plan.blocked.toList(),
+    detached = plan.detached.toList(),
     splits = plan.splits.toList(),
     parallelism = plan.parallelism,
     heartbeatSeconds = heartbeatSeconds,

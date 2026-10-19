@@ -40,6 +40,15 @@ class BranchGate(
      * question asked again, and neither should have to undo this.
      */
     private val blocked: Set<String> = emptySet(),
+    /**
+     * The nodes nothing points at that are not triggers, in a graph that has a
+     * trigger: the first node of a path somebody drew without the line from the
+     * trigger to it. See [WorkflowGraph.detached].
+     *
+     * Kept apart from [blocked] because the two are refused for different
+     * reasons, and the step says which.
+     */
+    private val detached: Set<String> = emptySet(),
 ) {
 
     private val incoming: Map<String, List<GraphEdge>> = edges.groupBy { it.target }
@@ -57,7 +66,7 @@ class BranchGate(
      * everything it led to is refused in turn when the order reaches it.
      */
     fun mayRun(nodeKey: String): Boolean {
-        if (nodeKey in blocked) return false
+        if (nodeKey in blocked || nodeKey in detached) return false
         val into = incoming[nodeKey] ?: return true
         return into.isEmpty() || into.any { it in taken }
     }
@@ -70,8 +79,29 @@ class BranchGate(
      * the plan, and a run that explained itself differently depending on which
      * one carried it is the kind of difference nobody can act on.
      */
-    fun refusal(nodeKey: String): String =
-        if (nodeKey in blocked) "it is not the trigger that fired" else "the condition before it went the other way"
+    fun refusal(nodeKey: String): String = when (nodeKey) {
+        in blocked -> "it is not the trigger that fired"
+        in detached -> DETACHED
+        else -> "the condition before it went the other way"
+    }
+
+    /**
+     * Whether a node's outcome ends its path rather than choosing a way out.
+     *
+     * A halt ends the path where the node has no branches to choose between,
+     * which is every condition drawn before branches existed. Where it has
+     * them, a halt that names a branch - "no" - is a direction; one that names
+     * none is a condition that could not be answered, and that is an ending
+     * too. [follow] with no branch opens every unmarked edge, which out of a
+     * branching node means both "yes" and "no": the unanswered condition used
+     * to send the run down both ways at once, and the "no" side ran handed
+     * what the "yes" side had produced. A condition goes one way or none.
+     *
+     * Here rather than in each engine, for the reason the class says: three
+     * walkers ask it, and they must not answer it three ways.
+     */
+    fun ends(nodeKey: String, halt: Boolean, branch: EdgeBranch?): Boolean =
+        halt && (branch == null || !branches(nodeKey))
 
     /**
      * What a node's own outcome opens up.
@@ -119,4 +149,36 @@ class BranchGate(
      */
     fun catchesFailure(nodeKey: String): Boolean =
         outgoing[nodeKey].orEmpty().any { it.branch == EdgeBranch.FAILURE }
+
+    private companion object {
+        const val DETACHED = "nothing leads to it from the trigger"
+    }
+}
+
+/**
+ * The nodes a run of this graph does not begin at although nothing points at
+ * them: every node but a trigger, once the graph has a trigger.
+ *
+ * A run begins at a trigger. Nothing pointing at a node used to be enough to
+ * make it a beginning as well, so a path drawn without the line from the
+ * trigger ran on every run - beside the trigger rather than after it - while
+ * the editor warned that a run never reaches it. The editor was describing the
+ * rule this applies.
+ *
+ * Only the first node of such a path is named; the gate refuses it, nothing out
+ * of it is taken, and the rest of the path is refused as the order reaches it.
+ * A node the trigger's path reaches as well still runs, because one taken way in
+ * is enough.
+ *
+ * A graph with no trigger at all is left as it was, every such node a
+ * beginning: there is nothing else for it to start from, and a workflow made by
+ * hand or by an API with no trigger drawn is one that ran.
+ */
+fun WorkflowGraph.detached(): Set<String> {
+    if (nodes.none { it.kind == NodeKind.TRIGGER }) return emptySet()
+    val known = nodes.mapTo(HashSet()) { it.key }
+    val pointedAt = edges.filter { it.source in known }.mapTo(HashSet()) { it.target }
+    return nodes
+        .filter { it.kind != NodeKind.TRIGGER && it.key !in pointedAt }
+        .mapTo(LinkedHashSet()) { it.key }
 }

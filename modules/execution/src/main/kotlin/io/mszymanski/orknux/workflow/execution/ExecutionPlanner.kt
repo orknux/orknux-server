@@ -39,6 +39,12 @@ data class ExecutionPlan(
      */
     val blocked: Set<String> = emptySet(),
     /**
+     * The nodes this run does not begin at because nothing leads to them from
+     * a trigger; see [WorkflowGraph.detached]. Empty for a graph with no
+     * trigger, which begins wherever nothing points, as it always did.
+     */
+    val detached: Set<String> = emptySet(),
+    /**
      * The nodes whose lines out are walked side by side; see [splits]. Issue #285.
      *
      * Empty for a graph without one, and an engine handed an empty set walks
@@ -273,6 +279,7 @@ class ExecutionPlanner(
             graph.edges,
             earlier?.exits.orEmpty(),
             blocked,
+            detached = graph.detached(),
             splits = graph.splits(),
             parallelism = concurrency.stepsAtOnce(),
         )
@@ -386,6 +393,7 @@ class ExecutionPlanner(
             graph.edges,
             carried,
             blocked,
+            detached = graph.detached(),
             splits = splits,
             parallelism = concurrency.stepsAtOnce(),
             deadEnds = deadEnds,
@@ -449,9 +457,12 @@ class ExecutionPlanner(
          * The same gate the engines use, told what each step did, which is the
          * only way to reproduce what the earlier run opened up. Deriving it from
          * the statuses instead does not work: a node with no runtime is skipped
-         * as well, and its edges were followed.
+         * as well, and its edges were followed. And with the beginnings the
+         * engines use: a step skipped because no trigger led to it is SKIPPED
+         * on the record too, and a gate that took it for a beginning would
+         * open the path behind it that the earlier run never walked.
          */
-        val gate = BranchGate(graph.edges)
+        val gate = BranchGate(graph.edges, notBegunAt(graph, earlier.firedTriggerId), graph.detached())
         val exits = mutableListOf<CarriedExit>()
         for (node in ahead) {
             // Skipped then, and skipped now: nothing that happened leads to it.
@@ -521,7 +532,7 @@ class ExecutionPlanner(
         // The earlier run's branching over everything kept, as earlierRun
         // replays it; the node itself opens every edge out of it, as an
         // answering agent does.
-        val gate = BranchGate(graph.edges)
+        val gate = BranchGate(graph.edges, notBegunAt(graph, earlier.firedTriggerId), graph.detached())
         val exits = mutableListOf<CarriedExit>()
         for (node in kept) {
             if (!gate.mayRun(node.key)) continue

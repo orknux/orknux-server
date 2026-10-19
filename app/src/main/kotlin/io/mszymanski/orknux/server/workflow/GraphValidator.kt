@@ -590,6 +590,24 @@ class GraphValidator(
             }
 
             /*
+             * The other end of the same missing line, said on the trigger:
+             * a run begins only there, so a trigger that leads nowhere starts
+             * runs that do nothing. The warnings on the nodes it should lead to
+             * say they are unreached; this one says why. Advice rather than a
+             * refusal, because the line is the next thing somebody draws.
+             */
+            if (node.kind == NodeKind.TRIGGER &&
+                nodes.any { it.kind != NodeKind.TRIGGER && it.kind != NodeKind.SESSION } &&
+                known.none { it.sourceKey == node.nodeKey }
+            ) {
+                problems += GraphProblem(
+                    severity = GraphProblemSeverity.WARNING,
+                    nodeKey = node.nodeKey,
+                    message = "${node.name} leads nowhere, so a run it starts does nothing.",
+                )
+            }
+
+            /*
              * A fallback nothing is wired to.
              *
              * The node handles its own failure and the graph has nowhere for it

@@ -15,6 +15,16 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🔧 Changed
+
+- **A run begins only at a trigger.** In a workflow with a trigger, a node the trigger does not lead to is skipped, saying "nothing leads to it from the trigger", where it used to run beside it - which is what the editor's "a run never reaches it" warning always claimed. A workflow drawn without the line from its trigger does nothing until the line is drawn, and the trigger is now warned about as leading nowhere. A workflow with no trigger at all runs as before.
+
+### 🐛 Fixed
+
+- **A condition that could not be answered went both ways.** Asked about a field the run did not carry, a condition with "yes" and "no" lines ran both, and the "no" side was handed what the "yes" side had produced. It now ends the run there and says why, as one without branches always did.
+
 ## 1.1.4
 
 ### ✨ Added
