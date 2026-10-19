@@ -170,7 +170,14 @@ class TriggerRunner(
             addAll(refusals.map { it.said })
         }.joinToString("; ")
 
-        if (started.size == assigned.size) {
+        /*
+         * Failed only where a start failed. A workflow switched off or never
+         * published is somebody's setting, honoured, and is said in the line;
+         * marking the firing Failed for it read as the run that did start
+         * having gone wrong.
+         */
+        val broke = refusals.any { it.reason == FAILED }
+        if (started.isNotEmpty() && !broke) {
             record(trigger, FiringOutcome.STARTED, "Started ${started.size} of ${assigned.size}: $said", started.size)
         } else {
             record(trigger, FiringOutcome.FAILED, "Started ${started.size} of ${assigned.size}: $said", started.size)

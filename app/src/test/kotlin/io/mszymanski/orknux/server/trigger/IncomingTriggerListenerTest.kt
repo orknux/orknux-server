@@ -365,8 +365,10 @@ class IncomingTriggerListenerTest(
         publisher.publishEvent(mention())
 
         val detail = graphQlTester
-            .document("""query { triggerFirings(triggerId: $trigger) { content { detail runsStarted } } }""")
+            .document("""query { triggerFirings(triggerId: $trigger) { content { detail runsStarted outcome } } }""")
             .execute()
+            // A workflow switched off is a setting honoured, not a failure of the one that ran.
+            .path("triggerFirings.content[0].outcome").entity(String::class.java).isEqualTo("STARTED")
             .path("triggerFirings.content[0].detail").entity(String::class.java).get()
 
         // The one that ran carries its id, beside the reason the other did not.
