@@ -23,7 +23,8 @@ import tools.jackson.databind.ObjectMapper
  * in pages, an agent with no id reads its own, a line a compaction superseded
  * says so, and the workspace is a boundary.
  */
-@SpringBootTest
+// An installation serving its own interface: no CORS origin, a base URL of its own - where links came out as paths.
+@SpringBootTest(properties = ["orknux.web.allowed-origins=", "orknux.web.base-url=https://orknux.example.com"])
 class OrknuxSessionToolsTest(
     @Autowired val tools: OrknuxTools,
     @Autowired val recorder: LlmSessionRecorder,
@@ -67,6 +68,8 @@ class OrknuxSessionToolsTest(
         val keys = answer.path("sessions").toList().map { it.path("key").stringValue() }
         assertThat(keys).containsExactly("slack_:1790000000.000001")
         assertThat(answer.path("sessions").first().path("url").stringValue()).contains("/sessions/")
+        // Absolute, from the installation's base URL: a path handed to a model is pasted somewhere it does not open.
+        assertThat(answer.path("sessions").first().path("url").stringValue()).startsWith("https://orknux.example.com/workspace/")
     }
 
     @Test

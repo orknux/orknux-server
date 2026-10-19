@@ -237,16 +237,18 @@ class OrknuxTools(
      * every answer that names something with a page of its own carries the
      * address of that page, and the briefing asks for it to be used.
      *
-     * Absolute, from the origin the interface is served on. A relative path
-     * works in the panel, which is already on that origin, and is useless to
-     * anything reaching this over MCP from somewhere else — and those are the
-     * same tools. Where no origin is configured the path is all there is to
-     * give, which is still better than nothing.
+     * Absolute, from the address the installation is reached at - the base
+     * URL its mails and `app_link` link from. A relative path works in the
+     * panel, which is already on that origin, and is useless pasted into Slack
+     * or reached over MCP from somewhere else - and those are the same tools.
+     * It was taken from the first allowed CORS origin, which an installation
+     * serving its own interface does not set, so every link came out a path.
      */
-    private fun link(path: String): String {
-        val base = web.allowedOrigins.firstOrNull()?.trimEnd('/').orEmpty()
-        return base + path
-    }
+    private fun link(path: String): String =
+        io.mszymanski.orknux.server.chat.LinkTools.absolute(
+            web.baseUrl.trim().trimEnd('/').ifEmpty { web.allowedOrigins.firstOrNull()?.trimEnd('/').orEmpty() },
+            path,
+        )
 
     private fun runLink(workspaceId: Long, id: Long?) = link("/workspace/$workspaceId/executions/$id")
 
