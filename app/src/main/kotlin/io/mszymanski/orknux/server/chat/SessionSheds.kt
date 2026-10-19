@@ -34,6 +34,7 @@ class SessionSheds(
     private val timers: TimerTools,
     private val watchers: io.mszymanski.orknux.server.watcher.WatcherTools,
     private val schedules: io.mszymanski.orknux.server.schedule.ScheduleTools,
+    private val links: LinkTools,
 ) {
 
     /**
@@ -51,6 +52,8 @@ class SessionSheds(
         todos.shed(session),
         // The time now, which it has no other way to know. Needs no session. #407.
         dates.shed(),
+        // Where this installation is, and a path made a link that opens anywhere. Needs no session.
+        links.shed(),
         // A reminder it sets and carries on; delivered to the session.
         timers.shed(session),
         // One of its own tools called on an interval until it matches; wakes the session. #606.

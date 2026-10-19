@@ -141,7 +141,7 @@ class SessionShedsTest(
             ScratchpadTools.REPLACE, ScratchpadTools.SEARCH, ScratchpadTools.KEEP, ScratchpadTools.DELETE,
             ZipTools.ZIP_FILES, ZipTools.ZIP_EXTRACT,
             TodoTools.ADD, TodoTools.LIST, TodoTools.REORDER, TodoTools.NOTE, TodoTools.COMPLETE,
-            DateTools.NOW,
+            DateTools.NOW, LinkTools.LINK,
             TimerTools.SET, TimerTools.LIST, TimerTools.CANCEL,
             WatcherTools.SET, WatcherTools.UPDATE, WatcherTools.LIST, WatcherTools.FINISH,
             ScheduleTools.SET, ScheduleTools.LIST, ScheduleTools.CANCEL,

@@ -167,6 +167,8 @@ class BuiltInTools(
             TodoTools.NOTE,
             TodoTools.COMPLETE,
             DateTools.NOW,
+            // The installation's address and absolute links; V390 marks it Always.
+            LinkTools.LINK,
             TimerTools.SET,
             // Listing and calling off a reminder; V362 marks them Always.
             TimerTools.LIST,

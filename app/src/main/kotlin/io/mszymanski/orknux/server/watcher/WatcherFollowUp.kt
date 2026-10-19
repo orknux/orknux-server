@@ -162,12 +162,13 @@ class WatcherFollowUp(
             !steps.existsBySessionIdAndStatusIn(session, BUSY)
 
     /**
-     * Whether a reminder a run's agent set has come up here - due, not merely
+     * Whether a reminder a run's agent set - a timer, or a schedule's run - has come up here - due, not merely
      * set, since a step finishing with one still to come has nothing to wake
      * for yet - in a session that is a run's and not a chat's.
      */
     private fun reminded(session: Long): Boolean =
-        inbox.due(session, SessionEventKind.TIMER) &&
+        // A schedule's run is a reminder that comes back, and wakes the run's agent the same way.
+        (inbox.due(session, SessionEventKind.TIMER) || inbox.due(session, SessionEventKind.SCHEDULE)) &&
             steps.existsBySessionId(session) &&
             chats.findFirstByLlmSessionId(session) == null
 
