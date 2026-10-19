@@ -54,7 +54,8 @@ class TimerTools(
                     "something to do at a time - follow up at nine, look at a report in an hour - without " +
                     "stopping now. To wait until something one of your tools can see changes - a build " +
                     "finishing, a reply arriving - set a watcher with ${io.mszymanski.orknux.server.watcher.WatcherTools.SET} " +
-                    "instead: it checks for you and tells you when it happens. Up to " +
+                    "instead: it checks for you and tells you when it happens. For something to do again and " +
+                    "again, set a schedule with ${io.mszymanski.orknux.server.schedule.ScheduleTools.SET}. Up to " +
                     "${settings.agentSleepSeconds()} seconds ahead. Answers the reminder's id, which " +
                     "$CANCEL takes to call it off.",
                 parameters = listOf(

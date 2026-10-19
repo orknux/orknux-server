@@ -73,6 +73,9 @@ enum class SessionEventKind {
 
     /** A person wrote in the chat while the agent was answering. */
     PERSON,
+
+    /** A schedule this session's agent set has come up, or was stopped by a person. */
+    SCHEDULE,
 }
 
 /**

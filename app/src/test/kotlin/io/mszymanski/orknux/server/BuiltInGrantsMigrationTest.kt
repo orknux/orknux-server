@@ -108,6 +108,11 @@ class BuiltInGrantsMigrationTest {
                      */
                     assertThat(required(db, 901)).containsOnlyOnce("find_connections")
                     assertThat(required(db, 900)).containsOnlyOnce("find_connections")
+                    // The schedule tools, which V389 marks Always for every agent there was.
+                    listOf(900L, 901L).forEach { agent ->
+                        assertThat(required(db, agent)).describedAs("agent %s", agent)
+                            .containsOnlyOnce("schedule_set", "schedule_list", "schedule_cancel")
+                    }
                     assertThat(positions(db, "agent_required_tool", 900))
                         .isEqualTo((0 until required(db, 900).size).toList())
                 }

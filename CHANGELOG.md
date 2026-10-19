@@ -17,6 +17,10 @@ have failed.
 
 ## Unreleased
 
+### ✨ Added
+
+- **Schedules: a reminder an agent sets that comes back on its own.** `schedule_set` takes a note and either `every_seconds` or a five-field `cron` (with a `timezone`), and optionally an end time or a number of runs; each run is left in the session's inbox the way a timer rings, and runs missed while the server was down are not replayed. On every agent by default, listed on a workspace's Schedules page and a session's panel, where a person can stop one; bounded by `ORKNUX_SCHEDULE_MIN_INTERVAL_SECONDS` (five minutes) and `ORKNUX_SCHEDULE_MAX_PER_AGENT` (ten; `0` switches them off), both overridden in Admin -> Settings.
+
 ### 🔧 Changed
 
 - **A run begins only at a trigger.** In a workflow with a trigger, a node the trigger does not lead to is skipped, saying "nothing leads to it from the trigger", where it used to run beside it - which is what the editor's "a run never reaches it" warning always claimed. A workflow drawn without the line from its trigger does nothing until the line is drawn, and the trigger is now warned about as leading nowhere. A workflow with no trigger at all runs as before.

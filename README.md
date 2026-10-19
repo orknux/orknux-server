@@ -424,6 +424,8 @@ installation starts from.
 | `ORKNUX_WATCHER_LOOK_INITIAL_SECONDS` | Where the agent gave no agent check, its own looks back off exponentially: this is the wait before the first. Admin -> Settings overrides all three. | `300` |
 | `ORKNUX_WATCHER_LOOK_MULTIPLIER` | Each wait after that is the last one times this, from 1 (a fixed interval) to 10. | `2` |
 | `ORKNUX_WATCHER_LOOK_MAX_SECONDS` | The longest a wait grows to. | `86400` |
+| `ORKNUX_SCHEDULE_MIN_INTERVAL_SECONDS` | The shortest a schedule an agent sets may come round, by interval or by cron; each run is a model turn. Admin -> Settings overrides it. | `300` |
+| `ORKNUX_SCHEDULE_MAX_PER_AGENT` | How many schedules one agent may have running; `0` switches them off. Admin -> Settings overrides it. | `10` |
 
 ### Access
 

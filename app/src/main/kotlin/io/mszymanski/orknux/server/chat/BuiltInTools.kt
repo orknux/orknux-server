@@ -182,6 +182,14 @@ class BuiltInTools(
             // Changing one after a look at its result, #618; V344 marks it Always.
             io.mszymanski.orknux.server.watcher.WatcherTools.UPDATE,
             /*
+             * Schedules: a reminder that repeats, on by default like the timer
+             * it repeats, since it reaches nothing but the agent's own note and
+             * is bounded by Admin Settings -> Schedules. V389 marks them Always.
+             */
+            io.mszymanski.orknux.server.schedule.ScheduleTools.SET,
+            io.mszymanski.orknux.server.schedule.ScheduleTools.LIST,
+            io.mszymanski.orknux.server.schedule.ScheduleTools.CANCEL,
+            /*
              * The skill tools are built-ins like the rest rather than a view of
              * the catalog grants: the skills the server brings reach every agent
              * whatever it was granted, and without these an agent with no catalog

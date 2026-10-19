@@ -1,0 +1,72 @@
+# Schedules: a reminder an agent sets for itself that comes back on its own,
+# every so many seconds or on a five-field cron - the periodic counterpart of
+# timer_set. The workspace's Schedules page and a session's panel read and stop
+# them; Admin -> Settings -> Schedules bounds them.
+
+extend type Query {
+    "A workspace's schedules, newest first: the active ones by default, or the ended and stopped ones with ended."
+    schedules(workspaceId: ID!, ended: Boolean = false, page: Int = 0, size: Int = 50): SchedulePage!
+    "The schedules set in one session, newest first."
+    sessionSchedules(sessionId: ID!): [Schedule!]!
+    "The limits on what an agent may ask a schedule to do. Administrators only."
+    scheduleSettings: ScheduleSettings!
+}
+
+extend type Mutation {
+    "Stops a schedule; it does not run again."
+    stopSchedule(id: ID!): Schedule!
+    "The shortest a schedule may come round, in seconds, by interval or by cron. Administrators only."
+    setScheduleMinIntervalSeconds(seconds: Int!): ScheduleSettings!
+    "How many schedules one agent may have running at once; zero switches schedules off. Administrators only."
+    setScheduleMaxPerAgent(count: Int!): ScheduleSettings!
+}
+
+type SchedulePage {
+    content: [Schedule!]!
+    page: Int!
+    size: Int!
+    totalElements: Int!
+    totalPages: Int!
+}
+
+type Schedule {
+    id: ID!
+    sessionId: ID!
+    sessionTitle: String
+    agentName: String!
+    note: String!
+    "Every this many seconds; null for a cron schedule."
+    everySeconds: Int
+    "A five-field cron; null for an interval schedule."
+    cron: String
+    timezone: String
+    status: ScheduleStatus!
+    "How many times it has run."
+    runs: Int!
+    "The most runs it makes before it ends; null for no limit."
+    times: Int
+    "When it ends by itself; null for never."
+    until: String
+    createdAt: String!
+    "When it next runs; null once it has ended."
+    nextRunAt: String
+    lastRunAt: String
+    finishedAt: String
+    "How it ended, in a sentence; null while active."
+    outcome: String
+}
+
+enum ScheduleStatus {
+    ACTIVE
+    STOPPED
+    ENDED
+}
+
+type ScheduleSettings {
+    minIntervalSeconds: Int!
+    "What a fresh installation allows - ORKNUX_SCHEDULE_MIN_INTERVAL_SECONDS."
+    minIntervalSecondsConfigured: Int!
+    maxPerAgent: Int!
+    "What a fresh installation allows - ORKNUX_SCHEDULE_MAX_PER_AGENT."
+    maxPerAgentConfigured: Int!
+}

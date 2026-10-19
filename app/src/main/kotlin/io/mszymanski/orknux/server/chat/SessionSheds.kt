@@ -7,8 +7,8 @@ import org.springframework.stereotype.Service
  * The tools every kind of turn lends an agent because it has a session, as one
  * set.
  *
- * A note to itself, working files, a to-do list, the clock, a reminder and a
- * watcher are not things a workflow step, a task, a watcher's follow-up, a chat
+ * A note to itself, working files, a to-do list, the clock, a reminder, a
+ * watcher and a schedule are not things a workflow step, a task, a watcher's follow-up, a chat
  * or an asked agent has - they are things a session has, and every one of those
  * turns is a turn in one. Each door used to lend them by hand, and the lists
  * drifted: a chat had the scratchpads, the timer and the watchers and nothing
@@ -33,6 +33,7 @@ class SessionSheds(
     private val dates: DateTools,
     private val timers: TimerTools,
     private val watchers: io.mszymanski.orknux.server.watcher.WatcherTools,
+    private val schedules: io.mszymanski.orknux.server.schedule.ScheduleTools,
 ) {
 
     /**
@@ -54,6 +55,8 @@ class SessionSheds(
         timers.shed(session),
         // One of its own tools called on an interval until it matches; wakes the session. #606.
         watchers.shed(agent, session),
+        // A reminder that comes back on its own, every so often or on a cron.
+        schedules.shed(agent, session),
     )
 
     /**

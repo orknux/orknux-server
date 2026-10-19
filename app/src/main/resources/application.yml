@@ -315,6 +315,16 @@ orknux:
     look-initial-seconds: ${ORKNUX_WATCHER_LOOK_INITIAL_SECONDS:300}
     look-multiplier: ${ORKNUX_WATCHER_LOOK_MULTIPLIER:2}
     look-max-seconds: ${ORKNUX_WATCHER_LOOK_MAX_SECONDS:86400}
+  schedules:
+    # What bounds a schedule - a reminder an agent sets for itself that comes
+    # back on its own, every so many seconds or on a cron. Where a fresh
+    # installation starts; Admin -> Settings -> Schedules is the switch and what
+    # it holds wins. Every run is a model turn, hence minutes rather than seconds.
+    #
+    # The shortest a schedule may come round, in seconds, by interval or cron.
+    min-interval-seconds: ${ORKNUX_SCHEDULE_MIN_INTERVAL_SECONDS:300}
+    # How many one agent may have running at once; 0 switches schedules off.
+    max-per-agent: ${ORKNUX_SCHEDULE_MAX_PER_AGENT:10}
   sessions:
     # How long a session counts as active after its last line, in seconds. The
     # sessions list's dot lights for a line written this recently, so an agent

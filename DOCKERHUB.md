@@ -233,7 +233,7 @@ stopped.
 | `ORKNUX_SCRIPT_STATEMENT_LIMIT` | How many statements one may execute - what catches a loop that never ends. | `5000000` | No |
 | `ORKNUX_SCRIPT_LOG_LEVEL` | The lowest level `orknux.log` keeps, decided inside the sandbox: `debug`, `info`, `warn`, `error`, `off`. | `info` | No |
 | `ORKNUX_PLUGIN_LOG_LEVEL` | The same, for plugins. Separate so debugging one does not turn up every function. | `info` | No |
-| `ORKNUX_PLUGIN_TIMEOUT_MILLIS` | The same for a plugin, which is a bundle and takes longer to load. The floor: Admin -> Settings is the switch, 1 to 300 seconds. | `30000` | No |
+| `ORKNUX_PLUGIN_TIMEOUT_MILLIS` | The same for a plugin, a bundle that loads slower. Admin -> Settings overrides it, 1 to 300 seconds. | `30000` | No |
 | `ORKNUX_PLUGIN_STATEMENT_LIMIT` | The same, for a plugin. | `10000000` | No |
 | `ORKNUX_HTTP_REQUEST_TIMEOUT_SECONDS` | How long a workflow's own HTTP request may take. | `30` | No |
 | `ORKNUX_LIBRARY_REGISTRY_URL` | Where a library installed by name is fetched from. Empty: upload only. | `https://registry.npmjs.org` | No |
@@ -320,8 +320,9 @@ ORKNUX_REVISION_SWEEP_ENABLED, ORKNUX_REVISION_SWEEP_INTERVAL,
 ORKNUX_SESSIONS_ACTIVE_WINDOW_SECONDS, ORKNUX_SESSIONS_DUE_SWEEP, ORKNUX_TASK_SWEEP_ENABLED,
 ORKNUX_TASK_SWEEP_INITIAL_DELAY, ORKNUX_WATCHER_MAX_SECONDS, ORKNUX_WATCHER_MIN_INTERVAL_SECONDS,
 ORKNUX_WATCHER_MAX_PER_AGENT, ORKNUX_WATCHER_MIN_AGENT_CHECK_SECONDS,
-ORKNUX_WATCHER_LOOK_INITIAL_SECONDS, ORKNUX_WATCHER_LOOK_MULTIPLIER and
-ORKNUX_WATCHER_LOOK_MAX_SECONDS are in
+ORKNUX_WATCHER_LOOK_INITIAL_SECONDS, ORKNUX_WATCHER_LOOK_MULTIPLIER,
+ORKNUX_WATCHER_LOOK_MAX_SECONDS, ORKNUX_SCHEDULE_MIN_INTERVAL_SECONDS and
+ORKNUX_SCHEDULE_MAX_PER_AGENT are in
 [the README](https://github.com/orknux/orknux-server/blob/main/README.md#more-settings).
 
 ## Sessions, HTTP and logging
@@ -333,11 +334,11 @@ ORKNUX_WATCHER_LOOK_MAX_SECONDS are in
 | `ORKNUX_BASE_URL` | Where a browser reaches the interface, for reset and picture links. Never read off `Host`. | `http://localhost:5173` | **Yes** for password resets |
 | `ORKNUX_WEBHOOK_MAX_BODY_SIZE` | The most a webhook caller may post to `/api/webhooks/…`. More is refused with 413 before any trigger runs. | `1MB` | No |
 | `ORKNUX_ASYNC_REQUEST_TIMEOUT` | How long a request answered with a promise may stay open. | `330s` | No |
-| `ORKNUX_SESSION_TIMEOUT` | How long a session survives without being used. A fortnight suits a self-hosted tool behind an identity provider; shorten it otherwise. | `14d` | No |
+| `ORKNUX_SESSION_TIMEOUT` | How long a session survives without being used. A fortnight suits a tool behind an identity provider. | `14d` | No |
 | `ORKNUX_SESSION_COOKIE_SAME_SITE` | `lax` lets a link from elsewhere arrive signed in; `strict` where nothing links in. | `lax` | No |
 | `ORKNUX_SESSION_COOKIE_HTTP_ONLY` | Keeps the session cookie out of reach of scripts. | `true` | No |
 | `OPENAI_LOG` | What the model SDK prints to stderr: `info` each call's method and URL, `debug` headers and bodies, credentials redacted. | *none* | No |
-| `ORKNUX_LOG_LEVEL` | How much this application says: `TRACE` to `ERROR`. Its own code only - triggers, model calls, task handover - and not the frameworks. | `INFO` | No |
+| `ORKNUX_LOG_LEVEL` | How much this application says: `TRACE` to `ERROR`. Its own code only, not the frameworks. | `INFO` | No |
 | `ORKNUX_LOG_LEVEL_ROOT` | The same for everything else on the classpath. `DEBUG` here is very loud. | `INFO` | No |
 | `ORKNUX_LOG_FORMAT` | `plain` reads well in a terminal; `json` (one ECS object per line) is what a collector wants. Applies to console and file alike. | `plain` | No |
 | `ORKNUX_LOG_FILE` | Console always; name a file here and it is written to as well. Use an absolute path. | *none* (stdout only) | No |

@@ -16,6 +16,7 @@ import io.mszymanski.orknux.server.watcher.WatcherConditionKind
 import io.mszymanski.orknux.server.watcher.WatcherFollowUp
 import io.mszymanski.orknux.server.watcher.WatcherRepository
 import io.mszymanski.orknux.server.watcher.WatcherStatus
+import io.mszymanski.orknux.server.schedule.ScheduleTools
 import io.mszymanski.orknux.server.watcher.WatcherTools
 import io.mszymanski.orknux.server.workflow.WorkflowEdgeRepository
 import io.mszymanski.orknux.server.workflow.WorkflowNodeRepository
@@ -143,6 +144,7 @@ class SessionShedsTest(
             DateTools.NOW,
             TimerTools.SET, TimerTools.LIST, TimerTools.CANCEL,
             WatcherTools.SET, WatcherTools.UPDATE, WatcherTools.LIST, WatcherTools.FINISH,
+            ScheduleTools.SET, ScheduleTools.LIST, ScheduleTools.CANCEL,
         )
 
         val offered = linkedMapOf(
