@@ -20,10 +20,12 @@ have failed.
 ### 🔧 Changed
 
 - **A run begins only at a trigger.** In a workflow with a trigger, a node the trigger does not lead to is skipped, saying "nothing leads to it from the trigger", where it used to run beside it - which is what the editor's "a run never reaches it" warning always claimed. A workflow drawn without the line from its trigger does nothing until the line is drawn, and the trigger is now warned about as leading nowhere. A workflow with no trigger at all runs as before.
+- **A reminder an agent sets with `timer_set` no longer holds its workflow step.** The step completes with the answer the agent wrote, so the node after it - a Slack reply - runs at once rather than when the reminder comes up. When it does, the agent is woken in the same session for a turn of its own, and its answer is carried on past the step the way a watcher's is. An agent that means to wait before answering still does so with `finish_answer` and a wake-up.
 
 ### 🐛 Fixed
 
 - **A condition that could not be answered went both ways.** Asked about a field the run did not carry, a condition with "yes" and "no" lines ran both, and the "no" side was handed what the "yes" side had produced. It now ends the run there and says why, as one without branches always did.
+- A wait an agent step parked on was written twice in the run's log.
 
 ## 1.1.4
 

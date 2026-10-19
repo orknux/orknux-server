@@ -64,7 +64,18 @@ import kotlin.random.Random
  * the task's, an ask's is [io.mszymanski.orknux.server.chat.SubagentWake]'s, and a step parked on the session - or mid-turn in it, which reads
  * the inbox itself - is [io.mszymanski.orknux.server.llm.SessionWake]'s. Only for
  * a watcher's event, because a watcher is the one thing in an inbox that names the
- * agent to wake; an ask or a timer still holds its step, which is waiting for it.
+ * agent to wake; an ask still holds its step, which is waiting for it.
+ *
+ * And for a reminder the agent set with `timer_set` in a workflow step. The
+ * step used to park on one as on an ask, so the answer the agent had already
+ * written reached the node after it - a Slack reply - only when the reminder
+ * came up, fifteen hours later in the case that showed it. The step completes
+ * now, and the reminder coming up wakes the agent here the way a watcher does,
+ * its answer carried on past the step. A reminder names nobody, so the agent
+ * woken is the one whose step ran in the session last - the one that set it,
+ * unless two agents share the conversation. Only in a session with no chat on
+ * it: there the reminder was always [io.mszymanski.orknux.server.chat.ChatWake]'s,
+ * and a chat's own reminders stay where the person is.
  *
  * One turn at a time per session, off the thread that posted, as a chat's is.
  *
@@ -144,11 +155,25 @@ class WatcherFollowUp(
      * [io.mszymanski.orknux.server.chat.SubagentWake].
      */
     fun owned(session: Long): Boolean =
-        inbox.pending(session, SessionEventKind.WATCHER) &&
+        (inbox.pending(session, SessionEventKind.WATCHER) || reminded(session)) &&
             held.findByIdOrNull(session)?.parentSessionId == null &&
             (chats.findFirstByLlmSessionId(session) == null || steps.existsBySessionId(session)) &&
             tasks.findFirstBySessionId(session) == null &&
             !steps.existsBySessionIdAndStatusIn(session, BUSY)
+
+    /**
+     * Whether a reminder a run's agent set has come up here - due, not merely
+     * set, since a step finishing with one still to come has nothing to wake
+     * for yet - in a session that is a run's and not a chat's.
+     */
+    private fun reminded(session: Long): Boolean =
+        inbox.due(session, SessionEventKind.TIMER) &&
+            steps.existsBySessionId(session) &&
+            chats.findFirstByLlmSessionId(session) == null
+
+    /** Whether the turn is for a reminder alone; a watcher's news comes first, being the one that names an agent. */
+    private fun remindedOnly(session: Long): Boolean =
+        !inbox.pending(session, SessionEventKind.WATCHER) && reminded(session)
 
     /**
      * The turn, and the turns again that the step's retry policy allows.
@@ -163,7 +188,9 @@ class WatcherFollowUp(
         val policy = steps.findFirstBySessionIdOrderByIdDesc(session)?.retryPolicy()
         val began = System.nanoTime()
         var spent = 1
-        var answer = follow(session)
+        // Decided once: the first attempt takes the inbox, so a retry could no longer tell.
+        val reminder = remindedOnly(session)
+        var answer = follow(session, reminder = reminder)
         while (answer is ChatCompletion.Failed && !answer.permanent && policy != null && spent < policy.attempts) {
             val wait = policy.waitAfter(spent, Random)
             val budget = policy.budget
@@ -172,22 +199,30 @@ class WatcherFollowUp(
             sessions.note(session, retryNote(answer.reason, spent + 1, policy.attempts, wait, Instant.now(), zone()))
             pause(wait)
             spent++
-            answer = follow(session, again = true)
+            answer = follow(session, again = true, reminder = reminder)
         }
         return answer
     }
 
     /** The turn itself, on this thread. Public for a test that wants it now. */
-    fun follow(session: Long, again: Boolean = false): ChatCompletion? {
+    fun follow(session: Long, again: Boolean = false, reminder: Boolean = remindedOnly(session)): ChatCompletion? {
         // The one that looked last: what it posted - a firing, a timeout or a
         // look it was asked for - is what is waiting in the inbox.
-        val watcher = watchers.findFirstBySessionIdAndAgentIdIsNotNullOrderByLastCheckedAtDescIdDesc(session)
-            ?: return null
-        val agent = service.getObject().agentFor(watcher)?.takeIf { it.enabled }
-            ?: agents.findByIdOrNull(requireNotNull(watcher.agentId))?.takeIf { it.enabled }
-            ?: return null.also { log.info("Watcher #{}'s agent is gone or switched off; nobody to wake", watcher.id) }
+        val watcher = if (reminder) {
+            null
+        } else {
+            watchers.findFirstBySessionIdAndAgentIdIsNotNullOrderByLastCheckedAtDescIdDesc(session) ?: return null
+        }
+        val woken = watcher?.let { "watcher #${it.id}" } ?: "a reminder"
+        val agent = if (watcher != null) {
+            service.getObject().agentFor(watcher)?.takeIf { it.enabled }
+                ?: agents.findByIdOrNull(requireNotNull(watcher.agentId))?.takeIf { it.enabled }
+        } else {
+            steps.findFirstBySessionIdAndAgentIdIsNotNullOrderByIdDesc(session)
+                ?.let { agents.findByIdOrNull(requireNotNull(it.agentId)) }?.takeIf { it.enabled }
+        } ?: return null.also { log.info("Session {}: the agent {} would wake is gone or switched off", session, woken) }
         val modelId = agent.modelId
-            ?: return null.also { log.info("{} has no model, so its watcher #{} wakes nobody", agent.name, watcher.id) }
+            ?: return null.also { log.info("{} has no model, so {} wakes nobody", agent.name, woken) }
 
         val budget = budgets.budget(agent.memoryShare, agent.workspaceId, modelId)
         // The briefing alone: notes and the plan go at the head of a
@@ -216,7 +251,7 @@ class WatcherFollowUp(
             add(ChatTurn("system", system))
             addAll(history)
             arrived.forEach { add(ChatTurn("user", it)) }
-            add(ChatTurn("user", followUp(mayFinish)))
+            add(ChatTurn("user", followUp(mayFinish, reminder)))
         }
         // The tools every turn in a session is lent, and the ending, which is this door's own.
         val shed = sheds(
@@ -225,7 +260,8 @@ class WatcherFollowUp(
         )
 
         if (!again) {
-            sessions.note(session, "${agent.name} was woken by watcher #${watcher.id}, after the step that set it had finished.")
+            val by = if (watcher != null) "watcher #${watcher.id}" else "a reminder it set"
+            sessions.note(session, "${agent.name} was woken by $by, after the step that set it had finished.")
         }
         val thinking = SessionThinking(session, agent.name, sessions)
         // Everything it writes on the way, handed on with its last answer, as a step does.
@@ -312,8 +348,9 @@ class WatcherFollowUp(
          * posted into their thread every few minutes is the agent talking to
          * itself in public.
          */
-        fun followUp(mayFinish: Boolean): String =
-            "This turn was started by your watcher, not by a person. Whatever you answer is sent to the " +
+        fun followUp(mayFinish: Boolean, reminder: Boolean = false): String =
+            "This turn was started by ${if (reminder) "a reminder you set" else "your watcher"}, not by a person. " +
+                "Whatever you answer is sent to the " +
                 "person you were answering before, in the same place, so write it for them: what changed and " +
                 "what it means for them. Leave your own bookkeeping out of it - watcher numbers, which tool " +
                 "you called, what you will look at next - and keep that with ${NoteTools.NOTE}. Say it the " +

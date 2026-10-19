@@ -650,6 +650,7 @@ class AgentNodeRunner(
                  */
                 step.agentSleeps += 1
                 step.agentSleepNote = finished.answer.takeIf { it.isNotEmpty() }
+                val parked = step.waitUntil != null
                 step.waitUntil = java.time.OffsetDateTime.now().plus(wake)
                 // What it wrote before sleeping is kept for the answer it gives on waking.
                 keepSaid(step, spoken)
@@ -657,7 +658,13 @@ class AgentNodeRunner(
                 val note = "${agent.name} is waiting ${wake.toSeconds()}s" +
                     (if (finished.clipped) ", shortened to what this installation allows" else "") +
                     "; asked again then (${step.agentSleeps} of ${settings.agentSleepTimes()})"
-                runLog.write(step.executionId, step.nodeKey, LogLevel.INFO, note)
+                /*
+                 * Written here only on a park after the first. `StepRunner`
+                 * writes a parking step's note itself unless the step is
+                 * resuming a wait - which it reads off `waitUntil` - so writing
+                 * it here as well put every first park in the log twice.
+                 */
+                if (parked) runLog.write(step.executionId, step.nodeKey, LogLevel.INFO, note)
                 return StepResult.waiting(wake, note)
             }
 
@@ -817,18 +824,6 @@ class AgentNodeRunner(
      * transcript says what was wrong rather than only that something was.
      */
     /**
-     * A park instead of an ending, where the turn ended with something still
-     * owed to it - an agent it asked still working, a timer it set not yet due -
-     * or null where nothing is.
-     *
-     * The backup to the briefing. An agent that asked, said it would check back,
-     * and finished with nothing to bring it back used to drop the answer; now
-     * the step waits, and the answer arriving wakes it (see [SessionInbox] and
-     * `SessionWake`). Bounded by the same two numbers a wait the agent asked for
-     * is, and counted against them, so a step owed things for ever still ends.
-     * What it had said so far goes into the note it is woken with.
-     */
-    /**
      * What the step hands on: everything the agent wrote across every pass of
      * it - earlier passes kept on the row when it slept - then [last], the
      * answer that ended it. Blank pieces are left out, so an agent that said
@@ -843,6 +838,29 @@ class AgentNodeRunner(
         step.agentSaid = kept.takeIf { it.isNotEmpty() }
     }
 
+    /**
+     * A park instead of an ending, where the turn ended with something still
+     * owed to it - an agent it asked still working, or its answer not yet read -
+     * or null where nothing is.
+     *
+     * The backup to the briefing. An agent that asked, said it would check back,
+     * and finished with nothing to bring it back used to drop the answer; now
+     * the step waits, and the answer arriving wakes it (see [SessionInbox] and
+     * `SessionWake`). Bounded by the same two numbers a wait the agent asked for
+     * is, and counted against them, so a step owed things for ever still ends.
+     * What it had said so far goes into the note it is woken with.
+     *
+     * Owed means asked for to answer *this* turn. An ask is that: the agent put
+     * a question to somebody so as to answer with what comes back. A reminder
+     * from `timer_set` is not - the tool says so, "not a wait", and the turn
+     * that sets one has already written its answer. Parking on it held that
+     * answer back from the node after this one until the reminder came up: a
+     * Slack reply written in the evening, posted the next morning with a timer
+     * set for nine. The step completes, and the reminder coming up wakes the
+     * agent in this session for a turn of its own, whose answer is carried on
+     * past this step - see `WatcherFollowUp`. A turn that does mean to wait asks
+     * for it with `finish_answer` and a wake-up, which parks above.
+     */
     private fun stillOwed(step: ExecutionStep, agent: Agent, session: Long?, said: String): StepResult? {
         if (session == null) return null
         val running = asks.getObject().stillWorking(session)
@@ -851,21 +869,16 @@ class AgentNodeRunner(
          * watcher may run for a week: the run sat suspended and the node after
          * this one never got the answer. The step completes; when the watcher
          * ends, `WatcherFollowUp` wakes the agent in this session for a turn of
-         * its own. Its own unread events are left to that too. #618.
+         * its own. Its own unread events are left to that too. #618. Nor a
+         * timer, for the same reason - see above.
          */
-        val coming = inbox.pending(session, io.mszymanski.orknux.server.llm.SessionEventKind.ANSWER) ||
-            inbox.pending(session, io.mszymanski.orknux.server.llm.SessionEventKind.TIMER)
+        val coming = inbox.pending(session, io.mszymanski.orknux.server.llm.SessionEventKind.ANSWER)
         if (running == 0 && !coming) return null
         if (step.agentSleeps >= settings.agentSleepTimes()) return null
 
-        val longest = Duration.ofSeconds(settings.agentSleepSeconds().toLong())
-        val due = inbox.nextDue(session)?.let { Duration.between(java.time.OffsetDateTime.now(), it) }
-        // An answer wakes the step when it lands; a timer only when it is due.
-        val wake = when {
-            running > 0 -> longest
-            due != null -> due.coerceIn(Duration.ofSeconds(1), longest)
-            else -> longest
-        }
+        // An answer wakes the step when it lands, so the wait is only the bound.
+        val wake = Duration.ofSeconds(settings.agentSleepSeconds().toLong())
+        val parked = step.waitUntil != null
 
         step.agentSleeps += 1
         step.agentSleepNote = buildString {
@@ -876,11 +889,11 @@ class AgentNodeRunner(
         step.waitUntil = java.time.OffsetDateTime.now().plus(wake)
         val owed = when {
             running > 0 -> "$running ask(s) still running"
-            else -> "a timer set"
+            else -> "an answer not yet read"
         }
         val note = "${agent.name} ended its turn with $owed; " +
             "waiting up to ${wake.toSeconds()}s for it (${step.agentSleeps} of ${settings.agentSleepTimes()})"
-        runLog.write(step.executionId, step.nodeKey, LogLevel.INFO, note)
+        if (parked) runLog.write(step.executionId, step.nodeKey, LogLevel.INFO, note)
         return StepResult.waiting(wake, note)
     }
 

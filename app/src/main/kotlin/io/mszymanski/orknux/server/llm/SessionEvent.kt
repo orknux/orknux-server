@@ -93,6 +93,12 @@ interface SessionEventRepository : JpaRepository<SessionEvent, Long> {
 
     fun existsBySessionIdAndKindAndDeliveredAtIsNull(sessionId: Long, kind: SessionEventKind): Boolean
 
+    fun existsBySessionIdAndKindAndDeliveredAtIsNullAndDueAtLessThanEqual(
+        sessionId: Long,
+        kind: SessionEventKind,
+        now: OffsetDateTime,
+    ): Boolean
+
     fun findFirstBySessionIdAndDeliveredAtIsNullOrderByDueAtAsc(sessionId: Long): SessionEvent?
 
     /** What of one kind is still to come at a session, soonest first - the reminders `timer_list` shows. */
@@ -221,6 +227,10 @@ class SessionInbox(
     /** Whether something of this kind is still unread here. #618. */
     fun pending(sessionId: Long, kind: SessionEventKind): Boolean =
         events.existsBySessionIdAndKindAndDeliveredAtIsNull(sessionId, kind)
+
+    /** Whether something of this kind is unread here and already due - a reminder that has come up, not one still to come. */
+    fun due(sessionId: Long, kind: SessionEventKind): Boolean =
+        events.existsBySessionIdAndKindAndDeliveredAtIsNullAndDueAtLessThanEqual(sessionId, kind, OffsetDateTime.now())
 
     /** When the next thing is due, or null where nothing is waiting. */
     fun nextDue(sessionId: Long): OffsetDateTime? =
