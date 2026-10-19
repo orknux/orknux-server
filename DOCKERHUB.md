@@ -175,12 +175,12 @@ the log says what is missing.
 
 | Variable | What it does | Default | Required |
 | --- | --- | --- | --- |
-| `ORKNUX_MAIL_HOST` | The relay this server sends its own mail through - not a workspace's. Empty means no password reset and no issue mail. | *none* | **Yes** to send mail |
+| `ORKNUX_MAIL_HOST` | The relay for the server's own mail, not a workspace's. Empty: no reset or issue mail. | *none* | **Yes** to send mail |
 | `ORKNUX_MAIL_FROM` | What the mail is from. | *none* | **Yes** to send mail |
 | `ORKNUX_MAIL_PORT` | Empty takes what the security below usually listens on: 587, 465 or 25. | *by security* | No |
 | `ORKNUX_MAIL_USERNAME` | Empty sends without authenticating. | *none* | No |
 | `ORKNUX_MAIL_PASSWORD` | That account's password. | *none* | No |
-| `ORKNUX_MAIL_SECURITY` | `NONE`, `STARTTLS` or `TLS`. STARTTLS is required rather than offered, so a server that stopped offering it is refused. | `STARTTLS` | No |
+| `ORKNUX_MAIL_SECURITY` | `NONE`, `STARTTLS` or `TLS`. STARTTLS is required, so a server not offering it is refused. | `STARTTLS` | No |
 
 ## Runs
 
@@ -193,7 +193,7 @@ the step runs. The README's **Publishing** has the rest.
 
 | Variable | What it does | Default | Required |
 | --- | --- | --- | --- |
-| `ORKNUX_TEMPORAL_ENABLED` | `false` runs workflows on the calling thread, without retries or resumption, on one server only. A deployment should not. | `true` | No |
+| `ORKNUX_TEMPORAL_ENABLED` | `false` runs workflows on the calling thread, without retries or resumption. Not for a deployment. | `true` | No |
 | `ORKNUX_TEMPORAL_TARGET` | Host and port of the Temporal frontend. | `localhost:7233` | **Yes** in a deployment, unless Temporal is off |
 | `ORKNUX_TEMPORAL_NAMESPACE` | The Temporal namespace to run in. | `default` | No |
 | `ORKNUX_TEMPORAL_TASK_QUEUE` | The queue workers take work from. Change it to run two installations against one Temporal. | `orknux-workflow` | No |
@@ -255,7 +255,7 @@ before anything is loaded.
 | Variable | What it does | Default | Required |
 | --- | --- | --- | --- |
 | `ORKNUX_MARKETPLACE_URL` | Where the catalog is asked. Point it at your own; empty offers the upload alone. | `https://orknux.ai/graphql` | No |
-| `ORKNUX_INSTALL_KEY` | What this installation says to be answered at all. The shipped key is a shared one; an installation that wants its own asks for one. | a shared key | No |
+| `ORKNUX_INSTALL_KEY` | What this installation presents to be answered. The shipped key is shared; ask for your own. | a shared key | No |
 
 ## Updates
 
@@ -331,7 +331,7 @@ ORKNUX_SCHEDULE_MAX_PER_AGENT are in
 | --- | --- | --- | --- |
 | `ORKNUX_PORT` | The port this server listens on inside the container. | `8080` | No |
 | `ORKNUX_ALLOWED_ORIGINS` | Where the interface is served from, if not here. Comma separated. | `http://localhost:5173` | **Yes** where the interface is elsewhere |
-| `ORKNUX_BASE_URL` | Where a browser reaches the interface, for reset and picture links. Never read off `Host`. | `http://localhost:5173` | **Yes** for password resets |
+| `ORKNUX_BASE_URL` | Where a browser reaches the interface, for every link sent out. Admin -> Settings -> Address overrides it. | `http://localhost:5173` | **Yes** for password resets |
 | `ORKNUX_WEBHOOK_MAX_BODY_SIZE` | The most a webhook caller may post to `/api/webhooks/…`. More is refused with 413 before any trigger runs. | `1MB` | No |
 | `ORKNUX_ASYNC_REQUEST_TIMEOUT` | How long a request answered with a promise may stay open. | `330s` | No |
 | `ORKNUX_SESSION_TIMEOUT` | How long a session survives without being used. A fortnight suits a tool behind an identity provider. | `14d` | No |
@@ -340,15 +340,15 @@ ORKNUX_SCHEDULE_MAX_PER_AGENT are in
 | `OPENAI_LOG` | What the model SDK prints to stderr: `info` each call's method and URL, `debug` headers and bodies, credentials redacted. | *none* | No |
 | `ORKNUX_LOG_LEVEL` | How much this application says: `TRACE` to `ERROR`. Its own code only, not the frameworks. | `INFO` | No |
 | `ORKNUX_LOG_LEVEL_ROOT` | The same for everything else on the classpath. `DEBUG` here is very loud. | `INFO` | No |
-| `ORKNUX_LOG_FORMAT` | `plain` reads well in a terminal; `json` (one ECS object per line) is what a collector wants. Applies to console and file alike. | `plain` | No |
+| `ORKNUX_LOG_FORMAT` | `plain` for a terminal; `json` (one ECS object per line) for a collector. Console and file alike. | `plain` | No |
 | `ORKNUX_LOG_FILE` | Console always; name a file here and it is written to as well. Use an absolute path. | *none* (stdout only) | No |
 | `ORKNUX_LOG_MAX_FILE_SIZE` | When the log file rolls. Only consulted when a file is being written. | `10MB` | No |
 | `ORKNUX_LOG_MAX_HISTORY` | How many rolled files are kept. | `14` | No |
 | `ORKNUX_LOG_TOTAL_SIZE_CAP` | The ceiling on all of them together. | `1GB` | No |
-| `ORKNUX_METRICS_ANONYMOUS` | Whether `/actuator/prometheus` answers an unauthenticated caller. `true` only where the scraper alone is on that network. | `false` | No |
+| `ORKNUX_METRICS_ANONYMOUS` | Whether `/actuator/prometheus` answers without signing in. `true` only on the scraper's own network. | `false` | No |
 | `JAVA_OPTS` | Passed to the JVM. One that sizes the heap (`-Xmx`, `MaxRAMPercentage`) replaces the two below. | *none* | No |
 | `ORKNUX_HEAP_PERCENT` `ORKNUX_NATIVE_MEMORY_MB` | Heap: the smaller of the percent of the memory limit and the limit less the MB the JVM needs beside it. | `75` `1024` | No |
-| `ORKNUX_MALLOC_ARENAS` `ORKNUX_NIO_BUFFER_CACHE_KB` | glibc's arenas, eight per host core otherwise; the largest direct buffer a thread keeps for I/O. | `2` `256` | No |
+| `ORKNUX_MALLOC_ARENAS` `ORKNUX_NIO_BUFFER_CACHE_KB` | glibc's arenas (else eight per core); the largest direct buffer a thread keeps. | `2` `256` | No |
 | `ORKNUX_EXIT_ON_OOM` | Exit on running out of heap, so the container restarts. | `true` | No |
 
 Sessions are kept in the database, so signing in outlives a restart and more

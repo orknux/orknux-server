@@ -15,22 +15,49 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
-## Unreleased
+## 1.1.5
 
 ### ✨ Added
 
-- **Schedules: a reminder an agent sets that comes back on its own.** `schedule_set` takes a note and either `every_seconds` or a five-field `cron` (with a `timezone`), and optionally an end time or a number of runs; each run is left in the session's inbox the way a timer rings, and runs missed while the server was down are not replayed. On every agent by default, listed on a workspace's Schedules page and a session's panel, where a person can stop one; bounded by `ORKNUX_SCHEDULE_MIN_INTERVAL_SECONDS` (five minutes) and `ORKNUX_SCHEDULE_MAX_PER_AGENT` (ten; `0` switches them off), both overridden in Admin -> Settings.
-- **An agent can read, make and configure agents.** `orknux_agent` reads one in full - model, system prompt, every tool it holds by kind, connections, MCP servers, catalogs, the agents it may ask - and `orknux_models` lists the workspace's models with their ids; with write scope, `orknux_create_agent` and `orknux_update_agent` go through the agent page's own save, so its refusals, audit entries and versions are the same. Agents with Orknux access are offered the two writing tools on upgrade, as every new orknux_* tool is; hide them on the agent's page to withhold them.
+- **Schedules: a reminder an agent sets that comes back on its own.** `schedule_set` takes a note and either `every_seconds` or a five-field `cron` (with a `timezone`), and optionally an end time or a number of runs; each run is left in the session's inbox the way a timer rings, and runs missed while the server was down are not replayed. On every agent by default, listed on a workspace's AI -> Schedules page and a session's panel, where a person can stop one; bounded by `ORKNUX_SCHEDULE_MIN_INTERVAL_SECONDS` (five minutes) and `ORKNUX_SCHEDULE_MAX_PER_AGENT` (ten; `0` switches them off), both overridden in Admin -> Settings.
+- **An agent can read, make and configure agents.** `orknux_agent` reads one in full and `orknux_models` lists the workspace's models; with write scope, `orknux_create_agent` and `orknux_update_agent` go through the agent page's own save, so its refusals, audit entries and versions are the same. Agents with Orknux access are offered the two writing tools on upgrade; hide them on the agent's page to withhold them.
+- **`app_link` and an installation address in Admin -> Settings.** Every link the server sends out - mails, `orknux_*` answers, `app_link`, pictures handed to a model - is absolute and built on Admin -> Settings -> Address, which falls back to `ORKNUX_BASE_URL`.
+- **Placeholders in any written node value.** `{{ field }}` is checked on save and refused when nothing in the graph answers it; in the editor typing `{{` suggests fields, placeholders are highlighted, and each draws the green dependency line a reference does.
+- **A run's step shows its parameters** - an agent's prompt, an action's arguments - worked out from what it received, above its input. Workspace variables are left as written.
+- **A run of an older version says so.** A run that started while the draft had changes the publication it ran did not is marked Older version above its graph, and the graph drawn is the one it ran, not the workflow as edited since.
+- **Upscaling through a Stable Diffusion WebUI** (AUTOMATIC1111, Forge, SD.Next) as its own provider type, with the algorithms each model offers.
+- **Pictures imported, dropped or pasted into the image editor, and exported** as PNG, JPEG or `.orkx`, an archive of the picture with its prompt, name and parameters. New, beside Discard, opens a blank canvas.
+- **Models exported and imported between workspaces**, providers included and API keys left out; enter the keys again after importing.
+- **A connection may be granted to every new agent**, chosen on the connection.
+- **A Building workflows skill** that tells an agent how to wire a graph so it runs and opens as a readable drawing.
+- **Each tool call in a chat shows the time it was made**, to the second.
+- **Every quick-edit panel in the workflow editor links to the component's own page**, in a new tab.
+- **Cached input on the model page and in Tokens by person**, read from Azure's and OpenAI's Responses usage.
 
 ### 🔧 Changed
 
-- **An agent's model has to be one that chats.** Saving an agent with a newly chosen embedding, transcription or speech model is refused with "<model> does not answer questions", from the page and the orknux_* tools alike; an agent already holding one is left as it is.
-- **A run begins only at a trigger.** In a workflow with a trigger, a node the trigger does not lead to is skipped, saying "nothing leads to it from the trigger", where it used to run beside it - which is what the editor's "a run never reaches it" warning always claimed. A workflow drawn without the line from its trigger does nothing until the line is drawn, and the trigger is now warned about as leading nowhere. A workflow with no trigger at all runs as before.
-- **A reminder an agent sets with `timer_set` no longer holds its workflow step.** The step completes with the answer the agent wrote, so the node after it - a Slack reply - runs at once rather than when the reminder comes up. When it does, the agent is woken in the same session for a turn of its own, and its answer is carried on past the step the way a watcher's is. An agent that means to wait before answering still does so with `finish_answer` and a wake-up.
+- **A run begins only at a trigger.** In a workflow with a trigger, a node the trigger does not lead to is skipped, where it used to run beside it. A workflow drawn without the line from its trigger does nothing until the line is drawn, and its run log opens by naming the trigger and saying to draw it. A workflow with no trigger at all runs as before.
+- **A reminder an agent sets no longer holds its workflow step**, and neither does waiting on an agent it asked: the step answers at once, so the Slack reply goes out, and the reminder or the asked agent's answer wakes the agent later in the same session, its reply following the first.
+- **Message times are shown in every chat by default.** Upgrading turns them on in every workspace; Workspace Settings turns them off again.
+- **A chat is named once at its start and again every N exchanges**, N an Admin setting, rather than after every answer.
+- **An agent's model has to be one that chats.** Saving an agent with a newly chosen embedding, transcription or speech model is refused; an agent already holding one is left as it is.
+- **Node text fields are dragged taller** instead of opened in a larger box, and a run step's input and output are too. Lines a run travels in the workflow editor are animated; dependency lines stay still.
+- **The workflow list is ordered by a press of its column headings** - Workflow, Description, Last Run - and the sort selector is gone. Triggers can be ordered by Last fired, and a trigger's execution history is open by default and paged.
+- **A trigger's line in a run's log reads "<trigger> fired with: ..."**, the payload it started the run with, for every kind of trigger.
 
 ### 🐛 Fixed
 
-- **A condition that could not be answered went both ways.** Asked about a field the run did not carry, a condition with "yes" and "no" lines ran both, and the "no" side was handed what the "yes" side had produced. It now ends the run there and says why, as one without branches always did.
+- **A condition that could not be answered went both ways**, the "no" side handed what the "yes" side produced. It now ends the run there and says why.
+- **Two custom actions in a workflow mixed their parameters** when switching between them in the editor.
+- **The Azure prompt cache read as 0%.** Cached tokens are counted from now on; earlier usage stays at zero.
+- **Tokens by person listed a Slack member twice, left names unresolved, and called live sessions "Removed session".**
+- **A trigger's firing was marked Failed when its workflow did start**, because other workflows it reaches were switched off or never published.
+- **A skipped step said "the condition before it went the other way" in workflows with no condition.** It now says what happened before it.
+- **Every trigger step logged "TRIGGER nodes have no runtime yet".**
+- **An error inside a streamed answer was shown as "200: ...".** It reads "The provider stopped part way: ...".
+- **A failed picture change hid the picture.** It stays, with the model's reason and the picture's size.
+- **The executions table jumped on each refresh**, and a run's log now follows what it writes.
+- **A schedule's note was cut off at 180px.**
 - A wait an agent step parked on was written twice in the run's log.
 
 ## 1.1.4
