@@ -7,6 +7,15 @@ import io.mszymanski.orknux.server.action.WorkflowFunctionRepository
 import io.mszymanski.orknux.server.agent.AgentRepository
 import io.mszymanski.orknux.server.agent.AgentTool
 import io.mszymanski.orknux.server.agent.AgentToolRepository
+import io.mszymanski.orknux.connector.model.ModelKind
+import io.mszymanski.orknux.server.agent.Agent
+import io.mszymanski.orknux.server.agent.AgentAPI
+import io.mszymanski.orknux.server.agent.AgentType
+import io.mszymanski.orknux.server.agent.AgentView
+import io.mszymanski.orknux.server.agent.CreateAgentInput
+import io.mszymanski.orknux.server.agent.UpdateAgentInput
+import io.mszymanski.orknux.server.chat.BuiltInTools
+import tools.jackson.databind.JsonNode
 import io.mszymanski.orknux.server.obj.ObjectProperty
 import io.mszymanski.orknux.server.obj.PropertyKind
 import io.mszymanski.orknux.server.obj.WorkflowObjectRepository
@@ -196,7 +205,29 @@ class OrknuxTools(
     private val newsTools: NewsTools,
     private val web: WebProperties,
     private val mapper: ObjectMapper,
+    /**
+     * The browser's door to an agent, walked through by orknux_create_agent and
+     * orknux_update_agent rather than written beside it: what a save checks, what
+     * it records and what a fresh agent starts with are that controller's, and a
+     * second copy here would be a second product. Lazy for the cycle the engine
+     * above has - AgentAPI reaches BuiltInTools, which reads these specs.
+     */
+    @param:Lazy private val agentApi: AgentAPI,
+    /** The plugin tools a grant may name, as the agent form is offered them. Lazy for the same cycle. */
+    @param:Lazy private val pluginApi: io.mszymanski.orknux.server.plugin.PluginAPI,
+    private val models: io.mszymanski.orknux.connector.model.ModelService,
+    private val connections: io.mszymanski.orknux.connector.connection.WorkspaceConnectionService,
+    private val mcpServers: io.mszymanski.orknux.connector.connection.McpServerService,
+    transactionManager: org.springframework.transaction.PlatformTransactionManager,
 ) {
+
+    /**
+     * Making an agent is a create and then a save, and a save refused halfway
+     * must not leave the create behind - a model told "no" that finds an agent
+     * of that name on its next try learns the wrong thing. One transaction, so
+     * the controller's own join it and a refusal takes both back.
+     */
+    private val writing = org.springframework.transaction.support.TransactionTemplate(transactionManager)
 
     /**
      * Where a thing can be opened, sent back with the thing itself.
@@ -266,8 +297,27 @@ class OrknuxTools(
         )
         add(
             ToolSpec(
-                name = "orknux_agents",
-                description = "The agents configured in this workspace.",
+                name = AGENTS,
+                description = "The agents configured in this workspace. $AGENT reads one in full.",
+                parameters = emptyList(),
+            ),
+        )
+        add(
+            ToolSpec(
+                name = AGENT,
+                description =
+                    "One agent in full: its model, its instructions (system prompt), every tool it may call - " +
+                        "the workspace's, the plugins', the built-ins it holds and hides, which travel " +
+                        "Always - its connections, MCP servers, skill and memory catalogs, and the agents it may ask.",
+                parameters = listOf(ToolParameterSpec("agent", "The agent's name, or its id.", required = true)),
+            ),
+        )
+        add(
+            ToolSpec(
+                name = MODELS,
+                description =
+                    "The models this workspace has, with their ids. An agent needs a CHAT model; the id is " +
+                        "what $CREATE_AGENT and $UPDATE_AGENT take.",
                 parameters = emptyList(),
             ),
         )
@@ -701,6 +751,29 @@ class OrknuxTools(
                     ),
                 ),
             )
+            add(
+                ToolSpec(
+                    name = CREATE_AGENT,
+                    description =
+                        "Makes a new agent in this workspace, with what a hand-made one starts with - the " +
+                            "built-in tools, the default connections and catalogs - plus whatever you give it here. " +
+                            "Read it back with $AGENT to confirm.",
+                    parameters = listOf(ToolParameterSpec("name", "What it is called; unique in the workspace.", required = true)) +
+                        agentSettings(),
+                ),
+            )
+            add(
+                ToolSpec(
+                    name = UPDATE_AGENT,
+                    description =
+                        "Changes an agent's settings. Only what you send changes; a list you send replaces " +
+                            "that list. Read it with $AGENT first.",
+                    parameters = listOf(
+                        ToolParameterSpec("agent", "The agent's name, or its id.", required = true),
+                        ToolParameterSpec("name", "A new name for it.", required = false),
+                    ) + agentSettings(),
+                ),
+            )
         }
     }
 
@@ -740,7 +813,11 @@ class OrknuxTools(
             "orknux_workflows" -> workflows(scope)
             "orknux_executions" -> executions(scope, arguments)
             "orknux_execution" -> execution(scope, arguments)
-            "orknux_agents" -> agentList(scope)
+            AGENTS -> agentList(scope)
+            AGENT -> agentDetail(scope, arguments)
+            MODELS -> modelList(scope)
+            CREATE_AGENT -> createAgent(scope, arguments)
+            UPDATE_AGENT -> updateAgent(scope, arguments)
             "orknux_sessions" -> sessionList(scope, arguments)
             "orknux_session" -> sessionLog(scope, arguments)
             "orknux_functions" -> functionList(scope)
@@ -979,6 +1056,313 @@ class OrknuxTools(
                 },
             ),
         )
+    }
+
+    /**
+     * One agent, as its settings page draws it.
+     *
+     * An agent asked to make another could not read back what it had made, nor
+     * what a person had made by hand, because the list says only that an agent
+     * exists. Read through [AgentAPI.agent], the page's own query, so what comes
+     * back is what the page shows. Never a secret: the view holds none, and the
+     * catalogs are named, not opened.
+     */
+    private fun agentDetail(scope: OrknuxScope, arguments: String): String {
+        val asked = text(arguments, "agent") ?: number(arguments, "id")?.toString()
+            ?: return refuse("Which agent? Give its name or id.")
+        val held = agentCalled(scope, asked) ?: return refuse("There is no agent called $asked here")
+        val view = access.actingIn(scope.workspaceId, scope.actor) { agentApi.agent(requireNotNull(held.id)) }
+            ?: return refuse("There is no agent called $asked here")
+
+        val orknuxNames = orknuxNames()
+        val own = agentTools.findByWorkspaceId(scope.workspaceId, PageRequest.of(0, MANY, Sort.by("name")))
+            .content.map { it.name }.toSet()
+        val builtIn = BuiltInTools.GRANTED.toSet() + BuiltInTools.REACHING
+        val model = view.modelId?.let { models.model(it) }
+        val named = connections.workspaceConnections(scope.workspaceId).associateBy { it.id }
+        return mapper.writeValueAsString(
+            mapOf(
+                "id" to view.id,
+                "name" to view.name,
+                "description" to view.description,
+                "enabled" to view.enabled,
+                "type" to view.type,
+                "model" to view.modelId?.let {
+                    mapOf(
+                        "id" to it,
+                        "name" to (model?.name ?: view.modelName),
+                        "provider" to model?.providerName,
+                        "kind" to model?.kind,
+                    )
+                },
+                "systemPrompt" to view.systemPrompt,
+                "tools" to mapOf(
+                    "workspace" to view.tools.filter { it in own },
+                    "plugin" to view.tools.filter { it !in own && it !in builtIn && it !in orknuxNames },
+                    "builtIn" to view.tools.filter { it in builtIn },
+                    "builtInHidden" to BuiltInTools.GRANTED.filter { it !in view.tools },
+                    "orknux" to view.tools.filter { it in orknuxNames },
+                    // Carried every turn rather than found when needed.
+                    "always" to view.requiredTools,
+                    "maxCarried" to view.maxTools,
+                ),
+                "mcpServers" to view.mcpServers,
+                "connections" to view.connectionIds.map { mapOf("id" to it, "name" to named[it]?.name) },
+                "mayAsk" to view.agentIds.map { id -> mapOf("id" to id, "name" to agents.findByIdOrNull(id)?.name) },
+                "skillCatalogs" to view.skillCatalogs,
+                "hiddenSkills" to view.hiddenSkills,
+                "alwaysSkills" to view.requiredSkills,
+                "memoryCatalogs" to view.memoryCatalogs,
+                "secretCatalogs" to view.secretCatalogs,
+                "variableCatalogs" to view.variableCatalogs,
+                "boxes" to view.boxLabels,
+                "orknuxAccess" to view.orknuxAccess,
+                "mayAskForTools" to view.mayAskForTools,
+                "maxRounds" to view.maxRounds,
+                "memoryShare" to view.memoryShare,
+                "url" to agentLink(scope.workspaceId, view.id),
+            ),
+        )
+    }
+
+    /** The workspace's models, for the id an agent's model is chosen by. */
+    private fun modelList(scope: OrknuxScope): String = mapper.writeValueAsString(
+        mapOf(
+            "models" to models.models(scope.workspaceId).map {
+                mapOf(
+                    "id" to it.id,
+                    "name" to it.name,
+                    "kind" to it.kind,
+                    "provider" to it.providerName,
+                    "enabled" to it.enabled,
+                )
+            },
+        ),
+    )
+
+    /** What create and update both take, beyond a name. */
+    private fun agentSettings(): List<ToolParameterSpec> = listOf(
+        ToolParameterSpec("description", "One line on what it is for.", required = false),
+        ToolParameterSpec("systemPrompt", "Its instructions, in full.", required = false),
+        ToolParameterSpec("modelId", "The id of a CHAT model, from $MODELS.", required = false),
+        ToolParameterSpec(
+            "tools",
+            "The workspace's and the plugins' tools it may call, by name, as a list - $TOOLS lists the " +
+                "workspace's own. Replaces what it had; the built-in tools it holds are kept.",
+            required = false,
+        ),
+        ToolParameterSpec("connections", "The connections it may use, by name or id, as a list.", required = false),
+        ToolParameterSpec("mcpServers", "The MCP servers it may call, by name, as a list.", required = false),
+        ToolParameterSpec("mayAsk", "Other agents it may put a question to, by name or id, as a list.", required = false),
+        ToolParameterSpec("orknuxAccess", "Whether it may use the $PREFIX tools itself; true or false.", required = false),
+    )
+
+    private fun createAgent(scope: OrknuxScope, arguments: String): String {
+        if (!scope.mayWrite) return readOnly()
+        val name = text(arguments, "name") ?: return refuse("What is the new agent called? Give it a name.")
+        val asked = agentAsked(arguments) ?: return refuse("The arguments are not a JSON object")
+        refusalIn(scope, asked)?.let { return refuse(it) }
+
+        val made = access.actingIn(scope.workspaceId, scope.actor) {
+            writing.execute {
+                val created = agentApi.createAgent(
+                    CreateAgentInput(
+                        workspaceId = scope.workspaceId,
+                        name = name,
+                        type = AgentType.LLM,
+                        description = asked.description,
+                        systemPrompt = asked.systemPrompt,
+                        orknuxAccess = asked.orknuxAccess,
+                    ),
+                )
+                // What the form's first save would set, through that same save.
+                if (asked.settles()) save(scope, created.id, asked.copy(name = null)) else created
+            }
+        }
+        return mapper.writeValueAsString(
+            mapOf("created" to made?.name, "id" to made?.id, "url" to agentLink(scope.workspaceId, made?.id)),
+        )
+    }
+
+    private fun updateAgent(scope: OrknuxScope, arguments: String): String {
+        if (!scope.mayWrite) return readOnly()
+        val which = text(arguments, "agent") ?: return refuse("Which agent? Give its name or id.")
+        val held = agentCalled(scope, which) ?: return refuse("There is no agent called $which here")
+        val asked = agentAsked(arguments) ?: return refuse("The arguments are not a JSON object")
+        refusalIn(scope, asked)?.let { return refuse(it) }
+
+        val saved = access.actingIn(scope.workspaceId, scope.actor) {
+            writing.execute { save(scope, requireNotNull(held.id), asked) }
+        }
+        return mapper.writeValueAsString(
+            mapOf("updated" to saved?.name, "id" to saved?.id, "url" to agentLink(scope.workspaceId, saved?.id)),
+        )
+    }
+
+    /**
+     * The settings form's save, with every field it would send read off the
+     * agent as it stands except the ones asked to change.
+     *
+     * The form sends the whole form, and on that save a null description,
+     * model or icon means "clear it"; filling them in from the agent is what
+     * keeps a call that names one field from clearing the others.
+     */
+    private fun save(scope: OrknuxScope, id: Long, asked: AgentAsked): AgentView {
+        val agent = requireNotNull(agents.findByIdOrNull(id))
+        val view = requireNotNull(agentApi.agent(id))
+        val tools = asked.tools?.let { given ->
+            // The built-ins it holds and the orknux_* tools it has not hidden, kept:
+            // the save reads a name missing from the list as one to hide.
+            view.tools.filter { it in BuiltInTools.GRANTED } +
+                orknuxNames().filter { it !in agent.hiddenTools } +
+                resolvedTools(scope, given)
+        }
+        return agentApi.updateAgent(
+            id,
+            UpdateAgentInput(
+                name = asked.name ?: view.name,
+                description = if (asked.has("description")) asked.description else view.description,
+                systemPrompt = if (asked.has("systemPrompt")) asked.systemPrompt else view.systemPrompt,
+                modelId = if (asked.has("modelId")) asked.modelId else view.modelId,
+                mcpServers = asked.mcpServers?.let { resolvedServers(scope, it) },
+                orknuxAccess = asked.orknuxAccess,
+                tools = tools?.distinct(),
+                connectionIds = asked.connections?.let { resolvedConnections(scope, it) },
+                agentIds = asked.mayAsk?.let { resolvedAgents(scope, it) },
+                icon = view.icon,
+                memoryShare = view.memoryShare,
+                maxRounds = view.maxRounds,
+            ),
+        )
+    }
+
+    /**
+     * Every name checked before anything is written, so a refusal says what
+     * was wrong in words and nothing is half made. The save checks ids against
+     * the workspace again; this is what turns a name into one.
+     */
+    private fun refusalIn(scope: OrknuxScope, asked: AgentAsked): String? {
+        if (asked.has("modelId") && asked.modelId == null && !asked.nulled("modelId")) {
+            return "modelId has to be a model's id, a number - $MODELS lists them"
+        }
+        asked.modelId?.let { id ->
+            val model = models.model(id)?.takeIf { it.workspaceId == scope.workspaceId }
+                ?: return "There is no model $id here - $MODELS lists them"
+            if (model.kind != ModelKind.CHAT) {
+                return "${model.name} does not answer questions; an agent needs a CHAT model"
+            }
+        }
+        asked.tools?.let { given ->
+            val known = grantable(scope).map { it.lowercase() }.toSet()
+            val unknown = given.filter { it.lowercase() !in known }
+            if (unknown.isNotEmpty()) {
+                return "There is no tool called ${unknown.joinToString(", ")} in this workspace - $TOOLS lists " +
+                    "the workspace's own, and a plugin's tool is named after its plugin"
+            }
+        }
+        asked.connections?.let { given ->
+            val held = connections.workspaceConnections(scope.workspaceId)
+            given.firstOrNull { name -> held.none { it.name.equals(name, true) || it.id.toString() == name } }
+                ?.let { return "There is no connection called $it here" }
+        }
+        asked.mcpServers?.let { given ->
+            val held = mcpServers.mcpServers(scope.workspaceId)
+            given.firstOrNull { name -> held.none { it.name.equals(name, true) || it.id.toString() == name } }
+                ?.let { return "There is no MCP server called $it here" }
+        }
+        asked.mayAsk?.let { given ->
+            given.firstOrNull { agentCalled(scope, it) == null }?.let { return "There is no agent called $it here" }
+        }
+        return null
+    }
+
+    /**
+     * Every name a grant may hold: the workspace's tools, the plugins' as the
+     * agent form is offered them, and the built-ins, the reaching ones among them.
+     */
+    private fun grantable(scope: OrknuxScope): Set<String> =
+        agentTools.findByWorkspaceId(scope.workspaceId, PageRequest.of(0, MANY, Sort.by("name"))).content
+            .map { it.name }.toSet() +
+            pluginApi.pluginTools().map { it.name } +
+            BuiltInTools.GRANTED + BuiltInTools.REACHING + orknuxNames()
+
+    /** Each given name as the grant spells it, so a name in another case is not stored as a second one. */
+    private fun resolvedTools(scope: OrknuxScope, given: List<String>): List<String> {
+        val known = grantable(scope)
+        return given.map { name -> known.firstOrNull { it == name } ?: known.first { it.equals(name, true) } }
+    }
+
+    private fun resolvedConnections(scope: OrknuxScope, given: List<String>): List<Long> {
+        val held = connections.workspaceConnections(scope.workspaceId)
+        return given.map { name -> held.first { it.name.equals(name, true) || it.id.toString() == name }.id }
+    }
+
+    private fun resolvedServers(scope: OrknuxScope, given: List<String>): List<String> {
+        val held = mcpServers.mcpServers(scope.workspaceId)
+        return given.map { name -> held.first { it.name.equals(name, true) || it.id.toString() == name }.name }
+    }
+
+    private fun resolvedAgents(scope: OrknuxScope, given: List<String>): List<Long> =
+        given.map { requireNotNull(agentCalled(scope, it)?.id) }
+
+    /** An agent of this workspace by its name, its name in another case, or its id. */
+    private fun agentCalled(scope: OrknuxScope, asked: String): Agent? =
+        agents.findByWorkspaceIdAndName(scope.workspaceId, asked)
+            ?: agents.findByWorkspaceId(scope.workspaceId, Sort.by("name")).let { all ->
+                all.firstOrNull { it.name.equals(asked, ignoreCase = true) }
+                    ?: all.firstOrNull { it.id?.toString() == asked }
+            }
+
+    /** The orknux_* names as `BuiltInTools.orknuxNames` reads them: every one, the writing ones included. */
+    private fun orknuxNames(): Set<String> = specs(OrknuxScope(workspaceId = 0, mayWrite = true)).map { it.name }.toSet()
+
+    private fun agentAsked(arguments: String): AgentAsked? {
+        val node = runCatching { mapper.readTree(arguments) }.getOrNull()?.takeIf { it.isObject } ?: return null
+        fun said(field: String) = node.get(field)?.takeIf { it.isString }?.stringValue()?.trim()
+        fun listed(field: String): List<String>? {
+            val value = node.get(field)?.takeIf { !it.isNull } ?: return null
+            return when {
+                value.isArray -> value.values().map { it.asString() }
+                value.isString -> value.stringValue().split(',')
+                else -> listOf(value.asString())
+            }.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        }
+        return AgentAsked(
+            node = node,
+            name = said("name")?.takeIf { it.isNotEmpty() },
+            description = said("description"),
+            systemPrompt = said("systemPrompt"),
+            modelId = node.get("modelId")?.let { if (it.isNumber) it.asLong() else it.stringValue()?.trim()?.toLongOrNull() },
+            tools = listed("tools"),
+            connections = listed("connections"),
+            mcpServers = listed("mcpServers"),
+            mayAsk = listed("mayAsk"),
+            orknuxAccess = flag(mapper.writeValueAsString(node), "orknuxAccess"),
+        )
+    }
+
+    /**
+     * What a create or update call asked for. A field absent is a field left
+     * alone, which is why the arguments are kept beside the values read off them.
+     */
+    private data class AgentAsked(
+        val node: JsonNode,
+        val name: String?,
+        val description: String?,
+        val systemPrompt: String?,
+        val modelId: Long?,
+        val tools: List<String>?,
+        val connections: List<String>?,
+        val mcpServers: List<String>?,
+        val mayAsk: List<String>?,
+        val orknuxAccess: Boolean?,
+    ) {
+        fun has(field: String) = node.has(field)
+
+        fun nulled(field: String) = node.get(field)?.isNull == true
+
+        /** Whether anything is asked that only the save, and not the create, can set. */
+        fun settles() = has("modelId") || tools != null || connections != null || mcpServers != null || mayAsk != null
     }
 
     private fun functionList(scope: OrknuxScope): String {
@@ -1463,6 +1847,13 @@ class OrknuxTools(
 
     private companion object {
         const val PREFIX = "orknux_"
+
+        const val AGENTS = "orknux_agents"
+        const val AGENT = "orknux_agent"
+        const val MODELS = "orknux_models"
+        const val CREATE_AGENT = "orknux_create_agent"
+        const val UPDATE_AGENT = "orknux_update_agent"
+        const val TOOLS = "orknux_tools"
 
         /** One page, big enough that a workspace's whole catalogue fits in it. */
         const val MANY = 100

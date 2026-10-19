@@ -402,6 +402,12 @@ class AgentAPI(
             if (model.workspaceId != agent.workspaceId) {
                 throw AgentModelUnusableException("That model belongs to another workspace")
             }
+            // The sentence createAgentForModel refuses with, and only when the
+            // model changes: an agent already holding one is left to be fixed,
+            // not made unsaveable. Every door reaches this, the orknux_* tools too.
+            if (model.id != previousModel && model.kind != ModelKind.CHAT) {
+                throw AgentModelUnusableException("${model.name} does not answer questions")
+            }
             model.id
         }
 
@@ -903,7 +909,11 @@ class AgentAPI(
 
     /** Whoever is asking, for the stamp a revision of this state will carry. */
     private fun currentUser(): String =
-        SecurityContextHolder.getContext().authentication?.name ?: "system"
+        SecurityContextHolder.getContext().authentication?.name
+            // An agent changing an agent through the orknux_* tools has no session;
+            // the name it acts under is the true answer to who saved this.
+            ?: io.mszymanski.orknux.server.security.ActingIn.actor()
+            ?: "system"
 
     private companion object {
 
