@@ -156,7 +156,11 @@ class PersonUsage(
     val unpriced: Boolean,
 )
 
-interface PersonUsageRepository : JpaRepository<PersonUsage, Long>
+interface PersonUsageRepository : JpaRepository<PersonUsage, Long> {
+
+    /** The newest call in a session that somebody prompted. */
+    fun findFirstBySessionIdAndSourceNotOrderByAtDesc(sessionId: Long, source: PromptSource): PersonUsage?
+}
 
 /**
  * Writes down who prompted each model call, while an administrator has usage
@@ -191,7 +195,7 @@ class UsageTracking(
     ) {
         if (!settings.usageTracking()) return
         val workspaceId = sessions.findByIdOrNull(sessionId)?.workspaceId ?: return
-        val prompter = Prompting.current() ?: Prompter.NOBODY
+        val prompter = Prompting.current() ?: inherited(sessionId) ?: Prompter.NOBODY
         // Its own failure, never the call's: a report that could not be written
         // is a missing row, not a turn that failed after the model answered.
         runCatching {
@@ -213,6 +217,27 @@ class UsageTracking(
                 ),
             )
         }.onFailure { log.warn("The usage of a call into session {} could not be recorded", sessionId, it) }
+    }
+
+    /**
+     * Who prompted the conversation above a session that has nobody of its own.
+     *
+     * An asked agent's session is under the one that asked it, and the turn
+     * woken there later - by a reminder it set, a watcher - runs with nobody on
+     * its thread, so all of its calls were booked to nobody and a report could
+     * not say whose question they answered. They are booked to whoever last
+     * prompted the session it hangs from, nearest first.
+     */
+    private fun inherited(sessionId: Long): Prompter? {
+        var at = sessions.findByIdOrNull(sessionId)?.parentSessionId
+        repeat(MAX_DEPTH) {
+            val above = at ?: return null
+            rows.findFirstBySessionIdAndSourceNotOrderByAtDesc(above, PromptSource.NONE)?.let { row ->
+                return Prompter(row.source, row.personKey, row.connectionId, row.personName)
+            }
+            at = sessions.findByIdOrNull(above)?.parentSessionId
+        }
+        return null
     }
 
     private fun nameOf(prompter: Prompter): String? {
@@ -245,5 +270,8 @@ class UsageTracking(
 
     private companion object {
         val NAME_KEPT: Duration = Duration.ofHours(1)
+
+        /** How far up a family is looked; asks go one level, so this is room, not a tunable. */
+        const val MAX_DEPTH = 8
     }
 }

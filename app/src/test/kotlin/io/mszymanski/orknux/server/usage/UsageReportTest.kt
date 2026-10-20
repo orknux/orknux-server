@@ -114,6 +114,28 @@ class UsageReportTest(
             .containsExactly("Alice (Orknux)", "Unattributed")
     }
 
+    /**
+     * An asked agent's session is booked to whoever prompted the conversation
+     * that asked it. Its calls run on a thread of their own, or are woken later
+     * with nobody on it, and were all booked to nobody.
+     */
+    @Test
+    fun `a subagent's calls with nobody prompting them are booked to whoever prompted above it`() {
+        track(true)
+        val slack = Prompter(PromptSource.SLACK, "U04SLACKER", connectionId = 7, name = "Sam")
+        call(slack, 1_000, 100)
+        val asked = recorder.openUnder(session, "Find the answer")
+        val below = recorder.openUnder(asked, "And below that")
+
+        spend.add(asked, UNPRICED_MODEL, ChatCompletion.Answered("ok", 10, inputTokens = 2_000, outputTokens = 50))
+        spend.add(below, UNPRICED_MODEL, ChatCompletion.Answered("ok", 10, inputTokens = 500, outputTokens = 5))
+
+        val read = report()
+        read.path("usageReport.rows[*].source").entityList(String::class.java).contains("SLACK")
+        read.path("usageReport.rows[0].inputTokens").entity(Double::class.java).isEqualTo(3_500.0)
+        read.path("usageReport.unattributedTokens").entity(Double::class.java).isEqualTo(0.0)
+    }
+
     @Test
     fun `the report is searched by person and put in a column's order`() {
         track(true)

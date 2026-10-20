@@ -762,11 +762,18 @@ class AgentRunTools(
                 (held ?: Gate(installation.agentMaxSubagentsAtOnce())).apply { users++ }
             },
         )
+        /*
+         * Who prompted the ask, carried onto the thread that answers it: the
+         * person is held per thread, and the asked agent's calls were booked
+         * to nobody because they ran on another one.
+         */
+        val prompter = io.mszymanski.orknux.server.usage.Prompting.current()
+        val prompted: () -> String = if (prompter == null) work else { { io.mszymanski.orknux.server.usage.Prompting.by(prompter, work) } }
         // A Callable by name: a bare lambda resolves to the Runnable constructor, whose future holds null. Issue #536.
         val guarded = java.util.concurrent.Callable {
             val permits = gate.permits
             permits.acquire()
-            runCatching(work)
+            runCatching(prompted)
                 .onFailure(failed)
                 .also { permits.release() }
                 // The answer itself, for agent_asks to hand back - not the Result around it. Issue #536.
