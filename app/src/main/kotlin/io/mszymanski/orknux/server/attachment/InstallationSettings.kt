@@ -71,6 +71,7 @@ object SettingNames {
     const val IMAGE_MAX_PROMPT = "images.max.prompt"
     const val IMAGE_DRAWS_AT_ONCE = "images.draws.at.once"
     const val IMAGE_HARMONIZE_STRENGTH = "images.harmonize.strength"
+    const val IMAGE_HARMONIZE_SIZE = "images.harmonize.size"
     const val AGENT_SLEEP_SECONDS = "agent.sleep.seconds"
     const val AGENT_SLEEP_TIMES = "agent.sleep.times"
     const val AGENT_MAX_SUBAGENTS = "agent.max.subagents"
@@ -531,6 +532,28 @@ class InstallationSettings(
         val held = settings.findByIdOrNull(SettingNames.IMAGE_HARMONIZE_STRENGTH)
             ?: InstallationSetting(name = SettingNames.IMAGE_HARMONIZE_STRENGTH)
         held.value = strength.toString()
+        held.lastModifiedAt = OffsetDateTime.now()
+        held.lastModifiedBy = by
+        settings.save(held)
+    }
+
+    /** The longest side, in pixels, Harmonize redraws a picture at; a larger one is scaled down and back. */
+    fun imageHarmonizeSize(): Int {
+        val held = settings.findByIdOrNull(SettingNames.IMAGE_HARMONIZE_SIZE) ?: return imageHarmonizeSizeConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_HARMONIZE_SIZE..MAX_HARMONIZE_SIZE }
+            ?: imageHarmonizeSizeConfigured()
+    }
+
+    /** What a fresh installation starts at - ORKNUX_IMAGE_HARMONIZE_SIZE. */
+    fun imageHarmonizeSizeConfigured(): Int =
+        imagesConfig.harmonizeSize.coerceIn(MIN_HARMONIZE_SIZE, MAX_HARMONIZE_SIZE)
+
+    @Transactional
+    fun setImageHarmonizeSize(pixels: Int, by: String) {
+        if (pixels !in MIN_HARMONIZE_SIZE..MAX_HARMONIZE_SIZE) throw ImageHarmonizeSizeOutOfRangeException(pixels)
+        val held = settings.findByIdOrNull(SettingNames.IMAGE_HARMONIZE_SIZE)
+            ?: InstallationSetting(name = SettingNames.IMAGE_HARMONIZE_SIZE)
+        held.value = pixels.toString()
         held.lastModifiedAt = OffsetDateTime.now()
         held.lastModifiedBy = by
         settings.save(held)
@@ -2045,6 +2068,19 @@ class ImageHarmonizeStrengthOutOfRangeException(val strength: Double) : RuntimeE
     "A picture cannot be harmonized at strength $strength. Choose between $MIN_HARMONIZE_STRENGTH and $MAX_HARMONIZE_STRENGTH.",
 ), io.mszymanski.orknux.server.graphql.Refusal {
     override val arguments get() = mapOf("strength" to strength)
+}
+
+/**
+ * Below it there is too little of a picture for a checkpoint to redraw; above
+ * it no Stable Diffusion checkpoint draws in any time somebody would wait.
+ */
+const val MIN_HARMONIZE_SIZE = 256
+const val MAX_HARMONIZE_SIZE = 4096
+
+class ImageHarmonizeSizeOutOfRangeException(val pixels: Int) : RuntimeException(
+    "A picture cannot be harmonized at $pixels pixels. Choose between $MIN_HARMONIZE_SIZE and $MAX_HARMONIZE_SIZE.",
+), io.mszymanski.orknux.server.graphql.Refusal {
+    override val arguments get() = mapOf("pixels" to pixels)
 }
 
 class ImagePromptOutOfRangeException(val characters: Int) : RuntimeException(

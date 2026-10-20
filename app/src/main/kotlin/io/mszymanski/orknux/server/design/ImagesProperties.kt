@@ -24,4 +24,11 @@ data class ImagesProperties(
      * seams a Magic edit left, not to draw another picture.
      */
     val harmonizeStrength: Double = 0.3,
+    /**
+     * The longest side, in pixels, Harmonize redraws a picture at: a larger
+     * picture is scaled down for the WebUI and its answer scaled back up. A
+     * checkpoint draws well near the size it was trained at and slowly past it
+     * - a 2048 square sent to an SD 1.5 checkpoint estimated thirteen hours.
+     */
+    val harmonizeSize: Int = 1024,
 )

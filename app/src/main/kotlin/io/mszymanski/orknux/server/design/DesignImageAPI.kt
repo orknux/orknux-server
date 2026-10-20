@@ -401,6 +401,29 @@ class DesignImageAPI(
         return true
     }
 
+    /**
+     * Stops a picture waiting or being drawn - a new one, an edit, an upscale
+     * or a Harmonize. A queued one is never started; one being drawn is
+     * stopped at its WebUI where it has one, and whatever comes back is thrown
+     * away. Either way no version and no picture comes of it.
+     */
+    @MutationMapping
+    fun stopDesignImageJob(@Argument workspaceId: Long, @Argument id: Long): DesignImageJobView {
+        access.requireVisible(workspaceId)
+        val job = jobs.findByIdOrNull(id)?.takeIf { it.workspaceId == workspaceId }
+            ?: throw DesignImageRefusedException("That picture is not here any more.")
+        if (jobs.stop(id) != 1) throw DesignImageRefusedException("This picture is not waiting or being drawn any more.")
+        // Read again: it may have been claimed between the first read and the stop.
+        val stopped = jobs.findByIdOrNull(id) ?: job
+        queue.stopped(stopped)
+        auditRecorder.record(
+            workspaceId,
+            WorkspaceAuditCategory.WORKFLOW,
+            "Image ${job.name ?: PictureFilenames.nameOf(job.prompt)} stopped in Design",
+        )
+        return view(stopped)
+    }
+
     /** A new name, and the file named after it, so a download says what the picture is called. */
     @MutationMapping
     @Transactional

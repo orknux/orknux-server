@@ -435,6 +435,11 @@ orknux:
     # left rather than draw another picture. 0.05 to 0.9; where a fresh
     # installation starts, and Admin -> Settings holds what it is now.
     harmonize-strength: ${ORKNUX_IMAGE_HARMONIZE_STRENGTH:0.3}
+    # The longest side, in pixels, a picture is redrawn at by Harmonize: a
+    # larger one is scaled down for the WebUI and its answer scaled back up. A
+    # Stable Diffusion checkpoint draws near the size it was trained at, and a
+    # 2048 square sent to an SD 1.5 one estimated thirteen hours. 256 to 4096.
+    harmonize-size: ${ORKNUX_IMAGE_HARMONIZE_SIZE:1024}
   mail:
     # The mail server this installation sends its own mail through: the password
     # reset link, and issue notifications for anybody who has not turned them off.

@@ -1241,6 +1241,8 @@ type Mutation {
     setImageDrawsAtOnce(draws: Int!): InstallationSettings!
     "Where Harmonize's strength starts, for a redraw through a Stable Diffusion WebUI. Between 0.05 and 0.9."
     setImageHarmonizeStrength(strength: Float!): InstallationSettings!
+    "The longest side, in pixels, Harmonize redraws a picture at; a larger one is scaled down and back up. Between 256 and 4096."
+    setImageHarmonizeSize(pixels: Int!): InstallationSettings!
     "After how many exchanges a chat a model named is named again from what it has become; 0 names it once."
     setChatRetitleEvery(exchanges: Int!): InstallationSettings!
     """
@@ -2279,6 +2281,8 @@ type Mutation {
     importDesignImage(input: ImportDesignImageInput!): Artifact!
     "Takes a queued or failed picture off; one being drawn cannot be. False for one not here."
     dismissDesignImageJob(id: ID!): Boolean!
+    "Stops a picture waiting or being drawn: a queued one is never started, and what a drawing one comes back with is thrown away."
+    stopDesignImageJob(workspaceId: ID!, id: ID!): DesignImageJob!
     "Calls a picture drawn in Design something else; its file is named after it too."
     renameDesignImage(workspaceId: ID!, id: ID!, name: String!): Artifact!
     """
@@ -6836,6 +6840,10 @@ type InstallationSettings {
     imageHarmonizeStrength: Float!
     "What a fresh installation starts at - ORKNUX_IMAGE_HARMONIZE_STRENGTH."
     imageHarmonizeStrengthConfigured: Float!
+    "The longest side, in pixels, Harmonize redraws a picture at."
+    imageHarmonizeSize: Int!
+    "What a fresh installation starts at - ORKNUX_IMAGE_HARMONIZE_SIZE."
+    imageHarmonizeSizeConfigured: Int!
     """
     The longest one of an agent's own waits may be, in seconds.
 
@@ -8226,6 +8234,8 @@ enum DesignImageJobStatus {
     DRAWING
     DRAWN
     FAILED
+    "Stopped by somebody while it waited or was drawn: neither drawn nor failed."
+    STOPPED
 }
 
 """ A picture asked for on Design's Images page, and where it is on its way to being drawn. """

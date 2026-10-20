@@ -1,6 +1,5 @@
 package io.mszymanski.orknux.server.design
 
-import java.awt.RenderingHints
 import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
 import javax.imageio.ImageIO
@@ -39,18 +38,9 @@ object MaskedComposite {
         }
     }
 
-    private fun read(bytes: ByteArray): BufferedImage? = runCatching { ImageIO.read(bytes.inputStream()) }.getOrNull()
+    private fun read(bytes: ByteArray): BufferedImage? = PictureScaling.read(bytes)
 
-    private fun fitted(image: BufferedImage, width: Int, height: Int): BufferedImage {
-        if (image.width == width && image.height == height) return image
-        val scaled = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
-        scaled.createGraphics().apply {
-            setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
-            drawImage(image, 0, 0, width, height, null)
-            dispose()
-        }
-        return scaled
-    }
+    private fun fitted(image: BufferedImage, width: Int, height: Int): BufferedImage = PictureScaling.fitted(image, width, height)
 
     /** Alpha below this is "change here": a mask drawn with soft edges still has a clear inside. */
     private const val OPAQUE_ENOUGH = 128

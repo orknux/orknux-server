@@ -226,6 +226,40 @@ class ModelUpscaleClient(
         }
     }
 
+    /**
+     * Asks the model's WebUI to stop what it is drawing, by `POST
+     * /sdapi/v1/interrupt`. Null once it said yes, otherwise why not. The
+     * WebUI stops its current job, whichever request that came from: it has
+     * no way to name one.
+     */
+    fun interrupt(modelId: Long): String? {
+        val provider = when (val found = upscaler(modelId)) {
+            is Found.No -> return found.reason
+            is Found.Yes -> found.provider
+        }
+        val base = provider.endpoint.trimEnd('/')
+        val url = "$base$INTERRUPT"
+        connections.vet(url)?.let { return "${provider.name} cannot be called: $it" }
+        val header = when (val credential = probe.credentials(provider)) {
+            is ModelProviderProbe.Credential.Failed -> return credential.reason
+            is ModelProviderProbe.Credential.Header -> credential.header
+        }
+        return try {
+            val answer = http.send(
+                HttpRequest.newBuilder(URI(url))
+                    .timeout(limits.answer())
+                    .header(header.name, header.value)
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(),
+            )
+            if (answer.statusCode() in 200..299) null else "${provider.name} answered ${answer.statusCode()}" + detail(answer.body())
+        } catch (failure: Exception) {
+            log.warn("Interrupting {} could not be done: {}", base, failure.toString())
+            Unreachable.describe(base, failure, limits.answer())
+        }
+    }
+
     private fun upscaler(modelId: Long): Found {
         val model = models.findByIdOrNull(modelId) ?: return Found.No("That model no longer exists")
         if (model.kind != ModelKind.UPSCALE) return Found.No("${model.name} is not an upscale model")
@@ -270,6 +304,7 @@ class ModelUpscaleClient(
 
         const val EXTRA_SINGLE_IMAGE = "/sdapi/v1/extra-single-image"
         const val IMG2IMG = "/sdapi/v1/img2img"
+        const val INTERRUPT = "/sdapi/v1/interrupt"
         const val SD_MODELS = "/sdapi/v1/sd-models"
         const val SD_OPTIONS = "/sdapi/v1/options"
 

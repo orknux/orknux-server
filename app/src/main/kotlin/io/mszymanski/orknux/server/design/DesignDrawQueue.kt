@@ -98,6 +98,8 @@ class DesignDrawQueue(
     private fun draw(id: Long) {
         try {
             val job = jobs.findByIdOrNull(id) ?: return
+            // Stopped between its claim and now: nothing is asked of the model.
+            if (job.status != DesignImageJobStatus.DRAWING) return
             val modelId = job.modelId ?: return fail(id, "${job.modelName} has been removed.")
             if (!settings.attachmentsEnabled()) {
                 return fail(id, "A drawn picture is kept as an attachment, and attachments are turned off for this installation.")
@@ -110,8 +112,7 @@ class DesignDrawQueue(
             val scale = job.scale
             val strength = job.strength
             val asked = if (original != null && strength != null) {
-                log.info("Design image {} harmonizing {} at {} by {} with {}", id, job.sourceId, strength, job.checkpoint ?: "its loaded checkpoint", job.modelName)
-                upscaling.harmonize(modelId, original, job.prompt, strength, job.checkpoint)
+                harmonized(id, job, modelId, original, strength)
             } else if (original != null && scale != null) {
                 log.info("Design image {} upscaling {} {}x by {} with {}", id, job.sourceId, scale, job.upscaler ?: "its own algorithm", job.modelName)
                 upscaling.upscale(modelId, original, job.upscaler, scale)
@@ -128,6 +129,10 @@ class DesignDrawQueue(
                     ?.let { Picture.Drawn(it, "image/png", asked.millis) } ?: asked
             } else {
                 asked
+            }
+            if (jobs.findByIdOrNull(id)?.status == DesignImageJobStatus.STOPPED) {
+                log.info("Design image {} was stopped; what {} answered after {} ms is thrown away", id, job.modelName, System.currentTimeMillis() - started)
+                return
             }
             when (val picture = result) {
                 is Picture.Failed -> {
@@ -155,9 +160,13 @@ class DesignDrawQueue(
                             versionOf = source?.let { it.view.versionOf ?: job.sourceId },
                         ),
                     )
-                    job.status = DesignImageJobStatus.DRAWN
-                    job.imageId = saved.id
-                    jobs.save(job)
+                    // Stopped while the picture was being filed: the row decides, and the picture goes.
+                    if (jobs.drawn(id, requireNotNull(saved.id)) != 1) {
+                        images.delete(saved)
+                        runCatching { store.remove(saved.location) }
+                        log.info("Design image {} was stopped as it was drawn; its picture is thrown away", id)
+                        return
+                    }
                     // A version is no picture yet: Save is what puts one in the log.
                     if (source == null) {
                         auditRecorder.recordAutomated(
@@ -179,11 +188,54 @@ class DesignDrawQueue(
         }
     }
 
+    /**
+     * Harmonize, at no more than the installation's working size: a picture
+     * longer than that is scaled down for the WebUI, which then draws in
+     * minutes rather than hours, and the answer is scaled back up to the
+     * picture's own size, so a version is the size of what it is a version of.
+     */
+    private fun harmonized(id: Long, job: DesignImageJob, modelId: Long, original: ByteArray, strength: Double): Picture {
+        val longest = settings.imageHarmonizeSize()
+        val image = PictureScaling.read(original)
+        val working = image?.let { PictureScaling.workingSize(it.width, it.height, longest) }
+        log.info(
+            "Design image {} harmonizing {} at {} by {} with {} at {}",
+            id, job.sourceId, strength, job.checkpoint ?: "its loaded checkpoint", job.modelName,
+            if (image != null && working != null) "${working.first}x${working.second}, scaled from ${image.width}x${image.height}" else "its own size",
+        )
+        if (image == null || working == null) return upscaling.harmonize(modelId, original, job.prompt, strength, job.checkpoint)
+        val sent = PictureScaling.png(PictureScaling.fitted(image, working.first, working.second))
+        val answer = upscaling.harmonize(modelId, sent, job.prompt, strength, job.checkpoint)
+        if (answer !is Picture.Drawn) return answer
+        val redrawn = PictureScaling.read(answer.image) ?: return answer
+        return Picture.Drawn(PictureScaling.png(PictureScaling.fitted(redrawn, image.width, image.height)), "image/png", answer.millis)
+    }
+
+    /**
+     * Somebody stopped [job]. One still queued is simply never claimed; one
+     * being drawn by a Stable Diffusion WebUI - an upscale or a Harmonize - is
+     * interrupted there too, so the server stops working on it. The WebUI's
+     * interrupt is for whatever it is drawing, not for one request, so with
+     * more than one picture drawn at once on one WebUI it can stop another.
+     * An image model has no standard way to cancel: its drawing is left to
+     * finish and thrown away when it comes.
+     */
+    fun stopped(job: DesignImageJob) {
+        log.info("Design image {} stopped in workspace {} while {}", job.id, job.workspaceId, if (job.startedAt == null) "queued" else "drawing")
+        val modelId = job.modelId ?: return
+        if (job.startedAt == null || (job.strength == null && job.scale == null)) return
+        try {
+            workers.execute {
+                upscaling.interrupt(modelId)?.let { log.warn("Design image {} could not be interrupted at its WebUI: {}", job.id, it) }
+                    ?: log.info("Design image {} interrupted at the WebUI of {}", job.id, job.modelName)
+            }
+        } catch (refused: RuntimeException) {
+            log.warn("Design image {} could not be interrupted: the server is stopping", job.id, refused)
+        }
+    }
+
     private fun fail(id: Long, reason: String) {
-        val job = jobs.findByIdOrNull(id) ?: return
-        job.status = DesignImageJobStatus.FAILED
-        job.reason = reason
-        jobs.save(job)
+        jobs.failed(id, reason)
     }
 
     override fun start() {

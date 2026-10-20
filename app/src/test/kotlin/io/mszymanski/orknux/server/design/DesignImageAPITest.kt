@@ -42,6 +42,7 @@ class DesignImageAPITest(
     @Autowired val store: AttachmentStore,
     @Autowired val api: DesignImageAPI,
     @Autowired val jobs: DesignImageJobRepository,
+    @Autowired val queue: DesignDrawQueue,
     @Autowired val savedArtifacts: io.mszymanski.orknux.server.workflow.SavedArtifacts,
     @Autowired val savedRows: io.mszymanski.orknux.server.workflow.SavedArtifactRepository,
 ) {
@@ -53,6 +54,11 @@ class DesignImageAPITest(
     private val authorised = CopyOnWriteArrayList<String>()
     private val upscaled = CopyOnWriteArrayList<String>()
     private val harmonized = CopyOnWriteArrayList<String>()
+    private val interrupted = CopyOnWriteArrayList<String>()
+
+    /** Set to hold img2img open until the WebUI is interrupted, as a long redraw would be. */
+    @Volatile
+    private var hold: java.util.concurrent.CountDownLatch? = null
 
     /** True for a model that refuses, the way these providers do: a 400 with the reason. */
     @Volatile
@@ -73,6 +79,8 @@ class DesignImageAPITest(
         edited.clear()
         upscaled.clear()
         harmonized.clear()
+        interrupted.clear()
+        hold = null
         authorised.clear()
         server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
         server.createContext("/images/generations") { exchange ->
@@ -134,6 +142,7 @@ class DesignImageAPITest(
         }
         server.createContext("/sdapi/v1/img2img") { exchange ->
             harmonized += exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
+            hold?.await(10, java.util.concurrent.TimeUnit.SECONDS)
             val bytes = """{"images":["${Base64.getEncoder().encodeToString(png(2, 2) { _, _ -> BLUE })}"],"parameters":{},"info":""}"""
                 .toByteArray(StandardCharsets.UTF_8)
             exchange.responseHeaders.add("Content-Type", "application/json")
@@ -141,6 +150,16 @@ class DesignImageAPITest(
             exchange.responseBody.use { it.write(bytes) }
             exchange.close()
         }
+        // Stops what the WebUI is drawing; the held img2img then answers, as a WebUI does with what it had.
+        server.createContext("/sdapi/v1/interrupt") { exchange ->
+            interrupted += exchange.requestMethod
+            hold?.countDown()
+            exchange.sendResponseHeaders(200, 2)
+            exchange.responseBody.use { it.write("{}".toByteArray()) }
+            exchange.close()
+        }
+        // More than one request at a time: an interrupt arrives while img2img is held open.
+        server.executor = java.util.concurrent.Executors.newCachedThreadPool()
         server.start()
     }
 
@@ -621,6 +640,158 @@ class DesignImageAPITest(
         } finally {
             graphQlTester.document("mutation { setImageHarmonizeStrength(strength: 0.3) { imageHarmonizeStrength } }").execute()
         }
+    }
+
+    /**
+     * A picture longer than the working size is redrawn smaller - a 2048
+     * square sent to an SD 1.5 checkpoint estimated thirteen hours - and the
+     * redraw scaled back up, so the draft is the picture's own size.
+     */
+    @Test
+    fun `harmonizing a picture larger than the working size sends it smaller and keeps the draft at its own size`() {
+        val webUi = model("Forge", "UPSCALE", type = "STABLE_DIFFUSION_WEBUI", keyed = false, modelId = "Lanczos")
+        val wide = png(600, 302) { _, _ -> WHITE }
+        val source = images.save(
+            DesignImage(
+                workspaceId = workspaceId, modelId = null, modelName = "Drawer", prompt = "A white band",
+                size = null, quality = null, style = null, filename = "band.png", contentType = "image/png",
+                sizeBytes = wide.size.toLong(), location = store.put(workspaceId, "band.png", wide), drawnBy = "alice",
+                name = "Band",
+            ),
+        )
+        fun harmonize() = drawnPicture(
+            graphQlTester.document(
+                """mutation { queueDesignImageHarmonize(input: {
+                     workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", modelId: $webUi, prompt: "A white band"
+                   }) { id } }""",
+            ).execute().path("queueDesignImageHarmonize.id").entity(String::class.java).get(),
+        )
+        val json = tools.jackson.databind.json.JsonMapper.builder().build()
+        try {
+            graphQlTester.document("mutation { setImageHarmonizeSize(pixels: 256) { imageHarmonizeSize imageHarmonizeSizeConfigured } }")
+                .execute()
+                .path("setImageHarmonizeSize.imageHarmonizeSize").entity(Int::class.java).isEqualTo(256)
+                .path("setImageHarmonizeSize.imageHarmonizeSizeConfigured").entity(Int::class.java).isEqualTo(1024)
+            val version = harmonize()
+            // The long side at the setting, the shape kept, each side a multiple of eight.
+            val asked = json.readTree(harmonized.single())
+            assertThat(asked.path("width").intValue()).isEqualTo(256)
+            assertThat(asked.path("height").intValue()).isEqualTo(128)
+            val sent = javax.imageio.ImageIO.read(Base64.getDecoder().decode(asked.path("init_images").path(0).stringValue()).inputStream())
+            assertThat(sent.width to sent.height).isEqualTo(256 to 128)
+            // The WebUI answered 2 by 2; the draft is the picture's own size, redrawn.
+            val kept = javax.imageio.ImageIO.read(store.open(requireNotNull(images.findByIdOrNull(version.removePrefix("DESIGN-").toLong())).location))
+            assertThat(kept.width to kept.height).isEqualTo(600 to 302)
+            assertThat(kept.getRGB(300, 150)).isEqualTo(BLUE)
+
+            // No longer than the setting: sent as it is, never made larger.
+            graphQlTester.document("mutation { setImageHarmonizeSize(pixels: 1024) { imageHarmonizeSize } }").execute()
+            harmonized.clear()
+            harmonize()
+            val whole = json.readTree(harmonized.single())
+            assertThat(Base64.getDecoder().decode(whole.path("init_images").path(0).stringValue())).isEqualTo(wide)
+            assertThat(whole.path("width").intValue() to whole.path("height").intValue()).isEqualTo(600 to 302)
+
+            graphQlTester.document("mutation { setImageHarmonizeSize(pixels: 100) { imageHarmonizeSize } }").execute()
+                .errors().satisfy { assertThat(it.single().extensions["code"]).isEqualTo("ImageHarmonizeSizeOutOfRange") }
+        } finally {
+            graphQlTester.document("mutation { setImageHarmonizeSize(pixels: 1024) { imageHarmonizeSize } }").execute()
+        }
+    }
+
+    @Test
+    fun `a queued picture that is stopped is never started`() {
+        val webUi = model("Forge", "UPSCALE", type = "STABLE_DIFFUSION_WEBUI", keyed = false, modelId = "Lanczos")
+        val source = whiteSource()
+        // On the queue and not yet handed to the draw queue, so nothing claims it before the stop.
+        val job = jobs.save(
+            DesignImageJob(
+                workspaceId = workspaceId, modelId = webUi, modelName = "Forge", prompt = "A white square",
+                size = null, quality = null, style = null, requestedBy = "alice",
+                sourceId = "DESIGN-${source.id}", strength = 0.3,
+            ),
+        )
+        graphQlTester.document("""mutation { stopDesignImageJob(workspaceId: $workspaceId, id: ${job.id}) { status } }""")
+            .execute().path("stopDesignImageJob.status").entity(String::class.java).isEqualTo("STOPPED")
+        queue.dispatch()
+
+        assertThat(jobs.findByIdOrNull(requireNotNull(job.id))?.status).isEqualTo(DesignImageJobStatus.STOPPED)
+        assertThat(harmonized).isEmpty()
+        // Nothing was being drawn, so nothing is interrupted.
+        assertThat(interrupted).isEmpty()
+        // Stopped once is stopped: there is nothing left to stop.
+        graphQlTester.document("""mutation { stopDesignImageJob(workspaceId: $workspaceId, id: ${job.id}) { status } }""")
+            .execute().errors().satisfy { assertThat(it.single().message).isEqualTo("This picture is not waiting or being drawn any more.") }
+    }
+
+    @Test
+    fun `a picture stopped while it is drawn is interrupted at the WebUI and what comes back is thrown away`() {
+        val webUi = model("Forge", "UPSCALE", type = "STABLE_DIFFUSION_WEBUI", keyed = false, modelId = "Lanczos")
+        val drawer = model("Drawer", "IMAGE")
+        val source = whiteSource()
+        hold = java.util.concurrent.CountDownLatch(1)
+        val jobId = graphQlTester.document(
+            """mutation { queueDesignImageHarmonize(input: {
+                 workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", modelId: $webUi, prompt: "A white square"
+               }) { id } }""",
+        ).execute().path("queueDesignImageHarmonize.id").entity(String::class.java).get().toLong()
+        await().atMost(Duration.ofSeconds(10)).until { harmonized.size == 1 }
+        assertThat(jobs.findByIdOrNull(jobId)?.status).isEqualTo(DesignImageJobStatus.DRAWING)
+
+        graphQlTester.document("""mutation { stopDesignImageJob(workspaceId: $workspaceId, id: $jobId) { status } }""")
+            .execute().path("stopDesignImageJob.status").entity(String::class.java).isEqualTo("STOPPED")
+        await().atMost(Duration.ofSeconds(10)).until { interrupted.isNotEmpty() }
+        assertThat(interrupted).containsExactly("POST")
+
+        // One picture drawn at a time: the next is drawn only once the stopped one's drawing has come back.
+        drawnPicture(
+            graphQlTester.document(
+                """mutation { queueDesignImage(input: { workspaceId: $workspaceId, modelId: $drawer, prompt: "A red square" }) { id } }""",
+            ).execute().path("queueDesignImage.id").entity(String::class.java).get(),
+        )
+        assertThat(jobs.findByIdOrNull(jobId)?.status).isEqualTo(DesignImageJobStatus.STOPPED)
+        assertThat(jobs.findByIdOrNull(jobId)?.imageId).isNull()
+        assertThat(images.findAll().filter { it.versionOf == "DESIGN-${source.id}" }).isEmpty()
+    }
+
+    @Test
+    fun `a picture in another workspace cannot be stopped from this one`() {
+        val other = requireNotNull(workspaces.save(Workspace(name = "elsewhere")).id)
+        val job = jobs.save(
+            DesignImageJob(
+                workspaceId = other, modelId = null, modelName = "Drawer", prompt = "A red square",
+                size = null, quality = null, style = null, requestedBy = "alice",
+            ),
+        )
+        graphQlTester.document("""mutation { stopDesignImageJob(workspaceId: $workspaceId, id: ${job.id}) { status } }""")
+            .execute().errors().satisfy { assertThat(it.single().extensions["code"]).isEqualTo("DesignImageRefused") }
+        assertThat(jobs.findByIdOrNull(requireNotNull(job.id))?.status).isEqualTo(DesignImageJobStatus.QUEUED)
+    }
+
+    @Test
+    @WithMockUser(username = "bob", roles = ["USERS"])
+    fun `somebody who cannot see the workspace cannot stop its pictures`() {
+        val job = jobs.save(
+            DesignImageJob(
+                workspaceId = workspaceId, modelId = null, modelName = "Drawer", prompt = "A red square",
+                size = null, quality = null, style = null, requestedBy = "alice",
+            ),
+        )
+        graphQlTester.document("""mutation { stopDesignImageJob(workspaceId: $workspaceId, id: ${job.id}) { status } }""")
+            .execute().errors().satisfy { assertThat(it.single().extensions["code"]).isEqualTo("WorkspaceNotFound") }
+        assertThat(jobs.findByIdOrNull(requireNotNull(job.id))?.status).isEqualTo(DesignImageJobStatus.QUEUED)
+    }
+
+    private fun whiteSource(): DesignImage {
+        val white = png(2, 2) { _, _ -> WHITE }
+        return images.save(
+            DesignImage(
+                workspaceId = workspaceId, modelId = null, modelName = "Drawer", prompt = "A white square",
+                size = null, quality = null, style = null, filename = "white.png", contentType = "image/png",
+                sizeBytes = white.size.toLong(), location = store.put(workspaceId, "white.png", white), drawnBy = "alice",
+                name = "White",
+            ),
+        )
     }
 
     /**

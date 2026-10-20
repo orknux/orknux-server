@@ -61,6 +61,8 @@ class InstallationSettingsAPI(
         imageDrawsAtOnceConfigured = settings.imageDrawsAtOnceConfigured(),
         imageHarmonizeStrength = settings.imageHarmonizeStrength(),
         imageHarmonizeStrengthConfigured = settings.imageHarmonizeStrengthConfigured(),
+        imageHarmonizeSize = settings.imageHarmonizeSize(),
+        imageHarmonizeSizeConfigured = settings.imageHarmonizeSizeConfigured(),
         agentSleepSeconds = settings.agentSleepSeconds(),
         agentSleepSecondsConfigured = settings.agentSleepSecondsConfigured(),
         agentSleepTimes = settings.agentSleepTimes(),
@@ -696,6 +698,15 @@ class InstallationSettingsAPI(
         return installationSettings()
     }
 
+    /** The longest side Harmonize redraws a picture at; a larger one is scaled down and back. */
+    @MutationMapping
+    fun setImageHarmonizeSize(@Argument pixels: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setImageHarmonizeSize(pixels, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "Design harmonizes at $pixels pixels on the long side")
+        return installationSettings()
+    }
+
     @MutationMapping
     fun setImageMaxPrompt(@Argument characters: Int): InstallationSettingsView {
         access.requireAdmin()
@@ -1123,6 +1134,8 @@ data class InstallationSettingsView(
     val imageDrawsAtOnceConfigured: Int,
     val imageHarmonizeStrength: Double,
     val imageHarmonizeStrengthConfigured: Double,
+    val imageHarmonizeSize: Int,
+    val imageHarmonizeSizeConfigured: Int,
     /** What a fresh installation allows - ORKNUX_CHAT_MAX_ROUNDS. */
     val chatMaxRoundsConfigured: Int,
     /**

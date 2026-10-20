@@ -15,7 +15,8 @@ import org.springframework.data.repository.query.Param
 import org.springframework.transaction.annotation.Transactional
 import java.time.OffsetDateTime
 
-enum class DesignImageJobStatus { QUEUED, DRAWING, DRAWN, FAILED }
+/** STOPPED is somebody's choice, neither drawn nor failed: a stopped picture is never started, or its drawing is thrown away. */
+enum class DesignImageJobStatus { QUEUED, DRAWING, DRAWN, FAILED, STOPPED }
 
 /**
  * A picture asked for on Design's Images page, waiting to be drawn or being
@@ -137,4 +138,35 @@ interface DesignImageJobRepository : JpaRepository<DesignImageJob, Long> {
             "j.startedAt = :at WHERE j.id = :id AND j.status = io.mszymanski.orknux.server.design.DesignImageJobStatus.QUEUED",
     )
     fun claim(@Param("id") id: Long, @Param("at") at: OffsetDateTime): Int
+
+    /**
+     * Stops a picture waiting or being drawn. Conditioned on the status as
+     * [claim] is, so a stop and a claim, or a stop and a drawing that has just
+     * finished, cannot both win: whichever changes the row first does.
+     */
+    @Modifying(clearAutomatically = true)
+    @Transactional
+    @Query(
+        "UPDATE DesignImageJob j SET j.status = io.mszymanski.orknux.server.design.DesignImageJobStatus.STOPPED " +
+            "WHERE j.id = :id AND j.status IN (io.mszymanski.orknux.server.design.DesignImageJobStatus.QUEUED, io.mszymanski.orknux.server.design.DesignImageJobStatus.DRAWING)",
+    )
+    fun stop(@Param("id") id: Long): Int
+
+    /** Files the picture drawn for one still being drawn; 0 when it was stopped meanwhile. */
+    @Modifying(clearAutomatically = true)
+    @Transactional
+    @Query(
+        "UPDATE DesignImageJob j SET j.status = io.mszymanski.orknux.server.design.DesignImageJobStatus.DRAWN, j.imageId = :imageId " +
+            "WHERE j.id = :id AND j.status = io.mszymanski.orknux.server.design.DesignImageJobStatus.DRAWING",
+    )
+    fun drawn(@Param("id") id: Long, @Param("imageId") imageId: Long): Int
+
+    /** Says why one was not drawn - unless it was stopped, which is no failure. */
+    @Modifying(clearAutomatically = true)
+    @Transactional
+    @Query(
+        "UPDATE DesignImageJob j SET j.status = io.mszymanski.orknux.server.design.DesignImageJobStatus.FAILED, j.reason = :reason " +
+            "WHERE j.id = :id AND j.status IN (io.mszymanski.orknux.server.design.DesignImageJobStatus.QUEUED, io.mszymanski.orknux.server.design.DesignImageJobStatus.DRAWING)",
+    )
+    fun failed(@Param("id") id: Long, @Param("reason") reason: String): Int
 }
