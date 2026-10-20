@@ -185,6 +185,68 @@ class UsageReportAPI(
         )
     }
 
+    /**
+     * The report day by day, for the chart over the table: every day of the
+     * period, a quiet one with zeros, so the chart's spacing is the calendar's.
+     *
+     * Bucketed here rather than grouped in the database. A day is a day in the
+     * server's zone, which is how [Period] cuts the report, and truncating a
+     * timestamp to a date is spelled differently on Postgres and SQLite and
+     * truncates in the database's zone on both. The search is over the person,
+     * as the table's is, so it narrows the days to the people it matches.
+     */
+    @QueryMapping
+    @Transactional(readOnly = true)
+    fun usageSeries(@Argument filter: UsageReportFilter?): List<UsageDayView> {
+        access.requireAdmin()
+        val period = Period.of(filter)
+        val zone = ZoneId.systemDefault()
+        val (where, parameters) = conditions(period, filter)
+        val only = filter?.search?.takeIf { it.isNotBlank() }?.let { search ->
+            people(period, filter).filter { matches(it, search) }.map { it.source to it.personKey }.toSet()
+        }
+        val days = LinkedHashMap<LocalDate, DayTotal>()
+        var day = period.from.atZoneSameInstant(zone).toLocalDate()
+        val last = period.to.atZoneSameInstant(zone).toLocalDate()
+        while (day.isBefore(last)) {
+            days[day] = DayTotal()
+            day = day.plusDays(1)
+        }
+        if (only?.isEmpty() != true) {
+            query(
+                "SELECT u.at, u.source, u.personKey, u.inputTokens, u.cachedInputTokens, u.outputTokens, u.cost, u.unpriced " +
+                    "FROM PersonUsage u WHERE $where",
+                parameters,
+            ).forEach {
+                if (only != null && (it[1] as PromptSource to it[2] as String) !in only) return@forEach
+                val total = days[(it[0] as OffsetDateTime).atZoneSameInstant(zone).toLocalDate()] ?: return@forEach
+                total.input += (it[3] as Number).toLong()
+                total.cached += (it[4] as Number).toLong()
+                total.output += (it[5] as Number).toLong()
+                total.cost += (it[6] as BigDecimal?) ?: BigDecimal.ZERO
+                total.unpriced = total.unpriced || it[7] == true
+            }
+        }
+        return days.map { (date, total) ->
+            UsageDayView(
+                day = date.toString(),
+                inputTokens = total.input.toDouble(),
+                cachedInputTokens = total.cached.toDouble(),
+                outputTokens = total.output.toDouble(),
+                cost = costOf(total.cost),
+                partlyUnpriced = total.unpriced,
+            )
+        }
+    }
+
+    private class DayTotal(
+        var input: Long = 0,
+        var cached: Long = 0,
+        var output: Long = 0,
+        var cost: BigDecimal = BigDecimal.ZERO,
+        var unpriced: Boolean = false,
+    )
+
     private fun trackingView(): UsageTrackingView {
         val changed = settings.usageTrackingChanged()
         return UsageTrackingView(
@@ -412,6 +474,16 @@ data class UsagePersonView(
     val cost: String?,
     val partlyUnpriced: Boolean,
     val lastActiveAt: String,
+)
+
+/** One day of the report; [cachedInputTokens] is a part of [inputTokens]. */
+data class UsageDayView(
+    val day: String,
+    val inputTokens: Double,
+    val cachedInputTokens: Double,
+    val outputTokens: Double,
+    val cost: String?,
+    val partlyUnpriced: Boolean,
 )
 
 data class UsagePersonSessionsView(val total: Int, val items: List<UsageSessionShareView>)

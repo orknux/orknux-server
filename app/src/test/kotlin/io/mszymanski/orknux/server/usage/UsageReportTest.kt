@@ -18,6 +18,7 @@ import org.springframework.graphql.test.tester.ExecutionGraphQlServiceTester
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.security.test.context.support.WithMockUser
 import tools.jackson.databind.ObjectMapper
+import java.math.BigDecimal
 
 /**
  * Admin > Reports: every model call booked to whoever prompted the turn it ran
@@ -34,6 +35,7 @@ class UsageReportTest(
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val mapper: ObjectMapper,
     @Autowired val llmSessions: LlmSessionRepository,
+    @Autowired val ledger: PersonUsageRepository,
 ) {
 
     /** Slack itself, which a test has no token for: what a member is called is what a test says. */
@@ -270,6 +272,79 @@ class UsageReportTest(
         assertThat(Prompter.ofTrigger(webhook, mapper)).isEqualTo(Prompter.NOBODY)
         assertThat(Prompter.ofTrigger("""{"cron":"0 * * * *"}""", mapper)).isEqualTo(Prompter.NOBODY)
         assertThat(Prompter.ofTrigger(null, mapper)).isEqualTo(Prompter.NOBODY)
+    }
+
+    /** A ledger row written straight, so a test can say which day it fell on and what it cost. */
+    private fun booked(
+        on: java.time.LocalDate,
+        who: String,
+        input: Long,
+        cached: Long,
+        output: Long,
+        cost: String?,
+        name: String? = null,
+    ) = ledger.save(
+        PersonUsage(
+            at = on.atTime(12, 0).atZone(java.time.ZoneId.systemDefault()).toOffsetDateTime(),
+            workspaceId = workspaceId,
+            sessionId = session,
+            modelId = UNPRICED_MODEL,
+            source = PromptSource.ORKNUX,
+            connectionId = null,
+            personKey = who,
+            personName = name,
+            inputTokens = input,
+            cachedInputTokens = cached,
+            outputTokens = output,
+            cost = cost?.let(::BigDecimal) ?: BigDecimal.ZERO,
+            unpriced = cost == null,
+        ),
+    )
+
+    private fun series(from: java.time.LocalDate, to: java.time.LocalDate, search: String? = null) = graphQlTester.document(
+        """query { usageSeries(filter: { workspaceId: $workspaceId, from: "$from", to: "$to"${search?.let { ", search: \"$it\"" } ?: ""} }) {
+             day inputTokens cachedInputTokens outputTokens cost partlyUnpriced
+           } }""",
+    ).execute()
+
+    /**
+     * The chart over the table: each day of the period, the quiet ones as
+     * zeros so the spacing is the calendar's, with the cached part of the
+     * input and the cost summed per day.
+     */
+    @Test
+    fun `the series is every day of the period, each summed on its own`() {
+        val first = java.time.LocalDate.now().minusDays(3)
+        booked(first, "daily", 1_000, 400, 100, "0.25")
+        booked(first, "daily", 500, 0, 50, "0.5")
+        booked(first.plusDays(2), "daily", 2_000, 2_000, 10, null)
+
+        val read = series(first, first.plusDays(3))
+        read.path("usageSeries[*].day").entityList(String::class.java)
+            .containsExactly(first.toString(), first.plusDays(1).toString(), first.plusDays(2).toString(), first.plusDays(3).toString())
+        read.path("usageSeries[0].inputTokens").entity(Double::class.java).isEqualTo(1_500.0)
+        read.path("usageSeries[0].cachedInputTokens").entity(Double::class.java).isEqualTo(400.0)
+        read.path("usageSeries[0].outputTokens").entity(Double::class.java).isEqualTo(150.0)
+        read.path("usageSeries[0].cost").entity(String::class.java).isEqualTo("0.75")
+        read.path("usageSeries[0].partlyUnpriced").entity(Boolean::class.java).isEqualTo(false)
+        read.path("usageSeries[1].inputTokens").entity(Double::class.java).isEqualTo(0.0)
+        read.path("usageSeries[1].cost").valueIsNull()
+        read.path("usageSeries[2].cachedInputTokens").entity(Double::class.java).isEqualTo(2_000.0)
+        read.path("usageSeries[2].cost").valueIsNull()
+        read.path("usageSeries[2].partlyUnpriced").entity(Boolean::class.java).isEqualTo(true)
+    }
+
+    /** The search narrows the chart as it narrows the totals beside it: to the people it matches. */
+    @Test
+    fun `the series follows the search to the people it matches`() {
+        val day = java.time.LocalDate.now().minusDays(1)
+        booked(day, "kept", 1_000, 0, 10, "1", name = "Kept Person")
+        booked(day, "other", 9_000, 0, 90, "9", name = "Somebody Else")
+
+        series(day, day, search = "kept").path("usageSeries[0].inputTokens").entity(Double::class.java).isEqualTo(1_000.0)
+            .path("usageSeries[0].cost").entity(String::class.java).isEqualTo("1")
+        series(day, day, search = "nobody-at-all").path("usageSeries[0].inputTokens").entity(Double::class.java).isEqualTo(0.0)
+        series(day, day).path("usageSeries[0].inputTokens").entity(Double::class.java).isEqualTo(10_000.0)
     }
 
     private companion object {

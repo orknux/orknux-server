@@ -17,6 +17,12 @@ extend type Query {
     time: what they used in each, out of what everybody used there. Administrators.
     """
     usagePersonSessions(person: String!, filter: UsageReportFilter, page: Int, size: Int): UsagePersonSessions!
+    """
+    The same report day by day, every day of the period - a day with nothing
+    recorded is there with zeros. The search narrows it to the people it
+    matches, as it does the totals. Administrators.
+    """
+    usageSeries(filter: UsageReportFilter): [UsageDay!]!
 }
 
 extend type Mutation {
@@ -88,6 +94,20 @@ type UsagePerson {
     cost: String
     partlyUnpriced: Boolean!
     lastActiveAt: String!
+}
+
+"One day of the report, in the server's zone."
+type UsageDay {
+    "YYYY-MM-DD."
+    day: String!
+    inputTokens: Float!
+    "The part of inputTokens the provider served from its prompt cache."
+    cachedInputTokens: Float!
+    outputTokens: Float!
+    "What the day's calls cost, where any was priced; null where none was."
+    cost: String
+    "Whether some call that day was on a model with no price."
+    partlyUnpriced: Boolean!
 }
 
 type UsagePersonSessions {
