@@ -62,6 +62,8 @@ COPY app/src app/src
 COPY modules/connection/src modules/connection/src
 COPY modules/execution/src modules/execution/src
 COPY --from=ui /ui/dist orknux-ui/dist
+# The manual, which the jar carries for orknux_manual; see app/pom.xml.
+COPY orknux-ui/src/docs orknux-ui/src/docs
 
 # Tests are not run here, for the same reason ./Dockerfile does not run them:
 # the suite brings up Postgres through Testcontainers and needs a Docker daemon

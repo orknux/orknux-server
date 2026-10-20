@@ -27,6 +27,10 @@
              enforcer's requireFilesExist reports a path with `..` in it missing while
              the file is there, so the image build failed inside Docker. -->
         <orknux.ui.dist>${project.parent.basedir}/orknux-ui/dist</orknux.ui.dist>
+        <!-- The manual's chapters, which the interface compiles in and the server
+             carries as resources of its own (see <resources> below): orknux_manual
+             reads them. Named here for -Pwith-ui's check that an image has them. -->
+        <orknux.manual.dir>${project.parent.basedir}/orknux-ui/src/docs</orknux.manual.dir>
         <!-- Which JUnit tags the suite leaves out; see the surefire configuration
              below for what is in `slow` and why. A property rather than a literal
              so that one command line switches it off. -->
@@ -432,6 +436,23 @@
                     <exclude>**/application*.yml</exclude>
                 </excludes>
             </resource>
+            <!-- Always, not only with -Pwith-ui: the tests read it and so does
+                 spring-boot:run. English only; a translated chapter is the
+                 interface's, and the tools answer in English. -->
+            <resource>
+                <!-- `..` rather than the property: a resource directory is resolved
+                     when the model is built, before ${project.parent.basedir} exists,
+                     and that spelling is silently skipped as a missing directory. -->
+                <directory>${project.basedir}/../orknux-ui/src/docs</directory>
+                <targetPath>manual</targetPath>
+                <filtering>false</filtering>
+                <includes>
+                    <include>*.md</include>
+                </includes>
+                <excludes>
+                    <exclude>*.??.md</exclude>
+                </excludes>
+            </resource>
         </resources>
         <plugins>
             <plugin>
@@ -636,8 +657,9 @@
                                         <requireFilesExist>
                                             <files>
                                                 <file>${orknux.ui.dist}/index.html</file>
+                                                <file>${orknux.manual.dir}</file>
                                             </files>
-                                            <message>-Pwith-ui needs the built interface at ${orknux.ui.dist}: run npm run build in orknux-ui first.</message>
+                                            <message>-Pwith-ui needs the built interface at ${orknux.ui.dist} and the manual at ${orknux.manual.dir}: check out the orknux-ui submodule and run npm run build in it first.</message>
                                         </requireFilesExist>
                                     </rules>
                                 </configuration>

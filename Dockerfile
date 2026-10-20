@@ -56,6 +56,8 @@ COPY modules/connection/src modules/connection/src
 COPY modules/execution/src modules/execution/src
 # Where -Pwith-ui looks for it: the submodule's own build output.
 COPY --from=ui /ui/dist orknux-ui/dist
+# The manual, which the jar carries for orknux_manual; see app/pom.xml.
+COPY orknux-ui/src/docs orknux-ui/src/docs
 
 # Tests are not run here. The suite brings up Postgres through Testcontainers,
 # which needs a Docker daemon this build does not have — and a container build
