@@ -66,6 +66,9 @@ class SubagentSessionTest(
     private var workspaceId: Long = 0
     private lateinit var server: HttpServer
 
+    /** Every request the stub model was sent, in order. */
+    private val sent = java.util.concurrent.CopyOnWriteArrayList<String>()
+
     @BeforeEach
     fun reset() {
         events.deleteAll()
@@ -88,7 +91,7 @@ class SubagentSessionTest(
     private fun serve(): String {
         server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
         server.createContext("/chat/completions") { exchange ->
-            exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
+            sent.add(exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() })
             val bytes = """{"choices":[{"message":{"role":"assistant","content":"Forty-two."}}],
                "usage":{"prompt_tokens":3,"completion_tokens":1}}""".toByteArray(StandardCharsets.UTF_8)
             exchange.responseHeaders.add("Content-Type", "application/json")
@@ -170,13 +173,38 @@ class SubagentSessionTest(
             .isEqualTo("Which shelf is it on?")
     }
 
+    /**
+     * Asked again, the same agent carries on the conversation it had. A
+     * follow-up - "refine what you found" - used to open a session that had
+     * never seen the first answer, so the agent searched again from nothing.
+     */
     @Test
-    fun `every ask is its own conversation, not a shared one`() {
+    fun `a follow-up to the same agent continues its conversation, with what it answered before`() {
         val (asker, _) = pair()
         val main = recorder.open(workspaceId, "chat", "planning")
 
         asking.run(asker, """{"agent":"Librarian","question":"First?"}""", parent = main)
-        asking.run(asker, """{"agent":"Librarian","question":"Second?"}""", parent = main)
+        asking.waited(asker, main, """{"seconds":10}""")
+        val again = mapper.readTree(asking.run(asker, """{"agent":"Librarian","question":"Second?"}""", parent = main))
+        asking.waited(asker, main, """{"seconds":10}""")
+
+        assertThat(again.path("continued").asBoolean()).isTrue()
+        assertThat(sessions.findByParentSessionIdOrderByCreatedAtAscIdAsc(main)).hasSize(1)
+        // The second request carries the first question and its answer, then the follow-up once.
+        val second = sent.last()
+        assertThat(second).contains("First?").contains("Forty-two.")
+        assertThat(second.split("Second?").size - 1).isEqualTo(1)
+    }
+
+    /** Asked with `fresh`, it starts a conversation of its own, for an unrelated question. */
+    @Test
+    fun `a fresh ask opens a conversation of its own`() {
+        val (asker, _) = pair()
+        val main = recorder.open(workspaceId, "chat", "planning")
+
+        asking.run(asker, """{"agent":"Librarian","question":"First?"}""", parent = main)
+        asking.waited(asker, main, """{"seconds":10}""")
+        asking.run(asker, """{"agent":"Librarian","question":"Unrelated?","fresh":true}""", parent = main)
 
         assertThat(sessions.findByParentSessionIdOrderByCreatedAtAscIdAsc(main)).hasSize(2)
     }
@@ -288,7 +316,7 @@ class SubagentSessionTest(
         val (asker, _) = pair()
         val main = recorder.open(workspaceId, "chat", "planning")
         asking.run(asker, """{"agent":"Librarian","question":"One?","title":"One"}""", parent = main)
-        asking.run(asker, """{"agent":"Librarian","question":"Two?","title":"Two"}""", parent = main)
+        asking.run(asker, """{"agent":"Librarian","question":"Two?","title":"Two","fresh":true}""", parent = main)
         val second = sessions.findByParentSessionIdOrderByCreatedAtAscIdAsc(main).last()
 
         val fromTop = api.llmSessionFamily(main)

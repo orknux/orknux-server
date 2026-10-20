@@ -6,7 +6,6 @@ import io.mszymanski.orknux.server.llm.LlmSessionRecorder
 import io.mszymanski.orknux.server.llm.LlmSessionRepository
 import io.mszymanski.orknux.server.llm.SessionEventDue
 import io.mszymanski.orknux.server.llm.SessionInbox
-import io.mszymanski.orknux.server.llm.SessionPrompt
 import org.slf4j.LoggerFactory
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
@@ -40,10 +39,7 @@ class SubagentWake(
     private val asks: AgentRunTools,
     private val inbox: SessionInbox,
     private val briefing: AgentBriefing,
-    private val prompt: SessionPrompt,
     private val sessions: LlmSessionRecorder,
-    private val budgets: io.mszymanski.orknux.server.llm.SessionMemoryBudgets,
-    private val sessionSheds: SessionSheds,
     private val mapper: ObjectMapper,
 ) {
 
@@ -65,12 +61,7 @@ class SubagentWake(
         asks.resume(session, agent, modelId) { sub ->
             // Built as a watcher's follow-up is: what was sent, kept, or the log
             // rebuilt; then what arrived, and last what this turn is.
-            val ceiling = budgets.promptCeiling(sub.memoryShare, sub.workspaceId, modelId)
-            val history = prompt.history(session, ceiling) ?: run {
-                val budget = budgets.budget(sub.memoryShare, sub.workspaceId, modelId)
-                listOfNotNull(sessionSheds.standing(session)?.let { ChatTurn("user", it) }) +
-                    sessions.remembered(session, budget) + sessions.recalled(session, budget)
-            }
+            val history = asks.conversationIn(session, sub, modelId)
             val arrived = inbox.take(session)
             sessions.note(session, "${sub.name} was started again by something it set, after its answer.")
             buildList {

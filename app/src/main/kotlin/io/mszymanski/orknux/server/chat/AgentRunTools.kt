@@ -102,6 +102,9 @@ class AgentRunTools(
     private val inbox: io.mszymanski.orknux.server.llm.SessionInbox,
     /** Announces what came due while a turn was ending; see [launch]. */
     private val published: org.springframework.context.ApplicationEventPublisher,
+    /** What an asked agent's session was sent before, for an ask that continues it; see [conversationIn]. */
+    private val prompt: ObjectProvider<io.mszymanski.orknux.server.llm.SessionPrompt>,
+    private val budgets: ObjectProvider<io.mszymanski.orknux.server.llm.SessionMemoryBudgets>,
 ) {
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
@@ -228,6 +231,15 @@ class AgentRunTools(
                     description = "What to ask it, in full. It has none of your context, so a " +
                         "question that refers to \"the issue\" or \"that file\" cannot be answered.",
                     required = true,
+                ),
+                ToolParameterSpec(
+                    name = FRESH,
+                    description = "Asking an agent you have already asked in this conversation continues the " +
+                        "conversation you had with it, so it remembers what it was asked and what it answered - " +
+                        "ask a follow-up as one. true starts a new conversation with it instead, for an " +
+                        "unrelated question.",
+                    required = false,
+                    schema = mapOf("type" to "boolean"),
                 ),
                 ToolParameterSpec(
                     name = TITLE,
@@ -549,23 +561,6 @@ class AgentRunTools(
             return refusal("Say which agent to ask and what to ask it: $AGENT and $QUESTION are both needed.")
         }
 
-        /*
-         * The bound on fan-out, counted against the conversation the asker is
-         * in: every ask so far is a session under it, so the sessions are the
-         * count. Told as a number and a reason, so the model finishes with
-         * what it has rather than trying the same ask in other words. A round
-         * in no session has nothing to count against and is not bounded here;
-         * the rounds bound still holds it. Issue #380.
-         */
-        val allowed = limitFor(agent)
-        val spent = parent?.let { held.findByParentSessionIdOrderByCreatedAtAscIdAsc(it).size } ?: 0
-        if (parent != null && spent >= allowed) {
-            return refusal(
-                "You have asked $spent other agents in this conversation, which is all this workspace " +
-                    "allows. Answer with what you have.",
-            )
-        }
-
         val named = granted(agent)
         val wanted = named.firstOrNull { it.name.equals(asked, ignoreCase = true) }
             ?: return refusal(
@@ -575,6 +570,35 @@ class AgentRunTools(
 
         if (!wanted.enabled) return refusal("${wanted.name} is not active, so it was not asked.")
         val modelId = wanted.modelId ?: return refusal("${wanted.name} has no model chosen, so it cannot answer.")
+
+        /*
+         * The same agent asked again in the same conversation carries on where
+         * it left off. A follow-up - "refine what you found" - went to a new
+         * session that had never seen the first answer, so the agent searched
+         * from nothing and the asker read two sessions where one conversation
+         * had happened. Asked with `fresh`, it starts over instead.
+         */
+        val fresh = flag(arguments, FRESH)
+        val earlier = if (parent != null && !fresh) earlierAsk(parent, wanted) else null
+        if (parent != null && earlier != null) return askAgain(agent, wanted, modelId, earlier, parent, question)
+
+        /*
+         * The bound on fan-out, counted against the conversation the asker is
+         * in: every ask so far is a session under it, so the sessions are the
+         * count. Told as a number and a reason, so the model finishes with
+         * what it has rather than trying the same ask in other words. A round
+         * in no session has nothing to count against and is not bounded here;
+         * the rounds bound still holds it. Issue #380. A continued ask opens
+         * no session, so it is not counted.
+         */
+        val allowed = limitFor(agent)
+        val spent = parent?.let { held.findByParentSessionIdOrderByCreatedAtAscIdAsc(it).size } ?: 0
+        if (parent != null && spent >= allowed) {
+            return refusal(
+                "You have asked $spent other agents in this conversation, which is all this workspace " +
+                    "allows. Answer with what you have.",
+            )
+        }
 
         /*
          * Its own briefing, and a turn holding nothing but the question. The
@@ -786,6 +810,97 @@ class AgentRunTools(
         return handed
     }
 
+    /** The session [wanted] was last asked in under [parent], or null where it has not been. */
+    private fun earlierAsk(parent: Long, wanted: Agent): Long? =
+        held.findByParentSessionIdOrderByCreatedAtAscIdAsc(parent)
+            .lastOrNull { agentIdIn(it.agentDetails) == wanted.id }
+            ?.id
+
+    /** The agent a session's setup line names - `agentId`, written before the first question. */
+    private fun agentIdIn(details: String?): Long? = details?.let { setup ->
+        runCatching { mapper.readTree(setup).path("agentId").takeIf { it.isNumber }?.longValue() }.getOrNull()
+    }
+
+    /**
+     * What an asked agent's session has said so far, as turns to send again:
+     * what was sent last time where it was kept, or the log rebuilt within the
+     * agent's share of its model. Shared with [SubagentWake], which wakes the
+     * same sessions and needs the same history.
+     */
+    fun conversationIn(session: Long, sub: Agent, modelId: Long): List<ChatTurn> {
+        val shares = budgets.getObject()
+        val ceiling = shares.promptCeiling(sub.memoryShare, sub.workspaceId, modelId)
+        return prompt.getObject().history(session, ceiling) ?: run {
+            val budget = shares.budget(sub.memoryShare, sub.workspaceId, modelId)
+            listOfNotNull(sessionSheds.getObject().standing(session)?.let { ChatTurn("user", it) }) +
+                sessions.remembered(session, budget) + sessions.recalled(session, budget)
+        }
+    }
+
+    /**
+     * A follow-up put to an agent already asked in this conversation, in the
+     * session it answered in - so it reads what it was asked and what it said,
+     * and the asker's family shows one conversation with it rather than two.
+     */
+    private fun askAgain(agent: Agent, wanted: Agent, modelId: Long, session: Long, parent: Long, question: String): String {
+        if (running[session]?.isDone == false) {
+            return refusal(
+                "${wanted.name} is still working on what you asked it before. Call $WAIT, read it with " +
+                    "$ASKS, and then ask your follow-up.",
+            )
+        }
+        val sub = without(wanted)
+        val lent = handing(sub, session)
+        val title = held.findByIdOrNull(session)?.title ?: "what you asked"
+        // Read before the question is written into it, so the question is sent once.
+        val history = conversationIn(session, sub, modelId)
+        sessions.userSaid(session, agent.name, question)
+        val turns = buildList {
+            add(ChatTurn("system", briefing.of(wanted).orEmpty()))
+            addAll(history)
+            add(ChatTurn("user", question))
+        }
+        val failed: (Throwable) -> Unit = { why ->
+            log.warn("A follow-up to {} did not finish: {}", wanted.name, why.message)
+            runCatching {
+                inbox.post(
+                    parent,
+                    io.mszymanski.orknux.server.llm.SessionEventKind.ANSWER,
+                    "${wanted.name} could not finish your follow-up about \"$title\": ${why.message}",
+                )
+            }
+        }
+        val handed = launch(session, gateKey = parent, failed = failed) {
+            val thinking = io.mszymanski.orknux.server.llm.SessionThinking(session, wanted.name, sessions)
+            val said = try {
+                conversations.getObject().answer(modelId, sub, turns, into = session, shed = lent, watch = thinking, gated = false)
+            } finally {
+                thinking.settle()
+            }
+            answerOf(wanted, said, parent, session).also { answered ->
+                inbox.post(
+                    parent,
+                    io.mszymanski.orknux.server.llm.SessionEventKind.ANSWER,
+                    "${wanted.name} has answered your follow-up about \"$title\":\n$answered",
+                )
+            }
+        }
+        if (!handed) return refusal("Asks are not running just now; try again in a moment.")
+
+        return mapper.writeValueAsString(
+            linkedMapOf(
+                "agent" to wanted.name,
+                "about" to title,
+                "session" to session,
+                "continued" to true,
+                "working" to true,
+                "note" to "It carries on the conversation you already had with it, so it knows what it " +
+                    "answered before. Its answer is not here yet: call " + WAIT + " when you have nothing " +
+                    "left, then " + ASKS + " to read it.",
+            ),
+        )
+    }
+
     /** Whether something is due and unread in a subagent's session. */
     private fun owed(session: Long): Boolean =
         inbox.nextDue(session)?.isAfter(java.time.OffsetDateTime.now()) == false
@@ -966,6 +1081,11 @@ class AgentRunTools(
         mapper.readTree(arguments).path(name).takeIf { it.isTextual }?.stringValue()
     }.getOrNull()
 
+    /** A yes, sent as a boolean or as the word a model sometimes writes instead. */
+    private fun flag(arguments: String, name: String): Boolean = runCatching {
+        mapper.readTree(arguments).path(name).let { it.asBoolean(false) || it.asString("").equals("true", ignoreCase = true) }
+    }.getOrDefault(false)
+
     companion object {
 
         const val ASK = "ask_agent"
@@ -991,6 +1111,7 @@ class AgentRunTools(
         const val AGENT = "agent"
         const val QUESTION = "question"
         const val TITLE = "title"
+        const val FRESH = "fresh"
 
         /** What a title falls back to being cut at, matching the column. */
         const val TITLE_LENGTH = 200

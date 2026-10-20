@@ -122,8 +122,9 @@ class SubagentLimitTest(
         )
     }
 
+    /** Fresh every time: what is counted is conversations opened, and a follow-up opens none. */
     private fun ask(agent: Agent, parent: Long, question: String) =
-        asking.run(agent, """{"agent":"Librarian","question":"$question"}""", parent = parent)
+        asking.run(agent, """{"agent":"Librarian","question":"$question","fresh":true}""", parent = parent)
 
     private fun workspaceAllows(count: Int?) {
         graphQlTester.document(
