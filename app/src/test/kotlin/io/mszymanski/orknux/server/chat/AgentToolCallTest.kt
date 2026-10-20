@@ -168,6 +168,27 @@ class AgentToolCallTest(
         assertThat((answer as ChatCompletion.Failed).reason).contains("without reaching an answer")
     }
 
+    /** An agent with no number of its own takes its workspace's, before the installation's. */
+    @Test
+    fun `an agent without its own rounds is held to its workspace's`() {
+        val endpoint = serveAlwaysCallingTools()
+        val catalogId = catalog("Reviews")
+        skill("codeReview", catalogId, "Read the diff twice.")
+        val agentId = agentGranted("Looper", model(endpoint), "Reviews")
+        workspaces.save(requireNotNull(workspaces.findByIdOrNull(workspaceId)).apply { chatMaxRounds = 3 })
+
+        val agent = requireNotNull(agents.findByIdOrNull(agentId)).apply { maxRounds = null }
+        val answer = conversation.answer(
+            requireNotNull(agent.modelId),
+            agent,
+            listOf(ChatTurn("user", "How should I review this?")),
+        )
+
+        assertThat(answer).isInstanceOf(ChatCompletion.Failed::class.java)
+        assertThat((answer as ChatCompletion.Failed).reason).contains("without reaching an answer")
+        assertThat(received).hasSize(3)
+    }
+
     /** Asks for `skill_load` first, then answers with what the result held. */
     private fun serveToolThenAnswer(): String = serve { body ->
         if (body.contains("tool_call_id")) {

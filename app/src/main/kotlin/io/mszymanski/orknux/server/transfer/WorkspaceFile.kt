@@ -155,6 +155,7 @@ internal val WORKSPACE_SETTINGS: List<FileField<Workspace, *>> = listOf(
     FileField("defaultMemoryShare", { it.defaultMemoryShare }, { w, v -> w.defaultMemoryShare = v }, WHOLE_OR_NULL),
     FileField("taskMaxTurns", { it.taskMaxTurns }, { w, v -> w.taskMaxTurns = v }, WHOLE_OR_NULL),
     FileField("agentMaxSubagents", { it.agentMaxSubagents }, { w, v -> w.agentMaxSubagents = v }, WHOLE_OR_NULL),
+    FileField("chatMaxRounds", { it.chatMaxRounds }, { w, v -> w.chatMaxRounds = v }, WHOLE_OR_NULL),
     FileField("maxRepeatedToolCalls", { it.maxRepeatedToolCalls }, { w, v -> w.maxRepeatedToolCalls = v }, WHOLE_OR_NULL),
     FileField("maxToolCallsAtOnce", { it.maxToolCallsAtOnce }, { w, v -> w.maxToolCallsAtOnce = v }, WHOLE_OR_NULL),
     FileField("sessionCompactAfterTokens", { it.sessionCompactAfterTokens }, { w, v -> w.sessionCompactAfterTokens = v }, WHOLE_OR_NULL),

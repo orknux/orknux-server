@@ -131,4 +131,24 @@ class ChatRoundsSettingTest(
 
         assertThat(agents.findById(agentId).orElseThrow().maxRounds).isNull()
     }
+
+    @Test
+    fun `a workspace may carry its own, held to the same bounds, and emptying it goes back`() {
+        graphQlTester.document(
+            """mutation { setWorkspaceChatMaxRounds(workspaceId: $workspaceId, count: 30) { chatMaxRounds chatMaxRoundsDefault } }""",
+        ).execute().path("setWorkspaceChatMaxRounds.chatMaxRounds").entity(Int::class.java).isEqualTo(30)
+        assertThat(workspaces.findById(workspaceId).orElseThrow().chatMaxRounds).isEqualTo(30)
+
+        graphQlTester.document(
+            """mutation { setWorkspaceChatMaxRounds(workspaceId: $workspaceId, count: ${MAX_CHAT_ROUNDS + 1}) { chatMaxRounds } }""",
+        ).execute().errors().satisfy { errors ->
+            assertThat(errors).singleElement().satisfies({ assertThat(it.message).contains("not a number of tool rounds") })
+        }
+        assertThat(workspaces.findById(workspaceId).orElseThrow().chatMaxRounds).isEqualTo(30)
+
+        graphQlTester.document(
+            """mutation { setWorkspaceChatMaxRounds(workspaceId: $workspaceId, count: null) { chatMaxRounds } }""",
+        ).execute().path("setWorkspaceChatMaxRounds.chatMaxRounds").valueIsNull()
+        assertThat(workspaces.findById(workspaceId).orElseThrow().chatMaxRounds).isNull()
+    }
 }

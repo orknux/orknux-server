@@ -1942,6 +1942,8 @@ type Mutation {
     number; zero takes the tool off the table here. Issue #380.
     """
     setWorkspaceAgentMaxSubagents(workspaceId: ID!, count: Int): Workspace!
+    "Tool rounds an agent here gets when it has no number of its own; 2 to 10000, null takes the installation's."
+    setWorkspaceChatMaxRounds(workspaceId: ID!, count: Int): Workspace!
     "How many tool calls one message here may ask for; null takes the installation's. Issue #518."
     setWorkspaceMaxToolCallsAtOnce(workspaceId: ID!, count: Int): Workspace!
     "How a turn here is compacted when it outgrows its model; null on any takes the installation's. Issue #522."
@@ -2440,6 +2442,10 @@ type Workspace {
     agentMaxSubagents: Int
     "What an agent here gets when `agentMaxSubagents` is null: the installation's number."
     agentMaxSubagentsDefault: Int!
+    "Tool rounds an agent here gets when it has no number of its own; null is the installation's."
+    chatMaxRounds: Int
+    "What an agent here gets when neither it nor `chatMaxRounds` says: the installation's number."
+    chatMaxRoundsDefault: Int!
     """
     How many tool calls one message from an agent here may ask for at once.
 

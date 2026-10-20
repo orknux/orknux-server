@@ -315,7 +315,7 @@ class AgentConversation(
     private val overCap: MutableSet<Long> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     /**
-     * How many rounds this agent gets: its own number, or the installation's.
+     * How many rounds this agent gets: its own number, its workspace's, or the installation's.
      *
      * Eight was written into the code here, and it was right for an agent with
      * two tools and wrong for one holding twenty - a list, a load and a lookup
@@ -323,7 +323,10 @@ class AgentConversation(
      * then was thrown away with the refusal. The number is a setting now, and an
      * agent whose work is longer than the rest carries its own.
      */
-    private fun roundsFor(agent: Agent): Int = agent.maxRounds ?: settings.chatMaxRounds()
+    private fun roundsFor(agent: Agent): Int = agent.maxRounds
+        // Then the workspace's own number, where it has decided one; then the installation's.
+        ?: workspaces.findByIdOrNull(agent.workspaceId)?.chatMaxRounds
+        ?: settings.chatMaxRounds()
 
     /**
      * How many identical calls in a row this agent's workspace allows.

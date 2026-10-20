@@ -277,6 +277,14 @@ class Workspace(
     var agentMaxSubagents: Int? = null,
 
     /**
+     * How many tool rounds an agent here gets when it has no number of its
+     * own. Null means the workspace has decided nothing and Admin -> Settings
+     * applies.
+     */
+    @Column(name = "chat_max_rounds")
+    var chatMaxRounds: Int? = null,
+
+    /**
      * How many identical tool calls in a row end the turn. Issue #516.
      *
      * A loop is not a long turn, and the rounds ceiling cannot tell them apart:

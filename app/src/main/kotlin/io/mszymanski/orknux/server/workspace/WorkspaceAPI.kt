@@ -461,6 +461,11 @@ class WorkspaceAPI(
      * same seven values. Issue #616.
      */
 
+    /** What an agent here gets for tool rounds when neither it nor the workspace says: Admin -> Settings. */
+    @BatchMapping(typeName = "Workspace")
+    fun chatMaxRoundsDefault(workspaces: List<Workspace>): List<Int> =
+        installation.chatMaxRounds().let { value -> workspaces.map { value } }
+
     /** What an agent here may ask when the workspace has said nothing: Admin -> Settings. Issue #380. */
     @BatchMapping(typeName = "Workspace")
     fun agentMaxSubagentsDefault(workspaces: List<Workspace>): List<Int> =
@@ -922,6 +927,26 @@ class WorkspaceAPI(
             } else {
                 "Built-in tools are offered to every agent in this workspace again"
             },
+        )
+        return workspace
+    }
+
+    @MutationMapping
+    @Transactional
+    fun setWorkspaceChatMaxRounds(@Argument workspaceId: Long, @Argument count: Int?): Workspace {
+        val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
+        access.requireAdministers(workspace)
+
+        if (count != null && count !in io.mszymanski.orknux.server.attachment.MIN_CHAT_ROUNDS..io.mszymanski.orknux.server.attachment.MAX_CHAT_ROUNDS) {
+            throw io.mszymanski.orknux.server.attachment.ChatRoundsOutOfRangeException(count)
+        }
+
+        workspace.chatMaxRounds = count
+        auditRecorder.record(
+            workspaceId,
+            WorkspaceAuditCategory.WORKSPACE,
+            count?.let { "An agent here gets $it rounds of tool calls unless it has its own number" }
+                ?: "Tool rounds in this workspace are the installation's again",
         )
         return workspace
     }
