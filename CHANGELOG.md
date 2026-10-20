@@ -15,6 +15,47 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## 1.1.6
+
+### ✨ Added
+
+- **Harmonize in the image editor.** Redraws the whole picture lightly through a Stable Diffusion WebUI, so the seams a Magic edit leaves blend in. Its strength and the size it redraws at (`ORKNUX_IMAGE_HARMONIZE_STRENGTH`, `ORKNUX_IMAGE_HARMONIZE_SIZE`) are in Admin -> Settings; a larger picture is scaled down to that size and back.
+- **A picture waiting or being drawn in Design can be stopped**, an upscale and a Harmonize included. The WebUI is asked to interrupt; a WebUI busy with more than one picture stops whichever it is drawing.
+- **Progress messages, None to High.** How much an agent writes while it works is set on the agent, and an agent node can set its own; every existing agent is on Medium, which is what agents were told until now.
+- **Output streaming on an agent node.** On by default: what the agent writes between its tool calls goes on to the next nodes as it is written, so a Slack reply goes out while it is still working. Off, the node finishes first and hands everything on together.
+- **A workspace's own Tool Rounds**, in Workspace Settings, between an agent's own number and the installation's.
+- **A price for cached input** on a chat model's page and in Add Model; costs use it, and fall back to the input price where there is none.
+- **Charts on the usage report**: day by day, tokens by kind (input, cached input, output) or cost. Sessions under Tokens by person show when they ran and what each cost.
+- **An agent can read the Orknux manual** with `orknux_manual`, `orknux_manual_section` and `orknux_manual_search`, offered over MCP too.
+- **An agent may ask to use one of the workspace's connections**, which the person accepts or declines in the chat.
+- **A Box Code Reading skill**: answering questions about code from a checkout with ripgrep, ctags and ast-grep, which the box toolchain image now carries.
+- **History says what each save changed** and shows a version as JSON against the one before. An agent's history now keeps which agents it may ask.
+- **Use a template can leave an agent's model out**, and the agent arrives with none chosen. Its dialog and the import plan can be resized from their corner.
+- **The image editor numbers its pictures** in the order they were asked for, and its history of a picture survives a reload.
+
+### 🔧 Changed
+
+- **Asking an agent again in the same conversation continues the conversation it had**, with what it answered before; `fresh: true` starts a new one. A follow-up does not count against Subagents Per Conversation.
+- **`agent_wait` no longer holds back messages in a workflow step's conversation.**
+- **An asked agent's calls are booked in the usage report to whoever prompted the conversation that asked it**, rather than to nobody.
+- **A plugin tool's connection argument offers only connections of its plugin's kind**, and says it may be left out - agents had been inventing a Slack connection id.
+- **An agent is listed as used by the agents that may ask it.**
+- **A chat model's prices are edited on its own page.** Costs from a dollar up are rounded to cents.
+- **Publishing a template closes its dialog** rather than opening a message to close. A template's name opens it.
+- **Agent settings**: Tool Rounds and Tools carried at once are boxed numbers on one line; Add a model is a green plus beside the model's link.
+- **Session side panels explain themselves behind (?)**, and the Thinking filter is no longer red while off.
+
+### 🐛 Fixed
+
+- **Workspace Settings wrote a late load over what was typed** in its first seconds, and the save then sent the old value.
+- **The workflow editor's pickers held only the first hundred** actions, agents or conditions.
+- **Design's gallery showed a picture's published version where it had a draft.**
+- **The image editor's Drawing… and Stop broke over two lines**, and a large picture being upscaled pushed them out of view.
+- **Watchers jumped on auto-refresh.**
+- **A returned tool call's status sat halfway along its row** instead of beside its time.
+- **Save as a template cropped its description**, and its chosen option showed no dot.
+- **A hint opened by itself when a dialog did.**
+
 ## 1.1.5
 
 ### ✨ Added
