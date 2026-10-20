@@ -39,7 +39,7 @@ class SessionSpend(
             else -> return
         }
         if (input == 0L && output == 0L) return
-        val cost = models.costOf(modelId, input, output)
+        val cost = models.costOf(modelId, input, output, cached)
         sessions.addSpend(sessionId, input, output, cached, cost ?: BigDecimal.ZERO, cost == null)
         // And to whoever prompted it, where an administrator is tracking that.
         usage.record(sessionId, modelId, input, cached, output, cost)

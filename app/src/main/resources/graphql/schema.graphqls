@@ -5652,6 +5652,8 @@ type Model {
     "What the provider charges per million tokens; null when it is not recorded."
     inputCostPerMillion: Float
     outputCostPerMillion: Float
+    "What input served from the provider's prompt cache costs, per million tokens; null charges it at the input price."
+    cachedInputCostPerMillion: Float
     "Which voice a SPEECH model reads in; null sends none and takes the provider's."
     voice: String
     """
@@ -5831,6 +5833,8 @@ input CreateModelInput {
     requestsPerMinute: Int
     inputCostPerMillion: Float
     outputCostPerMillion: Float
+    "What input served from the provider's prompt cache costs, per million tokens; null charges it at the input price."
+    cachedInputCostPerMillion: Float
     "Which voice a SPEECH model reads in; the names are the provider's own."
     voice: String
     "Whether a SPEECH model is handed text with its empty lines taken out. Absent is off."
@@ -5857,6 +5861,8 @@ input UpdateModelInput {
     repeatPenalty: Float
     inputCostPerMillion: Float
     outputCostPerMillion: Float
+    "What input served from the provider's prompt cache costs, per million tokens; null charges it at the input price."
+    cachedInputCostPerMillion: Float
     "Which voice a SPEECH model reads in; the names are the provider's own."
     voice: String
     "Whether a SPEECH model is handed text with its empty lines taken out. Absent is off."

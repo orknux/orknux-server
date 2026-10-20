@@ -280,7 +280,7 @@ class WorkspaceDuplicateTest(
                 "name", "modelId", "kind", "contextWindow", "maxOutput", "parallelToolCalls", "reasoningEffort", "temperature", "topP",
                 "topK", "minP", "repeatPenalty", "enabled", "tokenLimit", "resetInterval", "requestsPerMinute",
                 "throttleTokensPerSecond", "throttleRequestsPerSecond", "acceptRetryAfter", "inputCostPerMillion",
-                "outputCostPerMillion", "voice", "skipEmptyLines", "imageCostPerImage",
+                "outputCostPerMillion", "cachedInputCostPerMillion", "voice", "skipEmptyLines", "imageCostPerImage",
             ),
         )
         copied.forEach { (type, carried) ->

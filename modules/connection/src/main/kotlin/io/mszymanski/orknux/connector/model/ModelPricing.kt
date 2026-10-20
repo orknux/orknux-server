@@ -39,8 +39,15 @@ object ModelPricing {
 
     private val MILLION: BigDecimal = BigDecimal(1_000_000)
 
-    fun cost(model: LlmModel, inputTokens: Long, outputTokens: Long, scale: Int = ANSWER_SCALE): BigDecimal? =
-        cost(model.inputCostPerMillion, model.outputCostPerMillion, inputTokens, outputTokens, scale)
+    fun cost(
+        model: LlmModel,
+        inputTokens: Long,
+        outputTokens: Long,
+        scale: Int = ANSWER_SCALE,
+        /** How many of [inputTokens] the provider served from its cache. */
+        cachedTokens: Long = 0,
+    ): BigDecimal? =
+        cost(model.inputCostPerMillion, model.outputCostPerMillion, inputTokens, outputTokens, scale, cachedTokens, model.cachedInputCostPerMillion)
 
     /** The same arithmetic for a caller holding the two prices rather than the model. */
     fun cost(
@@ -49,13 +56,24 @@ object ModelPricing {
         inputTokens: Long,
         outputTokens: Long,
         scale: Int = ANSWER_SCALE,
+        cachedTokens: Long = 0,
+        cachedInputCostPerMillion: BigDecimal? = null,
     ): BigDecimal? {
         if (inputCostPerMillion == null && outputCostPerMillion == null) return null
 
         val perMillion = { tokens: Long, price: BigDecimal? ->
             price?.multiply(BigDecimal(tokens))?.divide(MILLION, scale, RoundingMode.HALF_UP) ?: BigDecimal.ZERO
         }
-        return perMillion(inputTokens, inputCostPerMillion).add(perMillion(outputTokens, outputCostPerMillion))
+        /*
+         * The input count is every token the model read, the cached ones among
+         * them - that is how OpenAI and Azure report it. Where a cached price
+         * is recorded, that share is charged at it; where none is, the whole
+         * input is at the input price, as it always was.
+         */
+        val cached = if (cachedInputCostPerMillion == null) 0L else cachedTokens.coerceIn(0L, inputTokens)
+        return perMillion(inputTokens - cached, inputCostPerMillion)
+            .add(perMillion(cached, cachedInputCostPerMillion))
+            .add(perMillion(outputTokens, outputCostPerMillion))
     }
 
     /**

@@ -584,6 +584,7 @@ fun LlmModel.copied(providerId: Long, name: String): LlmModel = LlmModel(
         acceptRetryAfter = acceptRetryAfter,
         inputCostPerMillion = inputCostPerMillion,
         outputCostPerMillion = outputCostPerMillion,
+        cachedInputCostPerMillion = cachedInputCostPerMillion,
         voice = voice,
         skipEmptyLines = skipEmptyLines,
         imageCostPerImage = imageCostPerImage,
@@ -745,6 +746,15 @@ class LlmModel(
 
     @Column(name = "output_cost_per_million", precision = 12, scale = 4)
     var outputCostPerMillion: BigDecimal? = null,
+
+    /**
+     * What input served from the provider's prompt cache costs, per million.
+     * Null charges it at [inputCostPerMillion], which is what it cost before
+     * this existed - and an overcharge on any model that caches, where the
+     * cached share is billed at a tenth of the input price or less.
+     */
+    @Column(name = "cached_input_cost_per_million", precision = 12, scale = 4)
+    var cachedInputCostPerMillion: BigDecimal? = null,
 
     /**
      * Which voice a [ModelKind.SPEECH] model reads in.

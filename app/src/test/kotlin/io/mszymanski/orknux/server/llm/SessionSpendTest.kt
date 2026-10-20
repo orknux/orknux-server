@@ -36,7 +36,7 @@ class SessionSpendTest(
         session = recorder.open(workspaceId, "test", "spend-${System.nanoTime()}")
     }
 
-    private fun model(inputPrice: Double?, outputPrice: Double?): Long {
+    private fun model(inputPrice: Double?, outputPrice: Double?, cachedPrice: Double? = null): Long {
         val providerId = graphQlTester.document(
             """mutation { createModelProvider(input: {
                  workspaceId: $workspaceId, name: "Stub ${System.nanoTime()}", endpoint: "http://stub.invalid", secret: "sk-test"
@@ -45,6 +45,7 @@ class SessionSpendTest(
         val prices = listOfNotNull(
             inputPrice?.let { "inputCostPerMillion: $it" },
             outputPrice?.let { "outputCostPerMillion: $it" },
+            cachedPrice?.let { "cachedInputCostPerMillion: $it" },
         ).joinToString("") { ", $it" }
         return graphQlTester.document(
             """mutation { createModel(input: {
@@ -56,6 +57,33 @@ class SessionSpendTest(
     private fun spent() = graphQlTester.document(
         """query { llmSession(id: $session) { spent { inputTokens outputTokens cachedInputTokens cost partlyUnpriced } } }""",
     ).execute()
+
+    /**
+     * Input the provider served from its cache is charged at the cached price,
+     * where the model has one. The input count holds the cached tokens, and
+     * they were all charged at the full input price - many times what they
+     * cost on a model that caches.
+     */
+    @Test
+    fun `cached input is charged at the cached price, and at the input price where there is none`() {
+        val cached = model(inputPrice = 2.0, outputPrice = 10.0, cachedPrice = 0.2)
+        val call = ChatCompletion.CalledTools(
+            calls = emptyList(),
+            millis = 10,
+            inputTokens = 1_000_000,
+            outputTokens = 100_000,
+            cachedInputTokens = 400_000,
+            turn = ChatTurn(role = "assistant", content = ""),
+        )
+        spend.add(session, cached, call)
+        // 600k at 2.00, 400k at 0.20 and 100k out at 10.00.
+        spent().path("llmSession.spent.cost").entity(Double::class.java).isEqualTo(2.28)
+
+        session = recorder.open(workspaceId, "test", "spend-${System.nanoTime()}")
+        spend.add(session, model(inputPrice = 2.0, outputPrice = 10.0), call)
+        // No cached price: the whole million at the input price, as before.
+        spent().path("llmSession.spent.cost").entity(Double::class.java).isEqualTo(3.0)
+    }
 
     @Test
     fun `every call is added, a round that asked for tools as well, and priced where the model is`() {

@@ -257,6 +257,7 @@ internal val MODEL_FIELDS: List<FileField<LlmModel, *>> = listOf(
     FileField("acceptRetryAfter", { it.acceptRetryAfter }, { m, v -> m.acceptRetryAfter = v }, YES_NO_OR_NULL),
     FileField("inputCostPerMillion", { it.inputCostPerMillion }, { m, v -> m.inputCostPerMillion = v }, DECIMAL_OR_NULL),
     FileField("outputCostPerMillion", { it.outputCostPerMillion }, { m, v -> m.outputCostPerMillion = v }, DECIMAL_OR_NULL),
+    FileField("cachedInputCostPerMillion", { it.cachedInputCostPerMillion }, { m, v -> m.cachedInputCostPerMillion = v }, DECIMAL_OR_NULL),
     FileField("voice", { it.voice }, { m, v -> m.voice = v }, TEXT_OR_NULL),
     FileField("skipEmptyLines", { it.skipEmptyLines }, { m, v -> m.skipEmptyLines = v }, YES_NO),
     FileField("imageCostPerImage", { it.imageCostPerImage }, { m, v -> m.imageCostPerImage = v }, DECIMAL_OR_NULL),
