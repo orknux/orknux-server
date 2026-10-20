@@ -180,6 +180,7 @@ object ComponentSnapshot {
             "hiddenTools" to agent.hiddenTools.toList(),
             "maxTools" to agent.maxTools,
             "maxRounds" to agent.maxRounds,
+            "chattiness" to agent.chattiness.name,
         ),
     )
 
@@ -350,6 +351,7 @@ object ComponentSnapshot {
         if (held.has("hiddenTools")) agent.hiddenTools = names(held, "hiddenTools")
         if (held.has("maxTools")) agent.maxTools = number(held, "maxTools")?.toInt()
         if (held.has("maxRounds")) agent.maxRounds = number(held, "maxRounds")?.toInt()
+        if (held.has("chattiness")) agent.chattiness = enumOf(held, "chattiness", agent.chattiness)
     }
 
     // ---------------------------------------------------------------- reading

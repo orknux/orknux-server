@@ -187,10 +187,15 @@ class AgentNodeRunner(
         val override = mappings[SYSTEM_PROMPT]
             ?.let { expressions.textOf(it, payload, started) }
             ?.takeIf { it.isNotBlank() }
+        // The node's own level for how much the agent says while it works, where it names one.
+        val chattiness = mappings[CHATTINESS]
+            ?.let { expressions.textOf(it, payload, started) }
+            ?.let(Chattiness::of)
+            ?: agent.chattiness
         val briefed = if (override != null) {
-            listOfNotNull(override, briefing.grants(agent)).joinToString("\n\n")
+            listOfNotNull(override, briefing.grants(agent, chattiness)).joinToString("\n\n")
         } else {
-            briefing.of(agent)
+            briefing.of(agent, chattiness)
         }
 
         /*
@@ -1043,6 +1048,9 @@ class AgentNodeRunner(
 
         /** Replaces the agent's own briefing for this node only. */
         const val SYSTEM_PROMPT = "systemPrompt"
+
+        /** NONE, LOW, MEDIUM or HIGH: how much the agent says while it works, for this node only. */
+        const val CHATTINESS = "chattiness"
 
         /**
          * Which conversation this node's turn belongs to, put here by the

@@ -3558,6 +3558,23 @@ type Agent {
     agent whose work is longer than the rest.
     """
     maxRounds: Int
+    "How much it says while it works. A workflow node may override it with a `chattiness` parameter."
+    chattiness: Chattiness!
+}
+
+"""
+How much an agent says while it works - the lines it writes beside its tool
+calls, which reach a person before its answer does.
+"""
+enum Chattiness {
+    "No progress messages: works in silence and says everything in its answer."
+    NONE
+    "Says once what it is about to do, then nothing until its answer."
+    LOW
+    "Says what it is about to do, and every few calls what it found."
+    MEDIUM
+    "Keeps the person posted at every step."
+    HIGH
 }
 
 """
@@ -4767,6 +4784,8 @@ input UpdateAgentInput {
     memoryShare: Int
     "Its own ceiling on tool rounds; null follows the installation's."
     maxRounds: Int
+    "How much it says while it works. Left out, it is left alone."
+    chattiness: Chattiness
 }
 
 enum WorkspaceOperationType {

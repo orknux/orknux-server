@@ -1,6 +1,7 @@
 package io.mszymanski.orknux.server.chat
 
 import io.mszymanski.orknux.server.agent.Agent
+import io.mszymanski.orknux.server.agent.Chattiness
 import io.mszymanski.orknux.server.agent.MOST_TOOL_SUMMARY_CHARS
 import io.mszymanski.orknux.server.agent.SkillTool
 import org.springframework.stereotype.Service
@@ -86,8 +87,8 @@ class AgentBriefing(
      * The agent's own prose first, then [grants] - what it was given and the
      * rules for using it.
      */
-    fun of(agent: Agent): String? =
-        listOfNotNull(agent.systemPrompt?.takeIf { it.isNotBlank() }, grants(agent))
+    fun of(agent: Agent, chattiness: Chattiness = agent.chattiness): String? =
+        listOfNotNull(agent.systemPrompt?.takeIf { it.isNotBlank() }, grants(agent, chattiness))
             .takeIf { it.isNotEmpty() }
             ?.joinToString("\n\n")
 
@@ -103,7 +104,7 @@ class AgentBriefing(
      * appends this, so a Slack bot with a bespoke voice still knows its own
      * commands and still says so. Issue #381.
      */
-    fun grants(agent: Agent): String? {
+    fun grants(agent: Agent, chattiness: Chattiness = agent.chattiness): String? {
         val parts = mutableListOf<String>()
 
         /*
@@ -137,7 +138,12 @@ class AgentBriefing(
          * thinking may not, and one that writes nothing leaves them guessing
          * whether it is working at all.
          */
-        parts += REPORT_PROGRESS
+        parts += when (chattiness) {
+            Chattiness.NONE -> REPORT_NOTHING
+            Chattiness.LOW -> REPORT_ONCE
+            Chattiness.MEDIUM -> REPORT_PROGRESS
+            Chattiness.HIGH -> REPORT_EVERYTHING
+        }
 
         val instructions = skills.list(agent)
 
@@ -588,6 +594,24 @@ class AgentBriefing(
                 "rather than promising."
 
         /** Saying what it is doing while it works; see [grants]. */
+        /** What a quiet agent is told instead of [REPORT_PROGRESS]. */
+        const val REPORT_NOTHING =
+            "Whoever asked sees what you write, not what you think, and wants only your answer. Write " +
+                "nothing beside your tool calls: work without commentary and say everything in your answer " +
+                "at the end."
+
+        /** What an agent set to LOW is told instead of [REPORT_PROGRESS]. */
+        const val REPORT_ONCE =
+            "Whoever asked sees what you write, not what you think. For work that takes more than a couple " +
+                "of tool calls, say once, in a sentence, what you are about to do - then write nothing more " +
+                "beside your calls until your answer."
+
+        /** What a chatty agent is told instead of [REPORT_PROGRESS]. */
+        const val REPORT_EVERYTHING =
+            "Whoever asked sees what you write, not what you think, and wants to follow along. Beside " +
+                "every tool call, write a short line on what you are doing and why, and once a result is " +
+                "back, a line on what it showed. Keep each line short; the full answer comes at the end."
+
         const val REPORT_PROGRESS =
             "Whoever asked sees what you write, not what you think. For work that takes more than a couple " +
                 "of tool calls, first say in a sentence what you are about to do, then, every few calls, write " +

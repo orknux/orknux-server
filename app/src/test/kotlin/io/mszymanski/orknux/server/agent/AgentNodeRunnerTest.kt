@@ -134,6 +134,45 @@ class AgentNodeRunnerTest(
     }
 
     /**
+     * How much an agent says while it works is the agent's, and a node may say
+     * otherwise for itself. Each level is a different sentence in the briefing;
+     * the agent saved as quiet is told to work without commentary, and the node
+     * naming CHATTY tells it to keep the person posted instead.
+     */
+    @Test
+    fun `an agent's chattiness is in its briefing, and a node may override it`() {
+        val modelId = model(serveAnswer())
+        val agentId = agent("Reviewer", modelId, prompt = "You summarise incidents.")
+        graphQlTester.document(
+            """mutation { updateAgent(id: $agentId, input: {
+                 name: "Reviewer", modelId: $modelId, systemPrompt: "You summarise incidents.", chattiness: NONE
+               }) { chattiness } }""",
+        ).execute().path("updateAgent.chattiness").entity(String::class.java).isEqualTo("NONE")
+        graph(agentId)
+
+        start()
+        // Each level by words only it says.
+        assertThat(received.single()).contains("Write nothing beside your tool calls")
+            .doesNotContain("every few calls").doesNotContain("Beside every tool call")
+
+        received.clear()
+        graphQlTester.document(
+            """
+            mutation {
+              saveWorkflowGraph(workspaceId: $workspaceId, workflowId: $workflowId, input: {
+                nodes: [{ key: "think", kind: AGENT, name: "Reviewer", agentId: $agentId, x: 0, y: 0,
+                          mappings: [{ name: "chattiness", expression: "high", mode: VALUE }] }],
+                edges: []
+              }) { nodes { key } }
+            }
+            """,
+        ).execute()
+        start()
+        assertThat(received.single()).contains("Beside every tool call")
+            .doesNotContain("Write nothing beside your tool calls")
+    }
+
+    /**
      * A node pointing at no agent is unfinished, not broken.
      *
      * A graph is drawn before it is finished, so the run says what it found and

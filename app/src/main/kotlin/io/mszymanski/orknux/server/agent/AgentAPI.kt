@@ -438,6 +438,9 @@ class AgentAPI(
          * below two is an agent that cannot use the tools it was given.
          */
         val roundsWere = agent.maxRounds
+        val chattinessWas = agent.chattiness
+        // Left out, left alone: an older client or a tool updating something else.
+        input.chattiness?.let { agent.chattiness = it }
         input.maxRounds?.let {
             if (it !in MIN_CHAT_ROUNDS..MAX_CHAT_ROUNDS) throw ChatRoundsOutOfRangeException(it)
         }
@@ -674,6 +677,13 @@ class AgentAPI(
          * agent makes from then on, and a bill that grew is a question somebody
          * asks the audit log rather than the agent.
          */
+        if (agent.chattiness != chattinessWas) {
+            auditRecorder.record(
+                agent.workspaceId,
+                WorkspaceAuditCategory.AGENT,
+                "Agent ${agent.name} progress messages set to ${agent.chattiness.name.lowercase()}",
+            )
+        }
         if (agent.maxRounds != roundsWere) {
             auditRecorder.record(
                 agent.workspaceId,
@@ -1010,6 +1020,8 @@ data class UpdateAgentInput(
      * the installation says" rather than "leave it alone".
      */
     val maxRounds: Int? = null,
+    /** How much it says while it works; null leaves it alone. */
+    val chattiness: Chattiness? = null,
 )
 
 data class AgentView(
@@ -1059,6 +1071,8 @@ data class AgentView(
     val memoryShare: Int?,
     /** Its own ceiling on tool rounds; null follows the installation's. */
     val maxRounds: Int?,
+    /** How much it says while it works. */
+    val chattiness: Chattiness,
 ) {
     constructor(agent: Agent, modelName: String? = null, orknuxNames: List<String> = emptyList()) : this(
         id = requireNotNull(agent.id),
@@ -1097,6 +1111,7 @@ data class AgentView(
         icon = agent.icon,
         memoryShare = agent.memoryShare,
         maxRounds = agent.maxRounds,
+        chattiness = agent.chattiness,
     )
 }
 

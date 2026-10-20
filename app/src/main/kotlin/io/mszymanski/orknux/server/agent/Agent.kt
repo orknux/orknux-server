@@ -105,6 +105,11 @@ class Agent(
     @Column(name = "max_rounds")
     var maxRounds: Int? = null,
 
+    /** How much it says while it works; see [Chattiness]. A workflow node may override it. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "chattiness", nullable = false, length = 16)
+    var chattiness: Chattiness = Chattiness.MEDIUM,
+
     /**
      * How many tools this agent carries at once; null is the provider's ceiling.
      *

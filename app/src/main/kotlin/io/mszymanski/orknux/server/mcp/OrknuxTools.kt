@@ -1126,6 +1126,7 @@ class OrknuxTools(
                 "orknuxAccess" to view.orknuxAccess,
                 "mayAskForTools" to view.mayAskForTools,
                 "maxRounds" to view.maxRounds,
+                "chattiness" to view.chattiness.name,
                 "memoryShare" to view.memoryShare,
                 "url" to agentLink(scope.workspaceId, view.id),
             ),
