@@ -18,13 +18,7 @@ import io.mszymanski.orknux.server.llm.SessionInbox
 import io.mszymanski.orknux.server.llm.SessionMemoryBudgets
 import io.mszymanski.orknux.server.llm.SessionThinking
 import io.mszymanski.orknux.server.task.TaskRepository
-import io.mszymanski.orknux.server.workflow.NodeExpressions
-import io.mszymanski.orknux.workflow.execution.ExecutionService
 import io.mszymanski.orknux.workflow.execution.ExecutionStep
-import io.mszymanski.orknux.workflow.execution.ExecutionTrigger
-import io.mszymanski.orknux.workflow.execution.GraphVersion
-import io.mszymanski.orknux.workflow.execution.ResumePoint
-import io.mszymanski.orknux.workflow.execution.StartExecutionInput
 import io.mszymanski.orknux.workflow.execution.ExecutionStepRepository
 import io.mszymanski.orknux.workflow.execution.StepStatus
 import io.mszymanski.orknux.workflow.execution.retryPolicy
@@ -101,8 +95,7 @@ class WatcherFollowUp(
     /** The tools every turn in a session is lent; see [SessionSheds]. */
     private val sessionSheds: SessionSheds,
     private val finishing: FinishAnswerTools,
-    private val expressions: NodeExpressions,
-    private val runs: ObjectProvider<ExecutionService>,
+    private val handing: io.mszymanski.orknux.server.workflow.StepHandOn,
     /** What the session's model was sent, sent again as it was; see [SessionPrompt]. */
     private val prompt: io.mszymanski.orknux.server.llm.SessionPrompt,
     /** Which sessions are an ask's, and so [io.mszymanski.orknux.server.chat.SubagentWake]'s. */
@@ -295,47 +288,9 @@ class WatcherFollowUp(
         return answer
     }
 
-    /**
-     * Carries the step's run on past it with [answer], so it reaches whatever
-     * the step's own answer reached. Where it cannot, the session says why:
-     * the answer is in the transcript either way, and somebody reading it
-     * should not have to guess why it went no further.
-     */
+    /** Carries the step's run on past it with [answer]; see [StepHandOn]. */
     private fun handOn(session: Long, step: ExecutionStep?, answer: String) {
-        if (answer.isBlank()) return
-        if (step == null) {
-            sessions.note(session, "This answer went no further: no workflow step of this agent's is in this session.")
-            return
-        }
-        if (step.outputObjectId != null) {
-            sessions.note(session, "This answer went no further: ${step.name} answers in a fixed shape, and prose is not it.")
-            return
-        }
-        val service = runs.getObject()
-        try {
-            val previous = service.execution(step.executionId) ?: return
-            val carried = service.startExecution(
-                StartExecutionInput(
-                    workspaceId = previous.workspaceId,
-                    workflowId = previous.workflowId,
-                    // The same event, so the run list does not show a person
-                    // pressing something nobody pressed.
-                    trigger = previous.trigger,
-                    payload = previous.input,
-                    // The graph the run used, as a re-run picks it.
-                    version = if (previous.trigger == ExecutionTrigger.MANUAL) GraphVersion.DRAFT else GraphVersion.PUBLISHED,
-                    resumeFrom = ResumePoint(
-                        step.executionId,
-                        step.nodeKey,
-                        answer = expressions.named(step.outputName, answer),
-                    ),
-                ),
-            )
-            sessions.note(session, "This answer was handed on past ${step.name} in run #${carried.id}.")
-        } catch (refused: RuntimeException) {
-            log.warn("Session {} could not hand its answer on past {}: {}", session, step.nodeKey, refused.message)
-            sessions.note(session, "This answer went no further: ${refused.message}.")
-        }
+        handing.handOn(session, step, answer)
     }
 
     private fun zone(): ZoneId = installation.workingZone()

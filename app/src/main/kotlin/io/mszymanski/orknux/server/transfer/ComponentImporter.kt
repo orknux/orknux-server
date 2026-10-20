@@ -1341,6 +1341,8 @@ class ComponentImporter(
                     // Absent from every envelope written before failure was
                     // something a node could handle, which reads as not doing so.
                     fallbackEnabled = drawn.path("fallbackEnabled").asBoolean(false),
+                    // Absent from an envelope written before it existed: on, as a new node is.
+                    streamOutput = drawn.path("streamOutput").let { if (it.isBoolean) it.asBoolean() else true },
                     retryAttempts = drawn.path("retryAttempts").let { if (it.isNumber) it.asInt() else null },
                     retryBackoffSeconds = drawn.path("retryBackoffSeconds").let { if (it.isNumber) it.asInt() else null },
                     /*

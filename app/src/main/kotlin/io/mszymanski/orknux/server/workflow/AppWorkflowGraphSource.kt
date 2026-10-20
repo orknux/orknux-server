@@ -165,6 +165,7 @@ class AppWorkflowGraphSource(
                     // action when the node was placed, its own from then on.
                     mappings = bindings(node.mappings) + sessionOf(sessionFor[node.nodeKey]),
                     retryAttempts = node.retryAttempts,
+                    streamOutput = node.streamOutput,
                     retryBackoffSeconds = node.retryBackoffSeconds,
                     retryMultiplier = node.retryMultiplier,
                     retryMaxWaitSeconds = node.retryMaxWaitSeconds,

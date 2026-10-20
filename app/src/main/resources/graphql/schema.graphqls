@@ -2799,6 +2799,12 @@ type WorkflowNode {
     ACTION and AGENT — a failure ends the run exactly as it always has.
     """
     fallbackEnabled: Boolean!
+    """
+    Whether an agent node hands on what its agent says while it is still working:
+    each message written beside a tool call goes to the nodes after it as it is
+    written, and the last answer after them. False on every kind but AGENT.
+    """
+    streamOutput: Boolean!
     "How many times in all a run may attempt this node; null is once."
     retryAttempts: Int
     "The wait before the second attempt, in seconds; null is none."
@@ -3190,6 +3196,12 @@ input WorkflowNodeInput {
     have this set is refused — nothing would ever leave by it.
     """
     fallbackEnabled: Boolean = false
+    """
+    On an agent node, whether what the agent says while it works is handed on as
+    it is written. Left out, it is on; off, the agent finishes before anything
+    after it runs. Ignored on every other kind.
+    """
+    streamOutput: Boolean
     """
     How many times in all a run may attempt this node; null or 1 is once.
     Held between 1 and 10, and kept on an ACTION and on an AGENT only.

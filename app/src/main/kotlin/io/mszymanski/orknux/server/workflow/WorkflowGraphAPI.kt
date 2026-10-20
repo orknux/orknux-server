@@ -503,6 +503,8 @@ class WorkflowGraphAPI(
             yesLabel = node.yesLabel?.trim()?.ifEmpty { null }?.takeIf { forks(node) },
             noLabel = node.noLabel?.trim()?.ifEmpty { null }?.takeIf { forks(node) },
             fallbackEnabled = node.fallbackEnabled && handlesFailure(node.kind),
+            // On unless said otherwise, and only an agent has anything to hand on.
+            streamOutput = node.kind == NodeKind.AGENT && (node.streamOutput ?: true),
             retryAttempts = node.retryAttempts?.coerceIn(MIN_ATTEMPTS, MAX_ATTEMPTS)
                 ?.takeIf { it > MIN_ATTEMPTS && handlesFailure(node.kind) },
             retryBackoffSeconds = node.retryBackoffSeconds?.coerceIn(0, MAX_BACKOFF_SECONDS)
@@ -958,6 +960,8 @@ data class WorkflowNodeInput(
      * action and on an agent, ignored on every other kind.
      */
     val fallbackEnabled: Boolean = false,
+    /** Whether an agent node hands on what it says as it works; null is on. */
+    val streamOutput: Boolean? = null,
     /** How many times in all this node may be attempted; null or 1 is once. */
     val retryAttempts: Int? = null,
     /** The wait before the second attempt, in seconds; null is none. */
@@ -1073,6 +1077,8 @@ data class WorkflowNodeView(
     val noLabel: String?,
     /** Whether this node has a second way out for when it fails. */
     val fallbackEnabled: Boolean,
+    /** Whether an agent node hands on what it says as it works. */
+    val streamOutput: Boolean,
     /** How many times in all this node may be attempted; null is once. */
     val retryAttempts: Int?,
     val retryBackoffSeconds: Int?,
@@ -1134,6 +1140,7 @@ data class WorkflowNodeView(
         yesLabel = node.yesLabel,
         noLabel = node.noLabel,
         fallbackEnabled = node.fallbackEnabled,
+        streamOutput = node.streamOutput,
         retryAttempts = node.retryAttempts,
         retryBackoffSeconds = node.retryBackoffSeconds,
         retryMultiplier = node.retryMultiplier,

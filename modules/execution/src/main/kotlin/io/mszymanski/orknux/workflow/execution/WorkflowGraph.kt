@@ -126,6 +126,11 @@ data class GraphNode(
      * — which is what stops Temporal starting again underneath it.
      */
     val retryAttempts: Int? = null,
+    /**
+     * Whether an agent node hands on what its agent says while it works, a
+     * message at a time, rather than all of it when it finishes.
+     */
+    val streamOutput: Boolean = true,
     /** The wait before the second attempt, in seconds; null is none. */
     val retryBackoffSeconds: Int? = null,
     /**

@@ -639,6 +639,7 @@ class ComponentExporter(
         put("yesLabel", held.yesLabel)
         put("noLabel", held.noLabel)
         put("fallbackEnabled", held.fallbackEnabled)
+        put("streamOutput", held.streamOutput)
         put("retryAttempts", held.retryAttempts)
         put("retryBackoffSeconds", held.retryBackoffSeconds)
         put("retryMultiplier", held.retryMultiplier)

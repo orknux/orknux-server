@@ -319,6 +319,10 @@ class ExecutionStep(
     @Column(name = "retry_attempts")
     val retryAttempts: Int? = null,
 
+    /** Whether this agent step hands on what it says as it says it; the node's, copied. */
+    @Column(name = "stream_output", nullable = false)
+    val streamOutput: Boolean = false,
+
     /** The wait before this step's second attempt, in seconds; null is none. */
     @Column(name = "retry_backoff_seconds")
     val retryBackoffSeconds: Int? = null,

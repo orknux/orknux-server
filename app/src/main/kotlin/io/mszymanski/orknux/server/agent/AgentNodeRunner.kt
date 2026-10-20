@@ -89,6 +89,8 @@ class AgentNodeRunner(
     private val budgets: SessionMemoryBudgets,
     private val shapes: ObjectShapes,
     private val mapper: ObjectMapper,
+    /** Where a streaming node hands each message on as it is written; see [StepHandOn]. */
+    private val handing: io.mszymanski.orknux.server.workflow.StepHandOn,
     /** What bounds an agent's waiting; see [FinishAnswerTools.Sleeping]. */
     private val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
     /** The skills a node names by id, loaded before the model starts. Issue #381. */
@@ -630,7 +632,19 @@ class AgentNodeRunner(
                 Prompting.by(Prompter.ofTrigger(trigger, mapper)) {
                     conversation.answer(
                         modelId, agent, turns, session, shed = shed, watch = watching, hangup = hangup, gated = false,
-                        spoke = { spoken += it },
+                        /*
+                         * Handed on as it is written, where the node streams:
+                         * what an agent says beside its tool calls reached the
+                         * reply after it only when the step ended, so "I'm
+                         * checking this" arrived with the answer, minutes later.
+                         * Each message goes to the nodes after this one now, and
+                         * the step's own output is what is left - the last answer.
+                         * One that cannot go on - nothing follows the node, or it
+                         * answers in a fixed shape - stays with that answer.
+                         */
+                        spoke = { said ->
+                            if (!(step.streamOutput && handing.handOn(session, step, said, partial = true))) spoken += said
+                        },
                     )
                 }
             }

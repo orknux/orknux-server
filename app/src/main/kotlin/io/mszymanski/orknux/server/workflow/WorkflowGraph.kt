@@ -392,6 +392,15 @@ class WorkflowNode(
     var fallbackEnabled: Boolean = false,
 
     /**
+     * Whether an agent node hands on what its agent says while it is still
+     * working: each message written beside a tool call goes to the nodes after
+     * it as it is written, and the last answer after it. Off, the agent
+     * finishes before anything after it runs. Read on an agent only.
+     */
+    @Column(name = "stream_output", nullable = false)
+    var streamOutput: Boolean = true,
+
+    /**
      * How many times in all a run may attempt this node; null is once.
      *
      * Attempts rather than retries, so the number on the node is the number of

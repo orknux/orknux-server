@@ -56,6 +56,7 @@ object WorkflowSnapshot {
                         )
                     },
                     "retryAttempts" to node.retryAttempts,
+                    "streamOutput" to node.streamOutput,
                     "retryBackoffSeconds" to node.retryBackoffSeconds,
                     "retryMultiplier" to node.retryMultiplier,
                     "retryMaxWaitSeconds" to node.retryMaxWaitSeconds,
@@ -131,6 +132,9 @@ object WorkflowSnapshot {
                     // Absent from every snapshot published before a node could
                     // be told to try again, which reads as the once it had.
                     retryAttempts = number(node, "retryAttempts")?.toInt(),
+                    // Absent from a snapshot published before this existed, which
+                    // reads as on - what every agent node became with it.
+                    streamOutput = node.path("streamOutput").let { if (it.isBoolean) it.asBoolean() else true },
                     retryBackoffSeconds = number(node, "retryBackoffSeconds")?.toInt(),
                     /*
                      * A snapshot is what a workflow was on the day it was

@@ -102,6 +102,13 @@ data class ResumePoint(
      * was written into the session and read by nobody.
      */
     val answer: String? = null,
+    /**
+     * Whether [answer] is something said while the node is still at work, not
+     * its answer. An agent node that streams hands each message it writes
+     * beside its tool calls on this way, so the reply after it goes out while
+     * the step is still running - which the earlier run is, and the step too.
+     */
+    val partial: Boolean = false,
 )
 
 /**
@@ -240,6 +247,7 @@ class ExecutionPlanner(
                     retryMultiplier = node.retryMultiplier,
                     retryMaxWaitSeconds = node.retryMaxWaitSeconds,
                     retryJitter = node.retryJitter,
+                    streamOutput = node.kind == NodeKind.AGENT && node.streamOutput,
                     retryBudgetSeconds = node.retryBudgetSeconds,
                     // And of whether the node does its work at all, for the same reason.
                     enabled = node.enabled,
@@ -269,6 +277,8 @@ class ExecutionPlanner(
 
         val opening = if (resumeFrom == null) {
             "${graph.name} started by ${trigger.name.lowercase()}"
+        } else if (resumeFrom.answer != null && resumeFrom.partial) {
+            "${graph.name} carried on past ${resumeFrom.nodeKey} with what it said while working, during run ${resumeFrom.executionId}"
         } else if (resumeFrom.answer != null) {
             "${graph.name} carried on past ${resumeFrom.nodeKey} with its new answer, after run ${resumeFrom.executionId}"
         } else {
@@ -537,12 +547,12 @@ class ExecutionPlanner(
     private fun continuedRun(point: ResumePoint, graph: WorkflowGraph, order: List<GraphNode>): EarlierRun {
         val earlier = executions.findByIdOrNull(point.executionId)
             ?: throw ExecutionNotFoundException(point.executionId)
-        if (earlier.status == ExecutionStatus.RUNNING) throw ExecutionStillRunningException(point.executionId)
+        if (earlier.status == ExecutionStatus.RUNNING && !point.partial) throw ExecutionStillRunningException(point.executionId)
 
         val recorded = steps.findByExecutionIdOrderByOrderAsc(point.executionId).associateBy { it.nodeKey }
         if (order.none { it.key == point.nodeKey }) throw StepNotInWorkflowException(point.nodeKey)
         val step = recorded[point.nodeKey] ?: throw StepNotInExecutionException(point.executionId, point.nodeKey)
-        if (step.status != StepStatus.COMPLETED) throw StepNotCompletedException(point.nodeKey)
+        if (step.status != StepStatus.COMPLETED && !point.partial) throw StepNotCompletedException(point.nodeKey)
 
         val after = downstreamOf(point.nodeKey, graph.edges)
         if (after.isEmpty()) throw NothingFollowsException(point.nodeKey)
