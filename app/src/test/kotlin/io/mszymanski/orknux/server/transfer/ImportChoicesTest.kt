@@ -261,6 +261,40 @@ class ImportChoicesTest(
         assertThat(agents.findByWorkspaceIdAndName(into, "Triage bot")!!.mcpServers).isEmpty()
     }
 
+    /**
+     * The model an agent thinks with is kept beside a credential, so no file
+     * carries it, and a workspace without one like it could not take the
+     * agent at all. Left out, the agent arrives with no model chosen - which
+     * any new agent starts as.
+     */
+    @Test
+    fun `an agent's model can be left out, and the agent arrives with none chosen`() {
+        val providerId = graphQlTester.document(
+            """mutation { createModelProvider(input: { workspaceId: $from, name: "Azure", endpoint: "https://example.invalid/v1" }) { id } }""",
+        ).execute().path("createModelProvider.id").entity(Long::class.java).get()
+        val modelId = graphQlTester.document(
+            """mutation { createModel(input: { providerId: $providerId, name: "luna", modelId: "gpt-luna", kind: CHAT }) { id } }""",
+        ).execute().path("createModel.id").entity(Long::class.java).get()
+        val agentId = createAgent(from, "Triage bot")
+        graphQlTester.document("""mutation { updateAgent(id: $agentId, input: { name: "Triage bot", modelId: $modelId }) { id } }""")
+            .execute().path("updateAgent.id").entity(Long::class.java).isEqualTo(agentId)
+        val json = export(from, "AGENT", agentId, "DEEP")
+
+        val refused = plan(into, json)
+        assertThat(refused.importable).isFalse()
+        val missing = refused.entries.single { it.external == "MODEL" }
+        assertThat(missing.disposition).isEqualTo("MISSING")
+        assertThat(missing.droppable).describedAs("the row may be left out").isTrue()
+
+        val leaveOut = """[{ external: MODEL, name: ${quote(missing.name)} }]"""
+        val planned = plan(into, json, exclude = leaveOut)
+        assertThat(planned.importable).describedAs(planned.problems.joinToString()).isTrue()
+        assertThat(planned.entries.single { it.external == "MODEL" }.disposition).isEqualTo("EXCLUDE")
+
+        import(into, json, exclude = leaveOut)
+        assertThat(agents.findByWorkspaceIdAndName(into, "Triage bot")!!.modelId).isNull()
+    }
+
     @Test
     fun `an MCP server no agent in the file points at cannot be left out, nor a model`() {
         createMcpServer(from, "jira")

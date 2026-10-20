@@ -272,7 +272,7 @@ class ImportBindingInvalidException(kind: ExternalKind, name: String, targetId: 
  */
 class ImportExclusionUnknownException(label: String, name: String) : RuntimeException(
     "This file carries no $label called $name, so there is none to leave out. What can be left out is " +
-        "what the file carries, and a tool or an MCP server an agent in it points at; anything else it " +
+        "what the file carries, and a tool, an MCP server or the model an agent in it points at; anything else it " +
         "points at has to exist here instead. Nothing was imported.",
 )
 

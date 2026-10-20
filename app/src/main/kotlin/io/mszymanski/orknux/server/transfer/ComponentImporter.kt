@@ -188,6 +188,7 @@ class ComponentImporter(
             leftOut.filter { (kind, name) -> kind == ComponentKind.TOOL && findByName(workspaceId, kind, name) == null }
                 .map { it.second }
         val droppedServers = droppedRows.filter { it.external == ExternalKind.MCP_SERVER }.map { it.name }.toSet()
+        val droppedModels = droppedRows.filter { it.external == ExternalKind.MODEL }.map { it.name }.toSet()
 
         // What the file could not carry, settled before anything is written:
         // by name where the target has one, and by what the caller bound where
@@ -196,6 +197,8 @@ class ComponentImporter(
         val told = bindings.associateBy { it.kind to it.name }
         val bound = held.flatMap(::externalsOf).distinct()
             .filterNot { it.kind == ExternalKind.MCP_SERVER && it.label in droppedServers }
+            // A model left out is left unbound, and the agent arrives with none chosen.
+            .filterNot { it.kind == ExternalKind.MODEL && it.label in droppedModels }
             .mapNotNull { reference ->
                 boundTo(workspaceId, reference, told)?.let { (reference.kind to reference.label) to it }
             }
@@ -288,20 +291,29 @@ class ComponentImporter(
          * And an MCP server an agent points at, for the same reason: it is one
          * more entry in a grant list, and an agent without it is still the
          * agent. No file carries one, so without this the only way past a
-         * server that exists nowhere here was to make one. A model is not
-         * like this - an agent without one cannot think. Issue #580.
+         * server that exists nowhere here was to make one. Issue #580.
+         *
+         * And its model, which was refused on the grounds that an agent
+         * without one cannot think. It cannot - but an agent with no model
+         * chosen is an ordinary state, one any new agent starts in, and a
+         * workspace that has no model like the file's was left with no way to
+         * take the agent at all short of making a provider first.
          */
-        val agentServers = parsed.components.filter { it.kind == ComponentKind.AGENT }
-            .flatMap { it.node.names("mcpServerRefs") }
-            .toSet()
+        val fileAgents = parsed.components.filter { it.kind == ComponentKind.AGENT }
+        val agentServers = fileAgents.flatMap { it.node.names("mcpServerRefs") }.toSet()
+        val agentModels = fileAgents.mapNotNull { externalIn(it.node.path("modelRef"), ExternalKind.MODEL)?.label }.toSet()
         val (externalExclusions, componentExclusions) = exclude.partition { it.external != null }
-        val droppedServers = externalExclusions.map { one ->
+        externalExclusions.forEach { one ->
             val external = requireNotNull(one.external)
-            if (one.kind != null || external != ExternalKind.MCP_SERVER || one.name !in agentServers) {
-                throw ImportExclusionUnknownException(external.label, one.name)
+            val known = when (external) {
+                ExternalKind.MCP_SERVER -> one.name in agentServers
+                ExternalKind.MODEL -> one.name in agentModels
+                else -> false
             }
-            one.name
-        }.toSet()
+            if (one.kind != null || !known) throw ImportExclusionUnknownException(external.label, one.name)
+        }
+        val droppedServers = externalExclusions.filter { it.external == ExternalKind.MCP_SERVER }.map { it.name }.toSet()
+        val droppedModels = externalExclusions.filter { it.external == ExternalKind.MODEL }.map { it.name }.toSet()
         val dropped = componentExclusions.filter { (it.kind to it.name) !in inFile }.map { one ->
             val kind = one.kind ?: throw ImportExclusionUnknownException("component", one.name)
             if (kind != ComponentKind.TOOL || one.name !in agentTools) {
@@ -519,9 +531,11 @@ class ComponentImporter(
                 if (!asked.add(reference.kind to reference.label)) return@forEach
                 val kind = reference.kind
                 val was = reference.type?.let { " (${it.lowercase().replace('_', ' ')})" }.orEmpty()
-                // Only an agent's MCP server can go; see agentServers. Issue #580.
-                val droppable = kind == ExternalKind.MCP_SERVER && component.kind == ComponentKind.AGENT
-                if (droppable && reference.label in droppedServers) {
+                // Only an agent's MCP server or model can go; see agentServers. Issue #580.
+                val droppable = component.kind == ComponentKind.AGENT &&
+                    (kind == ExternalKind.MCP_SERVER || kind == ExternalKind.MODEL)
+                val leaving = if (kind == ExternalKind.MODEL) droppedModels else droppedServers
+                if (droppable && reference.label in leaving) {
                     entries += ImportEntry(
                         kind = null,
                         external = kind,
@@ -529,7 +543,12 @@ class ComponentImporter(
                         targetName = reference.label,
                         droppable = true,
                         disposition = ImportDisposition.EXCLUDE,
-                        detail = "Left out: ${component.name} arrives without it.",
+                        detail = if (kind == ExternalKind.MODEL) {
+                            "Left out: ${component.name} arrives with no model chosen, and answers nothing until " +
+                                "one is chosen on its page."
+                        } else {
+                            "Left out: ${component.name} arrives without it."
+                        },
                     )
                     return@forEach
                 }
@@ -545,7 +564,9 @@ class ComponentImporter(
                         disposition = ImportDisposition.MISSING,
                         detail = "${component.name} points at ${kind.indefinite} called ${reference.label}$was. " +
                             "A ${kind.label} is kept beside a credential, so no export carries one — say which " +
-                            "of this workspace's own it means, " + if (droppable) {
+                            "of this workspace's own it means, " + if (droppable && kind == ExternalKind.MODEL) {
+                                "make one and import again, or leave it out and choose one for ${component.name} later."
+                            } else if (droppable) {
                                 "make one and import again, or leave it out and ${component.name} arrives without it."
                             } else {
                                 "or make one and import again."
