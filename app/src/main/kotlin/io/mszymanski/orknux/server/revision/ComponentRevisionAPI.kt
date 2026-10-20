@@ -15,6 +15,7 @@ import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.graphql.data.method.annotation.Argument
+import org.springframework.graphql.data.method.annotation.BatchMapping
 import org.springframework.graphql.data.method.annotation.MutationMapping
 import org.springframework.graphql.data.method.annotation.QueryMapping
 import org.springframework.security.core.context.SecurityContextHolder
@@ -70,19 +71,29 @@ class ComponentRevisionAPI(
         // than readable by whoever knows an id.
         access.requireVisible(workspaceOf(kind, componentId))
         val wanted = limit ?: DEFAULT_REVISIONS
-        /*
-         * One more than is shown, so the oldest row shown has the state before
-         * it to be compared with. Each row says what its own save changed.
-         */
+        // One more than is shown, so the oldest row shown knows the version before it.
         val listed = recorder.history(kind, componentId, wanted + 1)
-        val held = revisions.findAllById(listed.map { it.id }).associateBy { it.id }
         return listed.take(wanted).mapIndexed { at, revision ->
-            val before = listed.getOrNull(at + 1)?.let { held[it.id] }
-            val now = held[revision.id]
-            ComponentRevisionView(
-                revision,
-                changes = if (before == null || now == null) null else changes.between(before.snapshot, now.snapshot),
-            )
+            ComponentRevisionView(revision, previousId = listed.getOrNull(at + 1)?.id)
+        }
+    }
+
+    /**
+     * What each listed save changed, against the version before it.
+     *
+     * Its own resolver, and batched, so the snapshots are read only where a
+     * screen asks for the changes - and then in one select for the whole list.
+     * A history listed for its dates reads none of them (#616).
+     */
+    @BatchMapping(typeName = "ComponentRevision", field = "changes")
+    @Transactional(readOnly = true)
+    fun changes(listed: List<ComponentRevisionView>): Map<ComponentRevisionView, List<RevisionChange>?> {
+        val ids = listed.flatMap { listOfNotNull(it.id, it.previousId) }.distinct()
+        val held = revisions.findAllById(ids).associateBy { it.id }
+        return listed.associateWith { row ->
+            val before = row.previousId?.let { held[it] }
+            val now = held[row.id]
+            if (before == null || now == null) null else changes.between(before.snapshot, now.snapshot)
         }
     }
 
@@ -290,10 +301,10 @@ data class ComponentRevisionView(
     val savedBy: String,
     /** When it stopped being current, which is what retention counts from. */
     val recordedAt: String,
-    /** What the save that made this state changed; null where there is no version before it to compare. */
-    val changes: List<RevisionChange>? = null,
+    /** The version before this one, which its changes are worked out against; not in the schema. */
+    val previousId: Long? = null,
 ) {
-    constructor(revision: RevisionSummary, changes: List<RevisionChange>? = null) : this(
+    constructor(revision: RevisionSummary, previousId: Long? = null) : this(
         id = revision.id,
         kind = revision.kind,
         componentId = revision.componentId,
@@ -301,7 +312,7 @@ data class ComponentRevisionView(
         savedAt = revision.savedAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         savedBy = revision.savedBy,
         recordedAt = revision.recordedAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
-        changes = changes,
+        previousId = previousId,
     )
 }
 
