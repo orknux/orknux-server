@@ -33,6 +33,7 @@ class BuiltInSkillDeliveryTest(
         "box-debugging",
         "box-long-commands",
         "box-new-project",
+        "box-code-reading",
     )
 
     @BeforeEach
@@ -74,6 +75,8 @@ class BuiltInSkillDeliveryTest(
         assertThat(page.content).contains("git checkout -b")
         // And searchable mid-work, which is the same list.
         assertThat(skillTool.search(boxed, "push").map { it.id }).contains("box-git")
+        // And the way to read code, found by what somebody asking about code would say.
+        assertThat(skillTool.search(boxed, "who calls").map { it.id }).contains("box-code-reading")
     }
 
     @Test
