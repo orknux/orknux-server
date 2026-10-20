@@ -104,7 +104,7 @@ class UsageReportTest(
 
         val shares = graphQlTester.document(
             """query { usagePersonSessions(person: "SLACK::U04SLACKER", filter: { workspaceId: $workspaceId }) {
-                 total items { sessionId tokens sessionTokens others }
+                 total items { sessionId tokens sessionTokens others cost partlyUnpriced lastActiveAt }
                } }""",
         ).execute()
         shares.path("usagePersonSessions.total").entity(Int::class.java).isEqualTo(1)
@@ -112,6 +112,12 @@ class UsageReportTest(
         shares.path("usagePersonSessions.items[0].sessionTokens").entity(Double::class.java).isEqualTo(11_100.0)
         shares.path("usagePersonSessions.items[0].others").entityList(String::class.java)
             .containsExactly("Alice (Orknux)", "Unattributed")
+        // When they last prompted it, and what their calls there cost - none priced here.
+        shares.path("usagePersonSessions.items[0].lastActiveAt").entity(String::class.java).satisfies {
+            assertThat(java.time.OffsetDateTime.parse(it)).isAfter(java.time.OffsetDateTime.now().minusMinutes(5))
+        }
+        shares.path("usagePersonSessions.items[0].partlyUnpriced").entity(Boolean::class.java).isEqualTo(true)
+        shares.path("usagePersonSessions.items[0].cost").valueIsNull()
     }
 
     /**

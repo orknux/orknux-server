@@ -107,6 +107,12 @@ type UsageSessionShare {
     tokens: Float!
     "Everybody's, over the same period."
     sessionTokens: Float!
+    "What their calls here cost, where any was priced; null where none was."
+    cost: String
+    "Whether some of their calls here were on a model with no price."
+    partlyUnpriced: Boolean!
+    "When they last prompted it, in the period."
+    lastActiveAt: String
     "Who else prompted it in the period, by name."
     others: [String!]!
 }

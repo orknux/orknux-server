@@ -128,8 +128,21 @@ class UsageReportAPI(
         val shown = mine.drop(at * take).take(take)
         if (shown.isEmpty()) return UsagePersonSessionsView(mine.size, emptyList())
 
-        // Everybody in those sessions over the same period, for the share and the others.
         val ids = shown.map { it.first }
+        // What they spent in each, and when they last prompted it, beside the tokens.
+        val spentIn = query(
+            "SELECT u.sessionId, SUM(u.cost), MAX(CASE WHEN u.unpriced = true THEN 1 ELSE 0 END), MAX(u.at) " +
+                "FROM PersonUsage u WHERE $where AND u.source = :who AND u.personKey = :key " +
+                (if (who.connectionId == null) "" else "AND u.connectionId = :connection ") +
+                "AND u.sessionId IN :ids GROUP BY u.sessionId",
+            parameters + buildMap {
+                put("who", who.source)
+                put("key", who.personKey)
+                who.connectionId?.let { put("connection", it) }
+                put("ids", ids)
+            },
+        ).associateBy { it[0] as Long }
+        // Everybody in those sessions over the same period, for the share and the others.
         val everybody = query(
             "SELECT u.sessionId, u.source, u.personKey, MAX(u.personName), SUM(u.inputTokens + u.outputTokens) " +
                 "FROM PersonUsage u WHERE $where AND u.sessionId IN :ids " +
@@ -159,6 +172,9 @@ class UsageReportAPI(
                     workspaceName = places[workspaceId],
                     tokens = tokens.toDouble(),
                     sessionTokens = rows.sumOf { (it[4] as Number).toLong() }.toDouble(),
+                    cost = spentIn[id]?.let { (it[1] as BigDecimal?) ?: BigDecimal.ZERO }?.let(::costOf),
+                    partlyUnpriced = spentIn[id]?.let { (it[2] as Number).toInt() == 1 } ?: false,
+                    lastActiveAt = (spentIn[id]?.get(3) as OffsetDateTime?)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
                     others = rows
                         .filterNot { it[1] == who.source && it[2] == who.personKey }
                         .sortedByDescending { (it[4] as Number).toLong() }
@@ -407,5 +423,11 @@ data class UsageSessionShareView(
     val workspaceName: String?,
     val tokens: Double,
     val sessionTokens: Double,
+    /** What their calls here cost, where any was priced. */
+    val cost: String?,
+    /** Whether some of their calls here were on a model with no price. */
+    val partlyUnpriced: Boolean,
+    /** When they last prompted it. */
+    val lastActiveAt: String?,
     val others: List<String>,
 )
