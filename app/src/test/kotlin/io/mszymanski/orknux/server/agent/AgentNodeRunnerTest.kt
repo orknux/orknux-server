@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.agent
 
+import io.mszymanski.orknux.server.chat.AgentBriefing
 import com.sun.net.httpserver.HttpServer
 import io.mszymanski.orknux.connector.model.LlmModelRepository
 import io.mszymanski.orknux.connector.model.ModelProviderRepository
@@ -152,8 +153,8 @@ class AgentNodeRunnerTest(
 
         start()
         // Each level by words only it says.
-        assertThat(received.single()).contains("Write nothing beside your tool calls")
-            .doesNotContain("every few calls").doesNotContain("Beside every tool call")
+        assertThat(received.single()).contains(AgentBriefing.REPORT_NOTHING)
+            .doesNotContain(AgentBriefing.REPORT_PROGRESS).doesNotContain(AgentBriefing.REPORT_EVERYTHING)
 
         received.clear()
         graphQlTester.document(
@@ -168,8 +169,8 @@ class AgentNodeRunnerTest(
             """,
         ).execute()
         start()
-        assertThat(received.single()).contains("Beside every tool call")
-            .doesNotContain("Write nothing beside your tool calls")
+        assertThat(received.single()).contains(AgentBriefing.REPORT_EVERYTHING)
+            .doesNotContain(AgentBriefing.REPORT_NOTHING)
     }
 
     /**

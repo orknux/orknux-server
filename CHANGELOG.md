@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🔧 Changed
+
+- **Progress messages None is held to by the server.** What an agent writes beside its tool calls is kept in the session's log and no longer shown in the chat or handed on to the next node, whatever the model does. Each level's instruction to the model now says plainly how many lines it may write and that each one is sent at once.
+
 ## 1.1.6
 
 ### ✨ Added

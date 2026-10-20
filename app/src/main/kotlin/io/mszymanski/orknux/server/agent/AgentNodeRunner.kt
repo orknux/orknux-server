@@ -637,6 +637,7 @@ class AgentNodeRunner(
                 Prompting.by(Prompter.ofTrigger(trigger, mapper)) {
                     conversation.answer(
                         modelId, agent, turns, session, shed = shed, watch = watching, hangup = hangup, gated = false,
+                        quiet = chattiness == Chattiness.NONE,
                         /*
                          * Handed on as it is written, where the node streams:
                          * what an agent says beside its tool calls reached the

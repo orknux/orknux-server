@@ -117,13 +117,27 @@ class StreamOutputTest(
         assertThat(replyInputs(first).single()).contains("Checking the build.").contains("The build is green.")
     }
 
-    private fun start(stream: Boolean? = null): Long {
+    /**
+     * None is held to by the server, not only asked for: a model told to write
+     * nothing beside its calls wrote three lines anyway, and each went to Slack.
+     * What it wrote stays in the session's log and goes nowhere else.
+     */
+    @Test
+    fun `with progress messages None, what the agent writes beside its calls goes nowhere but the log`() {
+        val first = start(chattiness = Chattiness.NONE)
+
+        assertThat(executions.findAll().map { it.id }).containsExactly(first)
+        assertThat(replyInputs(first).single()).contains("The build is green.").doesNotContain("Checking the build.")
+        assertThat(lines.findAll().mapNotNull { it.content }).anyMatch { it.contains("Checking the build.") }
+    }
+
+    private fun start(stream: Boolean? = null, chattiness: Chattiness = Chattiness.MEDIUM): Long {
         val modelId = model(serve())
         val agent = agents.save(
             Agent(
                 workspaceId = workspaceId, name = "OKO Bot", type = AgentType.LLM, modelId = modelId,
                 systemPrompt = "You are the bot.", tools = BuiltInTools.GRANTED.toMutableList(),
-            ),
+            ).apply { this.chattiness = chattiness },
         )
         graph(requireNotNull(agent.id), replyAction(), stream)
         return graphQlTester.document(

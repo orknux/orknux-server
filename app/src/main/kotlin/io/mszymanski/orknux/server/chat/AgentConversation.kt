@@ -457,11 +457,19 @@ class AgentConversation(
          * that is everything the agent wrote to whoever reads the step's output.
          */
         spoke: ((String) -> Unit)? = null,
+        /**
+         * Whether what the model writes beside its tool calls is kept from
+         * whoever is reading: the agent's progress messages are None. It is
+         * still recorded in the session; it is only not shown or handed on,
+         * because a model told to write nothing there does not always listen.
+         * A workflow node passes its own level's answer.
+         */
+        quiet: Boolean = agent.chattiness == io.mszymanski.orknux.server.agent.Chattiness.NONE,
     ): ChatCompletion {
         fun refused(why: String) = ChatCompletion.Failed(why, permanent = false).also { record(into, agent, it) }
         val run = {
             bulkheads.heapRefusal()?.let { refused(it) }
-                ?: held(modelId, agent, turns, into, shed, watch, hangup, interjections, spoke)
+                ?: held(modelId, agent, turns, into, shed, watch, hangup, interjections, spoke, quiet)
         }
         return if (gated) bulkheads.turn(::refused, run) else run()
     }
@@ -476,6 +484,7 @@ class AgentConversation(
         hangup: Hangup?,
         interjections: Interjections?,
         spoke: ((String) -> Unit)?,
+        quiet: Boolean,
     ): ChatCompletion {
         /*
          * The agent's own ceiling, or none where the provider is handed every
@@ -1122,7 +1131,7 @@ class AgentConversation(
                      * is not.
                      */
                     record(into, agent, answer)
-                    if (answer.turn.content.isNotBlank()) {
+                    if (answer.turn.content.isNotBlank() && !quiet) {
                         watch?.said(answer.turn.content)
                         spoke?.invoke(answer.turn.content)
                     }

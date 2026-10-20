@@ -594,29 +594,44 @@ class AgentBriefing(
                 "rather than promising."
 
         /** Saying what it is doing while it works; see [grants]. */
-        /** What a quiet agent is told instead of [REPORT_PROGRESS]. */
+        /*
+         * The four levels, each saying plainly what is shown and when. "Every
+         * few calls" and "say once" read as suggestions: a model given them
+         * wrote three lines where it was asked for one, because nothing said
+         * what a line beside a call is. Each now says that every such line is
+         * sent at once as a message of its own, which is the fact the model
+         * was missing, and gives the count as a rule.
+         */
+
+        /** What an agent whose progress messages are None is told instead of [REPORT_PROGRESS]. */
         const val REPORT_NOTHING =
-            "Whoever asked sees what you write, not what you think, and wants only your answer. Write " +
-                "nothing beside your tool calls: work without commentary and say everything in your answer " +
+            "Whoever asked sees what you write, never what you think, and wants only your answer. Write " +
+                "no text at all beside your tool calls - not a plan, not a status, not a single word: call " +
+                "your tools in silence, and put everything you have to say in your one answer at the end."
+
+        /** What an agent whose progress messages are Low is told instead of [REPORT_PROGRESS]. */
+        const val REPORT_ONCE =
+            "Whoever asked sees what you write, never what you think, and every line you write beside a " +
+                "tool call is sent to them at once as a message of its own. For work that takes more than a " +
+                "couple of tool calls, write exactly one short line, beside your first call, saying what you " +
+                "are about to do. After that, write no text beside any call - not one more line, whatever you " +
+                "find - until your answer at the end."
+
+        /** What an agent whose progress messages are High is told instead of [REPORT_PROGRESS]. */
+        const val REPORT_EVERYTHING =
+            "Whoever asked sees what you write, never what you think, and every line you write beside a " +
+                "tool call is sent to them at once as a message of its own - they want to follow along. " +
+                "Beside every tool call, without exception, write one short line on what you are doing and " +
+                "why, and once a result is back, say in that next line what it showed. The full answer comes " +
                 "at the end."
 
-        /** What an agent set to LOW is told instead of [REPORT_PROGRESS]. */
-        const val REPORT_ONCE =
-            "Whoever asked sees what you write, not what you think. For work that takes more than a couple " +
-                "of tool calls, say once, in a sentence, what you are about to do - then write nothing more " +
-                "beside your calls until your answer."
-
-        /** What a chatty agent is told instead of [REPORT_PROGRESS]. */
-        const val REPORT_EVERYTHING =
-            "Whoever asked sees what you write, not what you think, and wants to follow along. Beside " +
-                "every tool call, write a short line on what you are doing and why, and once a result is " +
-                "back, a line on what it showed. Keep each line short; the full answer comes at the end."
-
+        /** What an agent whose progress messages are Medium is told: what every agent was told before there were levels. */
         const val REPORT_PROGRESS =
-            "Whoever asked sees what you write, not what you think. For work that takes more than a couple " +
-                "of tool calls, first say in a sentence what you are about to do, then, every few calls, write " +
-                "a line beside your next call on what you found and what you are doing next - the way a " +
-                "colleague keeps you posted. Keep these short; the full answer comes at the end."
+            "Whoever asked sees what you write, never what you think, and every line you write beside a " +
+                "tool call is sent to them at once as a message of its own. For work that takes more than a " +
+                "couple of tool calls, write one short line beside your first call saying what you are about " +
+                "to do, then one short line beside every third call or so on what you found and what is next " +
+                "- the way a colleague keeps you posted, no more often. The full answer comes at the end."
 
         /** When the to-do list is worth keeping; said after [HOW_YOU_RUN] where the agent holds it. */
         const val PLAN_WITH_TODOS =
