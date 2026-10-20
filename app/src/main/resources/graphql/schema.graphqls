@@ -8260,6 +8260,8 @@ type Artifact {
     versionOf: ID
     "This picture's draft - its newest unsaved version - kept until saved over it or discarded; null where it has none."
     draft: ID
+    "Where that draft's picture is: what a picture with a draft is shown as. Null where it has none."
+    draftUrl: String
 }
 
 """ The model a picture was drawn with, the parameters it was asked for, and who asked. """

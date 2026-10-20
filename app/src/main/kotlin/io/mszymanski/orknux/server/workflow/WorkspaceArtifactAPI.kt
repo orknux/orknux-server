@@ -93,7 +93,7 @@ class WorkspaceArtifactAPI(
             .let { listed ->
                 // Which of them carry a draft: unsaved changes kept until Save or Discard.
                 val drafts = draftsIn(workspaceId)
-                if (drafts.isEmpty()) listed else listed.map { it.copy(draft = drafts[it.id]) }
+                if (drafts.isEmpty()) listed else listed.map { it.withDraft(drafts[it.id]) }
             }
 
         val pageable = pageRequest(page, size, Sort.unsorted())
@@ -121,17 +121,25 @@ class WorkspaceArtifactAPI(
     @QueryMapping
     fun workspaceArtifact(@Argument workspaceId: Long, @Argument id: String): ArtifactView? {
         access.requireVisible(workspaceId)
-        return artifactAt(workspaceId, id)?.let { found -> found.copy(draft = draftsIn(workspaceId)[found.id]) }
+        return artifactAt(workspaceId, id)?.let { found -> found.withDraft(draftsIn(workspaceId)[found.id]) }
     }
+
+    /**
+     * Its draft named, and where the draft's picture is: a picture with a draft
+     * is shown as its draft, or a gallery card marked Draft shows the picture as
+     * it was before the changes the mark is about.
+     */
+    private fun ArtifactView.withDraft(draft: io.mszymanski.orknux.server.design.DesignImage?): ArtifactView =
+        if (draft == null) this else copy(draft = "${ArtifactKind.DESIGN.name}-${draft.id}", draftUrl = describe(draft).url)
 
     /**
      * The newest unsaved version of each picture that has any, by the picture's
      * artifact id: its draft, which the editor opens at and the gallery marks.
      */
-    private fun draftsIn(workspaceId: Long): Map<String, String> =
+    private fun draftsIn(workspaceId: Long): Map<String, io.mszymanski.orknux.server.design.DesignImage> =
         designImages.findByWorkspaceIdAndVersionOfIsNotNull(workspaceId)
             .groupBy { requireNotNull(it.versionOf) }
-            .mapValues { (_, versions) -> "${ArtifactKind.DESIGN.name}-${versions.maxBy { requireNotNull(it.id) }.id}" }
+            .mapValues { (_, versions) -> versions.maxBy { requireNotNull(it.id) } }
 
     private fun artifactAt(workspaceId: Long, id: String): ArtifactView? {
         val (kind, rowId) = parse(id) ?: return null
@@ -446,6 +454,8 @@ data class ArtifactView(
     val versionOf: String? = null,
     /** This picture's draft - its newest unsaved version, by id - or null where it has none. */
     val draft: String? = null,
+    /** Where that draft's picture is - what a picture with a draft is shown as; null where it has none. */
+    val draftUrl: String? = null,
 ) {
     /** What the page shows is what a search reads: the caption and the name. */
     fun matches(looking: String): Boolean =

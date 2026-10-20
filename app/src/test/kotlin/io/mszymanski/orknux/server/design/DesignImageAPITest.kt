@@ -345,6 +345,16 @@ class DesignImageAPITest(
             .execute().path("workspaceArtifact.draft").entity(String::class.java).isEqualTo(second)
         graphQlTester.document("""query { workspaceArtifacts(workspaceId: $workspaceId, drawn: true) { content { id draft } } }""")
             .execute().path("workspaceArtifacts.content[0].draft").entity(String::class.java).isEqualTo(second)
+        // And where the draft's picture is, so a card marked Draft shows the changes rather than the picture before them.
+        val secondUrl = graphQlTester.document("""query { workspaceArtifact(workspaceId: $workspaceId, id: "$second") { url } }""")
+            .execute().path("workspaceArtifact.url").entity(String::class.java).get()
+        assertThat(secondUrl).startsWith("/api/design-images/${second.removePrefix("DESIGN-")}?")
+        graphQlTester.document("""query { workspaceArtifacts(workspaceId: $workspaceId, drawn: true) { content { url draftUrl } } }""")
+            .execute()
+            .path("workspaceArtifacts.content[0].draftUrl").entity(String::class.java).isEqualTo(secondUrl)
+            .path("workspaceArtifacts.content[0].url").entity(String::class.java).satisfies { assertThat(it).isNotEqualTo(secondUrl) }
+        graphQlTester.document("""query { workspaceArtifact(workspaceId: $workspaceId, id: "DESIGN-${source.id}") { draftUrl } }""")
+            .execute().path("workspaceArtifact.draftUrl").entity(String::class.java).isEqualTo(secondUrl)
 
         // Saved as a copy: a picture of its own, the original as it was, and no version left.
         val copy = graphQlTester.document("""mutation { saveDesignImageVersion(workspaceId: $workspaceId, id: "$second", asCopy: true) { id name versionOf } }""")
