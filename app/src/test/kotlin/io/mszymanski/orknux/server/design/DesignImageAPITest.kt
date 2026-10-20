@@ -476,6 +476,52 @@ class DesignImageAPITest(
         assertThat(images.count()).isZero()
     }
 
+    @Test
+    fun `a picture's history in the editor is read again from the server, until it is saved or discarded`() {
+        val modelId = model("Editor", "IMAGE")
+        val source = whiteSource()
+        val mask = Base64.getEncoder().encodeToString(png(2, 2) { x, _ -> if (x == 0) 0x00000000 else 0xFF000000.toInt() })
+        fun queue(of: String): String = graphQlTester.document(
+            """mutation { queueDesignImageEdit(input: {
+                 workspaceId: $workspaceId, imageId: "$of", modelId: $modelId, prompt: "Make it red", mask: "$mask"
+               }) { id } }""",
+        ).execute().path("queueDesignImageEdit.id").entity(String::class.java).get()
+        val firstJob = queue("DESIGN-${source.id}")
+        val first = drawnPicture(firstJob)
+        val secondJob = queue(first)
+        val second = drawnPicture(secondJob)
+        // One that failed over the newest version is history too; one over another picture is not.
+        val failed = jobs.save(
+            DesignImageJob(
+                workspaceId = workspaceId, modelId = modelId, modelName = "Editor", prompt = "Make it blue",
+                size = null, quality = null, style = null, requestedBy = "alice", sourceId = second,
+                status = DesignImageJobStatus.FAILED, reason = "no",
+            ),
+        )
+        val elsewhere = whiteSource()
+        jobs.save(
+            DesignImageJob(
+                workspaceId = workspaceId, modelId = modelId, modelName = "Editor", prompt = "Elsewhere",
+                size = null, quality = null, style = null, requestedBy = "alice", sourceId = "DESIGN-${elsewhere.id}",
+                status = DesignImageJobStatus.FAILED, reason = "no",
+            ),
+        )
+        fun history() = graphQlTester.document(
+            """query { designImageHistory(workspaceId: $workspaceId, imageId: "DESIGN-${source.id}") { id status image { id } } }""",
+        ).execute()
+
+        // Newest first, each drawn one with its version.
+        history()
+            .path("designImageHistory[*].id").entityList(String::class.java).containsExactly(failed.id.toString(), secondJob, firstJob)
+            .path("designImageHistory[1].image.id").entity(String::class.java).isEqualTo(second)
+            .path("designImageHistory[2].image.id").entity(String::class.java).isEqualTo(first)
+
+        // Saved, the history is over: the versions are gone, and what failed on the way with them.
+        graphQlTester.document("""mutation { saveDesignImageVersion(workspaceId: $workspaceId, id: "$second") { id } }""").execute()
+        history().path("designImageHistory").entityList(Any::class.java).hasSize(0)
+        assertThat(jobs.findByIdOrNull(requireNotNull(failed.id))).isNull()
+    }
+
     /** Waits for the request to be drawn, and answers its picture's id. */
     private fun drawnPicture(jobId: String): String {
         await().atMost(Duration.ofSeconds(10)).until { jobs.findByIdOrNull(jobId.toLong())?.status == DesignImageJobStatus.DRAWN }

@@ -462,6 +462,12 @@ type Query {
     designHarmonizeOptions(workspaceId: ID!, modelId: ID!): HarmonizeOptions!
     "One picture asked for in Design, in whatever state it is; null for one not here."
     designImageJob(workspaceId: ID!, id: ID!): DesignImageJob
+    """
+    What was asked of one picture in the image editor and not yet saved or
+    discarded, newest first: its versions, and the changes still waiting, being
+    drawn, failed or stopped. The editor's strip, read again on a reload.
+    """
+    designImageHistory(workspaceId: ID!, imageId: ID!): [DesignImageJob!]!
 
     """
     The "Custom" actions one workflow owns - exactly what workspaceActions

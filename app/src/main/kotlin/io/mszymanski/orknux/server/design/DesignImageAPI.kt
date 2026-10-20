@@ -382,6 +382,24 @@ class DesignImageAPI(
     }
 
     /**
+     * What was asked of a picture in the image editor and is not yet saved or
+     * discarded, newest first: each version drawn, and each change still
+     * waiting, being drawn, failed or stopped - over the picture or over one of
+     * its versions. The editor's strip, read again when the page is, so the
+     * history survives a reload rather than living only in the page that asked.
+     */
+    @QueryMapping
+    fun designImageHistory(@Argument workspaceId: Long, @Argument imageId: String): List<DesignImageJobView> {
+        access.requireVisible(workspaceId)
+        val versions = images.findByWorkspaceIdAndVersionOf(workspaceId, imageId).mapNotNull { it.id }.toSet()
+        val over = versions.map { "DESIGN-$it" } + imageId
+        return jobs.findByWorkspaceIdAndSourceIdInOrderByRequestedAtDescIdDesc(workspaceId, over)
+            // A drawn one is history while its version is: saved or discarded, it is gone.
+            .filter { it.status != DesignImageJobStatus.DRAWN || it.imageId in versions }
+            .map(::view)
+    }
+
+    /**
      * Takes a request off the queue, or a failed one off the gallery.
      *
      * Not one being drawn: the model has it, and taking the row away would not
@@ -458,6 +476,7 @@ class DesignImageAPI(
             ?.takeIf { it.workspaceId == workspaceId && it.versionOf != null }
             ?: throw DesignImageRefusedException("There is no unsaved change to save.")
         val of = requireNotNull(version.versionOf)
+        forgetUndrawn(workspaceId, of)
 
         val kept: ArtifactView = if (asCopy == true) {
             // A picture of its own, beside the one it was made from, which stays as it was saved.
@@ -491,7 +510,20 @@ class DesignImageAPI(
         return discard(workspaceId, id) > 0
     }
 
+    /**
+     * What failed or was stopped over a picture or its versions, gone with
+     * them: the history of changes now saved or thrown away. Asked before a
+     * version is written over the picture, while it still says which it was.
+     */
+    private fun forgetUndrawn(workspaceId: Long, of: String) {
+        val versions = images.findByWorkspaceIdAndVersionOf(workspaceId, of).map { "DESIGN-${it.id}" }
+        jobs.findByWorkspaceIdAndSourceIdInOrderByRequestedAtDescIdDesc(workspaceId, versions + of)
+            .filter { it.status == DesignImageJobStatus.FAILED || it.status == DesignImageJobStatus.STOPPED }
+            .let(jobs::deleteAll)
+    }
+
     private fun discard(workspaceId: Long, of: String): Int {
+        forgetUndrawn(workspaceId, of)
         val versions = images.findByWorkspaceIdAndVersionOf(workspaceId, of)
         versions.forEach {
             images.delete(it)

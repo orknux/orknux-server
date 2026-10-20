@@ -122,6 +122,9 @@ interface DesignImageJobRepository : JpaRepository<DesignImageJob, Long> {
 
     fun findByStatusOrderByRequestedAtAscIdAsc(status: DesignImageJobStatus): List<DesignImageJob>
 
+    /** What was asked of any of these pictures, newest first: the history the image editor shows. */
+    fun findByWorkspaceIdAndSourceIdInOrderByRequestedAtDescIdDesc(workspaceId: Long, sourceIds: Collection<String>): List<DesignImageJob>
+
     fun countByStatus(status: DesignImageJobStatus): Long
 
     /**
