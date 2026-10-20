@@ -949,6 +949,8 @@ type Query {
     componentRevisions(kind: ComponentRevisionKind!, componentId: ID!, limit: Int): [ComponentRevision!]!
     "One revision, with what it held."
     componentRevision(id: ID!): ComponentRevisionDetail!
+    "The live state's save and what it changed; null for a component never edited."
+    componentCurrentVersion(kind: ComponentRevisionKind!, componentId: ID!): ComponentCurrentVersion
     """
     Where a component is used: everything that would break if it went away.
 
@@ -2954,6 +2956,29 @@ type ComponentRevision {
     savedBy: String!
     "When it stopped being current, which is what retention counts from."
     recordedAt: String!
+    "What the save that made this state changed; null where no older version is kept to compare."
+    changes: [RevisionChange!]
+}
+
+"The newest save of a component, which its history never holds."
+type ComponentCurrentVersion {
+    savedAt: String!
+    savedBy: String!
+    changes: [RevisionChange!]!
+    "The live state as pretty JSON with ids named, to compare with the newest version."
+    readable: String!
+}
+
+"""
+One thing a save changed. `field` is the snapshot's key; a list says what came
+and went, a short value what it was and became, and prose only that it was edited.
+"""
+type RevisionChange {
+    field: String!
+    before: String
+    after: String
+    added: [String!]!
+    removed: [String!]!
 }
 
 "One revision with what it held."
@@ -2974,6 +2999,8 @@ type ComponentRevisionDetail {
     contentLanguage: String!
     "The whole component as it was, as JSON."
     snapshot: String!
+    "The same as pretty JSON, with every id said as the name behind it."
+    readable: String!
 }
 
 """

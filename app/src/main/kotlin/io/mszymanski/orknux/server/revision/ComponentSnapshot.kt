@@ -167,6 +167,19 @@ object ComponentSnapshot {
             // By id, which is what the column holds; a grant whose connection
             // has since been deleted restores as exactly the reach it has.
             "connectionIds" to agent.connections.toList(),
+            /*
+             * The rest of what it holds, which this left out until an agent
+             * lost another it could ask and its history could not say when.
+             * Agents by id, as the column holds them; the skill lists by id,
+             * the tool lists by name, the same.
+             */
+            "agentIds" to agent.agents.toList(),
+            "hiddenSkills" to agent.hiddenSkills.toList(),
+            "requiredSkills" to agent.requiredSkills.toList(),
+            "requiredTools" to agent.requiredTools.toList(),
+            "hiddenTools" to agent.hiddenTools.toList(),
+            "maxTools" to agent.maxTools,
+            "maxRounds" to agent.maxRounds,
         ),
     )
 
@@ -320,6 +333,23 @@ object ComponentSnapshot {
         // what an agent saved then actually held.
         agent.connections =
             held.path("connectionIds").values().mapNotNull { if (it.isNumber) it.asLong() else null }.toMutableList()
+        /*
+         * Put back only where the version recorded them. One written before
+         * they were recorded says nothing about them, and reading that silence
+         * as "none" would take every agent it may ask away on a restore.
+         */
+        if (held.has("agentIds")) {
+            agent.agents = held.path("agentIds").values()
+                .mapNotNull { if (it.isNumber) it.asLong() else null }
+                .filter { it != agent.id }
+                .toMutableList()
+        }
+        if (held.has("hiddenSkills")) agent.hiddenSkills = names(held, "hiddenSkills")
+        if (held.has("requiredSkills")) agent.requiredSkills = names(held, "requiredSkills")
+        if (held.has("requiredTools")) agent.requiredTools = names(held, "requiredTools")
+        if (held.has("hiddenTools")) agent.hiddenTools = names(held, "hiddenTools")
+        if (held.has("maxTools")) agent.maxTools = number(held, "maxTools")?.toInt()
+        if (held.has("maxRounds")) agent.maxRounds = number(held, "maxRounds")?.toInt()
     }
 
     // ---------------------------------------------------------------- reading

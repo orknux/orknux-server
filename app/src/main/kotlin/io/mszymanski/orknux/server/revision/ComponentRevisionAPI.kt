@@ -49,6 +49,7 @@ class ComponentRevisionAPI(
     private val access: WorkspaceAccess,
     private val auditRecorder: WorkspaceAuditRecorder,
     private val mapper: ObjectMapper,
+    private val changes: RevisionChanges,
 ) {
 
     /**
@@ -68,8 +69,55 @@ class ComponentRevisionAPI(
         // also what makes a revision of a deleted component unreachable rather
         // than readable by whoever knows an id.
         access.requireVisible(workspaceOf(kind, componentId))
-        return recorder.history(kind, componentId, limit ?: DEFAULT_REVISIONS)
-            .map(::ComponentRevisionView)
+        val wanted = limit ?: DEFAULT_REVISIONS
+        /*
+         * One more than is shown, so the oldest row shown has the state before
+         * it to be compared with. Each row says what its own save changed.
+         */
+        val listed = recorder.history(kind, componentId, wanted + 1)
+        val held = revisions.findAllById(listed.map { it.id }).associateBy { it.id }
+        return listed.take(wanted).mapIndexed { at, revision ->
+            val before = listed.getOrNull(at + 1)?.let { held[it.id] }
+            val now = held[revision.id]
+            ComponentRevisionView(
+                revision,
+                changes = if (before == null || now == null) null else changes.between(before.snapshot, now.snapshot),
+            )
+        }
+    }
+
+    /**
+     * The newest save: when, by whom, and what it changed from the version
+     * before it. The live row is not in the history - every save keeps what it
+     * displaced - so without this the one save somebody most wants explained
+     * is the one the panel cannot say anything about.
+     */
+    @QueryMapping
+    @Transactional(readOnly = true)
+    fun componentCurrentVersion(
+        @Argument kind: ComponentRevisionKind,
+        @Argument componentId: Long,
+    ): ComponentCurrentVersionView? {
+        access.requireVisible(workspaceOf(kind, componentId))
+        val newest = recorder.history(kind, componentId, 1).firstOrNull() ?: return null
+        val before = revisions.findByIdOrNull(newest.id) ?: return null
+        val (live, savedAt, savedBy) = when (kind) {
+            ComponentRevisionKind.FUNCTION -> functions.findByIdOrNull(componentId)
+                ?.let { Triple(ComponentSnapshot.of(it, mapper), it.lastModifiedAt, it.lastModifiedBy) }
+            ComponentRevisionKind.TOOL -> tools.findByIdOrNull(componentId)
+                ?.let { Triple(ComponentSnapshot.of(it, mapper), it.lastModifiedAt, it.lastModifiedBy) }
+            ComponentRevisionKind.SKILL -> skills.findByIdOrNull(componentId)
+                ?.let { Triple(ComponentSnapshot.of(it, mapper), it.lastModifiedAt, it.lastModifiedBy) }
+            ComponentRevisionKind.AGENT -> agents.findByIdOrNull(componentId)
+                ?.let { Triple(ComponentSnapshot.of(it, mapper), it.lastModifiedAt, it.lastModifiedBy) }
+            ComponentRevisionKind.WORKFLOW -> null
+        } ?: return null
+        return ComponentCurrentVersionView(
+            savedAt = savedAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+            savedBy = savedBy,
+            changes = changes.between(before.snapshot, live),
+            readable = changes.readable(live),
+        )
     }
 
     /** One revision, with what it held. */
@@ -77,7 +125,7 @@ class ComponentRevisionAPI(
     @Transactional(readOnly = true)
     fun componentRevision(@Argument id: Long): ComponentRevisionDetailView {
         val held = revision(id)
-        return ComponentRevisionDetailView.of(held, mapper)
+        return ComponentRevisionDetailView.of(held, mapper, changes.readable(held.snapshot))
     }
 
     /**
@@ -242,8 +290,10 @@ data class ComponentRevisionView(
     val savedBy: String,
     /** When it stopped being current, which is what retention counts from. */
     val recordedAt: String,
+    /** What the save that made this state changed; null where there is no version before it to compare. */
+    val changes: List<RevisionChange>? = null,
 ) {
-    constructor(revision: RevisionSummary) : this(
+    constructor(revision: RevisionSummary, changes: List<RevisionChange>? = null) : this(
         id = revision.id,
         kind = revision.kind,
         componentId = revision.componentId,
@@ -251,8 +301,18 @@ data class ComponentRevisionView(
         savedAt = revision.savedAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         savedBy = revision.savedBy,
         recordedAt = revision.recordedAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+        changes = changes,
     )
 }
+
+/** The live state's save, which the history itself never holds. */
+data class ComponentCurrentVersionView(
+    val savedAt: String,
+    val savedBy: String,
+    val changes: List<RevisionChange>,
+    /** The live state as pretty JSON with ids named, to compare with the newest version. */
+    val readable: String,
+)
 
 /**
  * One revision with what it held.
@@ -275,6 +335,8 @@ data class ComponentRevisionDetailView(
     /** `typescript`, `markdown`, or `json`. What to colour [content] as. */
     val contentLanguage: String,
     val snapshot: String,
+    /** [snapshot] as pretty JSON with every id said as the name behind it. */
+    val readable: String,
 ) {
     companion object {
 
@@ -284,7 +346,7 @@ data class ComponentRevisionDetailView(
          * [ComponentSnapshot.contentIn] separately for each of the two fields
          * it fills, which parses the whole revision twice.
          */
-        fun of(revision: ComponentRevision, mapper: ObjectMapper): ComponentRevisionDetailView {
+        fun of(revision: ComponentRevision, mapper: ObjectMapper, readable: String): ComponentRevisionDetailView {
             val read = ComponentSnapshot.contentIn(revision.kind, revision.snapshot, mapper)
             return ComponentRevisionDetailView(
                 id = requireNotNull(revision.id),
@@ -297,6 +359,7 @@ data class ComponentRevisionDetailView(
                 content = read.text,
                 contentLanguage = read.language,
                 snapshot = revision.snapshot,
+                readable = readable,
             )
         }
     }

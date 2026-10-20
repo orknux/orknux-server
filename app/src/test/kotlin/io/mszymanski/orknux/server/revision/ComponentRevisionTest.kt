@@ -170,6 +170,44 @@ class ComponentRevisionTest(
         })
     }
 
+    /**
+     * An agent's history says which agents it may ask, and each save says what
+     * it changed - which is how somebody finds the save that took a grant away.
+     * The snapshot left that grant out, so its history could not.
+     */
+    @Test
+    fun `a save that takes away an agent to ask says so, and a restore gives it back`() {
+        val asker = agent("Lead")
+        val asked = agent("Summarizer")
+        val update = { ids: String ->
+            graphQlTester.document(
+                """mutation { updateAgent(id: $asker, input: { name: "Lead", agentIds: [$ids] }) { id } }""",
+            ).execute().path("updateAgent.id").entity(Long::class.java).isEqualTo(asker)
+        }
+        update("$asked")
+        graphQlTester.document("""mutation { updateAgent(id: $asked, input: { name: "Summarizer two" }) { id } }""")
+            .execute().path("updateAgent.id").entity(Long::class.java).isEqualTo(asked)
+        update("")
+
+        val current = graphQlTester.document(
+            """query { componentCurrentVersion(kind: AGENT, componentId: $asker) {
+                 savedBy changes { field removed added } } }""",
+        ).execute()
+        current.path("componentCurrentVersion.savedBy").entity(String::class.java).isEqualTo("alice")
+        // By the name it has now, not an id nobody knows.
+        assertThat(granting(current.path("componentCurrentVersion.changes").entity(Any::class.java).get()))
+            .isEqualTo(listOf<String>() to listOf("Summarizer two"))
+
+        // The row that granted it says so too, compared with the version before it.
+        val rows = graphQlTester.document(
+            """query { componentRevisions(kind: AGENT, componentId: $asker) { changes { field added removed } } }""",
+        ).execute().path("componentRevisions[0].changes").entity(Any::class.java).get()
+        assertThat(granting(rows)).isEqualTo(listOf("Summarizer two") to listOf<String>())
+
+        restore(newestRevision(ComponentRevisionKind.AGENT, asker))
+        assertThat(requireNotNull(agents.findById(asker).orElse(null)).agents).containsExactly(asked)
+    }
+
     /** A skill's markdown is what a reader of its history is shown. */
     @Test
     fun `a skill's content is what its revision reads as`() {
@@ -292,6 +330,13 @@ class ComponentRevisionTest(
     private fun agent(name: String): Long = graphQlTester.document(
         """mutation { createAgent(input: { workspaceId: $workspaceId, name: "$name", type: LLM }) { id } }""",
     ).execute().path("createAgent.id").entity(Long::class.java).get()
+
+    /** What a list of changes says about the agents an agent may ask: added to removed. */
+    @Suppress("UNCHECKED_CAST")
+    private fun granting(changes: Any): Pair<List<String>, List<String>> {
+        val change = (changes as List<Map<String, Any?>>).single { it["field"] == "agentIds" }
+        return (change["added"] as List<String>) to (change["removed"] as List<String>)
+    }
 
     private fun newestRevision(kind: ComponentRevisionKind, componentId: Long): Long = graphQlTester.document(
         """query { componentRevisions(kind: $kind, componentId: $componentId) { id } }""",
