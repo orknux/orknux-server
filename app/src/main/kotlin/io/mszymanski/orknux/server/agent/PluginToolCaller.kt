@@ -55,8 +55,8 @@ class PluginToolCaller(
      * kind, by id or name, and which of the connections this agent was
      * granted those are. The call resolves it to the handle; see [FunctionCaller].
      */
-    fun connectionMeaning(tool: PluginTool, agent: Agent): String =
-        parameters.connectionArgumentMeaning(tool.plugin, agent.workspaceId, grantsOf(agent))
+    fun connectionMeaning(tool: PluginTool, agent: Agent, optional: Boolean = false): String =
+        parameters.connectionArgumentMeaning(tool.plugin, agent.workspaceId, grantsOf(agent), optional)
 
     /**
      * What an agent may pass where a plugin takes a connection: what it was

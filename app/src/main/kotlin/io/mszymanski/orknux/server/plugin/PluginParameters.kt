@@ -1,6 +1,7 @@
 package io.mszymanski.orknux.server.plugin
 
 import io.mszymanski.orknux.connector.connection.ConnectionCredentials
+import io.mszymanski.orknux.connector.connection.ConnectionType
 import io.mszymanski.orknux.connector.connection.WorkspaceConnection
 import io.mszymanski.orknux.connector.connection.WorkspaceConnectionRepository
 import io.mszymanski.orknux.connector.connection.WorkspaceConnectionService
@@ -462,13 +463,30 @@ class PluginParameters(
      * The list is the useful half. A model has no picker; without it, the id it
      * was meant to pass is a number it has to have been told somewhere else.
      */
-    fun connectionArgumentMeaning(plugin: Plugin, workspaceId: Long, granted: ConnectionGrants? = null): String {
+    fun connectionArgumentMeaning(
+        plugin: Plugin,
+        workspaceId: Long,
+        granted: ConnectionGrants? = null,
+        /** Whether the argument may be left out, which the plugin then decides about itself. */
+        optional: Boolean = false,
+    ): String {
         val accepts = accepts(plugin)
         val held = reachable(workspaceId, granted)
         val whose = if (granted != null) "the" else "this workspace's"
         val kind = accepts.label?.let { "$it " } ?: ""
         val tail = if (granted != null) " you have been granted" else ""
-        return "One of $whose ${kind}connections$tail, by its id or its exact name. " +
+        /*
+         * Where it may be left out, that is said as a choice of its own - and
+         * where there is nothing to name, as the only one. Told only that it
+         * had been granted no connection, a model either gave up or made one
+         * up: "id1", which reached Slack and was refused.
+         */
+        if (optional && held.none { accepts.fits(it) }) {
+            return "Leave it out: the plugin uses the ${kind}connection it is set up with, and there is no " +
+                "other ${kind}connection${tail.ifEmpty { " here" }} to name."
+        }
+        return "One of $whose ${kind}connections$tail, by its id or its exact name" +
+            (if (optional) ", or left out for the one the plugin is set up with. " else ". ") +
             choices(accepts, held, granted != null)
     }
 
@@ -494,12 +512,35 @@ class PluginParameters(
      */
     private fun accepts(plugin: Plugin): Accepts {
         val own = declarations.readConnectionTypes(plugin.declaredConnectionTypes, plugin.key, plugin.name)
-        if (own.isEmpty()) return Accepts(null, emptySet())
-        return Accepts(own.joinToString(" or ") { it.label }, own.map { it.id }.toSet())
+        if (own.isNotEmpty()) return Accepts(own.joinToString(" or ") { it.label }, own.map { it.id }.toSet())
+        /*
+         * No kind of its own, but a setting that names one of the server's:
+         * Slack's plugin speaks to a Slack connection, and says so on the
+         * setting that picks its default one. An argument is a choice among
+         * the same, so it is held to that kind - listed to a model as its
+         * Slack connections rather than as every connection the agent holds,
+         * a Jira among them.
+         */
+        val core = declarations.readParameters(plugin.declaredParameters)
+            .filter { it.type.equals(PluginDeclarations.CONNECTION, ignoreCase = true) }
+            .mapNotNull { setting ->
+                setting.connectionType?.trim()?.let { wanted -> ConnectionType.entries.firstOrNull { it.name.equals(wanted, ignoreCase = true) } }
+            }
+            .toSet()
+        if (core.isEmpty()) return Accepts(null, emptySet())
+        return Accepts(
+            core.joinToString(" or ") { it.name.lowercase().replaceFirstChar { first -> first.uppercase() } },
+            emptySet(),
+            core.map { it.name }.toSet(),
+        )
     }
 
-    private class Accepts(val label: String?, val ownKinds: Set<String>) {
-        fun fits(connection: WorkspaceConnectionView): Boolean = ownKinds.isEmpty() || connection.pluginType in ownKinds
+    private class Accepts(val label: String?, val ownKinds: Set<String>, val coreKinds: Set<String> = emptySet()) {
+        fun fits(connection: WorkspaceConnectionView): Boolean = when {
+            ownKinds.isNotEmpty() -> connection.pluginType in ownKinds
+            coreKinds.isNotEmpty() -> connection.pluginType == null && connection.type.name in coreKinds
+            else -> true
+        }
     }
 
     /** What the caller wrote, read as an id, a name, or neither. */

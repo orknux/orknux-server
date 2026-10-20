@@ -261,6 +261,55 @@ class PluginConnectionArgumentTest(
         assertThat(said).doesNotContain("Wiki").doesNotContain("Staging").doesNotContain(SECRET)
     }
 
+    /* ------------------------------------- a kind the server brings, like Slack ---- */
+
+    /**
+     * A plugin with no kind of its own whose setting names Slack takes Slack
+     * connections where an argument names one, and is shown only those. Told
+     * nothing about which, a model asked Slack's plugin to read through "id1".
+     */
+    @Test
+    fun `an argument of a plugin whose setting is a Slack connection lists the agent's Slack connections`() {
+        uploadChatter()
+        val slack = slackConnection("Team Slack")
+        val wiki = connect("Wiki", null)
+        val agent = agent("chatter_read", holding = listOf(slack, wiki))
+
+        val said = agentTools.specsFor(agent).single { it.name == "chatter_read" }
+            .parameters.single { it.name == "slack" }
+        assertThat(said.description).contains("Slack").contains("$slack (Team Slack)").contains("left out")
+            .doesNotContain("Wiki")
+        assertThat(said.required).isFalse()
+    }
+
+    @Test
+    fun `granted no Slack connection, the agent is told to leave the argument out`() {
+        uploadChatter()
+        slackConnection("Team Slack")
+        val agent = agent("chatter_read")
+
+        val said = agentTools.specsFor(agent).single { it.name == "chatter_read" }
+            .parameters.single { it.name == "slack" }.description
+        assertThat(said).startsWith("Leave it out").doesNotContain("Team Slack")
+    }
+
+    @Test
+    fun `something that names no connection is refused with the Slack connections there are`() {
+        uploadChatter()
+        val slack = slackConnection("Team Slack")
+        val wiki = connect("Wiki", null)
+        val agent = agent("chatter_read", holding = listOf(slack, wiki))
+
+        val refused = callRaw(agent, "chatter_read", """{"slack":"id1"}""")
+        assertThat(refused).contains("id1").contains("$slack (Team Slack)").doesNotContain("Wiki")
+        // By name it reaches the plugin as the handle: the id and the kind, never a token.
+        val handed = call(agent, "chatter_read", """{"slack":"Team Slack"}""").get("handed")
+        assertThat(handed.get("id").asLong()).isEqualTo(slack)
+        assertThat(handed.get("type").asString()).isEqualTo("SLACK")
+        // And the Wiki, granted but not a Slack, is not one either.
+        assertThat(callRaw(agent, "chatter_read", """{"slack":$wiki}""")).contains("rather than Slack")
+    }
+
     /* ------------------------------------------------------ a workflow node ---- */
 
     /**
@@ -317,6 +366,14 @@ class PluginConnectionArgumentTest(
         assertThat(handed.get("url").asString()).isEqualTo("https://prom.example.com")
         assertThat(handed.get("headers").get("Authorization").asString()).isEqualTo("Bearer $SECRET")
     }
+
+    private fun uploadChatter() {
+        upload.upload(MockMultipartFile("file", "chatter.js", "text/javascript", CHATTER.toByteArray()), null, null)
+    }
+
+    private fun slackConnection(name: String): Long = graphQlTester.document(
+        """mutation { createWorkspaceConnection(input: { workspaceId: $workspaceId, name: "$name", type: SLACK }) { id } }""",
+    ).execute().path("createWorkspaceConnection.id").entity(Long::class.java).get()
 
     private fun connect(name: String, pluginType: String?, on: Long = workspaceId, secret: String = SECRET): Long =
         graphQlTester.document(
@@ -407,6 +464,33 @@ class PluginConnectionArgumentTest(
                     run: (prometheus) => ({ handed: prometheus }),
                   }),
                 ];
+              }
+            }
+        """.trimIndent()
+
+        /** A plugin that speaks to the server's own Slack kind, as the Slack plugin does. */
+        val CHATTER = """
+            export default class Chatter extends OrknuxPlugin {
+              id() { return 'chatter'; }
+              apiVersion() { return 1; }
+              parameters() {
+                return [
+                  new OrknuxParameter({ name: 'slack', type: 'connection', connectionType: 'SLACK', required: false }),
+                ];
+              }
+              functions() {
+                return [
+                  new OrknuxFunction({
+                    name: 'read',
+                    description: 'Reads through a Slack.',
+                    params: [{ name: 'slack', type: 'connection', required: false }],
+                    returnType: 'map',
+                    run: (slack) => ({ handed: slack }),
+                  }),
+                ];
+              }
+              tools() {
+                return [new OrknuxFunctionTool({ function: 'read' })];
               }
             }
         """.trimIndent()

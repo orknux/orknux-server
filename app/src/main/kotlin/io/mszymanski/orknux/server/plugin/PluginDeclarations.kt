@@ -228,7 +228,7 @@ class PluginDeclarations(private val mapper: ObjectMapper) {
                         "the tool ${tool.name}'s ${param.name} is a \"${param.type}\", " +
                             "which is neither a type this server has nor a shape this plugin exports",
                     )
-                Taken(param.name, type, takes)
+                Taken(param.name, type, takes, param.required, checkedDefault(tool.name, param, type))
             }
 
             val node = array.addObject()
@@ -241,6 +241,17 @@ class PluginDeclarations(private val mapper: ObjectMapper) {
             params.forEach { taken ->
                 val held = kept.addObject().put("name", taken.name).put("type", taken.type.name)
                 taken.shape?.let { held.put("object", it) }
+                /*
+                 * Whether it may be left out, as a function's parameter keeps
+                 * it. It was dropped here, so every argument of every plugin
+                 * tool reached a model as one it had to fill - and an argument
+                 * with nothing to fill it with was filled with something made
+                 * up: Slack's connection, given as "id1".
+                 */
+                if (!taken.required) {
+                    held.put("required", false)
+                    taken.default?.let { held.put("default", it) }
+                }
             }
         }
         return mapper.writeValueAsString(array)
@@ -258,6 +269,9 @@ class PluginDeclarations(private val mapper: ObjectMapper) {
                     name = param.get("name").asString(),
                     type = param.get("type").asString(),
                     objectName = param.get("object")?.asString(),
+                    // Absent means required, which is what every tool kept before this was.
+                    required = param.get("required")?.asBoolean() ?: true,
+                    default = param.get("default")?.asString(),
                 )
             }
             PluginToolView(

@@ -348,7 +348,7 @@ class AgentTools(
                             description = describe(
                                 param,
                                 if (param.type == ValueType.CONNECTION) {
-                                    pluginTools.connectionMeaning(tool, agent)
+                                    pluginTools.connectionMeaning(tool, agent, optional = !param.required)
                                 } else {
                                     null
                                 },
