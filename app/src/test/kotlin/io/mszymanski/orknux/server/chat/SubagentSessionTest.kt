@@ -61,6 +61,8 @@ class SubagentSessionTest(
     @Autowired val audit: WorkspaceAuditRepository,
     @Autowired val scratch: io.mszymanski.orknux.server.llm.LlmSessionStore,
     @Autowired val mapper: tools.jackson.databind.ObjectMapper,
+    @Autowired val runs: io.mszymanski.orknux.workflow.execution.WorkflowExecutionRepository,
+    @Autowired val steps: io.mszymanski.orknux.workflow.execution.ExecutionStepRepository,
 ) {
 
     private var workspaceId: Long = 0
@@ -68,6 +70,10 @@ class SubagentSessionTest(
 
     /** Every request the stub model was sent, in order. */
     private val sent = java.util.concurrent.CopyOnWriteArrayList<String>()
+
+    /** How long the stub model takes to answer, for an ask that is still working. */
+    @Volatile
+    private var answerAfterMillis = 0L
 
     @BeforeEach
     fun reset() {
@@ -92,6 +98,7 @@ class SubagentSessionTest(
         server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
         server.createContext("/chat/completions") { exchange ->
             sent.add(exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() })
+            if (answerAfterMillis > 0) Thread.sleep(answerAfterMillis)
             val bytes = """{"choices":[{"message":{"role":"assistant","content":"Forty-two."}}],
                "usage":{"prompt_tokens":3,"completion_tokens":1}}""".toByteArray(StandardCharsets.UTF_8)
             exchange.responseHeaders.add("Content-Type", "application/json")
@@ -194,6 +201,41 @@ class SubagentSessionTest(
         val second = sent.last()
         assertThat(second).contains("First?").contains("Forty-two.")
         assertThat(second.split("Second?").size - 1).isEqualTo(1)
+    }
+
+    /**
+     * A workflow step's agent is not held by agent_wait. What it writes goes to
+     * the Slack thread only when its turn ends, so a wait held back "I'm
+     * checking this" until the answer came; the answer wakes it later instead.
+     */
+    @Test
+    fun `agent_wait in a workflow step's conversation does not wait`() {
+        val (asker, _) = pair()
+        val main = recorder.open(workspaceId, "chat", "planning")
+        val run = runs.save(
+            io.mszymanski.orknux.workflow.execution.WorkflowExecution(
+                workspaceId = workspaceId, workflowId = 1, workflowName = "Reply",
+                status = io.mszymanski.orknux.workflow.execution.ExecutionStatus.RUNNING,
+                trigger = io.mszymanski.orknux.workflow.execution.ExecutionTrigger.MANUAL,
+                startedAt = java.time.OffsetDateTime.now(),
+            ),
+        )
+        steps.save(
+            io.mszymanski.orknux.workflow.execution.ExecutionStep(
+                executionId = requireNotNull(run.id), nodeKey = "think",
+                kind = io.mszymanski.orknux.workflow.execution.NodeKind.AGENT, name = "Think", order = 0, x = 0.0, y = 0.0,
+            ).also { it.sessionId = main },
+        )
+        answerAfterMillis = 3_000
+
+        asking.run(asker, """{"agent":"Librarian","question":"What is the answer?"}""", parent = main)
+        val started = System.nanoTime()
+        val said = mapper.readTree(asking.waited(asker, main, """{"seconds":30}"""))
+
+        assertThat((System.nanoTime() - started) / 1_000_000).describedAs("milliseconds spent").isLessThan(1_500)
+        assertThat(said.path("waited").asInt()).isEqualTo(0)
+        assertThat(said.path("note").asString()).contains("End your turn now")
+        answerAfterMillis = 0
     }
 
     /** Asked with `fresh`, it starts a conversation of its own, for an unrelated question. */

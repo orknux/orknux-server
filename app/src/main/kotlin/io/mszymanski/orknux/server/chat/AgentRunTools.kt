@@ -105,6 +105,8 @@ class AgentRunTools(
     /** What an asked agent's session was sent before, for an ask that continues it; see [conversationIn]. */
     private val prompt: ObjectProvider<io.mszymanski.orknux.server.llm.SessionPrompt>,
     private val budgets: ObjectProvider<io.mszymanski.orknux.server.llm.SessionMemoryBudgets>,
+    /** Whether a conversation is a workflow step's, whose words go out only when its turn ends; see [waited]. */
+    private val steps: io.mszymanski.orknux.workflow.execution.ExecutionStepRepository,
 ) {
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
@@ -353,6 +355,28 @@ class AgentRunTools(
                 linkedMapOf(
                     "waited" to 0,
                     "note" to "Nothing is still working. Call " + ASKS + " to read what came back.",
+                ),
+            )
+        }
+
+        /*
+         * Not in a workflow step's conversation. What a step's agent writes goes
+         * to the person - the Slack reply after it - only when its turn ends, so
+         * a wait held back everything it had said: "I'm checking this" reached
+         * the thread when the answer did, minutes later. The tool's own words
+         * told the model to end its turn instead, and it waited anyway. So here
+         * it does not wait: the answer, when it lands, starts the agent again in
+         * this conversation and its reply follows the first.
+         */
+        if (steps.existsBySessionId(parent)) {
+            return mapper.writeValueAsString(
+                linkedMapOf(
+                    "waited" to 0,
+                    "working" to outstanding.size,
+                    "note" to "Not waited: nothing you write reaches the person until your turn ends, so waiting " +
+                        "here would hold back what you have already said. End your turn now, saying what you " +
+                        "are doing. When the answer lands you are started again in this conversation, and " +
+                        "what you say then follows.",
                 ),
             )
         }
