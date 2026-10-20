@@ -131,4 +131,21 @@ interface AgentRepository : JpaRepository<Agent, Long> {
      */
     @Query("select a from Agent a join a.mcpServers s where a.workspaceId = :workspaceId and s = :name")
     fun findGrantedMcpServer(@Param("workspaceId") workspaceId: Long, @Param("name") name: String): List<Agent>
+
+    /**
+     * The workspace's agents that may ask this one, as their ids and names.
+     *
+     * Only the two columns: an agent row brings its eager lists with it, a
+     * select each, so reading the rows would cost the settings page a handful
+     * of statements per agent that asks.
+     */
+    @Query(
+        "select new io.mszymanski.orknux.server.agent.AgentNamed(a.id, a.name) from Agent a join a.agents g " +
+            "where a.workspaceId = :workspaceId and g = :id order by a.name",
+    )
+    fun findAsking(@Param("workspaceId") workspaceId: Long, @Param("id") id: Long): List<AgentNamed>
 }
+
+/** An agent by its id and name, and nothing else read. */
+data class AgentNamed(val id: Long, val name: String)
+

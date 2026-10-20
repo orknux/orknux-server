@@ -210,7 +210,8 @@ class ComponentDependants(
 
     private fun ofAgent(id: Long): List<Dependant> {
         val workspaceId = agents.workspaceIdOf(id) ?: return emptyList()
-        return references.toAgent(workspaceId, id)
+        // The workflows that run it, and the agents that may ask it a question.
+        return references.toAgent(workspaceId, id) + grants.toAgent(workspaceId, id)
     }
 
     private fun ofAction(id: Long): List<Dependant> {

@@ -97,6 +97,35 @@ class ComponentDependantsTest(
         frontendId = requireNotNull(workspaces.save(Workspace(name = "Frontend", roles = mutableSetOf(frontend))).id)
     }
 
+    /**
+     * An agent another may ask is used by that agent, and says so - on its
+     * Used by, and when somebody deletes it, rather than leaving the asker
+     * granted an agent that is gone.
+     */
+    @Test
+    @WithMockUser(username = "alice", roles = ["ADMINS"])
+    fun `an agent's dependants include the agents that may ask it`() {
+        val helper = requireNotNull(
+            agents.save(io.mszymanski.orknux.server.agent.Agent(workspaceId = backendId, name = "Helper", type = io.mszymanski.orknux.server.agent.AgentType.LLM)).id,
+        )
+        val lead = requireNotNull(
+            agents.save(
+                io.mszymanski.orknux.server.agent.Agent(
+                    workspaceId = backendId, name = "Lead", type = io.mszymanski.orknux.server.agent.AgentType.LLM,
+                    agents = mutableListOf(helper),
+                ),
+            ).id,
+        )
+
+        graphQlTester.document(dependants("AGENT", helper)).execute()
+            .path("componentDependants.entries[*].kind").entityList(String::class.java).containsExactly("AGENT")
+            .path("componentDependants.entries[*].id").entityList(String::class.java).containsExactly(lead.toString())
+            .path("componentDependants.entries[*].name").entityList(String::class.java).containsExactly("Lead")
+
+        graphQlTester.document("mutation { deleteAgent(id: $helper) }").execute()
+            .errors().satisfy { errors -> org.assertj.core.api.Assertions.assertThat(errors.single().message).contains("the agent Lead") }
+    }
+
     /** Both halves of a function's answer: what calls it, and what imports it. */
     @Test
     @WithMockUser(username = "alice", roles = ["ADMINS"])

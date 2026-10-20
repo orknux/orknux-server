@@ -50,6 +50,20 @@ import org.springframework.stereotype.Component
 @Component
 class AgentGrants(private val agents: AgentRepository) {
 
+    /** Which of the workspace's agents may ask this one - see `ask_agent`. */
+    fun toAgent(workspaceId: Long, id: Long): List<Dependant> =
+        agents.findAsking(workspaceId, id).map { asker ->
+            Dependant(
+                kind = DependencyKind.AGENT,
+                id = asker.id,
+                name = asker.name,
+                workspaceId = workspaceId,
+                workspaceName = null,
+                published = false,
+                phrase = "the agent ${asker.name}",
+            )
+        }
+
     /** Which of the workspace's agents may call this tool. */
     fun toTool(workspaceId: Long, name: String): List<Dependant> =
         agents.findGrantedTool(workspaceId, name).map(::held)
