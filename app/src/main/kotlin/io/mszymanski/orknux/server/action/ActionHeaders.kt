@@ -70,6 +70,7 @@ data class ActionHeaderView(
 @Component
 class ActionHeaders(
     private val variables: WorkspaceVariableRepository,
+    @param:org.springframework.context.annotation.Lazy private val sharing: io.mszymanski.orknux.server.sharing.WorkspaceSharing,
     private val mapper: ObjectMapper,
 ) {
 
@@ -131,7 +132,7 @@ class ActionHeaders(
 
             row.variableId?.let { id ->
                 val variable = variables.findByIdOrNull(id) ?: throw ActionHeaderVariableElsewhereException(row.name)
-                if (variable.workspaceId != workspaceId) throw ActionHeaderVariableElsewhereException(row.name)
+                if (!sharing.usable(workspaceId, variable)) throw ActionHeaderVariableElsewhereException(row.name)
             }
             row
         }
@@ -145,7 +146,7 @@ class ActionHeaders(
             variableId = row.variableId?.toString(),
             // The name only. What it holds is read on the variables screen, where
             // reading it is recorded as something somebody did.
-            variableName = variable?.takeIf { it.workspaceId == action.workspaceId }?.name,
+            variableName = variable?.takeIf { sharing.usable(action.workspaceId, it) }?.name,
         )
     }
 
@@ -186,7 +187,7 @@ class ActionHeaders(
 
         val variable = variables.findByIdOrNull(variableId)
             ?: throw ActionHeaderUnresolvedException("${row.name} reads a variable that no longer exists")
-        if (variable.workspaceId != action.workspaceId) {
+        if (!sharing.usable(action.workspaceId, variable)) {
             throw ActionHeaderUnresolvedException(
                 "${row.name} reads a variable this workspace does not hold, which is what an imported action " +
                     "looks like until its references are set again",

@@ -81,11 +81,11 @@ class BuiltInToolsTest(
             graphQlTester.document(
                 """mutation { updateAgent(id: $id, input: { name: "Fixed", tools: [] }) { tools } }""",
             ).execute().path("updateAgent.tools").entityList(String::class.java).get()
-                .let { held -> assertThat(held).containsAll(BuiltInTools.GRANTED) }
+                .let { held -> assertThat(held).containsAll(BuiltInTools.GRANTED - BuiltInTools.OPTIONAL) }
 
             assertThat(requireNotNull(agents.findByIdOrNull(id)).hiddenTools)
-                .describedAs("nothing is hidden while the workspace has not allowed it")
-                .isEmpty()
+                .describedAs("nothing is hidden while the workspace has not allowed it, but what may be hidden anyway")
+                .containsExactlyElementsOf(BuiltInTools.OPTIONAL)
         } finally {
             workspace.unsafeBuiltInTools = true
             workspaces.save(workspace)
@@ -173,7 +173,9 @@ class BuiltInToolsTest(
         val listed = builtIns.all()
 
         assertThat(listed.filter { it.governance == BuiltInGovernance.GRANT }.map { it.name })
-            .containsExactlyElementsOf(BuiltInTools.GRANTED)
+            .containsExactlyElementsOf(BuiltInTools.GRANTED - BuiltInTools.OPTIONAL)
+        assertThat(listed.filter { it.governance == BuiltInGovernance.GRANT_OPTIONAL }.map { it.name })
+            .containsExactly(io.mszymanski.orknux.server.rating.RatingTools.RATE)
         // The skill tools are switched by name now, like the rest: the server's
         // own skills reach every agent, whatever catalogs it was granted.
         assertThat(listed.filter { it.governance == BuiltInGovernance.SKILL_CATALOGS }).isEmpty()

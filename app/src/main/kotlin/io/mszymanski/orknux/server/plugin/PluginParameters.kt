@@ -31,6 +31,7 @@ import java.time.OffsetDateTime
 class PluginParameters(
     private val settings: PluginParameterSettingRepository,
     private val variables: WorkspaceVariableRepository,
+    @param:org.springframework.context.annotation.Lazy private val sharing: io.mszymanski.orknux.server.sharing.WorkspaceSharing,
     private val declarations: PluginDeclarations,
     /** Where a connection parameter's handle is checked against a real row. */
     private val connections: WorkspaceConnectionService,
@@ -190,7 +191,7 @@ class PluginParameters(
         if (variableId != null) {
             val variable = variables.findByIdOrNull(variableId)
                 ?: throw PluginParameterVariableElsewhereException(name)
-            if (variable.workspaceId != workspaceId) throw PluginParameterVariableElsewhereException(name)
+            if (!sharing.usable(workspaceId, variable)) throw PluginParameterVariableElsewhereException(name)
         }
 
         /*

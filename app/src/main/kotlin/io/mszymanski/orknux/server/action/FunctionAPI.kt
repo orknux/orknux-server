@@ -56,6 +56,7 @@ class FunctionAPI(
     private val scripts: ScriptRunner,
     private val workspaces: WorkspaceRepository,
     private val variables: WorkspaceVariableRepository,
+    @param:org.springframework.context.annotation.Lazy private val sharing: io.mszymanski.orknux.server.sharing.WorkspaceSharing,
     private val objects: WorkflowObjectRepository,
     private val access: WorkspaceAccess,
     private val auditRecorder: WorkspaceAuditRecorder,
@@ -921,7 +922,7 @@ class FunctionAPI(
     private fun List<Long>.toExternals(workspaceId: Long): MutableList<FunctionExternal> = distinct()
         .map { variableId ->
             val variable = variables.findByIdOrNull(variableId) ?: throw VariableNotFoundException(variableId)
-            if (variable.workspaceId != workspaceId) throw VariableNotFoundException(variableId)
+            if (!sharing.usable(workspaceId, variable)) throw VariableNotFoundException(variableId)
             FunctionExternal(variableId = variableId)
         }
         .toMutableList()

@@ -31,6 +31,7 @@ import org.springframework.stereotype.Component
 @Component
 class StepVariables(
     private val variables: WorkspaceVariableRepository,
+    @param:org.springframework.context.annotation.Lazy private val sharing: io.mszymanski.orknux.server.sharing.WorkspaceSharing,
     private val executions: WorkflowExecutionRepository,
 ) {
 
@@ -41,7 +42,7 @@ class StepVariables(
             val asked = binding.expression.trim()
             if (!binding.reference || !asked.startsWith(PREFIX)) return@mapValues binding
             val variable = asked.removePrefix(PREFIX).toLongOrNull()?.let { variables.findByIdOrNull(it) }
-                ?.takeIf { it.workspaceId == workspaceId }
+                ?.takeIf { sharing.usable(workspaceId, it) }
             when {
                 variable == null -> {
                     log.warn("{} reads {}, which is no variable of this workspace", step.name, asked)

@@ -1347,14 +1347,15 @@ class ChatService(
      * gets one should cost nothing.
      */
     /**
-     * The session a review of this chat is booked to, or null while the chat
-     * has had no answer. A chat with a bare model never needed one - see
+     * The session a review of this chat is booked to, or null for a chat with
+     * neither a session nor an answer. A chat with a bare model never needed one - see
      * [recording] - so it is opened here, on the same key, the first time the
      * person reviews it.
      */
     fun reviewSession(chat: ChatSession): Long? {
-        if ((answersIn(listOf(chat.conversationId))[chat.conversationId] ?: 0) == 0) return null
+        // A chat that keeps a session has been answered in it, carried lines included.
         chat.llmSessionId?.let { return it }
+        if ((answersIn(listOf(chat.conversationId))[chat.conversationId] ?: 0) == 0) return null
         return recorder.open(chat.workspaceId, CHAT_PREFIX, chat.conversationId)
             .also { chat.llmSessionId = it; sessions.save(chat) }
     }

@@ -46,6 +46,13 @@ enum class BuiltInGovernance {
      */
     GRANT_REACHING,
 
+    /**
+     * On by default like [GRANT], but with no unsafe-visibility gate in front
+     * of the switch: a built-in nothing else depends on, whose absence the
+     * agent does not notice. `rate_session`, so far.
+     */
+    GRANT_OPTIONAL,
+
     /** Offered while the agent holds any skill catalog. */
     SKILL_CATALOGS,
 
@@ -121,7 +128,7 @@ class BuiltInTools(
 
     /** Every built-in, the grant-governed first and in the order the form lists them. */
     fun all(): List<BuiltInTool> = buildList {
-        GRANTED.forEach { add(BuiltInTool(it, BuiltInGovernance.GRANT)) }
+        GRANTED.forEach { add(BuiltInTool(it, if (it in OPTIONAL) BuiltInGovernance.GRANT_OPTIONAL else BuiltInGovernance.GRANT)) }
         REACHING.forEach { add(BuiltInTool(it, BuiltInGovernance.GRANT_REACHING)) }
         add(BuiltInTool(HTTP_ALLOW_LIST, BuiltInGovernance.HTTP_TOOLS))
         add(BuiltInTool(memories.descriptor().name, BuiltInGovernance.MEMORY_CATALOGS))
@@ -284,6 +291,15 @@ class BuiltInTools(
         )
 
         private val REACHING_SET = REACHING.toSet()
+
+        /**
+         * The built-ins in [GRANTED] that may be hidden without the workspace's
+         * unsafe switch. The switch guards what an agent is built on - a
+         * scratchpad, a clock, a way to say it has finished - and sending a
+         * review on is none of those: an agent without it behaves as one does
+         * while ratings are off in Admin > Reports.
+         */
+        val OPTIONAL: Set<String> = setOf(io.mszymanski.orknux.server.rating.RatingTools.RATE)
 
         /**
          * The three that make requests, which Admin Settings -> HTTP tools

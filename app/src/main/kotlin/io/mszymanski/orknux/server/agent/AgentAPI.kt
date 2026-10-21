@@ -550,7 +550,8 @@ class AgentAPI(
              */
             val allowed = workspaces.findByIdOrNull(agent.workspaceId)?.unsafeBuiltInTools == true
             val orknuxHidden = agent.hiddenTools.filter { it in orknuxNames }
-            agent.hiddenTools = if (allowed) BuiltInTools.hiddenBy(given) else mutableListOf()
+            // The optional ones are the agent's to hide either way.
+            agent.hiddenTools = BuiltInTools.hiddenBy(given).filter { allowed || it in BuiltInTools.OPTIONAL }.toMutableList()
             /*
              * And the orknux_* tools, one by one: a name absent from what arrived
              * is hidden, as a built-in is. Not behind the unsafe switch - hiding

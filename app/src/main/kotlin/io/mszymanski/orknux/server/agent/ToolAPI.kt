@@ -69,6 +69,7 @@ class ToolAPI(
     private val scriptImports: ScriptImports,
     private val libraryImports: LibraryImports,
     private val variables: WorkspaceVariableRepository,
+    @param:org.springframework.context.annotation.Lazy private val sharing: io.mszymanski.orknux.server.sharing.WorkspaceSharing,
 ) {
 
     /** The columns this list can be put in the order of. Issue #358. */
@@ -368,7 +369,7 @@ class ToolAPI(
     private fun List<Long>.toExternals(workspaceId: Long): MutableList<FunctionExternal> = distinct()
         .map { variableId ->
             val variable = variables.findByIdOrNull(variableId) ?: throw VariableNotFoundException(variableId)
-            if (variable.workspaceId != workspaceId) throw VariableNotFoundException(variableId)
+            if (!sharing.usable(workspaceId, variable)) throw VariableNotFoundException(variableId)
             FunctionExternal(variableId = variableId)
         }
         .toMutableList()

@@ -13,16 +13,18 @@ import org.springframework.stereotype.Service
  * credential here, so nothing on this side decrypts anything; the row is read
  * and handed over. The workspace is checked here rather than trusted from the
  * caller, which is what makes a provider in one workspace unable to name a
- * secret in another however its id was arrived at.
+ * secret in another however its id was arrived at - unless that workspace
+ * lends it the catalog the secret is in.
  */
 @Service
 class AppSecretVariables(
     private val variables: WorkspaceVariableRepository,
     private val catalogs: VariableCatalogRepository,
+    @param:org.springframework.context.annotation.Lazy private val sharing: io.mszymanski.orknux.server.sharing.WorkspaceSharing,
 ) : SecretVariables {
 
     override fun find(workspaceId: Long, variableId: Long): HeldSecret? {
-        val variable = variables.findByIdOrNull(variableId)?.takeIf { it.workspaceId == workspaceId } ?: return null
+        val variable = variables.findByIdOrNull(variableId)?.takeIf { sharing.usable(workspaceId, it) } ?: return null
         return HeldSecret(
             id = requireNotNull(variable.id),
             name = variable.name,

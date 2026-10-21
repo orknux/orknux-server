@@ -98,6 +98,22 @@ class WorkspaceSharing(
             catalogs.findByIdOrNull(share.componentId)?.takeIf { it.workspaceId == share.ownerWorkspaceId }?.let { share to it }
         }
 
+    /**
+     * Whether [workspaceId] may use [variable]: its own, or one in a catalog
+     * another workspace lends it. What reads a variable by id - a node's
+     * binding, a function's or tool's externals, an action's headers, a
+     * plugin's parameters, a connection's secret - asks this rather than
+     * comparing workspaces, so a lent catalog is usable everywhere its own
+     * would be, and stops being the moment the share is taken back.
+     */
+    fun usable(workspaceId: Long, variable: io.mszymanski.orknux.server.variable.WorkspaceVariable): Boolean =
+        variable.workspaceId == workspaceId ||
+            shares.findByGranteeWorkspaceIdAndKind(workspaceId, ShareKind.VARIABLE_CATALOG)
+                .any { it.componentId == variable.catalogId && it.ownerWorkspaceId == variable.workspaceId }
+
+    /** A workspace's name, for saying whose a lent component is. */
+    fun workspaceName(workspaceId: Long): String? = workspaces.findByIdOrNull(workspaceId)?.name
+
     /** The models of every provider lent to [workspaceId]. */
     fun modelsLentTo(workspaceId: Long): List<LlmModelView> =
         models.modelsOf(shares.findByGranteeWorkspaceIdAndKind(workspaceId, ShareKind.MODEL_PROVIDER).map { it.componentId })

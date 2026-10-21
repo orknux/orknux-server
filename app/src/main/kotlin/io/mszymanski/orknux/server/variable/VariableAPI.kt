@@ -149,6 +149,22 @@ class VariableAPI(
         return VariablePage(held, ::describe)
     }
 
+    /**
+     * The variables of every catalog lent to this workspace, for its pickers to
+     * offer beside its own. Names and what they are, never what they hold: the
+     * people here may use them, not read them, and the catalog says whose it is.
+     */
+    @QueryMapping
+    fun lentVariables(@Argument workspaceId: Long): List<VariableView> {
+        requireWorkspaceAccess(workspaceId)
+        return sharing.catalogsLentTo(workspaceId).flatMap { (share, catalog) ->
+            val owner = sharing.workspaceName(share.ownerWorkspaceId)
+            variables.findByCatalogId(requireNotNull(catalog.id)).map {
+                describe(it).copy(value = null, catalogName = "${catalog.name} · ${owner ?: "—"}")
+            }
+        }.sortedBy { it.name.lowercase() }
+    }
+
     @MutationMapping
     @Transactional
     fun createVariableCatalog(@Argument workspaceId: Long, @Argument name: String): VariableCatalogView {

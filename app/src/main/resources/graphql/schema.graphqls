@@ -769,6 +769,8 @@ type Query {
         ascending: Boolean
     ): VariablePage!
     variable(id: ID!): Variable
+    "The variables of every catalog another workspace lends this one: names only, for its pickers; their catalog name says whose."
+    lentVariables(workspaceId: ID!): [Variable!]!
     "The types a variable may be beyond the three built in: every enabled plugin's."
     variableTypes(workspaceId: ID!): [VariableTypeOffer!]!
     """
@@ -6717,6 +6719,8 @@ enum BuiltInToolGovernance {
     breaks without them.
     """
     GRANT_REACHING
+    "On by default, and switched on its row without the workspace's unsafe switch: rate_session."
+    GRANT_OPTIONAL
     "Any skill catalog granted."
     SKILL_CATALOGS
     "Any memory catalog granted."
