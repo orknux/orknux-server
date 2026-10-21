@@ -2026,7 +2026,7 @@ type Mutation {
         bargeInMs: Int
         """
         Whether talking while the model is still thinking stops it too, after
-        the same hold. Null is the default, which is on.
+        the same hold. Null is the default, which is off.
         """
         bargeInWhileThinking: Boolean
     ): Workspace!
@@ -2602,7 +2602,7 @@ type Workspace {
     voiceBargeInMs: Int
     """
     Whether talking while the model is still thinking stops it, as talking over
-    the answer does. Null means the workspace has decided nothing, which is on.
+    the answer does. Null means the workspace has decided nothing, which is off.
     """
     voiceBargeInWhileThinking: Boolean
     """
