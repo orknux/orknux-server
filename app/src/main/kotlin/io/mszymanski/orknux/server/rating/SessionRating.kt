@@ -65,6 +65,8 @@ class SessionRating(
 interface SessionRatingRepository : JpaRepository<SessionRating, Long>, JpaSpecificationExecutor<SessionRating> {
 
     fun countBySessionId(sessionId: Long): Long
+
+    fun findBySessionIdOrderByAtAsc(sessionId: Long): List<SessionRating>
 }
 
 /** The report's filter as conditions, written only for what it sets - see AGENTS.md on optional parameters. */

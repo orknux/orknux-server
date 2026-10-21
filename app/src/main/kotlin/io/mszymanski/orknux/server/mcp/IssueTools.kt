@@ -520,7 +520,8 @@ class IssueTools(
      * handed to a model. So this is not that method with a flag - the kinds
      * differ because the questions do.
      *
-     * People first, then agents, then models, and the first match wins. A name
+     * People first, then agents, and the first match wins; a model is not
+     * something an issue is assigned to. A name
      * that is two things in one workspace is somebody's naming problem rather
      * than something to refuse over, and the order is the one the assignee box
      * already searches in.
@@ -531,12 +532,8 @@ class IssueTools(
         }
         if (person != null) return Assignee(AssigneeKind.USER, requireNotNull(person.id).toString())
 
-        agents.findNamed(scope.workspaceId, name)
-            ?.let { return Assignee(AssigneeKind.AGENT, requireNotNull(it.id).toString()) }
-
-        return models.models(scope.workspaceId)
-            .firstOrNull { it.name.equals(name, ignoreCase = true) }
-            ?.let { Assignee(AssigneeKind.MODEL, it.id.toString()) }
+        return agents.findNamed(scope.workspaceId, name)
+            ?.let { Assignee(AssigneeKind.AGENT, requireNotNull(it.id).toString()) }
     }
 
     /**

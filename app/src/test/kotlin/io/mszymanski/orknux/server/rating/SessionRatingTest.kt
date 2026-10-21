@@ -2,6 +2,8 @@ package io.mszymanski.orknux.server.rating
 
 import io.mszymanski.orknux.connector.model.ToolCall
 import io.mszymanski.orknux.server.agent.Agent
+import io.mszymanski.orknux.server.attachment.InstallationSettingRepository
+import io.mszymanski.orknux.server.attachment.SettingNames
 import io.mszymanski.orknux.server.agent.AgentType
 import io.mszymanski.orknux.server.chat.BuiltInTools
 import io.mszymanski.orknux.server.chat.SessionSheds
@@ -38,6 +40,9 @@ class SessionRatingTest(
     @Autowired val sheds: SessionSheds,
     @Autowired val mapper: ObjectMapper,
     @Autowired val chats: io.mszymanski.orknux.server.chat.ChatSessionRepository,
+    @Autowired val settingRows: InstallationSettingRepository,
+    @Autowired val history: org.springframework.ai.chat.memory.ChatMemoryRepository,
+    @Autowired val events: io.mszymanski.orknux.server.llm.LlmSessionEventRepository,
 ) {
 
     private var workspaceId: Long = 0
@@ -51,9 +56,10 @@ class SessionRatingTest(
     }
 
     @AfterEach
-    fun off() {
-        ratings(false)
-        graphQlTester.document("mutation { setChatReviews(enabled: false) { enabled } }").execute()
+    fun back() {
+        // Back to the defaults, both on.
+        ratings(true)
+        graphQlTester.document("mutation { setChatReviews(enabled: true) { enabled } }").execute()
         graphQlTester.document("mutation { setReviewsPerSession(count: 3) { reviewsPerSession } }").execute()
     }
 
@@ -70,15 +76,19 @@ class SessionRatingTest(
     }
 
     @Test
-    fun `the tool is offered only while ratings are on, and tells the agent when to mention it`() {
+    fun `the tool is offered only while ratings are on, which they are by default, and tells the agent when to mention it`() {
         assertThat(BuiltInTools.GRANTED).contains(RatingTools.RATE)
-        graphQlTester.document("query { sessionRatingsEnabled { enabled } }").execute()
-            .path("sessionRatingsEnabled.enabled").entity(Boolean::class.java).isEqualTo(false)
-        assertThat(offered()).doesNotContain(RatingTools.RATE)
-
-        ratings(true)
+        settingRows.deleteById(SettingNames.SESSION_RATINGS)
+        settingRows.deleteById(SettingNames.CHAT_REVIEWS)
+        graphQlTester.document("query { sessionRatingsEnabled { enabled } chatReviewsEnabled { enabled } sessionReviewsOffered }").execute()
+            .path("sessionRatingsEnabled.enabled").entity(Boolean::class.java).isEqualTo(true)
+            .path("chatReviewsEnabled.enabled").entity(Boolean::class.java).isEqualTo(true)
+            .path("sessionReviewsOffered").entity(Boolean::class.java).isEqualTo(true)
         assertThat(offered()).contains(RatingTools.RATE)
         assertThat(sheds.of(agent, session)?.briefing()).contains("unhappy or disappointed", RatingTools.RATE)
+
+        ratings(false)
+        assertThat(offered()).doesNotContain(RatingTools.RATE)
     }
 
     @Test
@@ -135,17 +145,10 @@ class SessionRatingTest(
 
     @Test
     fun `a person reviews their own chat from its menu, booked to them and the chat's agent`() {
-        val chat = requireNotNull(
-            chats.save(
-                io.mszymanski.orknux.server.chat.ChatSession(
-                    workspaceId = workspaceId,
-                    conversationId = java.util.UUID.randomUUID().toString(),
-                    title = "Reviewed",
-                    userId = "alice",
-                ).apply { llmSessionId = session },
-            ).id,
-        )
+        val chat = chatWith(answered = true, recorded = session)
         val review = """mutation { sendChatReview(chatId: $chat, score: 1, review: "It ignored the file") }"""
+        graphQlTester.document("mutation { setChatReviews(enabled: false) { enabled } }").execute()
+        ratings(false)
         graphQlTester.document("query { sessionReviewsOffered }").execute()
             .path("sessionReviewsOffered").entity(Boolean::class.java).isEqualTo(false)
         graphQlTester.document(review).execute().errors().expect { it.message?.contains("Chat reviews are switched off") == true }
@@ -169,5 +172,55 @@ class SessionRatingTest(
             .path("sessionRatings.rows[0].source").entity(String::class.java).isEqualTo("ORKNUX")
             .path("sessionRatings.rows[0].personKey").entity(String::class.java).isEqualTo("alice")
             .path("sessionRatings.rows[0].sessionId").entity(Long::class.java).isEqualTo(session)
+    }
+
+    @Test
+    fun `a chat with a bare model is reviewed too, once it has an answer`() {
+        // A chat with no agent keeps no session record until something needs one.
+        val chat = chatWith(answered = false, recorded = null)
+        val review = """mutation { sendChatReview(chatId: $chat, score: 5, review: "pretty good") }"""
+        graphQlTester.document(review).execute().errors().expect { it.message?.contains("no answer to review") == true }
+
+        val answered = chatWith(answered = true, recorded = null)
+        graphQlTester.document("""mutation { sendChatReview(chatId: $answered, score: 5, review: "pretty good") }""").execute()
+            .path("sendChatReview").entity(Boolean::class.java).isEqualTo(true)
+        val booked = requireNotNull(chats.findById(answered).orElseThrow().llmSessionId)
+        graphQlTester.document("""query { sessionRatings(filter: { workspaceId: $workspaceId }) { rows { score review sessionId } } }""")
+            .execute()
+            .path("sessionRatings.rows[0].review").entity(String::class.java).isEqualTo("pretty good")
+            .path("sessionRatings.rows[0].sessionId").entity(Long::class.java).isEqualTo(booked)
+
+        // Kept in the session, and drawn in the chat.
+        assertThat(events.findAll().filter { it.sessionId == booked }.mapNotNull { it.content })
+            .anyMatch { it.contains("reviewed this chat: 5 / 5 - pretty good") }
+        graphQlTester.document("""query { chatReviews(chatId: $answered) { score review personName } }""").execute()
+            .path("chatReviews[0].score").entity(Int::class.java).isEqualTo(5)
+            .path("chatReviews[0].review").entity(String::class.java).isEqualTo("pretty good")
+            .path("chatReviews[0].personName").entity(String::class.java).isEqualTo("alice")
+        graphQlTester.document("""query { chatReviews(chatId: $chat) { score } }""").execute()
+            .path("chatReviews").entityList(Int::class.java).hasSize(0)
+    }
+
+    private fun chatWith(answered: Boolean, recorded: Long?): Long {
+        val conversation = java.util.UUID.randomUUID().toString()
+        if (answered) {
+            history.saveAll(
+                conversation,
+                listOf(
+                    org.springframework.ai.chat.messages.UserMessage("Draft an update"),
+                    org.springframework.ai.chat.messages.AssistantMessage("Here it is"),
+                ),
+            )
+        }
+        return requireNotNull(
+            chats.save(
+                io.mszymanski.orknux.server.chat.ChatSession(
+                    workspaceId = workspaceId,
+                    conversationId = conversation,
+                    title = "Reviewed",
+                    userId = "alice",
+                ).apply { llmSessionId = recorded },
+            ).id,
+        )
     }
 }

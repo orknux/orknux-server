@@ -340,12 +340,11 @@ class InstallationSettings(
 
     /**
      * Whether agents are offered rate_session, which records the rating a
-     * person gave a conversation. Off until an administrator turns it on, as
-     * usage tracking is; off withholds the tool, and what was recorded stays
-     * readable.
+     * person gave a conversation. On until an administrator turns it off; off
+     * withholds the tool, and what was recorded stays readable.
      */
     fun sessionRatings(): Boolean =
-        settings.findByIdOrNull(SettingNames.SESSION_RATINGS)?.value?.toBooleanStrictOrNull() ?: false
+        settings.findByIdOrNull(SettingNames.SESSION_RATINGS)?.value?.toBooleanStrictOrNull() ?: true
 
     fun sessionRatingsChanged(): InstallationSetting? = settings.findByIdOrNull(SettingNames.SESSION_RATINGS)
 
@@ -355,11 +354,11 @@ class InstallationSettings(
     /**
      * Whether a person may review their chat from its own "+" menu, without
      * asking the agent. A switch apart from [sessionRatings]: the tool and the
-     * menu are two doors, and an administrator may want only one. Off until
-     * turned on.
+     * menu are two doors, and an administrator may want only one. On until
+     * turned off.
      */
     fun chatReviews(): Boolean =
-        settings.findByIdOrNull(SettingNames.CHAT_REVIEWS)?.value?.toBooleanStrictOrNull() ?: false
+        settings.findByIdOrNull(SettingNames.CHAT_REVIEWS)?.value?.toBooleanStrictOrNull() ?: true
 
     fun chatReviewsChanged(): InstallationSetting? = settings.findByIdOrNull(SettingNames.CHAT_REVIEWS)
 

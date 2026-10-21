@@ -239,9 +239,10 @@ class IssueAPI(
     /**
      * What an issue can be assigned to, by name.
      *
-     * One list of three kinds, the way the box that offers it works: somebody
-     * typing "sup" wants the support agent or the support desk user and should
-     * not have to say which kind first.
+     * One list of people and agents, the way the box that offers it works:
+     * somebody typing "sup" wants the support agent or the support desk user and
+     * should not have to say which kind first. Models are not offered: a model
+     * cannot be set to work on an issue, an agent can.
      */
     @QueryMapping
     fun issueAssignees(@Argument workspaceId: Long, @Argument search: String?): List<AssigneeView> {
@@ -254,10 +255,7 @@ class IssueAPI(
         val theAgents = agents.findByWorkspaceId(workspaceId, PageRequest.of(0, MANY, Sort.by("name")))
             .content
             .map { AssigneeView(AssigneeKind.AGENT, requireNotNull(it.id).toString(), it.name, "agent") }
-        val theModels = models.models(workspaceId)
-            .map { AssigneeView(AssigneeKind.MODEL, it.id.toString(), it.name, it.providerName) }
-
-        return (people + theAgents + theModels)
+        return (people + theAgents)
             .filter { wanted.isEmpty() || it.name.lowercase().contains(wanted) || it.hint.lowercase().contains(wanted) }
             .sortedBy { it.name.lowercase() }
             .take(MANY)
@@ -365,7 +363,7 @@ class IssueAPI(
          * instruction.
          */
         if (input.assigneeId != null) {
-            held.assignee = assigneeFrom(held.workspaceId, input)
+            held.assignee = assigneeFrom(held.workspaceId, input, held.assignee)
         }
         val handedOver = held.assignee?.let { it.kind to it.id } != before
 
@@ -564,9 +562,11 @@ class IssueAPI(
      * no agent here is a mistake worth reporting now rather than an issue
      * assigned to a number.
      */
-    private fun assigneeFrom(workspaceId: Long, input: IssueInput): Assignee? {
+    private fun assigneeFrom(workspaceId: Long, input: IssueInput, held: Assignee? = null): Assignee? {
         val id = input.assigneeId?.takeIf { it.isNotBlank() } ?: return null
         val kind = input.assigneeKind ?: throw IssueAssigneeKindMissingException(id)
+        // An issue is no longer assigned to a model; one that already is keeps it until it is changed.
+        if (kind == AssigneeKind.MODEL && (held?.kind != kind || held.id != id)) throw IssueAssigneeInvalidException("$kind $id")
 
         val known = when (kind) {
             AssigneeKind.USER -> users.findByIdOrNull(id.toLongOrNull() ?: -1) != null

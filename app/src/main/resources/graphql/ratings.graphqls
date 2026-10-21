@@ -15,6 +15,8 @@ extend type Query {
     SESSION, or left out for when. Administrators.
     """
     sessionRatings(filter: UsageReportFilter, page: Int, size: Int, order: String, ascending: Boolean): SessionRatingReport!
+    "The reviews of the person's own chat, oldest first, to be drawn in it: from its menu and through rate_session alike."
+    chatReviews(chatId: ID!): [ChatReview!]!
 }
 
 extend type Mutation {
@@ -50,5 +52,16 @@ type SessionRating {
     agentName: String!
     source: PromptSource!
     personKey: String!
+    personName: String
+}
+
+"A review as the chat it reviews draws it."
+type ChatReview {
+    id: ID!
+    at: String!
+    "From 1 to 5."
+    score: Int!
+    "What the person wrote; null where they gave only a score."
+    review: String
     personName: String
 }

@@ -81,6 +81,22 @@ class IssueAPITest(
             .path("createIssue.id").entity(Long::class.java).get()
 
     @Test
+    fun `a model is neither offered nor taken as an assignee`() {
+        val provider = graphQlTester.document(
+            """mutation { createModelProvider(input: { workspaceId: $workspaceId, name: "p", endpoint: "http://nowhere.invalid", secret: "sk" }) { id } }""",
+        ).execute().path("createModelProvider.id").entity(Long::class.java).get()
+        val model = graphQlTester.document(
+            """mutation { createModel(input: { providerId: $provider, name: "Assignable", modelId: "m", kind: CHAT }) { id } }""",
+        ).execute().path("createModel.id").entity(Long::class.java).get()
+
+        graphQlTester.document("""query { issueAssignees(workspaceId: $workspaceId, search: "Assignable") { kind } }""").execute()
+            .path("issueAssignees").entityList(Any::class.java).hasSize(0)
+        graphQlTester.document(
+            """mutation { createIssue(input: { workspaceId: $workspaceId, title: "To a model", assigneeKind: MODEL, assigneeId: "$model" }) { id } }""",
+        ).execute().errors().expect { it.message?.contains("MODEL $model") == true }
+    }
+
+    @Test
     fun `issues are numbered from one within each workspace`() {
         file("The reply is late")
         file("The trigger fires twice")

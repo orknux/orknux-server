@@ -1346,6 +1346,19 @@ class ChatService(
      * agent can be chosen at any point in a chat's life and a chat that never
      * gets one should cost nothing.
      */
+    /**
+     * The session a review of this chat is booked to, or null while the chat
+     * has had no answer. A chat with a bare model never needed one - see
+     * [recording] - so it is opened here, on the same key, the first time the
+     * person reviews it.
+     */
+    fun reviewSession(chat: ChatSession): Long? {
+        if ((answersIn(listOf(chat.conversationId))[chat.conversationId] ?: 0) == 0) return null
+        chat.llmSessionId?.let { return it }
+        return recorder.open(chat.workspaceId, CHAT_PREFIX, chat.conversationId)
+            .also { chat.llmSessionId = it; sessions.save(chat) }
+    }
+
     private fun recording(chat: ChatSession): Long? {
         chat.llmSessionId?.let { return it }
         if (chat.agentId == null) return null

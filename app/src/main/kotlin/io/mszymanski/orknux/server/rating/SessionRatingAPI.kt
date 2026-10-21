@@ -41,6 +41,7 @@ class SessionRatingAPI(
     private val agents: io.mszymanski.orknux.server.agent.AgentRepository,
     private val models: io.mszymanski.orknux.connector.model.LlmModelRepository,
     private val usage: io.mszymanski.orknux.server.usage.UsageTracking,
+    private val recorder: io.mszymanski.orknux.server.llm.LlmSessionRecorder,
 ) {
 
     /** Whether a review can be sent at all, for the chat's menu: anybody signed in. */
@@ -70,7 +71,7 @@ class SessionRatingAPI(
     fun sendChatReview(@Argument chatId: Long, @Argument score: Int, @Argument review: String?): Boolean {
         val chat = chats.session(chatId) ?: throw io.mszymanski.orknux.server.chat.ChatSessionNotFoundException(chatId)
         ownership.requireOwn(chat)
-        val session = chat.llmSessionId ?: throw ReviewRefusedException("This chat has had no answer to review yet.")
+        val session = chats.reviewSession(chat) ?: throw ReviewRefusedException("This chat has had no answer to review yet.")
         val with = chat.agentId?.let { agents.findById(it).orElse(null)?.name }
             ?: chat.modelId?.let { models.findById(it).orElse(null)?.name }
             ?: ""
@@ -80,8 +81,20 @@ class SessionRatingAPI(
                 SecurityContextHolder.getContext().authentication?.name ?: "system",
             ),
         )
-        tools.send(session, with, who, score, review, fromChat = true)
+        val sent = tools.send(session, with, who, score, review, fromChat = true)
+        // In the session too, where rate_session's call already shows; a review from the menu had no line there.
+        recorder.note(session, "${who.name ?: who.key} reviewed this chat: ${sent.score} / 5" + (sent.review?.let { " - $it" } ?: ""))
         return true
+    }
+
+    @QueryMapping
+    fun chatReviews(@Argument chatId: Long): List<ChatReviewView> {
+        val chat = chats.session(chatId) ?: throw io.mszymanski.orknux.server.chat.ChatSessionNotFoundException(chatId)
+        ownership.requireOwn(chat)
+        val session = chat.llmSessionId ?: return emptyList()
+        return ratings.findBySessionIdOrderByAtAsc(session).map {
+            ChatReviewView(requireNotNull(it.id), it.at.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME), it.score, it.review, it.personName ?: it.personKey)
+        }
     }
 
     @QueryMapping
@@ -190,3 +203,5 @@ data class SessionRatingView(
     val personKey: String,
     val personName: String?,
 )
+
+data class ChatReviewView(val id: Long, val at: String, val score: Int, val review: String?, val personName: String?)
