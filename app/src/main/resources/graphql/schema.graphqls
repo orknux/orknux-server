@@ -1298,6 +1298,11 @@ type Mutation {
     """
     setWorkflowStepsAtOnce(count: Int!): InstallationSettings!
     """
+    How long a WORKFLOW node waits between looks at the run it called, 5 to 3600
+    seconds; the called run ending wakes it sooner. Administrators only.
+    """
+    setWorkflowCallCheckSeconds(seconds: Int!): InstallationSettings!
+    """
     How long a workflow step may go without its worker saying it is alive before
     Temporal hands it to another, in seconds; 0 turns the heartbeat off. Issue #601.
     Administrators only; a run already going takes it up from its next step.
@@ -2744,6 +2749,11 @@ enum NodeKind {
     threshold.
     """
     DECISION
+    """
+    Runs another workflow of the workspace: hands it the node's parameters as
+    its input, waits for it to finish, and hands on what it produced.
+    """
+    WORKFLOW
 }
 
 type WorkflowNode {
@@ -2793,6 +2803,8 @@ type WorkflowNode {
     decisionQuestions: [DecisionQuestion!]!
     "The key of the CHOICE or NOUL question whose answer picks the edge the run leaves by (a NOUL leaves by the options yes and no); null only answers."
     decisionBranchQuestion: String
+    "The workflow a WORKFLOW node runs; null on every other kind."
+    calledWorkflowId: ID
     "How sure an answer has to be to be taken, 0 to 1; null takes every answer."
     decisionThreshold: Float
     """
@@ -3195,6 +3207,8 @@ input WorkflowNodeInput {
     decisionQuestions: [DecisionQuestionInput!]
     "The key of the CHOICE or NOUL question whose answer picks the edge; anything else is dropped."
     decisionBranchQuestion: String
+    "The workflow a WORKFLOW node runs: one of this workspace's, never the node's own. Ignored on any other kind."
+    calledWorkflowId: ID
     "How sure an answer has to be to be taken, held to 0..1; null takes every answer."
     decisionThreshold: Float
     "What this node calls what it produces; a later node points a reference at it."
@@ -6005,6 +6019,8 @@ type ExecutionStep {
     branch: EdgeBranch
     "Which option of a decision the run went by, on an OPTION branch."
     branchOption: String
+    "The run a WORKFLOW step started, once it has; null on every other kind."
+    childExecutionId: ID
     "How many attempts the step spent; more than one only where its node was given a retry policy and needed it."
     attempts: Int!
     "Copied from an earlier run rather than performed here, which is what every step ahead of a re-run's starting point is."
@@ -6071,6 +6087,8 @@ type ExecutionDetail {
     all of it, or from one of its steps. Null for a run nobody re-ran.
     """
     startedFrom: ID
+    "The run whose WORKFLOW node started this one; null for every run nothing called."
+    parentExecutionId: ID
     steps: [ExecutionStep!]!
     edges: [WorkflowEdge!]!
     logs: [ExecutionLogLine!]!
@@ -6989,6 +7007,10 @@ type InstallationSettings {
     workflowStepsAtOnce: Int!
     "Four, unless somebody has said otherwise."
     workflowStepsAtOnceConfigured: Int!
+    "How long a WORKFLOW node waits between looks at the run it called; the called run ending wakes it sooner."
+    workflowCallCheckSeconds: Int!
+    "A minute, unless somebody has said otherwise."
+    workflowCallCheckSecondsConfigured: Int!
     """
     Temporal: how long a step may go without its worker saying it is alive before
     it is handed to another worker, in seconds. Issue #601.

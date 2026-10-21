@@ -42,9 +42,10 @@ class TemporalExecutionEngine(
         resumeFrom: ResumePoint?,
         startedFrom: Long?,
         firedTriggerId: Long?,
+        parentExecutionId: Long?,
     ): WorkflowExecution {
         val plan = planner.plan(
-            workspaceId, workflowId, trigger, input, version, resumeFrom, startedFrom, firedTriggerId,
+            workspaceId, workflowId, trigger, input, version, resumeFrom, startedFrom, firedTriggerId, parentExecutionId,
         )
         val executionId = requireNotNull(plan.execution.id)
 

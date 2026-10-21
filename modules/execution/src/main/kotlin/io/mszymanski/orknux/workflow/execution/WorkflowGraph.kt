@@ -22,6 +22,12 @@ enum class NodeKind {
      * may send the run down the edge of the option it picked. Issue #577.
      */
     DECISION,
+
+    /**
+     * Runs another workflow of the workspace, waits for it to finish, and
+     * hands on what it produced.
+     */
+    WORKFLOW,
 }
 
 /**
@@ -77,6 +83,8 @@ data class GraphNode(
     val imageSize: String? = null,
     val imageQuality: String? = null,
     val imageStyle: String? = null,
+    /** The workflow a [NodeKind.WORKFLOW] node runs; null on every other kind. */
+    val calledWorkflowId: Long? = null,
     /** The decision model a [NodeKind.DECISION] node asks; null on every other kind. */
     val decisionModelId: Long? = null,
     /**

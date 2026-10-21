@@ -527,6 +527,8 @@ data class RunDetailView(
      * which is what keeps the field worth showing when it is there.
      */
     val startedFrom: Long?,
+    /** The run whose Workflow node started this one; null for every run nothing called. */
+    val parentExecutionId: Long? = null,
     val steps: List<ExecutionStepView>,
     val edges: List<WorkflowEdgeView>,
     val logs: List<ExecutionLogLineView>,
@@ -585,6 +587,7 @@ data class RunDetailView(
         stoppedAtNodeKey = run.stoppedAtNodeKey,
         stoppedReason = run.stoppedReason,
         startedFrom = run.startedFrom,
+        parentExecutionId = run.parentExecutionId,
         steps = run.steps,
         edges = edges,
         logs = run.logs,

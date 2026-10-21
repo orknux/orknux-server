@@ -11,6 +11,9 @@ interface WorkflowExecutionRepository :
     JpaRepository<WorkflowExecution, Long>,
     JpaSpecificationExecutor<WorkflowExecution> {
 
+    /** The runs a run's Workflow nodes started that are still going; stopped with it. */
+    fun findByParentExecutionIdAndStatus(parentExecutionId: Long, status: ExecutionStatus): List<WorkflowExecution>
+
     /**
      * The run, held against every other writer until the transaction ends.
      * Issue #285.

@@ -1354,6 +1354,12 @@ class ComponentImporter(
                     imageStyle = drawn.text("imageStyle"),
                     // Absent from every envelope written before decision nodes.
                     decisionSpec = drawn.text("decisionSpec"),
+                    // Not a requirement: a workflow of that name here, imported
+                    // with this one or already present, or none and the node is
+                    // left to be pointed at one.
+                    calledWorkflowId = drawn.text("calledWorkflowRef")?.let { called ->
+                        resolved[ComponentKind.WORKFLOW to called] ?: findByName(workspaceId, ComponentKind.WORKFLOW, called)
+                    },
                     outputName = drawn.text("outputName"),
                     orientation = drawn.enumOrNull<NodeOrientation>("orientation", component),
                     icon = drawn.text("icon"),

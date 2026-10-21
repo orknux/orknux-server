@@ -163,6 +163,7 @@ class WorkflowGraphAPI(
         input.nodes.forEach { requireObjectBelongsToWorkspace(workspaceId, it) }
         input.nodes.forEach { requireOutputShapeBelongsToWorkspace(workspaceId, it) }
         input.nodes.forEach { requireDecisionModelBelongsToWorkspace(workspaceId, it) }
+        input.nodes.forEach { requireCalledWorkflowBelongsToWorkspace(workspaceId, workflowId, it) }
 
         // A graph is drawn before it is finished, so only the shapes that could
         // never run are refused; everything else comes back as advice.
@@ -485,13 +486,14 @@ class WorkflowGraphAPI(
             imageStyle = drawing.style,
             decisionModelId = node.decisionModelId.takeIf { node.kind == NodeKind.DECISION },
             decisionSpec = decisionSpecOf(node, refusing),
+            calledWorkflowId = node.calledWorkflowId.takeIf { node.kind == NodeKind.WORKFLOW },
             outputName = node.outputName?.trim()?.ifEmpty { null }
                 // Only a node that produces something can name it; a trigger names
                 // its own fields and a condition passes through what it was given.
                 ?.takeIf {
                     node.kind == NodeKind.AGENT || node.kind == NodeKind.ACTION ||
                         node.kind == NodeKind.OBJECT || node.kind == NodeKind.IMAGE ||
-                        node.kind == NodeKind.DECISION
+                        node.kind == NodeKind.DECISION || node.kind == NodeKind.WORKFLOW
                 }
                 ?.also { if (refusing) requireReferenceable(it) },
             icon = node.icon?.trim()?.ifEmpty { null },
@@ -630,6 +632,15 @@ class WorkflowGraphAPI(
          * the page was reopened.
          */
         if (node.kind == NodeKind.AGENT) {
+            return sent.values.map { mappingOf(workspaceId, it, refusing) }.toMutableList()
+        }
+
+        /*
+         * A Workflow node's parameters are its own too: each is a field of the
+         * input the called run is handed, named as the node names it. The
+         * called workflow declares no parameters to seed them from.
+         */
+        if (node.kind == NodeKind.WORKFLOW) {
             return sent.values.map { mappingOf(workspaceId, it, refusing) }.toMutableList()
         }
 
@@ -860,6 +871,19 @@ class WorkflowGraphAPI(
         if (provider?.workspaceId != workspaceId) throw DecisionModelNotInWorkspaceException(modelId)
     }
 
+    /**
+     * A Workflow node runs one of the workspace's workflows, and never its own:
+     * a workflow calling itself would start runs until something ran out. A
+     * longer loop - A calling B calling A - is refused when a run reaches it,
+     * since each half may be saved before the other exists.
+     */
+    private fun requireCalledWorkflowBelongsToWorkspace(workspaceId: Long, workflowId: Long, node: WorkflowNodeInput) {
+        val called = node.calledWorkflowId ?: return
+        if (node.kind != NodeKind.WORKFLOW) return
+        if (called == workflowId) throw WorkflowCallsItselfException(node.name)
+        if (!assignments.existsByWorkspaceIdAndWorkflowId(workspaceId, called)) throw CalledWorkflowNotInWorkspaceException(called)
+    }
+
     /** An agent node runs one of the workspace's agents, and only its own workspace's. */
     private fun requireAgentBelongsToWorkspace(workspaceId: Long, node: WorkflowNodeInput) {
         val agentId = node.agentId ?: return
@@ -940,6 +964,8 @@ data class WorkflowNodeInput(
     val decisionBranchQuestion: String? = null,
     /** How sure an answer has to be to be taken, 0 to 1; null takes every answer. */
     val decisionThreshold: Double? = null,
+    /** The workflow a Workflow node runs; ignored on any other kind. */
+    val calledWorkflowId: Long? = null,
     val outputName: String? = null,
     val icon: String? = null,
     val orientation: NodeOrientation? = null,
@@ -1068,6 +1094,8 @@ data class WorkflowNodeView(
     val decisionBranchQuestion: String?,
     /** How sure an answer has to be to be taken; null takes every answer. */
     val decisionThreshold: Double?,
+    /** The workflow a Workflow node runs; null on every other kind. */
+    val calledWorkflowId: Long?,
     val outputName: String?,
     val icon: String?,
     /** Which way round it faces on the canvas; null is left to right. */
@@ -1134,6 +1162,7 @@ data class WorkflowNodeView(
         },
         decisionBranchQuestion = DecisionSpec.read(node.decisionSpec).branchQuestion,
         decisionThreshold = DecisionSpec.read(node.decisionSpec).threshold,
+        calledWorkflowId = node.calledWorkflowId,
         outputName = node.outputName,
         icon = node.icon,
         orientation = node.orientation,
@@ -1366,6 +1395,18 @@ class ObjectNotInCatalogueException(val id: Long) :
 
 class AgentNotInCatalogueException(id: Long) :
     RuntimeException("No agent with id $id in this workspace")
+
+class CalledWorkflowNotInWorkspaceException(val id: Long) :
+    RuntimeException("Workflow $id is not one of this workspace's, so a Workflow node cannot run it"), Refusal {
+
+    override val arguments get() = mapOf("id" to id)
+}
+
+class WorkflowCallsItselfException(val node: String) :
+    RuntimeException("$node runs the workflow it is in; a workflow cannot call itself"), Refusal {
+
+    override val arguments get() = mapOf("node" to node)
+}
 
 class ConditionNotInCatalogueException(val id: Long) :
     RuntimeException("Condition $id is not in this workspace's catalogue"), Refusal {

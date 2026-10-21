@@ -76,6 +76,13 @@ enum class NodeKind {
      * edge of its own for an answer too unsure to take. Issue #577.
      */
     DECISION,
+
+    /**
+     * Runs another workflow of the workspace: hands it what the node's
+     * parameters say, waits for it to finish, and hands on what it produced.
+     * The run it starts records this one as its caller.
+     */
+    WORKFLOW,
 }
 
 /**
@@ -314,6 +321,13 @@ class WorkflowNode(
     var decisionSpec: String? = null,
 
     /**
+     * The workflow a [NodeKind.WORKFLOW] node runs; only that kind has one. One
+     * of the same workspace's, and never the node's own workflow.
+     */
+    @Column(name = "called_workflow_id")
+    var calledWorkflowId: Long? = null,
+
+    /**
      * The shape an object node makes, when it uses one the workspace has saved.
      *
      * Null is a shape of the node's own: its fields are whatever it holds. A
@@ -510,6 +524,7 @@ class WorkflowNode(
         imageStyle = imageStyle,
         decisionModelId = decisionModelId,
         decisionSpec = decisionSpec,
+        calledWorkflowId = calledWorkflowId,
         positionX = positionX,
         positionY = positionY,
         yesLabel = yesLabel,

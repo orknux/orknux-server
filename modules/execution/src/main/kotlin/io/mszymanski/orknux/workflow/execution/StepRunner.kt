@@ -55,6 +55,13 @@ data class StepParked(val executionId: Long, val nodeKey: String, val sessionId:
  */
 data class StepFinished(val executionId: Long, val nodeKey: String, val sessionId: Long)
 
+/**
+ * A run has ended - completed, failed or stopped. Published so a run waiting on
+ * it, the caller of a Workflow node, can be woken rather than wait out its
+ * timer; this module knows nothing of who waits on whom.
+ */
+data class RunEnded(val executionId: Long)
+
 data class RetryPolicy(
     val attempts: Int,
     /** The wait before the second attempt, and the whole of it at [NO_GROWTH]. */
@@ -663,7 +670,7 @@ class StepRunner(
             "${execution.workflowName} stopped at $nodeKey with $unreached steps unreached",
         )
         if (counts) metrics.runFailed()
-        return executions.save(execution)
+        return executions.save(execution).also { published.publishEvent(RunEnded(executionId)) }
     }
 
     /**
@@ -689,7 +696,7 @@ class StepRunner(
         }
         log.write(executionId, null, if (reason == null) LogLevel.SUCCESS else LogLevel.INFO, ending)
         if (counts) metrics.runCompleted()
-        return executions.save(execution)
+        return executions.save(execution).also { published.publishEvent(RunEnded(executionId)) }
     }
 
     /** Whether this run has been asked to stop; the engine reads it before each step. Issue #395. */
@@ -714,7 +721,7 @@ class StepRunner(
         execution.finishedAt = OffsetDateTime.now()
         execution.stoppedReason = STOP_REASON
         log.write(executionId, null, LogLevel.INFO, "${execution.workflowName} was stopped")
-        return executions.save(execution)
+        return executions.save(execution).also { published.publishEvent(RunEnded(executionId)) }
     }
 
     /**

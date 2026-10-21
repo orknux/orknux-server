@@ -44,6 +44,7 @@ object WorkflowSnapshot {
                     "imageStyle" to node.imageStyle,
                     "decisionModelId" to node.decisionModelId,
                     "decisionSpec" to node.decisionSpec,
+                    "calledWorkflowId" to node.calledWorkflowId,
                     "outputObjectId" to node.outputObjectId,
                     "triggerId" to node.triggerId,
                     "outputName" to node.outputName,
@@ -105,6 +106,8 @@ object WorkflowSnapshot {
                     // nodes, which is every node that is not one. Issue #577.
                     decisionModelId = number(node, "decisionModelId"),
                     decisionSpec = text(node, "decisionSpec"),
+                    // Absent from every snapshot published before Workflow nodes.
+                    calledWorkflowId = number(node, "calledWorkflowId"),
                     // Absent from every snapshot published before answers had
                     // shapes, and read as prose - which is what it was.
                     outputObjectId = number(node, "outputObjectId"),

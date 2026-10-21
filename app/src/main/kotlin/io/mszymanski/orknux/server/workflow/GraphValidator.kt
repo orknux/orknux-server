@@ -299,6 +299,24 @@ class GraphValidator(
                 },
             )
         }
+
+        /*
+         * A Workflow node hands on whatever the run it called produced, which
+         * is that workflow's to decide and may change with its next publish -
+         * so nothing downstream can be told its shape. Named, it is one object
+         * under that name beside what reached the node, the way an image
+         * node's picture is.
+         */
+        NodeKind.WORKFLOW -> {
+            val named = node.outputName?.trim().orEmpty()
+            Ports(
+                inputs = reads(node.mappings),
+                outputs = if (named.isEmpty()) emptyList() else listOf(ActionParamView(named, ValueType.OBJECT)),
+                passThrough = named.isNotEmpty(),
+                opaque = named.isEmpty(),
+                unresolved = "no workflow chosen".takeIf { node.calledWorkflowId == null },
+            )
+        }
     }
 
     /** What a session node's key is set to, written or referenced; blank if neither. */

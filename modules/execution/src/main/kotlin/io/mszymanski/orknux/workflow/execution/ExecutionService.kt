@@ -174,6 +174,7 @@ class ExecutionService(
                 resumeFrom = input.resumeFrom,
                 startedFrom = input.startedFrom,
                 firedTriggerId = input.firedTriggerId,
+                parentExecutionId = input.parentExecutionId,
             ),
         )
 
@@ -234,6 +235,8 @@ data class StartExecutionInput(
      * did before triggers were told apart: every trigger node is a beginning.
      */
     val firedTriggerId: Long? = null,
+    /** The run whose Workflow node asked for this one; null for everything else. */
+    val parentExecutionId: Long? = null,
 )
 
 data class ExecutionView(
@@ -344,6 +347,8 @@ data class ExecutionStepView(
     val branch: EdgeBranch?,
     /** Which option of a decision it went by, on an OPTION branch. Issue #577. */
     val branchOption: String? = null,
+    /** The run a Workflow step started, once it has; null on every other kind. */
+    val childExecutionId: Long? = null,
     /**
      * How many attempts the step spent. One for almost everything; more only
      * where the node was given a retry policy and needed it.
@@ -375,6 +380,7 @@ data class ExecutionStepView(
         sessionId = step.sessionId,
         branch = step.branch,
         branchOption = step.branchOption,
+        childExecutionId = step.childExecutionId,
         attempts = step.attempts,
         carriedOver = step.carriedOver,
         x = step.x,
@@ -428,6 +434,8 @@ data class ExecutionDetailView(
     val publicationId: Long? = null,
     /** Whether the draft was ahead of that publication when it started; null on earlier runs. */
     val ranBehindDraft: Boolean? = null,
+    /** The run whose Workflow node started this one; null for every run nothing called. */
+    val parentExecutionId: Long? = null,
 ) {
     constructor(execution: WorkflowExecution, steps: List<ExecutionStep>, logs: List<ExecutionLog>) : this(
         id = requireNotNull(execution.id),
@@ -451,6 +459,7 @@ data class ExecutionDetailView(
         ranDraft = execution.ranDraft,
         publicationId = execution.publicationId,
         ranBehindDraft = execution.ranBehindDraft,
+        parentExecutionId = execution.parentExecutionId,
     )
 }
 

@@ -44,6 +44,8 @@ interface ExecutionEngine {
          * [StartExecutionInput].
          */
         firedTriggerId: Long? = null,
+        /** The run whose Workflow node asked for this one; see [WorkflowExecution.parentExecutionId]. */
+        parentExecutionId: Long? = null,
     ): WorkflowExecution
 
     /**

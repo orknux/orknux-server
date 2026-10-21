@@ -227,6 +227,8 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ImportNotEditableException,
             is ImportCycleException,
             is ConditionNotInCatalogueException,
+            is CalledWorkflowNotInWorkspaceException,
+            is WorkflowCallsItselfException,
             is AgentOutputNodeInvalidException,
             /* A decision node's question keys, options and model, refused at save. Issue #577. */
             is DecisionQuestionKeyInvalidException,
@@ -282,6 +284,7 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is io.mszymanski.orknux.server.attachment.SubagentsOutOfRangeException,
             /* How many steps of one run may be running at once. Issue #285. */
             is io.mszymanski.orknux.server.attachment.StepsAtOnceOutOfRangeException,
+            is io.mszymanski.orknux.server.attachment.CallCheckSecondsOutOfRangeException,
             /* How a step a dead server was in is recovered. Issue #601. */
             is io.mszymanski.orknux.server.attachment.StepHeartbeatOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.RestartAttemptsOutOfRangeException,

@@ -110,6 +110,9 @@ object SettingNames {
     /** How many steps of one workflow run may be running at once. Issue #285. */
     const val WORKFLOW_STEPS_AT_ONCE = "workflow.steps.at.once"
 
+    /** How long a Workflow node waits before looking at the run it called again. */
+    const val WORKFLOW_CALL_CHECK_SECONDS = "workflow.call.check.seconds"
+
     /** How a step a dead server was in the middle of is recovered. Issue #601. */
     const val WORKFLOW_STEP_HEARTBEAT_SECONDS = "workflow.step.heartbeat.seconds"
     const val WORKFLOW_RESTART_ATTEMPTS = "workflow.restart.attempts"
@@ -749,6 +752,28 @@ class InstallationSettings(
     fun setWorkflowStepsAtOnce(count: Int, by: String) {
         if (count !in MIN_STEPS_AT_ONCE..MAX_STEPS_AT_ONCE) throw StepsAtOnceOutOfRangeException(count)
         write(SettingNames.WORKFLOW_STEPS_AT_ONCE, count.toString(), by)
+    }
+
+    /**
+     * How long a Workflow node waits before it looks at the run it called
+     * again. The called run ending wakes the caller at once; this is the
+     * backstop for a wake that never arrived - a restart between the two, a
+     * second server that ended it.
+     */
+    fun workflowCallCheckSeconds(): Int {
+        val held = settings.findByIdOrNull(SettingNames.WORKFLOW_CALL_CHECK_SECONDS)
+            ?: return workflowCallCheckSecondsConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_CALL_CHECK_SECONDS..MAX_CALL_CHECK_SECONDS }
+            ?: workflowCallCheckSecondsConfigured()
+    }
+
+    /** A minute: a backstop, not the way the caller learns the run ended. */
+    fun workflowCallCheckSecondsConfigured(): Int = DEFAULT_CALL_CHECK_SECONDS
+
+    @Transactional
+    fun setWorkflowCallCheckSeconds(seconds: Int, by: String) {
+        if (seconds !in MIN_CALL_CHECK_SECONDS..MAX_CALL_CHECK_SECONDS) throw CallCheckSecondsOutOfRangeException(seconds)
+        write(SettingNames.WORKFLOW_CALL_CHECK_SECONDS, seconds.toString(), by)
     }
 
     /**
@@ -2346,6 +2371,14 @@ const val MAX_STEPS_AT_ONCE = 32
 
 const val DEFAULT_STEPS_AT_ONCE = 4
 
+/** Below this a waiting Workflow node is a poll on the database rather than a backstop. */
+const val MIN_CALL_CHECK_SECONDS = 5
+
+/** An hour; a wake that never came should not cost more than that. */
+const val MAX_CALL_CHECK_SECONDS = 3600
+
+const val DEFAULT_CALL_CHECK_SECONDS = 60
+
 /** Zero is no heartbeat: a dead worker is noticed only when the step's timeout runs out. Issue #601. */
 const val MIN_STEP_HEARTBEAT_SECONDS = 0L
 
@@ -2453,6 +2486,14 @@ class RestartAttemptsOutOfRangeException(val count: Int) : RuntimeException(
 ), Refusal {
 
     override val arguments get() = mapOf("count" to count)
+}
+
+class CallCheckSecondsOutOfRangeException(val seconds: Int) : RuntimeException(
+    "$seconds is not a number of seconds a Workflow node can wait between looks at the run it called. " +
+        "Choose between $MIN_CALL_CHECK_SECONDS and $MAX_CALL_CHECK_SECONDS.",
+), Refusal {
+
+    override val arguments get() = mapOf("seconds" to seconds)
 }
 
 /** Issue #285. */

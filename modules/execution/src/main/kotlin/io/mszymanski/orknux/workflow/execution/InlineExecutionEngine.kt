@@ -79,10 +79,11 @@ class InlineExecutionEngine(
         resumeFrom: ResumePoint?,
         startedFrom: Long?,
         firedTriggerId: Long?,
+        parentExecutionId: Long?,
     ): WorkflowExecution {
         return drive(
             planner.plan(
-                workspaceId, workflowId, trigger, input, version, resumeFrom, startedFrom, firedTriggerId,
+                workspaceId, workflowId, trigger, input, version, resumeFrom, startedFrom, firedTriggerId, parentExecutionId,
             ),
         )
     }

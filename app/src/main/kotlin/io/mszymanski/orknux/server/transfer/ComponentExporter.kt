@@ -242,6 +242,10 @@ class ComponentExporter(
                 NodeKind.IMAGE -> emptyList()
                 // A decision node likewise: its model stays behind. Issue #577.
                 NodeKind.DECISION -> emptyList()
+                // A Workflow node names the workflow it calls, by name, and does
+                // not bring it: two workflows calling each other would each be
+                // the other's dependency, and an import has to land one first.
+                NodeKind.WORKFLOW -> emptyList()
             }
         }.distinct()
     }
@@ -676,6 +680,13 @@ class ComponentExporter(
         // words and options, and mean the same in every workspace. The model
         // is left behind like an image node's. Issue #577.
         put("decisionSpec", held.decisionSpec.takeIf { held.kind == NodeKind.DECISION })
+        // The workflow a Workflow node calls, by name; the far side points the
+        // node at its own workflow of that name, if it has one.
+        put(
+            "calledWorkflowRef",
+            held.calledWorkflowId.takeIf { held.kind == NodeKind.WORKFLOW }
+                ?.let { called -> workflows.findByIdOrNull(called)?.name },
+        )
         val mappings = putArray("mappings")
         held.mappings.forEach { mapping ->
             mappings.addObject().apply {

@@ -155,6 +155,7 @@ class ExecutionPlanner(
         resumeFrom: ResumePoint? = null,
         startedFrom: Long? = null,
         firedTriggerId: Long? = null,
+        parentExecutionId: Long? = null,
     ): ExecutionPlan {
         /*
          * A person pressing Run means the graph on their screen; anything else
@@ -213,6 +214,7 @@ class ExecutionPlanner(
                 // Carried onto the run so a repeat of *this* one has the same
                 // thing to go on that this one had.
                 firedTriggerId = fired,
+                parentExecutionId = parentExecutionId,
             ),
         )
         val executionId = requireNotNull(execution.id)
@@ -236,6 +238,7 @@ class ExecutionPlanner(
                     imageStyle = node.imageStyle,
                     decisionModelId = node.decisionModelId,
                     decisionSpec = node.decisionSpec,
+                    calledWorkflowId = node.calledWorkflowId,
                     outputObjectId = node.outputObjectId,
                     outputName = node.outputName,
                     // The run's own copy of what to pass; see ExecutionStep.

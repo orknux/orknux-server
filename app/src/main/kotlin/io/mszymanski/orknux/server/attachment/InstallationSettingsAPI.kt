@@ -73,6 +73,8 @@ class InstallationSettingsAPI(
         agentMaxSubagentsAtOnceConfigured = settings.agentMaxSubagentsAtOnceConfigured(),
         workflowStepsAtOnce = settings.workflowStepsAtOnce(),
         workflowStepsAtOnceConfigured = settings.workflowStepsAtOnceConfigured(),
+        workflowCallCheckSeconds = settings.workflowCallCheckSeconds(),
+        workflowCallCheckSecondsConfigured = settings.workflowCallCheckSecondsConfigured(),
         workflowStepHeartbeatSeconds = settings.workflowStepHeartbeatSeconds().toInt(),
         workflowStepHeartbeatSecondsConfigured = settings.workflowStepHeartbeatSecondsConfigured().toInt(),
         workflowRestartAttempts = settings.workflowRestartAttempts(),
@@ -865,6 +867,20 @@ class InstallationSettingsAPI(
      * Read when a run is planned, so a run already going keeps the number it
      * started with.
      */
+    /** How long a Workflow node waits between looks at the run it called, when no wake reaches it. */
+    @MutationMapping
+    fun setWorkflowCallCheckSeconds(@Argument seconds: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setWorkflowCallCheckSeconds(seconds, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "Workflow nodes look at the run they called every $seconds seconds",
+        )
+        return installationSettings()
+    }
+
     @MutationMapping
     fun setWorkflowStepsAtOnce(@Argument count: Int): InstallationSettingsView {
         access.requireAdmin()
@@ -1184,6 +1200,9 @@ data class InstallationSettingsView(
     /** How many steps of one workflow run may be running at once. Issue #285. */
     val workflowStepsAtOnce: Int,
     val workflowStepsAtOnceConfigured: Int,
+    /** How long a Workflow node waits between looks at the run it called. */
+    val workflowCallCheckSeconds: Int,
+    val workflowCallCheckSecondsConfigured: Int,
     /** How soon a step whose server died is handed to a live worker, on Temporal. Issue #601. */
     val workflowStepHeartbeatSeconds: Int,
     val workflowStepHeartbeatSecondsConfigured: Int,

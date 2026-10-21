@@ -125,6 +125,15 @@ class WorkflowExecution(
     val firedTriggerId: Long? = null,
 
     /**
+     * The run whose Workflow node started this one; null for every run nothing
+     * called. What the calling run waits on, what wakes it when this one ends,
+     * and what a chain of calls is walked by to refuse a workflow calling
+     * itself.
+     */
+    @Column(name = "parent_execution_id")
+    val parentExecutionId: Long? = null,
+
+    /**
      * What the run is carrying now: everything produced so far, under the names
      * the nodes gave it.
      *
@@ -272,6 +281,18 @@ class ExecutionStep(
     /** The decision model this step asks, when the node is one; by id. Issue #577. */
     @Column(name = "decision_model_id")
     val decisionModelId: Long? = null,
+
+    /** The workflow a [NodeKind.WORKFLOW] step runs; the run's own copy, like every id a node points at. */
+    @Column(name = "called_workflow_id")
+    val calledWorkflowId: Long? = null,
+
+    /**
+     * The run a [NodeKind.WORKFLOW] step started, once it has. Written before
+     * the step waits, so asking the step again finds the run it is waiting on
+     * rather than starting a second one.
+     */
+    @Column(name = "child_execution_id")
+    var childExecutionId: Long? = null,
 
     /**
      * What this step asks the decision model, copied when the run started: the
