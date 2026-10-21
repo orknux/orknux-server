@@ -128,13 +128,7 @@ class ManualTools(
         )
     }
 
-    /** At a line break before the limit, so a part never ends inside a sentence's line or a table's row. */
-    private fun cut(section: ManualSection, from: Int): Int {
-        val limit = from + PART
-        if (limit >= section.text.length) return section.text.length
-        val atLine = section.text.lastIndexOf('\n', limit)
-        return if (atLine > from) atLine + 1 else limit
-    }
+    private fun cut(section: ManualSection, from: Int): Int = cut(section.text, from)
 
     private fun search(arguments: String): String {
         val node = mapper.readTree(arguments.ifBlank { "{}" })
@@ -181,6 +175,20 @@ class ManualTools(
          * that do not and anything the manual grows.
          */
         const val PART = 12_000
+
+        /**
+         * Where a part of [text] starting at [from] ends: at a line break before
+         * the limit, so a part never ends inside a sentence's line or a table's
+         * row. Apart from the tool so it is tested on a text of its own, not on
+         * whichever section of the manual happens to be longest.
+         */
+        fun cut(text: String, from: Int, part: Int = PART): Int {
+            val limit = from + part
+            if (limit >= text.length) return text.length
+            // limit - 1: a break at the limit itself ended the part one character past it.
+            val atLine = text.lastIndexOf('\n', limit - 1)
+            return if (atLine > from) atLine + 1 else limit
+        }
         const val SOME_HITS = 8
         const val MOST_HITS = 20
     }

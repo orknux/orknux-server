@@ -59,6 +59,7 @@ class ImportChoicesTest(
     @Autowired val tools: AgentToolRepository,
     @Autowired val agents: AgentRepository,
     @Autowired val catalogs: SkillCatalogRepository,
+    @Autowired val skills: io.mszymanski.orknux.server.agent.AgentSkillRepository,
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val audit: WorkspaceAuditRepository,
     @Autowired val mapper: ObjectMapper,
@@ -76,6 +77,8 @@ class ImportChoicesTest(
         actions.deleteAll()
         agents.deleteAll()
         tools.deleteAll()
+        // A skill another class left behind holds its catalog; CI's order found it.
+        skills.deleteAll()
         catalogs.deleteAll()
         plugins.deleteAll()
         mcpServers.deleteAll()

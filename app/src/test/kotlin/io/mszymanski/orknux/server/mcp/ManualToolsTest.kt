@@ -72,10 +72,32 @@ class ManualToolsTest(
         assertThat(read.path("text").asString()).isEqualTo(manual.chapter("workflows")!!.opening.text)
     }
 
+    /**
+     * The splitting, on a text of its own. It was asserted on the manual's
+     * longest section, which was over a part long only while the manual had
+     * uncommitted edits in it - CI, checking out the committed manual, failed.
+     */
     @Test
-    fun `a long section comes in parts that add up to it`() {
+    fun `a text longer than a part is cut at line breaks into parts that add up to it`() {
+        val text = (1..400).joinToString("") { "Line $it of a long section, with some words on it.\n" }
+        val part = 1_000
+        val parts = mutableListOf<String>()
+        var from = 0
+        while (from < text.length) {
+            val end = ManualTools.cut(text, from, part)
+            parts += text.substring(from, end)
+            from = end
+        }
+        assertThat(parts).hasSizeGreaterThan(1)
+        assertThat(parts).allSatisfy { assertThat(it.length).isLessThanOrEqualTo(part) }
+        assertThat(parts.dropLast(1)).allSatisfy { assertThat(it).endsWith("\n") }
+        assertThat(parts.joinToString("")).isEqualTo(text)
+    }
+
+    /** Whatever its length, the longest section read through the tool adds up to itself. */
+    @Test
+    fun `the longest section reads in parts that add up to it`() {
         val longest = manual.chapters.flatMap { it.sections }.maxBy { it.text.length }
-        assertThat(longest.text.length).describedAs("the manual has a section long enough to split").isGreaterThan(ManualTools.PART)
 
         val parts = mutableListOf<String>()
         var from: Int? = 0
@@ -86,7 +108,6 @@ class ManualToolsTest(
             parts += text
             from = read.path("next").takeIf { it.isNumber }?.asInt()
         }
-        assertThat(parts).hasSizeGreaterThan(1)
         assertThat(parts.joinToString("")).isEqualTo(longest.text)
     }
 
