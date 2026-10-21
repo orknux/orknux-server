@@ -8,6 +8,7 @@ import org.springframework.security.ldap.userdetails.InetOrgPerson
 import org.springframework.security.oauth2.core.oidc.user.OidcUser
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
+import java.time.OffsetDateTime
 
 /**
  * Writes down who signs in.
@@ -31,10 +32,10 @@ import org.springframework.transaction.annotation.Transactional
  * - **OIDC**, both ways in — the browser flow and a bearer token. Spring
  *   Security registers those providers on the manager it assembles for the
  *   filter chain, and that one carries a publisher already.
- * - **A password this installation holds.** No event, and nothing to record: an
- *   internal user is checked against a row in this very table, so they cannot
- *   sign in without already being written down. Announcing them would only mean
- *   looking them up to find nothing had changed.
+ * - **A password this installation holds.** No event: an internal user is
+ *   checked against a row in this very table, so they cannot sign in without
+ *   already being written down. [InternalAuthentication] stamps their
+ *   [AppUser.lastSignedInAt] itself.
  * - **An API token.** No event, and that is the intent rather than an omission.
  *   A token is a key its owner left somewhere, not a person arriving; it is
  *   minted for a user who is a row already, and it is presented on every single
@@ -96,16 +97,16 @@ class UserDetection(
                     email = addressed,
                     resolvedRoles = resolved,
                     resolvedAdmin = administers,
+                    lastSignedInAt = OffsetDateTime.now(),
                 ),
             )
             log.info("First sign-in recorded for {}", username)
             return
         }
 
-        var changed = false
+        held.lastSignedInAt = OffsetDateTime.now()
         if (called != null && held.displayName != called) {
             held.displayName = called
-            changed = true
         }
         /*
          * The directory refreshes an address it gave, and leaves alone one
@@ -115,14 +116,12 @@ class UserDetection(
          */
         if (!held.emailChosen && addressed != null && held.email != addressed) {
             held.email = addressed
-            changed = true
         }
         if (held.resolvedRoles != resolved || held.resolvedAdmin != administers) {
             held.resolvedRoles = resolved
             held.resolvedAdmin = administers
-            changed = true
         }
-        if (changed) users.save(held)
+        users.save(held)
     }
 
     private companion object {

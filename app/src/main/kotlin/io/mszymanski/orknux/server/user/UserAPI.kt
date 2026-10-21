@@ -381,6 +381,7 @@ class UserAPI(
         roles = user.roles.map { RoleRef(requireNotNull(it.id), it.name) }.sortedBy { it.name.lowercase() },
         editable = user.editable,
         hasPassword = user.hasPassword,
+        lastSignedInAt = user.lastSignedInAt?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         lastModifiedAt = user.lastModifiedAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         lastModifiedBy = user.lastModifiedBy,
     )
@@ -408,6 +409,8 @@ data class UserView(
     val editable: Boolean,
     /** Whether they can sign in, which is not the same as existing. */
     val hasPassword: Boolean,
+    /** When they last signed in, or null while they have not since it was recorded. */
+    val lastSignedInAt: String?,
     val lastModifiedAt: String,
     val lastModifiedBy: String,
 )

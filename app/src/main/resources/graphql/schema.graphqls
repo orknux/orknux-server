@@ -9294,6 +9294,8 @@ type AppUser {
     editable: Boolean!
     "Whether they can sign in, which is not the same as existing."
     hasPassword: Boolean!
+    "When they last signed in, ISO-8601; null while they have not since this was recorded. A token's use does not count."
+    lastSignedInAt: String
     "ISO-8601 offset date-time."
     lastModifiedAt: String!
     lastModifiedBy: String!

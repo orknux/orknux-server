@@ -38,12 +38,15 @@ class InternalAuthentication(
     private val encoder: PasswordEncoder,
 ) {
 
-    /** Whoever this is, if the password is theirs. Null means "not this way". */
+    /** Whoever this is, if the password is theirs, noted as signed in. Null means "not this way". */
+    @Transactional
     fun authenticate(username: String, password: String): UsernamePasswordAuthenticationToken? {
         val held = users.findByUsername(username) ?: return null
         if (held.type != UserType.INTERNAL) return null
         val hash = held.passwordHash ?: return null
         if (!encoder.matches(password, hash)) return null
+        held.lastSignedInAt = OffsetDateTime.now()
+        users.save(held)
         return tokenFor(held)
     }
 

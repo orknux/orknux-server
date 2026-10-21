@@ -11,6 +11,7 @@ import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.security.authentication.AuthenticationManager
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
+import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.web.client.RestClient
 
 /**
@@ -33,6 +34,8 @@ class SignInDetectionTest(
     @Autowired val users: AppUserRepository,
     /** The directory's own manager: the bean `LdapAuthenticationConfig` builds. */
     @Autowired val authenticationManager: AuthenticationManager,
+    @Autowired val internal: InternalAuthentication,
+    @Autowired val encoder: PasswordEncoder,
 ) {
 
     private val client = RestClient.builder()
@@ -97,10 +100,43 @@ class SignInDetectionTest(
         assertThat(users.findAll().count { it.username == SECOND }).isEqualTo(1)
     }
 
+    /** What the Users list shows as Last Signed In, moved by every arrival. */
+    @Test
+    fun `each sign-in through the directory moves when they last signed in`() {
+        authenticationManager.authenticate(UsernamePasswordAuthenticationToken(SECOND, PASSWORD))
+        val first = requireNotNull(users.findByUsername(SECOND)?.lastSignedInAt)
+
+        authenticationManager.authenticate(UsernamePasswordAuthenticationToken(SECOND, PASSWORD))
+
+        assertThat(users.findByUsername(SECOND)?.lastSignedInAt).isAfter(first)
+    }
+
+    /** The door that publishes nothing stamps it too; a wrong password does not. */
+    @Test
+    fun `a password this installation holds stamps when they last signed in`() {
+        users.findByUsername(INTERNAL_NAME)?.let(users::delete)
+        users.save(
+            AppUser(
+                username = INTERNAL_NAME,
+                displayName = INTERNAL_NAME,
+                type = UserType.INTERNAL,
+                passwordHash = encoder.encode(INTERNAL_PASSWORD),
+            ),
+        )
+
+        assertThat(internal.authenticate(INTERNAL_NAME, "not the password")).isNull()
+        assertThat(users.findByUsername(INTERNAL_NAME)?.lastSignedInAt).isNull()
+
+        assertThat(internal.authenticate(INTERNAL_NAME, INTERNAL_PASSWORD)).isNotNull
+        assertThat(users.findByUsername(INTERNAL_NAME)?.lastSignedInAt).isNotNull
+    }
+
     private companion object {
         /** Real, in the directory this suite starts, with this password. */
         const val FIRST = "alice"
         const val SECOND = "bob"
         const val PASSWORD = "password"
+        const val INTERNAL_NAME = "signin-stamp"
+        const val INTERNAL_PASSWORD = "a long enough password"
     }
 }

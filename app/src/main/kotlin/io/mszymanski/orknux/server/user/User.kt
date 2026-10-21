@@ -192,6 +192,14 @@ class AppUser(
     @Column(name = "created_at", nullable = false)
     val createdAt: OffsetDateTime = OffsetDateTime.now(),
 
+    /**
+     * When they last signed in, by any door a person comes through, or null
+     * while they have not since this was recorded. An API token does not move
+     * it: a token is a key left somewhere, not somebody arriving.
+     */
+    @Column(name = "last_signed_in_at")
+    var lastSignedInAt: OffsetDateTime? = null,
+
     @Column(name = "last_modified_at", nullable = false)
     var lastModifiedAt: OffsetDateTime = OffsetDateTime.now(),
 
