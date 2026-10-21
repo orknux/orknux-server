@@ -38,6 +38,18 @@ enum class NodeOrientation {
     BOTTOM_TO_TOP,
 }
 
+/**
+ * What outline a node is drawn with. Picture only: nothing runs differently,
+ * and null is the card every node was drawn as before there was a choice.
+ */
+enum class NodeShape {
+    RECTANGLE,
+    ROUNDED,
+    PILL,
+    NOTCHED,
+    HEXAGON,
+}
+
 enum class NodeKind {
     TRIGGER,
     AGENT,
@@ -243,6 +255,11 @@ class WorkflowNode(
     @Enumerated(EnumType.STRING)
     @Column(length = 16)
     var orientation: NodeOrientation? = null,
+
+    /** What outline the canvas draws it with; null is the plain card. Picture only, like [orientation]. */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 16)
+    var shape: NodeShape? = null,
 
     /**
      * Which icon the canvas draws on this node.
@@ -511,6 +528,7 @@ class WorkflowNode(
         triggerId = triggerId,
         outputName = outputName,
         orientation = orientation,
+        shape = shape,
         icon = icon,
         mappings = mappings.map { it.copy() }.toMutableList(),
         actionId = actionId,

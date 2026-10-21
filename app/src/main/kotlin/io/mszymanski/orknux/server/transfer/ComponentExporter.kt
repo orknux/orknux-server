@@ -637,6 +637,7 @@ class ComponentExporter(
         put("description", held.description)
         put("outputName", held.outputName)
         put("orientation", held.orientation?.name)
+        put("shape", held.shape?.name)
         put("icon", held.icon)
         put("x", held.positionX)
         put("y", held.positionY)

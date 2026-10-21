@@ -498,6 +498,7 @@ class WorkflowGraphAPI(
                 ?.also { if (refusing) requireReferenceable(it) },
             icon = node.icon?.trim()?.ifEmpty { null },
             orientation = node.orientation,
+            shape = node.shape,
             positionX = node.x,
             positionY = node.y,
             // Only a node with two ways out has them to name: a condition, or a
@@ -969,6 +970,8 @@ data class WorkflowNodeInput(
     val outputName: String? = null,
     val icon: String? = null,
     val orientation: NodeOrientation? = null,
+    /** What outline the canvas draws it with; null is the plain card. */
+    val shape: NodeShape? = null,
     /**
      * What this node passes to its action. Null leaves it to the action's own
      * suggestions, which is what a node freshly pointed at one wants.
@@ -1100,6 +1103,8 @@ data class WorkflowNodeView(
     val icon: String?,
     /** Which way round it faces on the canvas; null is left to right. */
     val orientation: NodeOrientation?,
+    /** What outline the canvas draws it with; null is the plain card. */
+    val shape: NodeShape? = null,
     /** What a node's two ways out are called; null leaves it to the interface. */
     val yesLabel: String?,
     val noLabel: String?,
@@ -1166,6 +1171,7 @@ data class WorkflowNodeView(
         outputName = node.outputName,
         icon = node.icon,
         orientation = node.orientation,
+        shape = node.shape,
         yesLabel = node.yesLabel,
         noLabel = node.noLabel,
         fallbackEnabled = node.fallbackEnabled,

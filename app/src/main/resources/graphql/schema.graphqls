@@ -2722,6 +2722,15 @@ enum NodeOrientation {
     BOTTOM_TO_TOP
 }
 
+"What outline a node is drawn with. Picture only: nothing runs differently."
+enum NodeShape {
+    RECTANGLE
+    ROUNDED
+    PILL
+    NOTCHED
+    HEXAGON
+}
+
 enum NodeKind {
     TRIGGER
     AGENT
@@ -2816,6 +2825,8 @@ type WorkflowNode {
     icon: String
     "Which way round the node faces on the canvas; null is left to right."
     orientation: NodeOrientation
+    "What outline the canvas draws the node with; null is the plain card."
+    shape: NodeShape
     """
     Whether the run does this node's work. A disabled node is kept on the
     graph with its edges and skipped by the run, which passes what it was
@@ -3217,6 +3228,8 @@ input WorkflowNodeInput {
     icon: String
     "Which way round the node faces on the canvas; null is left to right."
     orientation: NodeOrientation
+    "What outline the canvas draws the node with; null is the plain card."
+    shape: NodeShape
     "Whether the run does this node's work; null keeps it on, which is what every node was."
     enabled: Boolean
     """

@@ -1362,6 +1362,7 @@ class ComponentImporter(
                     },
                     outputName = drawn.text("outputName"),
                     orientation = drawn.enumOrNull<NodeOrientation>("orientation", component),
+                    shape = drawn.enumOrNull<io.mszymanski.orknux.server.workflow.NodeShape>("shape", component),
                     icon = drawn.text("icon"),
                     positionX = drawn.path("x").asDouble(0.0),
                     positionY = drawn.path("y").asDouble(0.0),
