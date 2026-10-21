@@ -426,12 +426,15 @@ class ToolSearchTest(
      */
     @Test
     fun `the ceiling is the provider's own number`() {
-        assertThat(ProviderType.OPENAI.toolLimit).isEqualTo(128)
         assertThat(ProviderType.AZURE_OPENAI.toolLimit).isEqualTo(128)
+        // The local servers refuse no number, and a tool loaded mid-conversation makes them read the whole prompt again.
+        assertThat(ProviderType.LLAMA_CPP.toolLimit).isEqualTo(200)
+        assertThat(ProviderType.OLLAMA.toolLimit).isEqualTo(200)
+        assertThat(ProviderType.OPENAI.toolLimit).isEqualTo(200)
         // Anthropic bounds a request by its size rather than by a count, so this
         // is a ceiling the product keeps rather than one it is given - a model
         // handed three hundred tools chooses badly long before a provider minds.
-        assertThat(ProviderType.ANTHROPIC.toolLimit).isGreaterThan(ProviderType.OPENAI.toolLimit)
+        assertThat(ProviderType.ANTHROPIC.toolLimit).isGreaterThan(ProviderType.AZURE_OPENAI.toolLimit)
         // Every provider that holds chat models has a ceiling; a decision provider
         // and the image servers hold none and are offered no tools, so they have nothing to cap.
         val noChat = setOf(ProviderType.SYSTEM_ONE, ProviderType.STABLE_DIFFUSION_CPP, ProviderType.STABLE_DIFFUSION_WEBUI)

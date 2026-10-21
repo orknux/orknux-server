@@ -1258,7 +1258,8 @@ class AgentCatalogNotLentException(val grant: String) :
  * above that is a number that cannot be honoured.
  */
 const val MIN_AGENT_TOOLS = 5
-const val MAX_AGENT_TOOLS = 100
+// As high as a provider's own number may be set; the provider's number still caps what one request carries.
+const val MAX_AGENT_TOOLS = 1024
 
 class AgentToolLimitUnusableException(tools: Int) : RuntimeException(
     "$tools is not a number of tools an agent can carry. " +

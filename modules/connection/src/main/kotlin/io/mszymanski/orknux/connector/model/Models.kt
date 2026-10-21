@@ -186,8 +186,17 @@ enum class ProviderType {
      */
     val toolLimit: Int
         get() = when (this) {
-            OPENAI, AZURE_OPENAI -> 128
-            OLLAMA, LLAMA_CPP -> 128
+            // Azure refuses a request over 128 tools.
+            AZURE_OPENAI -> 128
+            /*
+             * The local servers refuse no number of tools, and they render the
+             * list at the head of the prompt: a tool found and loaded
+             * mid-conversation changes that head, and the server reads the
+             * whole prompt again. So enough to carry a large agent's every tool
+             * up front. OpenAI's type is also every OpenAI-compatible server;
+             * OpenAI's own API is held to its 128 by [ModelProvider.toolCap].
+             */
+            OPENAI, OLLAMA, LLAMA_CPP -> 200
             ANTHROPIC -> 256
             // Takes no tools at all; nothing offers it any. An image server is not a chat.
             SYSTEM_ONE, STABLE_DIFFUSION_CPP, STABLE_DIFFUSION_WEBUI -> 0
@@ -537,7 +546,11 @@ class ModelProvider(
         offerAllTools ?: (type == ProviderType.OLLAMA || type == ProviderType.OPENAI || type == ProviderType.LLAMA_CPP)
 
     /** The most tools one request may carry: as set, or what the type takes. */
-    fun toolCap(): Int = maxTools ?: type.toolLimit
+    fun toolCap(): Int = maxTools ?: if (isOpenAiItself()) OPENAI_API_TOOL_LIMIT else type.toolLimit
+
+    /** Whether this is OpenAI's own API rather than a server that speaks it, which refuses past 128 tools. */
+    private fun isOpenAiItself(): Boolean =
+        type == ProviderType.OPENAI && runCatching { java.net.URI(endpoint.trim()).host }.getOrNull()?.lowercase()?.endsWith("api.openai.com") == true
 
         /** Called after anything that could change whether it is worth checking. */
     fun forgetCheck() {
@@ -549,6 +562,9 @@ class ModelProvider(
     private companion object {
         /** Ollama's OpenAI-compatible surface, which is not where it listens. */
         const val OLLAMA_OPENAI_PATH = "/v1"
+
+        /** The most tools OpenAI's own API takes in one request. */
+        const val OPENAI_API_TOOL_LIMIT = 128
 
         /** The decision call, and the version segment in front of it. */
         const val SYSTEM_ONE_CALL = "/systemone"

@@ -72,6 +72,15 @@ class BuiltInToolsTest(
      * true for the MCP, a script and an import as well.
      */
     @Test
+    fun `an agent may carry as many tools at once as a provider may be set to take`() {
+        val id = created("Wide")
+        graphQlTester.document("""mutation { updateAgent(id: $id, input: { name: "Wide", maxTools: 200 }) { maxTools } }""").execute()
+            .path("updateAgent.maxTools").entity(Int::class.java).isEqualTo(200)
+        graphQlTester.document("""mutation { updateAgent(id: $id, input: { name: "Wide", maxTools: 1025 }) { maxTools } }""").execute()
+            .errors().expect { it.message?.contains("1024") == true }
+    }
+
+    @Test
     fun `a workspace that has not allowed it keeps every built-in offered`() {
         val workspace = requireNotNull(workspaces.findByName("built-ins"))
         workspace.unsafeBuiltInTools = false

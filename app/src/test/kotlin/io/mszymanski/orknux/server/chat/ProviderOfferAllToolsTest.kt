@@ -134,8 +134,13 @@ class ProviderOfferAllToolsTest(
         assertThat(resolved(ollama)).isTrue()
         assertThat(resolved(openai)).isTrue()
         assertThat(resolved(anthropic)).isFalse()
-        // Real OpenAI still refuses past 128, and past it the rest are found.
-        assertThat(cap(openai)).isEqualTo(128)
+        // An OpenAI-compatible server carries 200; OpenAI's own API still refuses past 128.
+        assertThat(cap(openai)).isEqualTo(200)
+        val openAiItself = graphQlTester.document(
+            """mutation { createModelProvider(input: { workspaceId: $workspaceId, name: "openai-${System.nanoTime()}", type: OPENAI,
+                 endpoint: "https://api.openai.com/v1", secret: "sk-test" }) { id } }""",
+        ).execute().path("createModelProvider.id").entity(Long::class.java).get()
+        assertThat(cap(openAiItself)).isEqualTo(128)
 
         graphQlTester.document(
             """mutation { updateModelProvider(id: $ollama, input: { name: "renamed", endpoint: "http://x.invalid",
