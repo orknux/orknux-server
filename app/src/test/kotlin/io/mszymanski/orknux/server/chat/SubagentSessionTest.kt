@@ -50,6 +50,7 @@ import java.nio.charset.StandardCharsets
 class SubagentSessionTest(
     @Autowired val graphQlTester: ExecutionGraphQlServiceTester,
     @Autowired val asking: AgentRunTools,
+    @Autowired val tools: AgentTools,
     @Autowired val api: LlmSessionAPI,
     @Autowired val recorder: LlmSessionRecorder,
     @Autowired val sessions: LlmSessionRepository,
@@ -204,13 +205,50 @@ class SubagentSessionTest(
     }
 
     /**
-     * A workflow step's agent is not held by agent_wait. What it writes goes to
-     * the Slack thread only when its turn ends, so a wait held back "I'm
+     * A streaming step's agent is not held by agent_wait, and is not offered
+     * it. What it writes is handed on as it goes, so a wait held back "I'm
      * checking this" until the answer came; the answer wakes it later instead.
      */
     @Test
-    fun `agent_wait in a workflow step's conversation does not wait`() {
+    fun `agent_wait in a streaming step's conversation does not wait, and is not offered`() {
         val (asker, _) = pair()
+        val main = stepConversation(streamOutput = true)
+        answerAfterMillis = 3_000
+
+        val asked = mapper.readTree(asking.run(asker, """{"agent":"Librarian","question":"What is the answer?"}""", parent = main))
+        val started = System.nanoTime()
+        val said = mapper.readTree(asking.waited(asker, main, """{"seconds":30}"""))
+
+        assertThat((System.nanoTime() - started) / 1_000_000).describedAs("milliseconds spent").isLessThan(1_500)
+        assertThat(said.path("waited").asInt()).isEqualTo(0)
+        assertThat(said.path("note").asString()).contains("End your turn now")
+        // Told to end its turn, not to call a tool it does not have.
+        assertThat(asked.path("note").asString()).contains("end your turn").doesNotContain(AgentRunTools.WAIT)
+        val offered = tools.offeringFor(asker, null, main).let { it.core + it.searchable }.map { it.name }
+        assertThat(offered).contains(AgentRunTools.ASK).doesNotContain(AgentRunTools.WAIT)
+        assertThat(tools.offeringFor(asker, null, main).core.single { it.name == AgentRunTools.ASK }.description)
+            .doesNotContain(AgentRunTools.WAIT)
+        answerAfterMillis = 0
+    }
+
+    /** A step that does not stream sends only its last answer, so there nothing is held back by waiting. */
+    @Test
+    fun `agent_wait in a step that does not stream waits, and is offered`() {
+        val (asker, _) = pair()
+        val main = stepConversation(streamOutput = false)
+        answerAfterMillis = 1_000
+
+        asking.run(asker, """{"agent":"Librarian","question":"What is the answer?"}""", parent = main)
+        val said = mapper.readTree(asking.waited(asker, main, """{"seconds":30}"""))
+
+        assertThat(said.path("waited").asInt()).isGreaterThan(0)
+        assertThat(tools.offeringFor(asker, null, main).let { it.core + it.searchable }.map { it.name })
+            .contains(AgentRunTools.WAIT)
+        answerAfterMillis = 0
+    }
+
+    /** A conversation an agent node's step writes into. */
+    private fun stepConversation(streamOutput: Boolean): Long {
         val main = recorder.open(workspaceId, "chat", "planning")
         val run = runs.save(
             io.mszymanski.orknux.workflow.execution.WorkflowExecution(
@@ -224,18 +262,10 @@ class SubagentSessionTest(
             io.mszymanski.orknux.workflow.execution.ExecutionStep(
                 executionId = requireNotNull(run.id), nodeKey = "think",
                 kind = io.mszymanski.orknux.workflow.execution.NodeKind.AGENT, name = "Think", order = 0, x = 0.0, y = 0.0,
+                streamOutput = streamOutput,
             ).also { it.sessionId = main },
         )
-        answerAfterMillis = 3_000
-
-        asking.run(asker, """{"agent":"Librarian","question":"What is the answer?"}""", parent = main)
-        val started = System.nanoTime()
-        val said = mapper.readTree(asking.waited(asker, main, """{"seconds":30}"""))
-
-        assertThat((System.nanoTime() - started) / 1_000_000).describedAs("milliseconds spent").isLessThan(1_500)
-        assertThat(said.path("waited").asInt()).isEqualTo(0)
-        assertThat(said.path("note").asString()).contains("End your turn now")
-        answerAfterMillis = 0
+        return main
     }
 
     /** Asked with `fresh`, it starts a conversation of its own, for an unrelated question. */

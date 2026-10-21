@@ -124,8 +124,8 @@ class AgentTools(
      *   nothing behind a search unless the provider's own cap forces it. See
      *   [ToolCeilings].
      */
-    fun offeringFor(agent: Agent, ceiling: Int? = agent.maxTools): Offering {
-        val core = coreFor(agent)
+    fun offeringFor(agent: Agent, ceiling: Int? = agent.maxTools, session: Long? = null): Offering {
+        val core = coreFor(agent, session)
         val searchable = searchableFor(agent)
 
         /*
@@ -161,7 +161,7 @@ class AgentTools(
         )
     }
 
-    private fun coreFor(agent: Agent): List<ToolSpec> = buildList {
+    private fun coreFor(agent: Agent, session: Long?): List<ToolSpec> = buildList {
         // Built-ins by name, on unless hidden: the server's own skills reach every agent.
         addAll(skills.descriptors().filter { BuiltInTools.granted(agent, it.name) }.map(::spec))
         if (agent.memoryCatalogs.isNotEmpty()) {
@@ -239,7 +239,8 @@ class AgentTools(
         }
 
         if (agentTools.offered(agent) && BuiltInTools.granted(agent, AgentRunTools.ASK)) {
-            add(agentTools.specFor(agent))
+            val canWait = agentTools.waits(session)
+            add(agentTools.specFor(agent, canWait))
             // And the one that says how those asks are going. Offered with the
             // asking rather than on its own: a list of what you cannot do is
             // not worth a tool. Issue #477.
@@ -248,7 +249,8 @@ class AgentTools(
             if (BuiltInTools.granted(agent, AgentRunTools.LIST)) add(agentTools.listSpec())
             // Only where it has somebody to ask: a wait with nothing to wait
             // for is a sleep the model would eventually find a use for.
-            if (BuiltInTools.granted(agent, AgentRunTools.WAIT)) add(agentTools.waitSpec())
+            // Nor in a conversation where it cannot wait; see [AgentRunTools.waits].
+            if (canWait && BuiltInTools.granted(agent, AgentRunTools.WAIT)) add(agentTools.waitSpec())
         }
 
         /*
@@ -281,7 +283,7 @@ class AgentTools(
      * is skipped rather than allowed to shadow it.
      */
     private fun searchableFor(agent: Agent): List<ToolSpec> = buildList {
-        val builtIn = coreFor(agent).map { it.name }.toMutableSet()
+        val builtIn = coreFor(agent, null).map { it.name }.toMutableSet()
 
         // The workspace's own code, under its own names. A tool named like a
         // built-in is skipped rather than shadowing it.

@@ -493,7 +493,7 @@ class AgentConversation(
          */
         val offersAll = ceilings.offersAll(modelId)
         val ceiling = if (offersAll) null else agent.maxTools
-        val holding = tools.offeringFor(agent, ceiling)
+        val holding = tools.offeringFor(agent, ceiling, into)
 
         /*
          * What the caller lent, as this agent may use it. Issue #444.
@@ -587,7 +587,7 @@ class AgentConversation(
         val (core, carriedLent, findable) = if (!hunting) {
             Triple(holding.core, lent, holding.searchable + lentFindable)
         } else {
-            val split = if (ceiling == null) tools.offeringFor(agent, limit) else holding
+            val split = if (ceiling == null) tools.offeringFor(agent, limit, into) else holding
             val (splitLent, splitLentFindable) = if (ceiling == null) {
                 lending?.specs().orEmpty().partition { BuiltInTools.carried(agent, it.name, limit) }
             } else {

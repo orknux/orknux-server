@@ -200,16 +200,21 @@ class AgentRunTools(
     fun limitFor(agent: Agent): Int =
         workspaces.findByIdOrNull(agent.workspaceId)?.agentMaxSubagents ?: installation.agentMaxSubagents()
 
-    fun specFor(agent: Agent): ToolSpec {
+    fun specFor(agent: Agent, canWait: Boolean = true): ToolSpec {
         val named = granted(agent)
         return ToolSpec(
             name = ASK,
             // Started, not answered, since #462 - and it said "answers with what it said" for a
             // release after, so a model expected the answer to come back to it by itself.
             description = "Puts a question to one of the other agents you have been given. It starts the " +
-                "agent and returns at once; the answer is not in this call's result. To get it you must " +
-                "wait for it yourself - " + WAIT + " now, or finish_answer with a wake-up to be started " +
-                "again later - and then read it with " + ASKS + ". Use it where the work needs something you have no tool " +
+                "agent and returns at once; the answer is not in this call's result. " +
+                (if (canWait) {
+                    "To get it you must wait for it yourself - " + WAIT + " now, or finish_answer with a " +
+                        "wake-up to be started again later - and then read it with " + ASKS + ". "
+                } else {
+                    "When you have nothing else to do, end your turn saying what you are doing: the answer " +
+                        "starts you again in this conversation, and you read it then with " + ASKS + ". "
+                }) + "Use it where the work needs something you have no tool " +
                 "for and one of them does - it will look things up in its own conversation, so ask " +
                 "for what you want to know rather than for the steps. It cannot see this " +
                 "conversation, so say everything it needs in the question. The answer comes back " +
@@ -325,6 +330,27 @@ class AgentRunTools(
     fun handles(name: String): Boolean = name == ASK || name == ASKS || name == WAIT || name == LIST
 
     /**
+     * Whether [WAIT] can wait in this conversation. Not in the step of an agent
+     * node that streams its output: a wait there holds back what the agent
+     * already said, and the answer starts it again anyway. So it is not offered
+     * there, rather than offered and refused on every call, which cost a round
+     * each time a model believed the description over the refusal. A node that
+     * does not stream sends only its last answer, so there it waits.
+     */
+    fun waits(session: Long?): Boolean =
+        session == null || steps.findFirstBySessionIdOrderByIdDesc(session)?.streamOutput != true
+
+    /** What an ask's result tells the asker to do once it runs out of other work. */
+    private fun whenNothingLeft(parent: Long?): String =
+        if (waits(parent)) {
+            "call " + WAIT + " when you have nothing left, then " + ASKS + " to read what came back. Do not " +
+                "end your turn before you have read it: nothing brings you back to an answer you finished without."
+        } else {
+            "when you have nothing left, end your turn saying what you are doing. Its answer starts you " +
+                "again in this conversation, and you read it then with " + ASKS + "."
+        }
+
+    /**
      * Waits for something asked to finish. Issue #462.
      *
      * A sleep that ends early, which is the whole of what an asking agent needs
@@ -360,7 +386,7 @@ class AgentRunTools(
         }
 
         /*
-         * Not in a workflow step's conversation. What a step's agent writes goes
+         * Not in a streaming workflow step's conversation. What its agent writes goes
          * to the person - the Slack reply after it - only when its turn ends, so
          * a wait held back everything it had said: "I'm checking this" reached
          * the thread when the answer did, minutes later. The tool's own words
@@ -368,7 +394,7 @@ class AgentRunTools(
          * it does not wait: the answer, when it lands, starts the agent again in
          * this conversation and its reply follows the first.
          */
-        if (steps.existsBySessionId(parent)) {
+        if (!waits(parent)) {
             return mapper.writeValueAsString(
                 linkedMapOf(
                     "waited" to 0,
@@ -760,9 +786,7 @@ class AgentRunTools(
                 "session" to into,
                 "working" to true,
                 "note" to "It has started, and its answer is not here yet. Carry on with anything else " +
-                    "you have; call " + WAIT + " when you have nothing left, then " + ASKS + " to read " +
-                    "what came back. Do not end your turn before you have read it: nothing brings you " +
-                    "back to an answer you finished without.",
+                    "you have; " + whenNothingLeft(parent),
             ),
         )
     }
@@ -876,8 +900,9 @@ class AgentRunTools(
     private fun askAgain(agent: Agent, wanted: Agent, modelId: Long, session: Long, parent: Long, question: String): String {
         if (running[session]?.isDone == false) {
             return refusal(
-                "${wanted.name} is still working on what you asked it before. Call $WAIT, read it with " +
-                    "$ASKS, and then ask your follow-up.",
+                "${wanted.name} is still working on what you asked it before. " +
+                    (if (waits(parent)) "Call $WAIT, read it with $ASKS, and then ask your follow-up."
+                    else "End your turn saying what you are doing; its answer starts you again, and you ask your follow-up then."),
             )
         }
         val sub = without(wanted)
@@ -926,8 +951,7 @@ class AgentRunTools(
                 "continued" to true,
                 "working" to true,
                 "note" to "It carries on the conversation you already had with it, so it knows what it " +
-                    "answered before. Its answer is not here yet: call " + WAIT + " when you have nothing " +
-                    "left, then " + ASKS + " to read it.",
+                    "answered before. Its answer is not here yet: " + whenNothingLeft(parent),
             ),
         )
     }
