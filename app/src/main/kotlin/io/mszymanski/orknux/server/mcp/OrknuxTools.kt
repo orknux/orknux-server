@@ -223,6 +223,9 @@ class OrknuxTools(
     @param:Lazy private val modelApi: io.mszymanski.orknux.server.model.ModelAPI,
     private val connections: io.mszymanski.orknux.connector.connection.WorkspaceConnectionService,
     private val mcpServers: io.mszymanski.orknux.connector.connection.McpServerService,
+    /** The Tasks page's own start, for its access check and audit entry. Lazy: it is a controller, and tasks run agents. */
+    @param:Lazy private val taskApi: io.mszymanski.orknux.server.task.TaskAPI,
+    private val issues: io.mszymanski.orknux.server.issue.IssueRepository,
     transactionManager: org.springframework.transaction.PlatformTransactionManager,
 ) {
 
@@ -260,6 +263,8 @@ class OrknuxTools(
     private fun workflowLink(workspaceId: Long, id: Long?) = link("/workspace/$workspaceId/workflows/$id/editor")
 
     private fun agentLink(workspaceId: Long, id: Long?) = link("/workspace/$workspaceId/agents/$id/settings")
+
+    private fun taskLink(workspaceId: Long, id: Long?) = link("/workspace/$workspaceId/tasks/$id")
 
     private fun functionLink(workspaceId: Long, id: Long?) = link("/workspace/$workspaceId/functions/$id")
 
@@ -766,6 +771,20 @@ class OrknuxTools(
             )
             add(
                 ToolSpec(
+                    name = "orknux_start_task",
+                    description =
+                        "Starts a task: one of this workspace's agents set to work on a brief, on its own, until it " +
+                            "says it is done. It really works - whatever its tools do, they do. Returns the task's id and link.",
+                    parameters = listOf(
+                        ToolParameterSpec("agent", "The agent to do it: its name, or its id.", required = true),
+                        ToolParameterSpec("prompt", "What the agent is asked to do, in full; it sees nothing else of this conversation.", required = true),
+                        ToolParameterSpec("title", "A short title; left out, the prompt's first line.", required = false),
+                        ToolParameterSpec("issue", "The number of an issue the task is about, such as 12.", required = false),
+                    ),
+                ),
+            )
+            add(
+                ToolSpec(
                     name = "orknux_rerun_execution",
                     description =
                         "Runs a past run again, on the same input it was given. It acts on the same event: " +
@@ -891,6 +910,7 @@ class OrknuxTools(
             "orknux_delete_issue" -> issueTools.delete(scope, arguments)
             "orknux_suggest_function_code" -> suggest(scope, arguments)
             "orknux_run_workflow" -> runWorkflow(scope, arguments)
+            "orknux_start_task" -> startTask(scope, arguments)
             "orknux_rerun_execution" -> rerun(scope, arguments)
             "orknux_set_workflow_enabled" -> setWorkflowEnabled(scope, arguments)
             "orknux_set_agent_enabled" -> setAgentEnabled(scope, arguments)
@@ -1837,6 +1857,46 @@ class OrknuxTools(
                 "status" to started.status,
                 "url" to runLink(scope.workspaceId, started.id),
                 "note" to "Ask orknux_execution about this id to see where it got to.",
+            ),
+        )
+    }
+
+    /**
+     * Starts a task, through the Tasks page's own mutation: the same access
+     * check, the same audit entry, under the caller's name - an agent's own
+     * where one is asking. What can refuse it - an agent switched off, one with
+     * no model - refuses here in that mutation's words.
+     */
+    private fun startTask(scope: OrknuxScope, arguments: String): String {
+        if (!scope.mayWrite) return readOnly()
+
+        val which = text(arguments, "agent") ?: return refuse("Which agent should do it? Give its name or id.")
+        val prompt = text(arguments, "prompt")?.trim()?.ifEmpty { null }
+            ?: return refuse("What is the task? Give the prompt the agent is to work from.")
+        val agent = agentCalled(scope, which) ?: return refuse("There is no agent called $which here")
+        val issueId = text(arguments, "issue")?.trim()?.removePrefix("#")?.let { asked ->
+            val number = asked.toIntOrNull() ?: return refuse("An issue is named by its number, such as 12")
+            issues.findByWorkspaceIdAndNumber(scope.workspaceId, number)?.id
+                ?: return refuse("There is no issue #$number here")
+        }
+
+        val started = access.actingIn(scope.workspaceId, scope.actor) {
+            taskApi.startTask(
+                io.mszymanski.orknux.server.task.StartTaskInput(
+                    workspaceId = scope.workspaceId,
+                    prompt = prompt,
+                    title = text(arguments, "title"),
+                    agentId = requireNotNull(agent.id),
+                    issueId = issueId,
+                ),
+            )
+        }
+        return mapper.writeValueAsString(
+            mapOf(
+                "started" to started.id,
+                "title" to started.title,
+                "agent" to agent.name,
+                "url" to taskLink(scope.workspaceId, started.id),
             ),
         )
     }

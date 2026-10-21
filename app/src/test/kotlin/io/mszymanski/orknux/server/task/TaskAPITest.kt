@@ -52,6 +52,7 @@ class TaskAPITest(
     @Autowired val providers: ModelProviderRepository,
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val audit: WorkspaceAuditRepository,
+    @Autowired val orknuxTools: io.mszymanski.orknux.server.mcp.OrknuxTools,
 ) {
 
     private var workspaceId: Long = 0
@@ -100,6 +101,38 @@ class TaskAPITest(
             .contains("Tidy the failed runs.\nThen write it up.")
 
         assertThat(audit.findAll().map { it.category }).contains(WorkspaceAuditCategory.TASK)
+    }
+
+    /**
+     * An agent starting a task, through orknux_start_task: the same door the
+     * Tasks page uses, so the same record and the same audit line - and only
+     * where the conversation may change things.
+     */
+    @Test
+    fun `an agent can start a task through its orknux tool, and a read-only one cannot`() {
+        val agentName = agents.findById(agentId).orElseThrow().name
+        val scope = io.mszymanski.orknux.server.mcp.OrknuxScope(workspaceId = workspaceId, mayWrite = true)
+        assertThat(orknuxTools.specs(scope).map { it.name }).contains("orknux_start_task")
+        assertThat(orknuxTools.specs(scope.copy(mayWrite = false)).map { it.name }).doesNotContain("orknux_start_task")
+
+        val answer = orknuxTools.run(
+            scope,
+            "orknux_start_task",
+            """{ "agent": "$agentName", "prompt": "Write up the outage. Keep it short.", "title": "Outage write-up" }""",
+        )
+
+        val started = tasks.findAll().single()
+        assertThat(started.title).isEqualTo("Outage write-up")
+        assertThat(started.prompt).isEqualTo("Write up the outage. Keep it short.")
+        assertThat(started.agentId).isEqualTo(agentId)
+        assertThat(answer).contains(""""started":${started.id}""").contains("/workspace/$workspaceId/tasks/${started.id}")
+        assertThat(audit.findAll().map { it.message }).contains("Task Outage write-up started")
+
+        assertThat(orknuxTools.run(scope.copy(mayWrite = false), "orknux_start_task", """{ "agent": "$agentName", "prompt": "x" }"""))
+            .contains("may read")
+        assertThat(orknuxTools.run(scope, "orknux_start_task", """{ "agent": "Nobody", "prompt": "x" }"""))
+            .contains("no agent called Nobody")
+        assertThat(tasks.findAll()).hasSize(1)
     }
 
     /**
