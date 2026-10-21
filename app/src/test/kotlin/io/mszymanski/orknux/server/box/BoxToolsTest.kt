@@ -109,16 +109,28 @@ class BoxToolsTest(
     }
 
     @Test
-    fun `a name no box has reaches nothing, and a box granted to nobody is nobody's`() {
+    fun `a label no box has reaches nothing, and a box is reached by its label, not its name`() {
         agent.boxLabels = listOf("elsewhere")
         agents.save(agent)
         assertThat(call("orkbox_list").path("boxes").size()).isZero()
         assertThat(call("orkbox_open").path("error").stringValue()).contains("No box you may use")
 
-        boxes.save(Box(name = "ungranted", address = "http://ungranted.invalid"))
-        agent.boxLabels = listOf("local")
+        boxes.save(Box(name = "ungranted", label = "other", address = "http://ungranted.invalid"))
+        agent.boxLabels = listOf("local", "ungranted")
         agents.save(agent)
         assertThat(call("orkbox_open", mapOf("box" to "ungranted")).path("error").stringValue()).contains("may not use")
+    }
+
+    @Test
+    fun `one label granted is every box that carries it`() {
+        boxes.save(Box(name = "gpu-1", label = "gpu", address = "http://gpu-1.invalid"))
+        boxes.save(Box(name = "gpu-2", label = "gpu", address = "http://gpu-2.invalid"))
+        boxes.save(Box(name = "cpu-1", label = "cpu", address = "http://cpu-1.invalid"))
+        agent.boxLabels = listOf("gpu")
+        agents.save(agent)
+        val listed = call("orkbox_list").path("boxes")
+        assertThat((0 until listed.size()).map { listed[it].path("name").stringValue() }).containsExactly("gpu-1", "gpu-2")
+        assertThat((0 until listed.size()).map { listed[it].path("label").stringValue() }).containsOnly("gpu")
     }
 
     @Test

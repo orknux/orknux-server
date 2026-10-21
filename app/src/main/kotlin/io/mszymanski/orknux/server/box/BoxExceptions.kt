@@ -21,6 +21,10 @@ class BoxNameInvalidException(val name: String) :
     override val arguments get() = mapOf("name" to name)
 }
 
+class BoxLabelRequiredException : RuntimeException(
+    "A box needs a label of 1 to 255 characters: it is what an agent is granted the box by.",
+)
+
 class BoxAddressInvalidException(val address: String) : RuntimeException(
     "\"$address\" is not an address a box can be reached at. Give an http or https URL, such as http://orkbox:8080.",
 ), Refusal {

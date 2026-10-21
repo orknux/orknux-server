@@ -156,13 +156,14 @@ class Agent(
     var mayAskForTools: Boolean = true,
 
     /**
-     * Which boxes this agent may open a sandbox session on, by the box's name,
-     * one per line; null or empty is none. Read and written through
-     * [boxLabels], which keeps the name it had when a grant named a label.
+     * Which boxes this agent may open a sandbox session on, by label, one per
+     * line; null or empty is none. Read and written through [boxLabels].
      *
-     * A box renamed takes its grants with it (`BoxGrantsByName.rename`). None
-     * by default, the local box included - the local runtime runs commands as
-     * this server's own user.
+     * By label rather than by box: several boxes may share a label, so one
+     * grant is a group of boxes, and a box added later under a label an agent
+     * holds is one it can use without anybody editing it. None by default,
+     * the local box included - the local runtime runs commands as this
+     * server's own user.
      *
      * A column of text rather than a table of rows, so a patch release could
      * add it: a nullable column is the one change an older jar does not notice.
@@ -461,7 +462,7 @@ class Agent(
             .granted(this, io.mszymanski.orknux.server.workflow.StepPictureTools.LINK)
 
     /**
-     * The boxes this agent may use, by name, trimmed, each once, in the order given.
+     * The box labels this agent may use, trimmed, each once, in the order given.
      * A view of [boxLabelsText], with no field of its own for Hibernate to map.
      */
     var boxLabels: List<String>

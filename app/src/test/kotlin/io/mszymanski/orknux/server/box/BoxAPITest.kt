@@ -12,7 +12,6 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.boot.DefaultApplicationArguments
 import org.springframework.boot.graphql.test.autoconfigure.tester.AutoConfigureGraphQlTester
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.graphql.test.tester.ExecutionGraphQlServiceTester
@@ -40,7 +39,6 @@ class BoxAPITest(
     @Autowired val events: BoxSessionEventRepository,
     @Autowired val outputs: BoxSessionOutputRepository,
     @Autowired val recorder: io.mszymanski.orknux.server.llm.LlmSessionRecorder,
-    @Autowired val grantsByName: BoxGrantsByName,
 ) {
 
     private val stub = StubOrkbox()
@@ -63,10 +61,10 @@ class BoxAPITest(
 
     private val fields = "id name kind label address hasToken createdAt"
 
-    private fun create(name: String, address: String = stub.address, token: String? = "change-me"): String =
+    private fun create(name: String, address: String = stub.address, token: String? = "change-me", label: String? = "build"): String =
         graphQlTester.document(
             """mutation(${'$'}input: BoxInput!) { createBox(input: ${'$'}input) { id } }""",
-        ).variable("input", mapOf("name" to name, "address" to address, "token" to token))
+        ).variable("input", mapOf("name" to name, "label" to label, "address" to address, "token" to token))
             .execute().path("createBox.id").entity(String::class.java).get()
 
     private fun refusedWith(document: String, code: String, arguments: Map<String, Any?>? = null) {
@@ -112,18 +110,18 @@ class BoxAPITest(
 
         // A null token keeps the one stored.
         graphQlTester.document(
-            """mutation { updateBox(id: "$id", input: { name: "runner", address: "${stub.address}/" }) { $fields } }""",
+            """mutation { updateBox(id: "$id", input: { name: "runner", label: "ci", address: "${stub.address}/" }) { $fields } }""",
         ).execute().path("updateBox.hasToken").entity(Boolean::class.java).isEqualTo(true)
         boxes.findById(id.toLong()).get().let {
             assertThat(it.name).isEqualTo("runner")
-            assertThat(it.label).describedAs("kept equal to the name, for an older jar").isEqualTo("runner")
+            assertThat(it.label).isEqualTo("ci")
             assertThat(it.address).describedAs("stored without the trailing slash").isEqualTo(stub.address)
             assertThat(it.token).isEqualTo("change-me")
         }
 
         // An empty one clears it.
         graphQlTester.document(
-            """mutation { updateBox(id: "$id", input: { name: "runner", token: "" }) { hasToken } }""",
+            """mutation { updateBox(id: "$id", input: { name: "runner", label: "ci", token: "" }) { hasToken } }""",
         ).execute().path("updateBox.hasToken").entity(Boolean::class.java).isEqualTo(false)
 
         graphQlTester.document("""mutation { deleteBox(id: "$id") }""").execute()
@@ -134,6 +132,7 @@ class BoxAPITest(
         assertThat(messages()).contains(
             "Box builder added at ${stub.address}",
             "Box builder renamed to runner",
+            "Box runner label set to ci",
             "Box runner token cleared",
             "Box runner removed",
         )
@@ -157,6 +156,9 @@ class BoxAPITest(
             "BoxAddressInvalid", mapOf("address" to "ftp://somewhere"),
         )
         refusedWith("""mutation { createBox(input: { name: "other" }) { id } }""", "BoxAddressInvalid")
+        refusedWith("""mutation { createBox(input: { name: "other", address: "http://other.invalid" }) { id } }""", "BoxLabelRequired")
+        refusedWith("""mutation { createBox(input: { name: "other", address: "http://other.invalid", label: "  " }) { id } }""", "BoxLabelRequired")
+        refusedWith("""mutation { updateBox(id: "${create("unlabelled")}", input: { name: "unlabelled", label: "" }) { id } }""", "BoxLabelRequired")
 
         val held = create("revealed", token = "change-me")
         graphQlTester.document("""mutation { revealBoxToken(id: "$held") }""").execute()
@@ -168,7 +170,7 @@ class BoxAPITest(
     }
 
     @Test
-    fun `the local box cannot be changed, and its name is always local`() {
+    fun `the local box cannot be changed, and its label is always local`() {
         graphQlTester.document(
             """mutation { updateBox(id: "local", input: { name: "local", label: "sandbox" }) { id } }""",
         ).execute().errors().satisfy { errors ->
@@ -182,39 +184,28 @@ class BoxAPITest(
     }
 
     @Test
-    fun `an agent's form is offered every box by name, sorted`() {
-        create("zeta")
-        create("alpha")
+    fun `labels in use are suggested once each, sorted`() {
+        create("b", label = "zeta")
+        create("c", label = "alpha")
+        create("d", label = "zeta")
         graphQlTester.document("{ boxLabels }").execute().path("boxLabels").entityList(String::class.java)
             .containsExactly("alpha", "local", "zeta")
     }
 
     @Test
-    fun `a box renamed takes its grants with it`() {
-        val id = create("builder")
-        val workspace = requireNotNull(workspaces.save(Workspace(name = "rename-${System.nanoTime()}")).id)
-        val granted = agents.save(Agent(workspaceId = workspace, name = "Granted", type = AgentType.LLM).apply { boxLabels = listOf("local", "builder") })
+    fun `a label still carried keeps its grants, and the last box relabelled takes them with it`() {
+        val first = create("gpu-1", label = "gpu")
+        val second = create("gpu-2", label = "gpu")
+        val workspace = requireNotNull(workspaces.save(Workspace(name = "relabel-${System.nanoTime()}")).id)
+        val granted = agents.save(Agent(workspaceId = workspace, name = "Granted", type = AgentType.LLM).apply { boxLabels = listOf("local", "gpu") })
 
-        graphQlTester.document("""mutation { updateBox(id: "$id", input: { name: "runner" }) { name } }""").execute()
-            .path("updateBox.name").entity(String::class.java).isEqualTo("runner")
-        assertThat(agents.findById(granted.id!!).get().boxLabels).containsExactly("local", "runner")
-        assertThat(messages()).contains("Box builder renamed to runner, and the 1 agents granted it with it")
-    }
+        graphQlTester.document("""mutation { updateBox(id: "$first", input: { name: "gpu-1", label: "spare" }) { label } }""").execute()
+            .path("updateBox.label").entity(String::class.java).isEqualTo("spare")
+        assertThat(agents.findById(granted.id!!).get().boxLabels).describedAs("gpu-2 still carries it").containsExactly("local", "gpu")
 
-    @Test
-    fun `a grant naming an old label is moved to the boxes that wore it`() {
-        boxes.save(Box(name = "gpu-1", label = "gpu", address = "http://gpu-1.invalid"))
-        boxes.save(Box(name = "gpu-2", label = "gpu", address = "http://gpu-2.invalid"))
-        val workspace = requireNotNull(workspaces.save(Workspace(name = "labels-${System.nanoTime()}")).id)
-        val old = agents.save(Agent(workspaceId = workspace, name = "Old", type = AgentType.LLM).apply { boxLabels = listOf("gpu", "local", "gone") })
-
-        grantsByName.run(DefaultApplicationArguments())
-
-        assertThat(agents.findById(old.id!!).get().boxLabels).containsExactly("gpu-1", "gpu-2", "local", "gone")
-        assertThat(boxes.findAll().map { it.label to it.name }).allMatch { (label, name) -> label == name }
-        // Twice is once.
-        grantsByName.run(DefaultApplicationArguments())
-        assertThat(agents.findById(old.id!!).get().boxLabels).containsExactly("gpu-1", "gpu-2", "local", "gone")
+        graphQlTester.document("""mutation { updateBox(id: "$second", input: { name: "gpu-2", label: "cuda" }) { label } }""").execute()
+        assertThat(agents.findById(granted.id!!).get().boxLabels).containsExactly("local", "cuda")
+        assertThat(messages()).contains("Box gpu-1 label set to spare", "Box gpu-2 label set to cuda, and the 1 agents granted gpu with it")
     }
 
     @Test
@@ -527,7 +518,7 @@ class BoxAPITest(
             assertThat(stopped["runtime"]).isNull()
         }
         graphQlTester.document("{ sessionBoxes(sessionId: $conversation) { boxLabel } }").execute()
-            .path("sessionBoxes[*].boxLabel").entityList(String::class.java).containsExactly("builder", "builder")
+            .path("sessionBoxes[*].boxLabel").entityList(String::class.java).containsExactly("build", "build")
 
         graphQlTester.document("""mutation { deleteBox(id: "$boxId") }""").execute()
         graphQlTester.document("{ sessionBoxes(sessionId: $conversation) { boxLabel } }").execute()

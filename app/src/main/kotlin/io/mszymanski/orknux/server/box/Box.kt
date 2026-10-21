@@ -44,10 +44,10 @@ class Box(
     var name: String = "",
 
     /**
-     * Unused: kept equal to [name]. A grant once named a box's label; it names
-     * the box now. The column stays because dropping it is not additive - a jar
-     * older than this one still reads it, and grants by it, so it is written
-     * with the name and an older jar grants exactly what this one does.
+     * What an agent's grant names; required. Several boxes may share one, and
+     * an agent granted it may use any of them - a group of boxes is granted at
+     * once, and a box added later under the label is one it can use without
+     * anybody editing the agent.
      */
     @Column(length = 255)
     var label: String? = null,

@@ -48,7 +48,7 @@ class BoxAPI(
     private val editHistory: BoxEditHistory,
     private val secrets: BoxSecrets,
     private val exposed: ExposedPorts,
-    private val grants: BoxGrantsByName,
+    private val grants: BoxGrants,
     /** A conversation's box sessions are its family's: an asker's and the subagents' it asked. */
     private val family: io.mszymanski.orknux.server.llm.SessionFamily,
 ) {
@@ -120,11 +120,11 @@ class BoxAPI(
             .take(BOX_SESSIONS_LISTED)
     }
 
-    /** What an agent's form offers: every box's name, which is what a grant names. */
+    /** What an agent's form offers: every label a box carries, once each. */
     @QueryMapping
     fun boxLabels(): List<String> {
         access.requireSignedIn()
-        return boxes.all().map { it.name }.sorted()
+        return boxes.all().mapNotNull { it.label }.distinct().sorted()
     }
 
     @SchemaMapping(typeName = "Box", field = "health")
@@ -172,8 +172,7 @@ class BoxAPI(
         val row = rows.save(
             Box(
                 name = name,
-                // Kept equal to the name for a jar older than this one, which grants by label.
-                label = name,
+                label = validLabel(input.label),
                 address = address,
                 token = input.token?.trim()?.ifEmpty { null },
                 lastModifiedBy = currentUser(),
@@ -189,30 +188,34 @@ class BoxAPI(
         if (id == LOCAL_BOX_ID) throw LocalBoxNotEditableException()
 
         val row = id.toLongOrNull()?.let { rows.findByIdOrNull(it) } ?: throw BoxNotFoundException(id)
-        val before = row.name to row.address
+        val before = Triple(row.name, row.label, row.address)
         val name = validName(input.name, row.id)
         val address = validAddress(input.address ?: row.address)
+        val label = validLabel(input.label)
         val tokenChanged = input.token != null && input.token.trim().ifEmpty { null } != row.token
 
         row.name = name
         row.address = address
-        row.label = name
+        row.label = label
         if (input.token != null) row.token = input.token.trim().ifEmpty { null }
         row.lastModifiedAt = OffsetDateTime.now()
         row.lastModifiedBy = currentUser()
         rows.save(row)
 
         if (before.first != name) {
-            // A grant names the box, so the agents granted it are granted it under its new name too.
-            val following = grants.rename(before.first, name)
+            auditRecorder.record(null, WorkspaceAuditCategory.INTEGRATION, "Box ${before.first} renamed to $name")
+        }
+        if (before.third != address) {
+            auditRecorder.record(null, WorkspaceAuditCategory.INTEGRATION, "Box $name moved to $address")
+        }
+        if (before.second != label) {
+            // The last box to carry a label takes its grants with it; one still carried elsewhere keeps them.
+            val following = before.second?.let { grants.relabel(it, label) } ?: 0
             auditRecorder.record(
                 null,
                 WorkspaceAuditCategory.INTEGRATION,
-                "Box ${before.first} renamed to $name" + if (following > 0) ", and the $following agents granted it with it" else "",
+                "Box $name label set to $label" + if (following > 0) ", and the $following agents granted ${before.second} with it" else "",
             )
-        }
-        if (before.second != address) {
-            auditRecorder.record(null, WorkspaceAuditCategory.INTEGRATION, "Box $name moved to $address")
         }
         if (tokenChanged) {
             auditRecorder.record(
@@ -499,9 +502,9 @@ class BoxAPI(
         return remembered(row, live)
     }
 
-    /** The box's name as it is now: `local` for the local box, null for a remote one since removed. */
+    /** The box's label as it is now: `local` for the local box, null for a remote one since removed. */
     private fun labelOf(row: BoxSession): String? =
-        if (row.boxKind == BoxKind.LOCAL) LOCAL_BOX_NAME else row.boxId?.let { rows.findByIdOrNull(it) }?.name
+        if (row.boxKind == BoxKind.LOCAL) LOCAL_BOX_LABEL else row.boxId?.let { rows.findByIdOrNull(it) }?.label
 
     private fun remembered(row: BoxSession, live: String): String {
         if (live != row.status) {
@@ -726,6 +729,10 @@ class BoxAPI(
         return name
     }
 
+    /** A box with no label is no agent's, so one is required rather than allowed to be forgotten. */
+    private fun validLabel(given: String?): String =
+        given?.trim()?.takeIf { it.isNotEmpty() && it.length <= 255 } ?: throw BoxLabelRequiredException()
+
     private fun validAddress(given: String?): String =
         given?.let(Boxes::normalisedAddress) ?: throw BoxAddressInvalidException(given.orEmpty())
 
@@ -738,8 +745,7 @@ class BoxView(val known: KnownBox) {
     val id: String get() = known.id
     val name: String get() = known.name
     val kind: BoxKind get() = known.kind
-    /** The name again, for a client older than this answer: a box no longer has a label of its own. */
-    val label: String? get() = known.name
+    val label: String? get() = known.label
     val address: String? get() = known.row?.address
     val hasToken: Boolean get() = !known.row?.token.isNullOrBlank()
     val createdAt: String? get() = known.row?.createdAt?.toString()
