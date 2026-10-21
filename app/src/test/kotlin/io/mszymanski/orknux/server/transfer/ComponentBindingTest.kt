@@ -14,6 +14,9 @@ import io.mszymanski.orknux.server.condition.WorkflowConditionRepository
 import io.mszymanski.orknux.server.memory.MemoryCatalogRepository
 import io.mszymanski.orknux.server.obj.WorkflowObjectRepository
 import io.mszymanski.orknux.server.trigger.WorkflowTriggerRepository
+import io.mszymanski.orknux.server.variable.VariableCatalog
+import io.mszymanski.orknux.server.variable.VariableCatalogRepository
+import io.mszymanski.orknux.server.variable.WorkspaceVariableRepository
 import io.mszymanski.orknux.server.workflow.WorkflowEdgeRepository
 import io.mszymanski.orknux.server.workflow.WorkflowNodeRepository
 import io.mszymanski.orknux.server.workflow.WorkflowRepository
@@ -60,6 +63,8 @@ class ComponentBindingTest(
     @Autowired val skills: AgentSkillRepository,
     @Autowired val catalogs: SkillCatalogRepository,
     @Autowired val memoryCatalogs: MemoryCatalogRepository,
+    @Autowired val variables: WorkspaceVariableRepository,
+    @Autowired val variableCatalogs: VariableCatalogRepository,
     @Autowired val actions: WorkflowActionRepository,
     @Autowired val triggers: WorkflowTriggerRepository,
     @Autowired val agents: AgentRepository,
@@ -95,6 +100,8 @@ class ComponentBindingTest(
         skills.deleteAll()
         catalogs.deleteAll()
         memoryCatalogs.deleteAll()
+        variables.deleteAll()
+        variableCatalogs.deleteAll()
         models.deleteAll()
         providers.deleteAll()
         connections.deleteAll()
@@ -180,6 +187,23 @@ class ComponentBindingTest(
         assertThat(skills.findByWorkspaceIdAndName(into, "Triage")).isNotNull()
         assertThat(catalogs.findByWorkspaceIdAndName(into, "Support")).isNotNull()
         assertThat(memoryCatalogs.findByWorkspaceIdAndName(into, "Runbooks")).isNotNull()
+    }
+
+    @Test
+    fun `a shallow agent brings the variable catalogs it was granted, empty`() {
+        variableCatalogs.save(VariableCatalog(workspaceId = from, name = "Keys"))
+        variableCatalogs.save(VariableCatalog(workspaceId = from, name = "Settings"))
+        // The target has its own Settings already, which is the one meant.
+        val theirs = variableCatalogs.save(VariableCatalog(workspaceId = into, name = "Settings")).id
+        val agentId = createAgent(from, "Triage bot", secretCatalogs = listOf("Keys"), variableCatalogs = listOf("Settings"))
+
+        import(into, export(from, "AGENT", agentId, "SHALLOW"))
+
+        val agent = agents.findByWorkspaceIdAndName(into, "Triage bot")!!
+        assertThat(agent.secretCatalogs).containsExactly("Keys")
+        assertThat(agent.variableCatalogs).containsExactly("Settings")
+        assertThat(variableCatalogs.findByWorkspaceIdOrderByNameAsc(into).map { it.name }).containsExactly("Keys", "Settings")
+        assertThat(variableCatalogs.findByWorkspaceIdAndName(into, "Settings")!!.id).isEqualTo(theirs)
     }
 
     @Test
@@ -523,6 +547,8 @@ class ComponentBindingTest(
         skillCatalogs: List<String> = emptyList(),
         memoryCatalogs: List<String> = emptyList(),
         mcpServers: List<String> = emptyList(),
+        secretCatalogs: List<String> = emptyList(),
+        variableCatalogs: List<String> = emptyList(),
     ): Long {
         val id = graphQlTester.document(
             """mutation { createAgent(input: { workspaceId: $workspaceId, name: ${quote(name)}, type: LLM }) { id } }""",
@@ -534,6 +560,8 @@ class ComponentBindingTest(
             append(", skillCatalogs: [${skillCatalogs.joinToString(", ") { quote(it) }}]")
             append(", memoryCatalogs: [${memoryCatalogs.joinToString(", ") { quote(it) }}]")
             append(", mcpServers: [${mcpServers.joinToString(", ") { quote(it) }}]")
+            append(", secretCatalogs: [${secretCatalogs.joinToString(", ") { quote(it) }}]")
+            append(", variableCatalogs: [${variableCatalogs.joinToString(", ") { quote(it) }}]")
         }
         graphQlTester.document(
             """mutation { updateAgent(id: $id, input: { name: ${quote(name)}$settings }) { id } }""",

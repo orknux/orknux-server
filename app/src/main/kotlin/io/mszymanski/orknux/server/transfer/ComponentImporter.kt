@@ -40,11 +40,14 @@ import io.mszymanski.orknux.server.obj.ObjectProperty
 import io.mszymanski.orknux.server.obj.PropertyKind
 import io.mszymanski.orknux.server.obj.WorkflowObject
 import io.mszymanski.orknux.server.obj.WorkflowObjectRepository
+import io.mszymanski.orknux.server.sharing.WorkspaceSharing
 import io.mszymanski.orknux.server.trigger.TriggerAction
 import io.mszymanski.orknux.server.trigger.TriggerType
 import io.mszymanski.orknux.server.trigger.WebhookAuthType
 import io.mszymanski.orknux.server.trigger.WorkflowTrigger
 import io.mszymanski.orknux.server.trigger.WorkflowTriggerRepository
+import io.mszymanski.orknux.server.variable.VariableCatalog
+import io.mszymanski.orknux.server.variable.VariableCatalogRepository
 import io.mszymanski.orknux.server.variable.WorkspaceVariableRepository
 import io.mszymanski.orknux.server.workflow.EdgeBranch
 import io.mszymanski.orknux.server.workflow.MappingMode
@@ -105,6 +108,7 @@ class ComponentImporter(
     private val nodes: WorkflowNodeRepository,
     private val edges: WorkflowEdgeRepository,
     private val memoryCatalogs: MemoryCatalogRepository,
+    private val variableCatalogs: VariableCatalogRepository,
     private val externals: ComponentExternals,
     private val auditRecorder: WorkspaceAuditRecorder,
     private val mapper: ObjectMapper,
@@ -1288,13 +1292,17 @@ class ComponentImporter(
                         .onEach { memoryCatalogFor(workspaceId, it, who) }
                         .toMutableList(),
                     /*
-                     * By name and nothing made: a variable catalog holds
-                     * somebody's values, and an empty one invented here would
-                     * be a folder nobody asked for. A grant naming a catalog
-                     * this workspace lacks reaches nothing until one exists.
+                     * Made empty when this workspace lacks one, as a skill's
+                     * folder is: the grant is the agent's, the values are
+                     * this workspace's to fill, and none of them travelled.
+                     * A lent catalog is another workspace's and made nowhere.
                      */
-                    secretCatalogs = node.names("secretCatalogs").toMutableList(),
-                    variableCatalogs = node.names("variableCatalogs").toMutableList(),
+                    secretCatalogs = node.names("secretCatalogs")
+                        .onEach { variableCatalogFor(workspaceId, it, who) }
+                        .toMutableList(),
+                    variableCatalogs = node.names("variableCatalogs")
+                        .onEach { variableCatalogFor(workspaceId, it, who) }
+                        .toMutableList(),
                     icon = node.text("icon"),
                 ),
             ).id!!
@@ -1482,6 +1490,18 @@ class ComponentImporter(
         val wanted = name.trim().ifEmpty { DEFAULT_CATALOG }
         memoryCatalogs.findByWorkspaceIdAndName(workspaceId, wanted)?.let { return it.id!! }
         return memoryCatalogs.save(MemoryCatalog(workspaceId = workspaceId, name = wanted, createdBy = who)).id!!
+    }
+
+    /**
+     * The variable catalog an imported agent was granted, made empty if it is
+     * not here. Its secrets and values never travel; the name does, so the
+     * catalog is waiting for them on the Variables page.
+     */
+    private fun variableCatalogFor(workspaceId: Long, name: String, who: String) {
+        val wanted = name.trim()
+        if (wanted.isEmpty() || wanted.startsWith(WorkspaceSharing.GRANT_PREFIX)) return
+        if (variableCatalogs.findByWorkspaceIdAndName(workspaceId, wanted) != null) return
+        variableCatalogs.save(VariableCatalog(workspaceId = workspaceId, name = wanted, createdBy = who))
     }
 
     /** What a granted tool is called here, which a rename on the way in may have changed. */
