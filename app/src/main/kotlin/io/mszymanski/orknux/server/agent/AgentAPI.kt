@@ -51,6 +51,9 @@ class AgentAPI(
     /** What a new agent is granted to read: every catalog its plugins bring. Issue #4. */
     private val pluginSkills: PluginSkills,
     private val defaultGrants: DefaultGrants,
+    /** What other workspaces lend this one: a model's provider, a catalog. */
+    @param:org.springframework.context.annotation.Lazy
+    private val sharing: io.mszymanski.orknux.server.sharing.WorkspaceSharing,
 ) {
 
     /**
@@ -399,7 +402,7 @@ class AgentAPI(
         val previousModel = agent.modelId
         agent.modelId = input.modelId?.let {
             val model = models.model(it) ?: throw AgentModelUnusableException("That model no longer exists")
-            if (model.workspaceId != agent.workspaceId) {
+            if (model.workspaceId != agent.workspaceId && !sharing.providerLentTo(agent.workspaceId, model.providerId)) {
                 throw AgentModelUnusableException("That model belongs to another workspace")
             }
             // The sentence createAgentForModel refuses with, and only when the
@@ -462,6 +465,11 @@ class AgentAPI(
             agent.skillCatalogs =
                 input.skillCatalogs.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
         }
+        // A lent catalog is granted as share:<id>, and only while it is lent here.
+        val lent = sharing.catalogsLentTo(agent.workspaceId).map { sharing.grantOf(it.first) }.toSet()
+        listOfNotNull(input.secretCatalogs, input.variableCatalogs).flatten().map { it.trim() }
+            .firstOrNull { it.startsWith(io.mszymanski.orknux.server.sharing.WorkspaceSharing.GRANT_PREFIX) && it !in lent }
+            ?.let { throw AgentCatalogNotLentException(it) }
         if (input.secretCatalogs != null) {
             agent.secretCatalogs =
                 input.secretCatalogs.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
@@ -1229,6 +1237,13 @@ class AgentNameInvalidException : RuntimeException("An agent name is required")
 
 /** A model chosen for an agent has to be one this workspace can reach. */
 class AgentModelUnusableException(message: String) : RuntimeException(message)
+
+/** A grant naming a catalog by share:<id> that no other workspace lends this one. */
+class AgentCatalogNotLentException(val grant: String) :
+    RuntimeException("$grant is not a catalog another workspace shares with this one"),
+    io.mszymanski.orknux.server.graphql.Refusal {
+    override val arguments get() = mapOf("grant" to grant)
+}
 
 /** A connection grant naming something that is not this workspace's connection. */
 /**

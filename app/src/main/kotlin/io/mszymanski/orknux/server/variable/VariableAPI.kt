@@ -29,6 +29,8 @@ import java.time.format.DateTimeFormatter
  */
 @Controller
 class VariableAPI(
+    @param:org.springframework.context.annotation.Lazy
+    private val sharing: io.mszymanski.orknux.server.sharing.WorkspaceSharing,
     private val variables: WorkspaceVariableRepository,
     private val catalogs: VariableCatalogRepository,
     /** Whose secret and variable grants name a catalog, so a rename carries them. */
@@ -218,6 +220,8 @@ class VariableAPI(
         if (held > 0) throw VariableCatalogNotEmptyException(catalog.name, held)
 
         catalogs.delete(catalog)
+        // Lent to other workspaces, it is not any more.
+        sharing.removed(io.mszymanski.orknux.server.sharing.ShareKind.VARIABLE_CATALOG, id)
         auditRecorder.record(catalog.workspaceId, WorkspaceAuditCategory.WORKFLOW, "Catalog ${catalog.name} removed")
         return true
     }

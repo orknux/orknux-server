@@ -42,6 +42,8 @@ class ModelAPI(
     private val auditRecorder: WorkspaceAuditRecorder,
     /** What uses a model, asked before it is removed. */
     private val dependants: io.mszymanski.orknux.server.dependency.ComponentDependants,
+    @param:org.springframework.context.annotation.Lazy
+    private val sharing: io.mszymanski.orknux.server.sharing.WorkspaceSharing,
 ) {
 
     @QueryMapping
@@ -226,6 +228,8 @@ class ModelAPI(
             }
         if (inUse.isNotEmpty()) throw ModelProviderInUseException(provider.name, inUse)
         if (!models.removeProvider(id)) return false
+        // Lent to other workspaces, it is not any more.
+        sharing.removed(io.mszymanski.orknux.server.sharing.ShareKind.MODEL_PROVIDER, id)
 
         auditRecorder.record(
             provider.workspaceId,

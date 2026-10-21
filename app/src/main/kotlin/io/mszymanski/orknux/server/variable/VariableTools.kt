@@ -28,6 +28,9 @@ class VariableTools(
     private val catalogs: VariableCatalogRepository,
     private val variables: WorkspaceVariableRepository,
     private val mapper: ObjectMapper,
+    /** The catalogs other workspaces lend this one. Lazy: sharing reads agents, which read this. */
+    @param:org.springframework.context.annotation.Lazy
+    private val sharing: io.mszymanski.orknux.server.sharing.WorkspaceSharing,
 ) {
 
     /** One variable this agent may use, with the catalog it came from. */
@@ -153,14 +156,22 @@ class VariableTools(
         }.toSet()
     }
 
-    /** The workspace's variables of [kind] in the catalogs named, each with its catalog. */
+    /**
+     * The workspace's variables of [kind] in the catalogs named, each with its
+     * catalog - its own by name, and a catalog another workspace lends it by
+     * `share:<id>`, only while the share stands.
+     */
     private fun held(workspaceId: Long, granted: Set<String>, kind: VariableKind): List<Pair<VariableCatalog, WorkspaceVariable>> =
         if (granted.isEmpty()) {
             emptyList()
         } else {
-            catalogs.findByWorkspaceIdOrderByNameAsc(workspaceId)
-                .filter { it.name in granted }
-                .flatMap { catalog -> variables.findByCatalogId(requireNotNull(catalog.id)).filter { it.kind == kind }.map { catalog to it } }
+            val own = catalogs.findByWorkspaceIdOrderByNameAsc(workspaceId).filter { it.name in granted }
+            val lent = sharing.catalogsLentTo(workspaceId)
+                .filter { (share, _) -> sharing.grantOf(share) in granted }
+                .map { it.second }
+            (own + lent).flatMap { catalog ->
+                variables.findByCatalogId(requireNotNull(catalog.id)).filter { it.kind == kind }.map { catalog to it }
+            }
         }
 
     /** A refusal the model is told in words, with nothing else going wrong. */

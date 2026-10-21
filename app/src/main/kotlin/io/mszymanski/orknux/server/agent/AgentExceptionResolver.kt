@@ -42,6 +42,7 @@ class AgentExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ImportNameTakenException,
             is ImportNotEditableException,
             is AgentModelUnusableException,
+            is AgentCatalogNotLentException,
             is AgentMemoryShareUnusableException,
             /*
              * The two ways an agent grant can name something it may not: an

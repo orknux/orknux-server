@@ -1,0 +1,52 @@
+# Workspace Settings > Sharing: one workspace lending another a variable catalog
+# or a model provider. The workspace lent it uses it - its agents read the
+# catalog and answer on the provider's models - and its people still cannot
+# open the workspace that lent it.
+
+extend type Query {
+    "What a workspace lends, and to whom. Its administrators."
+    workspaceSharesGiven(workspaceId: ID!): [WorkspaceShare!]!
+    "What other workspaces lend this one. Anybody who can see it."
+    workspaceSharesReceived(workspaceId: ID!): [WorkspaceShare!]!
+    "The models of every provider lent to a workspace, for its agents to answer on."
+    sharedModels(workspaceId: ID!): [Model!]!
+}
+
+extend type Mutation {
+    "Lends one of a workspace's components to another it can see. The owner's administrators."
+    shareWithWorkspace(input: ShareInput!): WorkspaceShare!
+    "Takes a share back; the borrower's agents lose the catalog or the model with it. The owner's administrators."
+    removeWorkspaceShare(id: ID!): Boolean!
+}
+
+"What one workspace may lend another."
+enum ShareKind {
+    VARIABLE_CATALOG
+    MODEL_PROVIDER
+}
+
+input ShareInput {
+    "The workspace lending."
+    workspaceId: ID!
+    "The workspace it is lent to."
+    granteeWorkspaceId: ID!
+    kind: ShareKind!
+    "The catalog's or the provider's id."
+    componentId: ID!
+}
+
+type WorkspaceShare {
+    id: ID!
+    kind: ShareKind!
+    componentId: ID!
+    "Null for a component that has gone since."
+    componentName: String
+    "What an agent's catalog grant holds for a lent catalog: share:<catalog id>."
+    grant: String!
+    ownerWorkspaceId: ID!
+    ownerWorkspaceName: String
+    granteeWorkspaceId: ID!
+    granteeWorkspaceName: String
+    createdAt: String!
+    createdBy: String!
+}
