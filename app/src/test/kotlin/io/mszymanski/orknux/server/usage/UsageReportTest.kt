@@ -162,6 +162,29 @@ class UsageReportTest(
             .path("usageReport.rows[0].inputTokens").entity(Double::class.java).isEqualTo(500.0)
     }
 
+    /** Ordered across every one of their sessions before the page is cut, not within the page. */
+    @Test
+    fun `a person's sessions are put in a column's order across pages`() {
+        track(true)
+        val sam = Prompter(PromptSource.SLACK, "U04SLACKER", connectionId = 7, name = "Sam")
+        val other = recorder.open(workspaceId, "test", "usage-order-${System.nanoTime()}")
+        call(sam, 4_000, 0)
+        call(sam, 1_000, 0, into = other)
+        call(Prompter(PromptSource.ORKNUX, "alice", name = "Alice"), 9_000, 0, into = other)
+
+        fun ids(order: String?, ascending: Boolean?, page: Int = 0, size: Int = 5) = graphQlTester.document(
+            """query { usagePersonSessions(person: "SLACK::U04SLACKER", filter: { workspaceId: $workspaceId },
+                 page: $page, size: $size, order: ${order?.let { "\"$it\"" }}, ascending: $ascending) { total items { sessionId } } }""",
+        ).execute().path("usagePersonSessions.items[*].sessionId").entityList(Long::class.java)
+
+        ids(null, null).containsExactly(session, other)
+        ids("SHARE", true).containsExactly(other, session)
+        ids("SESSION", null).containsExactly(session, other)
+        ids("SESSION", false).containsExactly(other, session)
+        // The second page of one holds the smaller share, which a sort of the page alone would never reach.
+        ids("SHARE", false, page = 1, size = 1).containsExactly(other)
+    }
+
     /**
      * Every workspace has a Slack connection of its own, often to one Slack, so
      * a member who wrote in two workspaces arrived through two connections and

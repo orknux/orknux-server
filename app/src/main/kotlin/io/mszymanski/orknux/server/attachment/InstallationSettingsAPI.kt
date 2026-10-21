@@ -124,6 +124,8 @@ class InstallationSettingsAPI(
         noteMaxCharactersConfigured = settings.noteMaxCharactersConfigured(),
         noteMaxCount = settings.noteMaxCount(),
         noteMaxCountConfigured = settings.noteMaxCountConfigured(),
+        reviewsPerSession = settings.reviewsPerSession(),
+        reviewsPerSessionConfigured = settings.reviewsPerSessionConfigured(),
         sessionValueMaxMb = settings.sessionValueMaxMb(),
         emptyAnswerRetries = settings.emptyAnswerRetries(),
         emptyAnswerRetriesConfigured = settings.emptyAnswerRetriesConfigured(),
@@ -351,6 +353,20 @@ class InstallationSettingsAPI(
             null,
             WorkspaceAuditCategory.WORKSPACE,
             "A conversation keeps up to $count notes to self",
+        )
+        return installationSettings()
+    }
+
+    /** How many reviews rate_session sends from one conversation. */
+    @MutationMapping
+    fun setReviewsPerSession(@Argument count: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setReviewsPerSession(count, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            "A conversation sends up to $count reviews",
         )
         return installationSettings()
     }
@@ -1264,6 +1280,10 @@ data class InstallationSettingsView(
     val noteMaxCount: Int,
     /** What a fresh installation keeps: the built-in default. */
     val noteMaxCountConfigured: Int,
+    /** How many reviews rate_session sends from one conversation. */
+    val reviewsPerSession: Int,
+    /** What a fresh installation allows: the built-in default. */
+    val reviewsPerSessionConfigured: Int,
     /** How many times a round is asked again after an empty answer. */
     val emptyAnswerRetries: Int,
     val emptyAnswerRetriesConfigured: Int,

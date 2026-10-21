@@ -1,0 +1,54 @@
+# Admin > Reports > Ratings: the reviews people wrote about a conversation,
+# sent on by the agent through rate_session while ratings are switched on.
+
+extend type Query {
+    "Whether agents are offered rate_session, and when that last changed. Administrators."
+    sessionRatingsEnabled: UsageTracking!
+    "Whether a person may review a chat from its own menu, and when that last changed. Administrators."
+    chatReviewsEnabled: UsageTracking!
+    "Whether a chat's menu offers a review; the chat reviews switch. Anybody signed in."
+    sessionReviewsOffered: Boolean!
+    """
+    The reviews over a period, a page at a time, newest first; the average and
+    counts cover every review the filter matches. The search is over the
+    person, the agent and the review. `order` is one of SCORE, PERSON, AGENT,
+    SESSION, or left out for when. Administrators.
+    """
+    sessionRatings(filter: UsageReportFilter, page: Int, size: Int, order: String, ascending: Boolean): SessionRatingReport!
+}
+
+extend type Mutation {
+    "Offers or withholds rate_session from every agent. Off records nothing new. Administrators."
+    setSessionRatings(enabled: Boolean!): UsageTracking!
+    "Offers or withholds the review in a chat's own menu. Administrators."
+    setChatReviews(enabled: Boolean!): UsageTracking!
+    "A review of the person's own chat, a score from 1 to 5 and what they wrote if anything, held to the same limit as rate_session."
+    sendChatReview(chatId: ID!, score: Int!, review: String): Boolean!
+}
+
+type SessionRatingReport {
+    total: Int!
+    "The mean score; null where there are no reviews."
+    average: Float
+    "How many reviews gave each score, from 1 to 5."
+    counts: [Int!]!
+    rows: [SessionRating!]!
+}
+
+type SessionRating {
+    id: ID!
+    at: String!
+    "From 1 to 5."
+    score: Int!
+    "What the person wrote; null where they gave only a score."
+    review: String
+    sessionId: ID!
+    "Null for a session that has been removed."
+    sessionTitle: String
+    workspaceId: ID!
+    workspaceName: String
+    agentName: String!
+    source: PromptSource!
+    personKey: String!
+    personName: String
+}

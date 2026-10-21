@@ -36,6 +36,7 @@ class BuiltInToolSummaries(
     private val watchers: ObjectProvider<io.mszymanski.orknux.server.watcher.WatcherTools>,
     private val schedules: ObjectProvider<io.mszymanski.orknux.server.schedule.ScheduleTools>,
     private val links: ObjectProvider<LinkTools>,
+    private val ratings: ObjectProvider<io.mszymanski.orknux.server.rating.RatingTools>,
     private val scratchpads: ObjectProvider<ScratchpadTools>,
     private val finishing: ObjectProvider<FinishAnswerTools>,
     private val pictures: ObjectProvider<StepPictureTools>,
@@ -71,6 +72,7 @@ class BuiltInToolSummaries(
         take { watchers.getObject().shed(everything, PLACEHOLDER)?.specs() }
         take { schedules.getObject().shed(everything, PLACEHOLDER)?.specs() }
         take { links.getObject().shed().specs() }
+        take { ratings.getObject().specs() }
         take { scratchpads.getObject().shed(PLACEHOLDER)?.specs() }
         take { finishing.getObject().shed()?.specs() }
         take { pictures.getObject().shed(PLACEHOLDER, "", PLACEHOLDER, sessionId = PLACEHOLDER)?.specs() }

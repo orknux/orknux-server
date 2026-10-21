@@ -191,6 +191,8 @@ class BuiltInTools(
             io.mszymanski.orknux.server.schedule.ScheduleTools.SET,
             io.mszymanski.orknux.server.schedule.ScheduleTools.LIST,
             io.mszymanski.orknux.server.schedule.ScheduleTools.CANCEL,
+            // The rating a person gave, while Reports > Ratings is on; V403 marks it Always.
+            io.mszymanski.orknux.server.rating.RatingTools.RATE,
             /*
              * The skill tools are built-ins like the rest rather than a view of
              * the catalog grants: the skills the server brings reach every agent

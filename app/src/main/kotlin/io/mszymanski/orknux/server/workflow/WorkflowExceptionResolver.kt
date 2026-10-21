@@ -298,6 +298,7 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             /* How long a note to self may be. */
             is io.mszymanski.orknux.server.attachment.NoteLengthOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.NoteCountOutOfRangeException,
+            is io.mszymanski.orknux.server.attachment.ReviewsPerSessionOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.SessionValueSizeOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.EmptyAnswerRetriesOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.UnusableReplyRetriesOutOfRangeException,

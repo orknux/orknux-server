@@ -105,62 +105,80 @@ class UsageReportAPI(
         @Argument filter: UsageReportFilter?,
         @Argument page: Int?,
         @Argument size: Int?,
+        @Argument order: String?,
+        @Argument ascending: Boolean?,
     ): UsagePersonSessionsView {
         access.requireAdmin()
         val period = Period.of(filter)
         val who = PersonKey.parse(person) ?: return UsagePersonSessionsView(0, emptyList())
         val (where, parameters) = conditions(period, filter)
+        // A connection in the key is a link written before a Slack member was
+        // one person across connections; it still narrows to that one.
+        val theirs = "AND u.source = :who AND u.personKey = :key " +
+            (if (who.connectionId == null) "" else "AND u.connectionId = :connection ")
+        val them = parameters + buildMap {
+            put("who", who.source)
+            put("key", who.personKey)
+            who.connectionId?.let { put("connection", it) }
+        }
+        // What they used, spent and when they last prompted, in every one of their sessions:
+        // ordering a page by any of it means knowing it for the sessions off the page too.
         val mine = query(
-            // A connection in the key is a link written before a Slack member was
-            // one person across connections; it still narrows to that one.
-            "SELECT u.sessionId, SUM(u.inputTokens + u.outputTokens) FROM PersonUsage u WHERE $where " +
-                "AND u.source = :who AND u.personKey = :key " +
-                (if (who.connectionId == null) "" else "AND u.connectionId = :connection ") +
-                "GROUP BY u.sessionId",
-            parameters + buildMap {
-                put("who", who.source)
-                put("key", who.personKey)
-                who.connectionId?.let { put("connection", it) }
-            },
-        ).map { (it[0] as Long) to (it[1] as Number).toLong() }
-            .sortedByDescending { it.second }
-        val (at, take) = paging(page, size, DEFAULT_SESSIONS)
-        val shown = mine.drop(at * take).take(take)
-        if (shown.isEmpty()) return UsagePersonSessionsView(mine.size, emptyList())
-
-        val ids = shown.map { it.first }
-        // What they spent in each, and when they last prompted it, beside the tokens.
-        val spentIn = query(
-            "SELECT u.sessionId, SUM(u.cost), MAX(CASE WHEN u.unpriced = true THEN 1 ELSE 0 END), MAX(u.at) " +
-                "FROM PersonUsage u WHERE $where AND u.source = :who AND u.personKey = :key " +
-                (if (who.connectionId == null) "" else "AND u.connectionId = :connection ") +
-                "AND u.sessionId IN :ids GROUP BY u.sessionId",
-            parameters + buildMap {
-                put("who", who.source)
-                put("key", who.personKey)
-                who.connectionId?.let { put("connection", it) }
-                put("ids", ids)
-            },
+            "SELECT u.sessionId, SUM(u.inputTokens + u.outputTokens), SUM(u.cost), " +
+                "MAX(CASE WHEN u.unpriced = true THEN 1 ELSE 0 END), MAX(u.at) " +
+                "FROM PersonUsage u WHERE $where $theirs GROUP BY u.sessionId",
+            them,
         ).associateBy { it[0] as Long }
-        // Everybody in those sessions over the same period, for the share and the others.
+        if (mine.isEmpty()) return UsagePersonSessionsView(0, emptyList())
+
+        val all = mine.keys.toList()
+        // Everybody's tokens in each, for the share.
+        val sessionTokens = inChunks(all) { ids ->
+            query(
+                "SELECT u.sessionId, SUM(u.inputTokens + u.outputTokens) FROM PersonUsage u " +
+                    "WHERE $where AND u.sessionId IN :ids GROUP BY u.sessionId",
+                parameters + ("ids" to ids),
+            )
+        }.associate { (it[0] as Long) to (it[1] as Number).toLong() }
+        // Off the rows rather than the session, which may have been removed since.
+        val workspaceOf = inChunks(all) { ids ->
+            query(
+                "SELECT u.sessionId, MAX(u.workspaceId) FROM PersonUsage u WHERE u.sessionId IN :ids GROUP BY u.sessionId",
+                mapOf("ids" to ids),
+            )
+        }.associate { (it[0] as Long) to (it[1] as Long) }
+        val places = workspaces.findAllById(workspaceOf.values.toSet()).associate { it.id to it.name }
+
+        val tokensIn = { id: Long -> (mine.getValue(id)[1] as Number).toLong() }
+        val key: (Long) -> Comparable<*>? = when (order?.uppercase()) {
+            "SESSION" -> { id -> id }
+            "WORKSPACE" -> { id -> places[workspaceOf[id]]?.lowercase() }
+            "SHARE" -> { id -> tokensIn(id).toDouble() / (sessionTokens[id] ?: 0L).coerceAtLeast(1L) }
+            "COST" -> { id -> mine.getValue(id)[2] as BigDecimal? }
+            "LAST_ACTIVE" -> { id -> mine.getValue(id)[4] as OffsetDateTime? }
+            else -> tokensIn
+        }
+        @Suppress("UNCHECKED_CAST")
+        val comparator = compareBy<Long, Comparable<Any>?>(nullsFirst()) { key(it) as Comparable<Any>? }
+            .thenBy { it }
+        val up = ascending ?: (order?.uppercase() in setOf("SESSION", "WORKSPACE"))
+        val (at, take) = paging(page, size, DEFAULT_SESSIONS)
+        val shown = all.sortedWith(if (up) comparator else comparator.reversed()).drop(at * take).take(take)
+        if (shown.isEmpty()) return UsagePersonSessionsView(all.size, emptyList())
+
+        // Everybody in the sessions shown, for the others.
         val everybody = query(
             "SELECT u.sessionId, u.source, u.personKey, MAX(u.personName), SUM(u.inputTokens + u.outputTokens) " +
                 "FROM PersonUsage u WHERE $where AND u.sessionId IN :ids " +
                 "GROUP BY u.sessionId, u.source, u.personKey",
-            parameters + ("ids" to ids),
+            parameters + ("ids" to shown),
         ).groupBy { it[0] as Long }
-        val held = sessions.findAllById(ids).associateBy { it.id }
-        // Off the rows rather than the session, which may have been removed since.
-        val workspaceOf = query(
-            "SELECT u.sessionId, MAX(u.workspaceId) FROM PersonUsage u WHERE u.sessionId IN :ids GROUP BY u.sessionId",
-            mapOf("ids" to ids),
-        ).associate { (it[0] as Long) to (it[1] as Long) }
-        val places = workspaces.findAllById(workspaceOf.values.toSet()).associate { it.id to it.name }
+        val held = sessions.findAllById(shown).associateBy { it.id }
 
         return UsagePersonSessionsView(
-            total = mine.size,
-            items = shown.map { (id, tokens) ->
-                val rows = everybody[id].orEmpty()
+            total = all.size,
+            items = shown.map { id ->
+                val spent = mine.getValue(id)
                 val workspaceId = workspaceOf[id] ?: 0L
                 UsageSessionShareView(
                     sessionId = id,
@@ -170,12 +188,12 @@ class UsageReportAPI(
                     title = held[id]?.let { it.title ?: it.sessionKey },
                     workspaceId = workspaceId,
                     workspaceName = places[workspaceId],
-                    tokens = tokens.toDouble(),
-                    sessionTokens = rows.sumOf { (it[4] as Number).toLong() }.toDouble(),
-                    cost = spentIn[id]?.let { (it[1] as BigDecimal?) ?: BigDecimal.ZERO }?.let(::costOf),
-                    partlyUnpriced = spentIn[id]?.let { (it[2] as Number).toInt() == 1 } ?: false,
-                    lastActiveAt = (spentIn[id]?.get(3) as OffsetDateTime?)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
-                    others = rows
+                    tokens = tokensIn(id).toDouble(),
+                    sessionTokens = (sessionTokens[id] ?: 0L).toDouble(),
+                    cost = costOf((spent[2] as BigDecimal?) ?: BigDecimal.ZERO),
+                    partlyUnpriced = (spent[3] as Number).toInt() == 1,
+                    lastActiveAt = (spent[4] as OffsetDateTime?)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+                    others = everybody[id].orEmpty()
                         .filterNot { it[1] == who.source && it[2] == who.personKey }
                         .sortedByDescending { (it[4] as Number).toLong() }
                         .map { label(it[1] as PromptSource, it[2] as String, it[3] as String?) }
@@ -184,6 +202,10 @@ class UsageReportAPI(
             },
         )
     }
+
+    /** An IN list read in parts, because Postgres and SQLite both cap the parameters one statement may carry. */
+    private fun inChunks(ids: List<Long>, read: (List<Long>) -> List<Array<Any?>>): List<Array<Any?>> =
+        ids.chunked(IN_CHUNK).flatMap(read)
 
     /**
      * The report day by day, for the chart over the table: every day of the
@@ -379,7 +401,7 @@ class UsageReportAPI(
     }
 
     /** The days a report covers: from the start of [from] to the end of [to], in the server's zone. */
-    private data class Period(val from: OffsetDateTime, val to: OffsetDateTime) {
+    internal data class Period(val from: OffsetDateTime, val to: OffsetDateTime) {
         companion object {
             fun of(filter: UsageReportFilter?): Period {
                 val zone = ZoneId.systemDefault()
@@ -413,6 +435,7 @@ class UsageReportAPI(
     private companion object {
         const val DEFAULT_PEOPLE = 25
         const val DEFAULT_SESSIONS = 5
+        const val IN_CHUNK = 1_000
         const val MAX_PAGE = 200
     }
 }

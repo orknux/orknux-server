@@ -220,6 +220,16 @@ class UsageTracking(
     }
 
     /**
+     * Who is prompting [sessionId] now, named, by the rule the ledger books a
+     * call by - recorded whether tracking is on or not, for whoever asks.
+     */
+    fun prompterOf(sessionId: Long): Prompter =
+        named(Prompting.current() ?: inherited(sessionId) ?: Prompter.NOBODY)
+
+    /** [prompter] with what to call them, as the ledger would name them. */
+    fun named(prompter: Prompter): Prompter = prompter.copy(name = nameOf(prompter))
+
+    /**
      * Who prompted the conversation above a session that has nobody of its own.
      *
      * An asked agent's session is under the one that asked it, and the turn

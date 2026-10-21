@@ -13,10 +13,12 @@ extend type Query {
     """
     usageReport(filter: UsageReportFilter, page: Int, size: Int, order: String, ascending: Boolean): UsageReport!
     """
-    One person's sessions over the same period, biggest share first, a page at a
-    time: what they used in each, out of what everybody used there. Administrators.
+    One person's sessions over the same period, a page at a time: what they used
+    in each, out of what everybody used there. `order` is one of SESSION,
+    WORKSPACE, SHARE, COST, LAST_ACTIVE, or left out for their tokens, biggest
+    first. Administrators.
     """
-    usagePersonSessions(person: String!, filter: UsageReportFilter, page: Int, size: Int): UsagePersonSessions!
+    usagePersonSessions(person: String!, filter: UsageReportFilter, page: Int, size: Int, order: String, ascending: Boolean): UsagePersonSessions!
     """
     The same report day by day, every day of the period - a day with nothing
     recorded is there with zeros. The search narrows it to the people it

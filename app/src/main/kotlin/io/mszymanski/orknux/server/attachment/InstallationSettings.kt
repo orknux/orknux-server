@@ -59,6 +59,8 @@ object SettingNames {
     const val ATTACHMENTS_ENABLED = "attachments.enabled"
     const val CHAT_ENABLED = "chat.enabled"
     const val USAGE_TRACKING = "usage.tracking"
+    const val SESSION_RATINGS = "session.ratings"
+    const val CHAT_REVIEWS = "session.reviews.chat"
     const val METRICS_ANONYMOUS = "metrics.anonymous"
     const val REVISION_RETENTION_DAYS = "revision.retention.days"
     const val EXECUTION_RETENTION_DAYS = "execution.retention.days"
@@ -147,6 +149,7 @@ object SettingNames {
     const val RATE_LIMIT_BACKOFF_SECONDS = "model.rate.limit.backoff.seconds"
     const val NOTE_MAX_CHARACTERS = "chat.note.max.characters"
     const val NOTE_MAX_COUNT = "chat.note.max.count"
+    const val REVIEWS_PER_SESSION = "session.reviews.max"
     const val SESSION_VALUE_MAX_MB = "session.store.value.max.mb"
     const val EMPTY_ANSWER_RETRIES = "chat.retries.empty"
     const val UNUSABLE_REPLY_RETRIES = "chat.retries.unusable"
@@ -331,6 +334,34 @@ class InstallationSettings(
 
     @Transactional
     fun setUsageTracking(enabled: Boolean, by: String) = hold(SettingNames.USAGE_TRACKING, enabled, by)
+
+    /**
+     * Whether agents are offered rate_session, which records the rating a
+     * person gave a conversation. Off until an administrator turns it on, as
+     * usage tracking is; off withholds the tool, and what was recorded stays
+     * readable.
+     */
+    fun sessionRatings(): Boolean =
+        settings.findByIdOrNull(SettingNames.SESSION_RATINGS)?.value?.toBooleanStrictOrNull() ?: false
+
+    fun sessionRatingsChanged(): InstallationSetting? = settings.findByIdOrNull(SettingNames.SESSION_RATINGS)
+
+    @Transactional
+    fun setSessionRatings(enabled: Boolean, by: String) = hold(SettingNames.SESSION_RATINGS, enabled, by)
+
+    /**
+     * Whether a person may review their chat from its own "+" menu, without
+     * asking the agent. A switch apart from [sessionRatings]: the tool and the
+     * menu are two doors, and an administrator may want only one. Off until
+     * turned on.
+     */
+    fun chatReviews(): Boolean =
+        settings.findByIdOrNull(SettingNames.CHAT_REVIEWS)?.value?.toBooleanStrictOrNull() ?: false
+
+    fun chatReviewsChanged(): InstallationSetting? = settings.findByIdOrNull(SettingNames.CHAT_REVIEWS)
+
+    @Transactional
+    fun setChatReviews(enabled: Boolean, by: String) = hold(SettingNames.CHAT_REVIEWS, enabled, by)
 
     /**
      * How many days of a component's history are kept.
@@ -1358,6 +1389,26 @@ class InstallationSettings(
     fun setNoteMaxCount(count: Int, by: String) {
         if (count !in MIN_NOTE_COUNT..MAX_NOTE_COUNT) throw NoteCountOutOfRangeException(count)
         write(SettingNames.NOTE_MAX_COUNT, count.toString(), by)
+    }
+
+    /**
+     * How many reviews rate_session sends from one conversation. A person who
+     * changes their mind is a second review; an agent that sends one every
+     * turn is a report nobody can read.
+     */
+    fun reviewsPerSession(): Int {
+        val held = settings.findByIdOrNull(SettingNames.REVIEWS_PER_SESSION) ?: return reviewsPerSessionConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_REVIEWS_PER_SESSION..MAX_REVIEWS_PER_SESSION }
+            ?: reviewsPerSessionConfigured()
+    }
+
+    /** What a fresh installation allows: the built-in default. */
+    fun reviewsPerSessionConfigured(): Int = DEFAULT_REVIEWS_PER_SESSION
+
+    @Transactional
+    fun setReviewsPerSession(count: Int, by: String) {
+        if (count !in MIN_REVIEWS_PER_SESSION..MAX_REVIEWS_PER_SESSION) throw ReviewsPerSessionOutOfRangeException(count)
+        write(SettingNames.REVIEWS_PER_SESSION, count.toString(), by)
     }
 
     /**
@@ -2591,6 +2642,18 @@ class NoteLengthOutOfRangeException(val characters: Int) : RuntimeException(
  * says otherwise. Every one is read back on every later turn, so the count and
  * the length together are what notes cost a prompt.
  */
+const val MIN_REVIEWS_PER_SESSION = 1
+const val MAX_REVIEWS_PER_SESSION = 100
+const val DEFAULT_REVIEWS_PER_SESSION = 3
+
+class ReviewsPerSessionOutOfRangeException(val count: Int) : RuntimeException(
+    "$count is not a number of reviews a conversation can send. " +
+        "Choose between $MIN_REVIEWS_PER_SESSION and $MAX_REVIEWS_PER_SESSION.",
+), Refusal {
+
+    override val arguments get() = mapOf("count" to count)
+}
+
 const val MIN_NOTE_COUNT = 1
 const val MAX_NOTE_COUNT = 1000
 const val DEFAULT_NOTE_COUNT = 100

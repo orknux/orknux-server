@@ -30,6 +30,8 @@ class ChatExceptionResolver : DataFetcherExceptionResolverAdapter() {
 
             is ChatSessionNotFoundException -> ErrorType.NOT_FOUND
 
+            is io.mszymanski.orknux.server.rating.ReviewRefusedException -> ErrorType.BAD_REQUEST
+
             else -> return null
         }
 

@@ -35,6 +35,7 @@ class SessionSheds(
     private val watchers: io.mszymanski.orknux.server.watcher.WatcherTools,
     private val schedules: io.mszymanski.orknux.server.schedule.ScheduleTools,
     private val links: LinkTools,
+    private val ratings: io.mszymanski.orknux.server.rating.RatingTools,
 ) {
 
     /**
@@ -60,6 +61,8 @@ class SessionSheds(
         watchers.shed(agent, session),
         // A reminder that comes back on its own, every so often or on a cron.
         schedules.shed(agent, session),
+        // The rating the person gave the conversation, while ratings are on.
+        ratings.shed(agent, session),
     )
 
     /**
