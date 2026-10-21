@@ -113,13 +113,14 @@ class ComponentTransferAPI(
     @QueryMapping
     fun componentImportPlan(
         @Argument workspaceId: Long,
-        @Argument envelope: String,
+        @Argument envelope: String?,
+        @Argument envelopes: List<String>?,
         @Argument bindings: List<ComponentBinding>?,
         @Argument exclude: List<ComponentExclusion>?,
         @Argument rename: List<ComponentRename>?,
     ): ImportPlan {
         access.requireVisible(workspaceId)
-        return importer.plan(workspaceId, envelope, bindings.orEmpty(), exclude.orEmpty(), rename.orEmpty())
+        return importer.plan(workspaceId, files(envelope, envelopes), bindings.orEmpty(), exclude.orEmpty(), rename.orEmpty())
     }
 
     /**
@@ -132,14 +133,19 @@ class ComponentTransferAPI(
     @MutationMapping
     fun importComponents(
         @Argument workspaceId: Long,
-        @Argument envelope: String,
+        @Argument envelope: String?,
+        @Argument envelopes: List<String>?,
         @Argument bindings: List<ComponentBinding>?,
         @Argument exclude: List<ComponentExclusion>?,
         @Argument rename: List<ComponentRename>?,
     ): ImportPlan {
         access.requireVisible(workspaceId)
-        return importer.apply(workspaceId, envelope, bindings.orEmpty(), exclude.orEmpty(), rename.orEmpty())
+        return importer.apply(workspaceId, files(envelope, envelopes), bindings.orEmpty(), exclude.orEmpty(), rename.orEmpty())
     }
+
+    /** One file, several, or both: every one of them is imported together. */
+    private fun files(envelope: String?, envelopes: List<String>?): List<String> =
+        listOfNotNull(envelope) + envelopes.orEmpty()
 }
 
 /** What a duplicate came to: its kind and the name it arrived under. */

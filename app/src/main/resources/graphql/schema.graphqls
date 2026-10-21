@@ -705,7 +705,10 @@ type Query {
     """
     componentImportPlan(
         workspaceId: ID!,
-        envelope: String!,
+        "One exported file. Give this, `envelopes`, or both."
+        envelope: String,
+        "Several exported files, planned as one import."
+        envelopes: [String!],
         bindings: [ComponentBindingInput!] = [],
         exclude: [ComponentExclusionInput!] = [],
         rename: [ComponentRenameInput!] = []
@@ -736,7 +739,10 @@ type Query {
     """
     componentTemplatePlan(
         workspaceId: ID!,
-        templateId: ID!,
+        "One template. Give this, `templateIds`, or both."
+        templateId: ID,
+        "Several templates, planned as one import."
+        templateIds: [ID!],
         bindings: [ComponentBindingInput!] = [],
         exclude: [ComponentExclusionInput!] = [],
         rename: [ComponentRenameInput!] = []
@@ -1034,7 +1040,10 @@ type Mutation {
     """
     importComponents(
         workspaceId: ID!,
-        envelope: String!,
+        "One exported file. Give this, `envelopes`, or both."
+        envelope: String,
+        "Several exported files, imported together: all of them or none."
+        envelopes: [String!],
         bindings: [ComponentBindingInput!] = [],
         exclude: [ComponentExclusionInput!] = [],
         rename: [ComponentRenameInput!] = []
@@ -1088,7 +1097,10 @@ type Mutation {
     """
     useComponentTemplate(
         workspaceId: ID!,
-        templateId: ID!,
+        "One template. Give this, `templateIds`, or both."
+        templateId: ID,
+        "Several templates, used together: all of them or none."
+        templateIds: [ID!],
         bindings: [ComponentBindingInput!] = [],
         exclude: [ComponentExclusionInput!] = [],
         rename: [ComponentRenameInput!] = []

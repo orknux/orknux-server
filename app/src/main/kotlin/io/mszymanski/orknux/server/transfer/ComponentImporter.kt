@@ -120,7 +120,20 @@ class ComponentImporter(
         bindings: List<ComponentBinding> = emptyList(),
         exclude: List<ComponentExclusion> = emptyList(),
         rename: List<ComponentRename> = emptyList(),
-    ): ImportPlan = plan(workspaceId, parse(envelope), bindings, exclude, rename)
+    ): ImportPlan = plan(workspaceId, listOf(envelope), bindings, exclude, rename)
+
+    /**
+     * What importing several files at once would do: one plan over everything
+     * they hold, so a bulk import is previewed, answered and confirmed once.
+     * See [parseAll] for how two files holding the same component are met.
+     */
+    fun plan(
+        workspaceId: Long,
+        envelopes: List<String>,
+        bindings: List<ComponentBinding> = emptyList(),
+        exclude: List<ComponentExclusion> = emptyList(),
+        rename: List<ComponentRename> = emptyList(),
+    ): ImportPlan = plan(workspaceId, parseAll(envelopes), bindings, exclude, rename)
 
     /**
      * What an envelope says about itself, without a workspace in the question.
@@ -161,8 +174,18 @@ class ComponentImporter(
         bindings: List<ComponentBinding> = emptyList(),
         exclude: List<ComponentExclusion> = emptyList(),
         rename: List<ComponentRename> = emptyList(),
+    ): ImportPlan = apply(workspaceId, listOf(envelope), bindings, exclude, rename)
+
+    /** Several files as one import: all of them, in one transaction, or none. */
+    @Transactional
+    fun apply(
+        workspaceId: Long,
+        envelopes: List<String>,
+        bindings: List<ComponentBinding> = emptyList(),
+        exclude: List<ComponentExclusion> = emptyList(),
+        rename: List<ComponentRename> = emptyList(),
     ): ImportPlan {
-        val parsed = parse(envelope)
+        val parsed = parseAll(envelopes)
         val plan = plan(workspaceId, parsed, bindings, exclude, rename)
         if (!plan.importable) throw ImportNotPossibleException(plan.problems)
 
@@ -1695,6 +1718,41 @@ class ComponentImporter(
             depth = runCatching { ExportDepth.valueOf(root.text("depth").orEmpty()) }.getOrDefault(ExportDepth.DEEP),
             components = components,
             variables = variables,
+        )
+    }
+
+    /**
+     * Several files read as one.
+     *
+     * Each is checked on its own first, so a refusal still says what was wrong
+     * with a file. Two deep exports often carry the same object or function,
+     * and where the two copies are identical it is one component; where they
+     * differ there is no telling which was meant, so the import is refused
+     * rather than settled by whichever file came first.
+     */
+    private fun parseAll(envelopes: List<String>): Parsed {
+        if (envelopes.isEmpty()) throw EnvelopeInvalidException("There is nothing to import")
+        val each = envelopes.map(::parse)
+        if (each.size == 1) return each.single()
+
+        val components = linkedMapOf<Pair<ComponentKind, String>, ParsedComponent>()
+        each.flatMap { it.components }.forEach { component ->
+            val key = component.kind to component.name
+            val held = components[key]
+            when {
+                held == null -> components[key] = component
+                held.node != component.node -> throw EnvelopeInvalidException(
+                    "Two of these files hold a ${component.kind.label} called ${component.name}, and they differ; " +
+                        "import them one at a time",
+                )
+            }
+        }
+        return Parsed(
+            formatVersion = each.maxOf { it.formatVersion },
+            producedBy = each.mapNotNull { it.producedBy }.distinct().joinToString(", ").ifEmpty { null },
+            depth = if (each.any { it.depth == ExportDepth.DEEP }) ExportDepth.DEEP else each.first().depth,
+            components = components.values.toList(),
+            variables = each.flatMap { it.variables }.distinctBy { it.name },
         )
     }
 

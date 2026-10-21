@@ -413,6 +413,49 @@ class ComponentTransferAPITest(
         assertThat(landed.imports.single().importedId).isEqualTo(target.id)
     }
 
+    /** Two deep exports sharing an object: one plan, one Order, both functions. */
+    @Test
+    fun `several files import as one, and what two of them share arrives once`() {
+        val objectId = createObject(from, "Order")
+        val first = export(from, "FUNCTION", createFunction(from, "normalise", returnObjectId = objectId), "DEEP")
+        val second = export(from, "FUNCTION", createFunction(from, "price", returnObjectId = objectId), "DEEP")
+
+        val plan = importMany(into, listOf(first, second))
+
+        assertThat(plan.importable).isTrue()
+        assertThat(plan.entries.map { it.kind to it.name })
+            .containsExactlyInAnyOrder("OBJECT" to "Order", "FUNCTION" to "normalise", "FUNCTION" to "price")
+        assertThat(objects.findByWorkspaceId(into).map { it.name }).containsExactly("Order")
+        assertThat(functions.findByWorkspaceId(into).map { it.name }).containsExactlyInAnyOrder("normalise", "price")
+    }
+
+    /** The same name in two files, written differently: no guessing which was meant. */
+    @Test
+    fun `two files holding different copies of one component are refused, and nothing is written`() {
+        val one = export(from, "OBJECT", createObject(from, "Order"), "DEEP")
+        val other = mapper.readTree(one).also { root ->
+            (root.path("components").get(0) as tools.jackson.databind.node.ObjectNode).put("description", "changed")
+        }.toString()
+
+        graphQlTester.document(
+            """mutation { importComponents(workspaceId: $into, envelopes: [${quote(one)}, ${quote(other)}]) { importable } }""",
+        ).execute().errors().expect { it.message.orEmpty().contains("Two of these files hold") }.verify()
+
+        assertThat(objects.findByWorkspaceId(into)).isEmpty()
+    }
+
+    private fun importMany(workspaceId: Long, envelopes: List<String>): Plan = read(
+        graphQlTester.document(
+            """
+            mutation {
+              importComponents(workspaceId: $workspaceId, envelopes: ${envelopes.joinToString(", ", "[", "]") { quote(it) }}) {
+                importable problems entries { kind name targetName disposition carried detail }
+              }
+            }
+            """,
+        ).execute().path("importComponents").entity(Map::class.java).get().let(mapper::valueToTree),
+    )
+
     private data class Plan(val importable: Boolean, val entries: List<Entry>, val problems: List<String>)
 
     private fun export(workspaceId: Long, kind: String, id: Long, depth: String): String = graphQlTester.document(

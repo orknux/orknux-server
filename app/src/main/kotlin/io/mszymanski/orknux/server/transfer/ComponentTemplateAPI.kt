@@ -80,13 +80,14 @@ class ComponentTemplateAPI(
     @QueryMapping
     fun componentTemplatePlan(
         @Argument workspaceId: Long,
-        @Argument templateId: Long,
+        @Argument templateId: Long?,
+        @Argument templateIds: List<Long>?,
         @Argument bindings: List<ComponentBinding>?,
         @Argument exclude: List<ComponentExclusion>?,
         @Argument rename: List<ComponentRename>?,
     ): ImportPlan {
         access.requireVisible(workspaceId)
-        return importer.plan(workspaceId, templates.envelopeOf(templateId), bindings.orEmpty(), exclude.orEmpty(), rename.orEmpty())
+        return importer.plan(workspaceId, envelopesOf(templateId, templateIds), bindings.orEmpty(), exclude.orEmpty(), rename.orEmpty())
     }
 
     /** Publishes a file somebody uploaded. Administrators only. */
@@ -176,14 +177,19 @@ class ComponentTemplateAPI(
     @MutationMapping
     fun useComponentTemplate(
         @Argument workspaceId: Long,
-        @Argument templateId: Long,
+        @Argument templateId: Long?,
+        @Argument templateIds: List<Long>?,
         @Argument bindings: List<ComponentBinding>?,
         @Argument exclude: List<ComponentExclusion>?,
         @Argument rename: List<ComponentRename>?,
     ): ImportPlan {
         access.requireVisible(workspaceId)
-        return importer.apply(workspaceId, templates.envelopeOf(templateId), bindings.orEmpty(), exclude.orEmpty(), rename.orEmpty())
+        return importer.apply(workspaceId, envelopesOf(templateId, templateIds), bindings.orEmpty(), exclude.orEmpty(), rename.orEmpty())
     }
+
+    /** One template, several, or both, each once: used together as one import. */
+    private fun envelopesOf(templateId: Long?, templateIds: List<Long>?): List<String> =
+        (listOfNotNull(templateId) + templateIds.orEmpty()).distinct().map(templates::envelopeOf)
 
     private fun requireEnvelope(envelope: String?): String =
         envelope?.takeIf { it.isNotBlank() } ?: throw TemplateNameInvalidException("A template needs a file")
