@@ -219,6 +219,8 @@ class OrknuxTools(
     /** The plugin tools a grant may name, as the agent form is offered them. Lazy for the same cycle. */
     @param:Lazy private val pluginApi: io.mszymanski.orknux.server.plugin.PluginAPI,
     private val models: io.mszymanski.orknux.connector.model.ModelService,
+    /** The model page's own save, for its access check and audit entry. Lazy: it is a controller. */
+    @param:Lazy private val modelApi: io.mszymanski.orknux.server.model.ModelAPI,
     private val connections: io.mszymanski.orknux.connector.connection.WorkspaceConnectionService,
     private val mcpServers: io.mszymanski.orknux.connector.connection.McpServerService,
     transactionManager: org.springframework.transaction.PlatformTransactionManager,
@@ -321,11 +323,40 @@ class OrknuxTools(
             ToolSpec(
                 name = MODELS,
                 description =
-                    "The models this workspace has, with their ids. An agent needs a CHAT model; the id is " +
-                        "what $CREATE_AGENT and $UPDATE_AGENT take.",
+                    "The models this workspace has, with their ids, the provider each is reached through and the " +
+                        "name the provider knows it by, its limits and its prices per million tokens. An agent " +
+                        "needs a CHAT model; the id is what $CREATE_AGENT and $UPDATE_AGENT take.",
                 parameters = emptyList(),
             ),
         )
+        // Offered only where it can be called, as the other writes are.
+        if (scope.mayWrite) {
+            add(
+                ToolSpec(
+                    name = UPDATE_MODEL,
+                    description =
+                        "Changes a model's settings - its prices, its limits, its name, the name its provider " +
+                            "knows it by. Give only what changes; everything else is kept. Prices are in dollars " +
+                            "per million tokens, as $MODELS shows them; null clears one.",
+                    parameters = listOf(
+                        ToolParameterSpec("model", "The model's name, or its id, from $MODELS.", required = true),
+                        ToolParameterSpec("name", "What it is called here.", required = false),
+                        ToolParameterSpec("providerModel", "The name or deployment its provider knows it by.", required = false),
+                        ToolParameterSpec("contextWindow", "How many tokens it reads at most.", required = false, schema = NULLABLE_INTEGER),
+                        ToolParameterSpec("maxOutput", "How many tokens it writes at most.", required = false, schema = NULLABLE_INTEGER),
+                        ToolParameterSpec("inputCostPerMillion", "Input price, dollars per million tokens.", required = false, schema = NULLABLE_NUMBER),
+                        ToolParameterSpec(
+                            "cachedInputCostPerMillion",
+                            "Cached input price, dollars per million tokens; null charges it at the input price.",
+                            required = false,
+                            schema = NULLABLE_NUMBER,
+                        ),
+                        ToolParameterSpec("outputCostPerMillion", "Output price, dollars per million tokens.", required = false, schema = NULLABLE_NUMBER),
+                        ToolParameterSpec("imageCostPerImage", "What one picture costs, for an IMAGE model, in dollars.", required = false, schema = NULLABLE_NUMBER),
+                    ),
+                ),
+            )
+        }
 
         /*
          * The conversations, and what was said in them. Issue #524.
@@ -823,6 +854,7 @@ class OrknuxTools(
             MODELS -> modelList(scope)
             CREATE_AGENT -> createAgent(scope, arguments)
             UPDATE_AGENT -> updateAgent(scope, arguments)
+            UPDATE_MODEL -> updateModel(scope, arguments)
             "orknux_sessions" -> sessionList(scope, arguments)
             "orknux_session" -> sessionLog(scope, arguments)
             "orknux_functions" -> functionList(scope)
@@ -1142,11 +1174,95 @@ class OrknuxTools(
                     "name" to it.name,
                     "kind" to it.kind,
                     "provider" to it.providerName,
+                    "providerModel" to it.modelId,
                     "enabled" to it.enabled,
+                    "contextWindow" to it.contextWindow,
+                    "maxOutput" to it.maxOutput,
+                    "inputCostPerMillion" to it.inputCostPerMillion,
+                    "cachedInputCostPerMillion" to it.cachedInputCostPerMillion,
+                    "outputCostPerMillion" to it.outputCostPerMillion,
+                    "imageCostPerImage" to it.imageCostPerImage,
+                    "url" to "/workspace/${scope.workspaceId}/models/${it.id}",
                 )
             },
         ),
     )
+
+    /**
+     * The model page's save, with every field read off the model as it stands
+     * except the ones asked to change - the form sends the whole form, and on
+     * it an absent price means "clear it". Through [modelApi], so the access
+     * check and the audit entry are the browser's own.
+     */
+    private fun updateModel(scope: OrknuxScope, arguments: String): String {
+        if (!scope.mayWrite) return readOnly()
+        val node = runCatching { mapper.readTree(arguments) }.getOrNull()?.takeIf { it.isObject }
+            ?: return refuse("The arguments are not a JSON object")
+        // A name, or an id a model may well send as a number.
+        val which = (text(arguments, "model") ?: number(arguments, "model")?.toString())?.trim()
+            ?: return refuse("Which model? Give its name or id, from $MODELS.")
+        val all = models.models(scope.workspaceId)
+        val held = all.firstOrNull { it.id.toString() == which } ?: all.firstOrNull { it.name.equals(which, ignoreCase = true) }
+            ?: return refuse("There is no model called $which here - $MODELS lists them")
+
+        val input = runCatching {
+            io.mszymanski.orknux.connector.model.UpdateModelInput(
+                name = text(arguments, "name") ?: held.name,
+                modelId = text(arguments, "providerModel") ?: held.modelId,
+                kind = held.kind,
+                contextWindow = whole(node, "contextWindow", held.contextWindow),
+                maxOutput = whole(node, "maxOutput", held.maxOutput),
+                parallelToolCalls = held.parallelToolCalls,
+                reasoningEffort = held.reasoningEffort,
+                temperature = held.temperature,
+                topP = held.topP,
+                topK = held.topK,
+                minP = held.minP,
+                repeatPenalty = held.repeatPenalty,
+                inputCostPerMillion = dollars(node, "inputCostPerMillion", held.inputCostPerMillion),
+                outputCostPerMillion = dollars(node, "outputCostPerMillion", held.outputCostPerMillion),
+                cachedInputCostPerMillion = dollars(node, "cachedInputCostPerMillion", held.cachedInputCostPerMillion),
+                voice = held.voice,
+                skipEmptyLines = held.skipEmptyLines,
+                imageCostPerImage = dollars(node, "imageCostPerImage", held.imageCostPerImage),
+            )
+        }.getOrElse { return refuse(it.message ?: "Those settings could not be read") }
+
+        val saved = runCatching {
+            access.actingIn(scope.workspaceId, scope.actor) { writing.execute { modelApi.updateModel(held.id, input) } }
+        }.getOrElse { return refuse(it.message ?: "The model could not be saved") }
+        return mapper.writeValueAsString(
+            mapOf(
+                "updated" to saved?.name,
+                "id" to saved?.id,
+                "providerModel" to saved?.modelId,
+                "inputCostPerMillion" to saved?.inputCostPerMillion,
+                "cachedInputCostPerMillion" to saved?.cachedInputCostPerMillion,
+                "outputCostPerMillion" to saved?.outputCostPerMillion,
+                "url" to "/workspace/${scope.workspaceId}/models/${saved?.id}",
+            ),
+        )
+    }
+
+    /** A price as given, [now] where it was not, null where it was cleared; a model may send it as text. */
+    private fun dollars(node: tools.jackson.databind.JsonNode, name: String, now: Double?): Double? {
+        if (!node.has(name)) return now
+        val value = node.path(name)
+        if (value.isNull) return null
+        val read = if (value.isNumber) value.asDouble() else value.stringValue()?.trim()?.toDoubleOrNull()
+        require(read != null && read >= 0) { "$name has to be a number of dollars, 0 or more" }
+        return read
+    }
+
+    /** A token count as given, [now] where it was not, null where it was cleared. */
+    private fun whole(node: tools.jackson.databind.JsonNode, name: String, now: Int?): Int? {
+        if (!node.has(name)) return now
+        val value = node.path(name)
+        if (value.isNull) return null
+        val read = if (value.isIntegralNumber) value.asInt() else value.stringValue()?.trim()?.toIntOrNull()
+        require(read != null && read > 0) { "$name has to be a whole number above 0" }
+        return read
+    }
 
     /** What create and update both take, beyond a name. */
     private fun agentSettings(): List<ToolParameterSpec> = listOf(
@@ -1861,6 +1977,9 @@ class OrknuxTools(
         const val MODELS = "orknux_models"
         const val CREATE_AGENT = "orknux_create_agent"
         const val UPDATE_AGENT = "orknux_update_agent"
+        const val UPDATE_MODEL = "orknux_update_model"
+        val NULLABLE_INTEGER = mapOf("type" to listOf("integer", "null"))
+        val NULLABLE_NUMBER = mapOf("type" to listOf("number", "null"))
         const val TOOLS = "orknux_tools"
 
         /** One page, big enough that a workspace's whole catalogue fits in it. */

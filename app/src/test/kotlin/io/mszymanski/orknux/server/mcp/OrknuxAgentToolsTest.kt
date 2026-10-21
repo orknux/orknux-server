@@ -277,4 +277,44 @@ class OrknuxAgentToolsTest(
         assertThat(agents.findAll()).isEmpty()
         assertThat(tools.specs(writing()).map { it.name }).contains("orknux_create_agent", "orknux_update_agent")
     }
+
+    /**
+     * Asked for from Slack: an agent told to fill in Azure prices answered that
+     * it had no tool to edit a price and that reading the models showed none.
+     */
+    @Test
+    fun `an agent reads a model's prices and changes only the ones it names`() {
+        val id = model("GPT Luna")
+        graphQlTester.document(
+            """mutation { updateModel(id: $id, input: { name: "GPT Luna", modelId: "gpt-luna", contextWindow: 400000,
+                 inputCostPerMillion: 1.0, outputCostPerMillion: 8.0 }) { id } }""",
+        ).execute().errors().verify()
+
+        assertThat(tools.specs(reading()).map { it.name }).doesNotContain("orknux_update_model")
+        assertThat(call(reading(), "orknux_update_model", mapOf("model" to "GPT Luna")).path("error").isMissingNode).isFalse()
+
+        val listed = call(reading(), "orknux_models", emptyMap()).path("models").get(0)
+        assertThat(listed.path("providerModel").asString()).isEqualTo("gpt-luna")
+        assertThat(listed.path("inputCostPerMillion").asDouble()).isEqualTo(1.0)
+
+        val saved = call(
+            writing(),
+            "orknux_update_model",
+            mapOf("model" to "gpt luna", "cachedInputCostPerMillion" to "0.25", "outputCostPerMillion" to 10, "inputCostPerMillion" to null),
+        )
+        assertThat(saved.path("error").isMissingNode).isTrue()
+        val now = requireNotNull(models.findById(id).orElse(null))
+        assertThat(now.cachedInputCostPerMillion?.toDouble()).isEqualTo(0.25)
+        assertThat(now.outputCostPerMillion?.toDouble()).isEqualTo(10.0)
+        assertThat(now.inputCostPerMillion).isNull()
+        // What was not named is kept.
+        assertThat(now.contextWindow).isEqualTo(400000)
+        assertThat(now.modelId).isEqualTo("gpt-luna")
+        assertThat(audit.findAll().map { it.message }).contains("Model GPT Luna updated")
+
+        assertThat(call(writing(), "orknux_update_model", mapOf("model" to id, "outputCostPerMillion" to -1)).path("error").asString())
+            .contains("0 or more")
+        assertThat(call(writing(), "orknux_update_model", mapOf("model" to "nothing")).path("error").asString())
+            .contains("orknux_models")
+    }
 }
