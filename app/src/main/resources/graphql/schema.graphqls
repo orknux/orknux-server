@@ -2731,6 +2731,9 @@ enum NodeShape {
     PILL
     NOTCHED
     HEXAGON
+    CIRCLE
+    TRIANGLE
+    STAR
 }
 
 enum NodeKind {

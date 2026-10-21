@@ -48,6 +48,9 @@ enum class NodeShape {
     PILL,
     NOTCHED,
     HEXAGON,
+    CIRCLE,
+    TRIANGLE,
+    STAR,
 }
 
 enum class NodeKind {
