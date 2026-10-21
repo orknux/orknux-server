@@ -106,10 +106,11 @@ class WorkspaceSharingTest(
         assertThat(secretVariables.find(borrower, token)).isNull()
 
         val lent = share("VARIABLE_CATALOG", catalog).path("shareWithWorkspace.id").entity(Long::class.java).get()
-        val offered = graphQlTester.document("query { lentVariables(workspaceId: $borrower) { name catalogName value } }").execute()
+        val offered = graphQlTester.document("query { lentVariables(workspaceId: $borrower) { name catalogName value lentFrom } }").execute()
             .path("lentVariables[*].name").entityList(String::class.java).containsExactly("region", "token")
             .path("lentVariables[0].value").valueIsNull()
-        assertThat(offered.path("lentVariables[0].catalogName").entity(String::class.java).get()).startsWith("Shared keys · platform-")
+        assertThat(offered.path("lentVariables[0].catalogName").entity(String::class.java).get()).startsWith("Shared keys · shared from platform-")
+        assertThat(offered.path("lentVariables[0].lentFrom").entity(String::class.java).get()).startsWith("platform-")
         assertThat(secretVariables.find(borrower, token)?.value).isEqualTo("s3cret")
 
         graphQlTester.document("mutation { removeWorkspaceShare(id: $lent) }").execute().errors().verify()

@@ -6221,6 +6221,8 @@ type Variable {
     createdBy: String!
     lastModifiedAt: String!
     lastModifiedBy: String!
+    "The workspace that lends it, for a variable of a catalog another workspace lends; null for the workspace's own."
+    lentFrom: String
 }
 
 type VariablePage {

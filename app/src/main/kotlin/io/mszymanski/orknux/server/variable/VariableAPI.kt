@@ -160,7 +160,8 @@ class VariableAPI(
         return sharing.catalogsLentTo(workspaceId).flatMap { (share, catalog) ->
             val owner = sharing.workspaceName(share.ownerWorkspaceId)
             variables.findByCatalogId(requireNotNull(catalog.id)).map {
-                describe(it).copy(value = null, catalogName = "${catalog.name} · ${owner ?: "—"}")
+                // The catalog's name says whose it is wherever it is shown, and lentFrom lets a screen mark it.
+                describe(it).copy(value = null, catalogName = "${catalog.name} · shared from ${owner ?: "—"}", lentFrom = owner ?: "—")
             }
         }.sortedBy { it.name.lowercase() }
     }
@@ -621,6 +622,8 @@ data class VariableView(
     /** ISO-8601 offset date-time. */
     val lastModifiedAt: String,
     val lastModifiedBy: String,
+    /** The workspace that lends it, for a variable of a catalog lent to this one; null for the workspace's own. */
+    val lentFrom: String? = null,
 )
 
 data class VariablePage(
