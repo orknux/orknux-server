@@ -35,9 +35,9 @@ class ModelUsageRecorder(
      * assertion failure from Hibernate. Issue #599.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    fun record(modelId: Long, inputTokens: Long, outputTokens: Long, millis: Long, cachedTokens: Long = 0) {
+    fun record(modelId: Long, inputTokens: Long, outputTokens: Long, millis: Long, cachedTokens: Long = 0, cacheWriteTokens: Long = 0) {
         // Summed, not averaged: the mean over a window is the total time over
         // the total requests, which is what `ModelService.usage` works out.
-        usage.addCall(modelId, LocalDate.now(clock), inputTokens, outputTokens, millis, cachedTokens)
+        usage.addCall(modelId, LocalDate.now(clock), inputTokens, outputTokens, millis, cachedTokens, cacheWriteTokens)
     }
 }

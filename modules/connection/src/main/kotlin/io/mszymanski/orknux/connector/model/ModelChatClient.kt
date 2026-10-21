@@ -159,6 +159,8 @@ sealed interface ChatCompletion {
         val reasoningMillis: Long = 0,
         /** How many of [inputTokens] the provider reused from its cache, where it said. */
         val cachedInputTokens: Long = 0,
+        /** How many of [inputTokens] the provider wrote into its cache, where it said and charges for it. */
+        val cacheWriteTokens: Long = 0,
     ) : ChatCompletion
 
     /**
@@ -175,6 +177,8 @@ sealed interface ChatCompletion {
         val outputTokens: Long = 0,
         /** How many of [inputTokens] the provider reused from its cache, where it said. */
         val cachedInputTokens: Long = 0,
+        /** How many of [inputTokens] the provider wrote into its cache, where it said. */
+        val cacheWriteTokens: Long = 0,
         /**
          * What it thought before deciding to look something up. A reasoning
          * model does most of its thinking here rather than in the round that
@@ -296,14 +300,18 @@ class ModelChatClient(
         // time, so it counts: an agent's real cost is every round it took.
         when (answer) {
             is ChatCompletion.Answered -> {
-                runCatching { usage.record(modelId, answer.inputTokens, answer.outputTokens, answer.millis, answer.cachedInputTokens) }
+                runCatching {
+                    usage.record(modelId, answer.inputTokens, answer.outputTokens, answer.millis, answer.cachedInputTokens, answer.cacheWriteTokens)
+                }
                 // The tokens this call spent, into the throttle's window, so the
                 // rate it holds the model to reflects what was actually used and
                 // not just how often it was called. Issue #426.
                 runCatching { throttle.recordUsage(modelId, answer.inputTokens + answer.outputTokens) }
             }
             is ChatCompletion.CalledTools -> {
-                runCatching { usage.record(modelId, answer.inputTokens, answer.outputTokens, answer.millis, answer.cachedInputTokens) }
+                runCatching {
+                    usage.record(modelId, answer.inputTokens, answer.outputTokens, answer.millis, answer.cachedInputTokens, answer.cacheWriteTokens)
+                }
                 runCatching { throttle.recordUsage(modelId, answer.inputTokens + answer.outputTokens) }
             }
             is ChatCompletion.Failed -> Unit
@@ -313,16 +321,38 @@ class ModelChatClient(
 
     /**
      * What the provider said the call cost. OpenAI reports
-     * `usage.prompt_tokens` / `completion_tokens`; Anthropic reports
-     * `usage.input_tokens` / `output_tokens`. A provider that reports neither
-     * leaves them zero rather than being guessed at.
+     * `usage.prompt_tokens` / `completion_tokens`, with what its cache served
+     * and - on OpenRouter - what it wrote under `prompt_tokens_details`;
+     * Anthropic reports `usage.input_tokens` / `output_tokens`, on a stream's
+     * `message_start` under `message`, with `cache_read_input_tokens` and
+     * `cache_creation_input_tokens` beside them. A provider that reports none
+     * of it leaves them zero rather than being guessed at.
+     *
+     * Anthropic's `input_tokens` leaves out the tokens read from or written to
+     * its cache; they are added back, so [Tokens.input] is every token the
+     * model read, as OpenAI counts it and as the pricing reads it.
      */
-    private fun tokensOf(body: String): Pair<Long, Long> = runCatching {
-        val usageNode = mapper.readTree(body).path("usage")
-        val input = usageNode.path("prompt_tokens").asLong(usageNode.path("input_tokens").asLong(0))
-        val output = usageNode.path("completion_tokens").asLong(usageNode.path("output_tokens").asLong(0))
-        input to output
-    }.getOrDefault(0L to 0L)
+    private fun tokensOf(body: String): Tokens = runCatching {
+        val root = mapper.readTree(body)
+        val usageNode = root.path("usage").takeUnless { it.isMissingNode } ?: root.path("message").path("usage")
+        val details = usageNode.path("prompt_tokens_details")
+        val read = usageNode.path("cache_read_input_tokens").asLong(0)
+        val written = usageNode.path("cache_creation_input_tokens").asLong(0)
+        val input = if (usageNode.has("prompt_tokens")) {
+            usageNode.path("prompt_tokens").asLong(0)
+        } else {
+            usageNode.path("input_tokens").asLong(0) + read + written
+        }
+        Tokens(
+            input = input,
+            output = usageNode.path("completion_tokens").asLong(usageNode.path("output_tokens").asLong(0)),
+            cached = details.path("cached_tokens").asLong(read),
+            written = details.path("cache_write_tokens").asLong(written),
+        )
+    }.getOrDefault(Tokens())
+
+    /** One call's counts; see [tokensOf]. */
+    private data class Tokens(val input: Long = 0, val output: Long = 0, val cached: Long = 0, val written: Long = 0)
 
     private val client: HttpClient = proxies.builder()
         .version(HttpClient.Version.HTTP_1_1)
@@ -441,6 +471,8 @@ class ModelChatClient(
             val thinking = StringBuilder()
             var input = 0L
             var output = 0L
+            var cached = 0L
+            var written = 0L
             /*
              * One splitter for the whole stream, because a tag arrives in
              * pieces. See [ThinkTags]: a provider is free to send `<thi` and
@@ -502,9 +534,11 @@ class ModelChatClient(
                     // rather than from the answer.
                     if (line.startsWith(DATA_PREFIX)) {
                         val payload = line.removePrefix(DATA_PREFIX).trim()
-                        val (frameInput, frameOutput) = tokensOf(payload)
-                        if (frameInput > 0) input = frameInput
-                        if (frameOutput > 0) output = frameOutput
+                        val frame = tokensOf(payload)
+                        if (frame.input > 0) input = frame.input
+                        if (frame.output > 0) output = frame.output
+                        if (frame.cached > 0) cached = frame.cached
+                        if (frame.written > 0) written = frame.written
                         gatherCalls(payload, ready.anthropic, asked)
                         callingSoFar(asked.values.map { it.name to it.arguments.length })?.let { (tool, chars) ->
                             onCalling(tool, chars)
@@ -541,6 +575,8 @@ class ModelChatClient(
                         millis = millis,
                         inputTokens = input,
                         outputTokens = output,
+                        cachedInputTokens = cached,
+                        cacheWriteTokens = written,
                         reasoning = thinking.toString(),
                         reasoningMillis = thoughtFor,
                     ),
@@ -571,6 +607,8 @@ class ModelChatClient(
                         output,
                         thinking.toString(),
                         thoughtFor,
+                        cachedInputTokens = cached,
+                        cacheWriteTokens = written,
                     ),
                 )
             }
@@ -744,7 +782,8 @@ class ModelChatClient(
         told: (String) -> Unit = {},
         thought: (String) -> Unit = {},
     ): ChatCompletion {
-        val (input, output) = tokensOf(body)
+        val counts = tokensOf(body)
+        val (input, output) = counts.input to counts.output
         val named = if (ready.anthropic) anthropicReasoning(body) else openAiReasoning(body)
 
         // A model that asked for tools has not answered yet, and its text —
@@ -797,6 +836,8 @@ class ModelChatClient(
                     millis = millis,
                     inputTokens = input,
                     outputTokens = output,
+                    cachedInputTokens = counts.cached,
+                    cacheWriteTokens = counts.written,
                     reasoning = split.thought,
                 ),
             )
@@ -817,7 +858,14 @@ class ModelChatClient(
         }
         if (split.thought.isNotEmpty()) thought(split.thought)
         told(split.said)
-        return counted(modelId, ChatCompletion.Answered(split.said, millis, input, output, split.thought))
+        return counted(
+            modelId,
+            ChatCompletion.Answered(
+                split.said, millis, input, output, split.thought,
+                cachedInputTokens = counts.cached,
+                cacheWriteTokens = counts.written,
+            ),
+        )
     }
 
     /**
@@ -1090,6 +1138,7 @@ class ModelChatClient(
                     inputTokens = outcome.inputTokens,
                     outputTokens = outcome.outputTokens,
                     cachedInputTokens = outcome.cachedInputTokens,
+                    cacheWriteTokens = outcome.cacheWriteTokens,
                     reasoning = split.thought,
                     reasoningMillis = outcome.thoughtMillis,
                 ),
@@ -1115,6 +1164,7 @@ class ModelChatClient(
                 split.thought,
                 outcome.thoughtMillis,
                 cachedInputTokens = outcome.cachedInputTokens,
+                cacheWriteTokens = outcome.cacheWriteTokens,
             ),
         )
     }

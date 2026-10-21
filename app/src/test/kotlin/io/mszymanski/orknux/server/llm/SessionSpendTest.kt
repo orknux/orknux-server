@@ -36,7 +36,7 @@ class SessionSpendTest(
         session = recorder.open(workspaceId, "test", "spend-${System.nanoTime()}")
     }
 
-    private fun model(inputPrice: Double?, outputPrice: Double?, cachedPrice: Double? = null): Long {
+    private fun model(inputPrice: Double?, outputPrice: Double?, cachedPrice: Double? = null, writePrice: Double? = null): Long {
         val providerId = graphQlTester.document(
             """mutation { createModelProvider(input: {
                  workspaceId: $workspaceId, name: "Stub ${System.nanoTime()}", endpoint: "http://stub.invalid", secret: "sk-test"
@@ -46,6 +46,7 @@ class SessionSpendTest(
             inputPrice?.let { "inputCostPerMillion: $it" },
             outputPrice?.let { "outputCostPerMillion: $it" },
             cachedPrice?.let { "cachedInputCostPerMillion: $it" },
+            writePrice?.let { "cacheWriteCostPerMillion: $it" },
         ).joinToString("") { ", $it" }
         return graphQlTester.document(
             """mutation { createModel(input: {
@@ -83,6 +84,28 @@ class SessionSpendTest(
         spend.add(session, model(inputPrice = 2.0, outputPrice = 10.0), call)
         // No cached price: the whole million at the input price, as before.
         spent().path("llmSession.spent.cost").entity(Double::class.java).isEqualTo(3.0)
+    }
+
+    /** Input written into the cache is charged at the write price, and at the input price where there is none. */
+    @Test
+    fun `cache writes are charged at the write price, and at the input price where there is none`() {
+        val call = ChatCompletion.CalledTools(
+            calls = emptyList(),
+            millis = 10,
+            inputTokens = 1_000_000,
+            outputTokens = 0,
+            cachedInputTokens = 400_000,
+            cacheWriteTokens = 200_000,
+            turn = ChatTurn(role = "assistant", content = ""),
+        )
+        spend.add(session, model(inputPrice = 2.0, outputPrice = 10.0, cachedPrice = 0.2, writePrice = 2.5), call)
+        // 400k at 2.00, 400k cached at 0.20, 200k written at 2.50.
+        spent().path("llmSession.spent.cost").entity(Double::class.java).isEqualTo(1.38)
+
+        session = recorder.open(workspaceId, "test", "spend-${System.nanoTime()}")
+        spend.add(session, model(inputPrice = 2.0, outputPrice = 10.0, cachedPrice = 0.2), call)
+        // No write price: the 200k at the input price, as before.
+        spent().path("llmSession.spent.cost").entity(Double::class.java).isEqualTo(1.28)
     }
 
     @Test

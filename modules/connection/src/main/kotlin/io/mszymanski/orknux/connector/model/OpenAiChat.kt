@@ -113,6 +113,7 @@ class OpenAiChat(
             inputTokens = usage?.promptTokens() ?: 0,
             outputTokens = usage?.completionTokens() ?: 0,
             cachedInputTokens = cachedOf(usage, answer._additionalProperties()),
+            cacheWriteTokens = writtenOf(usage),
             stopReason = runCatching { answer.choices().firstOrNull()?.finishReason()?.asString() }.getOrNull(),
         )
     }
@@ -164,6 +165,7 @@ class OpenAiChat(
         var input = 0L
         var output = 0L
         var cached = 0L
+        var written = 0L
         /** Why the stream ended, from the frame that said. */
         var stopped: String? = null
 
@@ -241,6 +243,7 @@ class OpenAiChat(
                     output = it.completionTokens()
                 }
                 cachedOf(chunk.usage().orElse(null), chunk._additionalProperties()).takeIf { it > 0 }?.let { cached = it }
+                writtenOf(chunk.usage().orElse(null)).takeIf { it > 0 }?.let { written = it }
                 /*
                  * Read as optional, though the SDK calls it required. Azure
                  * OpenAI sends choices that carry only their content-filter
@@ -318,6 +321,7 @@ class OpenAiChat(
             inputTokens = input,
             outputTokens = output,
             cachedInputTokens = cached,
+            cacheWriteTokens = written,
             stopReason = stopped,
         )
     }
@@ -347,6 +351,8 @@ class OpenAiChat(
             val outputTokens: Long = 0,
             /** How many of [inputTokens] the provider reused from its cache, where it said. */
             val cachedInputTokens: Long = 0,
+            /** How many of [inputTokens] the provider wrote into its cache, where it said. */
+            val cacheWriteTokens: Long = 0,
             /** What the Responses API asked to be handed back next round; see [ChatTurn.reasoningItems]. */
             val reasoningItems: List<String> = emptyList(),
             /** Why the provider stopped - `stop`, `length`, `tool_calls` - where it said. */
@@ -533,6 +539,20 @@ class OpenAiChat(
      * session, input that counts every round's whole prompt reads as millions
      * of tokens a local server mostly never processed again. Issue #627.
      */
+    /**
+     * What the provider wrote into its cache, which some charge for above the
+     * input price: OpenRouter says `prompt_tokens_details.cache_write_tokens`,
+     * an Anthropic model behind an OpenAI-shaped endpoint
+     * `usage.cache_creation_input_tokens`. OpenAI itself charges nothing for it
+     * and says nothing, which reads as nought.
+     */
+    private fun writtenOf(usage: com.openai.models.completions.CompletionUsage?): Long {
+        if (usage == null) return 0
+        val details = usage.promptTokensDetails().orElse(null)?._additionalProperties()
+        val number = { value: JsonValue? -> value?.asNumber()?.orElse(null)?.toLong() }
+        return number(details?.get(CACHE_WRITE)) ?: number(usage._additionalProperties()[CACHE_CREATION]) ?: 0
+    }
+
     private fun cachedOf(usage: com.openai.models.completions.CompletionUsage?, properties: Map<String, JsonValue>?): Long {
         val reported = usage?.promptTokensDetails()?.orElse(null)?.cachedTokens()?.orElse(null)
         if (reported != null && reported > 0) return reported
@@ -556,6 +576,10 @@ class OpenAiChat(
         /** llama.cpp's own account of a request, beside the OpenAI usage, and the cached prompt tokens in it. */
         const val TIMINGS = "timings"
         const val CACHE_N = "cache_n"
+
+        /** The two names a cache write is reported under; see [writtenOf]. */
+        const val CACHE_WRITE = "cache_write_tokens"
+        const val CACHE_CREATION = "cache_creation_input_tokens"
 
         /** Three spellings, because three vendors chose three. */
         private val REASONING_FIELDS = listOf("reasoning", "reasoning_content", "thinking")

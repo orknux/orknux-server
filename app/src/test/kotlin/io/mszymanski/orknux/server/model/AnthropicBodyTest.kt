@@ -72,6 +72,10 @@ class AnthropicBodyTest(
     /** Every request body the stub was sent. */
     private val sent = CopyOnWriteArrayList<String>()
 
+    /** What the stub answers with; a test that needs other counts says so. */
+    private var reply = """{"content":[{"type":"text","text":"A picture of nothing much."}],
+                "usage":{"input_tokens":11,"output_tokens":7}}"""
+
     @BeforeEach
     fun start() {
         sent.clear()
@@ -90,9 +94,7 @@ class AnthropicBodyTest(
         }
         provider.createContext("/") { exchange ->
             sent += exchange.requestBody.readBytes().toString(StandardCharsets.UTF_8)
-            val body = """{"content":[{"type":"text","text":"A picture of nothing much."}],
-                "usage":{"input_tokens":11,"output_tokens":7}}"""
-                .toByteArray(StandardCharsets.UTF_8)
+            val body = reply.toByteArray(StandardCharsets.UTF_8)
             exchange.responseHeaders.add("Content-Type", "application/json")
             exchange.sendResponseHeaders(200, body.size.toLong())
             exchange.responseBody.use { it.write(body) }
@@ -311,4 +313,23 @@ class AnthropicBodyTest(
 
     private val endpoint: String
         get() = "http://${provider.address.hostString}:${provider.address.port}"
+
+    /**
+     * What Anthropic says it read from and wrote into its prompt cache, which
+     * its `input_tokens` leaves out: added back, so the input is every token
+     * read as OpenAI counts it, and kept apart so each is charged at its price.
+     */
+    @Test
+    fun `an Anthropic answer's cache reads and writes are counted`() {
+        reply = """{"content":[{"type":"text","text":"Hello."}],
+            "usage":{"input_tokens":11,"output_tokens":7,"cache_read_input_tokens":300,"cache_creation_input_tokens":50}}"""
+        val answer = chat.complete(anthropicModel(), listOf(ChatTurn(role = "user", content = "Hi")))
+
+        assertThat(answer).isInstanceOf(ChatCompletion.Answered::class.java)
+        answer as ChatCompletion.Answered
+        assertThat(answer.inputTokens).isEqualTo(361)
+        assertThat(answer.cachedInputTokens).isEqualTo(300)
+        assertThat(answer.cacheWriteTokens).isEqualTo(50)
+        assertThat(usage.findAll().single().cacheWriteTokens).isEqualTo(50)
+    }
 }

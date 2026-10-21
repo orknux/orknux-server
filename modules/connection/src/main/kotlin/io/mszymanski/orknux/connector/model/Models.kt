@@ -585,6 +585,7 @@ fun LlmModel.copied(providerId: Long, name: String): LlmModel = LlmModel(
         inputCostPerMillion = inputCostPerMillion,
         outputCostPerMillion = outputCostPerMillion,
         cachedInputCostPerMillion = cachedInputCostPerMillion,
+        cacheWriteCostPerMillion = cacheWriteCostPerMillion,
         voice = voice,
         skipEmptyLines = skipEmptyLines,
         imageCostPerImage = imageCostPerImage,
@@ -757,6 +758,14 @@ class LlmModel(
     var cachedInputCostPerMillion: BigDecimal? = null,
 
     /**
+     * What input the provider writes into its prompt cache costs, per million.
+     * Anthropic bills it above the input price; OpenAI does not bill it and
+     * does not report it. Null charges it at [inputCostPerMillion].
+     */
+    @Column(name = "cache_write_cost_per_million", precision = 12, scale = 4)
+    var cacheWriteCostPerMillion: BigDecimal? = null,
+
+    /**
      * Which voice a [ModelKind.SPEECH] model reads in.
      *
      * Null falls back to the installation's `speech-default-voice` rather than
@@ -843,6 +852,10 @@ class ModelUsageDay(
     @Column(name = "cached_tokens", nullable = false)
     var cachedTokens: Long = 0,
 
+    /** Of [inputTokens], how many the provider wrote into its prompt cache. */
+    @Column(name = "cache_write_tokens", nullable = false)
+    var cacheWriteTokens: Long = 0,
+
     @Column(name = "latency_millis_total", nullable = false)
     var latencyMillisTotal: Long = 0,
 )
@@ -892,13 +905,14 @@ interface ModelUsageRepository : JpaRepository<ModelUsageDay, Long> {
     @Query(
         nativeQuery = true,
         value = """
-            INSERT INTO model_usage_day (model_id, day, requests, input_tokens, output_tokens, cached_tokens, latency_millis_total)
-            VALUES (:modelId, :day, 1, :inputTokens, :outputTokens, :cachedTokens, :millis)
+            INSERT INTO model_usage_day (model_id, day, requests, input_tokens, output_tokens, cached_tokens, cache_write_tokens, latency_millis_total)
+            VALUES (:modelId, :day, 1, :inputTokens, :outputTokens, :cachedTokens, :cacheWriteTokens, :millis)
             ON CONFLICT (model_id, day) DO UPDATE SET
                 requests = model_usage_day.requests + 1,
                 input_tokens = model_usage_day.input_tokens + excluded.input_tokens,
                 output_tokens = model_usage_day.output_tokens + excluded.output_tokens,
                 cached_tokens = model_usage_day.cached_tokens + excluded.cached_tokens,
+                cache_write_tokens = model_usage_day.cache_write_tokens + excluded.cache_write_tokens,
                 latency_millis_total = model_usage_day.latency_millis_total + excluded.latency_millis_total
         """,
     )
@@ -909,6 +923,7 @@ interface ModelUsageRepository : JpaRepository<ModelUsageDay, Long> {
         @Param("outputTokens") outputTokens: Long,
         @Param("millis") millis: Long,
         @Param("cachedTokens") cachedTokens: Long = 0,
+        @Param("cacheWriteTokens") cacheWriteTokens: Long = 0,
     ): Int
 }
 

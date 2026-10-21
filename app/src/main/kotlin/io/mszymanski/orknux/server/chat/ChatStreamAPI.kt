@@ -436,7 +436,7 @@ class ChatStreamAPI(
                                     "inputTokens" to answer.inputTokens,
                                     "outputTokens" to answer.outputTokens,
                                     "cachedInputTokens" to answer.cachedInputTokens,
-                                    "cost" to models.costOf(start.modelId, answer.inputTokens, answer.outputTokens, answer.cachedInputTokens),
+                                    "cost" to models.costOf(start.modelId, answer.inputTokens, answer.outputTokens, answer.cachedInputTokens, answer.cacheWriteTokens),
                                 ),
                             )
                         }

@@ -78,6 +78,15 @@ class ModelService(
             .sortedWith(compareBy({ it.providerName }, { it.name }))
     }
 
+    /** The models reached through [providerIds], wherever those live; for a provider another workspace lends. */
+    fun modelsOf(providerIds: Collection<Long>): List<LlmModelView> {
+        if (providerIds.isEmpty()) return emptyList()
+        val byId = providers.findAllById(providerIds).associateBy { requireNotNull(it.id) }
+        return models.findByProviderIdIn(byId.keys, Sort.by("name"))
+            .map { LlmModelView(it, requireNotNull(byId[it.providerId])) }
+            .sortedWith(compareBy({ it.providerName }, { it.name }))
+    }
+
     fun model(id: Long): LlmModelView? {
         val model = models.findByIdOrNull(id) ?: return null
         val provider = providers.findByIdOrNull(model.providerId) ?: return null
@@ -354,6 +363,7 @@ class ModelService(
                 inputCostPerMillion = input.inputCostPerMillion?.toBigDecimal(),
                 outputCostPerMillion = input.outputCostPerMillion?.toBigDecimal(),
                 cachedInputCostPerMillion = input.cachedInputCostPerMillion?.toBigDecimal(),
+                cacheWriteCostPerMillion = input.cacheWriteCostPerMillion?.toBigDecimal(),
                 voice = input.voice?.trim()?.ifEmpty { null },
                 skipEmptyLines = input.skipEmptyLines ?: false,
                 imageCostPerImage = input.imageCostPerImage?.toBigDecimal(),
@@ -421,6 +431,7 @@ class ModelService(
         model.inputCostPerMillion = input.inputCostPerMillion?.toBigDecimal()
         model.outputCostPerMillion = input.outputCostPerMillion?.toBigDecimal()
         model.cachedInputCostPerMillion = input.cachedInputCostPerMillion?.toBigDecimal()
+        model.cacheWriteCostPerMillion = input.cacheWriteCostPerMillion?.toBigDecimal()
         model.voice = input.voice?.trim()?.ifEmpty { null }
         // Absent means off, as it does on the form: the box is either ticked or
         // it is not, and there is no third thing for a null to mean.
@@ -700,7 +711,7 @@ class ModelService(
         if (model.kind == ModelKind.IMAGE) {
             ModelPricing.imageCost(model, totals.requests.toLong())
         } else {
-            ModelPricing.cost(model, totals.inputTokens, totals.outputTokens, ModelPricing.WINDOW_SCALE, totals.cachedTokens)
+            ModelPricing.cost(model, totals.inputTokens, totals.outputTokens, ModelPricing.WINDOW_SCALE, totals.cachedTokens, totals.cacheWriteTokens)
         }
 
     /**
@@ -712,9 +723,9 @@ class ModelService(
      * to cost it at, and a caller that shows nothing either way does not need to
      * tell them apart.
      */
-    fun costOf(modelId: Long, inputTokens: Long, outputTokens: Long, cachedTokens: Long = 0): BigDecimal? {
+    fun costOf(modelId: Long, inputTokens: Long, outputTokens: Long, cachedTokens: Long = 0, cacheWriteTokens: Long = 0): BigDecimal? {
         val model = models.findByIdOrNull(modelId) ?: return null
-        return ModelPricing.cost(model, inputTokens, outputTokens, cachedTokens = cachedTokens)
+        return ModelPricing.cost(model, inputTokens, outputTokens, cachedTokens = cachedTokens, cacheWriteTokens = cacheWriteTokens)
     }
 
     /**
@@ -742,6 +753,7 @@ class ModelService(
         val inputTokens: Long = days.sumOf { it.inputTokens }
         val outputTokens: Long = days.sumOf { it.outputTokens }
         val cachedTokens: Long = days.sumOf { it.cachedTokens }
+        val cacheWriteTokens: Long = days.sumOf { it.cacheWriteTokens }
         val tokens: Long = inputTokens + outputTokens
         val averageLatencyMillis: Double =
             if (requests == 0) 0.0 else days.sumOf { it.latencyMillisTotal }.toDouble() / requests
@@ -865,6 +877,8 @@ data class CreateModelInput(
     val outputCostPerMillion: Double? = null,
     /** What cached input costs, per million; null charges it at the input price. */
     val cachedInputCostPerMillion: Double? = null,
+    /** What writing input into the cache costs, per million; null charges it at the input price. */
+    val cacheWriteCostPerMillion: Double? = null,
     /** Only meaningful for a SPEECH model; the names belong to the provider. */
     val voice: String? = null,
     /** Whether a SPEECH model is handed text with its empty lines taken out. */
@@ -894,6 +908,8 @@ data class UpdateModelInput(
     val outputCostPerMillion: Double? = null,
     /** What cached input costs, per million; null charges it at the input price. */
     val cachedInputCostPerMillion: Double? = null,
+    /** What writing input into the cache costs, per million; null charges it at the input price. */
+    val cacheWriteCostPerMillion: Double? = null,
     /** Only meaningful for a SPEECH model; the names belong to the provider. */
     val voice: String? = null,
     /** Whether a SPEECH model is handed text with its empty lines taken out. */
@@ -1051,6 +1067,8 @@ data class LlmModelView(
     val inputCostPerMillion: Double?,
     val outputCostPerMillion: Double?,
     val cachedInputCostPerMillion: Double?,
+    /** What writing input into the cache costs, per million; null charges it at the input price. */
+    val cacheWriteCostPerMillion: Double?,
     /** Which voice a SPEECH model reads in; null sends none. */
     val voice: String?,
     /** Whether a SPEECH model is handed text with its empty lines taken out. */
@@ -1085,6 +1103,7 @@ data class LlmModelView(
         inputCostPerMillion = model.inputCostPerMillion?.toDouble(),
         outputCostPerMillion = model.outputCostPerMillion?.toDouble(),
         cachedInputCostPerMillion = model.cachedInputCostPerMillion?.toDouble(),
+        cacheWriteCostPerMillion = model.cacheWriteCostPerMillion?.toDouble(),
         voice = model.voice,
         skipEmptyLines = model.skipEmptyLines,
         imageCostPerImage = model.imageCostPerImage?.toDouble(),

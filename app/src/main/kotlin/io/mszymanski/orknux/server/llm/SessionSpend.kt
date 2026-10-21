@@ -38,8 +38,13 @@ class SessionSpend(
             is ChatCompletion.CalledTools -> Triple(call.inputTokens, call.outputTokens, call.cachedInputTokens)
             else -> return
         }
+        val written = when (call) {
+            is ChatCompletion.Answered -> call.cacheWriteTokens
+            is ChatCompletion.CalledTools -> call.cacheWriteTokens
+            else -> 0L
+        }
         if (input == 0L && output == 0L) return
-        val cost = models.costOf(modelId, input, output, cached)
+        val cost = models.costOf(modelId, input, output, cached, written)
         sessions.addSpend(sessionId, input, output, cached, cost ?: BigDecimal.ZERO, cost == null)
         // And to whoever prompted it, where an administrator is tracking that.
         usage.record(sessionId, modelId, input, cached, output, cost)

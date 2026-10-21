@@ -288,7 +288,7 @@ class ChatAPI(
             millis = answer.millis,
             inputTokens = answer.inputTokens,
             outputTokens = answer.outputTokens,
-            cost = models.costOf(start.modelId, answer.inputTokens, answer.outputTokens, answer.cachedInputTokens)?.toDouble(),
+            cost = models.costOf(start.modelId, answer.inputTokens, answer.outputTokens, answer.cachedInputTokens, answer.cacheWriteTokens)?.toDouble(),
         )
     }
 

@@ -721,6 +721,7 @@ class AgentConversation(
         var input = 0L
         var output = 0L
         var cached = 0L
+        var written = 0L
         /*
          * Where a call came in the whole round, not in the round it was made
          * in. See [RoundWatch]: it is the handle a reader pairs a result with
@@ -1062,6 +1063,7 @@ class AgentConversation(
                         input += answer.inputTokens
                         output += answer.outputTokens
                         cached += answer.cachedInputTokens
+                        written += answer.cacheWriteTokens
                         into?.let { sessions.agentSaid(it, agent.name, answer.content) }
                         if (answer.content.isNotBlank()) spoke?.invoke(answer.content)
                         conversation += ChatTurn(role = "assistant", content = answer.content)
@@ -1073,6 +1075,7 @@ class AgentConversation(
                         inputTokens = input + answer.inputTokens,
                         outputTokens = output + answer.outputTokens,
                         cachedInputTokens = cached + answer.cachedInputTokens,
+                        cacheWriteTokens = written + answer.cacheWriteTokens,
                         reasoning = thinking.toString(),
                         reasoningMillis = thoughtFor,
                     )
@@ -1091,6 +1094,7 @@ class AgentConversation(
                     input += answer.inputTokens
                     output += answer.outputTokens
                     cached += answer.cachedInputTokens
+                    written += answer.cacheWriteTokens
                     /*
                      * A call whose arguments are not JSON goes back as `{}`.
                      * Issue #528.

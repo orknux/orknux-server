@@ -46,8 +46,13 @@ object ModelPricing {
         scale: Int = ANSWER_SCALE,
         /** How many of [inputTokens] the provider served from its cache. */
         cachedTokens: Long = 0,
+        /** How many of [inputTokens] the provider wrote into its cache. */
+        cacheWriteTokens: Long = 0,
     ): BigDecimal? =
-        cost(model.inputCostPerMillion, model.outputCostPerMillion, inputTokens, outputTokens, scale, cachedTokens, model.cachedInputCostPerMillion)
+        cost(
+            model.inputCostPerMillion, model.outputCostPerMillion, inputTokens, outputTokens, scale, cachedTokens,
+            model.cachedInputCostPerMillion, cacheWriteTokens, model.cacheWriteCostPerMillion,
+        )
 
     /** The same arithmetic for a caller holding the two prices rather than the model. */
     fun cost(
@@ -58,6 +63,8 @@ object ModelPricing {
         scale: Int = ANSWER_SCALE,
         cachedTokens: Long = 0,
         cachedInputCostPerMillion: BigDecimal? = null,
+        cacheWriteTokens: Long = 0,
+        cacheWriteCostPerMillion: BigDecimal? = null,
     ): BigDecimal? {
         if (inputCostPerMillion == null && outputCostPerMillion == null) return null
 
@@ -71,8 +78,15 @@ object ModelPricing {
          * input is at the input price, as it always was.
          */
         val cached = if (cachedInputCostPerMillion == null) 0L else cachedTokens.coerceIn(0L, inputTokens)
-        return perMillion(inputTokens - cached, inputCostPerMillion)
+        /*
+         * The tokens written into the cache are input too, and of what was not
+         * read from it: charged at the write price where one is recorded, and
+         * at the input price otherwise - which is what they cost before this.
+         */
+        val written = if (cacheWriteCostPerMillion == null) 0L else cacheWriteTokens.coerceIn(0L, inputTokens - cached)
+        return perMillion(inputTokens - cached - written, inputCostPerMillion)
             .add(perMillion(cached, cachedInputCostPerMillion))
+            .add(perMillion(written, cacheWriteCostPerMillion))
             .add(perMillion(outputTokens, outputCostPerMillion))
     }
 
