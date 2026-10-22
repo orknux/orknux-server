@@ -25,7 +25,18 @@ type ErrorReport {
     counts: [ErrorCount!]!
     "What failed most often, at most five."
     often: [ErrorSubject!]!
+    "How many of each source failed on each day of the period, oldest first, quiet days included."
+    days: [ErrorDay!]!
     rows: [ErrorRecord!]!
+}
+
+"One day of the errors report's chart."
+type ErrorDay {
+    "YYYY-MM-DD."
+    day: String!
+    runs: Int!
+    agents: Int!
+    models: Int!
 }
 
 type ErrorCount {

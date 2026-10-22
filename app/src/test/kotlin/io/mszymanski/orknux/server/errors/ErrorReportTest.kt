@@ -66,6 +66,15 @@ class ErrorReportTest(
             .path("errorReport.rows[0].executionId").entity(Long::class.java).isEqualTo(failed)
             .path("errorReport.rows[0].message").entity(String::class.java).isEqualTo("The step Fetch answered 500.")
 
+        val today = java.time.LocalDate.now().toString()
+        graphQlTester.document("""query { errorReport(filter: { workspaceId: $workspace }) { days { day runs agents models } } }""")
+            .execute()
+            .path("errorReport.days").entityList(Any::class.java).hasSize(30)
+            .path("errorReport.days[29].day").entity(String::class.java).isEqualTo(today)
+            .path("errorReport.days[29].runs").entity(Int::class.java).isEqualTo(1)
+            .path("errorReport.days[29].agents").entity(Int::class.java).isEqualTo(2)
+            .path("errorReport.days[0].runs").entity(Int::class.java).isEqualTo(0)
+
         graphQlTester.document("""query { errorReport(filter: { workspaceId: $workspace, search: "timed out" }) { total } }""")
             .execute().path("errorReport.total").entity(Int::class.java).isEqualTo(1)
     }

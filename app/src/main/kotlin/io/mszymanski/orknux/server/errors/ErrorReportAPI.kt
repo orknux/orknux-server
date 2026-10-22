@@ -10,6 +10,7 @@ import org.springframework.graphql.data.method.annotation.Argument
 import org.springframework.graphql.data.method.annotation.QueryMapping
 import org.springframework.stereotype.Controller
 import org.springframework.transaction.annotation.Transactional
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /**
@@ -51,10 +52,25 @@ class ErrorReportAPI(
             .sortedWith(compareByDescending<ErrorSubjectView> { it.count }.thenBy { it.subject.lowercase() })
             .take(TOP_SUBJECTS)
         val places = workspaces.findAllById(shown.content.map { it.workspaceId }.toSet()).associate { it.id to it.name }
+        // Every day of the period, a quiet one included, so the chart's gaps are days and not missing bars.
+        val zone = ZoneId.systemDefault()
+        val byDay = records.findAll(matching(source)).groupBy { it.at.atZoneSameInstant(zone).toLocalDate() }
+        val first = period.from.atZoneSameInstant(zone).toLocalDate()
+        val last = period.to.atZoneSameInstant(zone).toLocalDate().minusDays(1)
+        val days = generateSequence(first) { it.plusDays(1) }.takeWhile { !it.isAfter(last) }.map { day ->
+            val held = byDay[day].orEmpty()
+            ErrorDayView(
+                day = day.toString(),
+                runs = held.count { it.source == ErrorSource.RUN },
+                agents = held.count { it.source == ErrorSource.AGENT },
+                models = held.count { it.source == ErrorSource.MODEL },
+            )
+        }.toList()
         return ErrorReportView(
             total = shown.totalElements.toInt(),
             counts = ErrorSource.entries.map { ErrorCountView(it, records.count(matching(it)).toInt()) },
             often = often,
+            days = days,
             rows = shown.content.map { one ->
                 ErrorRecordView(
                     id = one.id!!,
@@ -85,8 +101,12 @@ data class ErrorReportView(
     /** How many of each source the filter matches, whatever source is picked. */
     val counts: List<ErrorCountView>,
     val often: List<ErrorSubjectView>,
+    /** How many of each source failed on each day of the period, oldest first. */
+    val days: List<ErrorDayView>,
     val rows: List<ErrorRecordView>,
 )
+
+data class ErrorDayView(val day: String, val runs: Int, val agents: Int, val models: Int)
 
 data class ErrorCountView(val source: ErrorSource, val count: Int)
 
