@@ -16,6 +16,7 @@ import org.springframework.graphql.data.method.annotation.QueryMapping
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.stereotype.Controller
 import org.springframework.transaction.annotation.Transactional
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /**
@@ -132,6 +133,7 @@ class SessionRatingAPI(
             total = all.size,
             average = all.takeIf { it.isNotEmpty() }?.map { it.score }?.average(),
             counts = (RatingTools.LOWEST..RatingTools.HIGHEST).map { score -> all.count { it.score == score } },
+            days = daysOf(all, period),
             rows = shown.map { one ->
                 SessionRatingView(
                     id = one.id!!,
@@ -150,6 +152,22 @@ class SessionRatingAPI(
                 )
             },
         )
+    }
+
+    /** Every day of the period, a quiet one included: how many gave each score, and the day's mean. */
+    private fun daysOf(all: List<SessionRating>, period: UsageReportAPI.Period): List<RatingDayView> {
+        val zone = ZoneId.systemDefault()
+        val byDay = all.groupBy { it.at.atZoneSameInstant(zone).toLocalDate() }
+        val first = period.from.atZoneSameInstant(zone).toLocalDate()
+        val last = period.to.atZoneSameInstant(zone).toLocalDate().minusDays(1)
+        return generateSequence(first) { it.plusDays(1) }.takeWhile { !it.isAfter(last) }.map { day ->
+            val held = byDay[day].orEmpty()
+            RatingDayView(
+                day = day.toString(),
+                counts = (RatingTools.LOWEST..RatingTools.HIGHEST).map { score -> held.count { it.score == score } },
+                average = held.takeIf { it.isNotEmpty() }?.map { it.score }?.average(),
+            )
+        }.toList()
     }
 
     private fun arranged(rows: List<SessionRating>, order: String?, ascending: Boolean?): List<SessionRating> {
@@ -186,8 +204,13 @@ data class SessionRatingReportView(
     val average: Double?,
     /** How many gave each score, lowest first. */
     val counts: List<Int>,
+    /** Every day of the period, oldest first. */
+    val days: List<RatingDayView>,
     val rows: List<SessionRatingView>,
 )
+
+/** One day of the ratings chart: how many gave each score from 1 to 5, and the mean; null on a day with none. */
+data class RatingDayView(val day: String, val counts: List<Int>, val average: Double?)
 
 data class SessionRatingView(
     val id: Long,

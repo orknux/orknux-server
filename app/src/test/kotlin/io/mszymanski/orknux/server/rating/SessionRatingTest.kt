@@ -103,12 +103,18 @@ class SessionRatingTest(
 
         val read = graphQlTester.document(
             """query { sessionRatings(filter: { workspaceId: $workspaceId }) {
-                 total average counts rows { score review agentName source personKey personName sessionId }
+                 total average counts days { day counts average } rows { score review agentName source personKey personName sessionId }
                } }""",
         ).execute()
         read.path("sessionRatings.total").entity(Int::class.java).isEqualTo(3)
         read.path("sessionRatings.average").entity(Double::class.java).isEqualTo(10.0 / 3)
         read.path("sessionRatings.counts").entityList(Int::class.java).containsExactly(0, 1, 1, 0, 1)
+        // The chart's series: thirty days, today's holding the three reviews and their mean, an earlier one none.
+        read.path("sessionRatings.days").entityList(Any::class.java).hasSize(30)
+        read.path("sessionRatings.days[29].day").entity(String::class.java).isEqualTo(java.time.LocalDate.now().toString())
+        read.path("sessionRatings.days[29].counts").entityList(Int::class.java).containsExactly(0, 1, 1, 0, 1)
+        read.path("sessionRatings.days[29].average").entity(Double::class.java).isEqualTo(10.0 / 3)
+        read.path("sessionRatings.days[0].counts").entityList(Int::class.java).containsExactly(0, 0, 0, 0, 0)
         // Newest first, and a score alone is a review with no words.
         read.path("sessionRatings.rows[0].score").entity(Int::class.java).isEqualTo(3)
         read.path("sessionRatings.rows[0].review").valueIsNull()
