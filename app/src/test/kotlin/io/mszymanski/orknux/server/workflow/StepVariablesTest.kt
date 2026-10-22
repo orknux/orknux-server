@@ -105,4 +105,27 @@ class StepVariablesTest(
 
         assertThat(held.toString()).doesNotContain("sk-live-123").doesNotContain("THEIRS")
     }
+
+    /**
+     * The same rules inside a written value: what a variable holds is written
+     * where it stands, and a secret, another workspace's variable or one that is
+     * gone writes nothing - never the secret, and never its braces.
+     */
+    @Test
+    fun `a variable written into a value as a placeholder is filled, and a secret never is`() {
+        val project = variable(workspaceId, "project", "SUPPORT", VariableType.STRING, VariableKind.VALUE)
+        val template = variable(workspaceId, "template", "Hi {{trigger.user}}", VariableType.STRING, VariableKind.VALUE)
+        val secret = variable(workspaceId, "token", "sk-live-123", VariableType.STRING, VariableKind.SECRET)
+        val elsewhere = requireNotNull(workspaces.save(Workspace(name = "other-${System.nanoTime()}")).id)
+        val theirs = variable(elsewhere, "project", "THEIRS", VariableType.STRING, VariableKind.VALUE)
+
+        val held = made(
+            "said" to NodeBinding(expression = "Project {{variables.$project}}: {{ variables.$template }}"),
+            "leak" to NodeBinding(expression = "[{{variables.$secret}}|{{variables.$theirs}}|{{variables.987654321}}]"),
+        )
+
+        // What the variable holds is sent as it holds it, not filled a second time.
+        assertThat(held.path("said").stringValue()).isEqualTo("Project SUPPORT: Hi {{trigger.user}}")
+        assertThat(held.path("leak").stringValue()).isEqualTo("[||]")
+    }
 }

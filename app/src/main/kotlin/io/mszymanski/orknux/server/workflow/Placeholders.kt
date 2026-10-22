@@ -14,8 +14,11 @@ package io.mszymanski.orknux.server.workflow
  *
  * A placeholder names a field the way a reference does: `trigger` or
  * `trigger.x` for the event that started the run, anything else for what a
- * node produced, with dots into it. Workspace variables are not offered here -
- * a variable is a reference of its own, which the editor already gives.
+ * node produced, with dots into it - and `variables.<id>` for one of the
+ * workspace's variables, by id as a reference names one, so a sentence can hold
+ * a variable as well as be one. That is answered by [StepVariables] by the rules
+ * a reference is: a variable the workspace may read, its own or a lent
+ * catalog's, and never a secret, which here would be written into the text.
  */
 object Placeholders {
 

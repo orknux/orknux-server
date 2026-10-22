@@ -210,7 +210,7 @@ class WorkflowGraphAPI(
          */
         val built = shapedByTargets(input.nodes.map { nodeOf(workspaceId, workflowId, it, refusing = false) }, refusing = false)
         val refusals = validator.problems(proposed, proposedEdges, hardOnly = true, workspaceId = workspaceId) +
-            validator.placeholderProblems(built)
+            validator.placeholderProblems(built, workspaceId)
         if (refusals.isNotEmpty()) throw GraphInvalidException(refusals)
 
         nodes.deleteByWorkflowId(workflowId)

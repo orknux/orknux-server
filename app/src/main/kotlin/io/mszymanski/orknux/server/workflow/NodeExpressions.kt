@@ -135,7 +135,7 @@ class NodeExpressions(
      * the failure that sent `{{llmResult}}` to Slack as those eleven characters.
      */
     fun textOf(binding: NodeBinding, input: JsonNode?, trigger: JsonNode? = null): String {
-        if (!binding.reference) return filled(binding.expression, input, trigger)
+        if (!binding.reference) return filled(binding, input, trigger)
 
         val (source, path) = read(binding.expression, input, trigger)
         val value = path.fold(source) { node, step -> node?.get(step) } ?: return ""
@@ -158,14 +158,21 @@ class NodeExpressions(
      * perfectly well see.
      */
     fun jsonOf(binding: NodeBinding, input: JsonNode?, trigger: JsonNode? = null): String {
-        if (!binding.reference) return written(binding.copy(expression = filled(binding.expression, input, trigger)))
+        if (!binding.reference) return written(binding.copy(expression = filled(binding, input, trigger)))
 
         val (source, path) = read(binding.expression, input, trigger)
         return path.fold(source) { node, step -> node?.get(step) }?.toString() ?: "null"
     }
 
-    /** A written value with its placeholders filled: a field's text as it is, anything else as its JSON. */
-    private fun filled(text: String, input: JsonNode?, trigger: JsonNode?): String = Placeholders.filled(text) { field ->
+    /**
+     * A written value with its placeholders filled: a field's text as it is, anything else as its JSON.
+     *
+     * A `{{variables.<id>}}` is what [StepVariables] answered for it. One it was
+     * not asked about - the run page reads parameters without the workspace,
+     * because a variable may be a secret - is left as written.
+     */
+    private fun filled(binding: NodeBinding, input: JsonNode?, trigger: JsonNode?): String = Placeholders.filled(binding.expression) fill@{ field ->
+        if (field.startsWith("$VARIABLES.")) return@fill binding.variables[field] ?: "{{$field}}"
         val (source, path) = read(field, input, trigger)
         val value = path.fold(source) { node, step -> node?.get(step) }
         when {

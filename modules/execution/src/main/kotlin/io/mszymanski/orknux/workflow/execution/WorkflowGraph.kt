@@ -58,6 +58,16 @@ data class NodeBinding(
      * belongs to and every field named before there was anywhere to say.
      */
     val type: String? = null,
+    /**
+     * What a written value's `{{variables.<id>}}` placeholders come to, by
+     * field, once the step has asked the workspace - empty for one that is a
+     * secret or is gone. Never stored: it is filled when a step's parameters
+     * are read, so a variable is read as it is now. Carried beside the text
+     * rather than put into it, so a variable that itself holds `{{…}}` is sent
+     * as it holds it rather than filled a second time.
+     */
+    @get:com.fasterxml.jackson.annotation.JsonIgnore
+    val variables: Map<String, String> = emptyMap(),
 )
 
 data class GraphNode(

@@ -51,6 +51,9 @@ class GraphValidator(
     /** For the skill ids an agent node writes out; see [problems]. Issue #381. */
     private val skills: io.mszymanski.orknux.server.agent.AgentSkillRepository,
     private val pluginSkills: io.mszymanski.orknux.server.agent.PluginSkills,
+    /** For the `{{variables.<id>}}` a written value holds; see [placeholderProblems]. */
+    private val variables: io.mszymanski.orknux.server.variable.WorkspaceVariableRepository,
+    @param:org.springframework.context.annotation.Lazy private val sharing: io.mszymanski.orknux.server.sharing.WorkspaceSharing,
 ) {
 
     /** What a node needs, what it hands on, and whether its input survives it. */
@@ -569,7 +572,7 @@ class GraphValidator(
         if (hardOnly) return problems
 
         // Refused on save as well, from the built graph; said here so the editor shows it as it is typed.
-        problems += placeholderProblems(nodes)
+        problems += placeholderProblems(nodes, workspaceId)
 
         // --- What each node can see, followed along the edges ---
         val ports = nodes.associate { it.nodeKey to portsOf(it, nodes) }
@@ -909,8 +912,14 @@ class GraphValidator(
      * What answers one is what answers a reference: the event that started the
      * run, or a field some node in the graph produces. A node that cannot say
      * what it produces is given the benefit of the doubt, as a reference is.
+     *
+     * `{{variables.<id>}}` is answered by the workspace instead: a variable
+     * [workspaceId] may read - its own, or one in a catalog lent to it - and
+     * never a secret, which a placeholder would write into the text in clear.
+     * [StepVariables] fills it by the same rules. Without a workspace only that
+     * the variable exists and is no secret is checked.
      */
-    fun placeholderProblems(nodes: List<WorkflowNode>): List<GraphProblem> {
+    fun placeholderProblems(nodes: List<WorkflowNode>, workspaceId: Long? = null): List<GraphProblem> {
         val holding = nodes.filter { node -> node.mappings.any { it.mode != MappingMode.REFERENCE && Placeholders.mentions(it.expression) } }
         if (holding.isEmpty()) return emptyList()
         val ports = nodes.associate { it.nodeKey to portsOf(it, nodes) }
@@ -932,21 +941,31 @@ class GraphValidator(
             }
         }
 
+        /** What is wrong with a `{{variables.…}}`, or null when it names a variable that can be written in. */
+        fun variableProblem(field: String): String? {
+            val variable = field.removePrefix(NodeExpressions.VARIABLES + ".").toLongOrNull()
+                ?.let { variables.findByIdOrNull(it) }
+                ?.takeIf { workspaceId == null || sharing.usable(workspaceId, it) }
+                ?: return "holds {{$field}}, which is no variable this workspace can use"
+            return "holds {{$field}}; ${variable.name} is a secret, and a secret is never written into text"
+                .takeIf { variable.kind == io.mszymanski.orknux.server.variable.VariableKind.SECRET }
+        }
+
         return holding.flatMap { node ->
             node.mappings.filter { it.mode != MappingMode.REFERENCE }.flatMap { mapping ->
                 val malformed = Placeholders.malformedIn(mapping.expression).map {
                     "${node.name}: \"${mapping.name}\" holds $it, which is not a placeholder - write {{field}}, a field's name between double braces"
                 }
-                val unanswered = Placeholders.fieldsIn(mapping.expression).filter { !answered(it) }.map {
+                val (asVariables, asFields) = Placeholders.fieldsIn(mapping.expression)
+                    .partition { it.split('.').first() == NodeExpressions.VARIABLES }
+                val unanswered = asFields.filter { !answered(it) }.map {
                     if (!it.startsWith("$TRIGGER.") && answered("$TRIGGER.$it")) {
                         // The trigger's fields are read under its name, as the edges show them.
                         "${node.name}: \"${mapping.name}\" holds {{$it}}; the trigger's $it is {{$TRIGGER.$it}}"
-                    } else if (it.startsWith(NodeExpressions.VARIABLES + ".")) {
-                        "${node.name}: \"${mapping.name}\" holds {{$it}}; a workspace variable is a reference of its own, not a placeholder"
                     } else {
                         "${node.name}: \"${mapping.name}\" holds {{$it}}, which nothing in this workflow produces, so it would be sent as written"
                     }
-                }
+                } + asVariables.mapNotNull { field -> variableProblem(field)?.let { "${node.name}: \"${mapping.name}\" $it" } }
                 (malformed + unanswered).map { GraphProblem(severity = GraphProblemSeverity.ERROR, nodeKey = node.nodeKey, message = it) }
             }
         }

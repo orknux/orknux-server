@@ -2,6 +2,7 @@ package io.mszymanski.orknux.server.workflow
 
 import io.mszymanski.orknux.server.variable.VariableKind
 import io.mszymanski.orknux.server.variable.VariableType
+import io.mszymanski.orknux.server.variable.WorkspaceVariable
 import io.mszymanski.orknux.server.variable.WorkspaceVariableRepository
 import io.mszymanski.orknux.workflow.execution.NodeBinding
 import io.mszymanski.orknux.workflow.execution.WorkflowExecutionRepository
@@ -18,6 +19,8 @@ import org.springframework.stereotype.Component
  * written only to hand it on. A reference written `variables.<id>` is read here,
  * when the step's parameters are, and becomes the value the variable holds now:
  * what a later node sees is the variable, not a copy taken when the run began.
+ * A written value may hold one as a placeholder, `Hello {{variables.<id>}}`,
+ * and that is answered here too, by the same rules.
  *
  * By id rather than by name, because a name is unique only within its catalog,
  * and an id survives the variable being renamed.
@@ -36,24 +39,43 @@ class StepVariables(
 ) {
 
     fun resolved(step: ExecutionStep, bindings: Map<String, NodeBinding>): Map<String, NodeBinding> {
-        if (bindings.values.none { it.reference && it.expression.trim().startsWith(PREFIX) }) return bindings
+        if (bindings.values.none { asksVariable(it) }) return bindings
         val workspaceId = executions.findByIdOrNull(step.executionId)?.workspaceId ?: return bindings
         return bindings.mapValues { (name, binding) ->
             val asked = binding.expression.trim()
-            if (!binding.reference || !asked.startsWith(PREFIX)) return@mapValues binding
-            val variable = asked.removePrefix(PREFIX).toLongOrNull()?.let { variables.findByIdOrNull(it) }
-                ?.takeIf { sharing.usable(workspaceId, it) }
-            when {
-                variable == null -> {
-                    log.warn("{} reads {}, which is no variable of this workspace", step.name, asked)
-                    NodeBinding(expression = "")
-                }
-                variable.kind == VariableKind.SECRET -> {
-                    log.warn("{} reads the secret {} into {}, which is never handed on", step.name, variable.name, name)
-                    NodeBinding(expression = "")
-                }
-                else -> NodeBinding(expression = variable.value.orEmpty(), type = typeOf(variable.type))
+            if (!binding.reference) {
+                val fields = Placeholders.fieldsIn(binding.expression).filter { it.startsWith(PREFIX) }
+                if (fields.isEmpty()) return@mapValues binding
+                // A placeholder is filled by the same rules as a reference, and into text, so never a secret.
+                return@mapValues binding.copy(
+                    variables = fields.associateWith { field -> answer(step, name, workspaceId, field)?.value.orEmpty() },
+                )
             }
+            if (!asked.startsWith(PREFIX)) return@mapValues binding
+            val variable = answer(step, name, workspaceId, asked) ?: return@mapValues NodeBinding(expression = "")
+            NodeBinding(expression = variable.value.orEmpty(), type = typeOf(variable.type))
+        }
+    }
+
+    /** Whether a parameter reads a variable: as a whole, or as a placeholder in what is written. */
+    private fun asksVariable(binding: NodeBinding): Boolean =
+        if (binding.reference) binding.expression.trim().startsWith(PREFIX)
+        else Placeholders.fieldsIn(binding.expression).any { it.startsWith(PREFIX) }
+
+    /** The variable [asked] names, if this workspace may read it and it may be handed on; null, logged, if not. */
+    private fun answer(step: ExecutionStep, name: String, workspaceId: Long, asked: String): WorkspaceVariable? {
+        val variable = asked.removePrefix(PREFIX).toLongOrNull()?.let { variables.findByIdOrNull(it) }
+            ?.takeIf { sharing.usable(workspaceId, it) }
+        return when {
+            variable == null -> {
+                log.warn("{} reads {}, which is no variable of this workspace", step.name, asked)
+                null
+            }
+            variable.kind == VariableKind.SECRET -> {
+                log.warn("{} reads the secret {} into {}, which is never handed on", step.name, variable.name, name)
+                null
+            }
+            else -> variable
         }
     }
 
