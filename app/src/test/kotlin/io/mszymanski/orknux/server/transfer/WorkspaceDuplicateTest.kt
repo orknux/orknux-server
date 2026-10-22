@@ -37,6 +37,11 @@ class WorkspaceDuplicateTest(
     @Autowired val skills: io.mszymanski.orknux.server.agent.AgentSkillRepository,
     @Autowired val duplicator: WorkspaceDuplicator,
     @Autowired val transactions: org.springframework.transaction.PlatformTransactionManager,
+    @Autowired val variableCatalogs: io.mszymanski.orknux.server.variable.VariableCatalogRepository,
+    @Autowired val variables: io.mszymanski.orknux.server.variable.WorkspaceVariableRepository,
+    @Autowired val memoryCatalogs: io.mszymanski.orknux.server.memory.MemoryCatalogRepository,
+    @Autowired val memories: io.mszymanski.orknux.server.memory.MemoryRepository,
+    @Autowired val actions: io.mszymanski.orknux.server.action.WorkflowActionRepository,
 ) {
 
     /**
@@ -171,6 +176,100 @@ class WorkspaceDuplicateTest(
         assertThat(copyOf(source).second).isEqualTo("dup-name-$stamp copy 2")
         // A copy of a copy counts on from the original, not "copy copy".
         assertThat(copyOf(firstId).second).isEqualTo("dup-name-$stamp copy 3")
+    }
+
+    /**
+     * Variables and memories come too, and before the components that name
+     * them. A value comes with its variable; a secret comes empty and is named.
+     * They were only ever named, after the components, so every function taking
+     * a variable failed to copy and everything built on it after.
+     */
+    @Test
+    fun `variables and memories are copied, a secret empty and named`() {
+        val stamp = System.nanoTime()
+        val source = requireNotNull(workspaces.save(Workspace(name = "dup-vars-$stamp")).id)
+        val keys = requireNotNull(variableCatalogs.save(io.mszymanski.orknux.server.variable.VariableCatalog(workspaceId = source, name = "Keys")).id)
+        variables.save(
+            io.mszymanski.orknux.server.variable.WorkspaceVariable(
+                workspaceId = source, catalogId = keys, name = "region",
+                kind = io.mszymanski.orknux.server.variable.VariableKind.VALUE, value = "westeurope",
+            ),
+        )
+        variables.save(
+            io.mszymanski.orknux.server.variable.WorkspaceVariable(
+                workspaceId = source, catalogId = keys, name = "token",
+                kind = io.mszymanski.orknux.server.variable.VariableKind.SECRET, value = "s3cret",
+            ),
+        )
+        val notes = requireNotNull(
+            memoryCatalogs.save(io.mszymanski.orknux.server.memory.MemoryCatalog(workspaceId = source, name = "General", isDefault = true)).id,
+        )
+        memories.save(io.mszymanski.orknux.server.memory.Memory(catalogId = notes, title = "Escalation", content = "Page the on-call."))
+
+        val copy = graphQlTester.document(
+            """mutation { duplicateWorkspace(id: $source, name: "dup-vars-copy-$stamp") { workspace { id } variablesToSet carried { kind count } } }""",
+        ).execute()
+        copy.errors().verify()
+        val into = copy.path("duplicateWorkspace.workspace.id").entity(Long::class.java).get()
+
+        val copied = variables.findByWorkspaceId(into).associateBy { it.name }
+        assertThat(copied.getValue("region").value).isEqualTo("westeurope")
+        assertThat(copied.getValue("token").value).isNull()
+        copy.path("duplicateWorkspace.variablesToSet").entityList(String::class.java).containsExactly("token")
+        val catalog = memoryCatalogs.findByWorkspaceIdAndName(into, "General")
+        assertThat(catalog?.isDefault).isTrue()
+        assertThat(memories.findByCatalogIdAndTitle(requireNotNull(catalog?.id), "Escalation")?.content).isEqualTo("Page the on-call.")
+    }
+
+    /** What is switched off stays behind, and the workspace's own memory catalog comes whatever is left out. */
+    @Test
+    fun `a copy carries only the parts asked for`() {
+        val stamp = System.nanoTime()
+        val source = requireNotNull(workspaces.save(Workspace(name = "dup-parts-$stamp")).id)
+        val keys = requireNotNull(variableCatalogs.save(io.mszymanski.orknux.server.variable.VariableCatalog(workspaceId = source, name = "Keys")).id)
+        variables.save(
+            io.mszymanski.orknux.server.variable.WorkspaceVariable(
+                workspaceId = source, catalogId = keys, name = "region",
+                kind = io.mszymanski.orknux.server.variable.VariableKind.VALUE, value = "westeurope",
+            ),
+        )
+        val notes = requireNotNull(
+            memoryCatalogs.save(io.mszymanski.orknux.server.memory.MemoryCatalog(workspaceId = source, name = "General", isDefault = true)).id,
+        )
+        memories.save(io.mszymanski.orknux.server.memory.Memory(catalogId = notes, title = "Escalation", content = "Page the on-call."))
+        agents.save(io.mszymanski.orknux.server.agent.Agent(workspaceId = source, name = "Helper", type = io.mszymanski.orknux.server.agent.AgentType.LLM))
+
+        val copy = graphQlTester.document(
+            """mutation { duplicateWorkspace(id: $source, name: "dup-parts-copy-$stamp", parts: [AGENTS]) { workspace { id } } }""",
+        ).execute()
+        copy.errors().verify()
+        val into = copy.path("duplicateWorkspace.workspace.id").entity(Long::class.java).get()
+
+        assertThat(agents.findByWorkspaceId(into, org.springframework.data.domain.Pageable.unpaged()).content.map { it.name }).containsExactly("Helper")
+        assertThat(variables.findByWorkspaceId(into)).isEmpty()
+        val catalog = memoryCatalogs.findByWorkspaceIdAndName(into, "General")
+        assertThat(catalog?.isDefault).isTrue()
+        assertThat(memories.countByCatalogId(requireNotNull(catalog?.id))).isZero()
+    }
+
+    /** A speech action says something, and the copy says the same: it arrived with nothing and broke the action's CHECK. */
+    @Test
+    fun `a speech action is copied with what it says`() {
+        val stamp = System.nanoTime()
+        val source = requireNotNull(workspaces.save(Workspace(name = "dup-speak-$stamp")).id)
+        graphQlTester.document(
+            """mutation { createAction(input: { workspaceId: $source, name: "Announce", type: EXECUTE, subtype: SPEAK,
+                 speechText: "The build is green", speechVoice: "alloy" }) { id } }""",
+        ).execute().errors().verify()
+
+        val copy = graphQlTester.document(
+            """mutation { duplicateWorkspace(id: $source, name: "dup-speak-copy-$stamp") { workspace { id } problems } }""",
+        ).execute()
+        copy.path("duplicateWorkspace.problems").entityList(String::class.java).hasSize(0)
+        val into = copy.path("duplicateWorkspace.workspace.id").entity(Long::class.java).get()
+        val spoken = actions.findByWorkspaceId(into, org.springframework.data.domain.Pageable.unpaged()).content.single()
+        assertThat(spoken.speechText).isEqualTo("The build is green")
+        assertThat(spoken.speechVoice).isEqualTo("alloy")
     }
 
     @Test

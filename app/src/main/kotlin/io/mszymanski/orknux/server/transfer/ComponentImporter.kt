@@ -856,7 +856,13 @@ class ComponentImporter(
                 listOfNotNull(externalIn(node.path("modelRef"), ExternalKind.MODEL)) +
                     node.names("mcpServerRefs").map { externals.mcpServerReference(it) }
 
-            ComponentKind.ACTION, ComponentKind.TRIGGER ->
+            ComponentKind.ACTION ->
+                listOfNotNull(
+                    externalIn(node.path("connectionRef"), ExternalKind.CONNECTION),
+                    externalIn(node.path("speechModelRef"), ExternalKind.MODEL),
+                )
+
+            ComponentKind.TRIGGER ->
                 listOfNotNull(externalIn(node.path("connectionRef"), ExternalKind.CONNECTION))
 
             else -> emptyList()
@@ -1191,6 +1197,9 @@ class ComponentImporter(
                     timeoutSeconds = node.integer("timeoutSeconds"),
                     retryIntervalSeconds = node.integer("retryIntervalSeconds"),
                     durationSeconds = node.integer("durationSeconds"),
+                    speechText = node.text("speechText"),
+                    speechVoice = node.text("speechVoice"),
+                    speechModelId = boundId(externalIn(node.path("speechModelRef"), ExternalKind.MODEL)),
                     icon = node.text("icon"),
                 ),
             ).id!!

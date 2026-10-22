@@ -123,7 +123,12 @@ class WorkspaceAPI(
      * agents would be worse than one that refused.
      */
     @MutationMapping
-    fun duplicateWorkspace(@Argument id: Long, @Argument name: String?, @Argument progressKey: String?): WorkspaceCopyView {
+    fun duplicateWorkspace(
+        @Argument id: Long,
+        @Argument name: String?,
+        @Argument progressKey: String?,
+        @Argument parts: List<io.mszymanski.orknux.server.transfer.WorkspaceCopyPart>?,
+    ): WorkspaceCopyView {
         /*
          * Before anything else, so a copy that never got as far as the
          * duplicator's own "creating the workspace" still left a line: one was
@@ -144,7 +149,13 @@ class WorkspaceAPI(
             .getContext().authentication?.name ?: "system"
         val key = progressKey?.trim()?.takeIf { it.isNotEmpty() }
         val copied = try {
-            duplicator.duplicate(id, name, by) { step -> key?.let { copyProgress.report(it, step) } }
+            duplicator.duplicate(
+                id,
+                name,
+                by,
+                progress = { step -> key?.let { copyProgress.report(it, step) } },
+                parts = parts?.toSet() ?: io.mszymanski.orknux.server.transfer.WorkspaceCopyPart.entries.toSet(),
+            )
         } finally {
             key?.let { copyProgress.forget(it) }
         }
@@ -185,7 +196,7 @@ class WorkspaceAPI(
             .getContext().authentication?.name ?: "system"
         val key = progressKey?.trim()?.takeIf { it.isNotEmpty() }
         val made = try {
-            duplicator.importFile(content, wanted, by) { step -> key?.let { copyProgress.report(it, step) } }
+            duplicator.importFile(content, wanted, by, progress = { step -> key?.let { copyProgress.report(it, step) } })
         } finally {
             key?.let { copyProgress.forget(it) }
         }

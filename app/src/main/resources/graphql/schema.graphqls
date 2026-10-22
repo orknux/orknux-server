@@ -1679,6 +1679,8 @@ type Mutation {
         name: String
         "A key the page makes up, to read how far the copy has got with workspaceCopyProgress. Issue #572."
         progressKey: String
+        "What to carry; left out, everything. The workspace's own settings always come."
+        parts: [WorkspaceCopyPart!]
     ): WorkspaceCopy!
     """
     Brings in a workspace file - what GET /api/workspaces/{id}/export downloads -
@@ -2618,6 +2620,24 @@ type Workspace {
     what every workspace was doing before this could be said.
     """
     voiceSpeechChunking: SpeechChunking!
+}
+
+"What a workspace copy may carry, each a switch on the copy page."
+enum WorkspaceCopyPart {
+    CONNECTIONS
+    MCP_SERVERS
+    MODELS
+    VARIABLES
+    MEMORIES
+    OBJECTS
+    FUNCTIONS
+    CONDITIONS
+    TOOLS
+    SKILLS
+    ACTIONS
+    AGENTS
+    TRIGGERS
+    WORKFLOWS
 }
 
 """

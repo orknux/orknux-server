@@ -515,6 +515,11 @@ class ComponentExporter(
             put("timeoutSeconds", held.timeoutSeconds)
             put("retryIntervalSeconds", held.retryIntervalSeconds)
             put("durationSeconds", held.durationSeconds)
+            // What a SPEAK action says, in which voice, on which model - it was
+            // left out, and an action that says nothing breaks the action's CHECK.
+            put("speechText", held.speechText)
+            put("speechVoice", held.speechVoice)
+            putExternal("speechModelRef", externals.modelReference(workspaceId, held.speechModelId))
             put("icon", held.icon)
             val mappings = putArray("mappings")
             held.mappings.forEach { mapping ->

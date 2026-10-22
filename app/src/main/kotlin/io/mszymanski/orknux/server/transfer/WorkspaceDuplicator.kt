@@ -81,6 +81,9 @@ class WorkspaceDuplicator(
     private val workflows: WorkflowRepository,
     private val assignments: WorkspaceWorkflowRepository,
     private val variables: WorkspaceVariableRepository,
+    private val variableCatalogs: io.mszymanski.orknux.server.variable.VariableCatalogRepository,
+    private val memoryCatalogs: io.mszymanski.orknux.server.memory.MemoryCatalogRepository,
+    private val memories: io.mszymanski.orknux.server.memory.MemoryRepository,
     /** What the components point at by name, copied first so they resolve. Issue #570. */
     private val connections: io.mszymanski.orknux.connector.connection.WorkspaceConnectionRepository,
     private val mcpServers: io.mszymanski.orknux.connector.connection.McpServerRepository,
@@ -201,8 +204,19 @@ class WorkspaceDuplicator(
         fun externals(): List<Pair<String, List<ExternalPiece>>>
         /** Every component, in [order]. */
         fun components(): List<ComponentPiece>
-        fun variableNames(): List<String>
+        /**
+         * The variables, written into [into] with their catalogs; answers how
+         * many, and the names of those that arrived without a value - the secrets.
+         */
+        fun carryVariables(into: Long, by: String): VariablesCarried
+        /** The memory catalogs and what is in them, written into [into]; answers how many memories. */
+        fun carryMemories(into: Long, by: String): Int
+        /** The workspace's own memory catalog's name, for a copy that leaves memories out. */
+        fun defaultMemoryCatalog(): String?
     }
+
+    /** What the variable step did: how many came, and which came without their value. */
+    data class VariablesCarried(val count: Int, val secrets: List<String>)
 
     /** One connection, MCP server or provider with its models; [carry] writes it into a workspace. */
     private class ExternalPiece(
@@ -224,12 +238,14 @@ class WorkspaceDuplicator(
         sourceId: Long,
         name: String,
         by: String,
+        /** What the copy carries; everything when it is not said. */
+        parts: Set<WorkspaceCopyPart> = WorkspaceCopyPart.entries.toSet(),
         /** Told after each step, for a page showing how far the copy has got. Issue #572. */
         progress: (WorkspaceCopyProgress.Step) -> Unit = {},
     ): Copied {
         val source = workspaces.findByIdOrNull(sourceId)
             ?: throw IllegalArgumentException("There is no workspace $sourceId.")
-        return carry(DatabaseOrigin(source), name, by, progress)
+        return carry(DatabaseOrigin(source), name, by, progress, parts)
     }
 
     /**
@@ -244,8 +260,9 @@ class WorkspaceDuplicator(
         content: String,
         name: String,
         by: String,
+        parts: Set<WorkspaceCopyPart> = WorkspaceCopyPart.entries.toSet(),
         progress: (WorkspaceCopyProgress.Step) -> Unit = {},
-    ): Copied = carry(FileOrigin(readWorkspaceFile(mapper, content)), name, by, progress)
+    ): Copied = carry(FileOrigin(readWorkspaceFile(mapper, content)), name, by, progress, parts)
 
     /** The name a file says its workspace had, for an import that is given none. */
     fun nameIn(content: String): String = readWorkspaceFile(mapper, content).name
@@ -255,6 +272,7 @@ class WorkspaceDuplicator(
         name: String,
         by: String,
         progress: (WorkspaceCopyProgress.Step) -> Unit,
+        parts: Set<WorkspaceCopyPart>,
     ): Copied {
         val wanted = name.trim()
         require(wanted.isNotEmpty()) { "Give the new workspace a name." }
@@ -285,8 +303,9 @@ class WorkspaceDuplicator(
          * a copy spending its time there - or stopped there - looked the same as
          * one that had not begun. A retry later does not move the goalposts.
          */
-        val externals = origin.externals()
-        val pending = origin.components().toMutableList()
+        // Only what was asked for: each part is a switch on the copy page.
+        val externals = origin.externals().filter { (kind, _) -> WorkspaceCopyPart.ofExternal(kind) in parts }
+        val pending = origin.components().filter { WorkspaceCopyPart.of(it.kind) in parts }.toMutableList()
         val totals = linkedMapOf<String, Int>()
         externals.forEach { (kind, pieces) -> if (pieces.isNotEmpty()) totals[kind] = pieces.size }
         pending.groupingBy { it.kind.label }.eachCount().forEach { (kind, count) -> totals[kind] = count }
@@ -332,6 +351,36 @@ class WorkspaceDuplicator(
         log.info("Copy of {} into {}: pointing the workspace's model settings at the copies", from, into)
         runCatching { step(wait) { remapModels(into, origin.modelChoices(), modelIds) } }
             .onFailure { why -> throw stopped(from, into, "the workspace's model settings", why, wait) }
+
+        /*
+         * Variables and memories before any component, because components name
+         * them: a function's externals are variables, an agent's grants are
+         * catalogs. They used to be only named, after the components, and every
+         * function taking a variable failed - and every condition and workflow
+         * built on it after. Secrets come as names only; see the class notes.
+         */
+        var secrets = emptyList<String>()
+        if (WorkspaceCopyPart.VARIABLES in parts) {
+            log.info("Copy of {} into {}: copying the variables", from, into)
+            val carriedVariables = runCatching { step(wait) { origin.carryVariables(into, by) } }
+                .getOrElse { why -> throw stopped(from, into, "the variables", why, wait) }
+            counts["variable"] = carriedVariables.count
+            secrets = carriedVariables.secrets
+        }
+        if (WorkspaceCopyPart.MEMORIES in parts) {
+            log.info("Copy of {} into {}: copying the memories", from, into)
+            counts["memory"] = runCatching { step(wait) { origin.carryMemories(into, by) } }
+                .getOrElse { why -> throw stopped(from, into, "the memories", why, wait) }
+        } else {
+            // Without them, still the one catalog every workspace has, or an agent has nowhere to remember.
+            origin.defaultMemoryCatalog()?.let { catalog ->
+                step(wait) {
+                    memoryCatalogs.save(
+                        io.mszymanski.orknux.server.memory.MemoryCatalog(workspaceId = into, name = catalog, createdBy = by, isDefault = true),
+                    )
+                }
+            }
+        }
 
         /*
          * Copied kind by kind, and then again for what did not come. Issue #570:
@@ -381,9 +430,6 @@ class WorkspaceDuplicator(
             problems += "${piece.kind.label} \"$called\" was not copied: $why"
         }
 
-        log.info("Copy of {} into {}: naming the variables", from, into)
-        val secrets = origin.variableNames()
-        if (secrets.isNotEmpty()) counts["variable"] = (counts["variable"] ?: 0)
         log.info(
             "Copy of {} into {}: done in {} ms, {} copied, {} not",
             from, into, (System.nanoTime() - started) / 1_000_000, carried, problems.size,
@@ -446,7 +492,12 @@ class WorkspaceDuplicator(
             }
         }
 
-        override fun variableNames() = copyVariables(sourceId)
+        override fun carryVariables(into: Long, by: String) = copyVariables(sourceId, into, by)
+
+        override fun carryMemories(into: Long, by: String) = copyMemories(sourceId, into, by)
+
+        override fun defaultMemoryCatalog() =
+            memoryCatalogs.findByWorkspaceIdOrderByNameAsc(sourceId).firstOrNull { it.isDefault }?.name
     }
 
     /** A workspace file, already read and checked whole. Issue #590. */
@@ -503,7 +554,12 @@ class WorkspaceDuplicator(
             }
         }
 
-        override fun variableNames() = file.variables
+        // A file holds a variable's name and nothing else, so it is listed rather than made.
+        override fun carryVariables(into: Long, by: String) = VariablesCarried(0, file.variables)
+
+        override fun carryMemories(into: Long, by: String) = 0
+
+        override fun defaultMemoryCatalog(): String? = null
     }
 
     /**
@@ -560,7 +616,7 @@ class WorkspaceDuplicator(
             }
         }
         val names = root.putArray("variables")
-        copyVariables(sourceId).forEach { names.add(it) }
+        variables.findByWorkspaceId(sourceId).forEach { names.add(it.name) }
         return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(root)
     }
 
@@ -722,21 +778,64 @@ class WorkspaceDuplicator(
      *
      * @return the names that arrived without a value, for somebody to set.
      */
-    private fun copyVariables(from: Long): List<String> {
+    /**
+     * The variables, in catalogs of the same names. A value comes with its
+     * variable; a secret comes empty and is named in the answer, so somebody
+     * decides where a credential goes rather than finding it in two places.
+     */
+    private fun copyVariables(from: Long, into: Long, by: String): VariablesCarried {
         val secrets = mutableListOf<String>()
-        variables.findByWorkspaceId(from, Pageable.unpaged()).content.forEach { held ->
-            secrets += held.name
+        val catalogIds = variableCatalogs.findByWorkspaceIdOrderByNameAsc(from).associate { catalog ->
+            val copy = variableCatalogs.findByWorkspaceIdAndName(into, catalog.name)
+                ?: variableCatalogs.save(io.mszymanski.orknux.server.variable.VariableCatalog(workspaceId = into, name = catalog.name, createdBy = by))
+            catalog.id to requireNotNull(copy.id)
         }
-        /*
-         * Named but not carried, for now. A variable belongs to a catalogue and
-         * the catalogue belongs to the source workspace, so copying one means
-         * copying the catalogue it sits in first - which is a piece of work of
-         * its own and is better done deliberately than guessed at here.
-         *
-         * Listed rather than silently skipped: somebody duplicating a workspace
-         * needs to know the variables did not come, and which ones.
-         */
-        return secrets
+        var count = 0
+        variables.findByWorkspaceId(from).forEach { held ->
+            val catalog = catalogIds[held.catalogId] ?: return@forEach
+            val secret = held.kind == io.mszymanski.orknux.server.variable.VariableKind.SECRET
+            variables.save(
+                io.mszymanski.orknux.server.variable.WorkspaceVariable(
+                    workspaceId = into,
+                    catalogId = catalog,
+                    name = held.name,
+                    description = held.description,
+                    type = held.type,
+                    kind = held.kind,
+                    elementType = held.elementType,
+                    customType = held.customType,
+                    typeArguments = held.typeArguments,
+                    value = if (secret) null else held.value,
+                    createdBy = by,
+                ),
+            )
+            count += 1
+            if (secret && !held.value.isNullOrEmpty()) secrets += held.name
+        }
+        return VariablesCarried(count, secrets)
+    }
+
+    /** The memory catalogs, which one is the workspace's own, and every memory in them. */
+    private fun copyMemories(from: Long, into: Long, by: String): Int {
+        var count = 0
+        memoryCatalogs.findByWorkspaceIdOrderByNameAsc(from).forEach { catalog ->
+            val copy = memoryCatalogs.save(
+                io.mszymanski.orknux.server.memory.MemoryCatalog(workspaceId = into, name = catalog.name, createdBy = by, isDefault = catalog.isDefault),
+            )
+            memories.findByCatalogIdInOrderByLastModifiedAtDesc(listOf(requireNotNull(catalog.id))).forEach { memory ->
+                memories.save(
+                    io.mszymanski.orknux.server.memory.Memory(
+                        catalogId = requireNotNull(copy.id),
+                        title = memory.title,
+                        content = memory.content,
+                        createdBy = memory.createdBy,
+                        lastModifiedBy = by,
+                    ),
+                )
+                count += 1
+            }
+        }
+        return count
     }
 
     /**
