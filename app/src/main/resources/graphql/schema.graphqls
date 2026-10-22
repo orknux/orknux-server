@@ -718,8 +718,9 @@ type Query {
 
     Signed in, and nothing more: a template is published installation-wide on
     purpose, so that one workspace's work is offered to every workspace. Narrow
-    it with `holding` to the ones that carry a kind, which is what the Use
-    template button on a page of functions asks for.
+    it with `holding` to the ones made from a kind, which is what the Use
+    template button on a page of functions asks for - a workflow template that
+    carries an agent is not offered on the agents page.
     """
     componentTemplates(holding: ComponentKind): [ComponentTemplate!]!
     componentTemplate(id: ID!): ComponentTemplate
@@ -9256,6 +9257,8 @@ type ComponentTemplate {
     depth: ExportDepth
     "Which kinds are inside, each once — the summary a list shows."
     kinds: [ComponentKind!]!
+    "What it was made from, by kind: the page that offers it. Empty for a file that does not say."
+    rootKinds: [ComponentKind!]!
     componentCount: Int!
     "Everything inside, as the file names it."
     contents: [TemplateComponent!]!

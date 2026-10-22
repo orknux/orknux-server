@@ -161,8 +161,20 @@ class ComponentImporter(
             kinds = parsed.components.map { it.kind }.distinct().sortedBy { it.ordinal },
             componentCount = parsed.components.size,
             names = parsed.components.map { it.kind to it.name },
+            roots = rootsOf(envelope),
         )
     }
+
+    /**
+     * What the file was exported from - its `roots` - by kind. Read beside the
+     * parse rather than through it: nothing in an import depends on it, only
+     * which page offers the template.
+     */
+    private fun rootsOf(envelope: String): List<ComponentKind> = runCatching {
+        mapper.readTree(envelope).path("roots").values().mapNotNull { root ->
+            root.path("kind").asString(null)?.let { kind -> ComponentKind.entries.firstOrNull { it.name == kind } }
+        }.distinct()
+    }.getOrDefault(emptyList())
 
     /**
      * Creates everything the plan said it would, or nothing.
@@ -2011,6 +2023,8 @@ data class EnvelopeSummary(
     val componentCount: Int,
     /** Every component, as it is named in the file. */
     val names: List<Pair<ComponentKind, String>>,
+    /** The kinds it was exported from; empty for a file that does not say. */
+    val roots: List<ComponentKind> = emptyList(),
 )
 
 /** How agent.tin_labels separates one label from the next. */

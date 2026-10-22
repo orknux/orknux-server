@@ -227,6 +227,27 @@ class ComponentTemplateAPITest(
             .execute().path("componentTemplates").entityList(Any::class.java).hasSize(0)
     }
 
+    /** Offered where it was made from: an agent's template carries its tool, and is still not a tool template. */
+    @Test
+    fun `the list offers a template where it was made from, not wherever its contents would fit`() {
+        createTool(from, "lookup")
+        val agentId = graphQlTester.document(
+            """mutation { createAgent(input: { workspaceId: $from, name: "Researcher", type: LLM }) { id } }""",
+        ).execute().path("createAgent.id").entity(Long::class.java).get()
+        graphQlTester.document(
+            """mutation { updateAgent(id: $agentId, input: { name: "Researcher", tools: ["lookup"] }) { tools } }""",
+        ).execute().errors().verify()
+        createTemplate("Researching", null, export(from, "AGENT", agentId))
+
+        graphQlTester.document("""query { componentTemplates { name kinds rootKinds } }""").execute()
+            .path("componentTemplates[0].kinds").entityList(String::class.java).contains("AGENT", "TOOL")
+            .path("componentTemplates[0].rootKinds").entityList(String::class.java).containsExactly("AGENT")
+        graphQlTester.document("""query { componentTemplates(holding: AGENT) { name } }""")
+            .execute().path("componentTemplates[*].name").entityList(String::class.java).containsExactly("Researching")
+        graphQlTester.document("""query { componentTemplates(holding: TOOL) { name } }""")
+            .execute().path("componentTemplates").entityList(Any::class.java).hasSize(0)
+    }
+
     @Test
     @WithMockUser(username = "bob", roles = ["USERS"])
     fun `publishing is an administrator's, and it is refused rather than half done`() {

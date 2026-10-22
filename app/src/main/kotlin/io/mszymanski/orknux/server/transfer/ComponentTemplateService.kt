@@ -41,7 +41,13 @@ class ComponentTemplateService(
     fun templates(holding: ComponentKind? = null): List<ComponentTemplateView> =
         templates.findAllByOrderByNameAsc()
             .map(::view)
-            .filter { holding == null || holding in it.kinds }
+            /*
+             * Offered where it was made from: an agent page lists templates of
+             * agents, not every template with an agent somewhere inside - a
+             * workflow template carries its agent too. A file that does not say
+             * what it was made from is offered wherever its kinds are.
+             */
+            .filter { holding == null || holding in it.rootKinds.ifEmpty { it.kinds } }
 
     fun template(id: Long): ComponentTemplateView? = templates.findByIdOrNull(id)?.let(::view)
 
@@ -148,6 +154,7 @@ class ComponentTemplateService(
             producedBy = read?.producedBy,
             depth = read?.depth,
             kinds = read?.kinds.orEmpty(),
+            rootKinds = read?.roots.orEmpty(),
             componentCount = read?.componentCount ?: 0,
             contents = read?.names.orEmpty().map { (kind, name) -> TemplateComponentView(kind, name) },
             usable = read != null,
@@ -187,6 +194,8 @@ data class ComponentTemplateView(
     val depth: ExportDepth?,
     /** Which kinds are inside, each once — what the list shows as a summary. */
     val kinds: List<ComponentKind>,
+    /** What it was made from, by kind - which page offers it. */
+    val rootKinds: List<ComponentKind> = emptyList(),
     val componentCount: Int,
     val contents: List<TemplateComponentView>,
     /** False when this installation cannot read the stored envelope. */
