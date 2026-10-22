@@ -6083,6 +6083,8 @@ type ExecutionStep {
     attempts: Int!
     "Copied from an earlier run rather than performed here, which is what every step ahead of a re-run's starting point is."
     carriedOver: Boolean!
+    "Whether the node was switched on when the run reached it; a switched-off one is skipped and the run passes through it unchanged."
+    enabled: Boolean!
     x: Float!
     y: Float!
 }

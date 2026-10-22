@@ -359,6 +359,8 @@ data class ExecutionStepView(
      * what every step ahead of the one a re-run started at looks like.
      */
     val carriedOver: Boolean,
+    /** Whether its node was switched on; off, the step is skipped and the run passes through it. */
+    val enabled: Boolean,
     val x: Double,
     val y: Double,
 ) {
@@ -383,6 +385,7 @@ data class ExecutionStepView(
         childExecutionId = step.childExecutionId,
         attempts = step.attempts,
         carriedOver = step.carriedOver,
+        enabled = step.enabled,
         x = step.x,
         y = step.y,
     )
