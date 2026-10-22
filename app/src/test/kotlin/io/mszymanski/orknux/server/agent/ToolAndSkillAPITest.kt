@@ -491,7 +491,7 @@ class ToolAndSkillAPITest(
             .path("updateAgent.tools").entityList(String::class.java).get()
             .let { held ->
                 assertThat(held).containsAll(tools)
-                assertThat(held).containsAll(io.mszymanski.orknux.server.chat.BuiltInTools.GRANTED)
+                assertThat(held).containsAll(io.mszymanski.orknux.server.chat.BuiltInTools.GRANTED - io.mszymanski.orknux.server.chat.BuiltInTools.OPTIONAL)
             }
     }
 

@@ -79,14 +79,28 @@ data class ConnectionTarget(
     val headers: List<HttpHeader>,
 ) {
 
+    /**
+     * The Basic credential for [secret]: `username:password` encoded, as it is
+     * meant to be typed. One already encoded - somebody who knew the header and
+     * wrapped it themselves - is sent as it is rather than encoded twice, which
+     * the server would read as a user named after the base64.
+     */
+    private fun basicCredential(secret: String): String {
+        val typed = secret.trim()
+        if (':' !in typed) {
+            val decoded = runCatching { String(Base64.getDecoder().decode(typed), Charsets.UTF_8) }.getOrNull()
+            if (decoded != null && ':' in decoded) return typed
+        }
+        return Base64.getEncoder().encodeToString(typed.toByteArray())
+    }
+
     /** The headers to send, credentials included. */
     fun requestHeaders(): List<Pair<String, String>> {
         val credential = when {
             secret.isNullOrBlank() -> null
             authType == AuthType.BEARER_TOKEN -> "Authorization" to "Bearer $secret"
             authType == AuthType.API_KEY -> "Authorization" to secret
-            authType == AuthType.BASIC ->
-                "Authorization" to "Basic " + Base64.getEncoder().encodeToString(secret.toByteArray())
+            authType == AuthType.BASIC -> "Authorization" to "Basic " + basicCredential(secret)
             else -> null
         }
         return headers.map { it.name to it.value } + listOfNotNull(credential)
