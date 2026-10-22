@@ -306,11 +306,12 @@ class UsageReportTest(
         output: Long,
         cost: String?,
         name: String? = null,
+        inSession: Long = session,
     ) = ledger.save(
         PersonUsage(
             at = on.atTime(12, 0).atZone(java.time.ZoneId.systemDefault()).toOffsetDateTime(),
             workspaceId = workspaceId,
-            sessionId = session,
+            sessionId = inSession,
             modelId = UNPRICED_MODEL,
             source = PromptSource.ORKNUX,
             connectionId = null,
@@ -326,7 +327,7 @@ class UsageReportTest(
 
     private fun series(from: java.time.LocalDate, to: java.time.LocalDate, search: String? = null) = graphQlTester.document(
         """query { usageSeries(filter: { workspaceId: $workspaceId, from: "$from", to: "$to"${search?.let { ", search: \"$it\"" } ?: ""} }) {
-             day inputTokens cachedInputTokens outputTokens cost partlyUnpriced
+             day inputTokens cachedInputTokens outputTokens cost partlyUnpriced sessions calls
            } }""",
     ).execute()
 
@@ -355,6 +356,21 @@ class UsageReportTest(
         read.path("usageSeries[2].cachedInputTokens").entity(Double::class.java).isEqualTo(2_000.0)
         read.path("usageSeries[2].cost").valueIsNull()
         read.path("usageSeries[2].partlyUnpriced").entity(Boolean::class.java).isEqualTo(true)
+    }
+
+    /** Beside the tokens and the cost, how busy each day was: sessions that made a call, and the calls. */
+    @Test
+    fun `the series counts each day's sessions and model calls`() {
+        val day = java.time.LocalDate.now().minusDays(1)
+        booked(day, "busy", 10, 0, 1, "0.1")
+        booked(day, "busy", 10, 0, 1, "0.1")
+        booked(day, "busy", 10, 0, 1, "0.1", inSession = session + 1_000_000)
+
+        series(day, day.plusDays(1))
+            .path("usageSeries[0].sessions").entity(Int::class.java).isEqualTo(2)
+            .path("usageSeries[0].calls").entity(Int::class.java).isEqualTo(3)
+            .path("usageSeries[1].sessions").entity(Int::class.java).isEqualTo(0)
+            .path("usageSeries[1].calls").entity(Int::class.java).isEqualTo(0)
     }
 
     /** The search narrows the chart as it narrows the totals beside it: to the people it matches. */

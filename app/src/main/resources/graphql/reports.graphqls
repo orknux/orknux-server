@@ -110,6 +110,10 @@ type UsageDay {
     cost: String
     "Whether some call that day was on a model with no price."
     partlyUnpriced: Boolean!
+    "How many sessions made a model call that day."
+    sessions: Int!
+    "How many model calls were made that day - every round of every turn."
+    calls: Int!
 }
 
 type UsagePersonSessions {

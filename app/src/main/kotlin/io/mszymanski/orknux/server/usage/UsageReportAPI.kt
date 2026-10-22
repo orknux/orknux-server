@@ -236,7 +236,7 @@ class UsageReportAPI(
         }
         if (only?.isEmpty() != true) {
             query(
-                "SELECT u.at, u.source, u.personKey, u.inputTokens, u.cachedInputTokens, u.outputTokens, u.cost, u.unpriced " +
+                "SELECT u.at, u.source, u.personKey, u.inputTokens, u.cachedInputTokens, u.outputTokens, u.cost, u.unpriced, u.sessionId " +
                     "FROM PersonUsage u WHERE $where",
                 parameters,
             ).forEach {
@@ -247,6 +247,9 @@ class UsageReportAPI(
                 total.output += (it[5] as Number).toLong()
                 total.cost += (it[6] as BigDecimal?) ?: BigDecimal.ZERO
                 total.unpriced = total.unpriced || it[7] == true
+                // A row is one model call; the sessions are told apart by id.
+                total.calls += 1
+                total.sessions += (it[8] as Number).toLong()
             }
         }
         return days.map { (date, total) ->
@@ -257,6 +260,8 @@ class UsageReportAPI(
                 outputTokens = total.output.toDouble(),
                 cost = costOf(total.cost),
                 partlyUnpriced = total.unpriced,
+                sessions = total.sessions.size,
+                calls = total.calls,
             )
         }
     }
@@ -267,6 +272,8 @@ class UsageReportAPI(
         var output: Long = 0,
         var cost: BigDecimal = BigDecimal.ZERO,
         var unpriced: Boolean = false,
+        val sessions: MutableSet<Long> = mutableSetOf(),
+        var calls: Int = 0,
     )
 
     private fun trackingView(): UsageTrackingView {
@@ -507,6 +514,10 @@ data class UsageDayView(
     val outputTokens: Double,
     val cost: String?,
     val partlyUnpriced: Boolean,
+    /** How many sessions made a call that day. */
+    val sessions: Int = 0,
+    /** How many model calls were made that day. */
+    val calls: Int = 0,
 )
 
 data class UsagePersonSessionsView(val total: Int, val items: List<UsageSessionShareView>)
