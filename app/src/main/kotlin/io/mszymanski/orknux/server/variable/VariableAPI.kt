@@ -292,19 +292,21 @@ class VariableAPI(
         val variable = variables.findByIdOrNull(id)?.takeIf { access.canSee(it.workspaceId) }
             ?: throw VariableNotFoundException(id)
 
-        // Moved first, so a name is checked against the catalog it is going to
-        // rather than the one it is leaving.
-        input.catalogId?.let { variable.catalogId = requireCatalog(it, variable.workspaceId).id ?: variable.catalogId }
-
+        /*
+         * The name is checked against the catalog it is going to, and before
+         * either is set: a move keeping its name was not checked at all, and
+         * the database's unique key answered for it as an internal error.
+         * Checked before the row changes, because the lookup flushes it.
+         */
         val previousName = variable.name
-        input.name?.let { said ->
-            val name = requireNameable(said)
-            val clash = variables.findByCatalogIdAndName(variable.catalogId, name)
-            if (name != variable.name && clash != null && clash.id != variable.id) {
-                throw VariableNameTakenException(name, catalogName(variable.catalogId))
-            }
-            variable.name = name
+        val catalog = input.catalogId?.let { requireCatalog(it, variable.workspaceId).id } ?: variable.catalogId
+        val name = input.name?.let { requireNameable(it) } ?: variable.name
+        if (catalog != variable.catalogId || name != variable.name) {
+            val clash = variables.findByCatalogIdAndName(catalog, name)
+            if (clash != null && clash.id != variable.id) throw VariableNameTakenException(name, catalogName(catalog))
         }
+        variable.catalogId = catalog
+        variable.name = name
         input.description?.let { variable.description = it.trim().ifEmpty { null } }
         input.type?.let { variable.type = it }
         input.elementType?.let { variable.elementType = it }
