@@ -60,7 +60,7 @@ class SessionRatingTest(
         // Back to the defaults, both on.
         ratings(true)
         graphQlTester.document("mutation { setChatReviews(enabled: true) { enabled } }").execute()
-        graphQlTester.document("mutation { setReviewsPerSession(count: 3) { reviewsPerSession } }").execute()
+        graphQlTester.document("mutation { setReviewsPerSession(count: 2) { reviewsPerSession } }").execute()
     }
 
     private fun ratings(enabled: Boolean) {
@@ -85,7 +85,7 @@ class SessionRatingTest(
             .path("chatReviewsEnabled.enabled").entity(Boolean::class.java).isEqualTo(true)
             .path("sessionReviewsOffered").entity(Boolean::class.java).isEqualTo(true)
         assertThat(offered()).contains(RatingTools.RATE)
-        assertThat(sheds.of(agent, session)?.briefing()).contains("unhappy or disappointed", RatingTools.RATE)
+        assertThat(sheds.of(agent, session)?.briefing()).contains("unhappy or disappointed", "of their own accord", RatingTools.RATE)
 
         ratings(false)
         assertThat(offered()).doesNotContain(RatingTools.RATE)
@@ -94,6 +94,7 @@ class SessionRatingTest(
     @Test
     fun `a review is booked to whoever is prompting, and read back with the average`() {
         ratings(true)
+        graphQlTester.document("mutation { setReviewsPerSession(count: 3) { reviewsPerSession } }").execute()
         assertThat(send(mapOf("review" to "The second answer was wrong", "score" to 2))["sent"]).isEqualTo(true)
         assertThat(send(mapOf("review" to "Better now", "score" to "5"))["sent"]).isEqualTo(true)
         assertThat(send(mapOf("score" to 3))["sent"]).isEqualTo(true)
@@ -122,16 +123,20 @@ class SessionRatingTest(
     }
 
     @Test
-    fun `a conversation sends as many reviews as Admin Settings allows, three unless changed`() {
+    fun `a conversation sends as many reviews as Admin Settings allows, two unless changed`() {
         ratings(true)
         graphQlTester.document("query { installationSettings { reviewsPerSession reviewsPerSessionConfigured } }").execute()
-            .path("installationSettings.reviewsPerSession").entity(Int::class.java).isEqualTo(3)
-            .path("installationSettings.reviewsPerSessionConfigured").entity(Int::class.java).isEqualTo(3)
+            .path("installationSettings.reviewsPerSession").entity(Int::class.java).isEqualTo(2)
+            .path("installationSettings.reviewsPerSessionConfigured").entity(Int::class.java).isEqualTo(2)
+
+        assertThat(send(mapOf("review" to "Fine", "score" to 4))["sent"]).isEqualTo(true)
+        assertThat(send(mapOf("review" to "Changed my mind", "score" to 2))["sent"]).isEqualTo(true)
+        assertThat(send(mapOf("review" to "Again", "score" to 1))["error"] as String).contains("already sent 2")
 
         graphQlTester.document("mutation { setReviewsPerSession(count: 1) { reviewsPerSession } }").execute()
             .path("setReviewsPerSession.reviewsPerSession").entity(Int::class.java).isEqualTo(1)
-        assertThat(send(mapOf("review" to "Fine", "score" to 4))["sent"]).isEqualTo(true)
-        assertThat(send(mapOf("review" to "Again", "score" to 1))["error"] as String).contains("already sent 1")
+        assertThat(send(mapOf("review" to "Once more", "score" to 3))["error"] as String).contains("already sent")
+        graphQlTester.document("mutation { setReviewsPerSession(count: 2) { reviewsPerSession } }").execute()
 
         graphQlTester.document("mutation { setReviewsPerSession(count: 0) { reviewsPerSession } }").execute()
             .errors().expect { it.extensions["code"] == "ReviewsPerSessionOutOfRange" }

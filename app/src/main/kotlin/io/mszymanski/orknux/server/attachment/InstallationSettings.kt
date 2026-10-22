@@ -2678,13 +2678,12 @@ class NoteLengthOutOfRangeException(val characters: Int) : RuntimeException(
 }
 
 /**
- * Between one note and a thousand in a conversation, a hundred until somebody
- * says otherwise. Every one is read back on every later turn, so the count and
- * the length together are what notes cost a prompt.
+ * Between one review and a hundred from a conversation, two until somebody
+ * says otherwise: a review, and room for one change of mind.
  */
 const val MIN_REVIEWS_PER_SESSION = 1
 const val MAX_REVIEWS_PER_SESSION = 100
-const val DEFAULT_REVIEWS_PER_SESSION = 3
+const val DEFAULT_REVIEWS_PER_SESSION = 2
 
 class ReviewsPerSessionOutOfRangeException(val count: Int) : RuntimeException(
     "$count is not a number of reviews a conversation can send. " +

@@ -55,6 +55,9 @@ class QuickChat(
     private val sessions: LlmSessionRecorder,
     /** The installation's ceiling on tool rounds, which the panel follows too. */
     private val settings: InstallationSettings,
+    /** Where a model that could not answer is written down, for Admin > Reports > Errors. */
+    private val errors: io.mszymanski.orknux.server.errors.ErrorRecorder,
+    private val llmModels: io.mszymanski.orknux.connector.model.LlmModelRepository,
 ) {
 
     /**
@@ -148,6 +151,13 @@ class QuickChat(
                     // Written down as well, because a panel that answered
                     // nothing is a thing somebody comes asking about.
                     session?.let { sessions.note(it, "The model could not answer: ${answer.reason}") }
+                    errors.record(
+                        workspaceId,
+                        io.mszymanski.orknux.server.errors.ErrorSource.MODEL,
+                        runCatching { llmModels.findById(modelId).orElse(null)?.name }.getOrNull() ?: "Model $modelId",
+                        answer.reason,
+                        sessionId = session,
+                    )
                     return Answer(answer)
                 }
 

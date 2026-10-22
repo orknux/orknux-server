@@ -309,6 +309,8 @@ class AgentConversation(
      * went.
      */
     private val prompt: io.mszymanski.orknux.server.llm.SessionPrompt,
+    /** Where an agent that could not answer is written down, for Admin > Reports > Errors. */
+    private val errors: io.mszymanski.orknux.server.errors.ErrorRecorder,
 ) {
 
     /** Sessions already told that not every tool could go up front; told once each, while this server runs. */
@@ -1936,6 +1938,9 @@ class AgentConversation(
     }
 
     private fun record(into: Long?, agent: Agent, answer: ChatCompletion) {
+        if (answer is ChatCompletion.Failed) {
+            errors.record(agent.workspaceId, io.mszymanski.orknux.server.errors.ErrorSource.AGENT, agent.name, answer.reason, sessionId = into)
+        }
         val session = into ?: return
         when (answer) {
             is ChatCompletion.Answered -> sessions.agentSaid(session, agent.name, answer.content)

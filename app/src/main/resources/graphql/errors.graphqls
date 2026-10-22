@@ -1,0 +1,59 @@
+# Admin > Reports > Errors: what failed - a run, an agent that could not
+# answer, the quick chat's model - as it was recorded when it happened.
+
+extend type Query {
+    """
+    What failed over the usage report's period and workspace, newest first, a
+    page at a time; `source` narrows the rows and the most frequent, and the
+    counts cover every source. The search is over what failed and what it said.
+    Administrators.
+    """
+    errorReport(filter: UsageReportFilter, source: ErrorSource, page: Int, size: Int): ErrorReport!
+}
+
+"What failed: a workflow run, an agent's answer, or the quick chat's model."
+enum ErrorSource {
+    RUN
+    AGENT
+    MODEL
+}
+
+type ErrorReport {
+    "Every row the filter and source match, across pages."
+    total: Int!
+    "How many of each source the filter matches."
+    counts: [ErrorCount!]!
+    "What failed most often, at most five."
+    often: [ErrorSubject!]!
+    rows: [ErrorRecord!]!
+}
+
+type ErrorCount {
+    source: ErrorSource!
+    count: Int!
+}
+
+type ErrorSubject {
+    source: ErrorSource!
+    "The workflow, agent or model by name."
+    subject: String!
+    count: Int!
+    "When it last failed."
+    last: String!
+}
+
+type ErrorRecord {
+    id: ID!
+    at: String!
+    workspaceId: ID!
+    "Null for a workspace that has been removed."
+    workspaceName: String
+    source: ErrorSource!
+    "The workflow, agent or model by name, as it was called then."
+    subject: String!
+    "The run, for a run that failed."
+    executionId: ID
+    "The conversation, where there was one."
+    sessionId: ID
+    message: String!
+}

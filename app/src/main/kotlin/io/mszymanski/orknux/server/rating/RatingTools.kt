@@ -113,7 +113,9 @@ class RatingTools(
         override fun briefing(): String =
             "If the person seems unhappy or disappointed with your work, tell them they can review this " +
                 "conversation - a score from $LOWEST to $HIGHEST and what went wrong - and send what they give " +
-                "you to Orknux with $RATE. Do not ask for one otherwise, and never review your own work."
+                "you to Orknux with $RATE. When they rate or judge your work of their own accord, good or bad " +
+                "(\"I rate this as very good\", \"that was useless\"), that is a review: send it with $RATE, " +
+                "asking for the score if they gave none. Do not ask for one otherwise, and never review your own work."
 
         override fun handles(name: String): Boolean = name == RATE
 
