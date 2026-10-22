@@ -278,6 +278,7 @@ class WorkspaceConnectionAPI(
     fun revealWorkspaceConnectionSecret(@Argument id: Long): String? {
         val connection = connections.workspaceConnection(id)?.takeIf { access.canSee(it.workspaceId) }
             ?: throw ConnectionNotFoundException(id)
+        access.requireSecretReader(connection.workspaceId)
 
         auditRecorder.record(
             connection.workspaceId,
@@ -299,6 +300,7 @@ class WorkspaceConnectionAPI(
     fun revealWorkspaceConnectionAppToken(@Argument id: Long): String? {
         val connection = connections.workspaceConnection(id)?.takeIf { access.canSee(it.workspaceId) }
             ?: throw ConnectionNotFoundException(id)
+        access.requireSecretReader(connection.workspaceId)
 
         auditRecorder.record(
             connection.workspaceId,
@@ -313,6 +315,7 @@ class WorkspaceConnectionAPI(
     fun revealWorkspaceConnectionUserToken(@Argument id: Long): String? {
         val connection = connections.workspaceConnection(id)?.takeIf { access.canSee(it.workspaceId) }
             ?: throw ConnectionNotFoundException(id)
+        access.requireSecretReader(connection.workspaceId)
 
         auditRecorder.record(
             connection.workspaceId,

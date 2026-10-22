@@ -130,6 +130,27 @@ class WorkspaceAccess(
         return workspace.adminRoles.any { it.id in held }
     }
 
+    /**
+     * Whether the caller may read this workspace's secrets back - a secret
+     * variable's value, a connection's tokens, a plugin's secret parameter.
+     *
+     * Administering it is enough, of the installation or of the workspace.
+     * Otherwise it takes a role with [RoleScope.SECRETS] that opens *this*
+     * workspace: one that reads secrets elsewhere does not read them here.
+     */
+    fun canReadSecrets(workspace: Workspace): Boolean {
+        if (canAdminister(workspace)) return true
+        if (!canSee(workspace)) return false
+        val readers = heldRoles().filter { RoleScope.SECRETS in it.scopes }.mapNotNull { it.id }.toSet()
+        return (workspace.roles + workspace.adminRoles).any { it.id in readers }
+    }
+
+    /** Refuses unless the caller may read this workspace's secrets; see [canReadSecrets]. */
+    fun requireSecretReader(workspaceId: Long) {
+        val workspace = requireVisible(workspaceId)
+        if (!canReadSecrets(workspace)) throw SecretReadForbiddenException(workspace.name)
+    }
+
     fun canAdminister(workspaceId: Long): Boolean =
         workspaces.findByIdOrNull(workspaceId)?.let { canAdminister(it) } == true
 
@@ -262,6 +283,19 @@ class SignInRequiredException : RuntimeException("Sign in to see this")
  * ask for: a role that administers *this* workspace, which is not the installation
  * administrator role and not a role that administers a different one.
  */
+/**
+ * Somebody who sees a workspace asked to read one of its secrets back without a
+ * role that reads them. Named, for the reason [WorkspaceAdminRequiredException]
+ * is: they are looking at the workspace already.
+ */
+class SecretReadForbiddenException(val name: String) : RuntimeException(
+    "Reading the secrets of $name needs a role that reads secrets there, or one that administers it. " +
+        "Using them - in a connection, a function, an agent - does not.",
+), Refusal {
+
+    override val arguments get() = mapOf("name" to name)
+}
+
 class WorkspaceAdminRequiredException(val name: String) : RuntimeException(
     "This action needs a role that administers $name. Being able to see a workspace is not the same " +
         "as leading it, and a role that administers another workspace does not administer this one.",

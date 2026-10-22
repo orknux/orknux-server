@@ -351,6 +351,8 @@ class VariableAPI(
     fun revealVariable(@Argument id: Long): String? {
         val variable = variables.findByIdOrNull(id)?.takeIf { access.canSee(it.workspaceId) }
             ?: throw VariableNotFoundException(id)
+        // A value is read with the list already; a secret takes a role that reads secrets.
+        if (variable.kind == VariableKind.SECRET) access.requireSecretReader(variable.workspaceId)
 
         auditRecorder.record(
             variable.workspaceId,

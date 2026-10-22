@@ -2371,6 +2371,8 @@ type Workspace {
     whole point of the role.
     """
     administered: Boolean!
+    "Whether the caller may read this workspace's secrets back: administering it, or a role that reads secrets here."
+    readsSecrets: Boolean!
     """
     The model used for the workspace's own small jobs — naming a chat from what
     was said. Null means those jobs do not happen.
@@ -9271,6 +9273,8 @@ enum RoleScope {
     ADMIN
     "Signs in, and sees the workspaces this role is assigned to."
     USER
+    "Reads back the secrets of the workspaces this role is assigned to; administering a workspace does too."
+    SECRETS
 }
 
 """

@@ -2325,7 +2325,7 @@ class WorkspacePluginAPI(
         @Argument pluginId: Long,
         @Argument name: String,
     ): String? {
-        requireWorkspaceAccess(workspaceId)
+        access.requireSecretReader(workspaceId)
         val plugin = plugins.findByIdOrNull(pluginId) ?: throw PluginNotFoundException(pluginId)
         val secret = parameters.typedSecret(plugin, workspaceId, name) ?: return null
         auditRecorder.record(

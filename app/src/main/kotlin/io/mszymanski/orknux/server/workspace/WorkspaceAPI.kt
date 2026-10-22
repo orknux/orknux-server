@@ -442,6 +442,10 @@ class WorkspaceAPI(
     @SchemaMapping(typeName = "Workspace")
     fun administered(workspace: Workspace): Boolean = access.canAdminister(workspace)
 
+    /** Whether the caller may read this workspace's secrets back, which decides whether Reveal is offered. */
+    @SchemaMapping(typeName = "Workspace")
+    fun readsSecrets(workspace: Workspace): Boolean = access.canReadSecrets(workspace)
+
     /**
      * What a task here gets when the workspace has said nothing.
      *

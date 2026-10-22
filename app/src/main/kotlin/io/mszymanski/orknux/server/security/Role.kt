@@ -34,6 +34,16 @@ enum class RoleScope {
 
     /** Signs in, and sees the workspaces this role is assigned to. */
     USER,
+
+    /**
+     * Reads the secrets of the workspaces this role is assigned to: reveals a
+     * secret variable's value, a connection's tokens, a plugin parameter typed
+     * as a secret. Without it only an administrator - of the installation or of
+     * that workspace - may, because seeing a workspace is using its secrets,
+     * not reading them. What an agent is granted is not this: an agent given
+     * a secret catalog reads it to do its work, whoever is asking.
+     */
+    SECRETS,
 }
 
 /**
