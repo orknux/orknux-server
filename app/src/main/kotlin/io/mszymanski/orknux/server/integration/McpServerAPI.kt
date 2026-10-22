@@ -60,6 +60,13 @@ class McpServerAPI(
         return servers.checkMcpServer(id)
     }
 
+    /** The add dialog's Test: the same check on what the form holds, saving nothing. */
+    @MutationMapping
+    fun checkMcpServerDraft(@Argument input: CreateMcpServerInput): McpServerCheck {
+        requireWorkspaceAccess(input.workspaceId)
+        return servers.checkMcpServerDraft(input)
+    }
+
     @MutationMapping
     fun createMcpServer(@Argument input: CreateMcpServerInput): McpServerView {
         requireWorkspaceAccess(input.workspaceId)

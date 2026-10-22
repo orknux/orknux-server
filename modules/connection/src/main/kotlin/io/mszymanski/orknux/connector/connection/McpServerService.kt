@@ -100,6 +100,30 @@ class McpServerService(
         server.toolCount = check.tools
     }
 
+    /**
+     * The same check on a server not yet saved: the add dialog's Test. Built
+     * from what the form holds and never saved, so it costs nothing to try an
+     * address or a credential before the server exists - and nothing about the
+     * check is recorded, there being no server to record it on.
+     */
+    fun checkMcpServerDraft(input: CreateMcpServerInput): McpServerCheck {
+        val address = input.address.trim()
+        if (address.isEmpty()) throw McpServerAddressInvalidException()
+        val own = input.secret?.trim()?.ifEmpty { null }
+        val variable = references.bind(input.workspaceId, input.secretVariableId, own)
+        return runCheck(
+            McpServer(
+                workspaceId = input.workspaceId,
+                name = input.name.trim().ifEmpty { "draft" },
+                address = address,
+                authType = input.authType ?: AuthType.NONE,
+                secret = if (variable == null) own else null,
+                secretVariableId = variable,
+                headers = input.headers.orEmpty().toHttpHeaders(),
+            ),
+        )
+    }
+
     @Transactional
     fun createMcpServer(input: CreateMcpServerInput): McpServerView {
         val name = input.name.trim()

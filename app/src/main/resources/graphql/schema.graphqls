@@ -2194,6 +2194,8 @@ type Mutation {
     fact about the workspace to be re-fetched at will.
     """
     checkMcpServer(id: ID!): McpServerCheck!
+    "The same check on a server not yet saved, from what the add form holds; nothing is saved or recorded."
+    checkMcpServerDraft(input: CreateMcpServerInput!): McpServerCheck!
     """
     Removes the server and takes the grant off every agent that held it.
 

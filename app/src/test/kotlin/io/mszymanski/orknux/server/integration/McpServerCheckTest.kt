@@ -69,6 +69,25 @@ class McpServerCheckTest(
         assertThat(detailOf(check)).contains("one tool")
     }
 
+    @Test
+    fun `a server not yet saved can be checked from the add form, and nothing is saved`() {
+        val address = serve { _, _ -> null }
+        val draft = graphQlTester.document(
+            """mutation { checkMcpServerDraft(input: { workspaceId: $workspaceId, name: "Brave Search", address: "$address" })
+               { reachable detail tools } }""",
+        ).execute()
+
+        assertThat(draft.path("checkMcpServerDraft.reachable").entity(Boolean::class.java).get()).isTrue()
+        assertThat(draft.path("checkMcpServerDraft.tools").entity(Int::class.javaObjectType).get()).isEqualTo(1)
+        assertThat(servers.findAll()).isEmpty()
+
+        val nowhere = graphQlTester.document(
+            """mutation { checkMcpServerDraft(input: { workspaceId: $workspaceId, name: "x", address: "http://nowhere.invalid/rpc" })
+               { reachable } }""",
+        ).execute()
+        assertThat(nowhere.path("checkMcpServerDraft.reachable").entity(Boolean::class.java).get()).isFalse()
+    }
+
     /**
      * The commonest failure worth telling apart, and the one that used to be
      * indistinguishable from a wrong address: the address is right, and the
