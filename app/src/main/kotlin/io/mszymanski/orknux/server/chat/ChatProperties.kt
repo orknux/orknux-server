@@ -64,7 +64,7 @@ data class ChatProperties(
      * zero takes the tool off the table for the installation. A workspace may
      * carry its own number. Issue #380.
      */
-    val maxSubagents: Int = 10,
+    val maxSubagents: Int = 25,
 
     /**
      * What marks a command in a message that starts a run - `!review`.
