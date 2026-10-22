@@ -106,6 +106,43 @@ class PluginCapabilityTest {
     }
 
     /**
+     * Uploading is its own grant: a plugin that may post may not upload until
+     * somebody accepted that too, and one that may upload reaches the same
+     * door a function does, with the same JSON.
+     */
+    @Test
+    fun `a plugin uploads to Slack only when granted the upload`() {
+        val uploader = """
+            export default class Uploader extends OrknuxPlugin {
+              id() { return 'uploader'; }
+              apiVersion() { return 1; }
+              capabilities() { return ['SLACK_UPLOAD_FILE']; }
+              functions() {
+                return [new OrknuxFunction({
+                  name: 'put',
+                  params: [{ name: 'channel', type: 'string' }],
+                  returnType: 'map',
+                  run: (channel) => orknux.slack.upload({ id: 7, type: 'SLACK' }, { filename: 'a.pdf', base64: 'JVBERi0=', channel }),
+                })];
+              }
+            }
+        """.trimIndent()
+
+        val refused = runner.call(
+            uploader, "put", listOf("\"C1\""),
+            capabilities = setOf(PluginCapability.SLACK_POST_MESSAGE),
+        )
+        assertThat((refused as ScriptResult.Returned).json).contains("was not granted SLACK_UPLOAD_FILE")
+        assertThat(asked).describedAs("the host was never asked").isEmpty()
+
+        runner.call(uploader, "put", listOf("\"C1\""), capabilities = setOf(PluginCapability.SLACK_UPLOAD_FILE))
+        assertThat(asked).singleElement().satisfies({ (capability, argument) ->
+            assertThat(capability).isEqualTo(PluginCapability.SLACK_UPLOAD_FILE)
+            assertThat(argument).isEqualTo("""[7,{"op":"upload","filename":"a.pdf","base64":"JVBERi0=","channel":"C1"}]""")
+        })
+    }
+
+    /**
      * A plugin's `orknux.http` is a function's, member for member.
      *
      * They were written out twice - once in each runner - and the copies had

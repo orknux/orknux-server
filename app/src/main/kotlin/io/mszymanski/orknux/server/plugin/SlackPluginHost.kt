@@ -17,6 +17,8 @@ import io.mszymanski.orknux.connector.connection.SlackThreads
 import io.mszymanski.orknux.connector.connection.SlackUser
 import io.mszymanski.orknux.connector.connection.SlackUsers
 import io.mszymanski.orknux.connector.connection.Thread
+import io.mszymanski.orknux.connector.connection.SlackUploads
+import io.mszymanski.orknux.connector.connection.Upload
 import io.mszymanski.orknux.workflow.script.PluginCapability
 import io.mszymanski.orknux.workflow.script.PluginHost
 import org.slf4j.LoggerFactory
@@ -53,6 +55,8 @@ class SlackPluginHost(
     private val searches: SlackSearch,
     /** The editor's own ranking of members and channels for a partial name. Issue #377. */
     private val directory: SlackDirectory,
+    /** Files put on Slack with the connection's own token, not a copy of it. */
+    private val uploads: SlackUploads,
     private val connections: WorkspaceConnectionService,
     private val mapper: ObjectMapper,
     /**
@@ -92,6 +96,7 @@ class SlackPluginHost(
         PluginCapability.SLACK_MENTION -> mention(argument, on)
         PluginCapability.SLACK_SEARCH -> search(argument, on)
         PluginCapability.SLACK_SUGGEST -> suggest(argument, on)
+        PluginCapability.SLACK_UPLOAD_FILE -> uploadFile(argument, on)
         /*
          * No workspace scoping, and the reason is not that it was forgotten: a
          * request names an address rather than one of the workspace's own
@@ -588,6 +593,70 @@ class SlackPluginHost(
             .also { log.debug("A script asked for Slack suggestions on connection {}", connectionId) }
     }
 
+    /**
+     * `[connectionId, { op, ... }]`, as the contract's two helpers send it, and
+     * answers `{ id, permalink }` or `{ error }`.
+     *
+     * One door for both, told apart by `op`, because they share the thing the
+     * grant is about - putting a file on Slack through a connection - and a
+     * second capability would ask an administrator to weigh a distinction that
+     * is not there. `upload` carries the file as `content` (text, sent as its
+     * UTF-8) or `base64` (bytes), since what crosses this door is JSON and
+     * bytes are not JSON; `remote` carries the url Slack keeps a pointer to.
+     */
+    private fun uploadFile(argument: String, on: Long?): String {
+        val given = runCatching { mapper.readTree(argument) }.getOrNull()
+            ?: return refusal("the arguments were not JSON")
+        if (!given.isArray || given.size() < 2 || !given.get(1).isObject) {
+            return refusal("that call takes a connection and a file")
+        }
+        val connectionId = connectionOf(given.get(0))
+            ?: return refusal("the first argument has to be a Slack connection")
+        val file = given.get(1)
+        fun text(field: String): String? =
+            file.path(field).takeIf { it.isTextual }?.asString()?.takeIf { it.isNotEmpty() }
+
+        val done = when (text("op")) {
+            "remote" -> {
+                val url = text("url") ?: return refusal("a remote file needs the http(s) url it lives at")
+                uploads.remote(connectionId, url, text("title"), text("filetype"), text("channel"), on)
+            }
+            "upload" -> {
+                val filename = text("filename") ?: return refusal("an upload needs a filename")
+                val packed = text("base64")
+                val bytes = if (packed != null) {
+                    // Line breaks forgiven, anything else not: a MIME decoder
+                    // would skip a stray character and upload different bytes.
+                    runCatching { java.util.Base64.getDecoder().decode(packed.filterNot { it.isWhitespace() }) }.getOrNull()
+                        ?: return refusal("the bytes to upload are not valid base64")
+                } else {
+                    text("content")?.toByteArray(Charsets.UTF_8)
+                        ?: return refusal("there is nothing to upload: pass content or base64")
+                }
+                if (bytes.size > MOST_UPLOADED) {
+                    return refusal("the file is larger than ${MOST_UPLOADED / (1024 * 1024)} MB")
+                }
+                uploads.upload(
+                    connectionId, filename, bytes,
+                    title = text("title"),
+                    channel = text("channel"),
+                    comment = text("comment"),
+                    threadTs = text("threadTs"),
+                    on = on,
+                )
+            }
+            else -> return refusal("the file has to say whether it is an upload or a remote file")
+        }
+
+        return when (done) {
+            is Upload.Hosted -> mapper.writeValueAsString(
+                mapper.createObjectNode().put("id", done.id).put("permalink", done.permalink),
+            )
+            is Upload.NotPossible -> refusal(done.reason)
+            is Upload.Refused -> refusal(done.reason)
+        }.also { log.debug("A script put a file on Slack on connection {}", connectionId) }
+    }
+
     private fun connectionOf(node: tools.jackson.databind.JsonNode?): Long? = node?.let { held ->
         when {
             held.isNumber -> held.asLong()
@@ -605,5 +674,12 @@ class SlackPluginHost(
 
         /** What the connector uses when nothing says otherwise; repeated so the door has its own answer. */
         const val DEFAULT_LIMIT = 50
+
+        /**
+         * The largest file the upload door carries: the ceiling the request
+         * door's own upload has, so a plugin moving its uploads from one door
+         * to the other finds the same files fit.
+         */
+        const val MOST_UPLOADED = 10 * 1024 * 1024
     }
 }

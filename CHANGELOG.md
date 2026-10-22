@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- **Plugins and functions can put a file on Slack through a connection.** `orknux.slack.upload` and `orknux.slack.remoteFile`, under the new `SLACK_UPLOAD_FILE` capability, use the connection's own bot token - so the Slack plugin no longer needs a second copy of it in its `botToken` parameter to upload. A plugin that declares it asks for the grant again on its next update.
+
 ## 1.1.7
 
 1.1.6 was tagged but never published: its build failed on two tests that held only on the machine that cut it. 1.1.7 is 1.1.6 with them fixed, and everything listed under 1.1.6 below arrives with it.

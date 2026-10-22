@@ -1450,6 +1450,11 @@ class PluginUploadAPI(
               | { ok: true; error?: undefined }
               | { error: string; ok?: undefined };
 
+            /** A file now on Slack - its id and the permalink a message hangs it on by - or why not. */
+            type SlackHostedFile =
+              | { id: string | null; permalink: string | null; error?: undefined }
+              | { error: string; id?: undefined; permalink?: undefined };
+
             /** The one message a permalink points at, or why it could not be read. */
             type SlackLinkedMessage =
               | { channel: string; ts: string; user: string | null; text: string; threadTs: string | null; error?: undefined }
@@ -1658,6 +1663,48 @@ class PluginUploadAPI(
                   kind?: 'USER' | 'CHANNEL',
                   limit?: number,
                 ): SlackSuggestions;
+
+                /**
+                 * Put a file on Slack for it to host, with the connection's own
+                 * bot token - the plugin never holds one.
+                 *
+                 * Needs the `SLACK_UPLOAD_FILE` capability, and `files:write`
+                 * on the bot token. Up to 10 MB.
+                 *
+                 * @param file `content` for text, or `base64` for bytes; a
+                 *   `filename` whose extension says what it is; and a `channel`
+                 *   to share it into, with a `comment` and a `threadTs` -
+                 *   or no channel to only upload, whose `permalink` then goes
+                 *   in a later message.
+                 */
+                upload(
+                  connection: SlackConnection,
+                  file: {
+                    filename: string;
+                    content?: string;
+                    base64?: string;
+                    title?: string;
+                    channel?: string;
+                    comment?: string;
+                    threadTs?: string;
+                  },
+                ): SlackHostedFile;
+
+                /**
+                 * Register a url as a Slack remote file - a pointer and a
+                 * preview card, the bytes staying where they are - and share
+                 * it where a channel is named.
+                 *
+                 * Needs the `SLACK_UPLOAD_FILE` capability, and
+                 * `remote_files:write` and `remote_files:share` on the bot token.
+                 *
+                 * @param file the `url` it lives at, which is also its
+                 *   `external_id`, so registering it twice updates it.
+                 */
+                remoteFile(
+                  connection: SlackConnection,
+                  file: { url: string; title?: string; filetype?: string; channel?: string },
+                ): SlackHostedFile;
               };
 
               http: {

@@ -86,6 +86,7 @@ class PluginRunner(
                     "this plugin was not granted SLACK_MENTION",
                     "this plugin was not granted SLACK_SEARCH",
                     "this plugin was not granted SLACK_SUGGEST",
+                    "this plugin was not granted SLACK_UPLOAD_FILE",
                 ).prependIndent("  "),
             )
             .replace("%HTTP%", HostHelpers.http("this plugin was not granted NETWORK_REQUEST").prependIndent("  "))

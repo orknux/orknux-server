@@ -136,6 +136,26 @@ enum class PluginCapability(
     SLACK_SUGGEST("Offer Slack members and channels for what was typed, through a connection it was given", forScripts = true),
 
     /**
+     * Put a file on Slack through one of the workspace's Slack connections:
+     * bytes uploaded for Slack to host, or a url registered as a remote file.
+     *
+     * Before this the Slack plugin uploaded over [NETWORK_REQUEST] with a copy
+     * of the bot token in a plugin parameter, because nothing here could put a
+     * file on Slack - so the one credential lived twice, and the copy was the
+     * one a plugin held in its own hands. Through this the token stays on the
+     * connection, read where every other Slack door reads it.
+     *
+     * `forScripts` for the reason posting is: a write, reaching only a
+     * connection the run's workspace owns, which the runner takes from the run.
+     * Sharing a file is a message with a file on it, so nothing here reaches
+     * further than [SLACK_POST_MESSAGE] already does, and it is narrower than
+     * the request door a function already carries, which could upload to
+     * Slack's own API with any token it was handed. Size is bounded by the
+     * implementation, the same ceiling for a plugin and a function.
+     */
+    SLACK_UPLOAD_FILE("Upload a file to Slack, through a connection it was given", forScripts = true),
+
+    /**
      * Make an HTTP request, to an address of the plugin's choosing.
      *
      * **The widest thing on this list, and the summary says so** — because the

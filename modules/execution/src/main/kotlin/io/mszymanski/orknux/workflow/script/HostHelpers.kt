@@ -100,6 +100,7 @@ internal object HostHelpers {
         mentionAbsent: String,
         searchAbsent: String,
         suggestAbsent: String,
+        uploadAbsent: String,
     ): String = """
         slack: {
           thread(connection, channel, threadTs, limit) {
@@ -165,6 +166,43 @@ internal object HostHelpers {
             }
             const id = connection === null || typeof connection !== 'object' ? connection : connection.id;
             return JSON.parse(host.slack_suggest(JSON.stringify([id, typed, kind ?? null, limit ?? null])));
+          },
+          /*
+           * A file, as text or as base64, put on Slack for it to host. Only the
+           * keys this knows are copied across, for the reason the connections
+           * query copies its filter: an object with a getter or a cycle in it
+           * sends the strings it meant and nothing else.
+           */
+          upload(connection, file) {
+            const host = globalThis.__orknuxHost;
+            if (host === undefined || host.slack_upload_file === undefined) {
+              return { error: '$uploadAbsent' };
+            }
+            if (file === null || typeof file !== 'object' || Array.isArray(file)) {
+              return { error: 'slack.upload takes { filename, content or base64, title, channel, comment, threadTs }' };
+            }
+            const id = connection === null || typeof connection !== 'object' ? connection : connection.id;
+            const asked = { op: 'upload' };
+            ['filename', 'content', 'base64', 'title', 'channel', 'comment', 'threadTs'].forEach(function (key) {
+              if (file[key] !== undefined && file[key] !== null) asked[key] = String(file[key]);
+            });
+            return JSON.parse(host.slack_upload_file(JSON.stringify([id, asked])));
+          },
+          /* A url Slack keeps a pointer to rather than a copy of; the same grant. */
+          remoteFile(connection, file) {
+            const host = globalThis.__orknuxHost;
+            if (host === undefined || host.slack_upload_file === undefined) {
+              return { error: '$uploadAbsent' };
+            }
+            if (file === null || typeof file !== 'object' || Array.isArray(file)) {
+              return { error: 'slack.remoteFile takes { url, title, filetype, channel }' };
+            }
+            const id = connection === null || typeof connection !== 'object' ? connection : connection.id;
+            const asked = { op: 'remote' };
+            ['url', 'title', 'filetype', 'channel'].forEach(function (key) {
+              if (file[key] !== undefined && file[key] !== null) asked[key] = String(file[key]);
+            });
+            return JSON.parse(host.slack_upload_file(JSON.stringify([id, asked])));
           },
         },
     """.trimIndent()

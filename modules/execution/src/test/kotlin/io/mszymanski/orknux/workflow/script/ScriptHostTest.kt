@@ -101,6 +101,31 @@ class ScriptHostTest {
         })
     }
 
+    /**
+     * Only the keys the door knows cross: a token a script thought it should
+     * pass is not sent at all, because the connection's own is what is used.
+     */
+    @Test
+    fun `a function can upload a file and register a remote one through the server`() {
+        val uploader = """
+            export default function put(channel) {
+              const file = { filename: 'a.csv', content: 'a,b', channel: channel, threadTs: '1.0', token: 'xoxb-mine' };
+              orknux.slack.upload({ id: 7, type: 'SLACK' }, file);
+              return orknux.slack.remoteFile(7, { url: 'https://example.com/r.pdf', filetype: 'pdf' });
+            }
+        """.trimIndent()
+
+        runner.call(uploader, "put", listOf("\"C1\""), on = 12)
+
+        assertThat(asked).hasSize(2)
+        assertThat(asked.map { it.first }).containsOnly(PluginCapability.SLACK_UPLOAD_FILE)
+        assertThat(asked.map { it.third }).containsOnly(12L)
+        assertThat(asked[0].second)
+            .isEqualTo("""[7,{"op":"upload","filename":"a.csv","content":"a,b","channel":"C1","threadTs":"1.0"}]""")
+        assertThat(asked[1].second)
+            .isEqualTo("""[7,{"op":"remote","url":"https://example.com/r.pdf","filetype":"pdf"}]""")
+    }
+
     @Test
     fun `a function can follow a message link through the server`() {
         val follower = """
