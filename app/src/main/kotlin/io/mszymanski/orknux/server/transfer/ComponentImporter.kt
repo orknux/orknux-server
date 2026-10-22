@@ -115,6 +115,8 @@ class ComponentImporter(
     /** For the tools and skill catalogs a plugin brings, which every workspace has. Issue #383. */
     private val plugins: io.mszymanski.orknux.server.plugin.PluginRepository,
     private val declarations: io.mszymanski.orknux.server.plugin.PluginDeclarations,
+    private val revisions: io.mszymanski.orknux.server.revision.ComponentRevisionRecorder,
+    private val graphSource: io.mszymanski.orknux.server.workflow.AppWorkflowGraphSource,
 ) {
 
     /** What the confirmation dialog shows. Reads nothing into the workspace. */
@@ -190,7 +192,8 @@ class ComponentImporter(
         bindings: List<ComponentBinding> = emptyList(),
         exclude: List<ComponentExclusion> = emptyList(),
         rename: List<ComponentRename> = emptyList(),
-    ): ImportPlan = apply(workspaceId, listOf(envelope), bindings, exclude, rename)
+        publishAs: String? = null,
+    ): ImportPlan = apply(workspaceId, listOf(envelope), bindings, exclude, rename, publishAs)
 
     /** Several files as one import: all of them, in one transaction, or none. */
     @Transactional
@@ -200,6 +203,13 @@ class ComponentImporter(
         bindings: List<ComponentBinding> = emptyList(),
         exclude: List<ComponentExclusion> = emptyList(),
         rename: List<ComponentRename> = emptyList(),
+        /**
+         * Who publishes the workflows written, for a *copy* - a duplicate, a
+         * workspace copy - where the original was something somebody already
+         * looked at and the copy is meant to run like it. Null for a file or a
+         * template, whose workflows arrive as drafts; see [createWorkflow].
+         */
+        publishAs: String? = null,
     ): ImportPlan {
         val parsed = parseAll(envelopes)
         val plan = plan(workspaceId, parsed, bindings, exclude, rename)
@@ -292,6 +302,11 @@ class ComponentImporter(
         written.filter { it.kind != ComponentKind.OBJECT }.forEach { component ->
             val here = named.getValue(component.kind to component.name)
             resolved[component.kind to component.name] = create(workspaceId, component, here, resolved, bound, dropped, droppedServers)
+        }
+        if (publishAs != null) {
+            written.filter { it.kind == ComponentKind.WORKFLOW }.forEach { component ->
+                publishCopy(resolved.getValue(component.kind to component.name), publishAs)
+            }
         }
 
         plan.entries.filter { it.kind != null && it.disposition in WRITTEN }.forEach { entry ->
@@ -1335,7 +1350,8 @@ class ComponentImporter(
     /**
      * The definition, the assignment that makes it this workspace's, and the graph.
      *
-     * Arrives as a draft whatever it was where it came from. Publishing takes a
+     * Arrives as a draft from a file or a template, whatever it was where it
+     * came from; a copy is published after it is written ([publishCopy]). Publishing takes a
      * copy of the graph to run from, and a workflow that landed published would
      * be promising to run a copy nobody has made — so the first publish here is
      * somebody's own decision, taken after they have looked at what arrived.
@@ -1345,6 +1361,23 @@ class ComponentImporter(
      * node's parameter names the node it reads from, so they mean in the target
      * exactly what they meant in the source.
      */
+    /**
+     * Publishes a copied workflow, as publishing it on its page would: the
+     * draft's graph as the copy that runs, and the status beside it. One with
+     * no nodes stays a draft, because publishing refuses an empty graph.
+     */
+    private fun publishCopy(workflowId: Long, by: String) {
+        val workflow = workflows.findById(workflowId).orElse(null) ?: return
+        if (nodes.findByWorkflowId(workflowId).isEmpty()) return
+        revisions.published(
+            workflowId = workflowId,
+            graph = io.mszymanski.orknux.server.workflow.WorkflowSnapshot.write(graphSource.drafted(workflowId, workflow.name), mapper),
+            by = by,
+        )
+        workflow.status = io.mszymanski.orknux.server.workflow.WorkflowStatus.PUBLISHED
+        workflows.save(workflow)
+    }
+
     private fun createWorkflow(
         workspaceId: Long,
         component: ParsedComponent,

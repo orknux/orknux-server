@@ -829,9 +829,9 @@ class ModelAPITest(
         assertThat(audit.findAll().map { it.message }).noneMatch { it.contains("moved to provider") }
     }
 
-    /** The Duplicate button on a provider's row: its settings and its models come, its key does not. */
+    /** The Duplicate button on a provider's row: its settings come, its models and its key do not. */
     @Test
-    fun `a provider is duplicated with its models and without its key`() {
+    fun `a provider is duplicated without its models and without its key`() {
         val id = provider("Local", "https://local.example.invalid/v1")
         model(id, "Gemma", "gemma")
         model(id, "Qwen", "qwen")
@@ -845,12 +845,11 @@ class ModelAPITest(
         copy.path("duplicateModelProvider.status").entity(String::class.java).isEqualTo("NOT_CHECKED")
         val copyId = copy.path("duplicateModelProvider.id").entity(Long::class.java).get()
 
-        assertThat(models.findByProviderId(copyId).map { it.name to it.modelId })
-            .containsExactlyInAnyOrder("Gemma" to "gemma", "Qwen" to "qwen")
+        assertThat(models.findByProviderId(copyId)).isEmpty()
         // The original is as it was, key and models both.
         assertThat(providers.findById(id).get().secret).isEqualTo("sk-test")
         assertThat(models.findByProviderId(id)).hasSize(2)
-        assertThat(audit.findAll().map { it.message }).contains("Provider Local duplicated as Local (copy), with its models")
+        assertThat(audit.findAll().map { it.message }).contains("Provider Local duplicated as Local (copy)")
 
         graphQlTester.document("""mutation { duplicateModelProvider(id: $id) { name } }""").execute()
             .path("duplicateModelProvider.name").entity(String::class.java).isEqualTo("Local (copy 2)")

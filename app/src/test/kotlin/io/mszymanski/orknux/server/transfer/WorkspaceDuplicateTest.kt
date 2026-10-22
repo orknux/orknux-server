@@ -37,6 +37,7 @@ class WorkspaceDuplicateTest(
     @Autowired val skills: io.mszymanski.orknux.server.agent.AgentSkillRepository,
     @Autowired val duplicator: WorkspaceDuplicator,
     @Autowired val transactions: org.springframework.transaction.PlatformTransactionManager,
+    @Autowired val workspaceWorkflows: io.mszymanski.orknux.server.workflow.WorkspaceWorkflowRepository,
     @Autowired val variableCatalogs: io.mszymanski.orknux.server.variable.VariableCatalogRepository,
     @Autowired val variables: io.mszymanski.orknux.server.variable.WorkspaceVariableRepository,
     @Autowired val memoryCatalogs: io.mszymanski.orknux.server.memory.MemoryCatalogRepository,
@@ -180,12 +181,12 @@ class WorkspaceDuplicateTest(
 
     /**
      * Variables and memories come too, and before the components that name
-     * them. A value comes with its variable; a secret comes empty and is named.
+     * them. A value comes with its variable, and a secret with its value too.
      * They were only ever named, after the components, so every function taking
      * a variable failed to copy and everything built on it after.
      */
     @Test
-    fun `variables and memories are copied, a secret empty and named`() {
+    fun `variables and memories are copied, a secret with its value`() {
         val stamp = System.nanoTime()
         val source = requireNotNull(workspaces.save(Workspace(name = "dup-vars-$stamp")).id)
         val keys = requireNotNull(variableCatalogs.save(io.mszymanski.orknux.server.variable.VariableCatalog(workspaceId = source, name = "Keys")).id)
@@ -214,8 +215,8 @@ class WorkspaceDuplicateTest(
 
         val copied = variables.findByWorkspaceId(into).associateBy { it.name }
         assertThat(copied.getValue("region").value).isEqualTo("westeurope")
-        assertThat(copied.getValue("token").value).isNull()
-        copy.path("duplicateWorkspace.variablesToSet").entityList(String::class.java).containsExactly("token")
+        assertThat(copied.getValue("token").value).isEqualTo("s3cret")
+        copy.path("duplicateWorkspace.variablesToSet").entityList(String::class.java).hasSize(0)
         val catalog = memoryCatalogs.findByWorkspaceIdAndName(into, "General")
         assertThat(catalog?.isDefault).isTrue()
         assertThat(memories.findByCatalogIdAndTitle(requireNotNull(catalog?.id), "Escalation")?.content).isEqualTo("Page the on-call.")
@@ -270,6 +271,37 @@ class WorkspaceDuplicateTest(
         val spoken = actions.findByWorkspaceId(into, org.springframework.data.domain.Pageable.unpaged()).content.single()
         assertThat(spoken.speechText).isEqualTo("The build is green")
         assertThat(spoken.speechVoice).isEqualTo("alloy")
+    }
+
+    /** A copied workflow runs like its original: published, in a workspace copy and as a duplicate alike; an empty one stays a draft. */
+    @Test
+    fun `a copied workflow arrives published`() {
+        val stamp = System.nanoTime()
+        val source = requireNotNull(workspaces.save(Workspace(name = "dup-pub-$stamp")).id)
+        fun workflow(name: String) = graphQlTester.document(
+            """mutation { createWorkflow(input: { workspaceId: $source, name: "$name" }) { workflowId } }""",
+        ).execute().path("createWorkflow.workflowId").entity(Long::class.java).get()
+        val drawn = workflow("dup-pub-drawn-$stamp")
+        workflow("dup-pub-empty-$stamp")
+        graphQlTester.document(
+            """mutation { saveWorkflowGraph(workspaceId: $source, workflowId: $drawn, input: {
+                 nodes: [{ key: "pic", kind: IMAGE, name: "Picture", x: 0, y: 0 }], edges: [] }) { workflowId } }""",
+        ).execute().errors().verify()
+
+        fun statuses(workspace: Long) = workspaceWorkflows.findByWorkspaceId(workspace, org.springframework.data.domain.Pageable.unpaged())
+            .content.associate { it.workflow.name to it.workflow.status.name }
+
+        val into = graphQlTester.document(
+            """mutation { duplicateWorkspace(id: $source, name: "dup-pub-copy-$stamp") { workspace { id } } }""",
+        ).execute().path("duplicateWorkspace.workspace.id").entity(Long::class.java).get()
+        val copied = statuses(into)
+        assertThat(copied.filterKeys { it.startsWith("dup-pub-drawn-$stamp") }.values).containsExactly("PUBLISHED")
+        assertThat(copied.filterKeys { it.startsWith("dup-pub-empty-$stamp") }.values).containsExactly("DRAFT")
+
+        graphQlTester.document("""mutation { duplicateComponent(workspaceId: $source, kind: WORKFLOW, id: $drawn) { name } }""")
+            .execute().errors().verify()
+        assertThat(statuses(source).filterKeys { it != "dup-pub-drawn-$stamp" && it.startsWith("dup-pub-drawn-$stamp") }.values)
+            .containsExactly("PUBLISHED")
     }
 
     @Test

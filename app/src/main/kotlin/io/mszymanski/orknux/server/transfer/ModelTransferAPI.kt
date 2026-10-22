@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.domain.Sort
 import org.springframework.graphql.data.method.annotation.Argument
 import org.springframework.graphql.data.method.annotation.MutationMapping
+import org.springframework.graphql.data.method.annotation.QueryMapping
 import org.springframework.graphql.execution.DataFetcherExceptionResolverAdapter
 import org.springframework.graphql.execution.ErrorType
 import org.springframework.http.ContentDisposition
@@ -57,6 +58,7 @@ class ModelTransferAPI(
     private val audit: WorkspaceAuditRecorder,
     private val mapper: ObjectMapper,
     @Value("\${orknux.version:unknown}") private val version: String,
+    private val templates: ComponentTemplateService,
 ) {
 
     /** The chosen models, or all of them, as a file; [models] is a comma-separated list of ids. */
@@ -67,6 +69,22 @@ class ModelTransferAPI(
     fun export(@PathVariable workspaceId: Long, @RequestParam(required = false) models: String?): ResponseEntity<ByteArray> {
         access.requireVisible(workspaceId)
         val wanted = models?.split(',')?.mapNotNull { it.trim().toLongOrNull() }?.toSet()?.takeIf { it.isNotEmpty() }
+        val (root, count) = modelsFile(workspaceId, wanted)
+        audit.record(workspaceId, WorkspaceAuditCategory.MODEL, "$count model${if (count == 1) "" else "s"} exported")
+        return ResponseEntity.ok()
+            .contentType(MediaType.APPLICATION_JSON)
+            .header(
+                HttpHeaders.CONTENT_DISPOSITION,
+                ContentDisposition.attachment().filename("models.orkx.json", StandardCharsets.UTF_8).build().toString(),
+            )
+            .body(mapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(root))
+    }
+
+    /**
+     * The chosen models, or all of them, under their providers and without any
+     * key - the file an export downloads and a template of models holds.
+     */
+    private fun modelsFile(workspaceId: Long, wanted: Set<Long>?): Pair<tools.jackson.databind.node.ObjectNode, Int> {
         val root = mapper.createObjectNode()
         root.put("format", MODELS_FILE_FORMAT)
         root.put("formatVersion", MODELS_FILE_VERSION)
@@ -87,14 +105,43 @@ class ModelTransferAPI(
             count += chosen.size
         }
         if (count == 0) throw ModelFileRefusedException("There are no such models in this workspace to export.")
-        audit.record(workspaceId, WorkspaceAuditCategory.MODEL, "$count model${if (count == 1) "" else "s"} exported")
-        return ResponseEntity.ok()
-            .contentType(MediaType.APPLICATION_JSON)
-            .header(
-                HttpHeaders.CONTENT_DISPOSITION,
-                ContentDisposition.attachment().filename("models.orkx.json", StandardCharsets.UTF_8).build().toString(),
-            )
-            .body(mapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(root))
+        return root to count
+    }
+
+    /**
+     * Publishes the chosen models as a template, for every workspace's Models
+     * page to offer. Administrators, as publishing any template is. No key
+     * travels: a provider that held one arrives needing one, as from a file.
+     */
+    @MutationMapping
+    @Transactional
+    fun publishModelTemplate(
+        @Argument workspaceId: Long,
+        @Argument modelIds: List<Long>,
+        @Argument name: String,
+        @Argument description: String?,
+    ): ComponentTemplateView {
+        access.requireAdmin()
+        access.requireVisible(workspaceId)
+        val (root, count) = modelsFile(workspaceId, modelIds.toSet())
+        val made = templates.create(name, description, mapper.writeValueAsString(root))
+        audit.record(null, WorkspaceAuditCategory.WORKSPACE, "Template ${made.name} added, holding $count model${if (count == 1) "" else "s"}")
+        return made
+    }
+
+    /** The templates of models, for the Models page's Use a template. Signed in, as every template list is. */
+    @QueryMapping
+    fun modelTemplates(): List<ComponentTemplateView> {
+        access.requireSignedIn()
+        return templates.modelTemplates()
+    }
+
+    /** A template of models read into this workspace, exactly as importing its file would. */
+    @MutationMapping
+    @Transactional
+    fun useModelTemplate(@Argument workspaceId: Long, @Argument id: Long): ModelImportView {
+        val template = templates.template(id)?.takeIf { it.ofModels } ?: throw ModelFileRefusedException("There is no template of models $id.")
+        return importModels(workspaceId, templates.envelopeOf(requireNotNull(template.id)))
     }
 
     /**

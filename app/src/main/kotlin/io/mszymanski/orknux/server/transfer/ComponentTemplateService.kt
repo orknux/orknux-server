@@ -27,7 +27,21 @@ import java.time.OffsetDateTime
 class ComponentTemplateService(
     private val templates: ComponentTemplateRepository,
     private val importer: ComponentImporter,
+    private val mapper: tools.jackson.databind.ObjectMapper,
 ) {
+
+    /**
+     * Whether a stored file is a models file rather than a component envelope.
+     * A model is not a component - it belongs to a provider and carries no
+     * graph - so its template holds the models file the Models page exports,
+     * and is used by reading that file in, the way an import of one is.
+     */
+    private fun ofModels(envelope: String): Boolean =
+        runCatching { mapper.readTree(envelope).path("format").asString("") == MODELS_FILE_FORMAT }.getOrDefault(false)
+
+    /** Every template of models, by name: what the Models page offers. */
+    fun modelTemplates(): List<ComponentTemplateView> =
+        templates.findAllByOrderByNameAsc().filter { ofModels(it.envelope) }.map(::view)
 
     /**
      * Every template, by name.
@@ -47,7 +61,7 @@ class ComponentTemplateService(
              * workflow template carries its agent too. A file that does not say
              * what it was made from is offered wherever its kinds are.
              */
-            .filter { holding == null || holding in it.rootKinds.ifEmpty { it.kinds } }
+            .filter { holding == null || (!it.ofModels && holding in it.rootKinds.ifEmpty { it.kinds }) }
 
     fun template(id: Long): ComponentTemplateView? = templates.findByIdOrNull(id)?.let(::view)
 
@@ -67,8 +81,9 @@ class ComponentTemplateService(
     fun create(name: String, description: String?, envelope: String): ComponentTemplateView {
         val cleanName = cleanName(name)
         // Before the row, so a file that cannot be read never becomes a template
-        // somebody finds out about by clicking Use on it.
-        importer.describe(envelope)
+        // somebody finds out about by clicking Use on it. A models file was
+        // checked by whoever wrote it, which is this installation.
+        if (!ofModels(envelope)) importer.describe(envelope)
         if (templates.findByNameIgnoreCase(cleanName) != null) throw TemplateNameTakenException(cleanName)
 
         val now = OffsetDateTime.now()
@@ -143,7 +158,36 @@ class ComponentTemplateService(
      * file does not — which is exactly what a stored summary would eventually do
      * the first time one of these is replaced.
      */
+    /** A template of models: what is in it is the models, named under their providers. */
+    private fun modelsView(held: ComponentTemplate): ComponentTemplateView {
+        val root = mapper.readTree(held.envelope)
+        val models = root.path("modelProviders").values().flatMap { provider ->
+            val by = provider.path("name").asString("")
+            provider.path("models").values().map { "${it.path("name").asString("")} ($by)" }
+        }
+        return ComponentTemplateView(
+            id = held.id!!,
+            name = held.name,
+            description = held.description,
+            formatVersion = root.path("formatVersion").asInt(0),
+            producedBy = root.path("producedBy").asString(null),
+            depth = null,
+            kinds = emptyList(),
+            componentCount = models.size,
+            contents = emptyList(),
+            usable = true,
+            problem = null,
+            createdAt = held.createdAt,
+            createdBy = held.createdBy,
+            lastModifiedAt = held.lastModifiedAt,
+            lastModifiedBy = held.lastModifiedBy,
+            ofModels = true,
+            models = models,
+        )
+    }
+
     private fun view(held: ComponentTemplate): ComponentTemplateView {
+        if (ofModels(held.envelope)) return modelsView(held)
         val summary = runCatching { importer.describe(held.envelope) }
         val read = summary.getOrNull()
         return ComponentTemplateView(
@@ -196,6 +240,10 @@ data class ComponentTemplateView(
     val kinds: List<ComponentKind>,
     /** What it was made from, by kind - which page offers it. */
     val rootKinds: List<ComponentKind> = emptyList(),
+    /** A template of models rather than components; see [ComponentTemplateService.modelTemplates]. */
+    val ofModels: Boolean = false,
+    /** The models in it, as "name (provider)", for a template of models. */
+    val models: List<String> = emptyList(),
     val componentCount: Int,
     val contents: List<TemplateComponentView>,
     /** False when this installation cannot read the stored envelope. */

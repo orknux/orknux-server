@@ -103,8 +103,7 @@ class ModelChatParametersTest(
 
         graphQlTester.document("""mutation { duplicateModel(id: $id) { name reasoningEffort } }""").execute()
             .path("duplicateModel.reasoningEffort").entity(String::class.java).isEqualTo("medium")
-        graphQlTester.document("""mutation { duplicateModelProvider(id: $azure) { id } }""").execute()
-        assertThat(models.findAll().filter { it.name == "o3" }.map { it.reasoningEffort })
+        assertThat(models.findAll().filter { it.name.startsWith("o3") }.map { it.reasoningEffort })
             .containsExactly("medium", "medium")
     }
 

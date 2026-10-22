@@ -723,6 +723,8 @@ type Query {
     carries an agent is not offered on the agents page.
     """
     componentTemplates(holding: ComponentKind): [ComponentTemplate!]!
+    "The templates of models, by name: what a Models page offers."
+    modelTemplates: [ComponentTemplate!]!
     componentTemplate(id: ID!): ComponentTemplate
     """
     The stored file itself. Administrators only.
@@ -2215,6 +2217,8 @@ type Mutation {
     "Returns the stored credentials and records that they were revealed."
     revealMcpServerSecret(id: ID!): String
     createModelProvider(input: CreateModelProviderInput!): ModelProvider!
+    "The provider form's Test: what the form holds, checked without saving it. With `id`, a blank secret is the stored one."
+    checkModelProviderDraft(input: CreateModelProviderInput!, id: ID): ModelProviderCheck!
     updateModelProvider(id: ID!, input: UpdateModelProviderInput!): ModelProvider!
     "A copy of a provider beside it, under \"(copy)\", with a copy of each of its models. Its own key stays behind."
     duplicateModelProvider(id: ID!): ModelProvider!
@@ -2310,6 +2314,10 @@ type Mutation {
     key travels; a provider that held one arrives needing one.
     """
     importModels(workspaceId: ID!, content: String!): ModelImport!
+    "Publishes the chosen models, under their providers and without any key, as a template every workspace's Models page offers. Administrators."
+    publishModelTemplate(workspaceId: ID!, modelIds: [ID!]!, name: String!, description: String): ComponentTemplate!
+    "A template of models read into this workspace, as importing its file would."
+    useModelTemplate(workspaceId: ID!, id: ID!): ModelImport!
     """
     Keeps a picture brought in from outside - a file dropped on the editor, or
     an .orkx archive with its project - as a Design picture.
@@ -5473,6 +5481,13 @@ type McpServer {
     checkDetail: String
     "How many tools it offered on a check that got that far."
     toolCount: Int
+}
+
+"What a provider check said, for a form not saved."
+type ModelProviderCheck {
+    connected: Boolean!
+    "The provider's answer, or what went wrong reaching it."
+    message: String!
 }
 
 "What pressing Check on an MCP server found."
@@ -9259,6 +9274,10 @@ type ComponentTemplate {
     kinds: [ComponentKind!]!
     "What it was made from, by kind: the page that offers it. Empty for a file that does not say."
     rootKinds: [ComponentKind!]!
+    "A template of models rather than components."
+    ofModels: Boolean!
+    "For a template of models, each as name (provider)."
+    models: [String!]!
     componentCount: Int!
     "Everything inside, as the file names it."
     contents: [TemplateComponent!]!

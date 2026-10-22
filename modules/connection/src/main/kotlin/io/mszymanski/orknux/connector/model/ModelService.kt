@@ -93,19 +93,8 @@ class ModelService(
         return LlmModelView(model, provider)
     }
 
-    @Transactional
-    fun createProvider(input: CreateProviderInput): ModelProviderView {
-        val name = input.name.trim()
-        val endpoint = input.endpoint.trim()
-        if (name.isEmpty()) throw ModelProviderNameInvalidException()
-        if (endpoint.isEmpty()) throw ModelProviderEndpointInvalidException()
-        if (providers.findByWorkspaceIdAndName(input.workspaceId, name) != null) {
-            throw ModelProviderNameTakenException(name)
-        }
-
-        val own = input.secret?.trim()?.ifEmpty { null }
-        val reference = references.bind(input.workspaceId, input.secretVariableId, own)
-
+    /** A provider as the form describes it, not yet saved: what a create saves and a draft check probes. */
+    private fun built(input: CreateProviderInput, name: String, endpoint: String, own: String?, reference: Long?): ModelProvider {
         val provider = ModelProvider(
             workspaceId = input.workspaceId,
             name = name,
@@ -131,6 +120,44 @@ class ModelService(
         provider.maxTools = toolCapOf(input.maxTools)
         provider.chatApi = chatApiFor(provider.type, input.chatApi, null)
         recognised(provider)
+        return provider
+    }
+
+    /**
+     * The check the Test button runs, on what the form holds rather than what
+     * is stored - so testing saves nothing. Test on a provider used to save it
+     * first, because the check could read only a stored row. With [id], a
+     * secret the form left blank is the stored one, as a save would keep it.
+     */
+    fun checkProviderDraft(input: CreateProviderInput, id: Long?): io.mszymanski.orknux.connector.connection.CheckResult {
+        val stored = id?.let { providers.findByIdOrNull(it) ?: throw ModelProviderNotFoundException(it) }
+        val endpoint = input.endpoint.trim()
+        if (endpoint.isEmpty()) throw ModelProviderEndpointInvalidException()
+        val typed = input.secret?.trim()
+        val own = typed?.ifEmpty { null }
+        val reference = references.bind(input.workspaceId, input.secretVariableId, own)
+        val draft = built(input, input.name.trim(), endpoint, own, reference)
+        if (typed == null && reference == null && stored != null) {
+            draft.secret = stored.secret
+            draft.secretVariableId = stored.secretVariableId
+        }
+        return probe.check(draft)
+    }
+
+    @Transactional
+    fun createProvider(input: CreateProviderInput): ModelProviderView {
+        val name = input.name.trim()
+        val endpoint = input.endpoint.trim()
+        if (name.isEmpty()) throw ModelProviderNameInvalidException()
+        if (endpoint.isEmpty()) throw ModelProviderEndpointInvalidException()
+        if (providers.findByWorkspaceIdAndName(input.workspaceId, name) != null) {
+            throw ModelProviderNameTakenException(name)
+        }
+
+        val own = input.secret?.trim()?.ifEmpty { null }
+        val reference = references.bind(input.workspaceId, input.secretVariableId, own)
+
+        val provider = built(input, name, endpoint, own, reference)
         provider.forgetCheck()
         val saved = providers.save(provider)
         // Checked as soon as the transaction lands, so a provider that was just
@@ -505,8 +532,10 @@ class ModelService(
 
     /**
      * A copy of a provider beside it, "Local (copy)" or the first number after
-     * it that is free, with a copy of every model it serves under the model's
-     * own name - a provider with nothing on it would be half a copy.
+     * it that is free - the provider alone. Its models used to come too, and a
+     * second endpoint is wanted for its own models far more often than for a
+     * twin of every one; asked for: duplicating a provider does not duplicate
+     * its models. A model is duplicated from its own row.
      *
      * Its own key stays behind, as it does in a workspace copy: a credential is
      * kept in one place and a duplicate is not a reason to make a second. A
@@ -525,7 +554,6 @@ class ModelService(
         copy.forgetCheck()
         val saved = providers.save(copy)
         val savedId = requireNotNull(saved.id)
-        models.findByProviderId(id).forEach { models.save(it.copied(providerId = savedId, name = it.name)) }
         events.publishEvent(ModelProviderSaved(savedId))
         return view(saved)
     }

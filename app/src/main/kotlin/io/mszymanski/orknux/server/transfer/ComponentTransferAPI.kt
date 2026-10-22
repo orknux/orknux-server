@@ -73,7 +73,13 @@ class ComponentTransferAPI(
         val stale = importer.plan(workspaceId, envelope).entries
             .filter { it.disposition == ImportDisposition.MISSING && it.droppable && it.kind == ComponentKind.TOOL }
             .map { it.name }
-        val done = importer.apply(workspaceId, envelope, exclude = stale.map { ComponentExclusion(kind = ComponentKind.TOOL, name = it) })
+        // A duplicate of a workflow runs like the original from the start: published, not a draft.
+        val done = importer.apply(
+            workspaceId,
+            envelope,
+            exclude = stale.map { ComponentExclusion(kind = ComponentKind.TOOL, name = it) },
+            publishAs = org.springframework.security.core.context.SecurityContextHolder.getContext().authentication?.name ?: "system",
+        )
         val made = done.entries.first { it.carried && it.kind == kind }
         val without = if (stale.isEmpty()) "" else ", without ${stale.joinToString(", ")}, which this workspace no longer has"
         audit.record(workspaceId, categoryOf(kind), "${kind.label.replaceFirstChar { it.uppercase() }} ${made.name} duplicated as ${made.targetName}$without")

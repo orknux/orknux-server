@@ -196,7 +196,7 @@ class ModelAPI(
     }
 
     /**
-     * A copy of a provider beside it, under "(copy)", with its models; see
+     * A copy of a provider beside it, under "(copy)", without its models; see
      * [ModelService.duplicateProvider] for what is left behind.
      */
     @MutationMapping
@@ -207,7 +207,7 @@ class ModelAPI(
         auditRecorder.record(
             provider.workspaceId,
             WorkspaceAuditCategory.MODEL,
-            "Provider ${provider.name} duplicated as ${copy.name}, with its models",
+            "Provider ${provider.name} duplicated as ${copy.name}",
         )
         return copy
     }
@@ -265,6 +265,15 @@ class ModelAPI(
             "Provider ${provider.name} checked: ${checked.lastCheckMessage}",
         )
         return checked
+    }
+
+    /** Test on the provider form: what it holds, checked without saving or recording anything. */
+    @MutationMapping
+    fun checkModelProviderDraft(@Argument input: CreateProviderInput, @Argument id: Long?): ModelProviderCheck {
+        requireWorkspaceAccess(input.workspaceId)
+        id?.let { held -> models.provider(held)?.takeIf { it.workspaceId == input.workspaceId } ?: throw ModelProviderNotFoundException(held) }
+        val result = models.checkProviderDraft(input, id)
+        return ModelProviderCheck(connected = result.outcome == io.mszymanski.orknux.connector.connection.CheckOutcome.CONNECTED, message = result.message)
     }
 
     @MutationMapping
@@ -494,3 +503,6 @@ class UsageRangeInvalidException(val which: String, val said: String) : RuntimeE
 
     override val arguments get() = mapOf("which" to which, "said" to said)
 }
+
+/** What a draft check said: whether the provider answered, and its words. */
+data class ModelProviderCheck(val connected: Boolean, val message: String)

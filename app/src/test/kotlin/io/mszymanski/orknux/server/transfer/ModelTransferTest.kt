@@ -71,4 +71,40 @@ class ModelTransferTest(
                 assertThat(it.single().extensions["code"]).isEqualTo("ModelFileRefused")
             }
     }
+
+    /** Published as a template and offered on the Models page only; used, it reads in as its file would. */
+    @Test
+    fun `models published as a template are offered to the Models page and read in when used`() {
+        val stamp = System.nanoTime()
+        val from = requireNotNull(workspaces.save(Workspace(name = "tpl models from $stamp")).id)
+        val into = requireNotNull(workspaces.save(Workspace(name = "tpl models into $stamp")).id)
+        val provider = graphQlTester.document(
+            """mutation { createModelProvider(input: {
+                 workspaceId: $from, name: "Lab", type: OPENAI, endpoint: "http://lab.invalid/v1", secret: "sk-secret"
+               }) { id } }""",
+        ).execute().path("createModelProvider.id").entity(Long::class.java).get()
+        val chat = graphQlTester.document(
+            """mutation { createModel(input: { providerId: $provider, name: "Talker", modelId: "talker-id", kind: CHAT }) { id } }""",
+        ).execute().path("createModel.id").entity(Long::class.java).get()
+
+        val name = "Lab models $stamp"
+        val template = graphQlTester.document(
+            """mutation { publishModelTemplate(workspaceId: $from, modelIds: [$chat], name: "$name") { id ofModels models componentCount } }""",
+        ).execute()
+        template.path("publishModelTemplate.ofModels").entity(Boolean::class.java).isEqualTo(true)
+            .path("publishModelTemplate.models").entityList(String::class.java).containsExactly("Talker (Lab)")
+        val id = template.path("publishModelTemplate.id").entity(Long::class.java).get()
+
+        graphQlTester.document("""query { modelTemplates { name } }""").execute()
+            .path("modelTemplates[*].name").entityList(String::class.java).contains(name)
+        // Not a component: no page of components offers it.
+        graphQlTester.document("""query { componentTemplates(holding: AGENT) { name } }""").execute()
+            .path("componentTemplates[*].name").entityList(String::class.java).doesNotContain(name)
+
+        graphQlTester.document("""mutation { useModelTemplate(workspaceId: $into, id: $id) { providers needsKey models } }""").execute()
+            .path("useModelTemplate.needsKey").entityList(String::class.java).containsExactly("Lab")
+            .path("useModelTemplate.models").entityList(String::class.java).containsExactly("Lab / Talker")
+        val arrived = requireNotNull(providers.findByWorkspaceIdAndName(into, "Lab"))
+        assertThat(arrived.secret).isNull()
+    }
 }

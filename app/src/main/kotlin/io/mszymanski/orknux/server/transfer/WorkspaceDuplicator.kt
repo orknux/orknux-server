@@ -59,11 +59,16 @@ import java.time.format.DateTimeFormatter
  * not of what it has done. Carrying the history over would make a new workspace
  * claim work it never did.
  *
- * **Secrets.** A variable marked secret arrives empty and is listed in the
- * answer. They could be re-encrypted into the copy - the value is readable here
- * - but a credential silently in two places is a credential nobody knows the
- * extent of, and the whole point of marking one is that somebody decides where
- * it goes. So the copy asks rather than assumes. A file holds none either.
+ * **Secrets.** A variable marked secret comes with its value, re-encrypted
+ * into the copy. It used to arrive empty and be listed, on the grounds that a
+ * credential in two places should be somebody's decision - but copying is an
+ * administrator's, who may read every secret already, and a copy that cannot
+ * run until each secret is typed in again was not what anybody copied for.
+ * A file holds none, so a workspace read from one still lists them.
+ * Connections', MCP servers' and providers' own credentials still stay behind.
+ *
+ * **Workflows** arrive published, as a duplicated one does: the copy is meant
+ * to run like the original. One read from a file or a template is a draft.
  */
 @Service
 class WorkspaceDuplicator(
@@ -156,8 +161,8 @@ class WorkspaceDuplicator(
         /** How many of each kind were carried, in the order they were carried. */
         val counts: Map<String, Int>,
         /**
-         * Variables that arrived without their value, because they were marked
-         * secret. Named rather than counted: somebody has to go and set each.
+         * Variables that arrived without their value: the secrets of a workspace
+         * file. Named rather than counted: somebody has to go and set each.
          */
         val secretsToSet: List<String>,
         /**
@@ -206,7 +211,8 @@ class WorkspaceDuplicator(
         fun components(): List<ComponentPiece>
         /**
          * The variables, written into [into] with their catalogs; answers how
-         * many, and the names of those that arrived without a value - the secrets.
+         * many, and the names of those that arrived without a value - the secrets
+         * of a file, which holds none; a copy brings them with their values.
          */
         fun carryVariables(into: Long, by: String): VariablesCarried
         /** The memory catalogs and what is in them, written into [into]; answers how many memories. */
@@ -357,7 +363,7 @@ class WorkspaceDuplicator(
          * them: a function's externals are variables, an agent's grants are
          * catalogs. They used to be only named, after the components, and every
          * function taking a variable failed - and every condition and workflow
-         * built on it after. Secrets come as names only; see the class notes.
+         * built on it after. Secrets come with their values; see the class notes.
          */
         var secrets = emptyList<String>()
         if (WorkspaceCopyPart.VARIABLES in parts) {
@@ -409,7 +415,7 @@ class WorkspaceDuplicator(
                          */
                         val plan = importer.plan(into, envelope)
                         if (!plan.importable) throw ImportNotPossibleException(plan.problems)
-                        importer.apply(into, envelope)
+                        importer.apply(into, envelope, publishAs = by.takeIf { origin is DatabaseOrigin })
                     }
                 }
                     .onSuccess {
@@ -805,12 +811,17 @@ class WorkspaceDuplicator(
                     elementType = held.elementType,
                     customType = held.customType,
                     typeArguments = held.typeArguments,
-                    value = if (secret) null else held.value,
+                    /*
+                     * A secret comes with its value. Copying a workspace is an
+                     * administrator's, who may read every secret anyway, and a
+                     * copy whose secrets arrive empty does not run until each
+                     * is typed in again. A file never holds one; see FileOrigin.
+                     */
+                    value = held.value,
                     createdBy = by,
                 ),
             )
             count += 1
-            if (secret && !held.value.isNullOrEmpty()) secrets += held.name
         }
         return VariablesCarried(count, secrets)
     }
