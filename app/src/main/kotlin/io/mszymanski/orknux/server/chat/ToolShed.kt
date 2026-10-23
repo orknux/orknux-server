@@ -51,6 +51,19 @@ interface ToolShed {
      * failed is a fact the model is told about and the conversation carries on.
      */
     fun run(call: ToolCall): String
+
+    /**
+     * A picture one of the round's tools made - any tool, the agent's own or
+     * lent - offered to whoever is running the round to put where its reader
+     * is, with a sentence for the model saying where it went. Null where it
+     * went nowhere, which is every shed but a chat's.
+     *
+     * A diagram, a chart and an SVG drawing were handed to the model alone and
+     * kept under a key, so in a chat the agent described a picture the person
+     * never saw - and believed they had, because the one drawing tool a chat
+     * lends does file its picture into the thread.
+     */
+    fun pictured(tool: String, picture: AgentTools.Companion.Picture): String? = null
 }
 
 /**
@@ -117,6 +130,10 @@ fun sheds(vararg lent: ToolShed?): ToolShed? {
 
             override fun run(call: ToolCall): String =
                 held.first { it.handles(call.name) }.run(call)
+
+            /** The first shed that puts it somewhere. */
+            override fun pictured(tool: String, picture: AgentTools.Companion.Picture): String? =
+                held.firstNotNullOfOrNull { it.pictured(tool, picture) }
         }
     }
 }

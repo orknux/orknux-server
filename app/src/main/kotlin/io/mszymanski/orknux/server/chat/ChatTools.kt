@@ -82,6 +82,18 @@ class ChatTools(
 
         override fun handles(name: String): Boolean = name == DRAW || widgets.handles(name)
 
+        /** Into the thread, where the person who asked is looking, and onto the screen of whoever is watching. */
+        override fun pictured(tool: String, picture: AgentTools.Companion.Picture): String? =
+            when (val filed = pictures.show(chat, tool, picture)) {
+                is ChatDrawing.Refused -> null
+                is ChatDrawing.Drawn -> {
+                    watch.drew(filed.said)
+                    watch.filed(filed.attachmentId, filed.filename, filed.contentType, filed.sizeBytes)
+                    "The picture is already in this conversation, above your answer, where the person sees it. " +
+                        "Do not repeat it; say what you drew and carry on."
+                }
+            }
+
         /**
          * A refusal is an answer, never an ending.
          *

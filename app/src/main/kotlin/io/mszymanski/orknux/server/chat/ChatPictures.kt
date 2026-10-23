@@ -167,6 +167,37 @@ class ChatPictures(
     }
 
     /**
+     * Files a picture a tool already made and puts it in the chat, as [draw]
+     * does with one it drew - nothing is drawn or charged, so nothing waits on
+     * an image model.
+     */
+    fun show(chat: ChatSession, tool: String, picture: AgentTools.Companion.Picture): ChatDrawing {
+        if (!settings.attachmentsEnabled()) {
+            return ChatDrawing.Refused("Attachments are turned off for this installation, so a picture has nowhere to be kept.")
+        }
+        val bytes = runCatching { java.util.Base64.getDecoder().decode(picture.dataUrl.substringAfter("base64,")) }
+            .getOrElse { return ChatDrawing.Refused("The picture was not readable.") }
+        val filename = PictureFilenames.of(tool, picture.type)
+        val location = store.put(chat.workspaceId, filename, bytes)
+        val saved = attachments.save(
+            ChatAttachment(
+                workspaceId = chat.workspaceId,
+                chatSessionId = requireNotNull(chat.id),
+                filename = filename,
+                contentType = picture.type,
+                sizeBytes = bytes.size.toLong(),
+                location = location,
+                uploadedBy = chat.userId,
+            ),
+        )
+        val said = "![](/api/attachments/${requireNotNull(saved.id)})"
+        saved.messageIndex = chats.recordPicture(requireNotNull(chat.id), said)
+        attachments.save(saved)
+        auditRecorder.record(chat.workspaceId, WorkspaceAuditCategory.CHAT, "An agent put a picture in a chat")
+        return ChatDrawing.Drawn(requireNotNull(saved.id), said, 0, saved.filename, saved.contentType, saved.sizeBytes)
+    }
+
+    /**
      * What this chat draws with: whatever its workspace chose, or nothing.
      *
      * Public because the tool's descriptor is the model's - which sizes it

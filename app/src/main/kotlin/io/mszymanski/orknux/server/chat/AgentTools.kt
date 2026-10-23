@@ -962,13 +962,15 @@ class AgentTools(
          * window, it is unreadable, and the transcript keeps whatever is
          * written here for as long as the session lives.
          */
-        fun withoutPicture(result: String, picture: Picture): String = runCatching {
+        fun withoutPicture(result: String, picture: Picture, placed: String? = null): String = runCatching {
             val node = jackson.readTree(result)
             if (!node.isObject) return result
             val edited = (node as tools.jackson.databind.node.ObjectNode).deepCopy()
             edited.put(PICTURE, "")
             edited.put("shown", true)
             edited.put("pictureBytes", picture.chars / 4 * 3)
+            // Where the picture went beside the model, said where the model reads what the tool did.
+            if (placed != null) edited.put("inConversation", placed)
             jackson.writeValueAsString(edited)
         }.getOrElse { result }
 

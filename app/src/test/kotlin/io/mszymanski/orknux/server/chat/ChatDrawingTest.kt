@@ -186,6 +186,37 @@ class ChatDrawingTest(
     }
 
     /**
+     * A picture any tool made - here `svg_draw` - is put in the chat as well,
+     * not only handed to the model. It was kept under a key the person never
+     * saw, and the agent described a picture that was not on the screen.
+     */
+    @Test
+    fun `a picture a drawing tool made is put in the chat, and the model is told it is there`() {
+        val svg = """<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><rect width='20' height='20' fill='hsl(0,100%,50%)'/></svg>"""
+        val chatId = chatWithAgent(
+            serve { body ->
+                if (body.contains("inConversation")) saying("There it is.") else Round(tool = "svg_draw", arguments = """{"svg":"$svg"}""")
+            },
+        )
+
+        graphQlTester
+            .document("""mutation { sendChatMessage(id: $chatId, text: "Draw a red square") { millis } }""")
+            .execute().path("sendChatMessage.millis").hasValue()
+
+        val filed = attachments.findAll().single()
+        assertThat(filed.chatSessionId).isEqualTo(chatId)
+        assertThat(filed.contentType).isEqualTo("image/png")
+        assertThat(thread(chatId)).containsExactly(
+            "user:Draw a red square",
+            "assistant:![](/api/attachments/${filed.id})",
+            "assistant:There it is.",
+        )
+        assertThat(offered.last()).describedAs("the model is told the picture is in the conversation").contains("inConversation")
+        // Nothing was drawn by an image model, so nothing is counted as one.
+        assertThat(asked).doesNotContain("/images/generations")
+    }
+
+    /**
      * And the same thing on the streamed path.
      *
      * Not the same test twice. [AgentConversation] reads a watched round as a

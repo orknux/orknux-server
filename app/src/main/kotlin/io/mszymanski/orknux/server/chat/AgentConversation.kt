@@ -1433,7 +1433,13 @@ class AgentConversation(
                          */
 
                         val picture = AgentTools.pictureIn(got)
-                        val whole = picture?.let { AgentTools.withoutPicture(got, it) } ?: got
+                        // Put where the reader is, where the round has somewhere to put it; the model is told so.
+                        val placed = picture?.let { made ->
+                            runCatching { shed?.pictured(call.name, made) }
+                                .onFailure { log.warn("A picture {} made could not be put in the conversation", call.name, it) }
+                                .getOrNull()
+                        }
+                        val whole = picture?.let { AgentTools.withoutPicture(got, it, placed) } ?: got
                         val said = whole
                         picture?.let { shown.add(call.name to it) }
 

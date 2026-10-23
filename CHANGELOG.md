@@ -37,6 +37,7 @@ have failed.
 
 ### 🐛 Fixed
 
+- **Pictures agents draw appear in the chat**: a diagram, a chart or an SVG drawing was handed to the agent alone, which then described a picture nobody could see.
 - **SVG colours in pictures**: `hsl()`, `rgba()`, hex with alpha and `transparent` drew black in every PNG made from an SVG, and now draw in their colour.
 
 ## 1.1.8
