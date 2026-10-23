@@ -6,13 +6,15 @@
  * here knows what the server does; it starts it, shows it, keeps it running
  * and stops it. See ../README.md for what is still to come.
  */
-const { app, BrowserWindow, Menu, Notification, Tray, dialog, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, Menu, Notification, Tray, clipboard, dialog, nativeImage, session, shell } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 
 const { readSettings, prepare } = require('./data');
 const { Log } = require('./logs');
 const { Server } = require('./server');
+const { Tabs } = require('./tabs');
+const { classify, shortcut } = require('./links');
 const windowState = require('./window-state');
 const manifest = require('../package.json');
 
@@ -35,6 +37,10 @@ const java = path.join(resources, 'jre', 'bin', process.platform === 'win32' ? '
 const imageJar = path.join(resources, 'server', 'app.jar');
 
 let window = null;
+/** @type {Tabs|null} */
+let tabs = null;
+/** The interface's address once the server answers: what a new tab opens. */
+let home = null;
 let tray = null;
 let server = null;
 let quitting = false;
@@ -50,6 +56,8 @@ if (!app.requestSingleInstanceLock()) {
 
 function show() {
   if (window === null) return;
+  // Closing the last tab hid the window; it comes back with one.
+  if (tabs.list.length === 0) open(home);
   if (window.isMinimized()) window.restore();
   window.show();
   window.focus();
@@ -112,59 +120,180 @@ async function start() {
         'Change it under the account itself, then delete that file.',
     });
   }
-  await window.loadURL(url);
+  home = url;
+  // The splash's tab becomes the interface's - or a new one, if that was closed while the server started.
+  const splash = tabs.list.find((tab) => tab.splash);
+  if (splash) {
+    splash.splash = false;
+    await splash.contents.loadURL(url);
+  } else {
+    open(url);
+  }
   if (smoke !== null) photograph();
 }
 
+/** What every page of the interface runs with, in every tab. */
+const PAGE_PREFERENCES = { contextIsolation: true, nodeIntegration: false, sandbox: true };
+
+/** A tab on the interface, or on the splash while there is no interface yet. */
+function open(url, more = {}) {
+  if (url !== null) return tabs.open({ url, ...more });
+  const tab = tabs.open({ file: path.join(__dirname, 'splash.html'), ...more });
+  tab.splash = true;
+  return tab;
+}
+
 /**
- * Where links from a window go.
+ * Where links from a tab go, the same on Windows and Linux.
  *
  * The app's own pages stay in the app; anything else is the web, and opens
- * where the web is read - a GitHub issue opening inside the app is a window
- * with no address bar and no way back. A link the page opens "in a new tab" -
- * an open-definition icon, Add a model - opens in a new window: there are no
- * tabs here, and loading it in place threw away whatever the page had not
- * saved, which is exactly why the page asked for a new tab.
+ * where the web is read - a GitHub issue opening inside the app is a page with
+ * no address bar and no way back. What links.js refuses is said rather than
+ * dropped: a link that does nothing reads as a broken app.
+ *
+ * A link the page opens "in a new tab" - an open-definition icon, Add a model,
+ * Ctrl+click, the middle button - opens in a tab beside it, and behind it for
+ * Ctrl+click and the middle button, as a browser does. Loading it in place
+ * threw away whatever the page had not saved, which is exactly why the page
+ * asked for a new tab.
  */
-function guard(win) {
-  const ours = (target) => {
-    try {
-      return server !== null && new URL(target).port === String(server.port) && ['127.0.0.1', 'localhost'].includes(new URL(target).hostname);
-    } catch {
-      return false;
-    }
+function wire(tab) {
+  const contents = tab.contents;
+  const port = () => (server === null ? null : server.port);
+  // A tab that never showed a page and was sent elsewhere at once would stay empty.
+  tab.leaveIfEmpty = () => {
+    if (!tab.committed) tabs.close(tab);
   };
-  /** The splash's own address, the one file: page a window may be on. */
-  const splashUrl = require('node:url').pathToFileURL(path.join(__dirname, 'splash.html')).href;
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    if (ours(url)) {
-      const [width, height] = win.getSize();
-      const child = new BrowserWindow({
-        width,
-        height,
-        minWidth: 900,
-        minHeight: 600,
-        title: 'Orknux',
-        backgroundColor: '#09090b',
-        icon: trayImage(),
-        webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
-      });
-      guard(child);
-      child.loadURL(url);
-    } else if (/^https?:/.test(url)) {
-      shell.openExternal(url);
-    }
+
+  contents.setWindowOpenHandler(({ url, disposition }) => {
+    const link = classify(url, port());
+    if (link.kind === 'ours') open(link.url, { after: tab, activate: disposition !== 'background-tab' });
+    else follow(link);
     return { action: 'deny' };
   });
-  win.webContents.on('will-navigate', (event, url) => {
-    /*
-     * The splash is the only file a window shows. Any other file: address is
-     * a file dropped where the page did not take it, which would otherwise
-     * replace Orknux with the picture until the app was restarted.
-     */
-    if (ours(url) || url === splashUrl) return;
+  /*
+   * Ours at its own address loads in place; ours at localhost is loaded again
+   * at 127.0.0.1 (links.js says why). Anything else is not loaded here at all -
+   * a file: address included, which is what a file dropped where the page did
+   * not take it becomes, and which would replace Orknux with the picture.
+   */
+  const steer = (event, url) => {
+    const link = classify(url, port());
+    if (link.kind === 'ours' && !link.moved) return;
     event.preventDefault();
-    if (/^https?:/.test(url)) shell.openExternal(url);
+    if (link.kind === 'ours') {
+      contents.loadURL(link.url);
+    } else {
+      follow(link);
+      tab.leaveIfEmpty();
+    }
+  };
+  // The event's own url and isMainFrame: the positional arguments after it are deprecated.
+  contents.on('will-navigate', (event) => steer(event, event.url));
+  // The server redirecting a page of ours elsewhere is a link like any other; a frame inside the page is the page's business.
+  contents.on('will-redirect', (event) => {
+    if (event.isMainFrame) steer(event, event.url);
+  });
+  /*
+   * A page with unsaved work - the workflow editor, a form - asks before it is
+   * left. Electron does not ask on its behalf: it quietly cancels, so a link, a
+   * tab's close or the window's stayed where it was with nothing said.
+   */
+  contents.on('will-prevent-unload', (event) => {
+    const choice = dialog.showMessageBoxSync(window, {
+      type: 'question',
+      title: 'Orknux',
+      message: 'Leave this page?',
+      detail: 'Changes you made may not be saved.',
+      buttons: ['Leave', 'Stay'],
+      defaultId: 1,
+      cancelId: 1,
+    });
+    if (choice === 0) event.preventDefault();
+  });
+  contents.on('before-input-event', keys);
+  contents.on('context-menu', (_event, params) => contextMenu(tab, params));
+}
+
+/** A link that is not a page of ours: to the operating system, or said why not. */
+function follow(link) {
+  if (link.kind === 'outside') {
+    // On Linux this is xdg-open, and a desktop with no browser or mail program set fails here, not in silence.
+    shell.openExternal(link.url).catch((failure) => {
+      log?.note(`could not open ${link.url}: ${failure.message}`);
+      tell('This link could not be opened', link.url, failure.message);
+    });
+  } else if (link.kind === 'refused') {
+    log?.note(`refused to open ${link.url}`);
+    tell(link.scheme ? `Orknux does not open ${link.scheme} links` : 'This is not a link Orknux can open', link.url,
+      'Only web, mail and phone links open from here.');
+  }
+}
+
+/** Says a link was not opened, with the link to copy: somebody may still want it elsewhere. */
+function tell(message, url, why) {
+  dialog.showMessageBox(window, {
+    type: 'warning', title: 'Orknux', message, detail: `${url}\n\n${why}`, buttons: ['Copy link', 'Close'], defaultId: 1, cancelId: 1,
+  }).then(({ response }) => {
+    if (response === 0) clipboard.writeText(url);
+  });
+}
+
+/** The tab keys, in a tab and in the strip alike. */
+function keys(event, input) {
+  const asked = shortcut(input);
+  if (asked === null) return;
+  event.preventDefault();
+  if (asked === 'new') tabs.openHome();
+  else if (asked === 'close') tabs.close(tabs.active);
+  else if (asked === 'next') tabs.step(1);
+  else if (asked === 'previous') tabs.step(-1);
+}
+
+/*
+ * Right-click. Electron draws no menu of its own, so without this a link could
+ * not be copied or sent to the browser, and a field had no Paste.
+ */
+function contextMenu(tab, params) {
+  const items = [];
+  if (params.linkURL) {
+    const link = classify(params.linkURL, server === null ? null : server.port);
+    if (link.kind === 'ours' && !link.url.startsWith('blob:')) {
+      items.push({ label: 'Open link in new tab', click: () => open(link.url, { after: tab }) });
+      items.push({ label: 'Open link in browser', click: () => follow({ kind: 'outside', url: link.url }) });
+    } else if (link.kind === 'outside') {
+      items.push({ label: /^https?:/.test(link.url) ? 'Open link in browser' : 'Open link', click: () => follow(link) });
+    }
+    // A mail link copies as the address, which is what gets pasted into a mail.
+    items.push({ label: 'Copy link address', click: () => clipboard.writeText(params.linkURL.replace(/^mailto:/, '')) });
+  }
+  if (params.isEditable || params.selectionText) {
+    if (items.length > 0) items.push({ type: 'separator' });
+    items.push(...(params.isEditable
+      ? [
+        { role: 'cut', enabled: params.editFlags.canCut },
+        { role: 'copy', enabled: params.editFlags.canCopy },
+        { role: 'paste', enabled: params.editFlags.canPaste },
+        { type: 'separator' },
+        { role: 'selectAll' },
+      ]
+      : [{ role: 'copy' }]));
+  }
+  if (items.length > 0) Menu.buildFromTemplate(items).popup({ window });
+}
+
+/*
+ * A download opened "in a new tab" - an attachment, an artifact served to be
+ * saved - opens a tab that never shows a page. It goes once the file is under
+ * way, as a browser's does. The file itself is Electron's: a Save dialog, the
+ * same on both systems.
+ */
+function watchDownloads() {
+  session.defaultSession.on('will-download', (_event, item, contents) => {
+    const tab = tabs?.of(contents);
+    if (!tab || tab.committed) return;
+    item.once('updated', () => tab.leaveIfEmpty());
+    item.once('done', () => tab.leaveIfEmpty());
   });
 }
 
@@ -181,13 +310,16 @@ function createWindow() {
     backgroundColor: '#09090b',
     icon: trayImage(),
     show: smoke === null,
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    // The window's own page is the tab strip; the interface is in the tabs under it.
+    webPreferences: { ...PAGE_PREFERENCES, preload: path.join(__dirname, 'tabs-preload.js') },
   });
   if (state.maximized) created.maximize();
   windowState.track(created, data);
-  created.loadFile(path.join(__dirname, 'splash.html'));
-
-  guard(created);
+  created.webContents.on('before-input-event', keys);
+  tabs = new Tabs(created, { webPreferences: PAGE_PREFERENCES, prepare: wire, home: () => home });
+  window = created;
+  watchDownloads();
+  open(null);
 
   /*
    * Closing the window leaves Orknux running in the tray, because a workflow on
@@ -291,13 +423,16 @@ app.on('window-all-closed', () => {
 async function photograph() {
   fs.mkdirSync(smoke, { recursive: true });
   await new Promise((resolve) => setTimeout(resolve, 6000));
-  const image = await window.webContents.capturePage();
+  // The tab's page, not the window's: the window's own page is only the strip.
+  const page = tabs.active.contents;
+  const image = await page.capturePage();
   fs.writeFileSync(path.join(smoke, 'window.png'), image.toPNG());
   fs.writeFileSync(path.join(smoke, 'result.json'), JSON.stringify({
-    url: window.webContents.getURL(),
-    title: window.webContents.getTitle(),
+    url: page.getURL(),
+    title: page.getTitle(),
     port: server.port,
+    tabs: tabs.list.length,
   }, null, 2));
-  log.note(`smoke: photographed ${window.webContents.getURL()}`);
+  log.note(`smoke: photographed ${page.getURL()}`);
   quit();
 }

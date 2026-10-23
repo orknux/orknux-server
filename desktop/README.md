@@ -18,9 +18,13 @@ The main process (`src/main.js`) is what `docker/one/entrypoint.sh` and
 3. **Supervises it** like `orknux-run.sh`: asks `ReleaseLauncher` which jar to
    run, runs it, starts again on exit code 75, and falls back from a release
    that failed. That is what lets the server's own signed-jar updates work here.
-4. **Shows it**: a splash while the server starts, then the interface. Links to
-   anywhere else open in the default browser. The window remembers its size
-   and position.
+4. **Shows it**: a splash while the server starts, then the interface, in tabs
+   (`src/tabs.js`): a link the page opens in a new tab, Ctrl+click and the
+   middle button open one, Ctrl+T, Ctrl+W, Ctrl+Tab and Ctrl+Shift+Tab work as
+   in a browser, and closing the last tab closes the window. Web, mail and
+   phone links to anywhere else go to the system's browser or mail program;
+   any other kind is refused and said so (`src/links.js`). The window remembers
+   its size and position.
 5. **Stays in the tray** when the window is closed, because a scheduled
    workflow or a Slack mention does not wait for the window. Quit from the tray
    icon. Where the desktop has no tray, closing the window quits.

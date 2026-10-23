@@ -37,6 +37,14 @@ ALSA, and a clean Debian installed the package and then would not start it.
 Smoke-test a package on a clean image, not on the build image, which has
 everything.
 
+**`links.js` decides what a link is, and nothing else does.** A page of the
+server stays in the app, always on `127.0.0.1` - the server's own links say
+`localhost`, a different site to Chromium, with no session and its writes
+refused as cross-site. The web, mail and the phone go to the operating system,
+and every other scheme is refused out loud, because Windows and Linux both run
+whatever is registered for a scheme and a link in a chat is something an agent
+wrote. `node --test` covers it; tabs and the strip need a display.
+
 **No Node on the host.** Build and test in `docker/Dockerfile`. The Windows
 `.exe` can be made here in `electronuserland/builder:wine` (see README) and
 `win-unpacked` smoke-tested on this machine; the MSI needs real Windows, which

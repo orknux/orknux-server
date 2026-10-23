@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- No script of its own: tabs-preload.js draws the strip, so nothing here can run. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<title>Orknux</title>
+<style>
+  /* The strip along the top of the window. --strip is set from the height tabs.js lays the pages out by. */
+  :root {
+    --ground: #09090b; --tab: #18181b; --tab-hover: #1f1f23; --text: #a1a1aa; --text-active: #fafafa; --edge: #27272a;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --ground: #e4e4e7; --tab: #f4f4f5; --tab-hover: #ececee; --text: #52525b; --text-active: #09090b; --edge: #d4d4d8; }
+  }
+  html, body { margin: 0; height: 100%; background: var(--ground); overflow: hidden; }
+  body {
+    display: flex; align-items: flex-end; gap: 2px; box-sizing: border-box;
+    height: var(--strip); padding: 0 6px; border-bottom: 1px solid var(--edge);
+    font: 12px -apple-system, "Segoe UI", system-ui, sans-serif; color: var(--text);
+    -webkit-user-select: none; user-select: none;
+  }
+  #tabs { display: flex; gap: 2px; min-width: 0; flex: 0 1 auto; height: calc(100% - 5px); }
+  .tab {
+    display: flex; align-items: center; gap: 6px; flex: 0 1 220px; min-width: 48px; padding: 0 6px 0 12px;
+    border-radius: 6px 6px 0 0; cursor: default;
+  }
+  .tab:hover { background: var(--tab-hover); }
+  .tab[aria-selected="true"] { background: var(--tab); color: var(--text-active); }
+  .title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  button {
+    flex: none; border: 0; background: none; color: inherit; font: inherit; line-height: 1;
+    width: 22px; height: 22px; border-radius: 4px; cursor: default;
+  }
+  button:hover { background: var(--edge); }
+  #add { align-self: center; font-size: 16px; }
+</style>
+</head>
+<body>
+  <div id="tabs" role="tablist" aria-label="Tabs"></div>
+  <button id="add" aria-label="New tab (Ctrl+T)" title="New tab (Ctrl+T)">+</button>
+</body>
+</html>
