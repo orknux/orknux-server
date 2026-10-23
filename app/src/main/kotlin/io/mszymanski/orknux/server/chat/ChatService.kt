@@ -490,7 +490,7 @@ class ChatService(
     private fun carried(thread: List<ChatMessage>, read: List<RememberedTurn>): List<ChatMessage> {
         if (thread.isEmpty() || read.isEmpty()) return thread
 
-        val where = read.indices.filter { !read[it].called }
+        val where = read.indices.filter { !read[it].working }
         val said = where.map { read[it] }
         if (said.isEmpty()) return thread
 
@@ -519,17 +519,75 @@ class ChatService(
          * so this walk retraces that alignment rather than guessing at one.
          */
         var turn = 0
-        val head = (where[from]..where[from + spans - 1]).map { at ->
+        val head = mutableListOf<ChatMessage>()
+        // Where the working since the last turn of the thread begins in [head].
+        var since = 0
+        for (at in where[from]..where[from + spans - 1]) {
             val line = read[at]
             when {
+                line.called -> head += ChatMessage(role = RememberedTurn.CALL, content = line.content, actor = line.actor, at = sentAtOf(line))
+                line.thought -> head += ChatMessage(
+                    role = RememberedTurn.THOUGHT,
+                    content = "",
+                    actor = line.actor,
+                    thinking = line.content,
+                    thinkingMillis = line.millis?.takeIf { it > 0 },
+                    at = sentAtOf(line),
+                )
+                turn < thread.size && same(thread[turn], line) -> {
+                    val reached = thread[turn++].copy(actor = line.actor)
+                    head += thoughtsPlaced(head.subList(since, head.size), reached)
+                    since = head.size
+                }
                 /* A line only the session holds - an aside between calls - takes its time from there, or it is drawn with none. */
-                line.called -> ChatMessage(role = RememberedTurn.CALL, content = line.content, actor = line.actor, at = sentAtOf(line))
-                turn < thread.size && same(thread[turn], line) -> thread[turn++].copy(actor = line.actor)
-                else -> ChatMessage(role = line.role, content = line.content, actor = line.actor, at = sentAtOf(line))
+                else -> head += ChatMessage(role = line.role, content = line.content, actor = line.actor, at = sentAtOf(line))
             }
         }
         return head + thread.drop(found)
     }
+
+    /**
+     * Decides whether the thinking in front of an answer is drawn where it
+     * happened, or left on the answer as one block - and takes the lines out
+     * of [working] where it is left.
+     *
+     * A model that thinks, calls a tool and thinks again was drawn live as
+     * exactly that, and on a reload as one block of thought on the answer,
+     * below every call it made - so what it concluded from a tool's answer
+     * read as if it came before the lookup. The session has each round's
+     * thinking as a line of its own, timed and in order among the calls, so a
+     * reload draws those instead and the answer keeps none.
+     *
+     * Only where the two accounts agree. The answer's thinking is every
+     * round's joined, so the session's lines just before it, joined the same
+     * way, must say the same thing - counted from the answer backwards,
+     * because a regenerated answer has the earlier take's thinking further up
+     * the same stretch. Anything else - a session that missed a round, a
+     * blocking turn that wrote its thinking once after the answer, a line in
+     * front of a person's turn - is left out, and the answer keeps its block,
+     * which is how every reload looked before this.
+     *
+     * And only where there is a call to put it among. Thinking that ends in
+     * no lookup is one block whichever way it is read, and it stays on the
+     * answer, where a model that thinks once has always had it.
+     */
+    private fun thoughtsPlaced(working: MutableList<ChatMessage>, reached: ChatMessage): ChatMessage {
+        val thoughts = working.indices.filter { working[it].role == RememberedTurn.THOUGHT }
+        if (thoughts.isEmpty()) return reached
+        val joined = reached.thinking?.takeIf { reached.role == AGENT_ROLE }?.let(::squeezed)
+        val kept = joined?.let {
+            (thoughts.size downTo 1).firstOrNull { count ->
+                squeezed(thoughts.takeLast(count).joinToString("\n\n") { at -> working[at].thinking.orEmpty() }) == it
+            }
+        }?.let { count -> thoughts.takeLast(count) }
+        val placed = kept != null && (kept.first() until working.size).any { working[it].role == RememberedTurn.CALL }
+        val dropped = if (placed) thoughts - kept.orEmpty().toSet() else thoughts
+        dropped.asReversed().forEach { working.removeAt(it) }
+        return if (placed) reached.copy(thinking = null, thinkingMillis = null) else reached
+    }
+
+    /** Thinking compared without its whitespace, which the two accounts of it break differently. */
+    private fun squeezed(text: String): String = text.filterNot { it.isWhitespace() }
 
     /**
      * How far the thread lines up with the session read from [start].
@@ -918,8 +976,8 @@ class ChatService(
              * that asked and kept it with the chat's own message, so the
              * session view - the one place every kind of turn is read the same
              * way - showed a chat's tool calls and answers and never what led
-             * to them. A chat reads back only what was said and what tools
-             * did, so the line is not drawn in the chat twice.
+             * to them. A chat read back draws these lines among its calls
+             * and then not on the answer as well - see [thoughtsPlaced].
              *
              * Beside a page that is watching, the line grows as the model
              * thinks. Without one it is written once the answer is in: handing

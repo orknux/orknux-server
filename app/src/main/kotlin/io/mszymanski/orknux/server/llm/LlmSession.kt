@@ -769,7 +769,8 @@ interface LlmSessionEventRepository : JpaRepository<LlmSessionEvent, Long> {
     fun latestResults(sessionId: Long, kind: LlmSessionEventKind, page: Pageable): List<LlmSessionEvent>
 
     /**
-     * The calls made inside a stretch of a session, oldest first.
+     * The calls made inside a stretch of a session, and the thinking between
+     * them, oldest first.
      *
      * For putting a tail back together as it actually read. [latestBefore]
      * answers what was *said*, because that is what a thread was seeded from
@@ -782,12 +783,17 @@ interface LlmSessionEventRepository : JpaRepository<LlmSessionEvent, Long> {
      * Both ends are inclusive here and narrowed by the caller, because two
      * lines of one exchange are written in the same instant and only the id
      * tells them apart.
+     *
+     * Kinds rather than one kind because a round's thinking is working too: a
+     * chat read back drew every round's reasoning as one block above the calls,
+     * so what a model thought after reading a tool's answer read as though it
+     * came before the lookup.
      */
     @Query(
         """
         select e from LlmSessionEvent e
         where e.sessionId = :sessionId
-          and e.kind = :kind
+          and e.kind in :kinds
           and e.at >= :from
           and e.at <= :to
         order by e.at asc, e.id asc
@@ -795,7 +801,7 @@ interface LlmSessionEventRepository : JpaRepository<LlmSessionEvent, Long> {
     )
     fun calledBetween(
         sessionId: Long,
-        kind: LlmSessionEventKind,
+        kinds: Collection<LlmSessionEventKind>,
         from: OffsetDateTime,
         to: OffsetDateTime,
         page: Pageable,

@@ -549,7 +549,8 @@ class LlmSessionRecorder(
 
     /**
      * The same tail as it stood before a moment, read the way a person reads
-     * it: who said each line, and the calls made in between them.
+     * it: who said each line, and the calls made in between them - with each
+     * round's thinking among them, where the round thought it.
      *
      * The other half of the split [remembered] is one side of. A model is given
      * what was said and nothing else, for the reason written there. A person
@@ -755,7 +756,7 @@ class LlmSessionRecorder(
         val calls = try {
             events.calledBetween(
                 session,
-                LlmSessionEventKind.TOOL,
+                WORKING,
                 first.at,
                 last.at,
                 PageRequest.of(0, MEMORY_CALLS),
@@ -781,6 +782,7 @@ class LlmSessionRecorder(
         role = when (event.kind) {
             LlmSessionEventKind.USER -> "user"
             LlmSessionEventKind.TOOL -> RememberedTurn.CALL
+            LlmSessionEventKind.THINKING -> RememberedTurn.THOUGHT
             else -> "assistant"
         },
         /*
@@ -797,6 +799,7 @@ class LlmSessionRecorder(
         },
         actor = event.actor,
         at = event.at,
+        millis = event.millis.takeIf { event.kind == LlmSessionEventKind.THINKING },
     )
 
     /**
@@ -935,6 +938,13 @@ class LlmSessionRecorder(
             LlmSessionEventKind.SUMMARY,
         )
 
+        /**
+         * What is put back between the turns of a tail for a person to read:
+         * the calls, and each round's thinking, which is a line of its own
+         * because a round stops thinking when it asks for a tool.
+         */
+        val WORKING = listOf(LlmSessionEventKind.TOOL, LlmSessionEventKind.THINKING)
+
         /** What marks a compacted stretch where it is put back to a model. Issue #523. */
         val SUMMARY_HEADER =
             "[Earlier in this conversation, summarised because it grew too long to carry in full. " +
@@ -965,6 +975,8 @@ data class RememberedTurn(
     val actor: String,
     /** When the line was written; null where it was made up rather than read. */
     val at: OffsetDateTime? = null,
+    /** How long a [THOUGHT] went on for, or null where it is not one or was never settled. */
+    val millis: Long? = null,
 ) {
 
     /**
@@ -974,6 +986,12 @@ data class RememberedTurn(
      * is one spelling of what a call reads as and nothing can drift from it.
      */
     val called: Boolean get() = role == CALL
+
+    /** True for a round's thinking, which nobody said either. */
+    val thought: Boolean get() = role == THOUGHT
+
+    /** True for any line that is working rather than a turn: a call, or a round's thinking. */
+    val working: Boolean get() = called || thought
 
     companion object {
         /**
@@ -985,6 +1003,12 @@ data class RememberedTurn(
          * out of these.
          */
         const val CALL = "tool"
+
+        /**
+         * The role one round's thinking reads under. No provider has one,
+         * which is right: a thought is never sent anywhere, only drawn.
+         */
+        const val THOUGHT = "thought"
     }
 }
 
