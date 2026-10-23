@@ -20,6 +20,7 @@ have failed.
 ### ✨ Added
 
 - **A model's own answer time limit**, on its page beside Requests per Minute. Empty takes the installation's Model Answer Time Limit.
+- **The Errors report's columns sort**, in both tables: press a heading, press it again to turn it round.
 
 ### 🔧 Changed
 

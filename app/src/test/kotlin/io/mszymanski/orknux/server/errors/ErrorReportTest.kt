@@ -80,6 +80,31 @@ class ErrorReportTest(
     }
 
     @Test
+    fun `the rows are put in the order of a column, and paged in that order`() {
+        val workspace = requireNotNull(workspaces.save(Workspace(name = "errors order ${System.nanoTime()}")).id)
+        errors.record(workspace, ErrorSource.AGENT, "beta", "Second message.")
+        errors.record(workspace, ErrorSource.RUN, "Alpha", "Third message.")
+        errors.record(workspace, ErrorSource.MODEL, "gamma", "First message.")
+
+        fun subjects(order: String, ascending: Boolean, size: Int = 25) = graphQlTester.document(
+            """query { errorReport(filter: { workspaceId: $workspace }, order: $order, ascending: $ascending, size: $size) {
+                 total rows { subject } } }""",
+        ).execute().path("errorReport.rows[*].subject").entityList(String::class.java).get()
+
+        // Newest first when nothing is asked for, as before.
+        graphQlTester.document("""query { errorReport(filter: { workspaceId: $workspace }) { rows { subject } } }""")
+            .execute().path("errorReport.rows[*].subject").entityList(String::class.java).containsExactly("gamma", "Alpha", "beta")
+        assertThat(subjects("SUBJECT", true)).containsExactly("Alpha", "beta", "gamma")
+        assertThat(subjects("SUBJECT", false)).containsExactly("gamma", "beta", "Alpha")
+        assertThat(subjects("MESSAGE", true)).containsExactly("gamma", "beta", "Alpha")
+        assertThat(subjects("SOURCE", true)).containsExactly("beta", "gamma", "Alpha")
+        assertThat(subjects("AT", true)).containsExactly("beta", "Alpha", "gamma")
+        assertThat(subjects("WORKSPACE", true)).hasSize(3)
+        // A page is cut from the ordered rows, not ordered after it is cut.
+        assertThat(subjects("SUBJECT", true, size = 2)).containsExactly("Alpha", "beta")
+    }
+
+    @Test
     @WithMockUser(username = "bob")
     fun `only an administrator reads it`() {
         graphQlTester.document("query { errorReport { total } }").execute().errors().satisfy {
