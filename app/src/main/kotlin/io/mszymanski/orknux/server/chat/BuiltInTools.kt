@@ -200,6 +200,8 @@ class BuiltInTools(
             io.mszymanski.orknux.server.schedule.ScheduleTools.CANCEL,
             // The rating a person gave, while Reports > Ratings is on; V403 marks it Always.
             io.mszymanski.orknux.server.rating.RatingTools.RATE,
+            // And taking one back when they ask; V413 marks it Always beside it.
+            io.mszymanski.orknux.server.rating.RatingTools.REMOVE,
             /*
              * The skill tools are built-ins like the rest rather than a view of
              * the catalog grants: the skills the server brings reach every agent
@@ -299,7 +301,10 @@ class BuiltInTools(
          * review on is none of those: an agent without it behaves as one does
          * while ratings are off in Admin > Reports.
          */
-        val OPTIONAL: Set<String> = setOf(io.mszymanski.orknux.server.rating.RatingTools.RATE)
+        val OPTIONAL: Set<String> = setOf(
+            io.mszymanski.orknux.server.rating.RatingTools.RATE,
+            io.mszymanski.orknux.server.rating.RatingTools.REMOVE,
+        )
 
         /**
          * The three that make requests, which Admin Settings -> HTTP tools

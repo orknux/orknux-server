@@ -75,6 +75,37 @@ class SessionRatingTest(
         mapper.readValue(shed.run(ToolCall("c", RatingTools.RATE, mapper.writeValueAsString(arguments))), Map::class.java)
     }
 
+    private fun remove(arguments: Map<String, Any?>): Map<*, *> {
+        val shed = requireNotNull(sheds.of(agent, session))
+        return mapper.readValue(shed.run(ToolCall("r", RatingTools.REMOVE, mapper.writeValueAsString(arguments))), Map::class.java)
+    }
+
+    @Test
+    fun `a review this conversation sent is taken back on request, the latest unless one is named`() {
+        ratings(true)
+        graphQlTester.document("mutation { setReviewsPerSession(count: 3) { reviewsPerSession } }").execute()
+        assertThat(BuiltInTools.GRANTED).contains(RatingTools.REMOVE)
+        assertThat(offered()).contains(RatingTools.REMOVE)
+        assertThat(sheds.of(agent, session)?.briefing()).contains(RatingTools.REMOVE)
+
+        assertThat(remove(emptyMap())["error"].toString()).contains("no review to take back")
+        val first = (send(mapOf("score" to 2))["id"] as Number).toLong()
+        val second = (send(mapOf("score" to 4))["id"] as Number).toLong()
+
+        val latest = remove(emptyMap())
+        assertThat(latest["removed"]).isEqualTo(true)
+        assertThat((latest["id"] as Number).toLong()).isEqualTo(second)
+        assertThat(remove(mapOf("id" to second))["error"].toString()).contains("sent no review $second")
+        assertThat((remove(mapOf("id" to first))["id"] as Number).toLong()).isEqualTo(first)
+        // Taken back, so the conversation has its share to send again.
+        assertThat(send(mapOf("score" to 5))["sent"]).isEqualTo(true)
+
+        ratings(false)
+        assertThat(offered()).doesNotContain(RatingTools.REMOVE)
+        graphQlTester.document("mutation { setReviewsPerSession(count: 2) { reviewsPerSession } }").execute()
+        ratings(true)
+    }
+
     @Test
     fun `the tool is offered only while ratings are on, which they are by default, and tells the agent when to mention it`() {
         assertThat(BuiltInTools.GRANTED).contains(RatingTools.RATE)

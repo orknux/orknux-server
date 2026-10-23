@@ -21,6 +21,7 @@ have failed.
 
 - **A model's own answer time limit**, on its page beside Requests per Minute. Empty takes the installation's Model Answer Time Limit.
 - **The Errors report's columns sort**, in both tables: press a heading, press it again to turn it round.
+- **An agent can take back a review it sent** with `remove_session_rating`, when the person asks; on beside `rate_session` for every agent.
 
 ### 🔧 Changed
 

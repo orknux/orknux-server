@@ -147,6 +147,7 @@ class SessionShedsTest(
             ScheduleTools.SET, ScheduleTools.LIST, ScheduleTools.CANCEL,
             // Session ratings are on until an administrator turns them off.
             io.mszymanski.orknux.server.rating.RatingTools.RATE,
+            io.mszymanski.orknux.server.rating.RatingTools.REMOVE,
         )
 
         val offered = linkedMapOf(

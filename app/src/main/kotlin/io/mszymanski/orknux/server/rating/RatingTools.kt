@@ -64,7 +64,36 @@ class RatingTools(
                 ToolParameterSpec(REVIEW, "What they wrote about it, in their own words; leave out if nothing.", required = false),
             ),
         ),
+        ToolSpec(
+            name = REMOVE,
+            description = "Takes back a review this conversation sent with $RATE, when the person asks for theirs " +
+                "to be withdrawn or sent it by mistake. The latest one unless you give the $ID $RATE answered with.",
+            parameters = listOf(
+                ToolParameterSpec(
+                    ID,
+                    "The id $RATE answered with; leave out for the latest review this conversation sent.",
+                    required = false,
+                    schema = mapOf("type" to "integer"),
+                ),
+            ),
+        ),
     )
+
+    /**
+     * Takes back one review [session] sent: [id] where given, the newest
+     * otherwise. Only that conversation's own - a review is the person's word
+     * about one conversation, and another's is not theirs to withdraw from
+     * here. Refused with a sentence that says why.
+     */
+    fun remove(session: Long, id: Long?): SessionRating {
+        val sent = ratings.findBySessionIdOrderByAtAsc(session)
+        val chosen = if (id == null) sent.lastOrNull() else sent.firstOrNull { it.id == id }
+        chosen ?: throw ReviewRefusedException(
+            if (id == null) "This conversation has sent no review to take back." else "This conversation sent no review $id.",
+        )
+        ratings.delete(chosen)
+        return chosen
+    }
 
     /**
      * Keeps one review of [session], from whichever door it came - the agent's
@@ -115,13 +144,15 @@ class RatingTools(
                 "conversation - a score from $LOWEST to $HIGHEST and what went wrong - and send what they give " +
                 "you to Orknux with $RATE. When they rate or judge your work of their own accord, good or bad " +
                 "(\"I rate this as very good\", \"that was useless\"), that is a review: send it with $RATE, " +
-                "asking for the score if they gave none. Do not ask for one otherwise, and never review your own work."
+                "asking for the score if they gave none. Do not ask for one otherwise, and never review your own work. " +
+                "If they ask for a review they gave to be taken back, take it back with $REMOVE."
 
-        override fun handles(name: String): Boolean = name == RATE
+        override fun handles(name: String): Boolean = name == RATE || name == REMOVE
 
         override fun run(call: ToolCall): String {
             val node = runCatching { mapper.readTree(call.arguments.ifBlank { "{}" }) }.getOrNull()
                 ?: return refusal("The arguments were not JSON.")
+            if (call.name == REMOVE) return removing(node)
             val score = scoreOf(node.path(SCORE))
                 ?: return refusal("Give $SCORE as a whole number from $LOWEST to $HIGHEST; ask the person if they gave none.")
             val review = node.path(REVIEW).takeIf { it.isString }?.stringValue()
@@ -130,6 +161,20 @@ class RatingTools(
                 mapper.writeValueAsString(mapOf("sent" to true, "id" to saved.id))
             } catch (refused: ReviewRefusedException) {
                 refusal("${refused.message} Tell the person theirs was not sent.")
+            }
+        }
+
+        private fun removing(node: JsonNode): String {
+            val given = node.path(ID)
+            val id = when {
+                given.isMissingNode || given.isNull -> null
+                else -> scoreOf(given)?.toLong() ?: return refusal("Give $ID as the whole number $RATE answered with, or leave it out.")
+            }
+            return try {
+                val gone = remove(session, id)
+                mapper.writeValueAsString(mapOf("removed" to true, "id" to gone.id, SCORE to gone.score))
+            } catch (refused: ReviewRefusedException) {
+                refusal("${refused.message} Tell the person nothing was taken back.")
             }
         }
 
@@ -145,8 +190,10 @@ class RatingTools(
 
     companion object {
         const val RATE = "rate_session"
+        const val REMOVE = "remove_session_rating"
         const val REVIEW = "review"
         const val SCORE = "score"
+        const val ID = "id"
 
         /** The scale, which the table's CHECK holds too: a definition, not a tunable. */
         const val LOWEST = 1

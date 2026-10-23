@@ -184,7 +184,7 @@ class BuiltInToolsTest(
         assertThat(listed.filter { it.governance == BuiltInGovernance.GRANT }.map { it.name })
             .containsExactlyElementsOf(BuiltInTools.GRANTED - BuiltInTools.OPTIONAL)
         assertThat(listed.filter { it.governance == BuiltInGovernance.GRANT_OPTIONAL }.map { it.name })
-            .containsExactly(io.mszymanski.orknux.server.rating.RatingTools.RATE)
+            .containsExactly(io.mszymanski.orknux.server.rating.RatingTools.RATE, io.mszymanski.orknux.server.rating.RatingTools.REMOVE)
         // The skill tools are switched by name now, like the rest: the server's
         // own skills reach every agent, whatever catalogs it was granted.
         assertThat(listed.filter { it.governance == BuiltInGovernance.SKILL_CATALOGS }).isEmpty()
