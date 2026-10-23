@@ -80,6 +80,18 @@ class InteractionRequest(
     @Column(columnDefinition = "text")
     var outcome: String? = null,
 
+    /** Whether more than one option may be chosen; [chosen] then holds their ids joined by commas. */
+    @Column(nullable = false)
+    val multiple: Boolean = false,
+
+    /** Whether the person may answer in their own words instead of, or beside, an option. */
+    @Column(name = "allows_text", nullable = false)
+    val allowsText: Boolean = false,
+
+    /** What the person wrote, where they wrote anything. */
+    @Column(name = "answer_text", columnDefinition = "text")
+    var answerText: String? = null,
+
     @Column(name = "created_at", nullable = false)
     val createdAt: OffsetDateTime = OffsetDateTime.now(),
 )
@@ -97,7 +109,7 @@ interface InteractionRequestRepository : JpaRepository<InteractionRequest, Long>
 data class InteractionItem(val name: String, val kind: String? = null, val description: String? = null)
 
 /** One answer on offer: [id] is what is sent back, [label] what the button says. */
-data class InteractionOption(val id: String, val label: String, val style: String? = null)
+data class InteractionOption(val id: String, val label: String, val style: String? = null, val description: String? = null)
 
 class InteractionRequestNotFoundException(val id: Long) :
     RuntimeException("No request with id $id"), Refusal {
@@ -107,6 +119,12 @@ class InteractionRequestNotFoundException(val id: Long) :
 class InteractionOptionUnknownException(val option: String) :
     RuntimeException("$option is not one of this request's options"), Refusal {
     override val arguments get() = mapOf("option" to option)
+}
+
+/** An answer the request does not take: two options where one is asked for, words where none are, or nothing at all. */
+class InteractionAnswerInvalidException(val why: String) :
+    RuntimeException(why), Refusal {
+    override val arguments get() = mapOf("why" to why)
 }
 
 class InteractionAlreadyAnsweredException(val id: Long) :

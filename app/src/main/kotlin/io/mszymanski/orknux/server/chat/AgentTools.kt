@@ -66,6 +66,8 @@ class AgentTools(
     private val httpPolicy: io.mszymanski.orknux.server.embedded.HttpToolPolicy,
     /** Listing what it could be granted, and asking a person for it; see [GrantRequestTools]. */
     private val grantRequests: GrantRequestTools,
+    /** Asking the person a question with options to choose from; see [QuestionTools]. */
+    private val questions: QuestionTools,
 ) {
 
     /**
@@ -190,6 +192,7 @@ class AgentTools(
          * tool instead, find nothing, and say it cannot.
          */
         if (grantRequests.offered(agent, session)) addAll(GrantRequestTools.SPECS)
+        if (questions.offered(agent, session)) add(QuestionTools.SPEC)
 
         /*
          * And the ids of the connections it was granted, however many: one
@@ -446,6 +449,8 @@ class AgentTools(
         } else if (boxes.handles(call.name)) {
             // Checked by the thing that would run it as well as left off the menu.
             boxes.run(agent, call.name, call.arguments, sessionId)
+        } else if (questions.handles(call.name)) {
+            questions.run(agent, call.arguments, sessionId)
         } else if (grantRequests.handles(call.name)) {
             // The switch is read fresh by the tool itself, as the box tools read their grant.
             grantRequests.run(agent, call.name, call.arguments, sessionId)

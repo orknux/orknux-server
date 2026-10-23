@@ -11,11 +11,13 @@ extend type Query {
 
 extend type Mutation {
     """
-    Answers a question with one of its options. Refused with
-    InteractionAlreadyAnswered once it has been, and InteractionOptionUnknown
-    for an option it does not offer.
+    Answers a question with one of its options - `option`, or several in
+    `options` where it is `multiple` - and `text` where it `allowsText`.
+    Refused with InteractionAlreadyAnswered once it has been,
+    InteractionOptionUnknown for an option it does not offer, and
+    InteractionAnswerInvalid for an answer of a shape it does not take.
     """
-    answerRequest(id: ID!, option: String!): InteractionRequest!
+    answerRequest(id: ID!, option: String, options: [String!], text: String): InteractionRequest!
 }
 
 type InteractionRequest {
@@ -35,6 +37,12 @@ type InteractionRequest {
     "What became of it, in a line, kept up to date when it changes elsewhere."
     outcome: String
     createdAt: String!
+    "Whether more than one option may be chosen; `chosen` is then their ids joined by commas."
+    multiple: Boolean!
+    "Whether the person may answer in their own words; `chosen` is own-words where they chose no option."
+    allowsText: Boolean!
+    "What the person wrote, where they wrote anything."
+    text: String
 }
 
 type InteractionOption {
@@ -42,6 +50,8 @@ type InteractionOption {
     label: String!
     "A hint for drawing it: primary, danger, or null."
     style: String
+    "What choosing it means, in a line; null for none."
+    description: String
 }
 
 "One thing a request is about: a tool asked for, with what sort of tool it is and what it does."

@@ -253,6 +253,7 @@ class BuiltInTools(
             "date_isBusinessHours",
             ConnectionTools.FIND,
             AgentRunTools.ASK,
+            QuestionTools.ASK,
             AgentRunTools.ASKS,
             AgentRunTools.LIST,
             AgentRunTools.WAIT,
