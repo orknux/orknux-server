@@ -82,6 +82,8 @@ class ChatStreamAPI(
     private val generations: ChatGenerations,
     private val mapper: ObjectMapper,
     private val chatTools: ChatTools,
+    /** Whether the videos on a message may go to the model answering it. */
+    private val videos: ChatVideos,
 ) {
 
     /**
@@ -113,6 +115,8 @@ class ChatStreamAPI(
         val session = chats.session(id) ?: throw ChatSessionNotFoundException(id)
         requireOwn(session)
 
+        // A video the model may not be sent is refused before anything is claimed or written.
+        videos.refuseUnwatchable(session, attachments.claimable(session, request.attachmentIds))
         // Tied to the chat here, and read for anything the model can look at.
         val sent = attachments.attach(session, request.attachmentIds)
         /*
@@ -127,7 +131,12 @@ class ChatStreamAPI(
          */
         return answering(
             id,
-            { send -> chats.beginSend(id, request.text, attachments.imagesOf(sent), { send("compacting", mapOf<String, Any>()) }, sent.mapNotNull { it.id }) },
+            { send ->
+                chats.beginSend(
+                    id, request.text, attachments.imagesOf(sent), { send("compacting", mapOf<String, Any>()) }, sent.mapNotNull { it.id },
+                    videos = attachments.videosOf(sent),
+                )
+            },
             request.text,
             response,
             session,

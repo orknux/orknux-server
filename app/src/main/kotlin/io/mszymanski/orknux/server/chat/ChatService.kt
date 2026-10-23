@@ -765,6 +765,13 @@ class ChatService(
      * and anything else that reads it says the same model the turn uses. A
      * chat with no agent, or an agent with no model, keeps what it has.
      */
+    /**
+     * The model that will answer this chat's next message, without moving the
+     * chat to it: what a check made before the message is written asks.
+     */
+    fun modelAnswering(session: ChatSession): Long? =
+        session.agentId?.let { agents.findByIdOrNull(it) }?.modelId ?: session.modelId
+
     private fun answeringModel(session: ChatSession): Long? {
         val current = session.agentId?.let { agents.findByIdOrNull(it) }?.modelId ?: return session.modelId
         if (current != session.modelId) {
@@ -1032,6 +1039,12 @@ class ChatService(
         compacting: () -> Unit = {},
         /** The files sent with this message, already claimed for the chat; they are placed under it. */
         attachmentIds: List<Long> = emptyList(),
+        /**
+         * Videos sent with this message, as `data:` URLs, for a model that
+         * takes video - the caller has refused the message already where it
+         * does not. Never written to the history, as pictures are not.
+         */
+        videos: List<String> = emptyList(),
     ): ChatSendStart {
         val session = sessions.findByIdOrNull(id) ?: throw ChatSessionNotFoundException(id)
         // A picture or a file is something said: only a message with nothing at all in it is refused.
@@ -1049,7 +1062,7 @@ class ChatService(
             compaction.compactIfNeeded(workspace, session.conversationId, modelId, beginning = compacting)
         }
 
-        return requireNotNull(writing.execute { recorded(id, message, images, compacted, attachmentIds) })
+        return requireNotNull(writing.execute { recorded(id, message, images, compacted, attachmentIds, videos) })
     }
 
     private fun recorded(
@@ -1058,6 +1071,7 @@ class ChatService(
         images: List<String>,
         compacted: Compacted?,
         attachmentIds: List<Long> = emptyList(),
+        videos: List<String> = emptyList(),
     ): ChatSendStart {
         val session = sessions.findByIdOrNull(id) ?: throw ChatSessionNotFoundException(id)
         val modelId = answeringModel(session) ?: throw ChatModelNotChosenException()
@@ -1105,7 +1119,7 @@ class ChatService(
             // thing in the list: what the tools returned goes between.
             turns = briefed(session) +
                 (sent ?: (standing(session, into) + thread.map { ChatTurn(role(it), it.text.orEmpty()) } + recalled(session, into))) +
-                ChatTurn("user", toModel, images),
+                ChatTurn("user", toModel, images, videos = videos),
             compacted = compacted,
         )
     }

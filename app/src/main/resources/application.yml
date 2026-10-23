@@ -304,6 +304,11 @@ orknux:
     completion-max-tokens: ${ORKNUX_CHAT_COMPLETION_MAX_TOKENS:32}
     completion-timeout-millis: ${ORKNUX_CHAT_COMPLETION_TIMEOUT_MILLIS:4000}
     completion-pause-millis: ${ORKNUX_CHAT_COMPLETION_PAUSE_MILLIS:600}
+    # The largest video, in megabytes, a chat message may send to a model that
+    # takes video; one over it is refused before the model is asked. Sent as
+    # base64 on every round of its turn, so kept apart from the attachment cap.
+    # Admin -> Settings overrides it.
+    video-max-mb: ${ORKNUX_CHAT_VIDEO_MAX_MB:20}
   watchers:
     # What bounds a watcher - a tool an agent asks the server to call on an
     # interval until its result matches a condition, which then wakes it. #606.

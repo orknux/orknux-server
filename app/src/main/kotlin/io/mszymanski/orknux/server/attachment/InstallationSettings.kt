@@ -74,6 +74,7 @@ object SettingNames {
     const val CHAT_COMPLETION_MAX_TOKENS = "chat.completion.max.tokens"
     const val CHAT_COMPLETION_TIMEOUT_MILLIS = "chat.completion.timeout.millis"
     const val CHAT_COMPLETION_PAUSE_MILLIS = "chat.completion.pause.millis"
+    const val CHAT_VIDEO_MAX_MB = "chat.video.max.mb"
     const val OBJECT_MAX_DEPTH = "objects.max.depth"
     const val IMAGE_MAX_PROMPT = "images.max.prompt"
     const val IMAGE_DRAWS_AT_ONCE = "images.draws.at.once"
@@ -584,6 +585,18 @@ class InstallationSettings(
     fun setChatCompletionPauseMillis(millis: Int, by: String) {
         if (millis !in COMPLETION_PAUSE_MILLIS) throw CompletionPauseOutOfRangeException(millis)
         holdInt(SettingNames.CHAT_COMPLETION_PAUSE_MILLIS, millis, by)
+    }
+
+    /** The largest video a chat message may send to a model that takes video, in megabytes. */
+    fun chatVideoMaxMb(): Int = heldInt(SettingNames.CHAT_VIDEO_MAX_MB, VIDEO_MAX_MB) ?: chatVideoMaxMbConfigured()
+
+    /** What a fresh installation does - ORKNUX_CHAT_VIDEO_MAX_MB. */
+    fun chatVideoMaxMbConfigured(): Int = chat.videoMaxMb.coerceIn(VIDEO_MAX_MB)
+
+    @Transactional
+    fun setChatVideoMaxMb(megabytes: Int, by: String) {
+        if (megabytes !in VIDEO_MAX_MB) throw VideoMaxOutOfRangeException(megabytes)
+        holdInt(SettingNames.CHAT_VIDEO_MAX_MB, megabytes, by)
     }
 
     /** A stored whole number, when there is one and it is in [range]; null sends the caller to the file. */
@@ -2271,6 +2284,20 @@ class CompletionPauseOutOfRangeException(val millis: Int) : RuntimeException(
     "The chat cannot wait $millis milliseconds before asking for a completion. Choose between ${COMPLETION_PAUSE_MILLIS.first} and ${COMPLETION_PAUSE_MILLIS.last}.",
 ), io.mszymanski.orknux.server.graphql.Refusal {
     override val arguments get() = mapOf("millis" to millis)
+}
+
+/*
+ * What the video limit may be, in megabytes. One at the bottom because nought
+ * would be a way of turning video off that the model's own switch already is;
+ * a gigabyte at the top because past that the base64 of one video is a request
+ * no server in front of a model is configured to read.
+ */
+val VIDEO_MAX_MB = 1..1024
+
+class VideoMaxOutOfRangeException(val megabytes: Int) : RuntimeException(
+    "A video sent to a model cannot be limited to $megabytes MB. Choose between ${VIDEO_MAX_MB.first} and ${VIDEO_MAX_MB.last}.",
+), io.mszymanski.orknux.server.graphql.Refusal {
+    override val arguments get() = mapOf("megabytes" to megabytes)
 }
 
 class ChatRetitleOutOfRangeException(val exchanges: Int) : RuntimeException(

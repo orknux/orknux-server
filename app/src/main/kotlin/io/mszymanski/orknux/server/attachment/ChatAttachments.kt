@@ -33,12 +33,19 @@ class ChatAttachments(
      * readable by pulling it into a chat of one's own.
      */
     @Transactional
-    fun attach(session: ChatSession, ids: List<Long>): List<ChatAttachment> {
+    fun attach(session: ChatSession, ids: List<Long>): List<ChatAttachment> =
+        claimable(session, ids).onEach { it.chatSessionId = session.id }
+
+    /**
+     * The ones [attach] would claim, without claiming them: for a check that
+     * may still refuse the message, which should leave the files where they
+     * were - in the composer, to be sent again somewhere that takes them.
+     */
+    fun claimable(session: ChatSession, ids: List<Long>): List<ChatAttachment> {
         if (ids.isEmpty()) return emptyList()
 
         return ids.mapNotNull { attachments.findByIdOrNull(it) }
             .filter { it.workspaceId == session.workspaceId && it.uploadedBy == session.userId }
-            .onEach { it.chatSessionId = session.id }
     }
 
     /**
@@ -51,8 +58,18 @@ class ChatAttachments(
      * Read from storage each time rather than kept: this happens once per
      * message, and a cache of decoded images is a cache of somebody's documents.
      */
-    fun imagesOf(attached: List<ChatAttachment>): List<String> = attached
-        .filter { it.contentType.startsWith("image/") }
+    fun imagesOf(attached: List<ChatAttachment>): List<String> = dataUrlsOf(attached.filter { it.contentType.startsWith("image/") })
+
+    /**
+     * The videos among them, as `data:` URLs, for a model that takes video.
+     *
+     * Read the same way and at the same moment as a picture, and only once the
+     * chat has decided the model may be sent them - [isVideo] says which ones
+     * that question is about, without reading a byte.
+     */
+    fun videosOf(attached: List<ChatAttachment>): List<String> = dataUrlsOf(attached.filter { isVideo(it.contentType) })
+
+    private fun dataUrlsOf(attached: List<ChatAttachment>): List<String> = attached
         .mapNotNull { attachment ->
             runCatching {
                 val bytes = store.open(attachment.location).use { it.readBytes() }
@@ -79,8 +96,11 @@ class ChatAttachments(
             }.getOrNull()
         }
 
-    private companion object {
-        val log = LoggerFactory.getLogger(ChatAttachments::class.java)
-        const val SVG = "image/svg+xml"
+    companion object {
+        private val log = LoggerFactory.getLogger(ChatAttachments::class.java)
+        private const val SVG = "image/svg+xml"
+
+        /** Whether a file is a video, by the type it was uploaded as. */
+        fun isVideo(contentType: String): Boolean = contentType.trim().lowercase().startsWith("video/")
     }
 }

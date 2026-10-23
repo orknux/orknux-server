@@ -230,6 +230,26 @@ class ChatMessageEmptyException : RuntimeException("There is nothing to send")
 
 class ChatDisabledException : RuntimeException("Chat is turned off for this installation")
 
+/** A video sent to a model whose Takes video switch is off. */
+class ChatVideoNotTakenException(val model: String) :
+    RuntimeException(io.mszymanski.orknux.connector.model.VideoInput.notTaken(model)), Refusal {
+    override val arguments get() = mapOf("model" to model)
+}
+
+/** A video sent to a model on a provider whose API has no video part at all. */
+class ChatVideoNotCarriedException(val model: String, val provider: String) :
+    RuntimeException(io.mszymanski.orknux.connector.model.VideoInput.notCarried(model, provider)), Refusal {
+    override val arguments get() = mapOf("model" to model, "provider" to provider)
+}
+
+/** A video larger than Admin Settings' Video Attachment Limit. */
+class ChatVideoTooLargeException(val filename: String, val megabytes: Long, val limit: Int) : RuntimeException(
+    "$filename is $megabytes MB, and a video sent to a model may be at most $limit MB. " +
+        "Send a shorter one, or raise Video Attachment Limit in Admin Settings.",
+), Refusal {
+    override val arguments get() = mapOf("filename" to filename, "megabytes" to megabytes, "limit" to limit)
+}
+
 class ChatModelNotChosenException :
     RuntimeException("This chat has no model to answer with; choose one first")
 

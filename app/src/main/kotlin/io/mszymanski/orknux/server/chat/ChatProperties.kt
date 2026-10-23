@@ -114,4 +114,18 @@ data class ChatProperties(
     val completionMaxTokens: Int = 32,
     val completionTimeoutMillis: Int = 4000,
     val completionPauseMillis: Int = 600,
+
+    /**
+     * The largest video, in megabytes, a chat message may send to a model that
+     * takes video, where a fresh installation starts. Admin -> Settings holds
+     * what it is now.
+     *
+     * Its own limit beside the attachment cap because the attachment is kept
+     * once and this is sent: as base64, a third larger, on every round of the
+     * turn it came with, to a server that turns it into frames and every frame
+     * into tokens. Twenty is under the attachment cap's default of twenty-five,
+     * so a fresh installation refuses no video it accepted as a file for any
+     * reason but this one.
+     */
+    val videoMaxMb: Int = 20,
 )
