@@ -342,6 +342,81 @@ class ChatInSessionTest(
     }
 
     /**
+     * A reloaded chat draws its thinking where it happened, as the live one
+     * does: each round's thinking a line of its own among the calls, and the
+     * answer then carrying none, so the same thought is not drawn twice. It
+     * used to come back as one block on the answer, below every call - so
+     * what the model concluded from a lookup read as coming before it.
+     */
+    @Test
+    fun `a reloaded chat draws each round's thinking in its place among the calls`() {
+        val catalogId = catalog("Reviews")
+        skill("codeReview", catalogId, "Read the diff twice before commenting.")
+        val agentId = agent("Reviewer", model(serveThinkingToolThenThinkingAnswer()), granted = "Reviews")
+        val chatId = startChat(llmSessionId = null, agentId = agentId)
+
+        stream(chatId, "What does the review skill say?")
+
+        graphQlTester.document("""{ chatMessages(id: $chatId) { role content actor thinking } }""")
+            .execute()
+            .path("chatMessages[*].role").entityList(String::class.java)
+            .containsExactly("user", "thought", "tool", "thought", "assistant")
+            .path("chatMessages[1].thinking").entity(String::class.java).isEqualTo("Which skill holds it?")
+            .path("chatMessages[1].actor").entity(String::class.java).isEqualTo("Reviewer")
+            .path("chatMessages[2].actor").entity(String::class.java).isEqualTo("skill_load")
+            .path("chatMessages[3].thinking").entity(String::class.java).isEqualTo("The skill says twice.")
+            .path("chatMessages[4].content").entity(String::class.java).isEqualTo("Read the diff twice.")
+            // Drawn among the calls, so not on the answer as well.
+            .path("chatMessages[4].thinking").valueIsNull()
+    }
+
+    /** A model that thinks once and looks nothing up keeps its thinking on its answer, as it always has. */
+    @Test
+    fun `thinking with no call to put it among stays on the answer`() {
+        val endpoint = serve {
+            listOf(
+                """data: {"choices":[{"delta":{"reasoning_content":"The pool is too small."}}]}""",
+                """data: {"choices":[{"delta":{"content":"Raise the pool size."}}]}""",
+                """data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":11,"completion_tokens":6}}""",
+                "data: [DONE]",
+            ).joinToString("") { it + "\n\n" }
+        }
+        val chatId = startChat(llmSessionId = null, agentId = agent("Reviewer", model(endpoint)))
+
+        stream(chatId, "So what do we do about it?")
+        // The session does hold the thought; it is the reload that keeps it on the answer.
+        assertThat(events.findAll().filter { it.kind == LlmSessionEventKind.THINKING }).hasSize(1)
+
+        graphQlTester.document("""{ chatMessages(id: $chatId) { role thinking } }""")
+            .execute()
+            .path("chatMessages[*].role").entityList(String::class.java).containsExactly("user", "assistant")
+            .path("chatMessages[1].thinking").entity(String::class.java).isEqualTo("The pool is too small.")
+    }
+
+    /**
+     * A turn answered without a page watching writes its thinking once, joined
+     * and after the answer, so the session cannot say where each round thought.
+     * The answer keeps its block, and nothing is drawn as a line of its own.
+     */
+    @Test
+    fun `thinking the session holds only after the answer stays on the answer`() {
+        val catalogId = catalog("Reviews")
+        skill("codeReview", catalogId, "Read the diff twice before commenting.")
+        val agentId = agent("Reviewer", model(serveThinkingToolThenThinkingAnswer()), granted = "Reviews")
+        val chatId = startChat(llmSessionId = null, agentId = agentId)
+
+        send(chatId, "What does the review skill say?")
+        send(chatId, "And then?")
+
+        graphQlTester.document("""{ chatMessages(id: $chatId) { role thinking } }""")
+            .execute()
+            .path("chatMessages[*].role").entityList(String::class.java)
+            .containsExactly("user", "tool", "assistant", "user", "tool", "assistant")
+            .path("chatMessages[2].thinking").entity(String::class.java)
+            .isEqualTo("Which skill holds it?\n\nThe skill says twice.")
+    }
+
+    /**
      * The model hears the session too, once - because the chat's own thread is
      * what was copied in.
      *
@@ -1088,6 +1163,56 @@ ${'"'}${'"'}${'"'}
         }
     }
 
+    /**
+     * Thinks, asks for a skill, then thinks again and answers - two rounds,
+     * each with thinking of its own. As frames where it is asked to stream,
+     * which is the round a page is watching and the one whose thinking is
+     * written into the session as it happens; as one message where it is not.
+     */
+    private fun serveThinkingToolThenThinkingAnswer(): String = serve { body ->
+        val second = body.contains("tool_call_id") && body.lastIndexOf("tool_call_id") > body.lastIndexOf("\"role\":\"user\"")
+        val streamed = body.replace(" ", "").contains("\"stream\":true")
+        val blank = "\n\n"
+        when {
+            streamed && second -> buildString {
+                append("""data: {"choices":[{"delta":{"reasoning_content":"The skill says twice."}}]}""").append(blank)
+                append("""data: {"choices":[{"delta":{"content":"Read the diff twice."}}]}""").append(blank)
+                append("""data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":9,"completion_tokens":4}}""").append(blank)
+                append("data: [DONE]").append(blank)
+            }
+            streamed -> buildString {
+                append("""data: {"choices":[{"delta":{"reasoning_content":"Which skill holds it?"}}]}""").append(blank)
+                append(
+                    """data: {"choices":[{"delta":{"tool_calls":[""" +
+                        """{"index":0,"id":"call_1","type":"function","function":{"name":"skill_load","arguments":""}}]}}]}""",
+                ).append(blank)
+                append(
+                    """data: {"choices":[{"delta":{"tool_calls":[""" +
+                        """{"index":0,"function":{"arguments":"{\"name\":\"codeReview\"}"}}]}}]}""",
+                ).append(blank)
+                append("""data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":7,"completion_tokens":2}}""").append(blank)
+                append("data: [DONE]").append(blank)
+            }
+            second ->
+                """{"choices":[{"message":{"role":"assistant","reasoning_content":"The skill says twice.","content":"Read the diff twice."}}],
+                   "usage":{"prompt_tokens":9,"completion_tokens":4}}"""
+            else ->
+                """
+                {"choices":[{"message":{"role":"assistant","reasoning_content":"Which skill holds it?","content":null,"tool_calls":[
+                  {"id":"call_1","type":"function",
+                   "function":{"name":"skill_load","arguments":"{\"name\":\"codeReview\"}"}}
+                ]}}],"usage":{"prompt_tokens":7,"completion_tokens":2}}
+                """.trimIndent()
+        }
+    }
+
+    /** Sends through the streaming door - the one with a page watching, which writes each round's thinking as it happens. */
+    private fun stream(chatId: Long, text: String) {
+        val response = org.springframework.mock.web.MockHttpServletResponse()
+        streaming.stream(chatId, ChatStreamRequest(text), response).writeTo(response.outputStream)
+        assertThat(response.contentAsString).contains("event: done")
+    }
+
     /** The same round, with a word about it in the reply that asks for the skill. */
     private fun serveRemarkingThenToolThenAnswer(): String = serve { body ->
         if (body.contains("tool_call_id")) {
@@ -1110,8 +1235,9 @@ ${'"'}${'"'}${'"'}
         opened.createContext("/chat/completions") { exchange ->
             val body = exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
             received += body
-            val bytes = answer(body).toByteArray(StandardCharsets.UTF_8)
-            exchange.responseHeaders.add("Content-Type", "application/json")
+            val said = answer(body)
+            val bytes = said.toByteArray(StandardCharsets.UTF_8)
+            exchange.responseHeaders.add("Content-Type", if (said.startsWith("data:")) "text/event-stream" else "application/json")
             exchange.sendResponseHeaders(200, bytes.size.toLong())
             exchange.responseBody.use { it.write(bytes) }
             exchange.close()
