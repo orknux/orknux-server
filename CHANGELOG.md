@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- **Plugins and functions can read Slack's Web API and download Slack files through a connection.** `orknux.slack.api(connection, method, args, { as })` makes one of `auth.test`, `conversations.list`, `users.conversations`, `conversations.history`, `conversations.replies`, `users.list`, `users.lookupByEmail` or `files.info` with the connection's bot token - or its user token, with `as: 'user'` - and answers Slack's own JSON; `orknux.slack.download(connection, fileId)` fetches a file with the bot token, as text or base64, up to 5 MB. Both are the new `SLACK_WEB_API_READ` capability, so the Slack plugin can stop keeping its own `botToken` and `userToken`; a plugin that declares it asks for the grant again on its next update.
+
 ## 1.1.9
 
 ### ✨ Added

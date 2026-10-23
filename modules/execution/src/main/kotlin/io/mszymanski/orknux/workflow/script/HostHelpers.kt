@@ -101,6 +101,7 @@ internal object HostHelpers {
         searchAbsent: String,
         suggestAbsent: String,
         uploadAbsent: String,
+        apiAbsent: String,
     ): String = """
         slack: {
           thread(connection, channel, threadTs, limit) {
@@ -203,6 +204,44 @@ internal object HostHelpers {
               if (file[key] !== undefined && file[key] !== null) asked[key] = String(file[key]);
             });
             return JSON.parse(host.slack_upload_file(JSON.stringify([id, asked])));
+          },
+          /*
+           * One of Slack's read methods, with the connection's bot token or,
+           * for { as: 'user' }, its user token. Arguments cross as strings, the
+           * way Slack's form takes them; anything that is not a string, a
+           * number or a boolean is refused here rather than sent as
+           * [object Object]. Which methods are read is the server's list.
+           */
+          api(connection, method, args, options) {
+            const host = globalThis.__orknuxHost;
+            if (host === undefined || host.slack_web_api_read === undefined) {
+              return { error: '$apiAbsent' };
+            }
+            const given = args === undefined || args === null ? {} : args;
+            if (typeof given !== 'object' || Array.isArray(given)) {
+              return { error: 'slack.api takes its arguments as an object, as Slack names them' };
+            }
+            const sent = {};
+            for (const key of Object.keys(given)) {
+              const value = given[key];
+              if (value === undefined || value === null) continue;
+              if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
+                return { error: 'slack.api sends strings, numbers and booleans, and ' + key + ' is none of them' };
+              }
+              sent[key] = String(value);
+            }
+            const as = options !== undefined && options !== null && options.as === 'user' ? 'user' : 'bot';
+            const id = connection === null || typeof connection !== 'object' ? connection : connection.id;
+            return JSON.parse(host.slack_web_api_read(JSON.stringify([id, { op: 'api', method: String(method), args: sent, as: as }])));
+          },
+          /* A file's bytes by its id, with the bot token; the same grant. */
+          download(connection, fileId) {
+            const host = globalThis.__orknuxHost;
+            if (host === undefined || host.slack_web_api_read === undefined) {
+              return { error: '$apiAbsent' };
+            }
+            const id = connection === null || typeof connection !== 'object' ? connection : connection.id;
+            return JSON.parse(host.slack_web_api_read(JSON.stringify([id, { op: 'download', file: String(fileId) }])));
           },
         },
     """.trimIndent()

@@ -16,6 +16,13 @@ import java.nio.charset.StandardCharsets
 import java.time.Duration
 
 /**
+ * The most bytes a download through a door carries - `orknux.http.download`,
+ * and `orknux.slack.download`, which a plugin moved onto from the first and
+ * should find the same files fit.
+ */
+const val MOST_DOWNLOADED_BYTES = 5 * 1024 * 1024
+
+/**
  * One HTTP request, made by the server because a plugin was granted it.
  *
  * **What this is, and what it is not.** It is not a network for the sandbox:
@@ -221,7 +228,7 @@ class NetworkPluginHost(
          * crosses the sandbox is a third again larger, and both ends of that
          * trip live in memory while it is made.
          */
-        const val MAX_BYTES = 5 * 1024 * 1024
+        const val MAX_BYTES = MOST_DOWNLOADED_BYTES
 
         /** An upload's ceiling, measured after decoding for the same reason. */
         const val MAX_UPLOAD = 10 * 1024 * 1024
