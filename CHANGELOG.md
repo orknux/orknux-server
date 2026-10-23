@@ -20,6 +20,7 @@ have failed.
 ### ✨ Added
 
 - `ORKNUX_SESSION_COOKIE_SECURE` marks the session cookie Secure (`auto`, the default, follows the request); `ORKNUX_CONTENT_SECURITY_POLICY` replaces the interface's Content-Security-Policy where the built-in one is too strict.
+- **Tabs in the desktop app.** A link the interface opens in a new tab, Ctrl+click and the middle button open a tab instead of a window; Ctrl+T, Ctrl+W, Ctrl+Tab and Ctrl+Shift+Tab work as in a browser, and closing the last tab closes the window.
 
 ### 🔧 Changed
 
@@ -37,6 +38,7 @@ have failed.
 - Spraying sign-in attempts over ten thousand names wiped the pause on the one being guessed.
 - One mailed password-reset link could be spent twice by two requests at once.
 - Audit and session lines now hide credentials in JSON (`"password": "..."`) and this installation's own `orkx_` tokens.
+- Links in the desktop app on Windows and Linux: mail and phone links open the mail program, a link to the server's own `localhost` address keeps you signed in, a download opened in a new tab leaves no empty tab, a page with unsaved work asks before it is left instead of silently staying, right-click offers to copy a link or open it in the browser, and a link the app will not open says so.
 
 ## 1.1.9
 

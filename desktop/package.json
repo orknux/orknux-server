@@ -18,6 +18,7 @@
   "scripts": {
     "start": "electron .",
     "smoke": "electron . --no-sandbox",
+    "test": "node --test",
     "dist:linux": "electron-builder --linux deb AppImage",
     "dist:linux:store": "electron-builder --linux deb AppImage -c.extraMetadata.orknux.selfUpdate=false",
     "dist:win": "electron-builder --win nsis msi",
