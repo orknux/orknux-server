@@ -212,7 +212,7 @@ function wire(tab) {
     if (choice === 0) event.preventDefault();
   });
   contents.on('before-input-event', keys);
-  contents.on('context-menu', (_event, params) => contextMenu(tab, params));
+  contents.on('context-menu', (_event, params) => contextMenu(tab, params, contents));
 }
 
 /** A link that is not a page of ours: to the operating system, or said why not. */
@@ -252,11 +252,19 @@ function keys(event, input) {
 
 /*
  * Right-click. Electron draws no menu of its own, so without this a link could
- * not be copied or sent to the browser, and a field had no Paste.
+ * not be copied or sent to the browser, a field had no Paste, and a picture -
+ * a diagram an agent drew - could not be saved or copied at all.
  */
-function contextMenu(tab, params) {
+function contextMenu(tab, params, contents) {
   const items = [];
+  if (params.mediaType === 'image' && params.srcURL) {
+    // Through the same Save dialog as any download; see watchDownloads.
+    items.push({ label: 'Save image as…', click: () => contents.downloadURL(params.srcURL) });
+    items.push({ label: 'Copy image', click: () => contents.copyImageAt(params.x, params.y) });
+    items.push({ label: 'Copy image address', click: () => clipboard.writeText(params.srcURL) });
+  }
   if (params.linkURL) {
+    if (items.length > 0) items.push({ type: 'separator' });
     const link = classify(params.linkURL, server === null ? null : server.port);
     if (link.kind === 'ours' && !link.url.startsWith('blob:')) {
       items.push({ label: 'Open link in new tab', click: () => open(link.url, { after: tab }) });
