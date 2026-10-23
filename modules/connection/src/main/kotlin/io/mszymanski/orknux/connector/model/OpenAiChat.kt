@@ -74,7 +74,7 @@ class OpenAiChat(
 
         val client = when (val ready = ready(provider)) {
             is Ready.No -> return Outcome.Failed(ready.reason)
-            is Ready.Yes -> ready.client
+            is Ready.Yes -> clients.forModel(ready.client, model)
         }
         if (OpenAiResponses.speaks(provider)) return responses.complete(client, provider, model, turns, tools, hangup)
 
@@ -153,7 +153,7 @@ class OpenAiChat(
 
         val client = when (val ready = ready(provider)) {
             is Ready.No -> return Outcome.Failed(ready.reason)
-            is Ready.Yes -> ready.client
+            is Ready.Yes -> clients.forModel(ready.client, model)
         }
         if (OpenAiResponses.speaks(provider)) {
             return responses.stream(client, provider, model, turns, tools, onThinking, hangup, onCalling, onChunk)

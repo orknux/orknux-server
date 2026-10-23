@@ -5778,6 +5778,10 @@ type Model {
     throttleRequestsPerSecond: Float
     "Whether this model obeys a 429's Retry-After; null inherits the provider. Issue #426."
     acceptRetryAfter: Boolean
+    "How long one call to this model may take, in minutes; null takes the installation's. Issue #644."
+    answerLimitMinutes: Int
+    "The installation's Model Answer Time Limit, in minutes: what a null answerLimitMinutes takes."
+    answerLimitMinutesInherited: Int!
     "What the provider charges per million tokens; null when it is not recorded."
     inputCostPerMillion: Float
     outputCostPerMillion: Float
@@ -6013,6 +6017,8 @@ input ModelQuotasInput {
     tokenLimit: Float
     resetInterval: ResetInterval
     requestsPerMinute: Int
+    "How long one call may take, in minutes; null takes the installation's. Issue #644."
+    answerLimitMinutes: Int
 }
 
 """

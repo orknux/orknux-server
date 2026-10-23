@@ -99,6 +99,21 @@ class ModelClients(
     }
 
     /**
+     * [client] as [model] is called through: under the model's own time limit
+     * where it has one, and as it is otherwise. Issue #644.
+     *
+     * Derived rather than built: the provider's client stays the one held, and
+     * this shares its connections, so two models of one provider with
+     * different limits do not rebuild it on every alternating call.
+     */
+    fun forModel(client: OpenAIClient, model: LlmModel): OpenAIClient =
+        if (model.answerLimitMinutes == null) client else limitedTo(client, limits.answerFor(model))
+
+    /** [client], sharing its connections, giving a call up after [limit]. */
+    fun limitedTo(client: OpenAIClient, limit: Duration): OpenAIClient =
+        client.withOptions { it.timeout(Timeout.builder().request(limit).read(limit).build()) }
+
+    /**
      * The provider's client for this base: the one held where it was built for
      * the same thing, otherwise a new one, closing whatever it replaces.
      *

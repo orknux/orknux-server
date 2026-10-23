@@ -256,6 +256,7 @@ internal val MODEL_FIELDS: List<FileField<LlmModel, *>> = listOf(
     FileField("throttleTokensPerSecond", { it.throttleTokensPerSecond }, { m, v -> m.throttleTokensPerSecond = v }, LONG_OR_NULL),
     FileField("throttleRequestsPerSecond", { it.throttleRequestsPerSecond }, { m, v -> m.throttleRequestsPerSecond = v }, NUMBER_OR_NULL),
     FileField("acceptRetryAfter", { it.acceptRetryAfter }, { m, v -> m.acceptRetryAfter = v }, YES_NO_OR_NULL),
+    FileField("answerLimitMinutes", { it.answerLimitMinutes }, { m, v -> m.answerLimitMinutes = v }, WHOLE_OR_NULL),
     FileField("inputCostPerMillion", { it.inputCostPerMillion }, { m, v -> m.inputCostPerMillion = v }, DECIMAL_OR_NULL),
     FileField("outputCostPerMillion", { it.outputCostPerMillion }, { m, v -> m.outputCostPerMillion = v }, DECIMAL_OR_NULL),
     FileField("cachedInputCostPerMillion", { it.cachedInputCostPerMillion }, { m, v -> m.cachedInputCostPerMillion = v }, DECIMAL_OR_NULL),

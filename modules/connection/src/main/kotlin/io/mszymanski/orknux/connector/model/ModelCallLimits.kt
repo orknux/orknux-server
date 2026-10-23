@@ -18,9 +18,20 @@ fun interface ModelCallLimits {
 
     fun answer(): Duration
 
+    /** How long a call to [model] may take: its own limit where it has one, the installation's otherwise. Issue #644. */
+    fun answerFor(model: LlmModel): Duration =
+        // Held to the range here too: an imported file is not checked the way the form is.
+        model.answerLimitMinutes?.let { Duration.ofMinutes(it.coerceIn(FEWEST_MINUTES, MOST_MINUTES).toLong()) } ?: answer()
+
     companion object {
         /** What a fresh installation allows: an hour. */
         val DEFAULT: Duration = Duration.ofMinutes(60)
+
+        /** The shortest limit that may be set, here or on a model. */
+        const val FEWEST_MINUTES = 1
+
+        /** The longest, a day. */
+        const val MOST_MINUTES = 1440
 
         /** The limit a fresh installation has, for whoever is not handed one. */
         val FRESH = ModelCallLimits { DEFAULT }

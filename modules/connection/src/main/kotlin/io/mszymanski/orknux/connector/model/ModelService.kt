@@ -479,9 +479,15 @@ class ModelService(
         val provider = providers.findByIdOrNull(model.providerId)
             ?: throw ModelProviderNotFoundException(model.providerId)
 
+        val answerLimit = input.answerLimitMinutes
+        if (answerLimit != null && answerLimit !in ModelCallLimits.FEWEST_MINUTES..ModelCallLimits.MOST_MINUTES) {
+            throw ModelAnswerLimitInvalidException(answerLimit)
+        }
+
         model.tokenLimit = input.tokenLimit
         model.resetInterval = input.resetInterval
         model.requestsPerMinute = input.requestsPerMinute
+        model.answerLimitMinutes = answerLimit
         return LlmModelView(model, provider)
     }
 
@@ -957,6 +963,8 @@ data class ModelQuotasInput(
     val tokenLimit: Long? = null,
     val resetInterval: ResetInterval = ResetInterval.MONTHLY,
     val requestsPerMinute: Int? = null,
+    /** How long one call may take, in minutes; null takes the installation's. Issue #644. */
+    val answerLimitMinutes: Int? = null,
 )
 
 /**
@@ -1092,6 +1100,8 @@ data class LlmModelView(
     val throttleRequestsPerSecond: Double?,
     /** Whether it obeys a 429's Retry-After; null inherits the provider. Issue #426. */
     val acceptRetryAfter: Boolean?,
+    /** How long one call may take, in minutes; null takes the installation's. Issue #644. */
+    val answerLimitMinutes: Int?,
     val inputCostPerMillion: Double?,
     val outputCostPerMillion: Double?,
     val cachedInputCostPerMillion: Double?,
@@ -1128,6 +1138,7 @@ data class LlmModelView(
         throttleTokensPerSecond = model.throttleTokensPerSecond,
         throttleRequestsPerSecond = model.throttleRequestsPerSecond,
         acceptRetryAfter = model.acceptRetryAfter,
+        answerLimitMinutes = model.answerLimitMinutes,
         inputCostPerMillion = model.inputCostPerMillion?.toDouble(),
         outputCostPerMillion = model.outputCostPerMillion?.toDouble(),
         cachedInputCostPerMillion = model.cachedInputCostPerMillion?.toDouble(),

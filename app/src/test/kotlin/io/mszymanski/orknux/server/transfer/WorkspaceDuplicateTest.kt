@@ -410,7 +410,7 @@ class WorkspaceDuplicateTest(
             io.mszymanski.orknux.connector.model.LlmModel::class.java to setOf(
                 "name", "modelId", "kind", "contextWindow", "maxOutput", "parallelToolCalls", "reasoningEffort", "temperature", "topP",
                 "topK", "minP", "repeatPenalty", "enabled", "tokenLimit", "resetInterval", "requestsPerMinute",
-                "throttleTokensPerSecond", "throttleRequestsPerSecond", "acceptRetryAfter", "inputCostPerMillion",
+                "throttleTokensPerSecond", "throttleRequestsPerSecond", "acceptRetryAfter", "answerLimitMinutes", "inputCostPerMillion",
                 "outputCostPerMillion", "cachedInputCostPerMillion", "cacheWriteCostPerMillion", "voice", "skipEmptyLines", "imageCostPerImage",
             ),
         )

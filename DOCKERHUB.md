@@ -276,7 +276,6 @@ must be signed with the release key this image carries. **On by default.**
 
 | Variable | What it does | Default | Required |
 | --- | --- | --- | --- |
-| `ORKNUX_MODEL_TIMEOUT` | How long a model has to answer. Generous: a large local model on a laptop is slow. | `2m` | No |
 | `ORKNUX_MODEL_CHECK_ENABLED` | Periodically asks each provider whether it still answers, so the status on the screen is recent. | `true` | No |
 | `ORKNUX_MODEL_CHECK_INTERVAL` | How often that sweep runs. | `5m` | No |
 | `ORKNUX_CONNECTION_CHECK_ENABLED` | The same, for connections. | `true` | No |

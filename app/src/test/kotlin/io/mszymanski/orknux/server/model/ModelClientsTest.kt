@@ -3,6 +3,7 @@ package io.mszymanski.orknux.server.model
 import com.openai.models.chat.completions.ChatCompletionCreateParams
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
+import io.mszymanski.orknux.connector.model.LlmModel
 import io.mszymanski.orknux.connector.model.ModelCallLimits
 import io.mszymanski.orknux.connector.model.ModelClients
 import io.mszymanski.orknux.connector.model.ModelProvider
@@ -162,6 +163,38 @@ class ModelClientsTest {
         assertThat(clients.clientFor(provider, ModelClients.apiKey("sk-test"))).isSameAs(first)
         limit.set(Duration.ofMinutes(5))
         assertThat(clients.clientFor(provider, ModelClients.apiKey("sk-test"))).isNotSameAs(first)
+    }
+
+    /**
+     * A model with a limit of its own is called under it, through the
+     * provider's held client rather than a new one; one without is called
+     * through the held client as it is. Issue #644.
+     */
+    @Test
+    fun `a model's own limit is the one its calls are given up at`() {
+        val clients = ModelClients(ProxyRouter(ProxyRuleSource { emptyList() }))
+        val held = clients.clientFor(provider(ProviderType.OPENAI, url(origin)), ModelClients.apiKey("sk-test"))
+        val model = LlmModel(providerId = 7, name = "Model", modelId = "m")
+        assertThat(clients.forModel(held, model)).isSameAs(held)
+        model.answerLimitMinutes = 5
+        assertThat(clients.forModel(held, model)).isNotSameAs(held)
+
+        val silent = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
+        silent.createContext("/") { Thread.sleep(30_000) }
+        silent.start()
+        try {
+            val sixtyMinutes = clients.clientFor(provider(ProviderType.OPENAI, url(silent)), ModelClients.apiKey("sk-test"))
+            val limited = clients.limitedTo(sixtyMinutes, Duration.ofSeconds(1))
+            val started = System.nanoTime()
+            assertThatThrownBy {
+                limited.chat().completions().create(
+                    ChatCompletionCreateParams.builder().model("slow").addUserMessage("Hi").build(),
+                )
+            }
+            assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(10))
+        } finally {
+            silent.stop(0)
+        }
     }
 
     private fun say(clients: ModelClients, provider: ModelProvider, model: String) {

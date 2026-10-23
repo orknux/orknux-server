@@ -7,6 +7,7 @@ import io.mszymanski.orknux.connector.model.ChatApi
 import io.mszymanski.orknux.connector.model.CreateProviderInput
 import io.mszymanski.orknux.connector.model.DiscoveredModelView
 import io.mszymanski.orknux.connector.model.LlmModelView
+import io.mszymanski.orknux.connector.model.ModelCallLimits
 import io.mszymanski.orknux.connector.model.ModelProviderView
 import io.mszymanski.orknux.connector.model.ModelQuotasInput
 import io.mszymanski.orknux.connector.model.ModelService
@@ -23,6 +24,7 @@ import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import org.springframework.graphql.data.method.annotation.Argument
 import org.springframework.graphql.data.method.annotation.MutationMapping
 import org.springframework.graphql.data.method.annotation.QueryMapping
+import org.springframework.graphql.data.method.annotation.SchemaMapping
 import org.springframework.stereotype.Controller
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -44,7 +46,13 @@ class ModelAPI(
     private val dependants: io.mszymanski.orknux.server.dependency.ComponentDependants,
     @param:org.springframework.context.annotation.Lazy
     private val sharing: io.mszymanski.orknux.server.sharing.WorkspaceSharing,
+    /** The installation's answer time limit, which a model without its own takes. */
+    private val limits: ModelCallLimits,
 ) {
+
+    /** What an empty answer limit on a model's page means; read per request, as the limit is. Issue #644. */
+    @SchemaMapping(typeName = "Model", field = "answerLimitMinutesInherited")
+    fun answerLimitMinutesInherited(model: LlmModelView): Int = limits.answer().toMinutes().toInt()
 
     @QueryMapping
     fun modelProviders(@Argument workspaceId: Long): List<ModelProviderView> {
@@ -346,6 +354,7 @@ class ModelAPI(
                 tokenLimit = input.tokenLimit?.toLong(),
                 resetInterval = input.resetInterval ?: ResetInterval.MONTHLY,
                 requestsPerMinute = input.requestsPerMinute,
+                answerLimitMinutes = input.answerLimitMinutes,
             ),
         )
         auditRecorder.record(model.workspaceId, WorkspaceAuditCategory.MODEL, "Quotas for ${model.name} updated")
@@ -408,6 +417,7 @@ data class ModelQuotasArgs(
     val tokenLimit: Double? = null,
     val resetInterval: ResetInterval? = null,
     val requestsPerMinute: Int? = null,
+    val answerLimitMinutes: Int? = null,
 )
 
 /** The throttle card's values; the token rate arrives as a Float for its range. Issue #426. */

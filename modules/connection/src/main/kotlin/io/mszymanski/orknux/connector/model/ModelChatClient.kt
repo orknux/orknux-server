@@ -5,8 +5,6 @@ import io.mszymanski.orknux.connector.connection.ConnectionProbe
 import com.openai.errors.OpenAIServiceException
 import io.mszymanski.orknux.connector.proxy.ProxyRouter
 import org.slf4j.LoggerFactory
-import org.springframework.boot.context.properties.ConfigurationProperties
-import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
 import java.net.URI
@@ -235,12 +233,6 @@ sealed interface ChatCompletion {
     ) : ChatCompletion
 }
 
-@ConfigurationProperties(prefix = "orknux.model")
-data class ModelChatProperties(
-    /** How long a model has to answer before the request is given up on. */
-    val timeout: Duration = Duration.ofMinutes(2),
-)
-
 /**
  * Calls a model and returns what it said.
  *
@@ -254,14 +246,12 @@ data class ModelChatProperties(
  * self-hosted servers also answer.
  */
 @Service
-@EnableConfigurationProperties(ModelChatProperties::class)
 class ModelChatClient(
     private val providers: ModelProviderRepository,
     private val models: LlmModelRepository,
     private val probe: ModelProviderProbe,
     private val connections: ConnectionProbe,
     private val mapper: ObjectMapper,
-    private val properties: ModelChatProperties,
     private val usage: ModelUsageRecorder,
     private val proxies: ProxyRouter,
     private val openAi: OpenAiChat,
@@ -269,6 +259,12 @@ class ModelChatClient(
     private val throttle: ModelThrottle,
     /** The first wait for a rate limit inside a stream that named none; read per call. Issue #608. */
     private val backoff: RateLimitBackoff,
+    /**
+     * How long a call may take: the model's own limit, or the installation's.
+     * The SDK path reads the same, so Anthropic is held to what every other
+     * provider is rather than to a start-up property of its own. Issue #644.
+     */
+    private val limits: ModelCallLimits = ModelCallLimits.FRESH,
 ) {
 
     /**
@@ -1232,7 +1228,7 @@ class ModelChatClient(
             return Prepared.Failed("${provider.name} cannot be sent this picture: ${refused.message}")
         }
         val builder = HttpRequest.newBuilder(uri)
-            .timeout(properties.timeout)
+            .timeout(limits.answerFor(model))
             .header("Content-Type", "application/json")
             .header(credential.name, credential.value)
         // Anthropic wants its version pinned on every request.

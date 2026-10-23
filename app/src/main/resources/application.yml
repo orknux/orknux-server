@@ -855,6 +855,3 @@ orknux:
       enabled: ${ORKNUX_MODEL_CHECK_ENABLED:true}
       interval: ${ORKNUX_MODEL_CHECK_INTERVAL:5m}
       initial-delay: ${ORKNUX_MODEL_CHECK_INITIAL_DELAY:30s}
-    # How long a model has to answer a chat message. Generous: a large local
-    # model on a laptop is slow, and giving up on it is worse than waiting.
-    timeout: ${ORKNUX_MODEL_TIMEOUT:2m}

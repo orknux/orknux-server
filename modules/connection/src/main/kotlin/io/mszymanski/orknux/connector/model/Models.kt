@@ -226,6 +226,11 @@ class ModelProviderToolCapInvalidException(count: Int) : RuntimeException(
     "$count is not a number of tools a request can carry. Choose between ${ModelProviderToolCaps.FEWEST} and ${ModelProviderToolCaps.MOST}, or leave it unset",
 )
 
+class ModelAnswerLimitInvalidException(minutes: Int) : RuntimeException(
+    "$minutes is not a number of minutes a model may take to answer. " +
+        "Choose between ${ModelCallLimits.FEWEST_MINUTES} and ${ModelCallLimits.MOST_MINUTES}, or leave it empty for the installation's",
+)
+
 /** The range a provider's own cap on tools per request is held to. */
 object ModelProviderToolCaps {
     /** Fewer than this leaves no room beside the tools every turn carries. */
@@ -598,6 +603,7 @@ fun LlmModel.copied(providerId: Long, name: String): LlmModel = LlmModel(
         throttleTokensPerSecond = throttleTokensPerSecond,
         throttleRequestsPerSecond = throttleRequestsPerSecond,
         acceptRetryAfter = acceptRetryAfter,
+        answerLimitMinutes = answerLimitMinutes,
         inputCostPerMillion = inputCostPerMillion,
         outputCostPerMillion = outputCostPerMillion,
         cachedInputCostPerMillion = cachedInputCostPerMillion,
@@ -757,6 +763,14 @@ class LlmModel(
     /** Null inherits the provider's choice on obeying a 429's Retry-After. Issue #426. */
     @Column(name = "accept_retry_after")
     var acceptRetryAfter: Boolean? = null,
+
+    /**
+     * How long one call to this model may take, in minutes; null takes the
+     * installation's Model Answer Time Limit. A model's own because it is the
+     * hardware behind it that decides how slow it is. Issue #644.
+     */
+    @Column(name = "answer_limit_minutes")
+    var answerLimitMinutes: Int? = null,
 
     @Column(name = "input_cost_per_million", precision = 12, scale = 4)
     var inputCostPerMillion: BigDecimal? = null,

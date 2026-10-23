@@ -15,6 +15,16 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- **A model's own answer time limit**, on its page beside Requests per Minute. Empty takes the installation's Model Answer Time Limit.
+
+### 🔧 Changed
+
+- **Anthropic models follow the Model Answer Time Limit** (an hour unless changed) instead of `ORKNUX_MODEL_TIMEOUT`'s two minutes, which is no longer read. If you set `ORKNUX_MODEL_TIMEOUT`, set the limit in Admin Settings or on the model instead.
+
 ## 1.1.8
 
 ### ✨ Added

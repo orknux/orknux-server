@@ -2738,8 +2738,8 @@ class UnusableReplyRetriesOutOfRangeException(val retries: Int) : RuntimeExcepti
     override val arguments get() = mapOf("retries" to retries)
 }
 
-const val MIN_MODEL_ANSWER_MINUTES = 1
-const val MAX_MODEL_ANSWER_MINUTES = 1440
+const val MIN_MODEL_ANSWER_MINUTES = io.mszymanski.orknux.connector.model.ModelCallLimits.FEWEST_MINUTES
+const val MAX_MODEL_ANSWER_MINUTES = io.mszymanski.orknux.connector.model.ModelCallLimits.MOST_MINUTES
 
 class ModelAnswerLimitOutOfRangeException(val minutes: Int) : RuntimeException(
     "$minutes is not a number of minutes a model may take to answer. " +

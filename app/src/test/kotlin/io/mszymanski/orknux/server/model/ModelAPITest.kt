@@ -366,6 +366,38 @@ class ModelAPITest(
             .contains("Quotas for Claude 3.5 Sonnet updated")
     }
 
+    /** A model's own answer time limit, beside the installation's it falls back to. Issue #644. */
+    @Test
+    fun `a model keeps its own answer limit, an emptied one takes the installation's, and one out of range is refused`() {
+        val providerId = provider("Anthropic", "https://api.anthropic.com/v1")
+        val modelId = model(providerId, "Claude 3.5 Sonnet", "claude-3-5-sonnet-20241022")
+
+        graphQlTester.document("""{ model(id: $modelId) { answerLimitMinutes answerLimitMinutesInherited } }""").execute()
+            .path("model.answerLimitMinutes").valueIsNull()
+            .path("model.answerLimitMinutesInherited").entity(Int::class.java).isEqualTo(60)
+
+        graphQlTester.document(
+            """mutation { updateModelQuotas(id: $modelId, input: { resetInterval: MONTHLY, answerLimitMinutes: 15 })
+               { answerLimitMinutes } }""",
+        ).execute().path("updateModelQuotas.answerLimitMinutes").entity(Int::class.java).isEqualTo(15)
+        assertThat(models.findById(modelId).orElseThrow().answerLimitMinutes).isEqualTo(15)
+
+        listOf(0, 1441).forEach { minutes ->
+            graphQlTester.document(
+                """mutation { updateModelQuotas(id: $modelId, input: { resetInterval: MONTHLY, answerLimitMinutes: $minutes })
+                   { answerLimitMinutes } }""",
+            ).execute().errors().satisfy { errors ->
+                assertThat(errors.single().extensions["code"]).isEqualTo("ModelAnswerLimitInvalid")
+            }
+        }
+        assertThat(models.findById(modelId).orElseThrow().answerLimitMinutes).isEqualTo(15)
+
+        graphQlTester.document(
+            """mutation { updateModelQuotas(id: $modelId, input: { resetInterval: MONTHLY, answerLimitMinutes: null })
+               { answerLimitMinutes } }""",
+        ).execute().path("updateModelQuotas.answerLimitMinutes").valueIsNull()
+    }
+
     @Test
     fun `the throttle card saves a model's own rate, and an emptied one inherits`() {
         val providerId = provider("Anthropic", "https://api.anthropic.com/v1")
