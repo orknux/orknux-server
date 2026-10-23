@@ -612,6 +612,7 @@ fun LlmModel.copied(providerId: Long, name: String): LlmModel = LlmModel(
         skipEmptyLines = skipEmptyLines,
         imageCostPerImage = imageCostPerImage,
         takesVideo = takesVideo,
+        takesAudio = takesAudio,
 )
 
 /**
@@ -866,6 +867,20 @@ class LlmModel(
      */
     @Column(name = "takes_video", nullable = false)
     var takesVideo: Boolean = false,
+
+    /**
+     * Whether a sound attached to a chat message - mp3, wav, flac - is sent to
+     * this model as itself, as an `input_audio` part of the turn.
+     *
+     * A switch for the reason [takesVideo] is one: OpenAI's audio models and a
+     * llama.cpp server with an audio projector hear it, the same endpoints'
+     * other models answer the part with a 400. Off, so a model nobody has said
+     * this about is refused audio in a sentence before the provider is called.
+     * Only a provider [ChatParameters] declares [ChatParameters.TAKES_AUDIO]
+     * for may hold it on; [AudioInput] says which formats each one reads.
+     */
+    @Column(name = "takes_audio", nullable = false)
+    var takesAudio: Boolean = false,
 )
 
 /**

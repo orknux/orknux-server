@@ -1,6 +1,8 @@
 package io.mszymanski.orknux.server.attachment
 
 import io.mszymanski.orknux.server.chat.ChatSession
+import io.mszymanski.orknux.connector.model.AudioClip
+import io.mszymanski.orknux.connector.model.AudioInput
 import org.slf4j.LoggerFactory
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
@@ -69,6 +71,21 @@ class ChatAttachments(
      */
     fun videosOf(attached: List<ChatAttachment>): List<String> = dataUrlsOf(attached.filter { isVideo(it.contentType) })
 
+    /**
+     * The sounds among them - mp3, wav, flac - as `input_audio` clips, for a
+     * model that takes audio. Read once the chat has decided the model may be
+     * sent them, in the format the file came in: [AudioInput] has already
+     * refused one its server does not decode.
+     */
+    fun audiosOf(attached: List<ChatAttachment>): List<AudioClip> = attached.mapNotNull { attachment ->
+        val format = AudioInput.formatOf(attachment.contentType) ?: return@mapNotNull null
+        runCatching {
+            AudioClip(Base64.getEncoder().encodeToString(store.open(attachment.location).use { it.readBytes() }), format)
+        }.onFailure {
+            log.warn("Attachment {} could not be read for the model", attachment.filename, it)
+        }.getOrNull()
+    }
+
     private fun dataUrlsOf(attached: List<ChatAttachment>): List<String> = attached
         .mapNotNull { attachment ->
             runCatching {
@@ -102,5 +119,8 @@ class ChatAttachments(
 
         /** Whether a file is a video, by the type it was uploaded as. */
         fun isVideo(contentType: String): Boolean = contentType.trim().lowercase().startsWith("video/")
+
+        /** Whether a file is a sound a model may hear, by the type it was uploaded as; MIDI is not one. */
+        fun isAudio(contentType: String): Boolean = AudioInput.formatOf(contentType) != null
     }
 }

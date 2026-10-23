@@ -244,6 +244,7 @@ class BuiltInTools(
             "svg_toPng",
             "svg_read",
             "sheet_read",
+            "midi_read",
             "markdown_toText",
             "date_today",
             "date_now",

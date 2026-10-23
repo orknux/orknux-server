@@ -59,6 +59,16 @@ data class ChatTurn(
      * after it.
      */
     val videos: List<String> = emptyList(),
+    /**
+     * Sounds sent with this turn, as `input_audio` parts.
+     *
+     * Kept as [videos] are, for the same reasons: only to a model whose
+     * [LlmModel.takesAudio] is on, on a provider that carries the part and
+     * decodes the clip's format - [ModelChatClient] refuses the call before it
+     * is made otherwise - and never in a session's saved prompt, so a sound is
+     * sent on its own turn's rounds and not again after it.
+     */
+    val audios: List<AudioClip> = emptyList(),
     /** Set on an assistant turn that asked for tools. */
     val asked: List<ToolCall> = emptyList(),
     /** Set on a turn answering one, naming the call it answers. */
@@ -426,6 +436,7 @@ class ModelChatClient(
         onChunk: (String) -> Unit,
     ): ChatCompletion {
         unwatchable(modelId, turns)?.let { return it }
+        unheard(modelId, turns)?.let { return it }
         val limits = throttled(modelId)
         spoken(modelId)?.let { shape ->
             return through(modelId, shape, limits) {
@@ -909,6 +920,7 @@ class ModelChatClient(
     ): ChatCompletion {
         if (hangup?.hungUp == true) return ChatCompletion.Failed(HUNG_UP, permanent = false)
         unwatchable(modelId, turns)?.let { return it }
+        unheard(modelId, turns)?.let { return it }
         val limits = throttled(modelId)
         if (hangup?.hungUp == true) return ChatCompletion.Failed(HUNG_UP, permanent = false)
         spoken(modelId)?.let { shape ->
@@ -1003,6 +1015,19 @@ class ModelChatClient(
      * and a turn that dropped it quietly would be a model answering about a
      * video it was never shown.
      */
+    /**
+     * A call carrying a sound to a model that may not be sent it, or in a
+     * format its server does not decode, refused before anything is sent - the
+     * wire's half of what the chat refuses first, as [unwatchable] is for video.
+     */
+    private fun unheard(modelId: Long, turns: List<ChatTurn>): ChatCompletion.Failed? {
+        val clips = turns.flatMap { it.audios }
+        if (clips.isEmpty()) return null
+        val model = models.findByIdOrNull(modelId) ?: return null
+        val provider = providers.findByIdOrNull(model.providerId) ?: return null
+        return AudioInput.refusal(provider, model, clips)?.let { ChatCompletion.Failed(it, permanent = true) }
+    }
+
     private fun unwatchable(modelId: Long, turns: List<ChatTurn>): ChatCompletion.Failed? {
         if (turns.none { it.videos.isNotEmpty() }) return null
         val model = models.findByIdOrNull(modelId) ?: return null

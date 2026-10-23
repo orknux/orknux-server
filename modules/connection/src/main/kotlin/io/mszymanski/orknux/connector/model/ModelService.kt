@@ -395,6 +395,7 @@ class ModelService(
                 skipEmptyLines = input.skipEmptyLines ?: false,
                 imageCostPerImage = input.imageCostPerImage?.toBigDecimal(),
                 takesVideo = ChatParameters.held(provider, kind, ChatParameters.TAKES_VIDEO, input.takesVideo),
+                takesAudio = ChatParameters.held(provider, kind, ChatParameters.TAKES_AUDIO, input.takesAudio),
             ),
         )
         return LlmModelView(model, provider)
@@ -466,6 +467,7 @@ class ModelService(
         model.skipEmptyLines = input.skipEmptyLines ?: false
         model.imageCostPerImage = input.imageCostPerImage?.toBigDecimal()
         input.takesVideo?.let { model.takesVideo = ChatParameters.held(provider, kind, ChatParameters.TAKES_VIDEO, it) }
+        input.takesAudio?.let { model.takesAudio = ChatParameters.held(provider, kind, ChatParameters.TAKES_AUDIO, it) }
         return LlmModelView(model, provider)
     }
 
@@ -923,6 +925,8 @@ data class CreateModelInput(
     val imageCostPerImage: Double? = null,
     /** Whether a video attached to a chat is sent to it; on only where [ChatParameters] declares it. */
     val takesVideo: Boolean? = null,
+    /** Whether a sound attached to a chat is sent to it; on only where [ChatParameters] declares it. */
+    val takesAudio: Boolean? = null,
 )
 
 /** The model's own details, all of them, as the form that edits them sends them. */
@@ -960,6 +964,8 @@ data class UpdateModelInput(
      * written before the switch existed does not turn it off by not knowing it.
      */
     val takesVideo: Boolean? = null,
+    /** Whether a sound attached to a chat is sent to it; null leaves it as it is, as [takesVideo]. */
+    val takesAudio: Boolean? = null,
     /**
      * The provider it is reached through. Null leaves it where it is, unlike
      * the fields above: a caller written before a model could move would
@@ -1125,6 +1131,8 @@ data class LlmModelView(
     val imageCostPerImage: Double?,
     /** Whether a video attached to a chat is sent to it. See [LlmModel.takesVideo]. */
     val takesVideo: Boolean = false,
+    /** Whether a sound attached to a chat is sent to it. See [LlmModel.takesAudio]. */
+    val takesAudio: Boolean = false,
 ) {
     constructor(model: LlmModel, provider: ModelProvider) : this(
         id = requireNotNull(model.id),
@@ -1159,6 +1167,7 @@ data class LlmModelView(
         skipEmptyLines = model.skipEmptyLines,
         imageCostPerImage = model.imageCostPerImage?.toDouble(),
         takesVideo = model.takesVideo,
+        takesAudio = model.takesAudio,
     )
 }
 

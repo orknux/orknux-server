@@ -1045,6 +1045,8 @@ class ChatService(
          * does not. Never written to the history, as pictures are not.
          */
         videos: List<String> = emptyList(),
+        /** Sounds sent with this message, for a model that takes audio; refused already where it does not, and never written to the history. */
+        audios: List<io.mszymanski.orknux.connector.model.AudioClip> = emptyList(),
     ): ChatSendStart {
         val session = sessions.findByIdOrNull(id) ?: throw ChatSessionNotFoundException(id)
         // A picture or a file is something said: only a message with nothing at all in it is refused.
@@ -1062,7 +1064,7 @@ class ChatService(
             compaction.compactIfNeeded(workspace, session.conversationId, modelId, beginning = compacting)
         }
 
-        return requireNotNull(writing.execute { recorded(id, message, images, compacted, attachmentIds, videos) })
+        return requireNotNull(writing.execute { recorded(id, message, images, compacted, attachmentIds, videos, audios) })
     }
 
     private fun recorded(
@@ -1072,6 +1074,7 @@ class ChatService(
         compacted: Compacted?,
         attachmentIds: List<Long> = emptyList(),
         videos: List<String> = emptyList(),
+        audios: List<io.mszymanski.orknux.connector.model.AudioClip> = emptyList(),
     ): ChatSendStart {
         val session = sessions.findByIdOrNull(id) ?: throw ChatSessionNotFoundException(id)
         val modelId = answeringModel(session) ?: throw ChatModelNotChosenException()
@@ -1119,7 +1122,7 @@ class ChatService(
             // thing in the list: what the tools returned goes between.
             turns = briefed(session) +
                 (sent ?: (standing(session, into) + thread.map { ChatTurn(role(it), it.text.orEmpty()) } + recalled(session, into))) +
-                ChatTurn("user", toModel, images, videos = videos),
+                ChatTurn("user", toModel, images, videos = videos, audios = audios),
             compacted = compacted,
         )
     }

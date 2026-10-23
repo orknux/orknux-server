@@ -42,7 +42,7 @@ class ChatStreamExceptionHandler {
         ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.message ?: "The chat cannot answer that")
 
     /**
-     * A video the answering model may not be sent, said as GraphQL says a
+     * A video or a sound the answering model may not be sent, said as GraphQL says a
      * refusal: the English in `detail`, and beside it the `code` and
      * `arguments` the browser translates with - the same two `refused()` puts
      * in a GraphQL error's extensions, so one catalogue serves both doors.
@@ -51,6 +51,10 @@ class ChatStreamExceptionHandler {
         ChatVideoNotTakenException::class,
         ChatVideoNotCarriedException::class,
         ChatVideoTooLargeException::class,
+        ChatAudioNotTakenException::class,
+        ChatAudioNotCarriedException::class,
+        ChatAudioFormatNotTakenException::class,
+        ChatAudioTooLargeException::class,
     )
     fun videoRefused(exception: RuntimeException): ProblemDetail =
         ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.message ?: "The chat cannot send that video").apply {

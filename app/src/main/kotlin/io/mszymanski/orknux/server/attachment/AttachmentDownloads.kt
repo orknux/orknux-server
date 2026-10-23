@@ -120,8 +120,10 @@ class AttachmentDownloads(private val store: AttachmentStore) {
         /**
          * What may be shown rather than downloaded.
          *
-         * Raster pictures, and video in the three containers every browser's
-         * `<video>` plays. SVG is deliberately absent: it is a document that
+         * Raster pictures, video in the three containers every browser's
+         * `<video>` plays, and the three sounds a chat sends a model, which its
+         * `<audio>` plays - an upload's type is made one of these words by
+         * [AttachmentTypes], so `audio/x-wav` is not a fourth. SVG is deliberately absent: it is a document that
          * can carry script, and "it is an image" is exactly the reasoning that
          * makes that a problem. A video is not that: a media element decodes
          * it and runs nothing, and opened on its own it is still served under
@@ -131,6 +133,7 @@ class AttachmentDownloads(private val store: AttachmentStore) {
         val SHOWABLE = setOf(
             "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp",
             "video/mp4", "video/webm", "video/ogg",
+            "audio/mpeg", "audio/flac", "audio/wav",
         )
 
         /**

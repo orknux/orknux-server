@@ -84,6 +84,8 @@ class ChatStreamAPI(
     private val chatTools: ChatTools,
     /** Whether the videos on a message may go to the model answering it. */
     private val videos: ChatVideos,
+    /** Whether the sounds on a message may go to the model answering it, and in which format. */
+    private val audios: ChatAudios,
 ) {
 
     /**
@@ -116,7 +118,10 @@ class ChatStreamAPI(
         requireOwn(session)
 
         // A video the model may not be sent is refused before anything is claimed or written.
-        videos.refuseUnwatchable(session, attachments.claimable(session, request.attachmentIds))
+        // So is a sound, and a model is only sent sound in a format its server decodes.
+        val claimable = attachments.claimable(session, request.attachmentIds)
+        videos.refuseUnwatchable(session, claimable)
+        audios.refuseUnheard(session, claimable)
         // Tied to the chat here, and read for anything the model can look at.
         val sent = attachments.attach(session, request.attachmentIds)
         /*
@@ -135,6 +140,7 @@ class ChatStreamAPI(
                 chats.beginSend(
                     id, request.text, attachments.imagesOf(sent), { send("compacting", mapOf<String, Any>()) }, sent.mapNotNull { it.id },
                     videos = attachments.videosOf(sent),
+                    audios = attachments.audiosOf(sent),
                 )
             },
             request.text,

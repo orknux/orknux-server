@@ -187,6 +187,28 @@ enum class Tunable(
         "How many times one workflow run may speak",
         "Each is a call to a speech model. Zero refuses every one.",
     ),
+    /*
+     * Its own limit beside the attachment cap because the attachment is kept
+     * once and this is sent: as base64, a third larger, on every round of the
+     * turn it came with. Twenty is under the attachment cap's default of
+     * twenty-five, so a fresh installation refuses no sound it accepted as a
+     * file for any reason but this one.
+     */
+    CHAT_AUDIO_MAX_MB(
+        "chat.audio.max.mb", 20, 1, 1024, TuningSection.MEDIA, TuningUnit.MB,
+        "The largest sound a chat message may send to a model",
+        "An mp3, wav or flac goes to a model that takes audio as itself, in base64 on every round of its turn; a larger one is refused before the model is asked.",
+    ),
+    /*
+     * Counted in notes rather than bytes because the notes are what the answer
+     * is made of: a minute of piano is a thousand of them, and a model pays for
+     * every line.
+     */
+    MIDI_READ_NOTES(
+        "midi.read.notes", 2000, 10, 100_000, TuningSection.MEDIA, TuningUnit.ITEMS,
+        "How many notes midi_read lists from one file",
+        "Past this many the answer stops listing them and says how many more there were; the tracks, tempo and time signature are still given whole.",
+    ),
 
     /* ---- Workflows and triggers ---- */
 

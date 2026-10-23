@@ -338,7 +338,12 @@ class ModelAPI(
             val what = if (updated.takesVideo) "takes video" else "no longer takes video"
             auditRecorder.record(model.workspaceId, WorkspaceAuditCategory.MODEL, "Model ${updated.name} $what")
         }
-        if (!renamed && !moved && !rethought && !watches) {
+        val hears = model.takesAudio != updated.takesAudio
+        if (hears) {
+            val what = if (updated.takesAudio) "takes audio" else "no longer takes audio"
+            auditRecorder.record(model.workspaceId, WorkspaceAuditCategory.MODEL, "Model ${updated.name} $what")
+        }
+        if (!renamed && !moved && !rethought && !watches && !hears) {
             auditRecorder.record(model.workspaceId, WorkspaceAuditCategory.MODEL, "Model ${updated.name} updated")
         }
         return updated

@@ -29,6 +29,10 @@ class ChatExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ChatVideoNotTakenException,
             is ChatVideoNotCarriedException,
             is ChatVideoTooLargeException,
+            is ChatAudioNotTakenException,
+            is ChatAudioNotCarriedException,
+            is ChatAudioFormatNotTakenException,
+            is ChatAudioTooLargeException,
             -> ErrorType.BAD_REQUEST
 
             is ChatSessionNotFoundException -> ErrorType.NOT_FOUND

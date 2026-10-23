@@ -900,6 +900,8 @@ orknux:
     script.log.lines: ${ORKNUX_TUNING_SCRIPT_LOG_LINES:500}
     pictures.per.run: ${ORKNUX_TUNING_PICTURES_PER_RUN:20}
     speeches.per.run: ${ORKNUX_TUNING_SPEECHES_PER_RUN:20}
+    chat.audio.max.mb: ${ORKNUX_TUNING_CHAT_AUDIO_MAX_MB:20}
+    midi.read.notes: ${ORKNUX_TUNING_MIDI_READ_NOTES:2000}
     action.retry.seconds: ${ORKNUX_TUNING_ACTION_RETRY_SECONDS:30}
     action.wait.seconds: ${ORKNUX_TUNING_ACTION_WAIT_SECONDS:3600}
     trigger.remember.minutes: ${ORKNUX_TUNING_TRIGGER_REMEMBER_MINUTES:10}

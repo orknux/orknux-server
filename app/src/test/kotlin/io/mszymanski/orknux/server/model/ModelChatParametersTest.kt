@@ -49,10 +49,11 @@ class ModelChatParametersTest(
     @Test
     fun `each provider declares what its API reads, and nothing more`() {
         assertThat(declared(provider("Azure", "AZURE_OPENAI"))).containsExactly("temperature", "topP", "reasoningEffort")
-        assertThat(declared(provider("OpenAI", "OPENAI", "https://api.openai.com/v1"))).containsExactly("temperature", "topP")
-        // A llama.cpp server registered under the OpenAI type reads the three additions too, and a video part.
+        // OpenAI's own chat completions carry an input_audio part for its audio models.
+        assertThat(declared(provider("OpenAI", "OPENAI", "https://api.openai.com/v1"))).containsExactly("temperature", "topP", "takesAudio")
+        // A llama.cpp server registered under the OpenAI type reads the three additions too, and a video and an audio part.
         assertThat(declared(provider("Local", "OPENAI", "http://llama.example.invalid:8080/v1")))
-            .containsExactly("temperature", "topP", "topK", "minP", "repeatPenalty", "takesVideo")
+            .containsExactly("temperature", "topP", "topK", "minP", "repeatPenalty", "takesVideo", "takesAudio")
         assertThat(declared(provider("Ollama", "OLLAMA", "http://ollama.example.invalid:11434"))).containsExactly("temperature", "topP")
         assertThat(declared(provider("Anthropic", "ANTHROPIC", "https://api.anthropic.com/v1")))
             .containsExactly("temperature", "topP", "topK")

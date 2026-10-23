@@ -5859,6 +5859,13 @@ type Model {
     a provider whose chatParameters list takesVideo may hold it on.
     """
     takesVideo: Boolean!
+    """
+    Whether a sound attached to a chat message - mp3, wav, flac - is sent to
+    this model as an input_audio part. Off refuses such a message before the
+    model is asked. Only a provider whose chatParameters list takesAudio may
+    hold it on.
+    """
+    takesAudio: Boolean!
 }
 
 "One day of the usage chart."
@@ -6033,6 +6040,8 @@ input CreateModelInput {
     imageCostPerImage: Float
     "Whether a video attached to a chat is sent to it. Absent is off; on is refused where chatModelParameters does not list takesVideo."
     takesVideo: Boolean
+    "Whether a sound attached to a chat is sent to it. Absent is off; on is refused where chatModelParameters does not list takesAudio."
+    takesAudio: Boolean
 }
 
 input UpdateModelInput {
@@ -6065,6 +6074,8 @@ input UpdateModelInput {
     imageCostPerImage: Float
     "Whether a video attached to a chat is sent to it. Absent leaves it as it is; on is refused where chatModelParameters does not list takesVideo."
     takesVideo: Boolean
+    "Whether a sound attached to a chat is sent to it. Absent leaves it as it is; on is refused where chatModelParameters does not list takesAudio."
+    takesAudio: Boolean
     "The provider to move it to, in the same workspace. Null leaves it where it is."
     providerId: ID
 }
@@ -9666,7 +9677,7 @@ enum ChatParameterKind {
     NUMBER
     "One of the spec's choices."
     CHOICE
-    "On or off; off is always allowed. takesVideo is one."
+    "On or off; off is always allowed. takesVideo and takesAudio are two."
     SWITCH
 }
 

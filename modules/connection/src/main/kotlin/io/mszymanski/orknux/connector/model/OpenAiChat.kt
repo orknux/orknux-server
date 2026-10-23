@@ -6,6 +6,7 @@ import com.openai.models.FunctionParameters
 import com.openai.models.chat.completions.ChatCompletionAssistantMessageParam
 import com.openai.models.chat.completions.ChatCompletionContentPart
 import com.openai.models.chat.completions.ChatCompletionContentPartImage
+import com.openai.models.chat.completions.ChatCompletionContentPartInputAudio
 import com.openai.models.chat.completions.ChatCompletionContentPartText
 import com.openai.models.chat.completions.ChatCompletionCreateParams
 import com.openai.models.chat.completions.ChatCompletionFunctionTool
@@ -486,10 +487,15 @@ class OpenAiChat(
                     .build(),
             )
 
-            // A turn with pictures is a list of parts rather than a string. A
-            // model that cannot see ignores the image part rather than failing,
-            // which is why this does not need to know whether the model can.
-            turn.images.isNotEmpty() -> builder.addMessage(
+            /*
+             * A turn with pictures or sounds is a list of parts rather than a
+             * string. A model that cannot see ignores the image part rather
+             * than failing, which is why this does not need to know whether the
+             * model can; a sound is the SDK's own typed `input_audio` part, and
+             * reaches here only for a model that takes audio in that format -
+             * ModelChatClient refuses the call before this otherwise.
+             */
+            turn.images.isNotEmpty() || turn.audios.isNotEmpty() -> builder.addMessage(
                 ChatCompletionUserMessageParam.builder()
                     .contentOfArrayOfContentParts(parts(turn))
                     .build(),
@@ -518,18 +524,33 @@ class OpenAiChat(
                 ),
             )
         }
+        turn.audios.forEach { clip ->
+            add(
+                ChatCompletionContentPart.ofInputAudio(
+                    ChatCompletionContentPartInputAudio.builder()
+                        .inputAudio(
+                            ChatCompletionContentPartInputAudio.InputAudio.builder()
+                                .data(clip.base64)
+                                .format(ChatCompletionContentPartInputAudio.InputAudio.Format.of(clip.format))
+                                .build(),
+                        )
+                        .build(),
+                ),
+            )
+        }
     }
 
     /**
-     * A turn's text, pictures and videos as plain JSON parts, for the one
-     * message the SDK's typed parts cannot hold. The text and image parts are
-     * the shapes [parts] builds through the SDK; the video part is
+     * A turn's text, pictures, videos and sounds as plain JSON parts, for the
+     * one message the SDK's typed parts cannot hold. The text, image and audio
+     * parts are the shapes [parts] builds through the SDK; the video part is
      * `{"type": "video_url", "video_url": {"url": "data:video/...;base64,..."}}`.
      */
     internal fun rawParts(turn: ChatTurn): List<Map<String, Any>> = buildList {
         if (turn.content.isNotEmpty()) add(mapOf("type" to "text", "text" to turn.content))
         turn.images.forEach { add(mapOf("type" to "image_url", "image_url" to mapOf("url" to it))) }
         turn.videos.forEach { add(mapOf("type" to VIDEO_PART, VIDEO_PART to mapOf("url" to it))) }
+        turn.audios.forEach { add(mapOf("type" to "input_audio", "input_audio" to mapOf("data" to it.base64, "format" to it.format))) }
     }
 
     private fun declared(tool: ToolSpec): ChatCompletionFunctionTool {

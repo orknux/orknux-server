@@ -250,6 +250,33 @@ class ChatVideoTooLargeException(val filename: String, val megabytes: Long, val 
     override val arguments get() = mapOf("filename" to filename, "megabytes" to megabytes, "limit" to limit)
 }
 
+/** A sound sent to a model whose Takes audio switch is off. */
+class ChatAudioNotTakenException(val model: String) :
+    RuntimeException(io.mszymanski.orknux.connector.model.AudioInput.notTaken(model)), Refusal {
+    override val arguments get() = mapOf("model" to model)
+}
+
+/** A sound sent to a model on a provider whose API has no audio part at all. */
+class ChatAudioNotCarriedException(val model: String, val provider: String) :
+    RuntimeException(io.mszymanski.orknux.connector.model.AudioInput.notCarried(model, provider)), Refusal {
+    override val arguments get() = mapOf("model" to model, "provider" to provider)
+}
+
+/** A sound in a format the answering model's server does not decode - flac to OpenAI's own API. */
+class ChatAudioFormatNotTakenException(val format: String, val provider: String, val formats: String) : RuntimeException(
+    io.mszymanski.orknux.connector.model.AudioInput.formatNotTaken(format, provider, formats.split(", ")),
+), Refusal {
+    override val arguments get() = mapOf("format" to format, "provider" to provider, "formats" to formats)
+}
+
+/** A sound larger than Admin Settings' limit on audio sent to a model. */
+class ChatAudioTooLargeException(val filename: String, val megabytes: Long, val limit: Int) : RuntimeException(
+    "$filename is $megabytes MB, and a sound sent to a model may be at most $limit MB. " +
+        "Send a shorter one, or raise the audio limit under Limits in Admin Settings.",
+), Refusal {
+    override val arguments get() = mapOf("filename" to filename, "megabytes" to megabytes, "limit" to limit)
+}
+
 class ChatModelNotChosenException :
     RuntimeException("This chat has no model to answer with; choose one first")
 

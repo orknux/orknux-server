@@ -60,8 +60,8 @@ data class ChatParameterSpec(
  *   min-p and no repeat penalty.
  * - **SYSTEM_ONE** - answers questions rather than chatting; nothing.
  *
- * **Takes video** is the one switch here, and it is about what a turn may carry
- * rather than how the model samples. A video goes as a `video_url` content part
+ * **Takes video** and **Takes audio** are the switches here, and they are
+ * about what a turn may carry rather than how the model samples. A video goes as a `video_url` content part
  * (see [OpenAiChat]), which vLLM reads (docs.vllm.ai, "Multimodal Inputs":
  * `{"type": "video_url", "video_url": {"url": ...}}`, a `data:video/mp4;base64`
  * URL decoded by `VideoMediaIO.load_base64`) and llama.cpp's server reads as an
@@ -72,6 +72,14 @@ data class ChatParameterSpec(
  * OpenAI-compatible endpoint is registered. OpenAI's own chat completions,
  * Azure, Ollama's `/v1` and Anthropic have no video part at all, so a model
  * there never holds the switch on and is never sent one.
+ *
+ * Audio goes as OpenAI's own `input_audio` part, which openai-java types (see
+ * [AudioInput] for the formats each server decodes and the sources). OpenAI's
+ * chat completions read it for its audio models, llama.cpp's server for a
+ * model loaded with an audio projector, and vLLM for its audio models - so it
+ * is declared for **OPENAI** on any host and **LLAMA_CPP**. Azure is reached
+ * through its Responses API by default, which has no audio part; Ollama's `/v1`
+ * and Anthropic have none either.
  *
  * A provider that comes to take a setting is one entry here; a new setting is
  * that entry, a column on [LlmModel], and the line in each client that sends it.
@@ -85,6 +93,7 @@ object ChatParameters {
     const val REPEAT_PENALTY = "repeatPenalty"
     const val REASONING_EFFORT = "reasoningEffort"
     const val TAKES_VIDEO = "takesVideo"
+    const val TAKES_AUDIO = "takesAudio"
 
     private val temperature = ChatParameterSpec(TEMPERATURE, ChatParameterKind.NUMBER)
     private val topP = ChatParameterSpec(TOP_P, ChatParameterKind.NUMBER)
@@ -92,6 +101,7 @@ object ChatParameters {
     private val minP = ChatParameterSpec(MIN_P, ChatParameterKind.NUMBER)
     private val repeatPenalty = ChatParameterSpec(REPEAT_PENALTY, ChatParameterKind.NUMBER)
     private val takesVideo = ChatParameterSpec(TAKES_VIDEO, ChatParameterKind.SWITCH)
+    private val takesAudio = ChatParameterSpec(TAKES_AUDIO, ChatParameterKind.SWITCH)
 
     /**
      * How hard a reasoning model thinks before it answers. The SDK knows more
@@ -105,8 +115,8 @@ object ChatParameters {
     )
 
     private val AZURE = listOf(temperature, topP, REASONING_EFFORT_SPEC)
-    private val OPENAI_HOSTED = listOf(temperature, topP)
-    private val OPENAI_SHAPED = listOf(temperature, topP, topK, minP, repeatPenalty, takesVideo)
+    private val OPENAI_HOSTED = listOf(temperature, topP, takesAudio)
+    private val OPENAI_SHAPED = listOf(temperature, topP, topK, minP, repeatPenalty, takesVideo, takesAudio)
     private val OLLAMA = listOf(temperature, topP)
     private val ANTHROPIC = listOf(temperature, topP, topK)
 
@@ -163,6 +173,14 @@ object ChatParameters {
     /** Whether [model] may be sent a video, as the request is about to be built: its switch, on a provider that carries one. */
     fun takesVideo(provider: ModelProvider, model: LlmModel): Boolean =
         model.takesVideo && model.kind == ModelKind.CHAT && takes(provider, TAKES_VIDEO)
+
+    /** Whether [model] may be sent audio, as the request is about to be built: its switch, on a provider that carries it. */
+    fun takesAudio(provider: ModelProvider, model: LlmModel): Boolean =
+        model.takesAudio && model.kind == ModelKind.CHAT && takes(provider, TAKES_AUDIO)
+
+    /** Whether [provider] is OpenAI's own API rather than a server imitating its shape. */
+    fun isOpenAiItself(provider: ModelProvider): Boolean =
+        provider.type == ProviderType.OPENAI && hostedByOpenAi(provider.endpoint)
 
     private fun taken(provider: ModelProvider, kind: ModelKind, parameter: String): ChatParameterSpec =
         forModel(provider, kind).firstOrNull { it.name == parameter }
