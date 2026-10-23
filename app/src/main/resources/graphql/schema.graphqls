@@ -1400,6 +1400,8 @@ type Mutation {
     setWritingForgottenSeconds(seconds: Int!): InstallationSettings!
     "How long a prompt is read before the page is told it is being read, 0 to 120 seconds. Administrators only."
     setReadingShownAfterSeconds(seconds: Int!): InstallationSettings!
+    "How long the workflow editor waits after the last change before it saves, 200 to 10000 milliseconds. Administrators only."
+    setWorkflowAutosaveMillis(millis: Int!): InstallationSettings!
     "How many widgets - timers, stopwatches - one chat may hold, 1 to 50. Administrators only."
     setWidgetsPerChat(widgets: Int!): InstallationSettings!
     "The longest a chat's timer may run, 60 to 604800 seconds. Administrators only."
@@ -3204,6 +3206,10 @@ type WorkflowGraph {
     edges: [WorkflowEdge!]!
     "What the graph is missing, worst first; empty when it holds together."
     problems: [GraphProblem!]!
+    "How many times the draft has been saved; what an editor saves against. Issue #645."
+    revision: Float!
+    "How long the editor waits after the last change before it saves, in milliseconds."
+    autosaveMillis: Int!
 }
 
 "How much a problem matters: an error is refused on save, a warning is advice."
@@ -3386,6 +3392,10 @@ input WorkflowEdgeInput {
 input WorkflowGraphInput {
     nodes: [WorkflowNodeInput!]!
     edges: [WorkflowEdgeInput!]!
+    "The revision this graph was drawn over; refused when the draft has moved on since. Null saves over whatever is there."
+    baseRevision: Int
+    "The open editor saving it, as it named itself on the live channel."
+    viewer: String
 }
 
 enum ExecutionStatus {
@@ -7294,6 +7304,10 @@ type InstallationSettings {
     readingShownAfterSeconds: Int!
     "What a fresh installation does: the built-in default."
     readingShownAfterSecondsConfigured: Int!
+    "How long the workflow editor waits after the last change before it saves, in milliseconds."
+    workflowAutosaveMillis: Int!
+    "What a fresh installation does: the built-in default."
+    workflowAutosaveMillisConfigured: Int!
     "How many widgets one chat may hold at once."
     widgetsPerChat: Int!
     "What a fresh installation does: the built-in default."

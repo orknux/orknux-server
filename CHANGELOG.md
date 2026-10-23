@@ -19,13 +19,17 @@ have failed.
 
 ### ✨ Added
 
+- **Working on a workflow together.** Everybody with the editor open sees who else is there, their pointers with their logins, and their changes as they are made. Two changes made at once are merged rather than one writing over the other.
 - **A model's own answer time limit**, on its page beside Requests per Minute. Empty takes the installation's Model Answer Time Limit.
 - **The Errors report's columns sort**, in both tables: press a heading, press it again to turn it round.
+- **Admin → Reports keeps the report in the address** (`?report=errors`), so a link or a reload opens it.
+- **A field that reads a variable links to it**: an open button beside the reference on plugin parameters and action headers, landing on the variable in its catalog.
 - **An agent can take back a review it sent** with `remove_session_rating`, when the person asks; on beside `rate_session` for every agent.
 
 ### 🔧 Changed
 
 - **Diagrams look better by default**: rounded boxes without shadows, quieter lines, and a colour per kind of thing - services, stores, queues, groups. A diagram that sets its own `skinparam`, `!theme` or `<style>` keeps it.
+- **The workflow editor saves as it goes**: Save and Discard are gone, and the toolbar says Saving…, Saved or Not saved. How long it waits after the last change is Admin Settings → Workflow runs → Workflow Autosave (800 ms). Ctrl+S still saves at once; Undo is still there.
 - **Anthropic models follow the Model Answer Time Limit** (an hour unless changed) instead of `ORKNUX_MODEL_TIMEOUT`'s two minutes, which is no longer read. If you set `ORKNUX_MODEL_TIMEOUT`, set the limit in Admin Settings or on the model instead.
 
 ## 1.1.8

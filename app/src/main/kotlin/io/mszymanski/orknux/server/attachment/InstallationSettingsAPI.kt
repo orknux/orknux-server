@@ -141,6 +141,8 @@ class InstallationSettingsAPI(
         writingForgottenSecondsConfigured = settings.writingForgottenSecondsConfigured(),
         readingShownAfterSeconds = settings.readingShownAfterSeconds(),
         readingShownAfterSecondsConfigured = settings.readingShownAfterSecondsConfigured(),
+        workflowAutosaveMillis = settings.workflowAutosaveMillis(),
+        workflowAutosaveMillisConfigured = settings.workflowAutosaveMillisConfigured(),
         widgetsPerChat = settings.widgetsPerChat(),
         widgetsPerChatConfigured = settings.widgetsPerChatConfigured(),
         widgetTimerMaxSeconds = settings.widgetTimerMaxSeconds(),
@@ -430,6 +432,16 @@ class InstallationSettingsAPI(
 
         settings.setReadingShownAfterSeconds(seconds, currentUser())
         auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "Reading a prompt is shown after $seconds seconds")
+        return installationSettings()
+    }
+
+    /** How long the workflow editor waits after the last change before it saves. Issue #645. */
+    @MutationMapping
+    fun setWorkflowAutosaveMillis(@Argument millis: Int): InstallationSettingsView {
+        access.requireAdmin()
+
+        settings.setWorkflowAutosaveMillis(millis, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "The workflow editor saves $millis milliseconds after the last change")
         return installationSettings()
     }
 
@@ -1321,6 +1333,9 @@ data class InstallationSettingsView(
     /** How long a prompt is read, in seconds, before the page is told it is being read. */
     val readingShownAfterSeconds: Int,
     val readingShownAfterSecondsConfigured: Int,
+    /** How long the workflow editor waits after the last change before it saves, in milliseconds. */
+    val workflowAutosaveMillis: Int,
+    val workflowAutosaveMillisConfigured: Int,
     /** How many widgets one chat may hold at once. */
     val widgetsPerChat: Int,
     val widgetsPerChatConfigured: Int,

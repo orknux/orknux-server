@@ -3,12 +3,32 @@ package io.mszymanski.orknux.server.workflow
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.repository.query.Param
 import org.springframework.data.jpa.repository.Query
 
 interface WorkflowRepository : JpaRepository<Workflow, Long> {
 
     fun findByName(name: String): Workflow?
+
+    /**
+     * Moves the draft's revision on from [from]; the number of rows it moved,
+     * so 0 is a draft somebody else saved since it was read.
+     *
+     * One statement rather than a read and a write, so two saves at once
+     * cannot both pass: the second waits on the row the first has locked and
+     * then finds the revision already moved. Clears what the context holds,
+     * since a workflow read before this would otherwise be written back over
+     * it with the old number. Issue #645.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update Workflow w set w.graphRevision = w.graphRevision + 1 where w.id = :id and w.graphRevision = :from")
+    fun advanceGraphFrom(@Param("id") id: Long, @Param("from") from: Long): Int
+
+    /** The same for a save that read no revision - a tool's, which sends the whole graph it means. */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update Workflow w set w.graphRevision = w.graphRevision + 1 where w.id = :id")
+    fun advanceGraph(@Param("id") id: Long): Int
 }
 
 interface WorkspaceWorkflowRepository : JpaRepository<WorkspaceWorkflow, Long> {

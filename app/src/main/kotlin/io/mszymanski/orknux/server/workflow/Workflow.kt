@@ -35,6 +35,15 @@ class Workflow(
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     var status: WorkflowStatus = WorkflowStatus.DRAFT,
+
+    /**
+     * How many times the draft graph has been saved. An editor saves against
+     * the revision it last read, so a save over somebody else's newer one is
+     * refused and merged rather than written over it. Moved only by
+     * [WorkflowRepository.advanceGraph]. Issue #645.
+     */
+    @Column(name = "graph_revision", nullable = false)
+    val graphRevision: Long = 0,
 )
 
 /** A workflow made available to a workspace, which the workspace can enable or disable. */

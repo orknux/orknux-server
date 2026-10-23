@@ -71,6 +71,10 @@ class WorkflowGraphAPI(
     /** Which workspace a decision node's model belongs to, through its provider. Issue #577. */
     private val models: LlmModelRepository,
     private val providers: ModelProviderRepository,
+    /** Who has the editor open, told when the graph is saved. Issue #645. */
+    private val room: io.mszymanski.orknux.server.workflow.live.WorkflowRoom,
+    private val published: org.springframework.context.ApplicationEventPublisher,
+    private val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
 ) {
 
     @QueryMapping
@@ -135,6 +139,8 @@ class WorkflowGraphAPI(
             },
             edges = drawn.map(::WorkflowEdgeView),
             problems = validator.problems(proposed, drawn, workspaceId = workspaceId),
+            revision = workflow.graphRevision,
+            autosaveMillis = settings.workflowAutosaveMillis(),
         )
     }
 
@@ -213,6 +219,17 @@ class WorkflowGraphAPI(
             validator.placeholderProblems(built, workspaceId)
         if (refusals.isNotEmpty()) throw GraphInvalidException(refusals)
 
+        /*
+         * Only over the draft the editor read. A graph is saved whole, so a save
+         * made from an older picture would put back everything somebody else
+         * changed since; refused instead, and the editor reads the newer one,
+         * merges its own changes into it and saves again. A tool sends no
+         * revision: it sends the whole graph it means, as it always has.
+         */
+        val moved = input.baseRevision?.let { workflows.advanceGraphFrom(workflowId, it.toLong()) }
+            ?: workflows.advanceGraph(workflowId)
+        if (moved == 0) throw WorkflowGraphMovedException()
+
         nodes.deleteByWorkflowId(workflowId)
         edges.deleteByWorkflowId(workflowId)
         nodes.flush()
@@ -246,8 +263,16 @@ class WorkflowGraphAPI(
             )
         }
 
-        auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Workflow ${workflow.name} graph updated")
-        return graphOf(workspaceId, workflowId)
+        // Once per visit from the editor, which saves as it is edited; every time from anything else.
+        val viewer = input.viewer?.takeIf { it.isNotBlank() }
+        if (viewer == null || room.firstSave(workflowId, viewer)) {
+            auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Workflow ${workflow.name} graph updated")
+        }
+        val saved = graphOf(workspaceId, workflowId)
+        published.publishEvent(
+            io.mszymanski.orknux.server.workflow.live.WorkflowGraphSaved(workflowId, saved.revision, viewer, currentUser()),
+        )
+        return saved
     }
 
     @MutationMapping
@@ -416,6 +441,8 @@ class WorkflowGraphAPI(
             },
             edges = drawn.map(::WorkflowEdgeView),
             problems = validator.problems(held, drawn, workspaceId = workspaceId),
+            revision = workflow.graphRevision,
+            autosaveMillis = settings.workflowAutosaveMillis(),
         )
     }
 
@@ -1065,6 +1092,18 @@ data class DecisionOptionView(val name: String, val description: String)
 data class WorkflowGraphInput(
     val nodes: List<WorkflowNodeInput>,
     val edges: List<WorkflowEdgeInput>,
+    /**
+     * The revision this graph was drawn over; a save is refused when the draft
+     * has moved on since. Null saves whatever is there. Issue #645.
+     */
+    val baseRevision: Int? = null,
+    /** The open editor saving it, as it named itself on the live channel. */
+    val viewer: String? = null,
+)
+
+/** The draft was saved by somebody else after this graph was read. Issue #645. */
+class WorkflowGraphMovedException : RuntimeException(
+    "Somebody else saved this workflow since it was read. Read it again and merge before saving",
 )
 
 data class WorkflowNodeView(
@@ -1285,6 +1324,10 @@ data class WorkflowGraphView(
     val edges: List<WorkflowEdgeView>,
     /** Everything the graph is missing, worst first; empty when it holds together. */
     val problems: List<GraphProblem> = emptyList(),
+    /** How many times the draft has been saved; what the editor saves against. Issue #645. */
+    val revision: Long = 0,
+    /** How long the editor waits after the last change before it saves, in milliseconds. */
+    val autosaveMillis: Int = 0,
 )
 
 class WorkflowGraphEmptyException : RuntimeException("Add at least one node before publishing")

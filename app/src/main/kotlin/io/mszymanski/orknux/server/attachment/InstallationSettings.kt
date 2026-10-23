@@ -160,6 +160,7 @@ object SettingNames {
     const val WRITING_PROGRESS_MILLIS = "writing.progress.millis"
     const val WRITING_FORGOTTEN_SECONDS = "writing.forgotten.seconds"
     const val READING_SHOWN_AFTER_SECONDS = "reading.shown.after.seconds"
+    const val WORKFLOW_AUTOSAVE_MILLIS = "workflow.autosave.millis"
     const val WIDGETS_PER_CHAT = "chat.widgets.max"
     const val WIDGET_TIMER_MAX_SECONDS = "chat.widget.timer.max.seconds"
     const val SESSION_STORE_MAX_KEYS = "session.store.max.keys"
@@ -1570,6 +1571,27 @@ class InstallationSettings(
         write(SettingNames.READING_SHOWN_AFTER_SECONDS, seconds.toString(), by)
     }
 
+    /**
+     * How long the workflow editor waits after the last change before it saves,
+     * in milliseconds. The editor has no Save button: what is drawn is saved, so
+     * the others looking at it see it. Short enough that they see it soon, long
+     * enough that a drag is one save rather than one per frame. Issue #645.
+     */
+    fun workflowAutosaveMillis(): Int {
+        val held = settings.findByIdOrNull(SettingNames.WORKFLOW_AUTOSAVE_MILLIS) ?: return workflowAutosaveMillisConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_WORKFLOW_AUTOSAVE_MILLIS..MAX_WORKFLOW_AUTOSAVE_MILLIS }
+            ?: workflowAutosaveMillisConfigured()
+    }
+
+    /** What a fresh installation does: the built-in default. */
+    fun workflowAutosaveMillisConfigured(): Int = 800
+
+    @Transactional
+    fun setWorkflowAutosaveMillis(millis: Int, by: String) {
+        if (millis !in MIN_WORKFLOW_AUTOSAVE_MILLIS..MAX_WORKFLOW_AUTOSAVE_MILLIS) throw WorkflowAutosaveOutOfRangeException(millis)
+        write(SettingNames.WORKFLOW_AUTOSAVE_MILLIS, millis.toString(), by)
+    }
+
     /** How many widgets - timers, stopwatches - one chat may hold at once. */
     fun widgetsPerChat(): Int {
         val held = settings.findByIdOrNull(SettingNames.WIDGETS_PER_CHAT) ?: return widgetsPerChatConfigured()
@@ -2780,6 +2802,17 @@ class ReadingShownAfterOutOfRangeException(val seconds: Int) : RuntimeException(
 ), Refusal {
 
     override val arguments get() = mapOf("seconds" to seconds)
+}
+
+const val MIN_WORKFLOW_AUTOSAVE_MILLIS = 200
+const val MAX_WORKFLOW_AUTOSAVE_MILLIS = 10000
+
+class WorkflowAutosaveOutOfRangeException(val millis: Int) : RuntimeException(
+    "$millis is not a number of milliseconds the workflow editor waits before it saves. " +
+        "Choose between $MIN_WORKFLOW_AUTOSAVE_MILLIS and $MAX_WORKFLOW_AUTOSAVE_MILLIS.",
+), Refusal {
+
+    override val arguments get() = mapOf("millis" to millis)
 }
 
 const val MIN_WIDGETS_PER_CHAT = 1
