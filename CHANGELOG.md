@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- **Connections and MCP servers as templates.** Save as template on their rows on Integrations publishes the settings without the credentials, and Use a template beside each card's Add makes them in another workspace, linking to each one that needs its credential given again.
+
 ## 1.1.9
 
 ### ✨ Added
