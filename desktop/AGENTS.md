@@ -32,6 +32,15 @@ with `INTERNAL` and a password; `data.js` is the one place that pairs them.
 because a local box keeps sessions under the temp directory and two
 installations sharing the system's cleaned up each other's.
 
+**The shipped jar starts from its unpacked copy.** `scripts/aot.sh` unpacks
+`app.jar` into `resources/server/app/` and makes an AOT cache there with the
+runtime the package carries; `launchOf` in `server.js` starts that copy, from
+inside its directory, with a relative `-jar` - the cache records file names, and
+a relative one is what survives installation. Measured on Windows it halves the
+start (#650). `app.jar` stays the jar the launcher and the update screen read,
+and an installed release still starts as a jar. Rebuild the cache whenever the
+jar or the runtime changes; a stale one is refused by the JVM, not misused.
+
 **The `.deb` names its dependencies.** electron-builder's defaults left out
 ALSA, and a clean Debian installed the package and then would not start it.
 Smoke-test a package on a clean image, not on the build image, which has

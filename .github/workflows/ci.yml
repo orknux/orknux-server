@@ -699,6 +699,12 @@ jobs:
             sh scripts/runtime.sh "$JAVA_HOME"
           fi
 
+      # The jar unpacked beside itself with an AOT cache, made by the runtime
+      # just jlinked: the server starts in about half the time (#650). A few
+      # minutes here, because the training start records what it loads.
+      - name: Make the quick start
+        run: sh scripts/aot.sh
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
