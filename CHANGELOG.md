@@ -29,6 +29,7 @@ have failed.
 - `ORKNUX_SESSION_COOKIE_SECURE` marks the session cookie Secure (`auto`, the default, follows the request); `ORKNUX_CONTENT_SECURITY_POLICY` replaces the interface's Content-Security-Policy where the built-in one is too strict.
 - **Videos in the chat.** A video attached to a message plays under it, and is sent to the model itself where the model's page has Takes video on - offered for llama.cpp servers and OpenAI-compatible endpoints other than OpenAI's own (vLLM with Qwen-VL, llama.cpp's multimodal server), never for OpenAI, Azure, Ollama or Anthropic. A model without it, or a video over Admin → Settings' Video Attachment Limit (`ORKNUX_CHAT_VIDEO_MAX_MB`, 20 MB), is refused in a sentence before the model is asked. The video goes with its own turn only, not again with every turn after it.
 - **Tabs in the desktop app.** A link the interface opens in a new tab, Ctrl+click and the middle button open a tab instead of a window; Ctrl+T, Ctrl+W, Ctrl+Tab and Ctrl+Shift+Tab work as in a browser, and closing the last tab closes the window.
+- **Model speed.** Where the provider reports its timings - llama.cpp does; OpenAI, Azure, vLLM, Ollama and Anthropic do not, and show nothing - a session's page shows the prompt and generation speed in tokens per second beside its cost, averaged by tokens over its calls, and a Speeds panel lists each call's; a model's page shows the same over its newest calls, as many as Admin → Settings says (`ORKNUX_TUNING_MODEL_SPEED_CALLS`, 50).
 
 ### 🔧 Changed
 

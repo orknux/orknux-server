@@ -93,6 +93,11 @@ enum class Tunable(
         "How long fetching a drawn picture may take",
         "Some image models answer with a link rather than the picture; this is how long collecting it from that link may take.",
     ),
+    MODEL_SPEED_CALLS(
+        "model.speed.calls", 50, 1, 1000, TuningSection.MODELS, TuningUnit.ITEMS,
+        "How many recent calls a model's speed is averaged over",
+        "A model's page averages the speeds its provider reported over this many of its newest calls, and a session's page lists this many of its newest calls with theirs. Only providers that report timings, such as llama.cpp, have any.",
+    ),
 
     /* ---- Agents ---- */
 
