@@ -15,11 +15,56 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
-## Unreleased
+## 1.1.8
 
 ### ✨ Added
 
+- **Session ratings.** A person reviews a conversation - a score from 1 to 5 and their words - from a chat's + menu, or by telling the agent, which sends it with the new `rate_session` built-in. Admin -> Reports -> Ratings lists every review with charts of reviews per day and the mean score; the review is drawn in the chat it was sent from.
+- **An Errors report** in Admin -> Reports: failed workflow runs, agents that could not answer and the quick chat's model failures, with a chart per day and what failed most often. Runs that had already failed are read in on upgrade.
+- **Workspace sharing.** A workspace lends another its variable catalogs and model providers from Workspace Settings -> Sharing; the borrower's agents and pickers use them, and taking the share back takes them away at once.
+- **A Workflow node**: one workflow runs another, waits for it and hands on what it produced. The run page links the two runs.
+- **Cut, Copy and Paste in the workflow editor**, nodes and the joints on their lines, into the same workflow or another; rebindable in Preferences.
+- **Node shapes** in the workflow editor - rectangle, rounded, pill, notched, hexagon, circle, triangle and star - and a Joint tool, with a preview of where a joint will go.
+- **Workspace variables inside placeholders**: `{{variables.<id>}}` in a written value, offered by name after `{{`. A secret is never offered or filled.
+- **Models as templates**, made from a model's own row as every other component's template is, and used from Use a template on the Models page.
+- **Bulk import**: several files, or several ticked templates, as one import plan. The plan filters by what happens to each row.
+- **Copying a workspace asks what to take**, and brings variables (secrets with their values), memories and speech actions; its workflows arrive published.
+- **A variable, secret, skill or memory moves to another catalog** from its row.
+- **A reference to a variable can be cleared** on plugin parameters, action headers, node parameters and secret fields; switching one to Value now saves.
+- **Cache writes are counted and priced**, with a cache write price on a model's page; Anthropic's cache reads are counted too.
+- **The Users list shows when each person last signed in.**
+- **An MCP server can be tested in the Add dialog** before it is saved.
 - **Plugins and functions can put a file on Slack through a connection.** `orknux.slack.upload` and `orknux.slack.remoteFile`, under the new `SLACK_UPLOAD_FILE` capability, use the connection's own bot token - so the Slack plugin no longer needs a second copy of it in its `botToken` parameter to upload. A plugin that declares it asks for the grant again on its next update.
+- **`orknux_update_model` and `orknux_start_task`** for agents and the MCP endpoint; `orknux_models` shows each model's provider and prices.
+- **The usage chart counts sessions and model calls per day.** A run's canvas draws the lines the run travelled in green, and a skipped step in grey.
+
+### 🔧 Changed
+
+- **Reading a secret back now takes a role.** Installation and workspace administrators keep it; anybody else needs a role with the new Reads secrets scope assigned to that workspace. **On upgrade, give that scope to whoever reveals secrets today without being an administrator.**
+- **Ratings and chat reviews are on by default.** Their switches, and usage tracking, moved from Admin -> Reports to Admin -> Settings -> Reports; a report says in one line when its recording is off. Two reviews per conversation by default.
+- **Boxes carry a required label again, and an agent is granted boxes by label.** Existing grants keep working; a box with no label must be given one the next time it is saved.
+- **Providers send up to 200 tools at once by default**, except Azure and OpenAI's own API, and an agent may carry up to 1024. A local model's prompt cache holds across turns.
+- **An agent may ask 25 other agents in a conversation by default**, not 10. An explicit value in Admin Settings or a workspace still wins.
+- **Talking while the model thinks no longer stops it** unless the workspace turns that on.
+- **Basic auth sends a secret that is already base64-encoded as it is**, rather than encoding it twice.
+- **Every choice in the interface opens the application's own list**, themed, with the keyboard and a filter on long lists; an option's label is its name, and what it means is a hint beside it.
+- **Test on a model provider checks the form without saving it**, and duplicating a provider no longer copies its models.
+- **Removing a provider, a model, a trusted certificate, a saved file or a picture asks first**, naming what goes with it.
+- **Use a template offers only templates made from that page's kind.**
+- **Models are no longer offered as issue assignees**; Start by AI follows the assignee picker.
+- **The import dialog opens wider and can be resized from any edge**, and remembers its size.
+- **The manual says what this release added**, and its search no longer freezes after typing stops.
+
+### 🐛 Fixed
+
+- **A task that lacks something stops and asks again.** Since agents may ask for more tools by default, a task's agent asked a chat nobody was in and the task never stopped; a task now asks only through its own permission request.
+- **The Design image editor kept its undo, redo and name** after a picture finished drawing; they were lost since 1.1.5.
+- **The Objects page paged only the workspace's own objects** while drawing every plugin shape under them; it now pages both as one list.
+- **The workflow editor's Save saves an agent edited in the panel beside it.**
+- **An imported agent brings its variable catalogs**, made empty where missing.
+- **`agent_wait` is no longer offered in a streaming step**, where it could not wait.
+- **A variable moved into a catalog that already holds its name is refused by name** rather than failing in the database.
+- **A Workflow node's link opens the called workflow's editor**, and the Variables page keeps its catalog in the address.
 
 ## 1.1.7
 
