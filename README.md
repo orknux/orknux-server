@@ -405,6 +405,11 @@ installation starts from.
 | `ORKNUX_CHAT_MAX_ROUNDS` | Tool rounds one chat answer may take. | `100` |
 | `ORKNUX_CHAT_MAX_SUBAGENTS` | Other agents one conversation may ask. | `25` |
 | `ORKNUX_CHAT_TOOLS_NAMED_IN_SEARCH` | Findable tools `tool_find` names outright. | `40` |
+| `ORKNUX_CHAT_COMPLETION_CONTEXT_TURNS` | Latest chat messages a sentence completion is shown. | `6` |
+| `ORKNUX_CHAT_COMPLETION_MAX_TOKENS` | The most tokens one sentence completion may be. | `32` |
+| `ORKNUX_CHAT_COMPLETION_TIMEOUT_MILLIS` | How long a sentence completion may take before it is dropped. | `4000` |
+| `ORKNUX_CHAT_COMPLETION_PAUSE_MILLIS` | The pause in typing before a sentence completion is asked for. | `600` |
+| `ORKNUX_CHAT_TITLE_SECONDS` | How long the workspace's companion model has to name a chat before the chat's own model is asked, in seconds. Admin -> Settings overrides it. | `30` |
 | `ORKNUX_COMMAND_MARKER` | What marks a skill command in a message. | `!` |
 | `ORKNUX_LDAP_GROUP_SEARCH_SUBTREE` | Search for groups below the group base too. | `false` |
 | `ORKNUX_MODEL_CHECK_INITIAL_DELAY` | How long after start the first provider check waits. | `30s` |

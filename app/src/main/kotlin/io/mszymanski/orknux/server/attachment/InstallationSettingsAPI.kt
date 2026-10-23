@@ -54,6 +54,14 @@ class InstallationSettingsAPI(
         chatRetitleEveryConfigured = settings.chatRetitleEveryConfigured(),
         chatTitleSeconds = settings.chatTitleSeconds(),
         chatTitleSecondsConfigured = settings.chatTitleSecondsConfigured(),
+        chatCompletionContextTurns = settings.chatCompletionContextTurns(),
+        chatCompletionContextTurnsConfigured = settings.chatCompletionContextTurnsConfigured(),
+        chatCompletionMaxTokens = settings.chatCompletionMaxTokens(),
+        chatCompletionMaxTokensConfigured = settings.chatCompletionMaxTokensConfigured(),
+        chatCompletionTimeoutMillis = settings.chatCompletionTimeoutMillis(),
+        chatCompletionTimeoutMillisConfigured = settings.chatCompletionTimeoutMillisConfigured(),
+        chatCompletionPauseMillis = settings.chatCompletionPauseMillis(),
+        chatCompletionPauseMillisConfigured = settings.chatCompletionPauseMillisConfigured(),
         chatMaxRoundsConfigured = settings.chatMaxRoundsConfigured(),
         objectMaxDepth = settings.objectMaxDepth(),
         objectMaxDepthConfigured = settings.objectMaxDepthConfigured(),
@@ -720,6 +728,42 @@ class InstallationSettingsAPI(
         return installationSettings()
     }
 
+    /** How many of a chat's latest messages a sentence completion is shown. Issue #649. */
+    @MutationMapping
+    fun setChatCompletionContextTurns(@Argument turns: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setChatCompletionContextTurns(turns, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "Sentence completion shown the last $turns messages")
+        return installationSettings()
+    }
+
+    /** The most tokens a sentence completion may be. */
+    @MutationMapping
+    fun setChatCompletionMaxTokens(@Argument tokens: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setChatCompletionMaxTokens(tokens, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "Sentence completion limited to $tokens tokens")
+        return installationSettings()
+    }
+
+    /** How long a sentence completion may take before it is given up on. */
+    @MutationMapping
+    fun setChatCompletionTimeoutMillis(@Argument millis: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setChatCompletionTimeoutMillis(millis, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "Sentence completion given up on after $millis ms")
+        return installationSettings()
+    }
+
+    /** How long the chat waits after the last keystroke before it asks for one. */
+    @MutationMapping
+    fun setChatCompletionPauseMillis(@Argument millis: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setChatCompletionPauseMillis(millis, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "Sentence completion asked for after a $millis ms pause")
+        return installationSettings()
+    }
+
     /** The longest description a picture is drawn from, wherever it is drawn. */
     @MutationMapping
     fun setImageDrawsAtOnce(@Argument draws: Int): InstallationSettingsView {
@@ -1182,6 +1226,15 @@ data class InstallationSettingsView(
     val chatRetitleEveryConfigured: Int,
     val chatTitleSeconds: Int,
     val chatTitleSecondsConfigured: Int,
+    /** Sentence completion in the composer: what each of its numbers is, and where a fresh installation starts. Issue #649. */
+    val chatCompletionContextTurns: Int,
+    val chatCompletionContextTurnsConfigured: Int,
+    val chatCompletionMaxTokens: Int,
+    val chatCompletionMaxTokensConfigured: Int,
+    val chatCompletionTimeoutMillis: Int,
+    val chatCompletionTimeoutMillisConfigured: Int,
+    val chatCompletionPauseMillis: Int,
+    val chatCompletionPauseMillisConfigured: Int,
     val objectMaxDepth: Int,
     val objectMaxDepthConfigured: Int,
     val imageMaxPrompt: Int,

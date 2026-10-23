@@ -70,6 +70,10 @@ object SettingNames {
     const val CHAT_MAX_ROUNDS = "chat.max.rounds"
     const val CHAT_RETITLE_EVERY = "chat.retitle.every"
     const val CHAT_TITLE_SECONDS = "chat.title.seconds"
+    const val CHAT_COMPLETION_CONTEXT_TURNS = "chat.completion.context.turns"
+    const val CHAT_COMPLETION_MAX_TOKENS = "chat.completion.max.tokens"
+    const val CHAT_COMPLETION_TIMEOUT_MILLIS = "chat.completion.timeout.millis"
+    const val CHAT_COMPLETION_PAUSE_MILLIS = "chat.completion.pause.millis"
     const val OBJECT_MAX_DEPTH = "objects.max.depth"
     const val IMAGE_MAX_PROMPT = "images.max.prompt"
     const val IMAGE_DRAWS_AT_ONCE = "images.draws.at.once"
@@ -520,6 +524,75 @@ class InstallationSettings(
         val held = settings.findByIdOrNull(SettingNames.CHAT_RETITLE_EVERY)
             ?: InstallationSetting(name = SettingNames.CHAT_RETITLE_EVERY)
         held.value = exchanges.toString()
+        held.lastModifiedAt = OffsetDateTime.now()
+        held.lastModifiedBy = by
+        settings.save(held)
+    }
+
+    /*
+     * Sentence completion in the composer, issue #649. Four numbers, each what
+     * Admin -> Settings holds or, until somebody changes it, what the file says.
+     */
+
+    /** How many of a chat's latest messages a completion is shown. */
+    fun chatCompletionContextTurns(): Int =
+        heldInt(SettingNames.CHAT_COMPLETION_CONTEXT_TURNS, COMPLETION_CONTEXT_TURNS) ?: chatCompletionContextTurnsConfigured()
+
+    /** What a fresh installation does - ORKNUX_CHAT_COMPLETION_CONTEXT_TURNS. */
+    fun chatCompletionContextTurnsConfigured(): Int = chat.completionContextTurns.coerceIn(COMPLETION_CONTEXT_TURNS)
+
+    @Transactional
+    fun setChatCompletionContextTurns(turns: Int, by: String) {
+        if (turns !in COMPLETION_CONTEXT_TURNS) throw CompletionContextTurnsOutOfRangeException(turns)
+        holdInt(SettingNames.CHAT_COMPLETION_CONTEXT_TURNS, turns, by)
+    }
+
+    /** The most tokens a completion may be. */
+    fun chatCompletionMaxTokens(): Int =
+        heldInt(SettingNames.CHAT_COMPLETION_MAX_TOKENS, COMPLETION_MAX_TOKENS) ?: chatCompletionMaxTokensConfigured()
+
+    /** What a fresh installation does - ORKNUX_CHAT_COMPLETION_MAX_TOKENS. */
+    fun chatCompletionMaxTokensConfigured(): Int = chat.completionMaxTokens.coerceIn(COMPLETION_MAX_TOKENS)
+
+    @Transactional
+    fun setChatCompletionMaxTokens(tokens: Int, by: String) {
+        if (tokens !in COMPLETION_MAX_TOKENS) throw CompletionMaxTokensOutOfRangeException(tokens)
+        holdInt(SettingNames.CHAT_COMPLETION_MAX_TOKENS, tokens, by)
+    }
+
+    /** How long a completion may take before it is given up on, in milliseconds. */
+    fun chatCompletionTimeoutMillis(): Int =
+        heldInt(SettingNames.CHAT_COMPLETION_TIMEOUT_MILLIS, COMPLETION_TIMEOUT_MILLIS) ?: chatCompletionTimeoutMillisConfigured()
+
+    /** What a fresh installation does - ORKNUX_CHAT_COMPLETION_TIMEOUT_MILLIS. */
+    fun chatCompletionTimeoutMillisConfigured(): Int = chat.completionTimeoutMillis.coerceIn(COMPLETION_TIMEOUT_MILLIS)
+
+    @Transactional
+    fun setChatCompletionTimeoutMillis(millis: Int, by: String) {
+        if (millis !in COMPLETION_TIMEOUT_MILLIS) throw CompletionTimeoutOutOfRangeException(millis)
+        holdInt(SettingNames.CHAT_COMPLETION_TIMEOUT_MILLIS, millis, by)
+    }
+
+    /** How long the composer waits after the last keystroke before it asks, in milliseconds. */
+    fun chatCompletionPauseMillis(): Int =
+        heldInt(SettingNames.CHAT_COMPLETION_PAUSE_MILLIS, COMPLETION_PAUSE_MILLIS) ?: chatCompletionPauseMillisConfigured()
+
+    /** What a fresh installation does - ORKNUX_CHAT_COMPLETION_PAUSE_MILLIS. */
+    fun chatCompletionPauseMillisConfigured(): Int = chat.completionPauseMillis.coerceIn(COMPLETION_PAUSE_MILLIS)
+
+    @Transactional
+    fun setChatCompletionPauseMillis(millis: Int, by: String) {
+        if (millis !in COMPLETION_PAUSE_MILLIS) throw CompletionPauseOutOfRangeException(millis)
+        holdInt(SettingNames.CHAT_COMPLETION_PAUSE_MILLIS, millis, by)
+    }
+
+    /** A stored whole number, when there is one and it is in [range]; null sends the caller to the file. */
+    private fun heldInt(name: String, range: IntRange): Int? =
+        settings.findByIdOrNull(name)?.value?.toIntOrNull()?.takeIf { it in range }
+
+    private fun holdInt(name: String, value: Int, by: String) {
+        val held = settings.findByIdOrNull(name) ?: InstallationSetting(name = name)
+        held.value = value.toString()
         held.lastModifiedAt = OffsetDateTime.now()
         held.lastModifiedBy = by
         settings.save(held)
@@ -2163,6 +2236,41 @@ class ChatTitleSecondsOutOfRangeException(val seconds: Int) : RuntimeException(
     "A chat's title cannot wait $seconds seconds for the companion model. Choose between $MIN_CHAT_TITLE_SECONDS and $MAX_CHAT_TITLE_SECONDS.",
 ), io.mszymanski.orknux.server.graphql.Refusal {
     override val arguments get() = mapOf("seconds" to seconds)
+}
+
+/*
+ * What sentence completion's four numbers may be. Issue #649. Wide enough for a
+ * slow local model and a person who types in bursts; narrow enough that a typo
+ * cannot make every pause in somebody's typing a minute-long, thousand-token
+ * call.
+ */
+val COMPLETION_CONTEXT_TURNS = 0..50
+val COMPLETION_MAX_TOKENS = 1..500
+val COMPLETION_TIMEOUT_MILLIS = 200..60_000
+val COMPLETION_PAUSE_MILLIS = 100..10_000
+
+class CompletionContextTurnsOutOfRangeException(val turns: Int) : RuntimeException(
+    "A completion cannot be shown $turns messages. Choose between ${COMPLETION_CONTEXT_TURNS.first} and ${COMPLETION_CONTEXT_TURNS.last}.",
+), io.mszymanski.orknux.server.graphql.Refusal {
+    override val arguments get() = mapOf("turns" to turns)
+}
+
+class CompletionMaxTokensOutOfRangeException(val tokens: Int) : RuntimeException(
+    "A completion cannot be $tokens tokens long. Choose between ${COMPLETION_MAX_TOKENS.first} and ${COMPLETION_MAX_TOKENS.last}.",
+), io.mszymanski.orknux.server.graphql.Refusal {
+    override val arguments get() = mapOf("tokens" to tokens)
+}
+
+class CompletionTimeoutOutOfRangeException(val millis: Int) : RuntimeException(
+    "A completion cannot be given $millis milliseconds. Choose between ${COMPLETION_TIMEOUT_MILLIS.first} and ${COMPLETION_TIMEOUT_MILLIS.last}.",
+), io.mszymanski.orknux.server.graphql.Refusal {
+    override val arguments get() = mapOf("millis" to millis)
+}
+
+class CompletionPauseOutOfRangeException(val millis: Int) : RuntimeException(
+    "The chat cannot wait $millis milliseconds before asking for a completion. Choose between ${COMPLETION_PAUSE_MILLIS.first} and ${COMPLETION_PAUSE_MILLIS.last}.",
+), io.mszymanski.orknux.server.graphql.Refusal {
+    override val arguments get() = mapOf("millis" to millis)
 }
 
 class ChatRetitleOutOfRangeException(val exchanges: Int) : RuntimeException(

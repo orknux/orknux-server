@@ -234,6 +234,7 @@ class AgentSettingsStatementsTest(
         /** And of a workspace: `WORKSPACE_FIELDS` in orknux-ui/src/api/workspaces.ts. */
         const val WORKSPACE_FIELDS = "id name description roles { id name } adminRoles { id name } administered " +
             "companionModelId transcriptionModelId speechModelId imageModelId quickChatModelId quickChatMayWrite " +
+            "completionModelId completionPauseMillis " +
             "compactAfterTokens compactionSummaryTokens compactionModelId defaultMemoryShare taskMaxTurns " +
             "taskMaxTurnsDefault agentMaxSubagents agentMaxSubagentsDefault maxToolCallsAtOnce " +
             "maxToolCallsAtOnceDefault sessionCompactAfterTokens sessionCompactAfterTokensDefault " +

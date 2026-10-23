@@ -206,7 +206,7 @@ the step runs. The README's **Publishing** has the rest.
 | `ORKNUX_TEMPORAL_STEP_HEARTBEAT_SECONDS` | How soon a dead server's step moves to a live one; Admin Settings overrides. | `30` | No |
 | `ORKNUX_TEMPORAL_UI_URL` | Temporal's own web interface, linked out to from a run. Empty offers no links. | `http://localhost:8233` | No |
 | `ORKNUX_INLINE_RESTART_ATTEMPTS` | Inline only: goes an agent step cut short by restarts gets; Admin Settings overrides. | `3` | No |
-| `ORKNUX_INLINE_MAX_WAIT` | Inline engine only: how long a run may stay parked before the step fails. A Temporal wait is bounded by the run timeout. | `5m` | No |
+| `ORKNUX_INLINE_MAX_WAIT` | Inline engine only: how long a run may stay parked before the step fails. | `5m` | No |
 | `ORKNUX_TASK_MAX_TURNS` | How often a task's agent may be asked before stopping, unless the workspace sets its own. | `40` | No |
 | `ORKNUX_TASK_WORKING_TIME` | The longest a task may be *working*. Not wall clock: time parked waiting to be approved counts for none. | `2h` | No |
 | `ORKNUX_TASK_PATIENCE` | How long a parked task waits for a person. | `7d` | No |
@@ -313,6 +313,7 @@ a rule at all.
 The tracker uses the chat's attachments.
 
 ORKNUX_CHAT_MAX_ROUNDS, ORKNUX_CHAT_RETITLE_EVERY, ORKNUX_CHAT_TITLE_SECONDS, ORKNUX_CHAT_MAX_SUBAGENTS, ORKNUX_CHAT_TOOLS_NAMED_IN_SEARCH, ORKNUX_OBJECT_MAX_DEPTH,
+ORKNUX_CHAT_COMPLETION_CONTEXT_TURNS, ORKNUX_CHAT_COMPLETION_MAX_TOKENS, ORKNUX_CHAT_COMPLETION_TIMEOUT_MILLIS, ORKNUX_CHAT_COMPLETION_PAUSE_MILLIS,
 ORKNUX_IMAGE_MAX_PROMPT, ORKNUX_IMAGE_DRAWS_AT_ONCE, ORKNUX_IMAGE_HARMONIZE_STRENGTH, ORKNUX_IMAGE_HARMONIZE_SIZE, ORKNUX_COMMAND_MARKER, ORKNUX_LDAP_GROUP_SEARCH_SUBTREE, ORKNUX_MODEL_CHECK_INITIAL_DELAY,
 ORKNUX_CONNECTION_CHECK_INITIAL_DELAY, ORKNUX_SCHEDULER_THREADS, ORKNUX_SCHEDULER_POLLING_INTERVAL,
 ORKNUX_REVISION_SWEEP_ENABLED, ORKNUX_REVISION_SWEEP_INTERVAL,
@@ -331,7 +332,7 @@ ORKNUX_CONTENT_SECURITY_POLICY are in
 | --- | --- | --- | --- |
 | `ORKNUX_PORT` | The port this server listens on inside the container. | `8080` | No |
 | `ORKNUX_ALLOWED_ORIGINS` | Where the interface is served from, if not here. Comma separated. | `http://localhost:5173` | **Yes** where the interface is elsewhere |
-| `ORKNUX_BASE_URL` | Where a browser reaches the interface, for every link sent out. Admin -> Settings -> Address overrides it. | `http://localhost:5173` | **Yes** for password resets |
+| `ORKNUX_BASE_URL` | Where a browser reaches the interface, for links sent out. Admin -> Settings -> Address overrides it. | `http://localhost:5173` | **Yes** for password resets |
 | `ORKNUX_WEBHOOK_MAX_BODY_SIZE` | The most a webhook caller may post to `/api/webhooks/…`. More is refused with 413 before any trigger runs. | `1MB` | No |
 | `ORKNUX_ASYNC_REQUEST_TIMEOUT` | How long a request answered with a promise may stay open. | `330s` | No |
 | `ORKNUX_SESSION_TIMEOUT` | How long a session survives without being used. A fortnight suits a tool behind an identity provider. | `14d` | No |
@@ -348,7 +349,7 @@ ORKNUX_CONTENT_SECURITY_POLICY are in
 | `ORKNUX_LOG_TOTAL_SIZE_CAP` | The ceiling on all of them together. | `1GB` | No |
 | `ORKNUX_METRICS_ANONYMOUS` | Whether `/actuator/prometheus` answers without signing in. `true` only on the scraper's own network. | `false` | No |
 | `JAVA_OPTS` | Passed to the JVM. One that sizes the heap (`-Xmx`, `MaxRAMPercentage`) replaces the two below. | *none* | No |
-| `ORKNUX_HEAP_PERCENT` `ORKNUX_NATIVE_MEMORY_MB` | Heap: the smaller of the percent of the memory limit and the limit less the MB the JVM needs beside it. | `75` `1024` | No |
+| `ORKNUX_HEAP_PERCENT` `ORKNUX_NATIVE_MEMORY_MB` | Heap: the lesser of that percent of the memory limit and the limit less the JVM's MB. | `75` `1024` | No |
 | `ORKNUX_MALLOC_ARENAS` `ORKNUX_NIO_BUFFER_CACHE_KB` | glibc's arenas (else eight per core); the largest direct buffer a thread keeps. | `2` `256` | No |
 | `ORKNUX_EXIT_ON_OOM` | Exit on running out of heap, so the container restarts. | `true` | No |
 

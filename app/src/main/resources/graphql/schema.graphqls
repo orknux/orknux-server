@@ -603,6 +603,14 @@ type Query {
     chatSession(id: ID!): ChatSession
     "Everything said in one chat, oldest first, as Spring AI's store kept it."
     chatMessages(id: ID!): [ChatMessage!]!
+    """
+    How the sentence being typed in a chat might go on, from the workspace's
+    completion model: only the words that would follow `text`, never the text
+    itself. Null where there is nothing to suggest - no completion model, a
+    model that said nothing, or one that did not answer in time. Never written
+    into the chat. Issue #649.
+    """
+    chatCompletion(chatId: ID!, text: String!): String
     "The instruction sets a workspace's agents are guided by; one catalog's when `catalogId` names one."
     workspaceSkills(workspaceId: ID!, catalogId: ID, page: Int = 0, size: Int = 20): SkillPage!
     "The workspace's skill catalogs, by name, each with what it holds."
@@ -1274,6 +1282,14 @@ type Mutation {
     setChatRetitleEvery(exchanges: Int!): InstallationSettings!
     "How long the companion model has to name a chat before the chat's own model is asked, in seconds, between 1 and 600."
     setChatTitleSeconds(seconds: Int!): InstallationSettings!
+    "How many of a chat's latest messages a sentence completion is shown. Between 0 and 50."
+    setChatCompletionContextTurns(turns: Int!): InstallationSettings!
+    "The most tokens a sentence completion may be. Between 1 and 500."
+    setChatCompletionMaxTokens(tokens: Int!): InstallationSettings!
+    "How long a sentence completion may take before it is given up on. Between 200 and 60000 milliseconds."
+    setChatCompletionTimeoutMillis(millis: Int!): InstallationSettings!
+    "How long the chat waits after the last keystroke before asking for a completion. Between 100 and 10000 milliseconds."
+    setChatCompletionPauseMillis(millis: Int!): InstallationSettings!
     """
     The longest an agent may put itself to sleep for; 1 to 86400 seconds.
 
@@ -1940,6 +1956,8 @@ type Mutation {
     ): Workspace!
     "Chooses the model behind the quick chat; null takes the button away."
     setWorkspaceQuickChatModel(workspaceId: ID!, modelId: ID): Workspace!
+    "Chooses the model that suggests how a sentence typed in a chat goes on; null turns suggestions off."
+    setWorkspaceCompletionModel(workspaceId: ID!, modelId: ID): Workspace!
     "Whether the quick chat may start things, or only look them up."
     setWorkspaceQuickChatWrites(workspaceId: ID!, allowed: Boolean!): Workspace!
     setWorkspaceChatTimestamps(workspaceId: ID!, shown: Boolean!): Workspace!
@@ -2437,6 +2455,13 @@ type Workspace {
     not offered.
     """
     quickChatModelId: ID
+    """
+    The model that suggests how a sentence typed in a chat goes on, shown after
+    the caret for Tab to take. Null means nothing is suggested. Issue #649.
+    """
+    completionModelId: ID
+    "How long a chat waits after the last keystroke before asking for a suggestion: the installation's setting."
+    completionPauseMillis: Int!
     """
     Whether the quick chat may start things, or only look them up. False by
     default, including for a workspace that has already chosen a model.
@@ -7028,6 +7053,22 @@ type InstallationSettings {
     chatTitleSeconds: Int!
     "What a fresh installation does - ORKNUX_CHAT_TITLE_SECONDS."
     chatTitleSecondsConfigured: Int!
+    "How many of a chat's latest messages a sentence completion is shown. Issue #649."
+    chatCompletionContextTurns: Int!
+    "What a fresh installation does - ORKNUX_CHAT_COMPLETION_CONTEXT_TURNS."
+    chatCompletionContextTurnsConfigured: Int!
+    "The most tokens a sentence completion may be."
+    chatCompletionMaxTokens: Int!
+    "What a fresh installation does - ORKNUX_CHAT_COMPLETION_MAX_TOKENS."
+    chatCompletionMaxTokensConfigured: Int!
+    "How long a sentence completion may take, in milliseconds, before it is given up on."
+    chatCompletionTimeoutMillis: Int!
+    "What a fresh installation does - ORKNUX_CHAT_COMPLETION_TIMEOUT_MILLIS."
+    chatCompletionTimeoutMillisConfigured: Int!
+    "How long the chat waits after the last keystroke before asking for a completion, in milliseconds."
+    chatCompletionPauseMillis: Int!
+    "What a fresh installation does - ORKNUX_CHAT_COMPLETION_PAUSE_MILLIS."
+    chatCompletionPauseMillisConfigured: Int!
     """
     How deep an object's shape may go - an object defined inside an object -
     and how deep a value is checked against one. The same number bounds what a

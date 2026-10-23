@@ -875,23 +875,28 @@ class ModelChatClient(
      *   asked before the call is made and after the throttle has been waited
      *   out, because a stop that lands during the wait for the model's turn
      *   must not be followed by the call it was waiting to make. Issue #440.
+     * @param brief a call that wants less of the model than its own settings
+     *   allow - fewer tokens, the least thinking - or null for the model as it
+     *   is configured. See [Brief].
      */
     fun complete(
         modelId: Long,
         turns: List<ChatTurn>,
         tools: List<ToolSpec> = emptyList(),
         hangup: Hangup? = null,
+        brief: Brief? = null,
     ): ChatCompletion {
         if (hangup?.hungUp == true) return ChatCompletion.Failed(HUNG_UP, permanent = false)
         val limits = throttled(modelId)
         if (hangup?.hungUp == true) return ChatCompletion.Failed(HUNG_UP, permanent = false)
         spoken(modelId)?.let { shape ->
+            val model = brief?.applied(shape.model) ?: shape.model
             return through(modelId, shape, limits) {
-                openAi.complete(shape.provider, shape.model, wire(shape.provider, turns), tools, hangup)
+                openAi.complete(shape.provider, model, wire(shape.provider, turns), tools, hangup)
             }
         }
 
-        val call = prepare(modelId, turns, streaming = false, tools = tools)
+        val call = prepare(modelId, turns, streaming = false, tools = tools, brief = brief)
         if (call is Prepared.Failed) return ChatCompletion.Failed(call.reason)
         val ready = call as Prepared.Call
 
@@ -1177,9 +1182,11 @@ class ModelChatClient(
         turns: List<ChatTurn>,
         streaming: Boolean,
         tools: List<ToolSpec> = emptyList(),
+        brief: Brief? = null,
     ): Prepared {
-        val model = models.findByIdOrNull(modelId)
+        val stored = models.findByIdOrNull(modelId)
             ?: return Prepared.Failed("That model no longer exists")
+        val model = brief?.applied(stored) ?: stored
         if (!model.enabled) return Prepared.Failed("${model.name} is not active")
 
         val provider = providers.findByIdOrNull(model.providerId)

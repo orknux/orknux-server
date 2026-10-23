@@ -437,7 +437,7 @@ class WorkspaceDuplicateTest(
         val left = setOf("id", "name", "roles", "adminRoles")
         // Carried by name and pointed at the copied models.
         val models = setOf("companionModelId", "transcriptionModelId", "speechModelId", "compactionModelId",
-            "imageModelId", "quickChatModelId", "sessionCompactionModelId")
+            "imageModelId", "quickChatModelId", "sessionCompactionModelId", "completionModelId")
         assertThat(WORKSPACE_MODEL_CHOICES).hasSize(models.size)
         assertThat(fields - WORKSPACE_SETTINGS.map { it.key }.toSet() - models - left)
             .describedAs("fields of Workspace a copy and a workspace file have not decided on")

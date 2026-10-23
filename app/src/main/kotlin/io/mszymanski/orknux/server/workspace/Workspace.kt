@@ -165,6 +165,17 @@ class Workspace(
     var quickChatModelId: Long? = null,
 
     /**
+     * The model that suggests how a sentence typed in the chat goes on. Issue
+     * #649.
+     *
+     * Its own choice because it is asked on every pause in somebody's typing:
+     * it wants to be small and fast, and the model a chat is held with rarely
+     * is. Null means nothing is suggested and the composer is as it always was.
+     */
+    @Column(name = "completion_model_id")
+    var completionModelId: Long? = null,
+
+    /**
      * Whether the quick chat may start things, or only look them up.
      *
      * Off by default, which is not the same as off by nature: the panel opens

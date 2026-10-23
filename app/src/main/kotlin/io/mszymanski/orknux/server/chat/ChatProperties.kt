@@ -98,4 +98,20 @@ data class ChatProperties(
      */
     val toolSummariesFullUpTo: Int = 100,
     val toolSummaryTrimPercent: Int = 25,
+
+    /**
+     * Sentence completion in the composer, where a fresh installation starts.
+     * Issue #649. Admin -> Settings holds what it is now.
+     *
+     * How many of the chat's latest messages the completion model is shown, so
+     * a reply reads as a reply; the most tokens it may suggest; how long it
+     * may take before the suggestion is not worth showing; and how long the
+     * composer waits after the last keystroke before it asks. Small and short
+     * on purpose: a suggestion that lands after the person typed the words is
+     * a suggestion nobody sees, and it is paid for on every pause.
+     */
+    val completionContextTurns: Int = 6,
+    val completionMaxTokens: Int = 32,
+    val completionTimeoutMillis: Int = 4000,
+    val completionPauseMillis: Int = 600,
 )

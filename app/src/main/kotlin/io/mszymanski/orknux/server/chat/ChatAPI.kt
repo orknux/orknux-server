@@ -38,6 +38,8 @@ class ChatAPI(
     private val commands: ChatCommands,
     /** Which chats have a turn being answered; see [ChatWake]. */
     private val generations: ChatGenerations,
+    /** How a sentence being typed might go on; see [ChatSentences]. */
+    private val sentences: ChatSentences,
 ) {
 
     /**
@@ -133,6 +135,22 @@ class ChatAPI(
                 it.attachments.map { file -> file.view() },
             )
         }
+    }
+
+    /**
+     * How the sentence being typed in this chat might go on. Issue #649.
+     *
+     * A query, not a mutation: nothing is written - not the chat, not its
+     * session, not its history. The owner's own chat only, refused exactly as
+     * every other read of it is, because what is typed and the turns shown to
+     * the model with it are that person's conversation.
+     */
+    @QueryMapping
+    fun chatCompletion(@Argument chatId: Long, @Argument text: String): String? {
+        val session = chats.session(chatId) ?: throw ChatSessionNotFoundException(chatId)
+        requireOwn(session)
+        if (!settings.chatEnabled()) return null
+        return sentences.continuation(session, text)
     }
 
     @MutationMapping

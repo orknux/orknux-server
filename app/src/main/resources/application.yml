@@ -295,6 +295,15 @@ orknux:
     # Up to how many findable tools find_tools names outright in its own
     # description, so a model asks for one by name. Admin -> Settings overrides it.
     tools-named-in-search: ${ORKNUX_CHAT_TOOLS_NAMED_IN_SEARCH:40}
+    # Sentence completion in the chat composer (#649), on only in a workspace
+    # that chose a Completion model. How many of the chat's latest messages the
+    # model is shown, the most tokens it may suggest, how long it may take in
+    # milliseconds, and how long the composer waits after the last keystroke
+    # before asking. Admin -> Settings overrides each of them.
+    completion-context-turns: ${ORKNUX_CHAT_COMPLETION_CONTEXT_TURNS:6}
+    completion-max-tokens: ${ORKNUX_CHAT_COMPLETION_MAX_TOKENS:32}
+    completion-timeout-millis: ${ORKNUX_CHAT_COMPLETION_TIMEOUT_MILLIS:4000}
+    completion-pause-millis: ${ORKNUX_CHAT_COMPLETION_PAUSE_MILLIS:600}
   watchers:
     # What bounds a watcher - a tool an agent asks the server to call on an
     # interval until its result matches a condition, which then wakes it. #606.
