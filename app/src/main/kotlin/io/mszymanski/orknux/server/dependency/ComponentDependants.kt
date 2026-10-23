@@ -75,6 +75,8 @@ class ComponentDependants(
     private val models: ModelService,
     private val connections: WorkspaceConnectionService,
     private val mcpServers: McpServerService,
+    private val workflows: io.mszymanski.orknux.server.workflow.WorkflowRepository,
+    private val assignments: io.mszymanski.orknux.server.workflow.WorkspaceWorkflowRepository,
 ) {
 
     /**
@@ -97,7 +99,7 @@ class ComponentDependants(
         DependencyKind.MCP_SERVER -> ofMcpServer(id)
         DependencyKind.MODEL -> ofModel(id)
         DependencyKind.MODEL_PROVIDER -> ofModelProvider(id)
-        DependencyKind.WORKFLOW,
+        DependencyKind.WORKFLOW -> ofWorkflow(id)
         DependencyKind.CONNECTION,
         DependencyKind.WORKSPACE,
         -> throw DependencyKindNotAskableException(kind)
@@ -144,6 +146,7 @@ class ComponentDependants(
         DependencyKind.MCP_SERVER -> mcpServers.mcpServer(id) != null
         DependencyKind.MODEL -> models.model(id) != null
         DependencyKind.MODEL_PROVIDER -> models.provider(id) != null
+        DependencyKind.WORKFLOW -> workflows.existsById(id)
         else -> false
     }
 
@@ -213,6 +216,16 @@ class ComponentDependants(
         // The workflows that run it, and the agents that may ask it a question.
         return references.toAgent(workspaceId, id) + grants.toAgent(workspaceId, id)
     }
+
+    /**
+     * The workflows that run it from a node, in every workspace it is in - a
+     * workflow can be assigned to several, and a caller in any of them breaks.
+     */
+    private fun ofWorkflow(id: Long): List<Dependant> =
+        assignments.findByWorkflowId(id).map { it.workspaceId }.distinct().flatMap { references.toWorkflow(it, id) }
+
+    /** The workspaces a workflow is in, which is what access to its Used by is decided against. */
+    fun workspacesOfWorkflow(id: Long): List<Long> = assignments.findByWorkflowId(id).map { it.workspaceId }.distinct()
 
     private fun ofAction(id: Long): List<Dependant> {
         val action = actions.findByIdOrNull(id) ?: return emptyList()

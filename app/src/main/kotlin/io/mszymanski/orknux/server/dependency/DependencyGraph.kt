@@ -85,7 +85,7 @@ class DependencyGraph(
         val workspaceConditions = conditions.findByWorkspaceId(workspaceId)
         val workspaceTriggers = triggers.findByWorkspaceId(workspaceId, Pageable.unpaged()).content
         val asked = buildList {
-            workflows.findByWorkspaceId(workspaceId).forEach { node(DependencyKind.WORKFLOW, it.workflow.id, it.workflow.name) }
+            workflows.findByWorkspaceId(workspaceId).forEach { add(node(DependencyKind.WORKFLOW, it.workflow.id, it.workflow.name)) }
             agents.findByWorkspaceId(workspaceId, Sort.by("name")).forEach { add(node(DependencyKind.AGENT, it.id, it.name)) }
             workspaceActions.forEach { add(node(DependencyKind.ACTION, it.id, it.name)) }
             workspaceConditions.forEach { add(node(DependencyKind.CONDITION, it.id, it.name)) }

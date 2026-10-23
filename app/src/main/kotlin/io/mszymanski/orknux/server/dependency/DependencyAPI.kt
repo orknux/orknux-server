@@ -82,6 +82,11 @@ class DependencyAPI(
          * workspace picks from the same list, so anybody may ask what imports one.
          * What they are told is where the line is drawn, below.
          */
+        if (kind == DependencyKind.WORKFLOW) {
+            // In several workspaces, so seen from any of them; the rows in the others are counted, not named.
+            val held = dependants.workspacesOfWorkflow(componentId)
+            if (held.none { access.canSee(it) }) held.firstOrNull()?.let { access.requireVisible(it) }
+        }
         val workspaceId = dependants.workspaceOf(kind, componentId)
         if (workspaceId != null) access.requireVisible(workspaceId)
         return visible(dependants.of(kind, componentId))

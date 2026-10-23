@@ -411,16 +411,33 @@ class ComponentDependantsTest(
     }
 
     /**
-     * Nothing points at a workflow, so the question has no answer.
-     *
-     * Refused rather than answered with an empty list: an empty list reads as
-     * "nothing uses it yet", which would be a claim rather than a shrug.
+     * A workflow is used by the workflows that run it from a node, the draft
+     * and the published copy alike; one nothing runs answers empty.
      */
     @Test
     @WithMockUser(username = "alice", roles = ["ADMINS"])
-    fun `asking what uses a workflow is refused rather than answered empty`() {
-        graphQlTester.document(dependants("WORKFLOW", 1)).execute()
-            .errors().expect { it.message?.contains("Nothing points at") == true }.verify()
+    fun `a workflow's dependants are the workflows that run it`() {
+        val callee = workflow("Greeter")
+        graph(callee, act("greet"))
+        val caller = workflow("Caller")
+        graphQlTester.document(
+            """
+            mutation {
+              saveWorkflowGraph(workspaceId: $backendId, workflowId: $caller, input: {
+                nodes: [{ key: "call", kind: WORKFLOW, name: "Call", calledWorkflowId: $callee, x: 0, y: 0 }], edges: []
+              }) { nodes { key } }
+            }
+            """,
+        ).execute().path("saveWorkflowGraph.nodes[0].key").entity(String::class.java).isEqualTo("call")
+
+        graphQlTester.document(dependants("WORKFLOW", callee)).execute()
+            .path("componentDependants.entries[*].name").entityList(String::class.java).containsExactly("Caller")
+        graphQlTester.document(dependants("WORKFLOW", caller)).execute()
+            .path("componentDependants.entries").entityList(Any::class.java).hasSize(0)
+
+        publish(caller)
+        graphQlTester.document(dependants("WORKFLOW", callee)).execute()
+            .path("componentDependants.entries[0].published").entity(Boolean::class.java).isEqualTo(true)
     }
 
     /** An action with no settings to get wrong, so the test is about the arrow. */

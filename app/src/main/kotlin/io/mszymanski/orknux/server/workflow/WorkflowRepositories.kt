@@ -86,6 +86,9 @@ interface WorkspaceWorkflowRepository : JpaRepository<WorkspaceWorkflow, Long> {
 
     fun existsByWorkspaceIdAndWorkflowId(workspaceId: Long, workflowId: Long): Boolean
 
+    /** Every workspace a workflow is assigned to; one workflow may be in several. */
+    fun findByWorkflowId(workflowId: Long): List<WorkspaceWorkflow>
+
     /**
      * Whether this workspace already has a workflow by this name - the name
      * check, scoped to the workspace rather than the installation, because a

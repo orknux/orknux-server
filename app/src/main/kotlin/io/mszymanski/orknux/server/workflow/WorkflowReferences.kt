@@ -83,6 +83,10 @@ class WorkflowReferences(
             .sortedByDescending { it.published }
             .distinctBy { it.id }
 
+    /** Which of the workspace's workflows run this one, from a node that calls a workflow. */
+    fun toWorkflow(workspaceId: Long, workflowId: Long): List<Dependant> =
+        using(workspaceId, nodes.draftsCallingWorkflow(workspaceId, workflowId), "calledWorkflowId", workflowId)
+
     /** Which of the workspace's workflows ask this condition. */
     fun toCondition(workspaceId: Long, conditionId: Long): List<Dependant> =
         using(workspaceId, nodes.draftsNamingCondition(workspaceId, conditionId), "conditionId", conditionId)

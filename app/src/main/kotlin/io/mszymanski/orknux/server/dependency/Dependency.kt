@@ -83,7 +83,7 @@ enum class DependencyKind {
      * refused for the reason it is refused for and not as a missing row.
      */
     val askable: Boolean
-        get() = this !in setOf(WORKFLOW, CONNECTION, WORKSPACE)
+        get() = this !in setOf(CONNECTION, WORKSPACE)
 }
 
 /**
