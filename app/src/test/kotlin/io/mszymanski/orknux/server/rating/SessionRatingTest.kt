@@ -98,6 +98,9 @@ class SessionRatingTest(
         assertThat((latest["id"] as Number).toLong()).isEqualTo(second)
         assertThat(remove(mapOf("id" to second))["error"].toString()).contains("sent no review $second")
         assertThat((remove(mapOf("id" to first))["id"] as Number).toLong()).isEqualTo(first)
+        // Sent by the agent's tool, it is said in the session as one from the menu is.
+        assertThat(events.findAll().filter { it.sessionId == session }.mapNotNull { it.content })
+            .anySatisfy { assertThat(it).contains("reviewed this chat: 4 / 5") }
         // Kept and marked rather than deleted, and said in the session, so the chat and the session can show it was taken back.
         assertThat(ratingRows.findAllById(listOf(first, second)).map { it.withdrawnAt }).doesNotContainNull().hasSize(2)
         assertThat(events.findAll().filter { it.sessionId == session }.mapNotNull { it.content })

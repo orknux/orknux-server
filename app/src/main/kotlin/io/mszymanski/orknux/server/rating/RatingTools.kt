@@ -118,7 +118,7 @@ class RatingTools(
         }
         val conversation = sessions.findByIdOrNull(session)
             ?: throw ReviewRefusedException("This conversation is no longer kept.")
-        return ratings.save(
+        val sent = ratings.save(
             SessionRating(
                 at = OffsetDateTime.now(),
                 workspaceId = conversation.workspaceId,
@@ -132,6 +132,9 @@ class RatingTools(
                 personName = who.name,
             ),
         )
+        // A line in the session from both doors - the agent's tool and the chat's menu - as taking one back has.
+        recorder.note(session, "${who.name ?: who.key} reviewed this chat: ${sent.score} / 5" + (sent.review?.let { " - $it" } ?: ""))
+        return sent
     }
 
     private inner class Shed(private val agentName: String, private val session: Long) : ToolShed {

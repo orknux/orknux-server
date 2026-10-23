@@ -82,9 +82,8 @@ class SessionRatingAPI(
                 SecurityContextHolder.getContext().authentication?.name ?: "system",
             ),
         )
-        val sent = tools.send(session, with, who, score, review, fromChat = true)
-        // In the session too, where rate_session's call already shows; a review from the menu had no line there.
-        recorder.note(session, "${who.name ?: who.key} reviewed this chat: ${sent.score} / 5" + (sent.review?.let { " - $it" } ?: ""))
+        // The line in the session is written by send, for this door and the agent's alike.
+        tools.send(session, with, who, score, review, fromChat = true)
         return true
     }
 
