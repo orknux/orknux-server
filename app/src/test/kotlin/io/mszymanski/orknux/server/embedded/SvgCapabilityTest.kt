@@ -85,6 +85,20 @@ class SvgCapabilityTest(
             .contains("nothing.here")
     }
 
+    /** A drawing made in the default format is a PNG already; turning it into one again answers it rather than refusing. */
+    @Test
+    fun `a key that holds a png already is answered as that picture`() {
+        val workspaceId = requireNotNull(workspaces.save(Workspace(name = "Svg ${System.nanoTime()}")).id)
+        val sessionId = requireNotNull(sessions.save(LlmSession(workspaceId = workspaceId, sessionKey = "svg-${System.nanoTime()}")).id)
+        val drawn = run("draw", mapOf("svg" to coloured, "width" to 100), sessionId)
+        val key = drawn.path("contentKey").stringValue()
+        assertThat(scratch.kindOf(sessionId, key)?.contentType).isEqualTo("image/png")
+
+        val answer = run("toPng", mapOf("key" to key), sessionId)
+        assertThat(answer.path("pictureType").stringValue()).isEqualTo("image/png")
+        assertThat(rgb(picture(answer), 10, 25)).isEqualTo(0xFF0000)
+    }
+
     @Test
     fun `markup that is not svg is refused in a sentence`() {
         assertThat(run("draw", mapOf("svg" to "<html><body/></html>")).path("error").stringValue())

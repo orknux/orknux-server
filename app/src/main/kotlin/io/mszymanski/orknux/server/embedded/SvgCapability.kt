@@ -98,10 +98,15 @@ class SvgCapability(
                 drawing(mapper, scratch, sessionId, "drawing", picture.png, picture.width, picture.height, "svg")
             }
             TO_PNG -> {
+                // A key that already holds a PNG - a drawing made in the default format - is the answer as it is.
+                pngHeld(asked, sessionId)?.let { return it }
                 val svg = held(asked, sessionId) ?: text(asked, SVG)?.takeIf { it.isNotBlank() }
                     ?: return refusal(
-                        text(asked, KEY)?.let { "Nothing in this session is kept under \"$it\" as an SVG." }
-                            ?: "Give the $KEY of an SVG, or its markup as $SVG.",
+                        text(asked, KEY)?.let { key ->
+                            val kind = sessionId?.let { scratch.kindOf(it, key.trim())?.contentType }
+                            if (kind == null) "Nothing in this session is kept under \"$key\"."
+                            else "\"$key\" holds $kind, not an SVG."
+                        } ?: "Give the $KEY of an SVG, or its markup as $SVG.",
                     )
                 when (val drawn = png(svg, asked)) {
                     is Png.Refused -> refusal(drawn.reason)
@@ -161,6 +166,17 @@ class SvgCapability(
             is SvgRenderer.Drawing.Refused -> Png.Refused(drawn.reason)
             is SvgRenderer.Drawing.Drawn -> Png.Drawn(drawn)
         }
+    }
+
+    /** The picture kept under the key given where it is a PNG already, answered as a drawing is; null otherwise. */
+    private fun pngHeld(asked: JsonNode, sessionId: Long?): String? {
+        val named = text(asked, KEY)?.trim()?.ifEmpty { null } ?: return null
+        if (sessionId == null || scratch.kindOf(sessionId, named)?.contentType != "image/png") return null
+        val stored = scratch.get(sessionId, named) ?: return null
+        val base64 = runCatching { mapper.readTree(stored) }.getOrNull()?.takeIf { it.isTextual }?.stringValue() ?: stored
+        val bytes = runCatching { Base64.getDecoder().decode(base64.trim()) }.getOrNull() ?: return null
+        val image = runCatching { javax.imageio.ImageIO.read(bytes.inputStream()) }.getOrNull() ?: return null
+        return drawing(mapper, scratch, sessionId, "picture", bytes, image.width, image.height, "png")
     }
 
     /** The SVG kept under the key given, or null where none was given or it holds something else. */
