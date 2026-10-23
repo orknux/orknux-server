@@ -25,6 +25,7 @@ have failed.
 
 ### 🔧 Changed
 
+- **Diagrams look better by default**: rounded boxes without shadows, quieter lines, and a colour per kind of thing - services, stores, queues, groups. A diagram that sets its own `skinparam`, `!theme` or `<style>` keeps it.
 - **Anthropic models follow the Model Answer Time Limit** (an hour unless changed) instead of `ORKNUX_MODEL_TIMEOUT`'s two minutes, which is no longer read. If you set `ORKNUX_MODEL_TIMEOUT`, set the limit in Admin Settings or on the model instead.
 
 ## 1.1.8

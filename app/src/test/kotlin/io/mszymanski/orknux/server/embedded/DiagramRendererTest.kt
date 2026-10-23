@@ -106,6 +106,38 @@ class DiagramRendererTest {
         assertThat(svg).contains("Root").contains("Branch one")
     }
 
+    /**
+     * A diagram that brings no style of its own is drawn in the house one -
+     * rounded, without shadows, a colour per kind of thing - and one that says
+     * how it looks keeps what it said.
+     */
+    @Test
+    fun `a diagram with no style of its own is drawn in the house style, and one with its own keeps it`() {
+        val plain = listOf(
+            "@startuml",
+            "left to right direction",
+            "package \"Clients\" {",
+            "  rectangle \"order-service\" as order",
+            "  rectangle \"packing-service\" as packing",
+            "}",
+            "rectangle \"product-service\" as product",
+            "database \"Oracle\" as oracle",
+            "queue \"Kafka OUT\" as kafka",
+            "order --> product : HTTP",
+            "packing --> product : HTTP",
+            "product --> oracle : JDBC",
+            "product --> kafka : publish",
+            "@enduml",
+        ).joinToString(n)
+        val housed = drawn(plain)
+        // The service, the store and the queue each in their own colour.
+        assertThat(housed.lowercase()).contains("#eef2ff", "#ecfdf5", "#fff7ed")
+        System.getProperty("orknux.diagram.sample")?.let { java.io.File(it).writeText(housed) }
+
+        val own = drawn(plain.replace("left to right direction", "left to right direction${n}skinparam rectangle {${n}BackgroundColor #ff0000${n}}"))
+        assertThat(own.lowercase()).contains("#ff0000").doesNotContain("#eef2ff")
+    }
+
     @Test
     fun `plantuml written out is passed through untouched`() {
         val svg = drawn(

@@ -138,7 +138,7 @@ class DiagramRenderer {
             )
         }
 
-        val uml = laidOutInJava(Mermaid.asPlantUml(written))
+        val uml = styled(laidOutInJava(Mermaid.asPlantUml(written)))
         val drawn = ByteArrayOutputStream()
         val described: DiagramDescription = try {
             SourceStringReader(uml).outputImage(drawn, FileFormatOption(FileFormat.SVG))
@@ -190,6 +190,26 @@ class DiagramRenderer {
     }
 
     /**
+     * The house style, for a diagram that brings none of its own.
+     *
+     * PlantUML's default is a sketch of the 2000s - square boxes with drop
+     * shadows, every line the same black, every kind of thing the same white
+     * rectangle - and an agent asked for a diagram writes the structure, not
+     * the paint, so every diagram came out in it. This is the paint: rounded
+     * boxes without shadows, quieter lines with their labels a step lighter,
+     * and a colour per kind of thing - a service, a store, a queue, a group -
+     * so a reader can tell them apart before reading a word.
+     *
+     * A source that says anything about its looks - `!theme`, `skinparam`, a
+     * `<style>` block - keeps exactly what it said.
+     */
+    private fun styled(uml: String): String {
+        if (OWN_STYLE.containsMatchIn(uml)) return uml
+        val opening = uml.substringBefore('\n')
+        return opening + "\n" + HOUSE_STYLE + uml.removePrefix(opening)
+    }
+
+    /**
      * The line PlantUML wrote into the picture, pulled back out as text.
      *
      * The error is drawn as `<text>` elements, which is the only place it
@@ -214,6 +234,94 @@ class DiagramRenderer {
     }
 
     private companion object {
+        /** A diagram that says how it looks. */
+        val OWN_STYLE = Regex("""(?im)^\s*(!theme|skinparam|<style>)""")
+
+        /**
+         * See [styled]. Slate for the lines and the words, indigo for what
+         * does the work, green for what keeps data, amber for what carries a
+         * message between things, and a pale grey ground for a group.
+         */
+        val HOUSE_STYLE = """
+            |skinparam shadowing false
+            |skinparam roundCorner 12
+            |skinparam padding 4
+            |skinparam defaultFontColor #0f172a
+            |skinparam ArrowColor #64748b
+            |skinparam ArrowFontColor #475569
+            |skinparam ArrowThickness 1.2
+            |skinparam rectangle {
+            |  BackgroundColor #eef2ff
+            |  BorderColor #6366f1
+            |}
+            |skinparam component {
+            |  BackgroundColor #eef2ff
+            |  BorderColor #6366f1
+            |}
+            |skinparam node {
+            |  BackgroundColor #eef2ff
+            |  BorderColor #6366f1
+            |}
+            |skinparam class {
+            |  BackgroundColor #eef2ff
+            |  BorderColor #6366f1
+            |}
+            |skinparam usecase {
+            |  BackgroundColor #eef2ff
+            |  BorderColor #6366f1
+            |}
+            |skinparam activity {
+            |  BackgroundColor #eef2ff
+            |  BorderColor #6366f1
+            |}
+            |skinparam state {
+            |  BackgroundColor #eef2ff
+            |  BorderColor #6366f1
+            |}
+            |skinparam database {
+            |  BackgroundColor #ecfdf5
+            |  BorderColor #10b981
+            |}
+            |skinparam storage {
+            |  BackgroundColor #ecfdf5
+            |  BorderColor #10b981
+            |}
+            |skinparam queue {
+            |  BackgroundColor #fff7ed
+            |  BorderColor #f59e0b
+            |}
+            |skinparam collections {
+            |  BackgroundColor #fff7ed
+            |  BorderColor #f59e0b
+            |}
+            |skinparam package {
+            |  BackgroundColor #f8fafc
+            |  BorderColor #cbd5e1
+            |  FontColor #334155
+            |}
+            |skinparam frame {
+            |  BackgroundColor #f8fafc
+            |  BorderColor #cbd5e1
+            |  FontColor #334155
+            |}
+            |skinparam cloud {
+            |  BackgroundColor #f8fafc
+            |  BorderColor #cbd5e1
+            |}
+            |skinparam note {
+            |  BackgroundColor #fefce8
+            |  BorderColor #eab308
+            |}
+            |skinparam participant {
+            |  BackgroundColor #eef2ff
+            |  BorderColor #6366f1
+            |}
+            |skinparam sequence {
+            |  LifeLineBorderColor #94a3b8
+            |  ArrowColor #64748b
+            |}
+            |""".trimMargin()
+
         /** Past this it is a program, not a diagram, and PlantUML will take minutes over it. */
         const val MOST_CHARS = 100_000
 
