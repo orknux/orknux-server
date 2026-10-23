@@ -33,7 +33,7 @@ have failed.
 ### 🔧 Changed
 
 - **Diagrams look better by default**: rounded boxes without shadows, quieter lines, and a colour per kind of thing - services, stores, queues, groups. A diagram that sets its own `skinparam`, `!theme` or `<style>` keeps it.
-- **The workflow editor saves as it goes**: Save and Discard are gone, and the toolbar says Saving…, Saved or Not saved. How long it waits after the last change is Admin Settings → Workflow runs → Workflow Autosave (800 ms). Ctrl+S still saves at once; Undo is still there.
+- **The workflow editor saves as it goes**: Save and Discard are gone, and the toolbar says Saving…, Saved or Not saved. A change is saved, and seen by everybody else in the editor, within Admin Settings → Workflow runs → Workflow Autosave (300 ms), also while a node is still being dragged or a name typed. Ctrl+S still saves at once; Undo is still there.
 - **Anthropic models follow the Model Answer Time Limit** (an hour unless changed) instead of `ORKNUX_MODEL_TIMEOUT`'s two minutes, which is no longer read. If you set `ORKNUX_MODEL_TIMEOUT`, set the limit in Admin Settings or on the model instead.
 
 ### 🐛 Fixed

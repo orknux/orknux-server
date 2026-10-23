@@ -1572,10 +1572,12 @@ class InstallationSettings(
     }
 
     /**
-     * How long the workflow editor waits after the last change before it saves,
-     * in milliseconds. The editor has no Save button: what is drawn is saved, so
-     * the others looking at it see it. Short enough that they see it soon, long
-     * enough that a drag is one save rather than one per frame. Issue #645.
+     * How long a change in the workflow editor may wait before it is saved, in
+     * milliseconds - after the first change not yet saved, so a drag or a name
+     * being typed is saved as it goes rather than once it stops. The editor has
+     * no Save button: what is drawn is saved, so the others looking at it see
+     * it. Short enough that they see it soon, long enough that a drag is a few
+     * saves rather than one per frame. Issue #645.
      */
     fun workflowAutosaveMillis(): Int {
         val held = settings.findByIdOrNull(SettingNames.WORKFLOW_AUTOSAVE_MILLIS) ?: return workflowAutosaveMillisConfigured()
@@ -1584,7 +1586,7 @@ class InstallationSettings(
     }
 
     /** What a fresh installation does: the built-in default. */
-    fun workflowAutosaveMillisConfigured(): Int = 800
+    fun workflowAutosaveMillisConfigured(): Int = 300
 
     @Transactional
     fun setWorkflowAutosaveMillis(millis: Int, by: String) {

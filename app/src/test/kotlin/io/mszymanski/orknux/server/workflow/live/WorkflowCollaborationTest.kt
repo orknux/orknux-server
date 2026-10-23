@@ -123,7 +123,7 @@ class WorkflowCollaborationTest(
     @Test
     fun `how long the editor waits before it saves is an admin setting`() {
         graphQlTester.document("{ installationSettings { workflowAutosaveMillis workflowAutosaveMillisConfigured } }").execute()
-            .path("installationSettings.workflowAutosaveMillisConfigured").entity(Int::class.java).isEqualTo(800)
+            .path("installationSettings.workflowAutosaveMillisConfigured").entity(Int::class.java).isEqualTo(300)
         graphQlTester.document("mutation { setWorkflowAutosaveMillis(millis: 1500) { workflowAutosaveMillis } }").execute()
             .path("setWorkflowAutosaveMillis.workflowAutosaveMillis").entity(Int::class.java).isEqualTo(1500)
         graphQlTester.document("""{ workflowGraph(workspaceId: $workspaceId, workflowId: $workflowId) { autosaveMillis } }""")
