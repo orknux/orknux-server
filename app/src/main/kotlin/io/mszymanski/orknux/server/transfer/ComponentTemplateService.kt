@@ -39,6 +39,18 @@ class ComponentTemplateService(
     private fun ofModels(envelope: String): Boolean =
         runCatching { mapper.readTree(envelope).path("format").asString("") == MODELS_FILE_FORMAT }.getOrDefault(false)
 
+    /**
+     * Whether a stored file is an integrations file: connections and MCP
+     * servers, which are a workspace's settings rather than components, held
+     * the way a workspace file holds them and used the way a models file is.
+     */
+    private fun ofIntegrations(envelope: String): Boolean =
+        runCatching { mapper.readTree(envelope).path("format").asString("") == INTEGRATIONS_FILE_FORMAT }.getOrDefault(false)
+
+    /** Every template of connections and MCP servers, by name: what the Integrations page offers. */
+    fun integrationTemplates(): List<ComponentTemplateView> =
+        templates.findAllByOrderByNameAsc().filter { ofIntegrations(it.envelope) }.map(::view)
+
     /** Every template of models, by name: what the Models page offers. */
     fun modelTemplates(): List<ComponentTemplateView> =
         templates.findAllByOrderByNameAsc().filter { ofModels(it.envelope) }.map(::view)
@@ -61,7 +73,7 @@ class ComponentTemplateService(
              * workflow template carries its agent too. A file that does not say
              * what it was made from is offered wherever its kinds are.
              */
-            .filter { holding == null || (!it.ofModels && holding in it.rootKinds.ifEmpty { it.kinds }) }
+            .filter { holding == null || (!it.ofModels && !it.ofIntegrations && holding in it.rootKinds.ifEmpty { it.kinds }) }
 
     fun template(id: Long): ComponentTemplateView? = templates.findByIdOrNull(id)?.let(::view)
 
@@ -83,7 +95,8 @@ class ComponentTemplateService(
         // Before the row, so a file that cannot be read never becomes a template
         // somebody finds out about by clicking Use on it. A models file was
         // checked by whoever wrote it, which is this installation.
-        if (!ofModels(envelope)) importer.describe(envelope)
+        // An integrations file is read whole by its own reader, which refuses what this installation cannot hold.
+        if (ofIntegrations(envelope)) readIntegrationsFile(mapper, envelope) else if (!ofModels(envelope)) importer.describe(envelope)
         if (templates.findByNameIgnoreCase(cleanName) != null) throw TemplateNameTakenException(cleanName)
 
         val now = OffsetDateTime.now()
@@ -116,7 +129,12 @@ class ComponentTemplateService(
     fun update(id: Long, name: String, description: String?, envelope: String?): ComponentTemplateView {
         val held = held(id)
         val cleanName = cleanName(name)
-        envelope?.let { importer.describe(it) }
+        envelope?.let {
+            when {
+                ofIntegrations(it) -> readIntegrationsFile(mapper, it)
+                !ofModels(it) -> importer.describe(it)
+            }
+        }
         templates.findByNameIgnoreCase(cleanName)
             ?.takeIf { it.id != held.id }
             ?.let { throw TemplateNameTakenException(cleanName) }
@@ -186,8 +204,37 @@ class ComponentTemplateService(
         )
     }
 
+    /** A template of connections and MCP servers: what is in it is their names. */
+    private fun integrationsView(held: ComponentTemplate): ComponentTemplateView {
+        val read = runCatching { readIntegrationsFile(mapper, held.envelope) }
+        val file = read.getOrNull()
+        val root = runCatching { mapper.readTree(held.envelope) }.getOrNull()
+        return ComponentTemplateView(
+            id = held.id!!,
+            name = held.name,
+            description = held.description,
+            formatVersion = root?.path("formatVersion")?.asInt(0),
+            producedBy = root?.path("producedBy")?.asString(null),
+            depth = null,
+            kinds = emptyList(),
+            componentCount = (file?.connections?.size ?: 0) + (file?.mcpServers?.size ?: 0),
+            contents = emptyList(),
+            // Read whole, so a file from a newer Orknux is still listed and says why it cannot be used.
+            usable = file != null,
+            problem = read.exceptionOrNull()?.message,
+            createdAt = held.createdAt,
+            createdBy = held.createdBy,
+            lastModifiedAt = held.lastModifiedAt,
+            lastModifiedBy = held.lastModifiedBy,
+            ofIntegrations = true,
+            connections = file?.connections.orEmpty().map { it.path("name").asString("") },
+            mcpServers = file?.mcpServers.orEmpty().map { it.path("name").asString("") },
+        )
+    }
+
     private fun view(held: ComponentTemplate): ComponentTemplateView {
         if (ofModels(held.envelope)) return modelsView(held)
+        if (ofIntegrations(held.envelope)) return integrationsView(held)
         val summary = runCatching { importer.describe(held.envelope) }
         val read = summary.getOrNull()
         return ComponentTemplateView(
@@ -244,6 +291,12 @@ data class ComponentTemplateView(
     val ofModels: Boolean = false,
     /** The models in it, as "name (provider)", for a template of models. */
     val models: List<String> = emptyList(),
+    /** A template of connections and MCP servers; see [ComponentTemplateService.integrationTemplates]. */
+    val ofIntegrations: Boolean = false,
+    /** The connections in it, by name, for a template of integrations. */
+    val connections: List<String> = emptyList(),
+    /** The MCP servers in it, by name, for a template of integrations. */
+    val mcpServers: List<String> = emptyList(),
     val componentCount: Int,
     val contents: List<TemplateComponentView>,
     /** False when this installation cannot read the stored envelope. */

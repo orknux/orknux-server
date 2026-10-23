@@ -725,6 +725,8 @@ type Query {
     componentTemplates(holding: ComponentKind): [ComponentTemplate!]!
     "The templates of models, by name: what a Models page offers."
     modelTemplates: [ComponentTemplate!]!
+    "The templates of connections and MCP servers, by name: what an Integrations page offers."
+    integrationTemplates: [ComponentTemplate!]!
     componentTemplate(id: ID!): ComponentTemplate
     """
     The stored file itself. Administrators only.
@@ -2322,6 +2324,12 @@ type Mutation {
     publishModelTemplate(workspaceId: ID!, modelIds: [ID!]!, name: String!, description: String): ComponentTemplate!
     "A template of models read into this workspace, as importing its file would."
     useModelTemplate(workspaceId: ID!, id: ID!): ModelImport!
+    "Publishes one connection, without its credentials, as a template every workspace's Integrations page offers. Administrators."
+    saveConnectionAsTemplate(workspaceId: ID!, id: ID!, name: String!, description: String): ComponentTemplate!
+    "Publishes one MCP server, without its credential, as a template every workspace's Integrations page offers. Administrators."
+    saveMcpServerAsTemplate(workspaceId: ID!, id: ID!, name: String!, description: String): ComponentTemplate!
+    "A template of connections and MCP servers read into this workspace; a name already here is left alone."
+    useIntegrationTemplate(workspaceId: ID!, id: ID!): IntegrationImport!
     """
     Keeps a picture brought in from outside - a file dropped on the editor, or
     an .orkx archive with its project - as a Design picture.
@@ -8515,6 +8523,31 @@ input ImportDesignImageInput {
     prompt: String
 }
 
+"What using a template of connections and MCP servers made, and what it left alone."
+type IntegrationImport {
+    "Connections made, by name."
+    connections: [String!]!
+    "MCP servers made, by name."
+    mcpServers: [String!]!
+    "Of those, the ones that held a credential where they came from and need one added here."
+    needsCredential: [IntegrationNeed!]!
+    "Names left alone because this workspace already has one."
+    skipped: [String!]!
+}
+
+"Which of the two an integration is."
+enum IntegrationKind {
+    CONNECTION
+    MCP_SERVER
+}
+
+"A row a used template made without the credential it held where it came from."
+type IntegrationNeed {
+    kind: IntegrationKind!
+    id: ID!
+    name: String!
+}
+
 "What reading a models file made, and what it left alone."
 type ModelImport {
     "Providers made, by name."
@@ -9306,6 +9339,12 @@ type ComponentTemplate {
     ofModels: Boolean!
     "For a template of models, each as name (provider)."
     models: [String!]!
+    "A template of connections and MCP servers rather than components."
+    ofIntegrations: Boolean!
+    "For a template of integrations, its connections by name."
+    connections: [String!]!
+    "For a template of integrations, its MCP servers by name."
+    mcpServers: [String!]!
     componentCount: Int!
     "Everything inside, as the file names it."
     contents: [TemplateComponent!]!

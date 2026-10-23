@@ -20,6 +20,7 @@ have failed.
 ### ✨ Added
 
 - **A plugin's skill catalogue can be searched** like a workspace's own, and both search what a skill says as well as its name and description.
+- **Connections and MCP servers as templates.** Save as template on their rows on Integrations publishes the settings without the credentials, and Use a template beside each card's Add makes them in another workspace, linking to each one that needs its credential given again.
 - `ORKNUX_SESSION_COOKIE_SECURE` marks the session cookie Secure (`auto`, the default, follows the request); `ORKNUX_CONTENT_SECURITY_POLICY` replaces the interface's Content-Security-Policy where the built-in one is too strict.
 - **Tabs in the desktop app.** A link the interface opens in a new tab, Ctrl+click and the middle button open a tab instead of a window; Ctrl+T, Ctrl+W, Ctrl+Tab and Ctrl+Shift+Tab work as in a browser, and closing the last tab closes the window.
 

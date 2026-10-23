@@ -642,9 +642,7 @@ class WorkspaceDuplicator(
     }
 
     private fun hadCredential(held: io.mszymanski.orknux.connector.connection.WorkspaceConnection) =
-        held.secretVariableId != null || !held.secret.isNullOrBlank() ||
-            held.appTokenVariableId != null || !held.appToken.isNullOrBlank() ||
-            held.userTokenVariableId != null || !held.userToken.isNullOrBlank()
+        connectionHadCredential(held)
 
     /**
      * The connections, MCP servers and model providers a workspace holds, by

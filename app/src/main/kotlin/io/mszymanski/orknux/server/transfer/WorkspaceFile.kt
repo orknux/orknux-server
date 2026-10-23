@@ -276,6 +276,15 @@ internal fun connectionNode(held: WorkspaceConnection, inherits: String?, creden
     CONNECTION_FIELDS.forEach { it.write(held, into) }
 }
 
+/**
+ * Whether a connection held a credential of its own, in any of its three
+ * fields, as a copy or as a variable: what a file marks as needing one.
+ */
+internal fun connectionHadCredential(held: WorkspaceConnection): Boolean =
+    held.secretVariableId != null || !held.secret.isNullOrBlank() ||
+        held.appTokenVariableId != null || !held.appToken.isNullOrBlank() ||
+        held.userTokenVariableId != null || !held.userToken.isNullOrBlank()
+
 internal fun connectionFrom(node: JsonNode, workspaceId: Long, connectionId: Long?): WorkspaceConnection {
     val name = node.required("name", "A connection")
     return WorkspaceConnection(
