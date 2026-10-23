@@ -190,6 +190,7 @@ internal val WORKSPACE_MODEL_CHOICES: List<ModelChoice> = listOf(
     ModelChoice("compaction", { it.compactionModelId }, { w, v -> w.compactionModelId = v }),
     ModelChoice("image", { it.imageModelId }, { w, v -> w.imageModelId = v }),
     ModelChoice("quickChat", { it.quickChatModelId }, { w, v -> w.quickChatModelId = v }),
+    ModelChoice("completion", { it.completionModelId }, { w, v -> w.completionModelId = v }),
     ModelChoice("sessionCompaction", { it.sessionCompactionModelId }, { w, v -> w.sessionCompactionModelId = v }),
 )
 

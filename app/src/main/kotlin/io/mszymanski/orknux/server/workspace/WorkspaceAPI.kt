@@ -726,6 +726,34 @@ class WorkspaceAPI(
     }
 
     /**
+     * Chooses the model that suggests how a sentence typed in a chat goes on.
+     * Issue #649.
+     *
+     * A chat model, refused otherwise the way the quick chat refuses one: it is
+     * asked to continue text, and a model that only draws or only listens
+     * would fail on every pause in somebody's typing. Null turns suggestions
+     * off, and the composer is as it always was.
+     */
+    @MutationMapping
+    @Transactional
+    fun setWorkspaceCompletionModel(@Argument workspaceId: Long, @Argument modelId: Long?): Workspace {
+        val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
+        access.requireAdministers(workspace)
+
+        val chosen = modelId?.let { models.model(it) ?: throw ModelNotFoundForWorkspaceException(it) }
+        if (chosen != null && chosen.workspaceId != workspaceId) throw ModelNotFoundForWorkspaceException(modelId)
+        if (chosen != null && chosen.kind != ModelKind.CHAT) throw ModelNotChatException(chosen.name)
+
+        workspace.completionModelId = chosen?.id
+        auditRecorder.record(
+            workspaceId,
+            WorkspaceAuditCategory.MODEL,
+            if (chosen == null) "Completion model cleared" else "Completion model set to ${chosen.name}",
+        )
+        return workspace
+    }
+
+    /**
      * Whether the quick chat may change things, or only look at them.
      *
      * Recorded either way: this is the setting that decides whether a panel
@@ -908,6 +936,16 @@ class WorkspaceAPI(
     @BatchMapping(typeName = "Workspace")
     fun commandMarkerDefault(workspaces: List<Workspace>): List<String> =
         installation.commandMarker().let { value -> workspaces.map { value } }
+
+    /**
+     * How long a chat here waits after the last keystroke before it asks for a
+     * sentence completion. The installation's number, on the workspace because
+     * the chat already reads the workspace and an ordinary person cannot read
+     * the installation's settings. Issue #649.
+     */
+    @BatchMapping(typeName = "Workspace")
+    fun completionPauseMillis(workspaces: List<Workspace>): List<Int> =
+        installation.chatCompletionPauseMillis().let { value -> workspaces.map { value } }
 
     /**
      * How many other agents one agent in this workspace may ask in one

@@ -381,6 +381,7 @@ class ComponentDependants(
             listOf(
                 Triple(held.companionModelId, "Companion model", "companion-model"),
                 Triple(held.quickChatModelId, "Quick chat model", "quick-chat-model"),
+                Triple(held.completionModelId, "Completion model", "completion-model"),
                 Triple(held.transcriptionModelId, "Transcription model", "transcription-model"),
                 Triple(held.speechModelId, "Speech model", "speech-model"),
                 Triple(held.imageModelId, "Image model", "image-model"),

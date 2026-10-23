@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### ✨ Added
+
+- **Sentence completion in the chat.** A workspace that chooses a Completion model on its settings page gets a suggestion of how the sentence being typed goes on, in grey after the caret; Tab takes it, typing on or Escape puts it away. With no Completion model the composer is as it was. How much of the chat it is shown, how long a suggestion may be, its time limit and the pause before asking are on Admin → Settings.
+
 ## 1.1.9
 
 ### ✨ Added
