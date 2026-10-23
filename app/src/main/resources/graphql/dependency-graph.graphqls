@@ -1,0 +1,28 @@
+extend type Query {
+    "Every part of a workspace and what uses what: the Used by lists of all of them at once."
+    workspaceDependencyGraph(workspaceId: ID!): DependencyGraph!
+}
+
+type DependencyGraph {
+    "Every part, used or not, and anything outside the workspace that something in it uses."
+    nodes: [DependencyGraphNode!]!
+    edges: [DependencyGraphEdge!]!
+}
+
+type DependencyGraphNode {
+    "What the edges name it by."
+    key: ID!
+    kind: DependencyKind!
+    id: ID!
+    name: String!
+    "Whether a workflow is drawn from its published copy."
+    published: Boolean!
+    "Which workspace setting, for a WORKSPACE node; null otherwise."
+    section: String
+}
+
+"`from` uses `to`: removing `to` would break `from`."
+type DependencyGraphEdge {
+    from: ID!
+    to: ID!
+}

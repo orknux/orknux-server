@@ -457,6 +457,37 @@ class ComponentDependantsTest(
         ).execute().path("publishWorkflow.status").entity(String::class.java).isEqualTo("PUBLISHED")
     }
 
+    /**
+     * The workspace's picture is every part's Used by at once: the arrow from
+     * the asker to the agent it asks, an unused function drawn on its own, and
+     * nothing from the workspace next door.
+     */
+    @Test
+    @WithMockUser(username = "alice", roles = ["ADMINS"])
+    fun `the dependency graph is every part and what uses what, in its own workspace`() {
+        val helper = requireNotNull(
+            agents.save(io.mszymanski.orknux.server.agent.Agent(workspaceId = backendId, name = "Helper", type = io.mszymanski.orknux.server.agent.AgentType.LLM)).id,
+        )
+        val lead = requireNotNull(
+            agents.save(
+                io.mszymanski.orknux.server.agent.Agent(
+                    workspaceId = backendId, name = "Lead", type = io.mszymanski.orknux.server.agent.AgentType.LLM,
+                    agents = mutableListOf(helper),
+                ),
+            ).id,
+        )
+        val unused = function(backendId, "unused")
+        function(frontendId, "elsewhere")
+
+        graphQlTester.document(
+            "query { workspaceDependencyGraph(workspaceId: $backendId) { nodes { key name } edges { from to } } }",
+        ).execute()
+            .path("workspaceDependencyGraph.nodes[*].key").entityList(String::class.java)
+            .containsExactly("AGENT:$helper", "AGENT:$lead", "FUNCTION:$unused")
+            .path("workspaceDependencyGraph.edges[*].from").entityList(String::class.java).containsExactly("AGENT:$lead")
+            .path("workspaceDependencyGraph.edges[*].to").entityList(String::class.java).containsExactly("AGENT:$helper")
+    }
+
     private fun dependants(kind: String, id: Long) = """
         query {
           componentDependants(kind: $kind, componentId: $id) {

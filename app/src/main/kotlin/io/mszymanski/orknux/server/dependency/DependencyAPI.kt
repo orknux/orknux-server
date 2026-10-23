@@ -65,6 +65,7 @@ data class DependantsView(
 @Controller
 class DependencyAPI(
     private val dependants: ComponentDependants,
+    private val graph: DependencyGraph,
     private val workspaces: WorkspaceRepository,
     private val access: WorkspaceAccess,
 ) {
@@ -84,6 +85,13 @@ class DependencyAPI(
         val workspaceId = dependants.workspaceOf(kind, componentId)
         if (workspaceId != null) access.requireVisible(workspaceId)
         return visible(dependants.of(kind, componentId))
+    }
+
+    /** Every part of a workspace and what uses what, for its Dependencies page. */
+    @QueryMapping
+    fun workspaceDependencyGraph(@Argument workspaceId: Long): DependencyGraphView {
+        access.requireVisible(workspaceId)
+        return graph.of(workspaceId)
     }
 
     /**

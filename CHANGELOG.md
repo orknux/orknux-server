@@ -19,6 +19,7 @@ have failed.
 
 ### ✨ Added
 
+- **Dependencies.** A workspace page drawing every part - workflows, agents, actions, functions, models, variables and the rest - and what uses what. Choosing one lights everything it needs and everything that needs it.
 - **Working on a workflow together.** Everybody with the editor open sees who else is there, their pointers with their logins, and their changes as they are made. Two changes made at once are merged rather than one writing over the other.
 - **A model's own answer time limit**, on its page beside Requests per Minute. Empty takes the installation's Model Answer Time Limit.
 - **The Errors report's columns sort**, in both tables: press a heading, press it again to turn it round.
