@@ -89,12 +89,13 @@ class ReadOnlyTokenTest(
     }
 
     @Test
-    fun `a read and write token still changes things`() {
+    fun `a read and write token still changes things, but makes no tokens`() {
         val writing = internal.mint(owner, "deploy").second
 
-        val made = graphql(writing, """mutation { createUserToken(name: "made by a token", readOnly: true) { token { readOnly } } }""")
-        assertThat(made.path("data").path("createUserToken").path("token").path("readOnly").asBoolean()).isTrue()
         assertThat(mcpTools(writing)).contains("orknux_workflows", "orknux_open_issue")
+        // Making a token is a person's act in a session, whatever the token may otherwise do. #591.
+        val made = graphql(writing, """mutation { createUserToken(name: "made by a token", readOnly: true) { token { readOnly } } }""")
+        assertThat(made.path("errors").get(0).path("extensions").path("code").asText()).isEqualTo("TokenMintedByToken")
     }
 
     @Test

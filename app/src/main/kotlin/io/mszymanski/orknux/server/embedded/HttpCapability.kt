@@ -248,7 +248,7 @@ class HttpCapability(
          */
         val mostChars = MOST_BODY_CHARS
         val answered = when (
-            val fetched = fetch.fetch(router.builder().build(), request, mostChars * 4L, followRedirects = false, router::authorized, cutLong = true)
+            val fetched = fetch.fetch(router.client(), request, mostChars * 4L, followRedirects = false, router::authorized, cutLong = true)
         ) {
             is io.mszymanski.orknux.server.security.GuardedFetch.Fetched.Refused ->
                 return refusal("that address may not be reached: ${fetched.why}.")
@@ -285,7 +285,7 @@ class HttpCapability(
 
         val mostMb = MOST_DOWNLOAD_BYTES / (1024 * 1024)
         val answered = when (
-            val fetched = fetch.fetch(router.builder().build(), request, mostMb * 1024L * 1024L, followRedirects = false, router::authorized)
+            val fetched = fetch.fetch(router.client(), request, mostMb * 1024L * 1024L, followRedirects = false, router::authorized)
         ) {
             is io.mszymanski.orknux.server.security.GuardedFetch.Fetched.Refused ->
                 return refusal("that address may not be reached: ${fetched.why}.")

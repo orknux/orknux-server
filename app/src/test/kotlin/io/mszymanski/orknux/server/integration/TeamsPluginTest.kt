@@ -237,7 +237,8 @@ class TeamsPluginTest(
 
         val answer = call(ACTIVITY, signature(ACTIVITY, key = "some-other-installations-token"))
 
-        assertThat(answer.status).isEqualTo(401)
+        // 404, as an unknown path answers: a refusal that says the path exists tells a prober where to aim. #591.
+        assertThat(answer.status).isEqualTo(404)
         assertThat(executions.findAll()).isEmpty()
         assertThat(firings.findAll().map { it.outcome }).contains(FiringOutcome.UNAUTHENTICATED)
     }
@@ -257,7 +258,7 @@ class TeamsPluginTest(
         val edited = ACTIVITY.replace("deploy the release please", "delete the release please")
         val answer = call(edited, signature(ACTIVITY))
 
-        assertThat(answer.status).isEqualTo(401)
+        assertThat(answer.status).isEqualTo(404)
         assertThat(executions.findAll()).isEmpty()
     }
 
