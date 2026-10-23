@@ -148,8 +148,10 @@ class ChatAPITest(
         val id = startChat("Database migration help")
         // Taken away rather than never given, because no door opens a chat
         // without a model any more. This is how a real one gets there: the model
-        // it named was removed, and `chat_session.model_id` is left null.
-        sessions.save(sessions.findAll().single().also { it.modelId = null })
+        // it named was removed, and `chat_session.model_id` is left null - and
+        // so is the agent's, since a chat now follows its agent's model.
+        val chat = sessions.save(sessions.findAll().single().also { it.modelId = null })
+        chat.agentId?.let { agentId -> agents.findById(agentId).ifPresent { agents.save(it.apply { modelId = null }) } }
 
         graphQlTester.document("""mutation { sendChatMessage(id: $id, text: "Hello") { millis } }""")
             .execute().errors().satisfy { errors ->
