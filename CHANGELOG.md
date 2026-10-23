@@ -15,7 +15,7 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
-## Unreleased
+## 1.1.9
 
 ### ✨ Added
 
@@ -41,6 +41,9 @@ have failed.
 
 ### 🐛 Fixed
 
+- **A saved SVG file is shown as the picture it is** under the answer that links it, captioned with its file name, not as an unknown file.
+- **A review an agent sends appears in the chat at once** and gets a line in the session, as one from the chat menu does.
+- **A workflow's publications are paged** on its settings page.
 - **A drawn picture is shown once, inside the answer it belongs to**, not twice and not as a message of its own above the tool call.
 - **`svg_toPng` on a drawing that is already a PNG** answers that picture instead of refusing it.
 - **Long workflow names** are cut on one line in the editor's toolbar instead of wrapping.
