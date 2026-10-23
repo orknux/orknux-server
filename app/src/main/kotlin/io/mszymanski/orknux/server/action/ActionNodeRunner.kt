@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.action
 
+import io.mszymanski.orknux.server.tuning.Tuning
+import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.workflow.execution.WorkflowExecutionRepository
 import io.mszymanski.orknux.workflow.script.ScriptOrigin
 import io.mszymanski.orknux.server.condition.ConditionEvaluator
@@ -82,6 +84,8 @@ class ActionNodeRunner(
     /** The plugin a PLUGIN_ACTION names, and what that plugin declares. Issue #438. */
     private val plugins: PluginRepository,
     private val pluginActions: PluginActions,
+    /** The numbers this reads from Admin -> Settings. Issue #453. */
+    private val tuning: Tuning = Tuning.DEFAULTS,
 ) : NodeRunner {
 
     override fun supports(kind: NodeKind): Boolean = kind == NodeKind.ACTION
@@ -650,7 +654,7 @@ class ActionNodeRunner(
             throw ActionFailedException("${action.name} was still waiting when it ran out of time")
         }
 
-        val retry = Duration.ofSeconds((action.retryIntervalSeconds ?: RETRY_SECONDS).toLong())
+        val retry = Duration.ofSeconds((action.retryIntervalSeconds ?: tuning[Tunable.ACTION_RETRY_SECONDS]).toLong())
         val after = minOf(retry, left)
         return park(step, until, after, "${action.name} is waiting; asked again in ${after.toSeconds()}s")
     }
@@ -739,8 +743,8 @@ class ActionNodeRunner(
 
         val log = LoggerFactory.getLogger(ActionNodeRunner::class.java)
 
-        /** How often a wait asks again, when the action does not say. */
-        const val RETRY_SECONDS = 30
+        // How often a wait asks again, when the action does not say, is
+        // Tunable.ACTION_RETRY_SECONDS. Issue #453.
 
         /** Enough of the target to recognise what was wired into it, not a message. */
         const val TARGET_IN_ERROR = 60

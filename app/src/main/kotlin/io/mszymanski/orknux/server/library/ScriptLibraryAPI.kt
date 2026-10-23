@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.library
 
+import io.mszymanski.orknux.server.tuning.Tuning
+import io.mszymanski.orknux.server.tuning.Tunable
 import graphql.GraphQLError
 import graphql.schema.DataFetchingEnvironment
 import io.mszymanski.orknux.server.dependency.ComponentDependants
@@ -241,6 +243,8 @@ class LibraryStore(
     private val libraries: ScriptLibraryRepository,
     private val scripts: ScriptRunner,
     private val mapper: ObjectMapper,
+    /** The numbers this reads from Admin -> Settings. Issue #453. */
+    private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
     @Transactional
@@ -265,7 +269,8 @@ class LibraryStore(
         parts: List<LibraryPartView>? = null,
     ): ScriptLibrary {
         if (!KEY.matches(key)) throw LibraryKeyInvalidException(key)
-        if (sizeBytes > MAX_SIZE) throw LibraryTooLargeException(MAX_SIZE / 1024)
+        val mostMb = tuning[Tunable.LIBRARY_MB]
+        if (sizeBytes > mostMb * 1024L * 1024L) throw LibraryTooLargeException(mostMb * 1024L)
 
         // Which of the two spellings this is, and whether it is on its own. Asked
         // here rather than in the door that fetched it, so that a CommonJS file

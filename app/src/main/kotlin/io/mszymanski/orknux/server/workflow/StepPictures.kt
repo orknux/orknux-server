@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.workflow
 
+import io.mszymanski.orknux.server.tuning.Tuning
+import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.connector.model.ImageOptions
 import io.mszymanski.orknux.connector.model.ModelImageClient
 import io.mszymanski.orknux.connector.model.Picture
@@ -38,6 +40,8 @@ class StepPictures(
     private val pictures: ExecutionPictureRepository,
     private val store: AttachmentStore,
     private val settings: InstallationSettings,
+    /** The numbers this reads from Admin -> Settings. Issue #453. */
+    private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
     /**
@@ -120,9 +124,10 @@ class StepPictures(
          * is more pictures than any run is, and the refusal is a sentence the
          * model reads and works around rather than a failure that loses the run.
          */
-        if (pictures.countByExecutionId(executionId) >= MOST_PICTURES) {
+        val most = tuning[Tunable.STEP_PICTURES_MOST]
+        if (pictures.countByExecutionId(executionId) >= most) {
             return StepDrawing.Refused(
-                "This run has already drawn $MOST_PICTURES pictures, which is as many as one run may draw. " +
+                "This run has already drawn $most pictures, which is as many as one run may draw. " +
                     "Finish with the ones you have.",
             )
         }
@@ -202,8 +207,8 @@ class StepPictures(
         /** Where the bytes are served; see ExecutionPictureAPI. */
         const val DOWNLOAD_PATH = "/api/execution-pictures"
 
-        /** As many pictures as one run may draw. See [draw] for why there is a number at all. */
-        const val MOST_PICTURES = 20
+        // As many pictures as one run may draw is Tunable.STEP_PICTURES_MOST;
+        // see [draw] for why there is a number at all. Issue #453.
 
         /** As much of the description as belongs in the alt text of one image. */
         const val ALT_LENGTH = 120

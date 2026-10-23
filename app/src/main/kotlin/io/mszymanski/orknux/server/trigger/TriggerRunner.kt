@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.trigger
 
+import io.mszymanski.orknux.server.tuning.Tuning
+import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.server.condition.ConditionEvaluator
 import io.mszymanski.orknux.server.condition.ConditionNotDecidableException
 import io.mszymanski.orknux.server.condition.WorkflowConditionRepository
@@ -46,6 +48,8 @@ class TriggerRunner(
     private val evaluator: ConditionEvaluator,
     private val firings: TriggerFiringRepository,
     private val graphs: AppWorkflowGraphSource,
+    /** The numbers this reads from Admin -> Settings. Issue #453. */
+    private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
     /**
@@ -288,11 +292,12 @@ class TriggerRunner(
 
         val key = "$workflowId:$connectionId:$ts"
         val now = System.currentTimeMillis()
-        if (started.size > MOST_REMEMBERED) {
-            started.entries.removeIf { now - it.value > REMEMBER_FOR_MILLIS }
+        val rememberFor = tuning[Tunable.TRIGGER_REMEMBER_MINUTES] * 60_000L
+        if (started.size > tuning[Tunable.TRIGGER_REMEMBERED]) {
+            started.entries.removeIf { now - it.value > rememberFor }
         }
         val before = started.put(key, now)
-        return before == null || now - before >= REMEMBER_FOR_MILLIS
+        return before == null || now - before >= rememberFor
     }
 
     private fun start(
@@ -433,11 +438,9 @@ class TriggerRunner(
     private val started = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     private companion object {
-        /** How long one message is remembered as having started a workflow. */
-        const val REMEMBER_FOR_MILLIS = 10 * 60 * 1000L
-
-        /** When the map is bigger than this, the stale half is swept on the way past. */
-        const val MOST_REMEMBERED = 5_000
+        // How long one message is remembered as having started a workflow, and
+        // the size past which the stale half is swept on the way past, are
+        // Tunable.TRIGGER_REMEMBER_MINUTES and TRIGGER_REMEMBERED. Issue #453.
 
         val log = LoggerFactory.getLogger(TriggerRunner::class.java)
 

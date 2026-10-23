@@ -74,7 +74,7 @@ class AskBookkeepingTest(
     fun `agent_wait takes its seconds however the model wrote them`() {
         assertThat(runTools.waitSecondsIn("""{"seconds":"300"}""")).isEqualTo(300)
         assertThat(runTools.waitSecondsIn("""{"seconds":120}""")).isEqualTo(120)
-        assertThat(runTools.waitSecondsIn("""{}""")).isEqualTo(AgentRunTools.SOME_WAIT_SECONDS)
+        assertThat(runTools.waitSecondsIn("""{}""")).isEqualTo(io.mszymanski.orknux.server.tuning.Tunable.AGENT_WAIT_DEFAULT_SECONDS.fallback)
     }
 
     @Test

@@ -869,6 +869,40 @@ orknux:
     # step. Issue #601.
     step-heartbeat-seconds: ${ORKNUX_TEMPORAL_STEP_HEARTBEAT_SECONDS:30}
     run-timeout-hours: ${ORKNUX_TEMPORAL_RUN_TIMEOUT_HOURS:24}
+  # The numbers the server behaves by, each also a box on Admin -> Settings,
+  # where what an administrator chose wins over what is here: this is where a
+  # fresh installation starts. One entry per Tunable (tuning/Tunable.kt), and
+  # TunablesTest holds the two lists together. Issue #453.
+  tuning:
+    model.retry.after.longest.seconds: ${ORKNUX_TUNING_MODEL_RETRY_AFTER_LONGEST_SECONDS:120}
+    model.retry.after.attempts: ${ORKNUX_TUNING_MODEL_RETRY_AFTER_ATTEMPTS:2}
+    model.throttle.longest.delay.seconds: ${ORKNUX_TUNING_MODEL_THROTTLE_LONGEST_DELAY_SECONDS:60}
+    model.image.fetch.seconds: ${ORKNUX_TUNING_MODEL_IMAGE_FETCH_SECONDS:60}
+    agent.wait.default.seconds: ${ORKNUX_TUNING_AGENT_WAIT_DEFAULT_SECONDS:30}
+    agent.wait.longest.seconds: ${ORKNUX_TUNING_AGENT_WAIT_LONGEST_SECONDS:300}
+    tools.loaded.at.once: ${ORKNUX_TUNING_TOOLS_LOADED_AT_ONCE:8}
+    tools.searches.at.once: ${ORKNUX_TUNING_TOOLS_SEARCHES_AT_ONCE:8}
+    scratchpad.pads: ${ORKNUX_TUNING_SCRATCHPAD_PADS:50}
+    http.timeout.seconds: ${ORKNUX_TUNING_HTTP_TIMEOUT_SECONDS:30}
+    http.body.characters: ${ORKNUX_TUNING_HTTP_BODY_CHARACTERS:200000}
+    http.download.mb: ${ORKNUX_TUNING_HTTP_DOWNLOAD_MB:5}
+    search.results.most: ${ORKNUX_TUNING_SEARCH_RESULTS_MOST:20}
+    search.timeout.seconds: ${ORKNUX_TUNING_SEARCH_TIMEOUT_SECONDS:20}
+    script.log.lines: ${ORKNUX_TUNING_SCRIPT_LOG_LINES:500}
+    pictures.per.run: ${ORKNUX_TUNING_PICTURES_PER_RUN:20}
+    speeches.per.run: ${ORKNUX_TUNING_SPEECHES_PER_RUN:20}
+    action.retry.seconds: ${ORKNUX_TUNING_ACTION_RETRY_SECONDS:30}
+    action.wait.seconds: ${ORKNUX_TUNING_ACTION_WAIT_SECONDS:3600}
+    trigger.remember.minutes: ${ORKNUX_TUNING_TRIGGER_REMEMBER_MINUTES:10}
+    trigger.remembered: ${ORKNUX_TUNING_TRIGGER_REMEMBERED:5000}
+    schedules.per.tick: ${ORKNUX_TUNING_SCHEDULES_PER_TICK:60}
+    plugin.http.body.mb: ${ORKNUX_TUNING_PLUGIN_HTTP_BODY_MB:2}
+    plugin.download.mb: ${ORKNUX_TUNING_PLUGIN_DOWNLOAD_MB:5}
+    plugin.upload.mb: ${ORKNUX_TUNING_PLUGIN_UPLOAD_MB:10}
+    library.mb: ${ORKNUX_TUNING_LIBRARY_MB:4}
+    npm.archive.mb: ${ORKNUX_TUNING_NPM_ARCHIVE_MB:32}
+    npm.packages.most: ${ORKNUX_TUNING_NPM_PACKAGES_MOST:60}
+    marketplace.icon.hours: ${ORKNUX_TUNING_MARKETPLACE_ICON_HOURS:6}
   model:
     check:
       # Every configured provider is asked whether it still answers, so a status

@@ -432,6 +432,47 @@ installation starts from.
 | `ORKNUX_SCHEDULE_MIN_INTERVAL_SECONDS` | The shortest a schedule an agent sets may come round, by interval or by cron; each run is a model turn. Admin -> Settings overrides it. | `300` |
 | `ORKNUX_SCHEDULE_MAX_PER_AGENT` | How many schedules one agent may have running; `0` switches them off. Admin -> Settings overrides it. | `10` |
 | `ORKNUX_CONTENT_SECURITY_POLICY` | The whole Content-Security-Policy the interface is served with; empty is the built-in one, which loads only `https:` pictures from another origin. Set `img-src 'self' data: blob:` in yours to stop a model's answer fetching an image it names. | *empty* |
+| `ORKNUX_LOG_MAX_FILE_SIZE` | When the log file rolls; only read when a file is written. | `10MB` |
+| `ORKNUX_LOG_MAX_HISTORY` | How many rolled log files are kept. | `14` |
+| `ORKNUX_LOG_TOTAL_SIZE_CAP` | The ceiling on all of them together. | `1GB` |
+
+### The numbers the server behaves by
+
+Each is a box on **Admin -> Settings**, where an administrator's choice wins;
+the variable is where a fresh installation starts. Out of the range the screen
+allows, the variable is ignored and the default applies.
+
+| Variable | What it sets | Default |
+|---|---|---|
+| `ORKNUX_TUNING_MODEL_RETRY_AFTER_LONGEST_SECONDS` | The longest Retry-After a model call waits out, in seconds. | `120` |
+| `ORKNUX_TUNING_MODEL_RETRY_AFTER_ATTEMPTS` | How many Retry-Afters one model call waits out, in times. | `2` |
+| `ORKNUX_TUNING_MODEL_THROTTLE_LONGEST_DELAY_SECONDS` | The longest a throttled model call is held, in seconds. | `60` |
+| `ORKNUX_TUNING_MODEL_IMAGE_FETCH_SECONDS` | How long fetching a drawn picture may take, in seconds. | `60` |
+| `ORKNUX_TUNING_AGENT_WAIT_DEFAULT_SECONDS` | How long agent_wait waits when not told, in seconds. | `30` |
+| `ORKNUX_TUNING_AGENT_WAIT_LONGEST_SECONDS` | The longest agent_wait may wait, in seconds. | `300` |
+| `ORKNUX_TUNING_TOOLS_LOADED_AT_ONCE` | How many findable tools one search loads, in items. | `8` |
+| `ORKNUX_TUNING_TOOLS_SEARCHES_AT_ONCE` | How many names or searches one tool_find call may carry, in items. | `8` |
+| `ORKNUX_TUNING_SCRATCHPAD_PADS` | How many scratchpads one session may open, in items. | `50` |
+| `ORKNUX_TUNING_HTTP_TIMEOUT_SECONDS` | How long one HTTP request from a tool may take, in seconds. | `30` |
+| `ORKNUX_TUNING_HTTP_BODY_CHARACTERS` | How much of an HTTP answer a tool hands a model, in characters. | `200000` |
+| `ORKNUX_TUNING_HTTP_DOWNLOAD_MB` | The largest file a tool may download, in MB. | `5` |
+| `ORKNUX_TUNING_SEARCH_RESULTS_MOST` | The most results one web search may ask for, in items. | `20` |
+| `ORKNUX_TUNING_SEARCH_TIMEOUT_SECONDS` | How long one web search may take, in seconds. | `20` |
+| `ORKNUX_TUNING_SCRIPT_LOG_LINES` | How many lines one function call may log back, in lines. | `500` |
+| `ORKNUX_TUNING_PICTURES_PER_RUN` | How many pictures one workflow run or task may draw, in items. | `20` |
+| `ORKNUX_TUNING_SPEECHES_PER_RUN` | How many times one workflow run may speak, in items. | `20` |
+| `ORKNUX_TUNING_ACTION_RETRY_SECONDS` | How often a waiting action asks again, in seconds. | `30` |
+| `ORKNUX_TUNING_ACTION_WAIT_SECONDS` | How long a waiting action waits when it does not say, in seconds. | `3600` |
+| `ORKNUX_TUNING_TRIGGER_REMEMBER_MINUTES` | How long a trigger remembers an event it ran on, in minutes. | `10` |
+| `ORKNUX_TUNING_TRIGGER_REMEMBERED` | How many events a trigger remembers, in items. | `5000` |
+| `ORKNUX_TUNING_SCHEDULES_PER_TICK` | How many runs one schedule may start in one tick, in items. | `60` |
+| `ORKNUX_TUNING_PLUGIN_HTTP_BODY_MB` | The largest text answer a plugin's request may read, in MB. | `2` |
+| `ORKNUX_TUNING_PLUGIN_DOWNLOAD_MB` | The largest binary answer a plugin's request may read, in MB. | `5` |
+| `ORKNUX_TUNING_PLUGIN_UPLOAD_MB` | The largest file a plugin may upload, in MB. | `10` |
+| `ORKNUX_TUNING_LIBRARY_MB` | The largest script library a workspace may add, in MB. | `4` |
+| `ORKNUX_TUNING_NPM_ARCHIVE_MB` | The largest npm package fetched for a library, in MB. | `32` |
+| `ORKNUX_TUNING_NPM_PACKAGES_MOST` | The most npm packages one library may pull in, in items. | `60` |
+| `ORKNUX_TUNING_MARKETPLACE_ICON_HOURS` | How long a marketplace icon is kept before it is fetched again, in hours. | `6` |
 
 ### Access
 

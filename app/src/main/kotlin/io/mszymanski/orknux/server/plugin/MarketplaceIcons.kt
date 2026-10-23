@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.plugin
 
+import io.mszymanski.orknux.server.tuning.Tuning
+import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.connector.proxy.ProxyRouter
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
@@ -85,6 +87,8 @@ class MarketplaceIcons(
     proxies: ProxyRouter,
     /** Whose host an icon may be on, and what a request for one carries. */
     private val installKey: MarketplaceInstallKey,
+    /** The numbers this reads from Admin -> Settings. Issue #453. */
+    private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -168,7 +172,7 @@ class MarketplaceIcons(
     /** A held answer while it is still worth believing, or null. */
     private fun fresh(was: Held?): Held? {
         val had = was ?: return null
-        val forMillis = if (had.drawing == null) MISSING_FOR_MILLIS else HOLD_FOR_MILLIS
+        val forMillis = if (had.drawing == null) MISSING_FOR_MILLIS else tuning[Tunable.MARKETPLACE_ICON_HOURS] * 3_600_000L
         return had.takeIf { now() - it.at < forMillis }
     }
 
@@ -207,8 +211,7 @@ class MarketplaceIcons(
          */
         const val MOST_ICON_CHARS = 64 * 1024
 
-        /** How long a fetched drawing stands. A published icon changes rarely. */
-        const val HOLD_FOR_MILLIS = 6L * 60 * 60 * 1000
+        // How long a fetched drawing stands is Tunable.MARKETPLACE_ICON_HOURS. #453.
 
         /** And how long a failure does, so an outage is asked about again soon. */
         const val MISSING_FOR_MILLIS = 2L * 60 * 1000

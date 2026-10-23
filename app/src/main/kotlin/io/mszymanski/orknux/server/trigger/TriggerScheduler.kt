@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.trigger
 
+import io.mszymanski.orknux.server.tuning.Tuning
+import io.mszymanski.orknux.server.tuning.Tunable
 import com.github.kagkarlsson.scheduler.Scheduler
 import com.github.kagkarlsson.scheduler.task.helper.RecurringTask
 import com.github.kagkarlsson.scheduler.task.helper.Tasks
@@ -46,6 +48,8 @@ import javax.sql.DataSource
 class TriggerScheduler(
     private val triggers: WorkflowTriggerRepository,
     private val occurrence: ScheduledTriggerOccurrence,
+    /** The numbers this reads from Admin -> Settings. Issue #453. */
+    private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
     /**
@@ -94,21 +98,22 @@ class TriggerScheduler(
              * minute, and taking one of them is not a schedule running late, it
              * is a schedule running at a sixth of what it says.
              *
-             * [MOST_PER_TICK] is the second bound. It bites only where the cron
+             * Tunable.SCHEDULES_PER_TICK is the second bound. It bites only where the cron
              * is finer than the window, which after [CATCH_UP] means a schedule
              * of seconds - and starting sixty runs in one round is a thing
              * worth having a ceiling on whatever the arithmetic says.
              */
+            val mostPerTick = tuning[Tunable.SCHEDULES_PER_TICK]
             val due = buildList {
                 var at = expression.next(from.atZoneSameInstant(zone).toOffsetDateTime())
-                while (at != null && !at.isAfter(now) && size < MOST_PER_TICK) {
+                while (at != null && !at.isAfter(now) && size < mostPerTick) {
                     add(at)
                     at = expression.next(at)
                 }
             }
             if (due.isEmpty()) continue
-            if (due.size == MOST_PER_TICK) {
-                log.warn("Trigger {} had more than {} occurrences due; the rest are dropped", trigger.name, MOST_PER_TICK)
+            if (due.size == mostPerTick) {
+                log.warn("Trigger {} had more than {} occurrences due; the rest are dropped", trigger.name, mostPerTick)
             }
 
             /*
@@ -167,9 +172,9 @@ class TriggerScheduler(
          * Sixty, which is a schedule of every second catching up a whole
          * minute - the finest thing [CATCH_UP] can produce. Anything above that
          * is arithmetic nobody intended, and a ceiling that is never reached in
-         * normal running is exactly the one worth having.
+         * normal running is exactly the one worth having. Tunable.SCHEDULES_PER_TICK
+         * since #453.
          */
-        const val MOST_PER_TICK = 60
 
         val log = LoggerFactory.getLogger(TriggerScheduler::class.java)
     }

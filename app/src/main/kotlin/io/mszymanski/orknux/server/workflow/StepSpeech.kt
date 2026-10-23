@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.workflow
 
+import io.mszymanski.orknux.server.tuning.Tuning
+import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.connector.model.ModelSpeechClient
 import io.mszymanski.orknux.connector.model.Speech
 import io.mszymanski.orknux.server.attachment.AttachmentStore
@@ -35,6 +37,8 @@ class StepSpeech(
     private val speeches: ExecutionSpeechRepository,
     private val store: AttachmentStore,
     private val settings: InstallationSettings,
+    /** The numbers this reads from Admin -> Settings. Issue #453. */
+    private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
     /**
@@ -88,9 +92,10 @@ class StepSpeech(
          * bill. Twenty is more than any run is, and the refusal is a sentence
          * the step reports rather than a failure that loses the run.
          */
-        if (speeches.countByExecutionId(executionId) >= MOST_SPEECHES) {
+        val most = tuning[Tunable.STEP_SPEECHES_MOST]
+        if (speeches.countByExecutionId(executionId) >= most) {
             return StepSpoken.Refused(
-                "This run has already spoken $MOST_SPEECHES times, which is as many as one run may. " +
+                "This run has already spoken $most times, which is as many as one run may. " +
                     "Finish with the audio you have.",
             )
         }
@@ -128,8 +133,8 @@ class StepSpeech(
 
     companion object {
 
-        /** As many as one run may say; see the note where it is spent. */
-        const val MOST_SPEECHES = 20
+        // As many as one run may say is Tunable.STEP_SPEECHES_MOST; see the
+        // note where it is spent. Issue #453.
 
         /**
          * As much as is worth reading out in one go.

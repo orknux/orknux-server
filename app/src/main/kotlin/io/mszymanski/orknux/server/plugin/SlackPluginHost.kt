@@ -640,8 +640,9 @@ class SlackPluginHost(
                     text("content")?.toByteArray(Charsets.UTF_8)
                         ?: return refusal("there is nothing to upload: pass content or base64")
                 }
-                if (bytes.size > MOST_UPLOADED) {
-                    return refusal("the file is larger than ${MOST_UPLOADED / (1024 * 1024)} MB")
+                val mostUploaded = network.mostUploadedBytes()
+                if (bytes.size > mostUploaded) {
+                    return refusal("the file is larger than ${mostUploaded / (1024 * 1024)} MB")
                 }
                 uploads.upload(
                     connectionId, filename, bytes,
@@ -716,7 +717,7 @@ class SlackPluginHost(
             }
             "download" -> {
                 val file = text("file") ?: return refusal("slack.download needs the file's id")
-                when (val got = webApi.download(connectionId, file, MOST_DOWNLOADED_BYTES, on)) {
+                when (val got = webApi.download(connectionId, file, network.mostDownloadedBytes(), on)) {
                     is SlackDownload.Fetched -> {
                         val answer = mapper.createObjectNode()
                         if (got.contentType?.let(ChatAttachmentShelf::isText) == true) {
@@ -755,11 +756,8 @@ class SlackPluginHost(
         /** What the connector uses when nothing says otherwise; repeated so the door has its own answer. */
         const val DEFAULT_LIMIT = 50
 
-        /**
-         * The largest file the upload door carries: the ceiling the request
-         * door's own upload has, so a plugin moving its uploads from one door
-         * to the other finds the same files fit.
-         */
-        const val MOST_UPLOADED = 10 * 1024 * 1024
+        // The largest file the upload door carries is the request door's own
+        // upload ceiling, Tunable.PLUGIN_UPLOAD_MB, so a plugin moving its
+        // uploads from one door to the other finds the same files fit (#453).
     }
 }

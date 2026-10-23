@@ -3,6 +3,7 @@ package io.mszymanski.orknux.server.plugin
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import io.mszymanski.orknux.connector.connection.SlackClients
+import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.server.workspace.Workspace
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import io.mszymanski.orknux.workflow.script.PluginCapability
@@ -213,12 +214,12 @@ class SlackWebApiDoorTest(
 
     @Test
     fun `a file over the download ceiling is refused - by its size before fetching, and by its bytes while reading`() {
-        answers["files.info"] = fileInfo("F3", "big.bin", "application/octet-stream", MOST_DOWNLOADED_BYTES + 1)
+        answers["files.info"] = fileInfo("F3", "big.bin", "application/octet-stream", Tunable.PLUGIN_DOWNLOAD_MB.fallback * 1024 * 1024 + 1)
         assertThat(ask("""{"op":"download","file":"F3"}""")).contains("at most 5 MB")
         assertThat(fetched).describedAs("refused on what Slack said, before the bytes").isEmpty()
 
         // Slack said less than there was.
-        files["big.bin"] = "application/octet-stream" to ByteArray(MOST_DOWNLOADED_BYTES + 1)
+        files["big.bin"] = "application/octet-stream" to ByteArray(Tunable.PLUGIN_DOWNLOAD_MB.fallback * 1024 * 1024 + 1)
         answers["files.info"] = fileInfo("F3", "big.bin", "application/octet-stream", 10)
         assertThat(ask("""{"op":"download","file":"F3"}""")).contains("larger than 5 MB")
         assertThat(fetched).containsExactly("big.bin")

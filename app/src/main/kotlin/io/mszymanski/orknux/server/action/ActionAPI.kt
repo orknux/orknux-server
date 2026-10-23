@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.action
 
+import io.mszymanski.orknux.server.tuning.Tuning
+import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.connector.connection.ConnectionType
 import io.mszymanski.orknux.connector.connection.WorkspaceConnectionService
 import io.mszymanski.orknux.server.condition.WorkflowConditionRepository
@@ -48,6 +50,8 @@ class ActionAPI(
     private val models: io.mszymanski.orknux.connector.model.ModelService,
     /** Whose a workflow is, for the same. */
     private val workflows: io.mszymanski.orknux.server.workflow.WorkspaceWorkflowRepository,
+    /** The numbers this reads from Admin -> Settings. Issue #453. */
+    private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
     /**
@@ -461,8 +465,8 @@ class ActionAPI(
 
             ActionSubtype.INLINE_CONDITION -> {
                 if (action.conditionExpression.isNullOrBlank()) throw ActionSettingMissingException("an expression")
-                action.timeoutSeconds = action.timeoutSeconds ?: DEFAULT_TIMEOUT_SECONDS
-                action.retryIntervalSeconds = action.retryIntervalSeconds ?: DEFAULT_RETRY_SECONDS
+                action.timeoutSeconds = action.timeoutSeconds ?: tuning[Tunable.ACTION_WAIT_SECONDS]
+                action.retryIntervalSeconds = action.retryIntervalSeconds ?: tuning[Tunable.ACTION_RETRY_SECONDS]
             }
 
             ActionSubtype.CONDITION -> {
@@ -471,8 +475,8 @@ class ActionAPI(
                 if (condition == null || condition.workspaceId != action.workspaceId) {
                     throw ActionSettingMissingException("a condition this workspace holds")
                 }
-                action.timeoutSeconds = action.timeoutSeconds ?: DEFAULT_TIMEOUT_SECONDS
-                action.retryIntervalSeconds = action.retryIntervalSeconds ?: DEFAULT_RETRY_SECONDS
+                action.timeoutSeconds = action.timeoutSeconds ?: tuning[Tunable.ACTION_WAIT_SECONDS]
+                action.retryIntervalSeconds = action.retryIntervalSeconds ?: tuning[Tunable.ACTION_RETRY_SECONDS]
             }
 
             /*
@@ -585,10 +589,8 @@ class ActionAPI(
         access.requireVisible(workspaceId)
     }
 
-    private companion object {
-        const val DEFAULT_TIMEOUT_SECONDS = 3600
-        const val DEFAULT_RETRY_SECONDS = 30
-    }
+    // What a condition action waits, and how often it asks, when it does not
+    // say: Tunable.ACTION_WAIT_SECONDS and ACTION_RETRY_SECONDS. Issue #453.
 }
 
 /** "OUTGOING_CONNECTION" -> "Outgoing Connection", as the list shows it. */

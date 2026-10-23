@@ -1,6 +1,8 @@
 package io.mszymanski.orknux.server.embedded
 
 import io.mszymanski.orknux.server.chat.BuiltInTools
+import io.mszymanski.orknux.server.tuning.Tuning
+import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.connector.proxy.ProxyRouter
 import io.mszymanski.orknux.server.action.ValueType
 import io.mszymanski.orknux.server.llm.LlmSessionStore
@@ -60,6 +62,8 @@ class HttpCapability(
     private val policy: HttpToolPolicy,
     /** Asks of the address whether it may be reached, and reads no further than the limit. Issue #588. */
     private val fetch: io.mszymanski.orknux.server.security.GuardedFetch,
+    /** The numbers this reads from Admin -> Settings. Issue #453. */
+    private val tuning: Tuning = Tuning.DEFAULTS,
 ) : EmbeddedCapability {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -222,7 +226,7 @@ class HttpCapability(
             else -> body.toString()
         }
         val request = HttpRequest.newBuilder(URI.create(url))
-            .timeout(Duration.ofSeconds(TIMEOUT_SECONDS))
+            .timeout(Duration.ofSeconds(tuning[Tunable.HTTP_TIMEOUT_SECONDS].toLong()))
             .apply {
                 headersIn(asked).forEach { (name, value) -> header(name, value) }
                 // A map body is JSON and says so; a string is sent as written,
@@ -246,7 +250,7 @@ class HttpCapability(
          * held. Not followed past a redirect, as before: the answer is the
          * redirect, and the model can ask for where it points.
          */
-        val mostChars = MOST_BODY_CHARS
+        val mostChars = tuning[Tunable.HTTP_BODY_CHARACTERS]
         val answered = when (
             val fetched = fetch.fetch(router.client(), request, mostChars * 4L, followRedirects = false, router::authorized, cutLong = true)
         ) {
@@ -278,12 +282,12 @@ class HttpCapability(
 
     private fun download(url: String, asked: JsonNode, sessionId: Long?): String {
         val request = HttpRequest.newBuilder(URI.create(url))
-            .timeout(Duration.ofSeconds(TIMEOUT_SECONDS))
+            .timeout(Duration.ofSeconds(tuning[Tunable.HTTP_TIMEOUT_SECONDS].toLong()))
             .apply { headersIn(asked).forEach { (name, value) -> header(name, value) } }
             .GET()
             .build()
 
-        val mostMb = MOST_DOWNLOAD_BYTES / (1024 * 1024)
+        val mostMb = tuning[Tunable.HTTP_DOWNLOAD_MB]
         val answered = when (
             val fetched = fetch.fetch(router.client(), request, mostMb * 1024L * 1024L, followRedirects = false, router::authorized)
         ) {
@@ -381,11 +385,8 @@ class HttpCapability(
          */
         val REFUSED_HEADERS = setOf("host", "content-length", "connection", "upgrade", "transfer-encoding")
 
-        const val TIMEOUT_SECONDS = 30L
-
-        /** Enough to read an answer; past this it is a download. */
-        const val MOST_BODY_CHARS = 200_000
-
-        const val MOST_DOWNLOAD_BYTES = 5 * 1024 * 1024
+        // How long a request may take, how much of an answer is read (enough to
+        // read one; past it is a download) and the largest download are
+        // Tunable.HTTP_*. Issue #453.
     }
 }

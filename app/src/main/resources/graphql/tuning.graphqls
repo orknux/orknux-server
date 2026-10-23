@@ -1,0 +1,46 @@
+# The numbers the server behaves by, set from Admin -> Settings. Issue #453.
+#
+# A file of its own, like logging.graphqls: one aggregate, one controller, and
+# a list rather than a field per number, so a number added to the server is a
+# line in Tunable.kt and nothing here.
+
+extend type Query {
+    "Every behavioural number this installation has, with what it is now and what the file says. Administrators only."
+    tunables: [Tunable!]!
+}
+
+extend type Mutation {
+    """
+    Sets one number, by its key. Leave out the value to hand it back to the
+    configuration file. Refused outside `least`..`most`. Administrators only.
+    """
+    setTunable(key: String!, value: Int): Tunable!
+}
+
+"One number the server behaves by."
+type Tunable {
+    "What it is stored under, and what setTunable takes."
+    key: String!
+    "Which group the page draws it in, as a name: MODELS, AGENTS, CODE, MEDIA, WORKFLOWS, PLUGINS."
+    section: String!
+    "That group's heading."
+    sectionTitle: String!
+    "What it is, in one line."
+    label: String!
+    "Why it is there and what changing it does."
+    hint: String!
+    "What it counts: seconds, minutes, hours, times, items, characters, lines, MB."
+    unit: String!
+    "What the server uses now."
+    value: Int!
+    "What the configuration file says, which is what it goes back to."
+    configured: Int!
+    "Whether an administrator has chosen, as against the file deciding."
+    set: Boolean!
+    "The smallest it may be."
+    least: Int!
+    "The largest it may be."
+    most: Int!
+    "The environment variable that sets where a fresh installation starts."
+    variable: String!
+}

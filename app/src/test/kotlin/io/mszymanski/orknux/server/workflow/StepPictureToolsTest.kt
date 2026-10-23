@@ -635,12 +635,12 @@ class StepPictureToolsTest {
     fun `a run that has drawn its fill is refused, and the sentence says how many`() {
         `when`(settings.attachmentsEnabled()).thenReturn(true)
         `when`(workspaces.findById(9)).thenReturn(Optional.of(workspace()))
-        `when`(pictures.countByExecutionId(100)).thenReturn(StepPictures.MOST_PICTURES.toLong())
+        `when`(pictures.countByExecutionId(100)).thenReturn(io.mszymanski.orknux.server.tuning.Tunable.STEP_PICTURES_MOST.fallback.toLong())
 
         val answer = mapper.readTree(requireNotNull(tools.shed(100, "ask", 9)).run(call("a red bicycle")))
 
         assertThat(answer.path("drawn").booleanValue()).isFalse()
-        assertThat(answer.path("reason").stringValue()).contains("${StepPictures.MOST_PICTURES} pictures")
+        assertThat(answer.path("reason").stringValue()).contains("${io.mszymanski.orknux.server.tuning.Tunable.STEP_PICTURES_MOST.fallback} pictures")
         verify(drawing, never()).draw(anyLong(), anyString(), anyOf())
     }
 
