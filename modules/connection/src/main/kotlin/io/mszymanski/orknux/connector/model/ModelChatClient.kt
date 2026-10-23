@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.connector.model
 
+import io.mszymanski.orknux.connector.ConnectionKnob
 import io.mszymanski.orknux.connector.Unreachable
 import io.mszymanski.orknux.connector.connection.ConnectionProbe
 import com.openai.errors.OpenAIServiceException
@@ -265,6 +266,8 @@ class ModelChatClient(
      * provider is rather than to a start-up property of its own. Issue #644.
      */
     private val limits: ModelCallLimits = ModelCallLimits.FRESH,
+    /** How patient a call is with a Retry-After, as the installation says. Issue #453. */
+    private val tuning: io.mszymanski.orknux.connector.ConnectionTuning = io.mszymanski.orknux.connector.ConnectionTuning.DEFAULTS,
 ) {
 
     /**
@@ -1757,8 +1760,8 @@ class ModelChatClient(
      * waits exactly what the header says and asks again, below any node's own
      * retry policy - the node never sees the 429 if this recovers. The block is
      * recorded on the model as well, so every other run calling it holds off
-     * too, not only this one. Bounded: a wait longer than [MAX_RETRY_AFTER] or a
-     * few attempts in, and it gives up so the node's policy takes over later
+     * too, not only this one. Bounded: a wait longer than the installation's
+     * longest Retry-After, or that many attempts in, and it gives up so the node's policy takes over later
      * rather than one call sitting on a worker for an unbounded time.
      */
     private fun waitedForRetryAfter(
@@ -1768,9 +1771,9 @@ class ModelChatClient(
         attempt: Int,
     ): Boolean {
         if (limits?.acceptRetryAfter != true) return false
-        if (attempt >= MAX_RETRY_AFTER_ATTEMPTS) return false
+        if (attempt >= tuning.valueOf(ConnectionKnob.RETRY_AFTER_ATTEMPTS)) return false
         val delay = wait ?: return false
-        if (delay > MAX_RETRY_AFTER) return false
+        if (delay > Duration.ofSeconds(tuning.valueOf(ConnectionKnob.RETRY_AFTER_LONGEST_SECONDS).toLong())) return false
         throttle.blockFor(modelId, delay)
         try {
             Thread.sleep(delay.toMillis())
@@ -1887,15 +1890,13 @@ class ModelChatClient(
         const val HTTP_TIMEOUT = 408
         const val HTTP_TOO_MANY_REQUESTS = 429
 
-        /**
+        /*
          * How patient the client is with a Retry-After before it hands back to
-         * the node's own policy. Issue #426. A long wait belongs on a durable
-         * timer, not on a worker held here; a couple of attempts covers a
-         * provider clearing a brief burst without turning one call into an
-         * unbounded hold.
+         * the node's own policy (#426) is ConnectionKnob.RETRY_AFTER_* now
+         * (#453). A long wait belongs on a durable timer, not on a worker held
+         * here; a couple of attempts covers a provider clearing a brief burst
+         * without turning one call into an unbounded hold.
          */
-        val MAX_RETRY_AFTER: Duration = Duration.ofSeconds(120)
-        const val MAX_RETRY_AFTER_ATTEMPTS = 2
 
         /** How a provider says "rate limit" in an error that came inside a 2xx stream. */
         val RATE_LIMITED = listOf("rate limit", "rate_limit", "ratelimit", "\"code\":\"429\"", "too many requests")

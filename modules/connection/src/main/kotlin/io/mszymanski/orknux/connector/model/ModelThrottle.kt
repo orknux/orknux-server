@@ -56,7 +56,11 @@ import java.util.concurrent.ConcurrentHashMap
  * whichever call comes along, so there is no timer of its own to tune.
  */
 @Component
-class ModelThrottle(private val clock: Clock = Clock.systemUTC()) {
+class ModelThrottle(
+    private val clock: Clock = Clock.systemUTC(),
+    /** The longest one delay grows to, as the installation says. Issue #453. */
+    private val tuning: io.mszymanski.orknux.connector.ConnectionTuning = io.mszymanski.orknux.connector.ConnectionTuning.DEFAULTS,
+) {
 
     /** The rate a model is held to, worked out from the model over its provider. */
     data class Limits(
@@ -245,7 +249,8 @@ class ModelThrottle(private val clock: Clock = Clock.systemUTC()) {
         val u = sum / limit
         if (u < SOFT) return 0
         val over = (u - SOFT) / (1.0 - SOFT)
-        return (over * WINDOW_MILLIS).toLong().coerceAtMost(MAX_DELAY_MILLIS)
+        return (over * WINDOW_MILLIS).toLong()
+            .coerceAtMost(tuning.valueOf(io.mszymanski.orknux.connector.ConnectionKnob.THROTTLE_LONGEST_DELAY_SECONDS) * 1000L)
     }
 
     private companion object {
@@ -256,7 +261,7 @@ class ModelThrottle(private val clock: Clock = Clock.systemUTC()) {
         /** How full the window is before the token delay starts to grow. */
         const val SOFT = 0.5
 
-        /** The longest a single pre-call token delay grows to, so an overshoot is not an outage. */
-        const val MAX_DELAY_MILLIS = 60_000L
+        // The longest a single pre-call token delay grows to, so an overshoot is
+        // not an outage: ConnectionKnob.THROTTLE_LONGEST_DELAY_SECONDS. Issue #453.
     }
 }

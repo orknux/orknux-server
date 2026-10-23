@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.llm
 
+import io.mszymanski.orknux.server.tuning.Tuning
+import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.server.attachment.InstallationSettings
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
@@ -164,6 +166,8 @@ class SessionScratchpadService(
     private val pads: SessionScratchpadRepository,
     private val family: SessionFamily,
     private val settings: InstallationSettings,
+    /** The numbers this reads from Admin -> Settings. Issue #453. */
+    private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
     /**
@@ -215,8 +219,9 @@ class SessionScratchpadService(
         if (pads.findBySessionIdAndName(sessionId, clean) != null) {
             return ScratchpadResult.No("This session already has a scratchpad named \"$clean\".")
         }
-        if (pads.countBySessionId(sessionId) >= MOST_PADS) {
-            return ScratchpadResult.No("This session already holds $MOST_PADS scratchpads, which is as many as are kept.")
+        val mostPads = tuning[Tunable.SCRATCHPADS_MOST]
+        if (pads.countBySessionId(sessionId) >= mostPads) {
+            return ScratchpadResult.No("This session already holds $mostPads scratchpads, which is as many as are kept.")
         }
         // Text against the text budget; a file answers to the file budget, by the sweep. Issue #569.
         if (contentType.isNullOrBlank()) {
@@ -482,8 +487,8 @@ class SessionScratchpadService(
         ScratchpadResult.No("There is no scratchpad named \"$name\" in this session.")
 
     companion object {
-        /** How many one session keeps, so a table read whole stays a handful of rows. */
-        const val MOST_PADS = 50
+        // How many one session keeps, so a table read whole stays a handful of
+        // rows, is Tunable.SCRATCHPADS_MOST. Issue #453.
 
         /** The most hits a search answers with, so a common word does not return a book. */
         const val MOST_HITS = 50

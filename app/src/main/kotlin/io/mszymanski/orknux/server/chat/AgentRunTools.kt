@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.chat
 
+import io.mszymanski.orknux.server.tuning.Tuning
+import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.connector.model.ChatCompletion
 import io.mszymanski.orknux.connector.model.ChatTurn
 import io.mszymanski.orknux.connector.model.ToolCall
@@ -107,6 +109,8 @@ class AgentRunTools(
     private val budgets: ObjectProvider<io.mszymanski.orknux.server.llm.SessionMemoryBudgets>,
     /** Whether a conversation is a workflow step's, whose words go out only when its turn ends; see [waited]. */
     private val steps: io.mszymanski.orknux.workflow.execution.ExecutionStepRepository,
+    /** The numbers this reads from Admin -> Settings. Issue #453. */
+    private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
@@ -320,8 +324,8 @@ class AgentRunTools(
         parameters = listOf(
             ToolParameterSpec(
                 SECONDS,
-                "How long to wait at most, in seconds. Up to " + MOST_WAIT_SECONDS + "; left out, " +
-                    SOME_WAIT_SECONDS + ".",
+                "How long to wait at most, in seconds. Up to " + tuning[Tunable.AGENT_WAIT_LONGEST_SECONDS] + "; left out, " +
+                    tuning[Tunable.AGENT_WAIT_DEFAULT_SECONDS] + ".",
                 required = false,
             ),
         ),
@@ -372,7 +376,7 @@ class AgentRunTools(
         }
 
         val wanted = waitSecondsIn(arguments)
-        val seconds = wanted.coerceIn(1, MOST_WAIT_SECONDS)
+        val seconds = wanted.coerceIn(1, tuning[Tunable.AGENT_WAIT_LONGEST_SECONDS])
 
         val children = held.findByParentSessionIdOrderByCreatedAtAscIdAsc(parent).mapNotNull { it.id }
         val outstanding = children.mapNotNull { running[it] }.filterNot { it.isDone }
@@ -571,7 +575,7 @@ class AgentRunTools(
             node.isNumber -> node.intValue()
             node.isTextual -> node.stringValue().trim().toIntOrNull()
             else -> null
-        } ?: SOME_WAIT_SECONDS
+        } ?: tuning[Tunable.AGENT_WAIT_DEFAULT_SECONDS]
     }
 
     fun stillWorking(parent: Long?): Int {
@@ -1155,11 +1159,10 @@ class AgentRunTools(
         const val WAIT = "agent_wait"
         const val SECONDS = "seconds"
 
-        /** Long enough to be worth calling, short enough that a turn is not lost to it. */
-        const val SOME_WAIT_SECONDS = 30
-
-        /** A model that may sleep for an hour will. */
-        const val MOST_WAIT_SECONDS = 300
+        // How long a wait is when not told, and the longest it may be, are
+        // Tunable.AGENT_WAIT_DEFAULT_SECONDS and AGENT_WAIT_LONGEST_SECONDS: long
+        // enough to be worth calling, and bounded because a model that may
+        // sleep for an hour will. Issue #453.
 
         /** How often the wait looks up, so it notices the others finishing too. */
         const val POLL_NANOS = 500_000_000L

@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.chat
 
+import io.mszymanski.orknux.server.tuning.Tuning
+import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.connector.model.ToolCall
 import io.mszymanski.orknux.connector.model.ToolParameterSpec
 import io.mszymanski.orknux.connector.model.ToolSpec
@@ -53,6 +55,8 @@ class ToolSearchTools(
     private val mapper: ObjectMapper,
     /** For how many findable tools are named outright; Admin -> Settings decides. Issue #442. */
     private val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
+    /** The numbers this reads from Admin -> Settings. Issue #453. */
+    private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
     /**
@@ -203,7 +207,7 @@ class ToolSearchTools(
          * planned to make a key it already held.
          */
         private fun described(call: ToolCall): String {
-            val asked = argument(call, NAMES).take(MOST_SEARCHES)
+            val asked = argument(call, NAMES).take(tuning[Tunable.TOOL_SEARCHES_AT_ONCE])
             if (asked.isEmpty()) return "Say which tools to describe: $NAMES is a list of their exact names."
             val byName = searchable.associateBy { it.name.lowercase() }
             val inHand = (carried + found).map { it.lowercase() }.toSet()
@@ -234,7 +238,7 @@ class ToolSearchTools(
 
         /** What there is for the job, by words: names and what each does. Loads nothing. */
         private fun find(call: ToolCall): String {
-            val searches = argument(call).take(MOST_SEARCHES)
+            val searches = argument(call).take(tuning[Tunable.TOOL_SEARCHES_AT_ONCE])
             if (searches.isEmpty()) {
                 return "Say what you are looking for: $QUERIES is a list of words about the job."
             }
@@ -249,13 +253,13 @@ class ToolSearchTools(
             return buildString {
                 append("These match. None is loaded yet: call ").append(FIND)
                 appendLine(" with the names you want.")
-                matches.take(LOADED_AT_ONCE).forEach { spec ->
+                matches.take(tuning[Tunable.TOOLS_LOADED_AT_ONCE]).forEach { spec ->
                     append("\n").append(spec.name)
                     if (spec.name in found) append(" (already loaded)")
                     append(" - ").append(spec.description.take(DESCRIPTION))
                 }
-                if (matches.size > LOADED_AT_ONCE) {
-                    append("\n\n").append(matches.size - LOADED_AT_ONCE).append(" more matched; narrower words find them.")
+                if (matches.size > tuning[Tunable.TOOLS_LOADED_AT_ONCE]) {
+                    append("\n\n").append(matches.size - tuning[Tunable.TOOLS_LOADED_AT_ONCE]).append(" more matched; narrower words find them.")
                 }
             }
         }
@@ -266,7 +270,7 @@ class ToolSearchTools(
          * whatever ranked highest.
          */
         private fun load(call: ToolCall): String {
-            val asked = argument(call, NAMES).take(MOST_SEARCHES)
+            val asked = argument(call, NAMES).take(tuning[Tunable.TOOL_SEARCHES_AT_ONCE])
             if (asked.isEmpty()) {
                 return "Say which tools to load: $NAMES is a list of their exact names. " +
                     "Call $SEARCH first if you do not know them."
@@ -308,7 +312,7 @@ class ToolSearchTools(
         }
 
         private fun searchAndLoad(call: ToolCall): String {
-            val searches = argument(call).take(MOST_SEARCHES)
+            val searches = argument(call).take(tuning[Tunable.TOOL_SEARCHES_AT_ONCE])
             if (searches.isEmpty()) {
                 return "Say what you are looking for: $QUERIES is a list of words about the job."
             }
@@ -368,7 +372,7 @@ class ToolSearchTools(
              * searches a full toolset: it has hit a wall on one thing, not
              * decided to re-equip.
              */
-            val space = if (free > 0) minOf(free, matches.size, LOADED_AT_ONCE) else 0
+            val space = if (free > 0) minOf(free, matches.size, tuning[Tunable.TOOLS_LOADED_AT_ONCE]) else 0
             val dropped = if (space == 0) forget(1) else emptyList()
             val taking = if (space > 0) space else dropped.size
 
@@ -583,9 +587,9 @@ class ToolSearchTools(
          * three tools from the same system, and making the agent search once
          * per tool spends a round on each. Bounded, because a query matching
          * forty would otherwise evict everything the agent was holding to make
-         * room for a list it did not mean to ask for.
+         * room for a list it did not mean to ask for. Tunable.TOOLS_LOADED_AT_ONCE,
+         * issue #453.
          */
-        private const val LOADED_AT_ONCE = 8
 
         private val NOT_A_WORD = Regex("[^a-z0-9]+")
 
@@ -600,9 +604,9 @@ class ToolSearchTools(
         /**
          * How many searches one call may carry. Enough for a job that touches
          * three or four systems, and a bound so a paragraph pasted into the box
-         * is not read as forty searches of one word each.
+         * is not read as forty searches of one word each. Tunable.TOOL_SEARCHES_AT_ONCE,
+         * issue #453.
          */
-        private const val MOST_SEARCHES = 8
 
         /** Where a name changes case, which is where its words meet: `uploadBinary`. */
         private val CASE_CHANGE = Regex("([a-z0-9])([A-Z])")

@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.plugin
 
+import io.mszymanski.orknux.server.tuning.Tuning
+import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.connector.proxy.OutboundTrust
 import io.mszymanski.orknux.connector.proxy.ProxyRouter
 import org.slf4j.LoggerFactory
@@ -14,13 +16,6 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.charset.StandardCharsets
 import java.time.Duration
-
-/**
- * The most bytes a download through a door carries - `orknux.http.download`,
- * and `orknux.slack.download`, which a plugin moved onto from the first and
- * should find the same files fit.
- */
-const val MOST_DOWNLOADED_BYTES = 5 * 1024 * 1024
 
 /**
  * One HTTP request, made by the server because a plugin was granted it.
@@ -66,6 +61,8 @@ class NetworkPluginHost(
      * no further than the limit. Issue #588.
      */
     private val fetch: io.mszymanski.orknux.server.security.GuardedFetch,
+    /** The numbers this reads from Admin -> Settings. Issue #453. */
+    private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -87,6 +84,16 @@ class NetworkPluginHost(
      * returns the same instance until something is added or removed, and a new
      * one after.
      */
+    /**
+     * The most bytes a download through a door carries - `orknux.http.download`,
+     * and `orknux.slack.download`, which a plugin moved onto from the first and
+     * should find the same files fit. Tunable.PLUGIN_DOWNLOAD_MB; issue #453.
+     */
+    fun mostDownloadedBytes(): Int = tuning[Tunable.PLUGIN_DOWNLOAD_MB] * 1024 * 1024
+
+    /** The largest upload through either door, `orknux.http` or `orknux.slack.upload`; Tunable.PLUGIN_UPLOAD_MB. */
+    fun mostUploadedBytes(): Int = tuning[Tunable.PLUGIN_UPLOAD_MB] * 1024 * 1024
+
     private fun client(): HttpClient {
         val generation = System.identityHashCode(trusted.context())
         held.get()?.takeIf { it.first == generation }?.let { return it.second }
@@ -151,8 +158,9 @@ class NetworkPluginHost(
             sendBase64 -> {
                 val bytes = runCatching { java.util.Base64.getDecoder().decode(body) }.getOrNull()
                     ?: return refusal("the body was said to be base64 and is not")
-                if (bytes.size > MAX_UPLOAD) {
-                    return refusal("the upload was larger than ${MAX_UPLOAD / (1024 * 1024)} MB")
+                val mostUpload = tuning[Tunable.PLUGIN_UPLOAD_MB]
+                if (bytes.size > mostUpload * 1024L * 1024L) {
+                    return refusal("the upload was larger than $mostUpload MB")
                 }
                 HttpRequest.BodyPublishers.ofByteArray(bytes)
             }
@@ -165,15 +173,14 @@ class NetworkPluginHost(
         headers(given.get(2)).forEach { (name, value) -> request.header(name, value) }
 
         return try {
-            // Main's limits; the settings sweep (#453) is what would make them knobs.
-            val most = if (wantBytes) MAX_BYTES.toLong() else MAX_BODY.toLong()
+            val mostMb = if (wantBytes) tuning[Tunable.PLUGIN_DOWNLOAD_MB] else tuning[Tunable.PLUGIN_HTTP_BODY_MB]
             val answered = when (
-                val fetched = fetch.fetch(client(), request.build(), most, followRedirects = true)
+                val fetched = fetch.fetch(client(), request.build(), mostMb * 1024L * 1024L, followRedirects = true)
             ) {
                 is io.mszymanski.orknux.server.security.GuardedFetch.Fetched.Refused ->
                     return refusal("that address may not be reached: ${fetched.why}")
                 is io.mszymanski.orknux.server.security.GuardedFetch.Fetched.TooLarge ->
-                    return refusal("the answer was larger than ${most / 1024} KB")
+                    return refusal("the answer was larger than $mostMb MB")
                 is io.mszymanski.orknux.server.security.GuardedFetch.Fetched.Answered -> fetched
             }
             if (wantBytes) {
@@ -229,18 +236,13 @@ class NetworkPluginHost(
         val CONNECT_TIMEOUT: Duration = Duration.ofSeconds(10)
         val READ_TIMEOUT: Duration = Duration.ofSeconds(30)
 
-        /** Large enough for an API's answer, small enough that it stays a string. */
-        const val MAX_BODY = 2 * 1024 * 1024
-
-        /**
-         * A binary answer's ceiling, on the bytes rather than the base64: what
-         * crosses the sandbox is a third again larger, and both ends of that
-         * trip live in memory while it is made.
+        /*
+         * The ceilings on a text answer (large enough for an API's answer, small
+         * enough that it stays a string), a binary answer and an upload are
+         * Tunable.PLUGIN_*, issue #453. The binary two are on the bytes rather
+         * than the base64: what crosses the sandbox is a third again larger, and
+         * both ends of that trip live in memory while it is made.
          */
-        const val MAX_BYTES = MOST_DOWNLOADED_BYTES
-
-        /** An upload's ceiling, measured after decoding for the same reason. */
-        const val MAX_UPLOAD = 10 * 1024 * 1024
 
         val ALLOWED = setOf("http", "https")
 

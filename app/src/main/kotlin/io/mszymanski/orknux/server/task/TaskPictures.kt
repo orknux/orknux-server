@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.task
 
+import io.mszymanski.orknux.server.tuning.Tuning
+import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.connector.model.ImageOptions
 import io.mszymanski.orknux.connector.model.ModelImageClient
 import io.mszymanski.orknux.connector.model.Picture
@@ -41,6 +43,8 @@ class TaskPictures(
     private val pictures: TaskPictureRepository,
     private val store: AttachmentStore,
     private val settings: InstallationSettings,
+    /** The numbers this reads from Admin -> Settings. Issue #453. */
+    private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
     /**
@@ -107,9 +111,10 @@ class TaskPictures(
          * pictures than any outcome is, and the refusal is a sentence the model
          * reads and works around rather than a failure.
          */
-        if (pictures.countByTaskId(taskId) >= MOST_PICTURES) {
+        val most = tuning[Tunable.STEP_PICTURES_MOST]
+        if (pictures.countByTaskId(taskId) >= most) {
             return Drawing.Refused(
-                "This task has already drawn $MOST_PICTURES pictures, which is as many as one task may draw. " +
+                "This task has already drawn $most pictures, which is as many as one task may draw. " +
                     "Finish with the ones you have.",
             )
         }
@@ -235,8 +240,8 @@ class TaskPictures(
         .take(ALT_LENGTH)
 
     private companion object {
-        /** As many pictures as one task may draw. See [draw] for why there is a number at all. */
-        const val MOST_PICTURES = 20
+        // As many pictures as one task may draw is Tunable.STEP_PICTURES_MOST;
+        // see [draw] for why there is a number at all. Issue #453.
 
         /** As much of the description as belongs in the alt text of one image. */
         const val ALT_LENGTH = 120

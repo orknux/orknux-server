@@ -86,6 +86,8 @@ class ScriptRunner(
      * Issue #416.
      */
     private val validation: FormatValidation? = null,
+    /** What the installation says the numbers below are. Issue #453. */
+    private val tuning: io.mszymanski.orknux.workflow.ExecutionTuning = io.mszymanski.orknux.workflow.ExecutionTuning.DEFAULTS,
 ) {
 
     private val engine: Engine = Engine.newBuilder("js")
@@ -592,6 +594,13 @@ class ScriptRunner(
     ) {
         val server = host
         val bindings = polyglot.getBindings("js")
+        /*
+         * A bound on what one call may keep, read once per call. The lines are
+         * handed back with the answer, so a script in a loop writing a line each
+         * time round would otherwise build a list the size of its own output;
+         * everything still goes to the server's log. Issue #453.
+         */
+        val mostLines = tuning.valueOf(io.mszymanski.orknux.workflow.ExecutionKnob.SCRIPT_LOG_LINES)
 
         /*
          * The logging door, which is not a capability and never needed one:
@@ -604,7 +613,7 @@ class ScriptRunner(
                 val level = given.getOrNull(0)?.takeIf { it.isString }?.asString() ?: "info"
                 val line = given.getOrNull(1)?.takeIf { it.isString }?.asString() ?: return@ProxyExecutable null
                 val held = "$level $line"
-                if (said.size < MAX_LOG_LINES) said += held
+                if (said.size < mostLines) said += held
                 // The script's own words, under a logger of their own so an
                 // installation can turn them up or down without touching the
                 // server's. The workspace and the function are how somebody
@@ -747,15 +756,6 @@ class ScriptRunner(
         const val STORE_KIND = "__orknuxStoreKind"
         const val SCRATCHPAD = "__orknuxScratchpad"
 
-        /**
-         * A bound on what one call may keep.
-         *
-         * The lines are held to be handed back with the answer, so a script in a
-         * loop writing a line each time round would otherwise build a list the
-         * size of its own output. Everything is still written to the server's
-         * log; this bounds only what travels with the result.
-         */
-        const val MAX_LOG_LINES = 500
 
         /**
          * The scripts' own logger, separate from this class's.

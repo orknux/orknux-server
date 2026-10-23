@@ -321,10 +321,12 @@ ORKNUX_SESSIONS_ACTIVE_WINDOW_SECONDS, ORKNUX_SESSIONS_DUE_SWEEP, ORKNUX_TASK_SW
 ORKNUX_TASK_SWEEP_INITIAL_DELAY, ORKNUX_WATCHER_MAX_SECONDS, ORKNUX_WATCHER_MIN_INTERVAL_SECONDS,
 ORKNUX_WATCHER_MAX_PER_AGENT, ORKNUX_WATCHER_MIN_AGENT_CHECK_SECONDS,
 ORKNUX_WATCHER_LOOK_INITIAL_SECONDS, ORKNUX_WATCHER_LOOK_MULTIPLIER,
-ORKNUX_WATCHER_LOOK_MAX_SECONDS, ORKNUX_SCHEDULE_MIN_INTERVAL_SECONDS and
-ORKNUX_SCHEDULE_MAX_PER_AGENT and
-ORKNUX_CONTENT_SECURITY_POLICY are in
+ORKNUX_WATCHER_LOOK_MAX_SECONDS, ORKNUX_SCHEDULE_MIN_INTERVAL_SECONDS,
+ORKNUX_SCHEDULE_MAX_PER_AGENT, ORKNUX_CONTENT_SECURITY_POLICY and the log file's
+ORKNUX_LOG_MAX_FILE_SIZE, ORKNUX_LOG_MAX_HISTORY and ORKNUX_LOG_TOTAL_SIZE_CAP are in
 [the README](https://github.com/orknux/orknux-server/blob/main/README.md#more-settings).
+So is every `ORKNUX_TUNING_*` variable: where a fresh installation starts on each number
+Admin -> Settings shows under its limits - timeouts, retries, caps.
 
 ## Sessions, HTTP and logging
 
@@ -344,9 +346,6 @@ ORKNUX_CONTENT_SECURITY_POLICY are in
 | `ORKNUX_LOG_LEVEL_ROOT` | The same for everything else on the classpath. `DEBUG` here is very loud. | `INFO` | No |
 | `ORKNUX_LOG_FORMAT` | `plain` for a terminal; `json` (one ECS object per line) for a collector. Console and file alike. | `plain` | No |
 | `ORKNUX_LOG_FILE` | Console always; name a file here and it is written to as well. Use an absolute path. | *none* (stdout only) | No |
-| `ORKNUX_LOG_MAX_FILE_SIZE` | When the log file rolls. Only consulted when a file is being written. | `10MB` | No |
-| `ORKNUX_LOG_MAX_HISTORY` | How many rolled files are kept. | `14` | No |
-| `ORKNUX_LOG_TOTAL_SIZE_CAP` | The ceiling on all of them together. | `1GB` | No |
 | `ORKNUX_METRICS_ANONYMOUS` | Whether `/actuator/prometheus` answers without signing in. `true` only on the scraper's own network. | `false` | No |
 | `JAVA_OPTS` | Passed to the JVM. One that sizes the heap (`-Xmx`, `MaxRAMPercentage`) replaces the two below. | *none* | No |
 | `ORKNUX_HEAP_PERCENT` `ORKNUX_NATIVE_MEMORY_MB` | Heap: the lesser of that percent of the memory limit and the limit less the JVM's MB. | `75` `1024` | No |

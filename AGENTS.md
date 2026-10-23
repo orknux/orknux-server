@@ -298,6 +298,13 @@ every start it is in effect. Never set them in a deployment.
   beside it. `DOCKERHUB.md` claims to list all of them; adding one and not the
   other makes that claim false, and the claim is what an operator plans an
   upgrade from.
+- **A behavioural number is a `Tunable`, not a `const val`.** A timeout, a
+  retry count, a cap on work - anything somebody running this might want
+  different - is an entry in `tuning/Tunable.kt` (a module declares a
+  `ConnectionKnob` or `ExecutionKnob` and the app lists it), read through
+  `Tuning`, with a line in `application.yml` and a README row. Admin Settings
+  draws it under Limits by itself. `TunablesTest` holds the halves together. A
+  format - a column's length, a protocol constant - stays in the code.
 - **What arrives is published, not called.** `modules/connection` opens the
   sockets and knows nothing of triggers, so `SlackListener` publishes an
   `IncomingEvent` and `IncomingTriggerListener` in `app` decides what runs. The

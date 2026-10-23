@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.embedded
 
+import io.mszymanski.orknux.server.tuning.Tuning
+import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.connector.proxy.ProxyRouter
 import io.mszymanski.orknux.server.action.ValueType
 import io.mszymanski.orknux.workflow.script.ScriptResult
@@ -39,6 +41,8 @@ class SearchCapability(
     private val settings: SearchSettings,
     private val router: ProxyRouter,
     private val mapper: ObjectMapper,
+    /** The numbers this reads from Admin -> Settings. Issue #453. */
+    private val tuning: Tuning = Tuning.DEFAULTS,
 ) : EmbeddedCapability {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -56,7 +60,7 @@ class SearchCapability(
                 "do not know is the only honest alternative.",
             params = listOf(
                 EmbeddedParam(QUERY, ValueType.STRING, "What to search for.", required = true),
-                EmbeddedParam(LIMIT, ValueType.NUMBER, "How many results, up to $MOST_RESULTS."),
+                EmbeddedParam(LIMIT, ValueType.NUMBER, "How many results, up to ${tuning[Tunable.SEARCH_RESULTS_MOST]}."),
             ),
         ),
         EmbeddedTool(
@@ -67,7 +71,7 @@ class SearchCapability(
                 "never travel through you.",
             params = listOf(
                 EmbeddedParam(QUERY, ValueType.STRING, "What to search for.", required = true),
-                EmbeddedParam(LIMIT, ValueType.NUMBER, "How many pictures, up to $MOST_RESULTS."),
+                EmbeddedParam(LIMIT, ValueType.NUMBER, "How many pictures, up to ${tuning[Tunable.SEARCH_RESULTS_MOST]}."),
             ),
         ),
     )
@@ -81,7 +85,8 @@ class SearchCapability(
             ?: return refusal("That is not valid JSON.")
         val query = asked.path(QUERY).takeIf { it.isTextual }?.stringValue()?.trim()?.takeIf { it.isNotEmpty() }
             ?: return refusal("Give the $QUERY to search for.")
-        val limit = asked.path(LIMIT).takeIf { it.isNumber }?.intValue()?.coerceIn(1, MOST_RESULTS) ?: SOME_RESULTS
+        val most = tuning[Tunable.SEARCH_RESULTS_MOST]
+        val limit = asked.path(LIMIT).takeIf { it.isNumber }?.intValue()?.coerceIn(1, most) ?: minOf(SOME_RESULTS, most)
 
         val engine = settings.engineOf(workspaceId)
         val key = settings.keyOf(workspaceId)
@@ -202,7 +207,7 @@ class SearchCapability(
 
     private fun get(url: String, headers: Map<String, String>): String = sent(
         HttpRequest.newBuilder(URI.create(url))
-            .timeout(Duration.ofSeconds(TIMEOUT_SECONDS))
+            .timeout(Duration.ofSeconds(tuning[Tunable.SEARCH_TIMEOUT_SECONDS].toLong()))
             .apply { headers.forEach { (name, value) -> header(name, value) } }
             .GET()
             .build(),
@@ -210,7 +215,7 @@ class SearchCapability(
 
     private fun post(url: String, body: String, headers: Map<String, String>): String = sent(
         HttpRequest.newBuilder(URI.create(url))
-            .timeout(Duration.ofSeconds(TIMEOUT_SECONDS))
+            .timeout(Duration.ofSeconds(tuning[Tunable.SEARCH_TIMEOUT_SECONDS].toLong()))
             .apply { headers.forEach { (name, value) -> header(name, value) } }
             .POST(HttpRequest.BodyPublishers.ofString(body))
             .build(),
@@ -247,9 +252,9 @@ class SearchCapability(
         const val QUERY = "query"
         const val LIMIT = "limit"
 
-        const val MOST_RESULTS = 20
+        // The most results and how long a search may take are
+        // Tunable.SEARCH_RESULTS_MOST and SEARCH_TIMEOUT_SECONDS. Issue #453.
         const val SOME_RESULTS = 5
-        const val TIMEOUT_SECONDS = 20L
         const val MOST_REASON = 300
     }
 }

@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.library
 
+import io.mszymanski.orknux.server.tuning.Tuning
+import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.connector.proxy.ProxyRouter
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.boot.context.properties.EnableConfigurationProperties
@@ -77,6 +79,8 @@ class NpmRegistry(
     private val properties: LibraryRegistryProperties,
     private val mapper: ObjectMapper,
     proxies: ProxyRouter,
+    /** The numbers this reads from Admin -> Settings. Issue #453. */
+    private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
     private val client: HttpClient = proxies.builder()
@@ -225,7 +229,7 @@ class NpmRegistry(
                     }
                     continue
                 }
-                if (parts.size >= MAX_PACKAGES) throw LibraryBundleTooManyException(spec, MAX_PACKAGES)
+                if (parts.size >= tuning[Tunable.NPM_PACKAGES_MOST]) throw LibraryBundleTooManyException(spec, tuning[Tunable.NPM_PACKAGES_MOST])
 
                 val resolved = NpmVersions.best(range, versionsOf(dependency))
                     ?: throw LibraryBundleUnsatisfiedException(spec, owner, dependency, range)
@@ -253,7 +257,7 @@ class NpmRegistry(
                 parts += fetched.part(within ?: "")
                 versions[dependency] = resolved
 
-                if (modules.size > MAX_FILES) throw LibraryBundleTooManyException(spec, MAX_PACKAGES)
+                if (modules.size > MAX_FILES) throw LibraryBundleTooManyException(spec, tuning[Tunable.NPM_PACKAGES_MOST])
                 queue.addLast(dependency to fetched.described)
             }
         }
@@ -585,8 +589,9 @@ class NpmRegistry(
             throw LibraryRegistrySilentException(named, "its file answered ${answered.statusCode()}")
         }
         val body = answered.body()
-        if (body.size > MAX_ARCHIVE) {
-            throw LibraryRegistrySilentException(named, "its file is larger than ${MAX_ARCHIVE / 1024 / 1024} MB")
+        val mostMb = tuning[Tunable.NPM_ARCHIVE_MB]
+        if (body.size > mostMb * 1024L * 1024L) {
+            throw LibraryRegistrySilentException(named, "its file is larger than $mostMb MB")
         }
         return body
     }
@@ -722,8 +727,7 @@ class NpmRegistry(
 
         const val BLOCK = 512
 
-        /** A published package, compressed. Larger than any library may be. */
-        const val MAX_ARCHIVE = 32L * 1024 * 1024
+        // A published package, compressed, is bounded by Tunable.NPM_ARCHIVE_MB. #453.
 
         /** One file out of it. The upload's own limit refuses it again after this. */
         const val MAX_ENTRY = 8L * 1024 * 1024
@@ -745,9 +749,9 @@ class NpmRegistry(
          * single-function dependencies, which is how the ecosystem is now built.
          * A ceiling a package like that nearly touches is one that would refuse
          * on the day rather than on the absurdity, and the size limit on the row
-         * is the honest guard.
+         * is the honest guard. The package count is Tunable.NPM_PACKAGES_MOST
+         * since #453.
          */
-        const val MAX_PACKAGES = 60
 
         const val MAX_FILES = 400
 

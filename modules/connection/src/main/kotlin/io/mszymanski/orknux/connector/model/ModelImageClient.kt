@@ -113,6 +113,8 @@ class ModelImageClient(
     private val mapper: ObjectMapper,
     private val usage: ModelUsageRecorder,
     private val proxies: ProxyRouter,
+    /** How long a picture fetched by URL may take, as the installation says. Issue #453. */
+    private val tuning: io.mszymanski.orknux.connector.ConnectionTuning = io.mszymanski.orknux.connector.ConnectionTuning.DEFAULTS,
 ) {
 
     private val http: HttpClient = proxies.builder()
@@ -291,7 +293,7 @@ class ModelImageClient(
 
         return try {
             val request = HttpRequest.newBuilder(URI(url))
-                .timeout(Duration.ofSeconds(FETCH_SECONDS))
+                .timeout(Duration.ofSeconds(tuning.valueOf(io.mszymanski.orknux.connector.ConnectionKnob.IMAGE_FETCH_SECONDS).toLong()))
                 .GET()
                 .build()
             val answer = http.send(request, HttpResponse.BodyHandlers.ofByteArray())
@@ -307,7 +309,7 @@ class ModelImageClient(
             Picture.Drawn(bytes, contentType.takeIf { it.startsWith("image/") } ?: PNG, millis)
         } catch (failure: Exception) {
             log.warn("The picture {} drew could not be collected", name, failure)
-            Picture.Failed(Unreachable.describe(url, failure, Duration.ofSeconds(FETCH_SECONDS)))
+            Picture.Failed(Unreachable.describe(url, failure, Duration.ofSeconds(tuning.valueOf(io.mszymanski.orknux.connector.ConnectionKnob.IMAGE_FETCH_SECONDS).toLong())))
         }
     }
 
@@ -362,7 +364,7 @@ class ModelImageClient(
         /** What only stable-diffusion.cpp's server answers, from its host's root. */
         const val SD_CPP_CAPABILITIES = "/sdcpp/v1/capabilities"
 
-        /** Collecting bytes that already exist, which is not slow. */
-        const val FETCH_SECONDS = 60L
+        // Collecting bytes that already exist, which is not slow, is bounded
+        // by ConnectionKnob.IMAGE_FETCH_SECONDS. Issue #453.
     }
 }
