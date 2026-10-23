@@ -67,7 +67,7 @@ class IssueAttachmentAPI(
                 IssueAttachment(
                     workspaceId = workspaceId,
                     filename = name.takeLast(MAX_NAME),
-                    contentType = file.contentType?.ifBlank { null } ?: "application/octet-stream",
+                    contentType = io.mszymanski.orknux.server.attachment.AttachmentTypes.of(name, file.contentType),
                     sizeBytes = file.size,
                     location = location,
                     uploadedBy = currentUser(),

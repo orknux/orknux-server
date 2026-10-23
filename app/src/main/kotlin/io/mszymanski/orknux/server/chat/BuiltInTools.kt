@@ -243,6 +243,7 @@ class BuiltInTools(
             "svg_draw",
             "svg_toPng",
             "svg_read",
+            "sheet_read",
             "markdown_toText",
             "date_today",
             "date_now",

@@ -455,6 +455,9 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_TOOLS_LOADED_AT_ONCE` | How many findable tools one search loads, in items. | `8` |
 | `ORKNUX_TUNING_TOOLS_SEARCHES_AT_ONCE` | How many names or searches one tool_find call may carry, in items. | `8` |
 | `ORKNUX_TUNING_SCRATCHPAD_PADS` | How many scratchpads one session may open, in items. | `50` |
+| `ORKNUX_TUNING_SHEET_ROWS_MOST` | How many rows one read of a CSV or a workbook answers, in items. | `200` |
+| `ORKNUX_TUNING_SHEET_ANSWER_CHARACTERS` | How much of a sheet one read hands a model, in characters. | `60000` |
+| `ORKNUX_TUNING_SHEET_UNPACKED_MB` | The most one part of a workbook may unpack to, in MB. | `100` |
 | `ORKNUX_TUNING_HTTP_TIMEOUT_SECONDS` | How long one HTTP request from a tool may take, in seconds. | `30` |
 | `ORKNUX_TUNING_HTTP_BODY_CHARACTERS` | How much of an HTTP answer a tool hands a model, in characters. | `200000` |
 | `ORKNUX_TUNING_HTTP_DOWNLOAD_MB` | The largest file a tool may download, in MB. | `5` |

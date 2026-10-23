@@ -21,6 +21,7 @@ have failed.
 
 - **An agent can ask for a box.** `tools_ungranted` lists the box labels it does not hold and `tools_request` asks for one in the chat; accepted, the label is added to the agent as on its page.
 - **`svg_read`** answers the markup of an SVG kept under a key - a drawing or an attached .svg - so an agent can read and change it.
+- **`sheet_read` reads an attached CSV, .xlsx or .xls** a page of rows at a time: a workbook's sheets by name, dates as ISO 8601, formulas as their saved values, a CSV's delimiter (comma, semicolon, tab) found by itself and quoting and a byte-order mark handled. The note on an attached sheet names it. Rows per page, characters per answer and how far a workbook may unpack are on Admin → Settings (`ORKNUX_TUNING_SHEET_*`).
 - **Admin Settings has a Limits heading** listing 29 numbers the server used to keep in its code - how long a Retry-After is waited out and how often, the longest a throttled call is held, agent_wait's default and ceiling, tool_find's batch sizes, how many scratchpads a session may open, the HTTP and web search tools' timeouts and sizes, pictures and speeches per run, a waiting action's interval and timeout, trigger de-duplication, schedules per tick, plugin request and upload sizes (Slack's download and upload doors included), library and npm limits, and how long marketplace icons are kept. Each applies without a restart, is audited, and starts at an `ORKNUX_TUNING_*` variable (listed in the README) with the old number as its default.
 - **A plugin's skill catalogue can be searched** like a workspace's own, and both search what a skill says as well as its name and description.
 - **Sentence completion in the chat.** A workspace that chooses a Completion model on its settings page gets a suggestion of how the sentence being typed goes on, in grey after the caret; Tab takes it, typing on or Escape puts it away. With no Completion model the composer is as it was. How much of the chat it is shown, how long a suggestion may be, its time limit and the pause before asking are on Admin → Settings.
@@ -52,6 +53,7 @@ have failed.
 - One mailed password-reset link could be spent twice by two requests at once.
 - Audit and session lines now hide credentials in JSON (`"password": "..."`) and this installation's own `orkx_` tokens.
 - Links in the desktop app on Windows and Linux: mail and phone links open the mail program, a link to the server's own `localhost` address keeps you signed in, a download opened in a new tab leaves no empty tab, a page with unsaved work asks before it is left instead of silently staying, right-click offers to copy a link or open it in the browser, and a link the app will not open says so.
+- **A .csv attached on Windows reached the agent as base64 under a type nothing read.** The browser files it as `application/vnd.ms-excel` where Excel is installed, or with no type at all; a .csv, .tsv, .xlsx or .xls given one of those is now filed under its own type, so a CSV is kept as text - including one attached before the upgrade.
 
 ## 1.1.9
 

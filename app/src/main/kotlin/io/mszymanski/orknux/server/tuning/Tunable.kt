@@ -126,6 +126,21 @@ enum class Tunable(
         "How many scratchpads one session may open",
         "Scratchpads are an agent's working files; what they may hold in bytes is set under Scratchpads.",
     ),
+    SHEET_ROWS_MOST(
+        "sheet.rows.most", 200, 1, 10_000, TuningSection.AGENTS, TuningUnit.ITEMS,
+        "How many rows one read of a CSV or a workbook answers",
+        "An agent reading an attached sheet is handed this many rows at a time and told where the rest begin, so a large file is read in pages rather than all at once.",
+    ),
+    SHEET_ANSWER_CHARACTERS(
+        "sheet.answer.characters", 60_000, 1_000, 10_000_000, TuningSection.AGENTS, TuningUnit.CHARACTERS,
+        "How much of a sheet one read hands a model",
+        "A page of rows stops early once its cells come to this many characters. A model pays for every character it is handed.",
+    ),
+    SHEET_UNPACKED_MB(
+        "sheet.unpacked.mb", 100, 1, 2_000, TuningSection.AGENTS, TuningUnit.MB,
+        "The most one part of a workbook may unpack to",
+        "An .xlsx is a zip, and a small one can unpack to gigabytes. A workbook with a part larger than this is refused rather than read.",
+    ),
 
     /* ---- Functions and HTTP ---- */
 
