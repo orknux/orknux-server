@@ -45,17 +45,19 @@ class ChatAttachmentShelf(
 
         val lines = files.map { file ->
             val key = "$KEY_PREFIX${file.id}"
-            val described = "${file.filename} (${file.contentType}, ${kilobytes(file.sizeBytes)})"
+            // Asked again here, so a CSV filed under the browser's word for it before 1.2.0 is still read as one.
+            val type = AttachmentTypes.of(file.filename, file.contentType)
+            val described = "${file.filename} ($type, ${kilobytes(file.sizeBytes)})"
             val refused = runCatching {
                 val bytes = store.open(file.location).use { it.readBytes() }
-                val text = isText(file.contentType)
+                val text = isText(type)
                 val value = if (text) bytes.decodeToString() else Base64.getEncoder().encodeToString(bytes)
-                scratch.put(sessionId, key, mapper.writeValueAsString(value), StoredKind(file.contentType, !text))
+                scratch.put(sessionId, key, mapper.writeValueAsString(value), StoredKind(type, !text))
             }.getOrElse { failure ->
                 log.warn("Attachment {} could not be put in session {}'s store", file.filename, sessionId, failure)
                 "it could not be read from storage"
             }
-            if (refused == null) "- $key: $described${readWith(file.contentType, key)}" else "- $described could not be kept for tools: $refused"
+            if (refused == null) "- $key: $described${readWith(type, key)}" else "- $described could not be kept for tools: $refused"
         }
         return (listOf(NOTE) + lines).joinToString("\n")
     }

@@ -888,6 +888,9 @@ orknux:
     tools.loaded.at.once: ${ORKNUX_TUNING_TOOLS_LOADED_AT_ONCE:8}
     tools.searches.at.once: ${ORKNUX_TUNING_TOOLS_SEARCHES_AT_ONCE:8}
     scratchpad.pads: ${ORKNUX_TUNING_SCRATCHPAD_PADS:50}
+    sheet.rows.most: ${ORKNUX_TUNING_SHEET_ROWS_MOST:200}
+    sheet.answer.characters: ${ORKNUX_TUNING_SHEET_ANSWER_CHARACTERS:60000}
+    sheet.unpacked.mb: ${ORKNUX_TUNING_SHEET_UNPACKED_MB:100}
     http.timeout.seconds: ${ORKNUX_TUNING_HTTP_TIMEOUT_SECONDS:30}
     http.body.characters: ${ORKNUX_TUNING_HTTP_BODY_CHARACTERS:200000}
     http.download.mb: ${ORKNUX_TUNING_HTTP_DOWNLOAD_MB:5}

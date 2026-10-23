@@ -62,7 +62,7 @@ class AttachmentAPI(
                 ChatAttachment(
                     workspaceId = workspaceId,
                     filename = name.takeLast(MAX_NAME),
-                    contentType = file.contentType?.ifBlank { null } ?: "application/octet-stream",
+                    contentType = AttachmentTypes.of(name, file.contentType),
                     sizeBytes = file.size,
                     location = location,
                     uploadedBy = currentUser(),

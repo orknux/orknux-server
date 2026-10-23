@@ -59,6 +59,32 @@
             <version>1.28.0</version>
         </dependency>
 
+        <!--
+            Reading an attached sheet: sheet_read, see SheetReader.
+
+            Commons CSV for a .csv - quoting, a quote doubled inside a field, a
+            line break inside quotes and a ragged row are the parser's business,
+            not ours. Nothing that parses CSV was on the classpath before.
+
+            POI for a workbook, .xlsx and .xls alike, rather than a lighter
+            .xlsx-only reader such as fastexcel-reader: it is what answers
+            whether a number is a date (DateUtil), what a formula's cached
+            value is, and what a zip bomb looks like (ZipSecureFile) - each of
+            which would otherwise be written here by hand - and it reads a .xls
+            too. It costs about 15 MB on a jar of 420; an .xlsx is read through
+            its streaming reader, so a large sheet is not held as a tree.
+        -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-csv</artifactId>
+            <version>1.14.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.4.1</version>
+        </dependency>
+
         <dependency>
             <groupId>io.mszymanski</groupId>
             <artifactId>orknux-connection</artifactId>
