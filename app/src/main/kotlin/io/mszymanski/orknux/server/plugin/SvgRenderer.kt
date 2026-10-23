@@ -50,8 +50,10 @@ class SvgRenderer {
      *   width was asked for. Issue #529: a diagram drawn at its natural 290
      *   pixels has one-pixel lines, and on a phone or a dark theme they are
      *   barely there.
+     * @param background what is behind the drawing, or null for nothing - a
+     *   transparent picture, for one that goes onto something else.
      */
-    fun png(svg: String, width: Int?, scale: Double = 1.0): Drawing {
+    fun png(svg: String, width: Int?, scale: Double = 1.0, background: Color? = Color.WHITE): Drawing {
         if (svg.isBlank()) return Drawing.Refused("there is nothing to draw: the svg is empty")
         if (svg.length > MOST_SOURCE) {
             return Drawing.Refused("that svg is ${svg.length} characters, and $MOST_SOURCE is the most this draws")
@@ -84,7 +86,7 @@ class SvgRenderer {
              * transparent ground are drawn onto whatever the reader's theme is
              * - in Slack's dark one, onto near-black, where they vanish.
              */
-            addTranscodingHint(PNGTranscoder.KEY_BACKGROUND_COLOR, Color.WHITE)
+            if (background != null) addTranscodingHint(PNGTranscoder.KEY_BACKGROUND_COLOR, background)
             /*
              * No scripts, and nothing fetched.
              *
@@ -109,7 +111,8 @@ class SvgRenderer {
         }
 
         return try {
-            transcoder.transcode(TranscoderInput(StringReader(svg)), TranscoderOutput(out))
+            // Colours in CSS's newer words would otherwise draw black; see [SvgColours].
+            transcoder.transcode(TranscoderInput(StringReader(SvgColours.normalized(svg))), TranscoderOutput(out))
             val bytes = out.toByteArray()
             if (bytes.isEmpty()) {
                 Drawing.Refused("the renderer produced nothing; the svg may declare no size")

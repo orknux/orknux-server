@@ -20,6 +20,7 @@ have failed.
 ### ✨ Added
 
 - **Dependencies.** A workspace page drawing every part - workflows, agents, actions, functions, models, variables and the rest - and what uses what. Choosing one lights everything it needs and everything that needs it.
+- **Drawing in SVG.** Agents have `svg_draw`, which draws SVG they write in any colour, and `svg_toPng`, which turns an SVG they hold into a PNG.
 - **Working on a workflow together.** Everybody with the editor open sees who else is there, their pointers with their logins, and their changes as they are made. Two changes made at once are merged rather than one writing over the other.
 - **A model's own answer time limit**, on its page beside Requests per Minute. Empty takes the installation's Model Answer Time Limit.
 - **The Errors report's columns sort**, in both tables: press a heading, press it again to turn it round.
@@ -32,6 +33,10 @@ have failed.
 - **Diagrams look better by default**: rounded boxes without shadows, quieter lines, and a colour per kind of thing - services, stores, queues, groups. A diagram that sets its own `skinparam`, `!theme` or `<style>` keeps it.
 - **The workflow editor saves as it goes**: Save and Discard are gone, and the toolbar says Saving…, Saved or Not saved. How long it waits after the last change is Admin Settings → Workflow runs → Workflow Autosave (800 ms). Ctrl+S still saves at once; Undo is still there.
 - **Anthropic models follow the Model Answer Time Limit** (an hour unless changed) instead of `ORKNUX_MODEL_TIMEOUT`'s two minutes, which is no longer read. If you set `ORKNUX_MODEL_TIMEOUT`, set the limit in Admin Settings or on the model instead.
+
+### 🐛 Fixed
+
+- **SVG colours in pictures**: `hsl()`, `rgba()`, hex with alpha and `transparent` drew black in every PNG made from an SVG, and now draw in their colour.
 
 ## 1.1.8
 

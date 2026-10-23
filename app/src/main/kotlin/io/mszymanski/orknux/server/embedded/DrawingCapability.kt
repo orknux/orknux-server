@@ -258,7 +258,7 @@ class ChartCapability(
  * only copy and travel alone - which is the workflow case, and there is no
  * model there to spend a context window on.
  */
-private fun drawing(
+internal fun drawing(
     mapper: ObjectMapper,
     scratch: LlmSessionStore,
     sessionId: Long?,
@@ -298,7 +298,7 @@ private fun drawing(
  * there is no session - a workflow - there is nowhere to keep it, and the
  * markup is the answer as it was.
  */
-private fun vectors(
+internal fun vectors(
     mapper: ObjectMapper,
     scratch: LlmSessionStore,
     sessionId: Long?,

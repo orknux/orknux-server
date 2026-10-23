@@ -240,6 +240,8 @@ class BuiltInTools(
             "pdf_toPng",
             "charts_render",
             "diagram_render",
+            "svg_draw",
+            "svg_toPng",
             "markdown_toText",
             "date_today",
             "date_now",

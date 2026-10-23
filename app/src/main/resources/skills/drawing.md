@@ -17,6 +17,10 @@ out.
   `diagram_render`.
 - **A chart** - numbers with labels - is `charts_render`. A pie is a chart, not
   a diagram.
+- **Anything else** - an icon, a badge, a layout, a picture made of shapes - is
+  `svg_draw`, with SVG you write yourself. Any colour SVG or CSS can say draws:
+  names, hex, `rgb()`, `hsl()`, alpha, gradients. `svg_toPng` turns an SVG
+  already kept under a key into a PNG, for a chat that will not show an SVG.
 - **A report with drawings in it, as a PDF** is `pdf_fromHtml` with the drawing
   written into the page as a block (see below). Do not draw first and paste.
 
