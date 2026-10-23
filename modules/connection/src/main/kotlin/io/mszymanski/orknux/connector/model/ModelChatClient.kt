@@ -45,6 +45,19 @@ data class ChatTurn(
      * request the plain string shape everything understands.
      */
     val images: List<String> = emptyList(),
+    /**
+     * Videos sent with this turn, as `data:video/...;base64` URLs.
+     *
+     * Beside [images] for the same reason, and sent as `video_url` parts - but
+     * only to a model whose [LlmModel.takesVideo] is on, on a provider that
+     * carries one: [ModelChatClient] refuses the call before it is made where
+     * either is not so, because a video part reaching a server that has no
+     * such part is a 400, and dropping it silently is a model answering about
+     * a video it was never shown. Never kept in a session's saved prompt, so
+     * a video is sent on its own turn's rounds and not again on every turn
+     * after it.
+     */
+    val videos: List<String> = emptyList(),
     /** Set on an assistant turn that asked for tools. */
     val asked: List<ToolCall> = emptyList(),
     /** Set on a turn answering one, naming the call it answers. */
@@ -405,6 +418,7 @@ class ModelChatClient(
         onReading: (PromptProgress) -> Unit = {},
         onChunk: (String) -> Unit,
     ): ChatCompletion {
+        unwatchable(modelId, turns)?.let { return it }
         val limits = throttled(modelId)
         spoken(modelId)?.let { shape ->
             return through(modelId, shape, limits) {
@@ -887,6 +901,7 @@ class ModelChatClient(
         brief: Brief? = null,
     ): ChatCompletion {
         if (hangup?.hungUp == true) return ChatCompletion.Failed(HUNG_UP, permanent = false)
+        unwatchable(modelId, turns)?.let { return it }
         val limits = throttled(modelId)
         if (hangup?.hungUp == true) return ChatCompletion.Failed(HUNG_UP, permanent = false)
         spoken(modelId)?.let { shape ->
@@ -967,6 +982,26 @@ class ModelChatClient(
     }
 
     private data class Spoken(val provider: ModelProvider, val model: LlmModel)
+
+    /**
+     * A call carrying a video to a model that may not be sent one, refused
+     * before anything is sent. Null where there is no video, or where the
+     * model may.
+     *
+     * The last word rather than the only one: the chat refuses such a message
+     * before it is written down, in a sentence the browser translates. This is
+     * for every other way a turn reaches a model, so that no caller can put a
+     * `video_url` part in front of a server that has no such part - Azure and
+     * OpenAI answer that with a 400, Anthropic's body has nowhere to put it,
+     * and a turn that dropped it quietly would be a model answering about a
+     * video it was never shown.
+     */
+    private fun unwatchable(modelId: Long, turns: List<ChatTurn>): ChatCompletion.Failed? {
+        if (turns.none { it.videos.isNotEmpty() }) return null
+        val model = models.findByIdOrNull(modelId) ?: return null
+        val provider = providers.findByIdOrNull(model.providerId) ?: return null
+        return VideoInput.refusal(provider, model)?.let { ChatCompletion.Failed(it, permanent = true) }
+    }
 
     /**
      * The turns as [provider] is sent them: without the model's earlier

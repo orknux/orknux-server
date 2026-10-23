@@ -1,12 +1,15 @@
 package io.mszymanski.orknux.connector.model
 
-/** How a chat setting is asked for: a number in a box, or one word off a list. */
+/** How a chat setting is asked for: a number in a box, one word off a list, or a switch. */
 enum class ChatParameterKind {
     /** A number; its range is checked where it is saved. */
     NUMBER,
 
     /** One of [ChatParameterSpec.choices], as the endpoint spells it. */
     CHOICE,
+
+    /** On or off; off is always allowed, on only where the provider declares it. */
+    SWITCH,
 }
 
 /**
@@ -57,6 +60,19 @@ data class ChatParameterSpec(
  *   min-p and no repeat penalty.
  * - **SYSTEM_ONE** - answers questions rather than chatting; nothing.
  *
+ * **Takes video** is the one switch here, and it is about what a turn may carry
+ * rather than how the model samples. A video goes as a `video_url` content part
+ * (see [OpenAiChat]), which vLLM reads (docs.vllm.ai, "Multimodal Inputs":
+ * `{"type": "video_url", "video_url": {"url": ...}}`, a `data:video/mp4;base64`
+ * URL decoded by `VideoMediaIO.load_base64`) and llama.cpp's server reads as an
+ * alias of its `input_video` (tools/server/server-common.cpp,
+ * `type == "input_video" || type == "video_url"`, any `data:video/...;base64`
+ * URL accepted). So it is declared where those servers live - **LLAMA_CPP** and
+ * **OPENAI anywhere but OpenAI's own host**, which is also where Gemini's
+ * OpenAI-compatible endpoint is registered. OpenAI's own chat completions,
+ * Azure, Ollama's `/v1` and Anthropic have no video part at all, so a model
+ * there never holds the switch on and is never sent one.
+ *
  * A provider that comes to take a setting is one entry here; a new setting is
  * that entry, a column on [LlmModel], and the line in each client that sends it.
  */
@@ -68,12 +84,14 @@ object ChatParameters {
     const val MIN_P = "minP"
     const val REPEAT_PENALTY = "repeatPenalty"
     const val REASONING_EFFORT = "reasoningEffort"
+    const val TAKES_VIDEO = "takesVideo"
 
     private val temperature = ChatParameterSpec(TEMPERATURE, ChatParameterKind.NUMBER)
     private val topP = ChatParameterSpec(TOP_P, ChatParameterKind.NUMBER)
     private val topK = ChatParameterSpec(TOP_K, ChatParameterKind.NUMBER)
     private val minP = ChatParameterSpec(MIN_P, ChatParameterKind.NUMBER)
     private val repeatPenalty = ChatParameterSpec(REPEAT_PENALTY, ChatParameterKind.NUMBER)
+    private val takesVideo = ChatParameterSpec(TAKES_VIDEO, ChatParameterKind.SWITCH)
 
     /**
      * How hard a reasoning model thinks before it answers. The SDK knows more
@@ -88,7 +106,7 @@ object ChatParameters {
 
     private val AZURE = listOf(temperature, topP, REASONING_EFFORT_SPEC)
     private val OPENAI_HOSTED = listOf(temperature, topP)
-    private val OPENAI_SHAPED = listOf(temperature, topP, topK, minP, repeatPenalty)
+    private val OPENAI_SHAPED = listOf(temperature, topP, topK, minP, repeatPenalty, takesVideo)
     private val OLLAMA = listOf(temperature, topP)
     private val ANTHROPIC = listOf(temperature, topP, topK)
 
@@ -134,6 +152,17 @@ object ChatParameters {
         taken(provider, kind, parameter)
         return given
     }
+
+    /** A switch as it is stored: off always, on refused where the provider does not take it. */
+    fun held(provider: ModelProvider, kind: ModelKind, parameter: String, given: Boolean?): Boolean {
+        if (given != true) return false
+        taken(provider, kind, parameter)
+        return true
+    }
+
+    /** Whether [model] may be sent a video, as the request is about to be built: its switch, on a provider that carries one. */
+    fun takesVideo(provider: ModelProvider, model: LlmModel): Boolean =
+        model.takesVideo && model.kind == ModelKind.CHAT && takes(provider, TAKES_VIDEO)
 
     private fun taken(provider: ModelProvider, kind: ModelKind, parameter: String): ChatParameterSpec =
         forModel(provider, kind).firstOrNull { it.name == parameter }

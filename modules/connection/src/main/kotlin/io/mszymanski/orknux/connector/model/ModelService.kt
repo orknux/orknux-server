@@ -394,6 +394,7 @@ class ModelService(
                 voice = input.voice?.trim()?.ifEmpty { null },
                 skipEmptyLines = input.skipEmptyLines ?: false,
                 imageCostPerImage = input.imageCostPerImage?.toBigDecimal(),
+                takesVideo = ChatParameters.held(provider, kind, ChatParameters.TAKES_VIDEO, input.takesVideo),
             ),
         )
         return LlmModelView(model, provider)
@@ -464,6 +465,7 @@ class ModelService(
         // it is not, and there is no third thing for a null to mean.
         model.skipEmptyLines = input.skipEmptyLines ?: false
         model.imageCostPerImage = input.imageCostPerImage?.toBigDecimal()
+        input.takesVideo?.let { model.takesVideo = ChatParameters.held(provider, kind, ChatParameters.TAKES_VIDEO, it) }
         return LlmModelView(model, provider)
     }
 
@@ -919,6 +921,8 @@ data class CreateModelInput(
     val skipEmptyLines: Boolean? = null,
     /** Only meaningful for an IMAGE model, which is billed per picture rather than per token. */
     val imageCostPerImage: Double? = null,
+    /** Whether a video attached to a chat is sent to it; on only where [ChatParameters] declares it. */
+    val takesVideo: Boolean? = null,
 )
 
 /** The model's own details, all of them, as the form that edits them sends them. */
@@ -950,6 +954,12 @@ data class UpdateModelInput(
     val skipEmptyLines: Boolean? = null,
     /** Only meaningful for an IMAGE model, which is billed per picture rather than per token. */
     val imageCostPerImage: Double? = null,
+    /**
+     * Whether a video attached to a chat is sent to it; on only where
+     * [ChatParameters] declares it. Null leaves it as it is, so a caller
+     * written before the switch existed does not turn it off by not knowing it.
+     */
+    val takesVideo: Boolean? = null,
     /**
      * The provider it is reached through. Null leaves it where it is, unlike
      * the fields above: a caller written before a model could move would
@@ -1113,6 +1123,8 @@ data class LlmModelView(
     val skipEmptyLines: Boolean,
     /** What one picture costs on an IMAGE model; null is not recorded, which is not free. */
     val imageCostPerImage: Double?,
+    /** Whether a video attached to a chat is sent to it. See [LlmModel.takesVideo]. */
+    val takesVideo: Boolean = false,
 ) {
     constructor(model: LlmModel, provider: ModelProvider) : this(
         id = requireNotNull(model.id),
@@ -1146,6 +1158,7 @@ data class LlmModelView(
         voice = model.voice,
         skipEmptyLines = model.skipEmptyLines,
         imageCostPerImage = model.imageCostPerImage?.toDouble(),
+        takesVideo = model.takesVideo,
     )
 }
 

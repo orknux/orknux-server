@@ -611,6 +611,7 @@ fun LlmModel.copied(providerId: Long, name: String): LlmModel = LlmModel(
         voice = voice,
         skipEmptyLines = skipEmptyLines,
         imageCostPerImage = imageCostPerImage,
+        takesVideo = takesVideo,
 )
 
 /**
@@ -848,6 +849,23 @@ class LlmModel(
      */
     @Column(name = "image_cost_per_image", precision = 12, scale = 4)
     var imageCostPerImage: BigDecimal? = null,
+
+    /**
+     * Whether a video attached to a chat message is sent to this model as
+     * itself, as a `video_url` part of the turn.
+     *
+     * A switch rather than something detected, because nothing in the OpenAI
+     * shape says whether a model watches video: Qwen-VL behind vLLM does, the
+     * same server running a text model refuses the part, and a picture model
+     * that ignores an image part it cannot read does not ignore a video it
+     * cannot decode - it fails the request. Off, so a model nobody has said
+     * this about is refused a video in a sentence before the provider is
+     * called, rather than being sent megabytes it answers with an error or an
+     * apology. Only a provider [ChatParameters] declares
+     * [ChatParameters.TAKES_VIDEO] for may hold it on.
+     */
+    @Column(name = "takes_video", nullable = false)
+    var takesVideo: Boolean = false,
 )
 
 /**

@@ -62,6 +62,8 @@ class InstallationSettingsAPI(
         chatCompletionTimeoutMillisConfigured = settings.chatCompletionTimeoutMillisConfigured(),
         chatCompletionPauseMillis = settings.chatCompletionPauseMillis(),
         chatCompletionPauseMillisConfigured = settings.chatCompletionPauseMillisConfigured(),
+        chatVideoMaxMb = settings.chatVideoMaxMb(),
+        chatVideoMaxMbConfigured = settings.chatVideoMaxMbConfigured(),
         chatMaxRoundsConfigured = settings.chatMaxRoundsConfigured(),
         objectMaxDepth = settings.objectMaxDepth(),
         objectMaxDepthConfigured = settings.objectMaxDepthConfigured(),
@@ -764,6 +766,15 @@ class InstallationSettingsAPI(
         return installationSettings()
     }
 
+    /** The largest video a chat message may send to a model that takes video. */
+    @MutationMapping
+    fun setChatVideoMaxMb(@Argument megabytes: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setChatVideoMaxMb(megabytes, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "Video attachment limit set to $megabytes MB")
+        return installationSettings()
+    }
+
     /** The longest description a picture is drawn from, wherever it is drawn. */
     @MutationMapping
     fun setImageDrawsAtOnce(@Argument draws: Int): InstallationSettingsView {
@@ -1235,6 +1246,9 @@ data class InstallationSettingsView(
     val chatCompletionTimeoutMillisConfigured: Int,
     val chatCompletionPauseMillis: Int,
     val chatCompletionPauseMillisConfigured: Int,
+    /** The largest video a chat message may send to a model, in MB, and the file's default. */
+    val chatVideoMaxMb: Int,
+    val chatVideoMaxMbConfigured: Int,
     val objectMaxDepth: Int,
     val objectMaxDepthConfigured: Int,
     val imageMaxPrompt: Int,

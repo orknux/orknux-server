@@ -280,6 +280,7 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is io.mszymanski.orknux.server.attachment.CompletionMaxTokensOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.CompletionTimeoutOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.CompletionPauseOutOfRangeException,
+            is io.mszymanski.orknux.server.attachment.VideoMaxOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.ObjectDepthOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.ImagePromptOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.ImageDrawsOutOfRangeException,

@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.chat
 
+import io.mszymanski.orknux.server.graphql.Refusal
+import io.mszymanski.orknux.server.graphql.codeOf
 import org.springframework.http.HttpStatus
 import org.springframework.http.ProblemDetail
 import org.springframework.web.bind.annotation.ExceptionHandler
@@ -38,4 +40,21 @@ class ChatStreamExceptionHandler {
     )
     fun badRequest(exception: RuntimeException): ProblemDetail =
         ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.message ?: "The chat cannot answer that")
+
+    /**
+     * A video the answering model may not be sent, said as GraphQL says a
+     * refusal: the English in `detail`, and beside it the `code` and
+     * `arguments` the browser translates with - the same two `refused()` puts
+     * in a GraphQL error's extensions, so one catalogue serves both doors.
+     */
+    @ExceptionHandler(
+        ChatVideoNotTakenException::class,
+        ChatVideoNotCarriedException::class,
+        ChatVideoTooLargeException::class,
+    )
+    fun videoRefused(exception: RuntimeException): ProblemDetail =
+        ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.message ?: "The chat cannot send that video").apply {
+            setProperty("code", codeOf(exception))
+            (exception as? Refusal)?.let { setProperty("arguments", it.arguments) }
+        }
 }

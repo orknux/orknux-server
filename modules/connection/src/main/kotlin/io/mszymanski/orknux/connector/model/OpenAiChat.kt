@@ -460,6 +460,25 @@ class OpenAiChat(
                 builder.addMessage(assistant.build())
             }
 
+            /*
+             * A turn with a video is the same list of parts with a part the SDK
+             * has no type for. openai-java's content parts are text, image_url,
+             * input_audio and file - OpenAI's own API has no video - so the
+             * parts go through the SDK's documented escape hatch for a value it
+             * does not model: a `JsonValue` handed to the typed setter, which
+             * it serialises as given. The request, the client, the credential
+             * and the retries are still the SDK's; only this one array is
+             * spelled here, in the shape vLLM and llama.cpp both read (see
+             * ChatParameters for the sources). Reached only for a model that
+             * takes video: ModelChatClient refuses the call before this
+             * otherwise.
+             */
+            turn.videos.isNotEmpty() -> builder.addMessage(
+                ChatCompletionUserMessageParam.builder()
+                    .content(JsonValue.from(rawParts(turn)))
+                    .build(),
+            )
+
             // A turn with pictures is a list of parts rather than a string. A
             // model that cannot see ignores the image part rather than failing,
             // which is why this does not need to know whether the model can.
@@ -492,6 +511,18 @@ class OpenAiChat(
                 ),
             )
         }
+    }
+
+    /**
+     * A turn's text, pictures and videos as plain JSON parts, for the one
+     * message the SDK's typed parts cannot hold. The text and image parts are
+     * the shapes [parts] builds through the SDK; the video part is
+     * `{"type": "video_url", "video_url": {"url": "data:video/...;base64,..."}}`.
+     */
+    internal fun rawParts(turn: ChatTurn): List<Map<String, Any>> = buildList {
+        if (turn.content.isNotEmpty()) add(mapOf("type" to "text", "text" to turn.content))
+        turn.images.forEach { add(mapOf("type" to "image_url", "image_url" to mapOf("url" to it))) }
+        turn.videos.forEach { add(mapOf("type" to VIDEO_PART, VIDEO_PART to mapOf("url" to it))) }
     }
 
     private fun declared(tool: ToolSpec): ChatCompletionFunctionTool {
@@ -567,6 +598,9 @@ class OpenAiChat(
     }
 
     internal companion object {
+        /** A video's part type, and the key its URL sits under: vLLM's name, which llama.cpp reads as an alias. */
+        const val VIDEO_PART = "video_url"
+
         /** What llama.cpp is asked, on a streamed request, to report how far it has read the prompt. */
         const val RETURN_PROGRESS = "return_progress"
 

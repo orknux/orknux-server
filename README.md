@@ -409,6 +409,7 @@ installation starts from.
 | `ORKNUX_CHAT_COMPLETION_MAX_TOKENS` | The most tokens one sentence completion may be. | `32` |
 | `ORKNUX_CHAT_COMPLETION_TIMEOUT_MILLIS` | How long a sentence completion may take before it is dropped. | `4000` |
 | `ORKNUX_CHAT_COMPLETION_PAUSE_MILLIS` | The pause in typing before a sentence completion is asked for. | `600` |
+| `ORKNUX_CHAT_VIDEO_MAX_MB` | The largest video, in MB, a chat message may send to a model that takes video; a larger one is refused before the model is asked. | `20` |
 | `ORKNUX_CHAT_TITLE_SECONDS` | How long the workspace's companion model has to name a chat before the chat's own model is asked, in seconds. Admin -> Settings overrides it. | `30` |
 | `ORKNUX_COMMAND_MARKER` | What marks a skill command in a message. | `!` |
 | `ORKNUX_LDAP_GROUP_SEARCH_SUBTREE` | Search for groups below the group base too. | `false` |

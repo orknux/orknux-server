@@ -313,7 +313,7 @@ a rule at all.
 The tracker uses the chat's attachments.
 
 ORKNUX_CHAT_MAX_ROUNDS, ORKNUX_CHAT_RETITLE_EVERY, ORKNUX_CHAT_TITLE_SECONDS, ORKNUX_CHAT_MAX_SUBAGENTS, ORKNUX_CHAT_TOOLS_NAMED_IN_SEARCH, ORKNUX_OBJECT_MAX_DEPTH,
-ORKNUX_CHAT_COMPLETION_CONTEXT_TURNS, ORKNUX_CHAT_COMPLETION_MAX_TOKENS, ORKNUX_CHAT_COMPLETION_TIMEOUT_MILLIS, ORKNUX_CHAT_COMPLETION_PAUSE_MILLIS,
+ORKNUX_CHAT_COMPLETION_CONTEXT_TURNS, ORKNUX_CHAT_COMPLETION_MAX_TOKENS, ORKNUX_CHAT_COMPLETION_TIMEOUT_MILLIS, ORKNUX_CHAT_COMPLETION_PAUSE_MILLIS, ORKNUX_CHAT_VIDEO_MAX_MB,
 ORKNUX_IMAGE_MAX_PROMPT, ORKNUX_IMAGE_DRAWS_AT_ONCE, ORKNUX_IMAGE_HARMONIZE_STRENGTH, ORKNUX_IMAGE_HARMONIZE_SIZE, ORKNUX_COMMAND_MARKER, ORKNUX_LDAP_GROUP_SEARCH_SUBTREE, ORKNUX_MODEL_CHECK_INITIAL_DELAY,
 ORKNUX_CONNECTION_CHECK_INITIAL_DELAY, ORKNUX_SCHEDULER_THREADS, ORKNUX_SCHEDULER_POLLING_INTERVAL,
 ORKNUX_REVISION_SWEEP_ENABLED, ORKNUX_REVISION_SWEEP_INTERVAL,
@@ -333,7 +333,7 @@ ORKNUX_CONTENT_SECURITY_POLICY are in
 | `ORKNUX_PORT` | The port this server listens on inside the container. | `8080` | No |
 | `ORKNUX_ALLOWED_ORIGINS` | Where the interface is served from, if not here. Comma separated. | `http://localhost:5173` | **Yes** where the interface is elsewhere |
 | `ORKNUX_BASE_URL` | Where a browser reaches the interface, for links sent out. Admin -> Settings -> Address overrides it. | `http://localhost:5173` | **Yes** for password resets |
-| `ORKNUX_WEBHOOK_MAX_BODY_SIZE` | The most a webhook caller may post to `/api/webhooks/…`. More is refused with 413 before any trigger runs. | `1MB` | No |
+| `ORKNUX_WEBHOOK_MAX_BODY_SIZE` | The most a webhook caller may post to `/api/webhooks/…`. More is refused with 413. | `1MB` | No |
 | `ORKNUX_ASYNC_REQUEST_TIMEOUT` | How long a request answered with a promise may stay open. | `330s` | No |
 | `ORKNUX_SESSION_TIMEOUT` | How long a session survives without being used. A fortnight suits a tool behind an identity provider. | `14d` | No |
 | `ORKNUX_SESSION_COOKIE_SAME_SITE` | `lax` lets a link from elsewhere arrive signed in; `strict` where nothing links in. | `lax` | No |

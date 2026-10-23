@@ -1290,6 +1290,8 @@ type Mutation {
     setChatCompletionTimeoutMillis(millis: Int!): InstallationSettings!
     "How long the chat waits after the last keystroke before asking for a completion. Between 100 and 10000 milliseconds."
     setChatCompletionPauseMillis(millis: Int!): InstallationSettings!
+    "The largest video a chat message may send to a model that takes video. Between 1 and 1024 MB."
+    setChatVideoMaxMb(megabytes: Int!): InstallationSettings!
     """
     The longest an agent may put itself to sleep for; 1 to 86400 seconds.
 
@@ -5851,6 +5853,12 @@ type Model {
     of drawing at nothing.
     """
     imageCostPerImage: Float
+    """
+    Whether a video attached to a chat message is sent to this model as a
+    video_url part. Off refuses such a message before the model is asked. Only
+    a provider whose chatParameters list takesVideo may hold it on.
+    """
+    takesVideo: Boolean!
 }
 
 "One day of the usage chart."
@@ -6023,6 +6031,8 @@ input CreateModelInput {
     skipEmptyLines: Boolean
     "What one picture costs on an IMAGE model; null is not recorded, which is not free."
     imageCostPerImage: Float
+    "Whether a video attached to a chat is sent to it. Absent is off; on is refused where chatModelParameters does not list takesVideo."
+    takesVideo: Boolean
 }
 
 input UpdateModelInput {
@@ -6053,6 +6063,8 @@ input UpdateModelInput {
     skipEmptyLines: Boolean
     "What one picture costs on an IMAGE model; null is not recorded, which is not free."
     imageCostPerImage: Float
+    "Whether a video attached to a chat is sent to it. Absent leaves it as it is; on is refused where chatModelParameters does not list takesVideo."
+    takesVideo: Boolean
     "The provider to move it to, in the same workspace. Null leaves it where it is."
     providerId: ID
 }
@@ -7069,6 +7081,10 @@ type InstallationSettings {
     chatCompletionPauseMillis: Int!
     "What a fresh installation does - ORKNUX_CHAT_COMPLETION_PAUSE_MILLIS."
     chatCompletionPauseMillisConfigured: Int!
+    "The largest video a chat message may send to a model that takes video, in MB; a larger one is refused before the model is asked."
+    chatVideoMaxMb: Int!
+    "What a fresh installation does - ORKNUX_CHAT_VIDEO_MAX_MB."
+    chatVideoMaxMbConfigured: Int!
     """
     How deep an object's shape may go - an object defined inside an object -
     and how deep a value is checked against one. The same number bounds what a
@@ -9650,6 +9666,8 @@ enum ChatParameterKind {
     NUMBER
     "One of the spec's choices."
     CHOICE
+    "On or off; off is always allowed. takesVideo is one."
+    SWITCH
 }
 
 "How an image parameter is asked for: one word off a list, or a width and a height."
