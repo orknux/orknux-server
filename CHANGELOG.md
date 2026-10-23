@@ -19,6 +19,7 @@ have failed.
 
 ### ✨ Added
 
+- **A plugin's skill catalogue can be searched** like a workspace's own, and both search what a skill says as well as its name and description.
 - `ORKNUX_SESSION_COOKIE_SECURE` marks the session cookie Secure (`auto`, the default, follows the request); `ORKNUX_CONTENT_SECURITY_POLICY` replaces the interface's Content-Security-Policy where the built-in one is too strict.
 
 ### 🔧 Changed
