@@ -126,6 +126,30 @@ class ScriptHostTest {
             .isEqualTo("""[7,{"op":"remote","url":"https://example.com/r.pdf","filetype":"pdf"}]""")
     }
 
+    /**
+     * The same two helpers a plugin has, from the one HostHelpers, with the
+     * run's workspace as the boundary; and the bot token unless the user's
+     * was asked for by name.
+     */
+    @Test
+    fun `a function can read Slack's Web API and download a file through the server`() {
+        val reader = """
+            export default function read(email) {
+              orknux.slack.api({ id: 7, type: 'SLACK' }, 'users.lookupByEmail', { email: email, token: 'xoxb-mine' });
+              return orknux.slack.download(7, 'F9');
+            }
+        """.trimIndent()
+
+        runner.call(reader, "read", listOf("\"a@example.com\""), on = 12)
+
+        assertThat(asked.map { it.first }).containsOnly(PluginCapability.SLACK_WEB_API_READ)
+        assertThat(asked.map { it.third }).containsOnly(12L)
+        assertThat(asked.map { it.second }).containsExactly(
+            """[7,{"op":"api","method":"users.lookupByEmail","args":{"email":"a@example.com","token":"xoxb-mine"},"as":"bot"}]""",
+            """[7,{"op":"download","file":"F9"}]""",
+        )
+    }
+
     @Test
     fun `a function can follow a message link through the server`() {
         val follower = """

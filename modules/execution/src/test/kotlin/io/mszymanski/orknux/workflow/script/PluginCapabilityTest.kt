@@ -143,6 +143,73 @@ class PluginCapabilityTest {
     }
 
     /**
+     * Reading Slack's Web API is its own grant, and the two helpers under it
+     * send the same JSON a function's do: arguments as strings, the token
+     * chosen by name and never handed over.
+     */
+    @Test
+    fun `a plugin reads Slack's Web API and downloads a file only when granted the read`() {
+        val reader = """
+            export default class ApiReader extends OrknuxPlugin {
+              id() { return 'api-reader'; }
+              apiVersion() { return 1; }
+              capabilities() { return ['SLACK_WEB_API_READ']; }
+              functions() {
+                return [new OrknuxFunction({
+                  name: 'read',
+                  params: [{ name: 'channel', type: 'string' }],
+                  returnType: 'map',
+                  run: (channel) => {
+                    const slack = { id: 7, type: 'SLACK' };
+                    const history = orknux.slack.api(slack, 'conversations.history', { channel, limit: 5, inclusive: true }, { as: 'user' });
+                    if (history.error !== undefined) return history;
+                    return orknux.slack.download(slack, 'F1');
+                  },
+                })];
+              }
+            }
+        """.trimIndent()
+
+        val refused = runner.call(
+            reader, "read", listOf("\"C1\""),
+            capabilities = setOf(PluginCapability.SLACK_READ_THREAD),
+        )
+        assertThat((refused as ScriptResult.Returned).json).contains("was not granted SLACK_WEB_API_READ")
+        assertThat(asked).describedAs("the host was never asked").isEmpty()
+
+        runner.call(reader, "read", listOf("\"C1\""), capabilities = setOf(PluginCapability.SLACK_WEB_API_READ))
+        assertThat(asked.map { it.first }).containsOnly(PluginCapability.SLACK_WEB_API_READ)
+        assertThat(asked.map { it.second }).containsExactly(
+            """[7,{"op":"api","method":"conversations.history","args":{"channel":"C1","limit":"5","inclusive":"true"},"as":"user"}]""",
+            """[7,{"op":"download","file":"F1"}]""",
+        )
+    }
+
+    /** What Slack's form cannot carry is refused in the sandbox, before the server is asked. */
+    @Test
+    fun `an argument that is not a scalar is refused before the server`() {
+        val reader = """
+            export default class ApiReader extends OrknuxPlugin {
+              id() { return 'api-reader'; }
+              apiVersion() { return 1; }
+              capabilities() { return ['SLACK_WEB_API_READ']; }
+              functions() {
+                return [new OrknuxFunction({
+                  name: 'read',
+                  params: [],
+                  returnType: 'map',
+                  run: () => orknux.slack.api(7, 'users.list', { cursor: { next: 'x' } }),
+                })];
+              }
+            }
+        """.trimIndent()
+
+        val answer = runner.call(reader, "read", emptyList(), capabilities = setOf(PluginCapability.SLACK_WEB_API_READ))
+        assertThat((answer as ScriptResult.Returned).json).contains("cursor is none of them")
+        assertThat(asked).isEmpty()
+    }
+
+    /**
      * A plugin's `orknux.http` is a function's, member for member.
      *
      * They were written out twice - once in each runner - and the copies had

@@ -74,14 +74,19 @@ class ChatAttachmentShelf(
         return " - read it with ${reader.first} {\"${reader.second}\": \"$key\"}"
     }
 
-    private fun isText(contentType: String): Boolean {
-        val type = contentType.substringBefore(';').trim().lowercase()
-        return type.startsWith("text/") || type in TEXT_TYPES || type.endsWith("+json") || type.endsWith("+xml")
-    }
-
     private fun kilobytes(size: Long): String = if (size < 1024) "$size B" else "${size / 1024} KB"
 
     companion object {
+        /**
+         * Whether a file of this type is held as its text rather than as
+         * base64 - for an attachment put in a session's store, and for a Slack
+         * file a plugin downloads, so the two cannot disagree about a CSV.
+         */
+        fun isText(contentType: String): Boolean {
+            val type = contentType.substringBefore(';').trim().lowercase()
+            return type.startsWith("text/") || type in TEXT_TYPES || type.endsWith("+json") || type.endsWith("+xml")
+        }
+
         /** What an attached file is kept under in the session's store, before its attachment id. */
         const val KEY_PREFIX = "attachment."
 

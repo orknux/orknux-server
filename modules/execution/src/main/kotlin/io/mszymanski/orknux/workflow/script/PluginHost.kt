@@ -156,6 +156,31 @@ enum class PluginCapability(
     SLACK_UPLOAD_FILE("Upload a file to Slack, through a connection it was given", forScripts = true),
 
     /**
+     * Make one of a fixed list of Slack Web API reads through one of the
+     * workspace's Slack connections - who the token is, the conversations and
+     * what is in them, the members, a file's details - with the connection's
+     * bot token or its user token, and download a file by its id. Issue #647.
+     *
+     * Before this the Slack plugin made those calls over [NETWORK_REQUEST] with
+     * copies of both tokens in plugin parameters, so a workspace kept the
+     * connection's credentials twice and a connection set up on its own left
+     * the plugin's readers failing. Through this the tokens stay on the
+     * connection.
+     *
+     * The list is the server's, not the caller's: every method on it reads,
+     * and a method that posts, deletes or invites is refused by name. So this
+     * reaches no further than [SLACK_READ_THREAD] and [SLACK_SEARCH] already
+     * do - the conversations the connection's tokens can read - only by more
+     * of Slack's own methods.
+     *
+     * `forScripts` for the reason reading a thread is: only a connection the
+     * run's workspace owns, which the runner takes from the run, and only
+     * reads. Size is bounded by the implementation, at the request door's own
+     * download ceiling.
+     */
+    SLACK_WEB_API_READ("Read from Slack's Web API and download Slack files, through a connection it was given", forScripts = true),
+
+    /**
      * Make an HTTP request, to an address of the plugin's choosing.
      *
      * **The widest thing on this list, and the summary says so** — because the

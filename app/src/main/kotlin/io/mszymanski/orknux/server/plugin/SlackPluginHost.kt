@@ -19,6 +19,10 @@ import io.mszymanski.orknux.connector.connection.SlackUsers
 import io.mszymanski.orknux.connector.connection.Thread
 import io.mszymanski.orknux.connector.connection.SlackUploads
 import io.mszymanski.orknux.connector.connection.Upload
+import io.mszymanski.orknux.connector.connection.SlackDownload
+import io.mszymanski.orknux.connector.connection.SlackRead
+import io.mszymanski.orknux.connector.connection.SlackWebApi
+import io.mszymanski.orknux.server.attachment.ChatAttachmentShelf
 import io.mszymanski.orknux.workflow.script.PluginCapability
 import io.mszymanski.orknux.workflow.script.PluginHost
 import org.slf4j.LoggerFactory
@@ -57,6 +61,8 @@ class SlackPluginHost(
     private val directory: SlackDirectory,
     /** Files put on Slack with the connection's own token, not a copy of it. */
     private val uploads: SlackUploads,
+    /** Slack's read methods and file downloads, with the connection's own tokens. Issue #647. */
+    private val webApi: SlackWebApi,
     private val connections: WorkspaceConnectionService,
     private val mapper: ObjectMapper,
     /**
@@ -97,6 +103,7 @@ class SlackPluginHost(
         PluginCapability.SLACK_SEARCH -> search(argument, on)
         PluginCapability.SLACK_SUGGEST -> suggest(argument, on)
         PluginCapability.SLACK_UPLOAD_FILE -> uploadFile(argument, on)
+        PluginCapability.SLACK_WEB_API_READ -> webApiRead(argument, on)
         /*
          * No workspace scoping, and the reason is not that it was forgotten: a
          * request names an address rather than one of the workspace's own
@@ -655,6 +662,79 @@ class SlackPluginHost(
             is Upload.NotPossible -> refusal(done.reason)
             is Upload.Refused -> refusal(done.reason)
         }.also { log.debug("A script put a file on Slack on connection {}", connectionId) }
+    }
+
+    /**
+     * `[connectionId, { op, ... }]`, as the contract's two helpers send it.
+     *
+     * `api` carries a `method`, its `args` as strings and `as` - `bot` or
+     * `user` - and answers `{ json }` with Slack's answer, or `{ error }`, with
+     * Slack's `json` beside it where Slack was the one that refused. `download`
+     * carries a `file` id and answers `{ text }` for a text type or
+     * `{ base64 }` for the rest, each with `size`, `contentType` and `file`.
+     *
+     * One door for both, as uploading and a remote file are one: a download is
+     * `files.info` and then the bytes it points at, so a grant to read the one
+     * and not the other would be a distinction an administrator cannot use.
+     */
+    private fun webApiRead(argument: String, on: Long?): String {
+        val given = runCatching { mapper.readTree(argument) }.getOrNull()
+            ?: return refusal("the arguments were not JSON")
+        if (!given.isArray || given.size() < 2 || !given.get(1).isObject) {
+            return refusal("that call takes a connection and what to read")
+        }
+        val connectionId = connectionOf(given.get(0))
+            ?: return refusal("the first argument has to be a Slack connection")
+        val asked = given.get(1)
+        fun text(field: String): String? =
+            asked.path(field).takeIf { it.isTextual }?.asString()?.takeIf { it.isNotEmpty() }
+
+        return when (text("op")) {
+            "api" -> {
+                val method = text("method") ?: return refusal("slack.api needs the method to call")
+                val args = asked.path("args")
+                val sent = if (args.isObject) {
+                    args.propertyNames().associateWith { name ->
+                        val value = args.path(name)
+                        if (!value.isValueNode || value.isNull) return refusal("slack.api sends strings, and $name is not one")
+                        value.asString()
+                    }
+                } else {
+                    emptyMap()
+                }
+                when (val read = webApi.read(connectionId, method, sent, asUser = text("as") == "user", on = on)) {
+                    is SlackRead.Answered -> {
+                        mapper.writeValueAsString(mapper.createObjectNode().set("json", read.json))
+                    }
+                    is SlackRead.NotPossible -> refusal(read.reason)
+                    is SlackRead.Refused -> {
+                        val answer = mapper.createObjectNode().put("error", read.reason)
+                        read.json?.let { answer.set("json", it) }
+                        mapper.writeValueAsString(answer)
+                    }
+                }.also { log.debug("A script read Slack's {} on connection {}", method, connectionId) }
+            }
+            "download" -> {
+                val file = text("file") ?: return refusal("slack.download needs the file's id")
+                when (val got = webApi.download(connectionId, file, MOST_DOWNLOADED_BYTES, on)) {
+                    is SlackDownload.Fetched -> {
+                        val answer = mapper.createObjectNode()
+                        if (got.contentType?.let(ChatAttachmentShelf::isText) == true) {
+                            answer.put("text", got.bytes.decodeToString())
+                        } else {
+                            answer.put("base64", java.util.Base64.getEncoder().encodeToString(got.bytes))
+                        }
+                        answer.put("size", got.bytes.size)
+                        answer.put("contentType", got.contentType)
+                        answer.set("file", got.file)
+                        mapper.writeValueAsString(answer)
+                    }
+                    is SlackDownload.NotPossible -> refusal(got.reason)
+                    is SlackDownload.Refused -> refusal(got.reason)
+                }.also { log.debug("A script downloaded a Slack file on connection {}", connectionId) }
+            }
+            else -> refusal("say whether it is an api call or a download")
+        }
     }
 
     private fun connectionOf(node: tools.jackson.databind.JsonNode?): Long? = node?.let { held ->
