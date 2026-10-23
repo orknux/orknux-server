@@ -19,6 +19,7 @@ have failed.
 
 ### ✨ Added
 
+- **`svg_read`** answers the markup of an SVG kept under a key - a drawing or an attached .svg - so an agent can read and change it.
 - **A plugin's skill catalogue can be searched** like a workspace's own, and both search what a skill says as well as its name and description.
 - **Sentence completion in the chat.** A workspace that chooses a Completion model on its settings page gets a suggestion of how the sentence being typed goes on, in grey after the caret; Tab takes it, typing on or Escape puts it away. With no Completion model the composer is as it was. How much of the chat it is shown, how long a suggestion may be, its time limit and the pause before asking are on Admin → Settings.
 - **Plugins and functions can read Slack's Web API and download Slack files through a connection.** `orknux.slack.api(connection, method, args, { as })` makes one of `auth.test`, `conversations.list`, `users.conversations`, `conversations.history`, `conversations.replies`, `users.list`, `users.lookupByEmail` or `files.info` with the connection's bot token - or its user token, with `as: 'user'` - and answers Slack's own JSON; `orknux.slack.download(connection, fileId)` fetches a file with the bot token, as text or base64, up to 5 MB. Both are the new `SLACK_WEB_API_READ` capability, so the Slack plugin can stop keeping its own `botToken` and `userToken`; a plugin that declares it asks for the grant again on its next update.
@@ -40,6 +41,7 @@ have failed.
 
 ### 🐛 Fixed
 
+- **An SVG attached to a chat no longer breaks it.** It was sent to the model as an SVG picture, which no provider loads, and every later message in that chat failed with it; it is now shown to the model drawn, a chat that already holds one recovers, and `picture_view` draws one kept as text.
 - **An agent's chats follow it to a new model.** Each chat kept the model it began with, so an agent moved to another model or provider went on calling the old one until a new chat was started.
 - An identity provider's sign-in whose username matched an internal account's was given that account's roles.
 - Spraying sign-in attempts over ten thousand names wiped the pause on the one being guessed.

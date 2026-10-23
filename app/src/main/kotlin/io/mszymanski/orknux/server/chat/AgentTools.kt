@@ -700,12 +700,18 @@ class AgentTools(
         if (sessionId == null) return refused("There is no session here to keep a picture in.")
         val held = scratch.get(sessionId, named) ?: return refused("Nothing in this session is kept under \"$named\".")
         val kind = scratch.kindOf(sessionId, named)
-        if (kind != null && !kind.binary) {
+        val value = runCatching { mapper.readTree(held) }.getOrNull()?.takeIf { it.isTextual }?.stringValue() ?: held
+        // An SVG is text, and is kept as its text where it came as a file: it is still a picture to look at.
+        val svgText = kind != null && !kind.binary && kind.contentType?.substringBefore(';')?.trim()?.lowercase() == "image/svg+xml"
+        if (kind != null && !kind.binary && !svgText) {
             return refused("\"$named\" holds text (${kind.contentType ?: "untyped"}), not a picture: read it instead.")
         }
-        val value = runCatching { mapper.readTree(held) }.getOrNull()?.takeIf { it.isTextual }?.stringValue() ?: held
-        val bytes = runCatching { java.util.Base64.getDecoder().decode(value.trim()) }.getOrNull()
-            ?: return refused("\"$named\" does not hold a picture.")
+        val bytes = if (svgText) {
+            value.toByteArray(Charsets.UTF_8)
+        } else {
+            runCatching { java.util.Base64.getDecoder().decode(value.trim()) }.getOrNull()
+                ?: return refused("\"$named\" does not hold a picture.")
+        }
         val type = kind?.contentType?.substringBefore(';')?.trim()?.lowercase() ?: sniffed(bytes)
         val (shown, shownType) = when (type) {
             "image/png", "image/jpeg", "image/gif", "image/webp" -> bytes to type

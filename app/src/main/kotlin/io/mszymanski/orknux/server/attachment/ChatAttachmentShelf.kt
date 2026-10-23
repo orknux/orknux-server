@@ -39,7 +39,8 @@ class ChatAttachmentShelf(
      * where - a note for the model, or null where there was nothing to put.
      */
     fun shelve(sessionId: Long, attached: List<ChatAttachment>): String? {
-        val files = attached.filterNot { it.contentType.startsWith("image/") }
+        // Pictures go to the model as part of the turn; an SVG goes drawn, and its markup is kept here too, to be read or edited.
+        val files = attached.filter { !it.contentType.startsWith("image/") || it.contentType.substringBefore(';').trim().equals("image/svg+xml", ignoreCase = true) }
         if (files.isEmpty()) return null
 
         val lines = files.map { file ->

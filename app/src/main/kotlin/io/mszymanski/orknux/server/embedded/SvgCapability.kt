@@ -56,6 +56,15 @@ class SvgCapability(
             ),
         ),
         EmbeddedTool(
+            name = READ,
+            summary = "Reads the SVG markup kept under a key.",
+            description = "Answers the markup of an SVG kept under a $KEY in this session - a drawing made as svg, " +
+                "an attached .svg file - so it can be read or changed and drawn again. To look at it as a picture, " +
+                "ask for it as a picture instead.",
+            params = listOf(EmbeddedParam(KEY, ValueType.STRING, "The contentKey of the SVG.", required = true)),
+            reads = StoredReader(setOf("image/svg+xml"), KEY),
+        ),
+        EmbeddedTool(
             name = TO_PNG,
             summary = "Turns an SVG into a PNG.",
             description = "Turns an SVG into a PNG picture you can look at or send. Give the $KEY an SVG is " +
@@ -96,6 +105,14 @@ class SvgCapability(
                 }
                 if (wanted == "svg") return vectors(mapper, scratch, sessionId, "drawing", svg, "svg")
                 drawing(mapper, scratch, sessionId, "drawing", picture.png, picture.width, picture.height, "svg")
+            }
+            READ -> {
+                val key = text(asked, KEY)?.trim()?.ifEmpty { null } ?: return refusal("Give the $KEY of an SVG.")
+                val svg = held(asked, sessionId) ?: return refusal(
+                    sessionId?.let { scratch.kindOf(it, key)?.contentType }?.let { "\"$key\" holds $it, not an SVG." }
+                        ?: "Nothing in this session is kept under \"$key\" as an SVG.",
+                )
+                mapper.writeValueAsString(linkedMapOf(SVG to svg, "characters" to svg.length))
             }
             TO_PNG -> {
                 // A key that already holds a PNG - a drawing made in the default format - is the answer as it is.
@@ -205,6 +222,7 @@ class SvgCapability(
     internal companion object {
         const val DRAW = "draw"
         const val TO_PNG = "toPng"
+        const val READ = "read"
         const val SVG = "svg"
         const val KEY = "key"
         const val FORMAT = "format"

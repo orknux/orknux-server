@@ -19,6 +19,7 @@ import java.util.Base64
 class ChatAttachments(
     private val attachments: ChatAttachmentRepository,
     private val store: AttachmentStore,
+    private val svgs: io.mszymanski.orknux.server.plugin.SvgRenderer,
 ) {
 
     /**
@@ -55,7 +56,24 @@ class ChatAttachments(
         .mapNotNull { attachment ->
             runCatching {
                 val bytes = store.open(attachment.location).use { it.readBytes() }
-                "data:${attachment.contentType};base64,${Base64.getEncoder().encodeToString(bytes)}"
+                if (attachment.contentType.substringBefore(';').trim().equals(SVG, ignoreCase = true)) {
+                    /*
+                     * Drawn first. No provider takes an SVG as a picture - it was
+                     * sent as image/svg+xml and refused, or read as nothing - so
+                     * the model is shown it as a PNG; its markup is in the
+                     * session's store for the tool that reads it.
+                     */
+                    when (val drawn = svgs.png(bytes.decodeToString(), null)) {
+                        is io.mszymanski.orknux.server.plugin.SvgRenderer.Drawing.Drawn ->
+                            "data:image/png;base64,${Base64.getEncoder().encodeToString(drawn.png)}"
+                        is io.mszymanski.orknux.server.plugin.SvgRenderer.Drawing.Refused -> {
+                            log.warn("Attachment {} is an SVG that could not be drawn: {}", attachment.filename, drawn.reason)
+                            null
+                        }
+                    }
+                } else {
+                    "data:${attachment.contentType};base64,${Base64.getEncoder().encodeToString(bytes)}"
+                }
             }.onFailure {
                 log.warn("Attachment {} could not be read for the model", attachment.filename, it)
             }.getOrNull()
@@ -63,5 +81,6 @@ class ChatAttachments(
 
     private companion object {
         val log = LoggerFactory.getLogger(ChatAttachments::class.java)
+        const val SVG = "image/svg+xml"
     }
 }

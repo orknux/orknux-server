@@ -126,6 +126,7 @@ interface LlmSessionPromptRepository : JpaRepository<LlmSessionPromptLine, Long>
 class SessionPrompt(
     private val lines: LlmSessionPromptRepository,
     private val recorder: LlmSessionRecorder,
+    private val svgs: io.mszymanski.orknux.server.plugin.SvgRenderer,
     transactions: PlatformTransactionManager,
 ) {
 
@@ -282,6 +283,28 @@ class SessionPrompt(
         return json.writeValueAsString(node)
     }
 
+    /**
+     * A picture as a model can take it: an SVG drawn as a PNG, anything else as
+     * it was kept.
+     *
+     * An SVG attached to a chat was sent as image/svg+xml, which no provider
+     * loads - llama.cpp answered 400 "Failed to load image or audio file" - and
+     * this record sends every earlier picture again on every turn, so one SVG
+     * made every later message in its chat fail. Drawn here, where every kept
+     * picture passes on its way out, a chat that already holds one recovers.
+     */
+    private fun seeable(dataUrl: String): String {
+        if (!dataUrl.startsWith(SVG_DATA)) return dataUrl
+        val markup = runCatching {
+            String(java.util.Base64.getDecoder().decode(dataUrl.substringAfter("base64,")), Charsets.UTF_8)
+        }.getOrNull() ?: return dataUrl
+        return when (val drawn = svgs.png(markup, null)) {
+            is io.mszymanski.orknux.server.plugin.SvgRenderer.Drawing.Drawn ->
+                "data:image/png;base64," + java.util.Base64.getEncoder().encodeToString(drawn.png)
+            is io.mszymanski.orknux.server.plugin.SvgRenderer.Drawing.Refused -> dataUrl
+        }
+    }
+
     /** And back; by hand, since a data class is not constructor-bound here. */
     internal fun decode(message: String): ChatTurn {
         val node = json.readTree(message)
@@ -290,7 +313,7 @@ class SessionPrompt(
         return ChatTurn(
             role = node.path("role").asString(),
             content = node.path("content").asString(""),
-            images = texts("images"),
+            images = texts("images").map(::seeable),
             asked = node.path("asked").values().map {
                 ToolCall(it.path("id").asString(), it.path("name").asString(), it.path("arguments").asString())
             },
@@ -301,6 +324,9 @@ class SessionPrompt(
     }
 
     private companion object {
+        /** How an SVG picture begins as a data URL. */
+        const val SVG_DATA = "data:image/svg+xml;base64,"
+
         const val SYSTEM = "system"
 
         /** Plain, so what is stored does not move when the application's mapper is configured. */
