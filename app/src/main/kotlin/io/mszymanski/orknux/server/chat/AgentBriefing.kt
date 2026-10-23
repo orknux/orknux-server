@@ -87,8 +87,8 @@ class AgentBriefing(
      * The agent's own prose first, then [grants] - what it was given and the
      * rules for using it.
      */
-    fun of(agent: Agent, chattiness: Chattiness = agent.chattiness): String? =
-        listOfNotNull(agent.systemPrompt?.takeIf { it.isNotBlank() }, grants(agent, chattiness))
+    fun of(agent: Agent, chattiness: Chattiness = agent.chattiness, session: Long? = null): String? =
+        listOfNotNull(agent.systemPrompt?.takeIf { it.isNotBlank() }, grants(agent, chattiness, session))
             .takeIf { it.isNotEmpty() }
             ?.joinToString("\n\n")
 
@@ -104,7 +104,7 @@ class AgentBriefing(
      * appends this, so a Slack bot with a bespoke voice still knows its own
      * commands and still says so. Issue #381.
      */
-    fun grants(agent: Agent, chattiness: Chattiness = agent.chattiness): String? {
+    fun grants(agent: Agent, chattiness: Chattiness = agent.chattiness, session: Long? = null): String? {
         val parts = mutableListOf<String>()
 
         /*
@@ -414,7 +414,12 @@ class AgentBriefing(
          * percent. The front of the phrase is what survives, which is what the
          * editor tells whoever writes one.
          */
-        val held = tools.getObject().specsFor(agent)
+        /*
+         * What this conversation is offered, not what the agent holds in
+         * general: a task is not offered tools_request, and a list naming it
+         * there had a model believe it held one, look for it and loop.
+         */
+        val held = tools.getObject().offeringFor(agent, session = session).let { it.core + it.searchable }
         if (held.isNotEmpty()) {
             val block = installation.toolSummariesFullUpTo()
             val step = installation.toolSummaryTrimPercent()
@@ -464,7 +469,7 @@ class AgentBriefing(
                  * Session 510: "I'll call slack_whoIs", then todo_complete,
                  * seven times, the model watching itself do it.
                  */
-                val behind = if (allInHand) emptySet() else tools.getObject().offeringFor(agent).searchable.map { it.name }.toSet()
+                val behind = if (allInHand) emptySet() else tools.getObject().offeringFor(agent, session = session).searchable.map { it.name }.toSet()
                 held.sortedBy { it.name }.forEach { spec ->
                     val said = spec.summary?.trim()?.ifEmpty { null } ?: spec.description.trim()
                     appendLine()

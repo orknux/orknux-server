@@ -82,13 +82,14 @@ class AgentDetails(
      *   string to the round and to this, and [briefedWith] puts the lent shed's
      *   paragraph on the end here exactly as the round puts it there.
      */
-    fun snapshot(agent: Agent, lent: ToolShed?, prompt: String?): String {
+    fun snapshot(agent: Agent, lent: ToolShed?, prompt: String?, session: Long? = null): String {
         val modelName = agent.modelId?.let { models.findByIdOrNull(it)?.name }
         val connectionNames = agent.connections
             .mapNotNull { connections.workspaceConnection(it)?.takeIf { held -> held.workspaceId == agent.workspaceId }?.name }
 
         val ceiling = ceilings.of(agent)
-        val offering = tools.offeringFor(agent, ceiling)
+        // As this conversation is offered them: a task, for one, is not offered tools_request.
+        val offering = tools.offeringFor(agent, ceiling, session)
         val (carriedLent, findableLent) = BuiltInTools.lentTo(agent, lent)?.specs().orEmpty()
             .partition { BuiltInTools.carried(agent, it.name, ceiling) }
         val carried = (offering.core + carriedLent).map { it.name }

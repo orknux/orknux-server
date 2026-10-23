@@ -77,6 +77,8 @@ class GrantRequestTools(
     private val builtIns: BuiltInTools,
     /** A provider: the handler that answers these questions is built on this. */
     private val interactions: ObjectProvider<Interactions>,
+    /** Which conversations are a task's, where asking goes through the task instead; see [offered]. */
+    private val tasks: io.mszymanski.orknux.server.task.TaskRepository,
 ) {
 
     /** What sort of grant a [Grantable] is, which is also how it is granted. */
@@ -95,7 +97,15 @@ class GrantRequestTools(
     /** Read once: the built-ins and what the model is told about them are fixed for a release. */
     private val summaryByName: Map<String, String> by lazy { summaries.summaries() }
 
-    fun offered(agent: Agent): Boolean = agent.mayAskForTools
+    /**
+     * Whether these are offered in [session]. Not in a task's: a task asks with
+     * its own `task_request_permission`, which parks the task, tells whoever
+     * asked for it and grants to the task alone. Offered there too, a model
+     * asked the person in a conversation nobody is in, the task never stopped,
+     * and it waited for an answer that could not come.
+     */
+    fun offered(agent: Agent, session: Long? = null): Boolean =
+        agent.mayAskForTools && (session == null || tasks.findFirstBySessionId(session) == null)
 
     fun handles(name: String): Boolean = name == LIST || name == ASK
 
@@ -145,6 +155,8 @@ class GrantRequestTools(
         val fresh = agent.id?.let { agents.findByIdOrNull(it) } ?: agent
         if (!fresh.mayAskForTools) {
             refuse("This agent may not ask for more tools; a person switched that off on its page")
+        } else if (!offered(fresh, sessionId)) {
+            refuse("In a task, ask with ${io.mszymanski.orknux.server.task.TaskTools.PERMISSION}, which stops the task until whoever asked for it answers")
         } else when (name) {
             LIST -> listed(fresh)
             ASK -> asked(fresh, arguments, sessionId)

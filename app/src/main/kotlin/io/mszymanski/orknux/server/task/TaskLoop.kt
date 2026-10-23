@@ -191,14 +191,14 @@ class TaskLoop(
          * a task agent whose instructions are its grants briefing and the task
          * rules read as having no system prompt at all.
          */
-        val instructions = instructions(briefings.of(agent))
+        val instructions = instructions(briefings.of(agent, session = session))
 
         // The agent's setup, written into the log where this turn starts if it
         // differs from the last one logged - so the first turn opens the log
         // with it, and an agent edited between turns is a line saying so rather
         // than a silent change. Issues #391, #441. With the shed, so the account
         // names every tool the model is handed, lent ones included. #446.
-        sessions.describeAgent(session, agentDetails.snapshot(agent, shed, instructions))
+        sessions.describeAgent(session, agentDetails.snapshot(agent, shed, instructions, session))
 
         deliver(taskId, session)
 

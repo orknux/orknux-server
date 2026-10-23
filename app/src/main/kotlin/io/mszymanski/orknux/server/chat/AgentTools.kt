@@ -189,7 +189,7 @@ class AgentTools(
          * find the way to ask for a missing tool would look for the missing
          * tool instead, find nothing, and say it cannot.
          */
-        if (grantRequests.offered(agent)) addAll(GrantRequestTools.SPECS)
+        if (grantRequests.offered(agent, session)) addAll(GrantRequestTools.SPECS)
 
         /*
          * And the ids of the connections it was granted, however many: one

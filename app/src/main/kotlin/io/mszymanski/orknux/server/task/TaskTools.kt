@@ -296,7 +296,7 @@ class TaskTools(
         }.getOrNull()
     }
 
-    private companion object {
+    companion object {
         const val DONE = "task_done"
         const val ASK = "task_ask"
         const val PERMISSION = "task_request_permission"
