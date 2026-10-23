@@ -138,6 +138,17 @@ class DiagramRendererTest {
         assertThat(own.lowercase()).contains("#ff0000").doesNotContain("#eef2ff")
     }
 
+    /**
+     * A mermaid decision - `B{Queued?}` - was a hexagon in PlantUML, which it
+     * takes and draws nothing of: no outline and no fill, a question floating
+     * between the boxes. It is an oval now, in a colour of its own.
+     */
+    @Test
+    fun `a decision is drawn as a shape of its own in the house style`() {
+        val svg = drawn("flowchart LR${n}  A[API Server] --> B{Queued?}${n}  B -->|yes| C[(Job Queue)]").lowercase()
+        assertThat(svg).contains("queued?").contains("<ellipse").contains("#f0f9ff").contains("#0ea5e9")
+    }
+
     @Test
     fun `plantuml written out is passed through untouched`() {
         val svg = drawn(

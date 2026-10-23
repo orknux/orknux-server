@@ -112,7 +112,7 @@ object Mermaid {
      * as A` declarations, and the edges that follow carry bare aliases.
      *
      * The shape is kept where mermaid gave one: `{...}` is a decision and
-     * becomes a hexagon, and everything else a plain box.
+     * becomes an oval, and everything else a plain box.
      */
     private fun flowchart(lines: List<String>): String {
         val header = lines.firstOrNull().orEmpty()
@@ -169,11 +169,13 @@ object Mermaid {
                 if (said.isNotEmpty()) {
                     labelled[alias] = said
                     /*
-                     * `hexagon` rather than `diamond` for a decision: PlantUML
-                     * has no diamond among its component shapes, and writing
-                     * one is a syntax error that comes back as a picture of a
-                     * complaint rather than as a failure. Hexagon is the shape
-                     * it does have that reads as a branch.
+                     * An oval - `usecase` - for a decision. PlantUML has no
+                     * diamond among its component shapes, and writing one is a
+                     * syntax error that comes back as a picture of a complaint.
+                     * It does take `hexagon`, and draws nothing: no outline and
+                     * no fill, only the words, so a decision was a question
+                     * floating between the boxes. An oval it draws, and the
+                     * house style gives it a colour of its own.
                      */
                     shaped[alias] = SHAPES[opened] ?: "rectangle"
                 }
@@ -320,7 +322,7 @@ object Mermaid {
     private val NODE = Regex("(\\w+)(\\[\\(|\\(\\(|\\(\\[|\\[\\[|\\{\\{|\\[|\\(|\\{|>)(.*?)(\\)\\]|\\)\\)|\\]\\)|\\]\\]|\\}\\}|\\]|\\)|\\})")
 
     /** What PlantUML draws for each of mermaid's brackets. */
-    private val SHAPES = mapOf("[(" to "database", "((" to "circle", "{" to "hexagon", "{{" to "hexagon")
+    private val SHAPES = mapOf("[(" to "database", "((" to "circle", "{" to "usecase", "{{" to "usecase")
 
     /** `subgraph id [Label]`, `subgraph "Label"`, `subgraph Label`. */
     private val SUBGRAPH = Regex("^subgraph\\s+([^\\[\\s\"]*)\\s*(?:\\[\\s*\"?([^\\]\"]*)\"?\\s*\\]|\"?([^\"]*)\"?)\\s*$")

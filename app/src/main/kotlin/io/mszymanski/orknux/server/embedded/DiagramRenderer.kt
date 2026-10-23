@@ -267,8 +267,8 @@ class DiagramRenderer {
             |  BorderColor #6366f1
             |}
             |skinparam usecase {
-            |  BackgroundColor #eef2ff
-            |  BorderColor #6366f1
+            |  BackgroundColor #f0f9ff
+            |  BorderColor #0ea5e9
             |}
             |skinparam activity {
             |  BackgroundColor #eef2ff
