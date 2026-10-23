@@ -94,7 +94,10 @@ class SessionRatingAPI(
         ownership.requireOwn(chat)
         val session = chat.llmSessionId ?: return emptyList()
         return ratings.findBySessionIdOrderByAtAsc(session).map {
-            ChatReviewView(requireNotNull(it.id), it.at.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME), it.score, it.review, it.personName ?: it.personKey)
+            ChatReviewView(
+                requireNotNull(it.id), it.at.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME), it.score, it.review, it.personName ?: it.personKey,
+                it.withdrawnAt?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+            )
         }
     }
 
@@ -227,4 +230,12 @@ data class SessionRatingView(
     val personName: String?,
 )
 
-data class ChatReviewView(val id: Long, val at: String, val score: Int, val review: String?, val personName: String?)
+data class ChatReviewView(
+    val id: Long,
+    val at: String,
+    val score: Int,
+    val review: String?,
+    val personName: String?,
+    /** When it was taken back, or null while it stands. */
+    val withdrawnAt: String? = null,
+)

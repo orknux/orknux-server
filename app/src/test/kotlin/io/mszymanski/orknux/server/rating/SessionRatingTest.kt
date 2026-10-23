@@ -43,6 +43,7 @@ class SessionRatingTest(
     @Autowired val settingRows: InstallationSettingRepository,
     @Autowired val history: org.springframework.ai.chat.memory.ChatMemoryRepository,
     @Autowired val events: io.mszymanski.orknux.server.llm.LlmSessionEventRepository,
+    @Autowired val ratingRows: SessionRatingRepository,
 ) {
 
     private var workspaceId: Long = 0
@@ -97,6 +98,10 @@ class SessionRatingTest(
         assertThat((latest["id"] as Number).toLong()).isEqualTo(second)
         assertThat(remove(mapOf("id" to second))["error"].toString()).contains("sent no review $second")
         assertThat((remove(mapOf("id" to first))["id"] as Number).toLong()).isEqualTo(first)
+        // Kept and marked rather than deleted, and said in the session, so the chat and the session can show it was taken back.
+        assertThat(ratingRows.findAllById(listOf(first, second)).map { it.withdrawnAt }).doesNotContainNull().hasSize(2)
+        assertThat(events.findAll().filter { it.sessionId == session }.mapNotNull { it.content })
+            .anySatisfy { assertThat(it).contains("took back their review: 4 / 5") }
         // Taken back, so the conversation has its share to send again.
         assertThat(send(mapOf("score" to 5))["sent"]).isEqualTo(true)
 

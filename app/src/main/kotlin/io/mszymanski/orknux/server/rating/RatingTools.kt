@@ -40,6 +40,7 @@ class RatingTools(
     private val usage: UsageTracking,
     private val settings: InstallationSettings,
     private val mapper: ObjectMapper,
+    private val recorder: io.mszymanski.orknux.server.llm.LlmSessionRecorder,
 ) {
 
     /** Null where there is no session, or while an administrator has ratings off. */
@@ -86,12 +87,15 @@ class RatingTools(
      * here. Refused with a sentence that says why.
      */
     fun remove(session: Long, id: Long?): SessionRating {
-        val sent = ratings.findBySessionIdOrderByAtAsc(session)
+        val sent = ratings.findBySessionIdOrderByAtAsc(session).filter { it.withdrawnAt == null }
         val chosen = if (id == null) sent.lastOrNull() else sent.firstOrNull { it.id == id }
         chosen ?: throw ReviewRefusedException(
             if (id == null) "This conversation has sent no review to take back." else "This conversation sent no review $id.",
         )
-        ratings.delete(chosen)
+        // Marked rather than deleted, so the chat and the session can say it was taken back.
+        chosen.withdrawnAt = java.time.OffsetDateTime.now()
+        ratings.save(chosen)
+        recorder.note(session, "${chosen.personName ?: chosen.personKey} took back their review: ${chosen.score} / 5")
         return chosen
     }
 
@@ -109,7 +113,7 @@ class RatingTools(
          * conversation has sent its share, an agent can say so to the person.
          */
         val most = settings.reviewsPerSession()
-        if (ratings.countBySessionId(session) >= most) {
+        if (ratings.countBySessionIdAndWithdrawnAtIsNull(session) >= most) {
             throw ReviewRefusedException("This conversation has already sent $most reviews, which is as many as one may.")
         }
         val conversation = sessions.findByIdOrNull(session)

@@ -76,4 +76,6 @@ type ChatReview {
     "What the person wrote; null where they gave only a score."
     review: String
     personName: String
+    "When the review was taken back; null while it stands."
+    withdrawnAt: String
 }

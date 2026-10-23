@@ -60,11 +60,16 @@ class SessionRating(
 
     @Column(name = "person_name")
     val personName: String?,
+
+    /** When the review was taken back; null while it stands. Kept rather than deleted, so the chat can say so. */
+    @Column(name = "withdrawn_at")
+    var withdrawnAt: OffsetDateTime? = null,
 )
 
 interface SessionRatingRepository : JpaRepository<SessionRating, Long>, JpaSpecificationExecutor<SessionRating> {
 
-    fun countBySessionId(sessionId: Long): Long
+    /** The reviews a conversation has sent that still stand: one taken back no longer counts against its share. */
+    fun countBySessionIdAndWithdrawnAtIsNull(sessionId: Long): Long
 
     fun findBySessionIdOrderByAtAsc(sessionId: Long): List<SessionRating>
 }
@@ -78,6 +83,8 @@ fun ratingFilter(
     search: String?,
 ): Specification<SessionRating> = Specification { root, _, builder ->
     val predicates = mutableListOf(
+        // A review taken back is not a review the report counts.
+        builder.isNull(root.get<OffsetDateTime>("withdrawnAt")),
         builder.greaterThanOrEqualTo(root.get("at"), from),
         builder.lessThan(root.get("at"), to),
     )
