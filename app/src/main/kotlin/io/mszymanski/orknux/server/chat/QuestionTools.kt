@@ -132,10 +132,11 @@ class QuestionTools(
             name = ASK,
             description = "Asks the person a question in this conversation, with the answers you can think of " +
                 "drawn as options to click. Each option has a short $LABEL and a $DESCRIPTION of what choosing " +
-                "it means. The person can also answer in their own words. Use it when you need a decision from " +
-                "them that changes what you do next - which of several ways to go, what to include - rather than " +
-                "listing the choices in your answer. Set $MULTIPLE when several may be chosen at once. The " +
-                "answer reaches you later: after asking, end your turn.",
+                "it means. The person can also answer in their own words. Use it for every question you put to " +
+                "the person whose answers you can list - a decision, a preference, a quiz or a test question - " +
+                "instead of writing the choices as a list in your answer and asking them to reply with one. Set " +
+                "$MULTIPLE when several may be chosen at once. The answer reaches you later: after asking, end " +
+                "your turn without writing anything else.",
             parameters = listOf(
                 ToolParameterSpec(name = QUESTION, description = "The question, in one sentence ending with a question mark.", required = true),
                 ToolParameterSpec(

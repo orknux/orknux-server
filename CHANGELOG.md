@@ -20,7 +20,8 @@ have failed.
 ### ✨ Added
 
 - **Dependencies.** A workspace page drawing every part - workflows, agents, actions, functions, models, variables and the rest - and what uses what. Choosing one lights everything it needs and everything that needs it.
-- **Agents ask with options.** `ask_person` puts a question in the chat with an option per row and a line on what each means, several to tick where the agent allows it, and a box for your own words; the answer goes back to the agent.
+- **A part's dependency graph from its Used by panel**: what uses it and what it uses, followed to the end both ways.
+- **Agents ask with options.** `ask_person` puts a question in the chat with an option per row and a line on what each means, several to tick where the agent allows it, and a box for your own words; the answer goes back to the agent. Agents use it for any question with answers they can list, a quiz included.
 - **Drawing in SVG.** Agents have `svg_draw`, which draws SVG they write in any colour, and `svg_toPng`, which turns an SVG they hold into a PNG.
 - **Working on a workflow together.** Everybody with the editor open sees who else is there, their pointers with their logins, and their changes as they are made. Two changes made at once are merged rather than one writing over the other.
 - **A model's own answer time limit**, on its page beside Requests per Minute. Empty takes the installation's Model Answer Time Limit.
