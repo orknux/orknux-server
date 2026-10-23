@@ -755,6 +755,25 @@ class ChatService(
         return Answering(requireNotNull(first.modelId), requireNotNull(first.id))
     }
 
+    /**
+     * The model a turn in this chat is answered with: the agent's as it is now.
+     *
+     * A chat keeps the model it began with, and every turn used that copy - so
+     * an agent moved to another model, or another provider, went on calling the
+     * old one in every chat it already had, and only a new chat followed the
+     * change. The copy is brought up to date here, so the header, the title
+     * and anything else that reads it says the same model the turn uses. A
+     * chat with no agent, or an agent with no model, keeps what it has.
+     */
+    private fun answeringModel(session: ChatSession): Long? {
+        val current = session.agentId?.let { agents.findByIdOrNull(it) }?.modelId ?: return session.modelId
+        if (current != session.modelId) {
+            session.modelId = current
+            sessions.save(session)
+        }
+        return current
+    }
+
     @Transactional
     fun rename(id: Long, title: String): ChatSession {
         val session = sessions.findByIdOrNull(id) ?: throw ChatSessionNotFoundException(id)
@@ -1018,7 +1037,7 @@ class ChatService(
         // A picture or a file is something said: only a message with nothing at all in it is refused.
         val message = text.trim()
         if (message.isEmpty() && images.isEmpty() && attachmentIds.isEmpty()) throw ChatMessageEmptyException()
-        val modelId = session.modelId ?: throw ChatModelNotChosenException()
+        val modelId = answeringModel(session) ?: throw ChatModelNotChosenException()
 
         /*
          * Compacted before the turn is built rather than after one lands, so
@@ -1041,7 +1060,7 @@ class ChatService(
         attachmentIds: List<Long> = emptyList(),
     ): ChatSendStart {
         val session = sessions.findByIdOrNull(id) ?: throw ChatSessionNotFoundException(id)
-        val modelId = session.modelId ?: throw ChatModelNotChosenException()
+        val modelId = answeringModel(session) ?: throw ChatModelNotChosenException()
         val thread = history.findByConversationId(session.conversationId)
         history.saveAll(session.conversationId, thread + UserMessage(message))
         // Placed under the message they came with, whose place is the thread's length before it was added.
@@ -1102,7 +1121,7 @@ class ChatService(
      */
     fun beginWake(id: Long): ChatSendStart? = writing.execute {
         val session = sessions.findByIdOrNull(id) ?: return@execute null
-        val modelId = session.modelId ?: return@execute null
+        val modelId = answeringModel(session) ?: return@execute null
         if (session.agentId == null) return@execute null
         val thread = history.findByConversationId(session.conversationId)
         val into = recording(session)
@@ -1145,7 +1164,7 @@ class ChatService(
     @Transactional
     fun beginRegenerate(id: Long): ChatSendStart {
         val session = sessions.findByIdOrNull(id) ?: throw ChatSessionNotFoundException(id)
-        val modelId = session.modelId ?: throw ChatModelNotChosenException()
+        val modelId = answeringModel(session) ?: throw ChatModelNotChosenException()
 
         val thread = history.findByConversationId(session.conversationId)
         val last = thread.lastOrNull()

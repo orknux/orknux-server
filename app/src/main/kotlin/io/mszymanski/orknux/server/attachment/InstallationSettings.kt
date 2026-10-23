@@ -69,6 +69,7 @@ object SettingNames {
     const val PLUGIN_TIMEOUT_SECONDS = "plugin.timeout.seconds"
     const val CHAT_MAX_ROUNDS = "chat.max.rounds"
     const val CHAT_RETITLE_EVERY = "chat.retitle.every"
+    const val CHAT_TITLE_SECONDS = "chat.title.seconds"
     const val OBJECT_MAX_DEPTH = "objects.max.depth"
     const val IMAGE_MAX_PROMPT = "images.max.prompt"
     const val IMAGE_DRAWS_AT_ONCE = "images.draws.at.once"
@@ -491,6 +492,27 @@ class InstallationSettings(
 
     /** What a fresh installation does - ORKNUX_CHAT_RETITLE_EVERY. */
     fun chatRetitleEveryConfigured(): Int = chat.retitleEvery.coerceIn(0, MAX_CHAT_RETITLE)
+
+    /** How long the companion model has to name a chat before the chat's own model is asked, in seconds. */
+    fun chatTitleSeconds(): Int {
+        val held = settings.findByIdOrNull(SettingNames.CHAT_TITLE_SECONDS) ?: return chatTitleSecondsConfigured()
+        return held.value.toIntOrNull()?.takeIf { it in MIN_CHAT_TITLE_SECONDS..MAX_CHAT_TITLE_SECONDS }
+            ?: chatTitleSecondsConfigured()
+    }
+
+    /** What a fresh installation does - ORKNUX_CHAT_TITLE_SECONDS. */
+    fun chatTitleSecondsConfigured(): Int = chat.titleSeconds.coerceIn(MIN_CHAT_TITLE_SECONDS, MAX_CHAT_TITLE_SECONDS)
+
+    @Transactional
+    fun setChatTitleSeconds(seconds: Int, by: String) {
+        if (seconds !in MIN_CHAT_TITLE_SECONDS..MAX_CHAT_TITLE_SECONDS) throw ChatTitleSecondsOutOfRangeException(seconds)
+        val held = settings.findByIdOrNull(SettingNames.CHAT_TITLE_SECONDS)
+            ?: InstallationSetting(name = SettingNames.CHAT_TITLE_SECONDS)
+        held.value = seconds.toString()
+        held.lastModifiedAt = OffsetDateTime.now()
+        held.lastModifiedBy = by
+        settings.save(held)
+    }
 
     @Transactional
     fun setChatRetitleEvery(exchanges: Int, by: String) {
@@ -2132,6 +2154,16 @@ const val MIN_CHAT_ROUNDS = 2
 
 /** The most exchanges between namings: past it a chat is, for all purposes, named once. */
 const val MAX_CHAT_RETITLE = 1000
+
+/** The shortest and longest a chat's naming may wait on the companion model, in seconds. */
+const val MIN_CHAT_TITLE_SECONDS = 1
+const val MAX_CHAT_TITLE_SECONDS = 600
+
+class ChatTitleSecondsOutOfRangeException(val seconds: Int) : RuntimeException(
+    "A chat's title cannot wait $seconds seconds for the companion model. Choose between $MIN_CHAT_TITLE_SECONDS and $MAX_CHAT_TITLE_SECONDS.",
+), io.mszymanski.orknux.server.graphql.Refusal {
+    override val arguments get() = mapOf("seconds" to seconds)
+}
 
 class ChatRetitleOutOfRangeException(val exchanges: Int) : RuntimeException(
     "A chat cannot be named again every $exchanges exchanges. Choose between 0, which never does, and $MAX_CHAT_RETITLE.",

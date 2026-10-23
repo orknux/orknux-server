@@ -24,6 +24,7 @@ have failed.
 
 ### 🔧 Changed
 
+- **A chat's title no longer waits on a busy companion model.** Past Admin Settings' Chat Title Time Limit (30 seconds, `ORKNUX_CHAT_TITLE_SECONDS`), or when it fails, the chat's own model names it.
 - **Cross-site writes are refused.** A write a browser says came from another site is refused with 403, by `Origin`, `Sec-Fetch-Site` or `Referer`; the CLI, `/mcp` and anything sending a bearer token are unaffected. If the interface is served from another origin, list it in `ORKNUX_ALLOWED_ORIGINS`.
 - A workspace function's `orknux.http`, an agent's HTTP tools and a plugin's requests refuse cloud metadata addresses, including after a redirect, and read an answer only up to their limit rather than whole.
 - A workflow's own action can no longer name another workspace's connection, function, condition, speech model or workflow, and a run will not send through another workspace's connection whatever was saved.
@@ -34,6 +35,7 @@ have failed.
 
 ### 🐛 Fixed
 
+- **An agent's chats follow it to a new model.** Each chat kept the model it began with, so an agent moved to another model or provider went on calling the old one until a new chat was started.
 - An identity provider's sign-in whose username matched an internal account's was given that account's roles.
 - Spraying sign-in attempts over ten thousand names wiped the pause on the one being guessed.
 - One mailed password-reset link could be spent twice by two requests at once.

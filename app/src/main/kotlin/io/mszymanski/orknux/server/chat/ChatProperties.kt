@@ -35,6 +35,13 @@ data class ChatProperties(
     val retitleEvery: Int = 20,
 
     /**
+     * How long the companion model has to name a chat, in seconds, before the
+     * chat's own model is asked instead. A companion model that is busy or
+     * gone otherwise held the title for the whole answer time limit.
+     */
+    val titleSeconds: Int = 30,
+
+    /**
      * The longest an agent may put itself to sleep for, in seconds.
      *
      * An agent ending its turn with a wake-up parks the step, and the run comes

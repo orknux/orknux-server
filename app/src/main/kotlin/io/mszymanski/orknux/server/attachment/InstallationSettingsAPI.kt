@@ -52,6 +52,8 @@ class InstallationSettingsAPI(
         chatMaxRounds = settings.chatMaxRounds(),
         chatRetitleEvery = settings.chatRetitleEvery(),
         chatRetitleEveryConfigured = settings.chatRetitleEveryConfigured(),
+        chatTitleSeconds = settings.chatTitleSeconds(),
+        chatTitleSecondsConfigured = settings.chatTitleSecondsConfigured(),
         chatMaxRoundsConfigured = settings.chatMaxRoundsConfigured(),
         objectMaxDepth = settings.objectMaxDepth(),
         objectMaxDepthConfigured = settings.objectMaxDepthConfigured(),
@@ -699,6 +701,14 @@ class InstallationSettingsAPI(
 
     /** After how many exchanges a chat a model named is named again. */
     @MutationMapping
+    fun setChatTitleSeconds(@Argument seconds: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setChatTitleSeconds(seconds, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "The companion model has $seconds seconds to name a chat")
+        return installationSettings()
+    }
+
+    @MutationMapping
     fun setChatRetitleEvery(@Argument exchanges: Int): InstallationSettingsView {
         access.requireAdmin()
         settings.setChatRetitleEvery(exchanges, currentUser())
@@ -1170,6 +1180,8 @@ data class InstallationSettingsView(
     /** After how many exchanges a chat a model named is named again; 0 never. */
     val chatRetitleEvery: Int,
     val chatRetitleEveryConfigured: Int,
+    val chatTitleSeconds: Int,
+    val chatTitleSecondsConfigured: Int,
     val objectMaxDepth: Int,
     val objectMaxDepthConfigured: Int,
     val imageMaxPrompt: Int,

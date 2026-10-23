@@ -114,7 +114,7 @@ class ChatTitles(
         }
 
         val workspace = workspaces.findByIdOrNull(session.workspaceId) ?: return null
-        val companion = workspace.companionModelId ?: session.modelId ?: return null
+        if ((workspace.companionModelId ?: session.modelId) == null) return null
         val failed = arrayOfNulls<String>(1)
 
         /*
@@ -123,7 +123,7 @@ class ChatTitles(
          * nothing, which left every chat on an installation called New chat
          * with not a line in the log.
          */
-        val suggested = ask(companion, question, answer) { failed[0] = it }
+        val suggested = titled(workspace.companionModelId, session.modelId, question, answer) { failed[0] = it }
             ?: fromWords(question).also {
                 log.info("Chat {} named from its first message: its model gave no usable title", sessionId)
                 if (failed[0] == null) failed[0] = "The model gave no title"
@@ -150,7 +150,7 @@ class ChatTitles(
     private fun renameFromHistory(session: ChatSession): String? {
         val sessionId = requireNotNull(session.id)
         val workspace = workspaces.findByIdOrNull(session.workspaceId) ?: return null
-        val companion = workspace.companionModelId ?: session.modelId ?: return null
+        if ((workspace.companionModelId ?: session.modelId) == null) return null
         val recent = history.findByConversationId(session.conversationId)
             .filter { it.messageType.name == "USER" || it.messageType.name == "ASSISTANT" }
             .mapNotNull { message -> message.text?.takeIf { it.isNotBlank() }?.let { message.messageType.name to it } }
@@ -158,7 +158,7 @@ class ChatTitles(
         val question = recent.filter { it.first == "USER" }.joinToString("\n") { it.second.take(ANSWER_SAMPLE) }
         val answer = recent.filter { it.first == "ASSISTANT" }.joinToString("\n") { it.second.take(ANSWER_SAMPLE) }
         val failed = arrayOfNulls<String>(1)
-        val suggested = ask(companion, question, answer) { failed[0] = it }
+        val suggested = titled(workspace.companionModelId, session.modelId, question, answer) { failed[0] = it }
         val before = session.title
         writing.executeWithoutResult {
             val held = sessions.findByIdOrNull(sessionId) ?: return@executeWithoutResult
@@ -180,6 +180,30 @@ class ChatTitles(
      * Anything that comes back long is cut rather than refused — a truncated
      * title beats none.
      */
+    /**
+     * A title from the companion model, or from the chat's own model where the
+     * companion did not answer.
+     *
+     * Each is held to Admin Settings' Chat Title Time Limit. The companion is a
+     * second model the workspace chose for small jobs, and when it is busy or
+     * gone a chat sat on New chat for the whole answer time limit; the chat's
+     * own model has just answered, so it is there to ask. A model that answered
+     * with nothing usable is not asked again - that is not the companion being
+     * away, and the first message's words name the chat instead.
+     */
+    private fun titled(companion: Long?, current: Long?, question: String, answer: String, failed: (String) -> Unit): String? {
+        val first = companion ?: current ?: return null
+        var unanswered: String? = null
+        val said = ask(first, question, answer) { unanswered = it }
+        val reason = unanswered ?: return said
+        if (companion == null || current == null || current == companion) {
+            failed(reason)
+            return null
+        }
+        log.info("The companion model did not name the chat ({}); asking the chat's own model", reason)
+        return ask(current, question, answer, failed)
+    }
+
     private fun ask(modelId: Long, question: String, answer: String, failed: (String) -> Unit): String? {
         val turns = listOf(
             ChatTurn(
@@ -190,7 +214,22 @@ class ChatTitles(
             ChatTurn(role = "user", content = "Message: $question\n\nReply: ${answer.take(ANSWER_SAMPLE)}"),
         )
 
-        return when (val completion = models.complete(modelId, turns)) {
+        // Given up on after the time limit, rather than after the model's whole answer time limit.
+        val seconds = settings.chatTitleSeconds()
+        val hangup = io.mszymanski.orknux.connector.model.Hangup()
+        val done = java.util.concurrent.atomic.AtomicBoolean(false)
+        java.util.concurrent.CompletableFuture.delayedExecutor(seconds.toLong(), java.util.concurrent.TimeUnit.SECONDS)
+            .execute { if (!done.get()) hangup.hangUp() }
+        val completion = try {
+            models.complete(modelId, turns, hangup = hangup)
+        } finally {
+            done.set(true)
+        }
+        if (hangup.hungUp) {
+            failed("The model did not answer within $seconds seconds")
+            return null
+        }
+        return when (completion) {
             // Naming a chat is one round with no tools offered, so this cannot
             // happen; the compiler wants it said.
             is ChatCompletion.CalledTools -> null

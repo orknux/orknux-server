@@ -1270,6 +1270,8 @@ type Mutation {
     setImageHarmonizeSize(pixels: Int!): InstallationSettings!
     "After how many exchanges a chat a model named is named again from what it has become; 0 names it once."
     setChatRetitleEvery(exchanges: Int!): InstallationSettings!
+    "How long the companion model has to name a chat before the chat's own model is asked, in seconds, between 1 and 600."
+    setChatTitleSeconds(seconds: Int!): InstallationSettings!
     """
     The longest an agent may put itself to sleep for; 1 to 86400 seconds.
 
@@ -7014,6 +7016,10 @@ type InstallationSettings {
     chatRetitleEvery: Int!
     "What a fresh installation does - ORKNUX_CHAT_RETITLE_EVERY."
     chatRetitleEveryConfigured: Int!
+    "How long the companion model has to name a chat before the chat's own model is asked, in seconds."
+    chatTitleSeconds: Int!
+    "What a fresh installation does - ORKNUX_CHAT_TITLE_SECONDS."
+    chatTitleSecondsConfigured: Int!
     """
     How deep an object's shape may go - an object defined inside an object -
     and how deep a value is checked against one. The same number bounds what a

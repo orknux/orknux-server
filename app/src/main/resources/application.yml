@@ -282,6 +282,9 @@ orknux:
     # it has become; 0 names it once. A title somebody typed is never replaced.
     # Admin -> Settings holds what it is now.
     retitle-every: ${ORKNUX_CHAT_RETITLE_EVERY:20}
+    # How long the companion model has to name a chat before the chat's own
+    # model is asked instead, in seconds. Admin -> Settings holds what it is now.
+    title-seconds: ${ORKNUX_CHAT_TITLE_SECONDS:30}
     # How many other agents one agent may ask in one conversation. Each ask is
     # a conversation of its own, so this bounds what one question fans out
     # into. Admin -> Settings overrides it, and a workspace may carry its own.

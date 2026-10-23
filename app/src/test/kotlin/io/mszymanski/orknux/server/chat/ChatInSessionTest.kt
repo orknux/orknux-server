@@ -822,6 +822,71 @@ class ChatInSessionTest(
     }
 
     /**
+     * An agent moved to another model answers its existing chats with the new
+     * one. Each chat kept the model it began with, and only a new chat followed
+     * the change - the old provider went on being called, and refusing.
+     */
+    @Test
+    fun `an agent's chat follows the agent to its new model`() {
+        val before = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
+        before.createContext("/chat/completions") { exchange ->
+            val bytes = """{"choices":[{"message":{"role":"assistant","content":"From the old model."}}],"usage":{"prompt_tokens":5,"completion_tokens":3}}"""
+                .toByteArray(StandardCharsets.UTF_8)
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+            exchange.close()
+        }
+        before.start()
+        try {
+            val agentId = agent("Mover", model("http://${before.address.hostString}:${before.address.port}", "Old"))
+            val chatId = startChat(llmSessionId = null, agentId = agentId)
+            send(chatId, "Hello")
+
+            val moved = model(serveAnswer("From the new model."), "New")
+            graphQlTester.document("""mutation { updateAgent(id: $agentId, input: { name: "Mover", modelId: $moved }) { id } }""")
+                .execute().path("updateAgent.id").hasValue()
+
+            graphQlTester.document("""mutation { sendChatMessage(id: $chatId, text: "Again") { answer { content } } }""")
+                .execute().path("sendChatMessage.answer.content").entity(String::class.java).isEqualTo("From the new model.")
+            assertThat(chats.findByIdOrNull(chatId)?.modelId).isEqualTo(moved)
+        } finally {
+            before.stop(0)
+        }
+    }
+
+    /**
+     * A companion model that does not answer within the time limit is passed
+     * over for the chat's own model. A busy companion held the title for the
+     * whole answer time limit, an hour by default.
+     */
+    @Test
+    fun `a companion model that does not answer in time is passed over for the chat's own`() {
+        val silent = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
+        silent.createContext("/chat/completions") { exchange ->
+            Thread.sleep(5_000)
+            exchange.sendResponseHeaders(500, -1)
+            exchange.close()
+        }
+        silent.start()
+        try {
+            graphQlTester.document("mutation { setChatTitleSeconds(seconds: 1) { chatTitleSeconds } }").execute()
+                .path("setChatTitleSeconds.chatTitleSeconds").entity(Int::class.java).isEqualTo(1)
+            val companion = model("http://${silent.address.hostString}:${silent.address.port}", "Companion")
+            workspaces.save(requireNotNull(workspaces.findByIdOrNull(workspaceId)).apply { companionModelId = companion })
+            val chatId = bareChat(llmSessionId = null, endpoint = serveAnswer("Pool sizing"))
+            chats.save(requireNotNull(chats.findByIdOrNull(chatId)).apply { title = "New chat" })
+
+            send(chatId, "How big should the pool be?")
+
+            assertThat(chats.findByIdOrNull(chatId)?.title).isEqualTo("Pool sizing")
+        } finally {
+            graphQlTester.document("mutation { setChatTitleSeconds(seconds: 30) { chatTitleSeconds } }").execute()
+            silent.stop(0)
+        }
+    }
+
+    /**
      * A model that only thinks when asked for a title still leaves the chat
      * named: from the first words of what was asked. A reasoning model answered
      * the naming request with nothing, and every chat on an installation stayed

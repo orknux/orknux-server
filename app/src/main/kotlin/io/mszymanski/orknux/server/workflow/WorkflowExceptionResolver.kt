@@ -274,6 +274,7 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
              */
             is io.mszymanski.orknux.server.attachment.ChatRoundsOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.ChatRetitleOutOfRangeException,
+            is io.mszymanski.orknux.server.attachment.ChatTitleSecondsOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.ObjectDepthOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.ImagePromptOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.ImageDrawsOutOfRangeException,
