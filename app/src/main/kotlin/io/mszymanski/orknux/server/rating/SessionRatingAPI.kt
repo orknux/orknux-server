@@ -42,7 +42,6 @@ class SessionRatingAPI(
     private val agents: io.mszymanski.orknux.server.agent.AgentRepository,
     private val models: io.mszymanski.orknux.connector.model.LlmModelRepository,
     private val usage: io.mszymanski.orknux.server.usage.UsageTracking,
-    private val recorder: io.mszymanski.orknux.server.llm.LlmSessionRecorder,
 ) {
 
     /** Whether a review can be sent at all, for the chat's menu: anybody signed in. */
