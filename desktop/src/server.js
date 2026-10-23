@@ -76,6 +76,34 @@ function javaOptions(temp, extra) {
   return options.concat(extra);
 }
 
+/**
+ * How a jar is started: from where, with which `-jar`, and with what else.
+ *
+ * The shipped jar has an unpacked copy beside it, `app/`, and usually an AOT
+ * cache in it, both made by scripts/aot.sh with this package's runtime (#650).
+ * Started from inside that directory with a relative `-jar app.jar` and the
+ * cache, the server is up in about half the time; the cache records the names
+ * of the files it was made from, so the relative path is what lets it follow
+ * the package to wherever it is installed. A cache the JVM finds does not match
+ * is said in the server's log and the start goes on without it.
+ *
+ * A release the server installed is a jar on its own and starts as it always
+ * has, as does a package built without scripts/aot.sh.
+ *
+ * @param {string} jar      the jar chosen to run
+ * @param {string} imageJar the jar shipped with this install
+ * @returns {{ cwd: string | undefined, jar: string, options: string[] }}
+ */
+function launchOf(jar, imageJar) {
+  const unpacked = path.join(path.dirname(imageJar), 'app');
+  // Resolved, because the launcher prints the jar as Java spells a path.
+  if (path.resolve(jar) !== path.resolve(imageJar) || !fs.existsSync(path.join(unpacked, 'app.jar'))) {
+    return { cwd: undefined, jar, options: [] };
+  }
+  const cache = fs.existsSync(path.join(unpacked, 'app.aot')) ? ['-XX:AOTCache=app.aot'] : [];
+  return { cwd: unpacked, jar: 'app.jar', options: cache };
+}
+
 class Server {
   /**
    * @param {object} given
@@ -242,15 +270,17 @@ class Server {
   /** One run of one jar, resolved with its exit code. */
   run(jar) {
     return new Promise((resolve) => {
+      const launch = launchOf(jar, this.imageJar);
       const args = [
-        ...javaOptions(this.temp, []),
+        ...javaOptions(this.temp, launch.options),
         '-Dorknux.update.launched=true',
+        // The jar itself, not the unpacked copy: it is what the version and the schema floor are read from.
         `-Dorknux.update.running-jar=${jar}`,
         `-Dorknux.update.image-jar=${this.imageJar}`,
-        '-jar', jar,
+        '-jar', launch.jar,
         ...this.springArgs,
       ];
-      const child = spawn(this.java, args, { env: this.env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      const child = spawn(this.java, args, { cwd: launch.cwd, env: this.env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
       this.child = child;
       child.stdout.on('data', (chunk) => this.log.server(chunk));
       child.stderr.on('data', (chunk) => this.log.server(chunk));
@@ -301,4 +331,4 @@ class Server {
   }
 }
 
-module.exports = { Server };
+module.exports = { Server, launchOf };

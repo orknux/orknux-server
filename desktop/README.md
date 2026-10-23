@@ -77,7 +77,13 @@ A package needs two things the repository does not hold, both per platform:
 scripts/server.sh                  # the jar the reactor built (./mvnw package -Pwith-ui first)
 scripts/server.sh --image 1.1.1    # or the one inside orknux/orknux-one:1.1.1
 scripts/runtime.sh <JDK 25 home>   # a jlinked runtime in resources/jre (runtime.ps1 on Windows)
+scripts/aot.sh                     # optional: the jar unpacked with an AOT cache, for a start twice as quick
 ```
+
+`scripts/aot.sh` comes last, because the cache it makes is only good for the
+runtime that made it and the files it was made from; it takes a few minutes,
+and on Windows it runs from Git Bash. A package without it starts the jar as
+it is, which works and is slower.
 
 The runtime holds the modules the `orknux-one` image's JRE does
 (`scripts/modules.txt`), Graal's compiler included, stripped: about 80 MB

@@ -28,6 +28,7 @@ have failed.
 
 ### 🔧 Changed
 
+- **The desktop app starts in about half the time.** Its server runs from an unpacked copy of the jar with an AOT cache made for the runtime it ships - about 8 seconds to the first page instead of 18 on a Windows test machine. A release the server installs itself still starts the old way.
 - **A chat's title no longer waits on a busy companion model.** Past Admin Settings' Chat Title Time Limit (30 seconds, `ORKNUX_CHAT_TITLE_SECONDS`), or when it fails, the chat's own model names it.
 - **Cross-site writes are refused.** A write a browser says came from another site is refused with 403, by `Origin`, `Sec-Fetch-Site` or `Referer`; the CLI, `/mcp` and anything sending a bearer token are unaffected. If the interface is served from another origin, list it in `ORKNUX_ALLOWED_ORIGINS`.
 - A workspace function's `orknux.http`, an agent's HTTP tools and a plugin's requests refuse cloud metadata addresses, including after a redirect, and read an answer only up to their limit rather than whole.
