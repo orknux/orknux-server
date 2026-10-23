@@ -1,0 +1,60 @@
+# How fast a model's provider says it read prompts and wrote answers: llama.cpp
+# reports a `timings` object on every completion, and nothing else this server
+# speaks to reports anything of the kind. Everything here is null for a provider
+# that does not report, never a speed worked out from how long a call took.
+
+"""
+How fast a provider read prompts and wrote answers over some calls, as it
+reported. Weighted by tokens - every token over every millisecond - not a mean
+of each call's rate.
+"""
+type ModelSpeed {
+    "How many calls that reported timings these figures are over."
+    calls: Int!
+    "Prompt tokens the provider processed, leaving out what its cache served."
+    promptTokens: Float!
+    promptMillis: Float!
+    "Null where the milliseconds add up to nothing, as a prompt served whole from cache does."
+    promptTokensPerSecond: Float
+    generatedTokens: Float!
+    generatedMillis: Float!
+    generatedTokensPerSecond: Float
+}
+
+"One model call made into a session; the timing fields are null where the provider reported none."
+type SessionModelCall {
+    id: ID!
+    at: String!
+    modelId: ID!
+    inputTokens: Float!
+    cachedInputTokens: Float!
+    outputTokens: Float!
+    "The whole call as this server waited for it, request to last byte."
+    millis: Float!
+    promptTokens: Float
+    promptMillis: Float
+    "As the provider reported it for this call."
+    promptTokensPerSecond: Float
+    generatedTokens: Float
+    generatedMillis: Float
+    generatedTokensPerSecond: Float
+}
+
+extend type LlmSession {
+    "Over every call in this session that reported timings; null where none did."
+    speed: ModelSpeed
+    """
+    The session's newest calls, newest first, as many as Admin -> Settings says
+    a model's speed is averaged over. `timedOnly` keeps just those that
+    reported timings.
+    """
+    modelCalls(timedOnly: Boolean = false): [SessionModelCall!]!
+}
+
+extend type Model {
+    """
+    Over this model's newest calls that reported timings, as many as Admin ->
+    Settings says; null where none did.
+    """
+    speed: ModelSpeed
+}

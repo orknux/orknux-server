@@ -22,7 +22,11 @@ class SessionSpend(
     private val sessions: LlmSessionRepository,
     private val models: ModelService,
     private val usage: UsageTracking,
+    /** Each call on its own, with the timings its provider reported; see [SessionModelCall]. */
+    private val calls: SessionModelCallRepository,
 ) {
+
+    private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
 
     /**
      * One model call made into [sessionId], whatever it answered. Nothing for a
@@ -43,6 +47,16 @@ class SessionSpend(
             is ChatCompletion.CalledTools -> call.cacheWriteTokens
             else -> 0L
         }
+        val (millis, timings) = when (call) {
+            is ChatCompletion.Answered -> call.millis to call.timings
+            is ChatCompletion.CalledTools -> call.millis to call.timings
+            else -> 0L to null
+        }
+        if (input == 0L && output == 0L && timings == null) return
+        // Its own failure, never the call's: a row that could not be written is
+        // a call missing from the list, not a turn that failed after it answered.
+        runCatching { calls.save(SessionModelCall(sessionId, modelId, input, cached, output, millis, timings)) }
+            .onFailure { log.warn("A model call into session {} could not be recorded", sessionId, it) }
         if (input == 0L && output == 0L) return
         val cost = models.costOf(modelId, input, output, cached, written)
         sessions.addSpend(sessionId, input, output, cached, cost ?: BigDecimal.ZERO, cost == null)

@@ -115,6 +115,7 @@ class OpenAiChat(
             cachedInputTokens = cachedOf(usage, answer._additionalProperties()),
             cacheWriteTokens = writtenOf(usage),
             stopReason = runCatching { answer.choices().firstOrNull()?.finishReason()?.asString() }.getOrNull(),
+            timings = ModelTimings.of(answer._additionalProperties()),
         )
     }
 
@@ -168,6 +169,8 @@ class OpenAiChat(
         var written = 0L
         /** Why the stream ended, from the frame that said. */
         var stopped: String? = null
+        /** llama.cpp's own timings, on the last frame; the newest seen wins. */
+        var timings: ModelTimings? = null
 
         /*
          * One splitter for the whole stream, because a tag arrives in pieces.
@@ -244,6 +247,7 @@ class OpenAiChat(
                 }
                 cachedOf(chunk.usage().orElse(null), chunk._additionalProperties()).takeIf { it > 0 }?.let { cached = it }
                 writtenOf(chunk.usage().orElse(null)).takeIf { it > 0 }?.let { written = it }
+                ModelTimings.of(chunk._additionalProperties())?.let { timings = it }
                 /*
                  * Read as optional, though the SDK calls it required. Azure
                  * OpenAI sends choices that carry only their content-filter
@@ -323,6 +327,7 @@ class OpenAiChat(
             cachedInputTokens = cached,
             cacheWriteTokens = written,
             stopReason = stopped,
+            timings = timings,
         )
     }
 
@@ -357,6 +362,8 @@ class OpenAiChat(
             val reasoningItems: List<String> = emptyList(),
             /** Why the provider stopped - `stop`, `length`, `tool_calls` - where it said. */
             val stopReason: String? = null,
+            /** How fast the provider says it read and wrote, where it said; see [ModelTimings]. */
+            val timings: ModelTimings? = null,
         ) : Outcome
 
         /**

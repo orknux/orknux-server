@@ -173,6 +173,8 @@ sealed interface ChatCompletion {
         val cachedInputTokens: Long = 0,
         /** How many of [inputTokens] the provider wrote into its cache, where it said and charges for it. */
         val cacheWriteTokens: Long = 0,
+        /** How fast the provider says it read the prompt and wrote this, where it said; see [ModelTimings]. */
+        val timings: ModelTimings? = null,
     ) : ChatCompletion
 
     /**
@@ -199,6 +201,8 @@ sealed interface ChatCompletion {
         val reasoning: String = "",
         /** How long it thought, measured the same way [Answered.reasoningMillis] is. */
         val reasoningMillis: Long = 0,
+        /** How fast the provider says it read the prompt and wrote this, where it said; see [ModelTimings]. */
+        val timings: ModelTimings? = null,
     ) : ChatCompletion
 
     /**
@@ -1180,6 +1184,7 @@ class ModelChatClient(
                     cacheWriteTokens = outcome.cacheWriteTokens,
                     reasoning = split.thought,
                     reasoningMillis = outcome.thoughtMillis,
+                    timings = outcome.timings,
                 ),
             )
         }
@@ -1204,6 +1209,7 @@ class ModelChatClient(
                 outcome.thoughtMillis,
                 cachedInputTokens = outcome.cachedInputTokens,
                 cacheWriteTokens = outcome.cacheWriteTokens,
+                timings = outcome.timings,
             ),
         )
     }
