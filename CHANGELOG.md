@@ -19,6 +19,7 @@ have failed.
 
 ### ✨ Added
 
+- **An agent can ask for a box.** `tools_ungranted` lists the box labels it does not hold and `tools_request` asks for one in the chat; accepted, the label is added to the agent as on its page.
 - **`svg_read`** answers the markup of an SVG kept under a key - a drawing or an attached .svg - so an agent can read and change it.
 - **A plugin's skill catalogue can be searched** like a workspace's own, and both search what a skill says as well as its name and description.
 - **Sentence completion in the chat.** A workspace that chooses a Completion model on its settings page gets a suggestion of how the sentence being typed goes on, in grey after the caret; Tab takes it, typing on or Escape puts it away. With no Completion model the composer is as it was. How much of the chat it is shown, how long a suggestion may be, its time limit and the pause before asking are on Admin → Settings.

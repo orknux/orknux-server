@@ -52,6 +52,8 @@ class GrantRequestToolsTest(
     @Autowired val workspaceConnections: io.mszymanski.orknux.connector.connection.WorkspaceConnectionRepository,
     @Autowired val tasks: io.mszymanski.orknux.server.task.TaskRepository,
     @Autowired val briefing: AgentBriefing,
+    @Autowired val boxRows: io.mszymanski.orknux.server.box.BoxRepository,
+    @Autowired val boxTools: io.mszymanski.orknux.server.box.BoxTools,
 ) {
 
     private var workspaceId = 0L
@@ -75,6 +77,7 @@ class GrantRequestToolsTest(
     fun clean() {
         requests.deleteAll()
         workspaceConnections.deleteAll()
+        boxRows.deleteAll()
         inbox.deleteAll()
         lines.deleteAll()
         revisions.deleteAll()
@@ -176,6 +179,31 @@ class GrantRequestToolsTest(
         // A connection is not a tool: nothing was loaded under its name.
         assertThat(recorder.toolsFound(conversation)).doesNotContain("Jira")
         assertThat(call(GrantRequestTools.LIST).path("tools").values().map { it.path("name").stringValue() }).doesNotContain("Jira")
+    }
+
+    /** A box is asked for by its label, as the page grants it: one name for every box that carries it. */
+    @Test
+    fun `an agent may ask for a box, and accepting grants its label`() {
+        boxRows.save(io.mszymanski.orknux.server.box.Box(name = "gpu-1", label = "gpu", address = "http://gpu-1.invalid"))
+        boxRows.save(io.mszymanski.orknux.server.box.Box(name = "gpu-2", label = "gpu", address = "http://gpu-2.invalid"))
+        // With no box, the box tools are not offered at all: asking is the only way to one.
+        assertThat(boxTools.offered(agents.findByIdOrNull(agent.id!!)!!)).isFalse()
+
+        val name = "${GrantRequestTools.BOX_PREFIX}gpu"
+        val listed = call(GrantRequestTools.LIST).path("tools").values().associate { it.path("name").stringValue() to it }
+        assertThat(listed[name]?.path("kind")?.stringValue()).isEqualTo("box")
+        assertThat(listed[name]?.path("description")?.stringValue()).contains("gpu-1, gpu-2")
+
+        call(GrantRequestTools.ASK, mapOf("tools" to listOf(name), "why" to "to run the tests", "load" to true))
+        answer(GrantRequestTools.ACCEPT_AND_LOAD)
+            .path("answerRequest.outcome").entity(String::class.java).isEqualTo("Granted - $name")
+
+        val after = agents.findByIdOrNull(agent.id!!)!!
+        assertThat(after.boxLabels).containsExactly("gpu")
+        assertThat(boxTools.offered(after)).isTrue()
+        // A box is not a tool: nothing was loaded under its name, and it is no longer something to ask for.
+        assertThat(recorder.toolsFound(conversation)).doesNotContain(name)
+        assertThat(call(GrantRequestTools.LIST).path("tools").values().map { it.path("name").stringValue() }).doesNotContain(name)
     }
 
     @Test

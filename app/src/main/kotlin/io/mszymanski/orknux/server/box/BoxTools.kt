@@ -224,7 +224,13 @@ class BoxTools(
             asked != null -> usable.firstOrNull { it.name.equals(asked, ignoreCase = true) }
                 ?: throw Refused(
                     "You may not use a box called $asked. The ones you may use: " +
-                        usable.joinToString(", ") { it.name }.ifEmpty { "none" },
+                        usable.joinToString(", ") { it.name }.ifEmpty { "none" } +
+                        (if (agent.mayAskForTools) {
+                            ". Another is granted by its label - " +
+                                "${io.mszymanski.orknux.server.chat.GrantRequestTools.LIST} says which you could ask for"
+                        } else {
+                            ""
+                        }),
                 )
             usable.size == 1 -> usable.single()
             usable.isEmpty() -> throw Refused("No box you may use is available right now")
