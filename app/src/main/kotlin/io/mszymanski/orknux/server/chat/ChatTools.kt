@@ -82,15 +82,50 @@ class ChatTools(
 
         override fun handles(name: String): Boolean = name == DRAW || widgets.handles(name)
 
+        /**
+         * The pictures of something that may be drawn again in this turn, by
+         * what they are of, the latest of each. Chat 979: an agent created a
+         * wireframe and changed it in the same turn, and both pictures went
+         * into the chat - the mockup twice, the first already out of date.
+         *
+         * Held to the end of the turn rather than filed and then replaced,
+         * because the page draws each picture the moment it is told of one and
+         * has no way to take one back: a replacement would be a second picture
+         * on the screen until a reload. Filed at the end there is one, and it
+         * still lands above the answer, live and in the thread.
+         */
+        private val held = linkedMapOf<String, Pair<String, AgentTools.Companion.Picture>>()
+
         /** Into the thread, where the person who asked is looking, and onto the screen of whoever is watching. */
-        override fun pictured(tool: String, picture: AgentTools.Companion.Picture): String? =
+        override fun pictured(tool: String, picture: AgentTools.Companion.Picture): String? {
+            val key = picture.key
+            if (key != null && pictures.accepts()) {
+                held.remove(key)
+                held[key] = tool to picture
+                return "The picture goes into this conversation above your answer when you finish, where the person " +
+                    "sees it - one for each thing drawn, as it is last. Do not repeat it; say what you drew and carry on."
+            }
+            return if (file(tool, picture)) {
+                "The picture is already in this conversation, above your answer, where the person sees it. " +
+                    "Do not repeat it; say what you drew and carry on."
+            } else {
+                null
+            }
+        }
+
+        override fun settle() {
+            val due = held.values.toList()
+            held.clear()
+            due.forEach { (tool, picture) -> file(tool, picture) }
+        }
+
+        private fun file(tool: String, picture: AgentTools.Companion.Picture): Boolean =
             when (val filed = pictures.show(chat, tool, picture)) {
-                is ChatDrawing.Refused -> null
+                is ChatDrawing.Refused -> false
                 is ChatDrawing.Drawn -> {
                     watch.drew(filed.said)
                     watch.filed(filed.attachmentId, filed.filename, filed.contentType, filed.sizeBytes)
-                    "The picture is already in this conversation, above your answer, where the person sees it. " +
-                        "Do not repeat it; say what you drew and carry on."
+                    true
                 }
             }
 

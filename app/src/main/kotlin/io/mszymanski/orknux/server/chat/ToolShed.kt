@@ -64,6 +64,16 @@ interface ToolShed {
      * lends does file its picture into the thread.
      */
     fun pictured(tool: String, picture: AgentTools.Companion.Picture): String? = null
+
+    /**
+     * The turn is over: put down whatever was held back until it ended.
+     *
+     * Called by whoever ran the turn once the model has finished, before its
+     * answer is written, so what is put here comes above the answer. A chat
+     * holds a picture with a [AgentTools.Companion.Picture.key] until now,
+     * keeping the last of each key - chat 979. Nothing for every other shed.
+     */
+    fun settle() = Unit
 }
 
 /**
@@ -134,6 +144,8 @@ fun sheds(vararg lent: ToolShed?): ToolShed? {
             /** The first shed that puts it somewhere. */
             override fun pictured(tool: String, picture: AgentTools.Companion.Picture): String? =
                 held.firstNotNullOfOrNull { it.pictured(tool, picture) }
+
+            override fun settle() = held.forEach { it.settle() }
         }
     }
 }

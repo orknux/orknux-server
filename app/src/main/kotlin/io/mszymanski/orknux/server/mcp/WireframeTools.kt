@@ -279,6 +279,8 @@ class WireframeTools(
         val tree = mapper.readTree(answer) as ObjectNode
         tree.put(AgentTools.PICTURE, Base64.getEncoder().encodeToString(png.png))
         tree.put(AgentTools.PICTURE_TYPE, "image/png")
+        // One picture per wireframe per turn, its latest: a create and a change in one turn are one mockup. Chat 979.
+        tree.put(AgentTools.PICTURE_KEY, "wireframe:" + view.id)
         tree.put("contentKey", key)
         tree.put(
             "note",

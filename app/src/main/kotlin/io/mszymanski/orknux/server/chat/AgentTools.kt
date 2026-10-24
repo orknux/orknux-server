@@ -932,6 +932,13 @@ class AgentTools(
         const val PICTURE = "picture"
         const val PICTURE_TYPE = "pictureType"
 
+        /**
+         * What a picture is of, for a tool whose later pictures in one turn
+         * replace its earlier ones. Chat 979: an agent created a wireframe and
+         * changed it in one turn, and the chat showed the mockup twice.
+         */
+        const val PICTURE_KEY = "pictureKey"
+
         /** What a picture is hung on where the tool named no type. */
         const val PICTURE_DEFAULT_TYPE = "image/png"
 
@@ -961,7 +968,8 @@ class AgentTools(
             if (base64.isEmpty() || base64.length > MOST_PICTURE_CHARS) return null
             val type = node.path(PICTURE_TYPE).asString("").ifEmpty { PICTURE_DEFAULT_TYPE }
             if (!type.startsWith("image/")) return null
-            Picture(dataUrl = "data:$type;base64,$base64", type = type, chars = base64.length)
+            val key = node.path(PICTURE_KEY).asString("").trim().ifEmpty { null }
+            Picture(dataUrl = "data:$type;base64,$base64", type = type, chars = base64.length, key = key)
         }.getOrNull()
 
         /**
@@ -1024,7 +1032,18 @@ class AgentTools(
         }
 
         /** One picture a tool made, on its way to a turn of its own. */
-        data class Picture(val dataUrl: String, val type: String, val chars: Int) {
+        data class Picture(
+            val dataUrl: String,
+            val type: String,
+            val chars: Int,
+            /**
+             * What the picture is a picture of, where a later one in the same
+             * turn shows the same thing and should take its place - a
+             * wireframe's, `wireframe:<id>`. Null for every other picture,
+             * each of which is its own. See [PICTURE_KEY].
+             */
+            val key: String? = null,
+        ) {
 
             /**
              * What is said above it.
