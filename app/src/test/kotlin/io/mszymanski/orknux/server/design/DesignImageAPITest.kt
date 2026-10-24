@@ -867,6 +867,29 @@ class DesignImageAPITest(
      * redraw scaled back up, so the draft is the picture's own size.
      */
     @Test
+    fun `harmonizing may be asked with no prompt, which redraws the picture as it is`() {
+        val webUi = model("Forge", "UPSCALE", type = "STABLE_DIFFUSION_WEBUI", keyed = false, modelId = "Lanczos")
+        val white = png(2, 2) { _, _ -> WHITE }
+        val source = images.save(
+            DesignImage(
+                workspaceId = workspaceId, modelId = null, modelName = "Drawer", prompt = "A white square",
+                size = null, quality = null, style = null, filename = "white.png", contentType = "image/png",
+                sizeBytes = white.size.toLong(), location = store.put(workspaceId, "white.png", white), drawnBy = "alice",
+                name = "White",
+            ),
+        )
+        drawnPicture(
+            graphQlTester.document(
+                """mutation { queueDesignImageHarmonize(input: {
+                     workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", modelId: $webUi, prompt: "  "
+                   }) { id } }""",
+            ).execute().errors().verify().path("queueDesignImageHarmonize.id").entity(String::class.java).get(),
+        )
+        val asked = tools.jackson.databind.json.JsonMapper.builder().build().readTree(harmonized.single())
+        assertThat(asked.path("prompt").stringValue()).isEmpty()
+    }
+
+    @Test
     fun `harmonizing a picture larger than the working size sends it smaller and keeps the draft at its own size`() {
         val webUi = model("Forge", "UPSCALE", type = "STABLE_DIFFUSION_WEBUI", keyed = false, modelId = "Lanczos")
         val wide = png(600, 302) { _, _ -> WHITE }

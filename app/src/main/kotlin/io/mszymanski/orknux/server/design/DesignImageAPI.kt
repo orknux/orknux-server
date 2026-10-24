@@ -270,7 +270,7 @@ class DesignImageAPI(
         }
         val webUi = true
         val prompt = input.prompt.trim()
-        if (prompt.isEmpty()) throw DesignImageRefusedException("Say what the picture is of.")
+        // May be empty: a light redraw with no words is the picture itself, smoothed, which is often the point.
         val longest = settings.imageMaxPrompt()
         if (prompt.length > longest) {
             throw DesignImageRefusedException("That description is too long to draw from; say it in under $longest characters.")
