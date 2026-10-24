@@ -209,8 +209,7 @@ class FunctionAPI(
     @Transactional
     fun updateFunction(@Argument id: Long, @Argument input: UpdateFunctionInput): FunctionView {
         val function = functions.findByIdOrNull(id)?.takeIf(::readable) ?: throw FunctionNotFoundException(id)
-        // An embedded function is not editable here for the reason a plugin's
-        // is not: the release declares it, and an edit would be lost. #501.
+        requireNotReleaseCode(function)
         val editedPlugin = function.scope == FunctionScope.PLUGIN || function.scope == FunctionScope.EMBEDDED
         val workspaceId = if (editedPlugin) null else requireEditable(function)
 
@@ -387,6 +386,7 @@ class FunctionAPI(
     @Transactional
     fun setFunctionTimeout(@Argument id: Long, @Argument seconds: Int?): FunctionView {
         val function = functions.findByIdOrNull(id)?.takeIf(::readable) ?: throw FunctionNotFoundException(id)
+        requireNotReleaseCode(function)
         // A plugin's function takes a timeout too - the setting is about the
         // sandbox, not the workspace - so only the workspace half is asked for
         // where there is one, which is what the audit needs.
@@ -670,6 +670,22 @@ class FunctionAPI(
      * that answer back to a refusal, which is the thing that told a caller its
      * id was a real one.
      */
+    /**
+     * Refuses a change to a function the release runs itself. Issue #501.
+     *
+     * An embedded function that nobody has edited has no code here - its
+     * source is a sentence saying so - and is answered out of the bundle the
+     * release ships. An edit would stamp it, and a stamped row runs from its
+     * own source, so saving one would replace research_plan with that
+     * sentence. A row a plugin brought and somebody edited before the release
+     * took the bundle over keeps its code, and stays theirs to change.
+     */
+    private fun requireNotReleaseCode(function: WorkflowFunction) {
+        if (function.scope == FunctionScope.EMBEDDED && function.editedAt == null) {
+            throw FunctionBuiltInException(function.name)
+        }
+    }
+
     private fun requireEditable(function: WorkflowFunction): Long {
         val workspaceId = function.workspaceId
         if (function.scope != FunctionScope.WORKSPACE || workspaceId == null) {

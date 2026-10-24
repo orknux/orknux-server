@@ -8007,6 +8007,12 @@ enum FunctionScope {
     say which plugin brought a function, not that it is "organisation-wide".
     """
     PLUGIN
+    """
+    Brought by Orknux itself, out of a bundle the release embeds - research_plan,
+    pdf_fromHtml. Usable from actions everywhere, and read-only: there is no code
+    here to edit, because the release runs it.
+    """
+    EMBEDDED
 }
 
 """

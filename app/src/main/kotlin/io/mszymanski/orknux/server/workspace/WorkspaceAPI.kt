@@ -307,7 +307,7 @@ class WorkspaceAPI(
         )
         /*
          * And the three research modes, with the hidden workflows and the agent
-         * behind them, so Analysis > Research has something to run on the first
+         * behind them, so Explore > Research has something to run on the first
          * visit. Issue #659.
          */
         researchModes.ensure(requireNotNull(workspace.id))

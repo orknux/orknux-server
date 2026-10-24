@@ -94,6 +94,8 @@ class ResearchTest(
         received.clear()
         web.searched.clear()
         web.read.clear()
+        web.refusing = null
+        web.finding = true
         // What createWorkspace does after its access check, so a test signed in as somebody else has one too.
         workspaceId = requireNotNull(workspaceApi.create("Research $stamp", null).id)
     }
@@ -442,7 +444,7 @@ class ResearchTest(
         assertThat(started.path("error").isMissingNode).describedAs(started.toString()).isTrue()
         val id = started.path("started").asLong()
         assertThat(started.path("mode").stringValue()).isEqualTo("Medium")
-        assertThat(started.path("url").stringValue()).endsWith("/workspace/$workspaceId/analysis/research/$id")
+        assertThat(started.path("url").stringValue()).endsWith("/workspace/$workspaceId/explore/research/$id")
 
         val done = settled(id)
         assertThat(done.status).describedAs(done.error).isEqualTo(ResearchStatus.COMPLETED)
@@ -546,6 +548,82 @@ class ResearchTest(
         assertThat(researches.findByIdOrNull(requireNotNull(first.id))).isNull()
         assertThat(researches.findByIdOrNull(requireNotNull(second.id))).isNotNull()
         assertThat(audit.findAll().map { it.message }).anyMatch { it.startsWith("Research started in Shallow mode: First") }
+    }
+
+    /* ------------------------------------------------------- nothing read --- */
+
+    /**
+     * Research 4 on the development server: a workspace with no search key,
+     * three searches each refused, nothing read - and a PDF of the model
+     * saying it had no sources, filed as the research's report.
+     */
+    @Test
+    fun `a research whose every search is refused fails at Gather with what the search said, and writes nothing`() {
+        web.refusing = "This workspace has no search key set."
+        val modelId = model(serve())
+
+        val done = settled(
+            start("""{ workspaceId: $workspaceId, question: "GPU prices in 2027", modeId: ${modeId("SHALLOW")}, modelId: $modelId, language: FORMAL, outputFormat: PDF }"""),
+        )
+        assertThat(done.status).isEqualTo(ResearchStatus.FAILED)
+        assertThat(done.error)
+            .contains("research_gather read no source")
+            .contains("the search answered \"This workspace has no search key set.\" to all 3 queries")
+        assertThat(web.searched).hasSize(3)
+        assertThat(web.read).isEmpty()
+        assertThat(asked(WRITE)).isEmpty()
+        assertThat(done.result).isNull()
+        assertThat(done.artifactId).isNull()
+        assertThat(runSteps.findByExecutionIdOrderByOrderAsc(requireNotNull(done.executionId)).single { it.nodeKey == "gather" }.status)
+            .isEqualTo(io.mszymanski.orknux.workflow.execution.StepStatus.FAILED)
+    }
+
+    @Test
+    fun `a research whose searches find nothing to read writes no report and says how many it searched`() {
+        web.finding = false
+        val modelId = model(serve())
+
+        val done = settled(
+            start("""{ workspaceId: $workspaceId, question: "GPU prices in 2027", modeId: ${modeId("SHALLOW")}, modelId: $modelId, language: FORMAL, outputFormat: PDF }"""),
+        )
+        assertThat(done.status).isEqualTo(ResearchStatus.FAILED)
+        assertThat(done.error).contains("research_write has no source to write a report from: nothing was read in 3 searches.")
+        assertThat(asked(WRITE)).isEmpty()
+        assertThat(done.artifactId).isNull()
+    }
+
+    /* ------------------------------------------------- embedded functions --- */
+
+    /**
+     * The step actions call functions the release brings. Their scope was not
+     * in the schema and they were not in the workspace's list, so an action
+     * opened on an empty picker and the function's own page failed outright.
+     */
+    @Test
+    fun `a step's function is listed and opened as built in, and refused an edit`() {
+        val gather = requireNotNull(functions.findByScopeAndName(FunctionScope.EMBEDDED, ResearchCapability.functionName(ResearchCapability.GATHER)))
+        val action = requireNotNull(actions.findByWorkspaceIdAndName(workspaceId, "Research: Gather"))
+        assertThat(action.functionId).isEqualTo(gather.id)
+
+        graphQlTester.document("""query { function(id: ${gather.id}) { name scope editable params { name } } }""").execute()
+            .path("function.name").entity(String::class.java).isEqualTo("research_gather")
+            .path("function.scope").entity(String::class.java).isEqualTo("EMBEDDED")
+            .path("function.editable").entity(Boolean::class.java).isEqualTo(false)
+
+        // The list the action's picker reads its choice from holds it.
+        graphQlTester.document("""query { workspaceFunctions(workspaceId: $workspaceId, size: 50, search: "research_gather") { content { id scope } } }""")
+            .execute().path("workspaceFunctions.content[*].id").entityList(String::class.java).contains(gather.id.toString())
+        graphQlTester.document("""query { workspaceFunctions(workspaceId: $workspaceId, size: 50) { totalElements } }""")
+            .execute().path("workspaceFunctions.totalElements").entity(Int::class.java).satisfies({ assertThat(it).isGreaterThan(0) })
+        val builtIn = graphQlTester.document("""query { workspaceFunctions(workspaceId: $workspaceId, size: 100, scope: EMBEDDED) { content { name scope } } }""")
+            .execute().path("workspaceFunctions.content[*].scope").entityList(String::class.java).get()
+        assertThat(builtIn).isNotEmpty().allMatch { it == "EMBEDDED" }
+
+        graphQlTester.document("""mutation { updateFunction(id: ${gather.id}, input: { description: "Mine" }) { id } }""")
+            .execute().errors().expect { it.extensions?.get("code") == "FunctionBuiltIn" }.verify()
+        graphQlTester.document("""mutation { setFunctionTimeout(id: ${gather.id}, seconds: 30) { id } }""")
+            .execute().errors().expect { it.extensions?.get("code") == "FunctionBuiltIn" }.verify()
+        assertThat(functions.findByIdOrNull(requireNotNull(gather.id))!!.editedAt).isNull()
     }
 
     /* ----------------------------------------------------------- refusals --- */
@@ -728,8 +806,16 @@ class ResearchTest(
         val searched = CopyOnWriteArrayList<String>()
         val read = CopyOnWriteArrayList<String>()
 
+        /** What every search answers instead of results, as the real one does without a key. */
+        @Volatile var refusing: String? = null
+
+        /** Off, every search answers no results at all. */
+        @Volatile var finding = true
+
         override fun search(workspaceId: Long, query: String, limit: Int): Result<List<SearchHit>> {
             searched += query
+            refusing?.let { return Result.failure(IllegalStateException(it)) }
+            if (!finding) return Result.success(emptyList())
             val slug = query.substringBefore(" site:").replace(' ', '-')
             val kept = query.substringAfter(" site:", "").takeIf { it.isNotEmpty() }
             val hits = (1..3).map { at ->

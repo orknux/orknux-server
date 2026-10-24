@@ -23,7 +23,7 @@ import tools.jackson.databind.ObjectMapper
 import java.time.format.DateTimeFormatter
 
 /**
- * Analysis > Research: a question researched by one of the workspace's own
+ * Explore > Research: a question researched by one of the workspace's own
  * workflows, and the modes that say which. Issue #659.
  *
  * What a research *does* is its mode's workflow, and nothing here reads the

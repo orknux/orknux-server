@@ -789,7 +789,7 @@ class OrknuxTools(
             add(
                 ToolSpec(
                     name = START_RESEARCH,
-                    description = "Starts a research in Analysis: the web and the workspace's documents searched, read " +
+                    description = "Starts a research in Explore: the web and the workspace's documents searched, read " +
                         "and written up with cited sources. Returns its id; $RESEARCH follows it.",
                     parameters = listOf(
                         ToolParameterSpec("question", "What to research.", required = true),
@@ -2041,7 +2041,7 @@ class OrknuxTools(
     /** A source or a file the server hosts, linked so it opens from wherever the answer is read. */
     private fun absolute(url: String): String = if (url.startsWith("/")) link(url) else url
 
-    private fun researchLink(workspaceId: Long, id: Long?) = link("/workspace/$workspaceId/analysis/research/$id")
+    private fun researchLink(workspaceId: Long, id: Long?) = link("/workspace/$workspaceId/explore/research/$id")
 
     /** A list a model sent as a JSON array, or as the text of one, or as words with commas between. */
     private fun strings(arguments: String, name: String): List<String> = runCatching {
