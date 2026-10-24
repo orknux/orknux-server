@@ -392,7 +392,15 @@ class ToolSearchTools(
                 }
                 // "Loaded", matching the name: the tools are now the agent's to call. Issue #535.
                 append("Loaded ${taken.size} of the ${matches.size} that matched. ")
-                append("You can call these from your next message onwards:\n")
+                /*
+                 * And that they are called directly from now on. The list in
+                 * the briefing keeps the mark it started with, so the system
+                 * turn does not move under a provider's prompt cache - and a
+                 * model reading "(load it first)" there beside a tool it has
+                 * just loaded needs telling which of the two to believe.
+                 */
+                append("You can call these directly by name from your next message onwards, for the rest of this ")
+                append("conversation, whatever your list of tools still marks them:\n")
                 taken.forEach { append("\n${it.name} - ${it.description.take(DESCRIPTION)}") }
                 /*
                  * Said rather than done quietly. A tool the agent called two

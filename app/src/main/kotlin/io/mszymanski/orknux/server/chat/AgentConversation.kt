@@ -535,51 +535,42 @@ class AgentConversation(
          * drawing - are not the list's to switch and are carried as they were.
          */
         val lending = BuiltInTools.lentTo(agent, shed).let { if (readOnly) effects.readOnly(it) else it }
-        val (lent, lentFindable) = lending?.specs().orEmpty().partition { BuiltInTools.carried(agent, it.name, ceiling) }
+        /*
+         * What goes out from the first round and what is found, decided once,
+         * before anything is loaded and by the rule the briefing and the
+         * session's record use - see [ToolCeilings.split]. Asked of the
+         * provider rather than assumed: OpenAI and Azure refuse the whole
+         * request over 128 tools, and an agent granted more than that could not
+         * answer at all. Under the cap every tool goes out and nothing about
+         * the turn changes, which is most installations, and the reason the
+         * search is not simply always on - finding costs a round.
+         */
+        val start = ceilings.split(agent, modelId, holding, lending?.specs().orEmpty()) { held(tools.offeringFor(agent, it, into)) }
+        val limit = start.limit
+        val hunting = start.hunting
+        val core = start.core
+        val carriedLent = start.lent
+        val findable = start.findable
         /*
          * And what the lent tools want said about themselves, put with the
          * briefing. A shed's descriptions say what its tools do; its briefing
          * says that the agent has them and when to reach for one, which is the
          * half a model acts on - see [ToolShed.briefing]. Issue #445.
+         *
+         * The lent tools go into the briefing's list (issue #546), and every
+         * line of it is marked by what this turn starts out carrying - not by
+         * what has been loaded since, so a tool_load leaves the system turn as
+         * it was: a provider caching the prompt by its prefix reads all of it
+         * again for one changed byte.
          */
-        // And what it lends, put into the briefing's list of tools. Issue #546.
         val told = briefed(turns, lending?.briefing()).map { turn ->
             if (turn.role == "system") {
-                turn.copy(content = BuiltInTools.listed(turn.content, agent, lending?.specs().orEmpty(), ceiling) ?: turn.content)
+                turn.copy(content = BuiltInTools.listed(turn.content, lending?.specs().orEmpty(), start.carried, hunting) ?: turn.content)
             } else {
                 turn
             }
         }
 
-        /*
-         * Whether everything fits in one request.
-         *
-         * Asked of the provider rather than assumed: OpenAI and Azure refuse
-         * the whole request over 128 tools, Anthropic bounds it differently,
-         * and nothing counted them until the provider did - so an agent granted
-         * more than the ceiling could not answer at all, and what reached the
-         * person who asked was the provider's own sentence.
-         *
-         * Under the ceiling this is every round there has ever been: the two
-         * halves are put back together, the array is built once, and nothing
-         * about the turn changes. Which is most installations, and the reason
-         * the search is not simply always on - finding costs a round, and
-         * spending one to discover a tool that would have fitted is a round
-         * spent on nothing.
-         */
-        /*
-         * The agent's own ceiling where it carries one, and the provider's
-         * otherwise. Issue #372.
-         *
-         * The provider's is the number at which a request *fails*; an agent's is
-         * the number at which somebody decided it was choosing badly, which is
-         * always the smaller of the two and is a judgement rather than a limit.
-         * The lower of them wins, because an agent given a ceiling above what
-         * the provider takes has been given a number that cannot be honoured.
-         */
-        val limit = minOf(models.toolLimit(modelId), ceiling ?: Int.MAX_VALUE)
-        val holds = holding.core.size + holding.searchable.size + lent.size + lentFindable.size
-        val hunting = holds > limit
         /*
          * Every tool was meant to go up front and the provider's cap will not
          * take them: the rest are found as they would be anywhere else, and the
@@ -587,47 +578,11 @@ class AgentConversation(
          * a tool_load is otherwise invisible.
          */
         if (offersAll && hunting && into != null && overCap.add(into)) {
+            val holds = core.size + carriedLent.size + findable.size
             sessions.note(
                 into,
                 "This agent holds $holds tools and its provider takes $limit in one request, so not every tool " +
                     "goes up front: the rest are found with ${ToolSearchTools.SEARCH} and loaded with ${ToolSearchTools.FIND}.",
-            )
-        }
-
-        /*
-         * Everything that is found rather than carried: the agent's own
-         * searchable half, and the lent built-ins left at Offer. One list,
-         * because the finder holds one shelf and a tool it cannot see is a tool
-         * it cannot find.
-         */
-        /*
-         * What is carried and what is found, once the cap has had its say.
-         *
-         * Under the cap nothing changes: the agent's own split stands, and every
-         * tool goes out. Over it, an agent with no ceiling of its own - or one
-         * whose provider meant to hand over everything - has every built-in in
-         * its carried half, which alone can be more than the request takes. So
-         * the split is made again as a ceiling makes it, Always carried and the
-         * rest found; and if what is carried still overflows, the overflow is
-         * found too. The cap is the number at which the provider refuses the
-         * request, so nothing past it is ever sent.
-         */
-        val (core, carriedLent, findable) = if (!hunting) {
-            Triple(holding.core, lent, holding.searchable + lentFindable)
-        } else {
-            val split = if (ceiling == null) held(tools.offeringFor(agent, limit, into)) else holding
-            val (splitLent, splitLentFindable) = if (ceiling == null) {
-                lending?.specs().orEmpty().partition { BuiltInTools.carried(agent, it.name, limit) }
-            } else {
-                lent to lentFindable
-            }
-            val carried = split.core + splitLent
-            val room = (limit - ToolSearchTools.OFFERED).coerceAtLeast(0)
-            val kept = carried.take(room).toSet()
-            Triple(
-                split.core.filter { it in kept },
-                splitLent.filter { it in kept },
-                carried.filterNot { it in kept } + split.searchable + splitLentFindable,
             )
         }
 
@@ -683,9 +638,16 @@ class AgentConversation(
 
         /** What one round declares: everything, or the core and what has been found. */
         fun offering(): List<ToolSpec> = if (finder == null) {
-            holding.core + holding.searchable + lent + lentFindable
+            core + carriedLent
         } else {
-            core + carriedLent + finder.specs() + findable.filter { it.name in found }
+            /*
+             * What was loaded goes on the end, in the order it was loaded, so
+             * a load adds to the array rather than reshuffling it: a server
+             * that reuses a prompt up to its first difference keeps the tools
+             * before it. (A hybrid model on llama.cpp keeps nothing past a
+             * difference anywhere; see [ToolCeilings.split].)
+             */
+            core + carriedLent + finder.specs() + found.mapNotNull { name -> findable.firstOrNull { it.name == name } }
         }
 
         var offered = offering()

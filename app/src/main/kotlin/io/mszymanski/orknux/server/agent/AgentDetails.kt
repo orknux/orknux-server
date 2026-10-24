@@ -88,22 +88,21 @@ class AgentDetails(
         val connectionNames = agent.connections
             .mapNotNull { connections.workspaceConnection(it)?.takeIf { held -> held.workspaceId == agent.workspaceId }?.name }
 
-        val ceiling = ceilings.of(agent)
+        val ceiling = ceilings.of(agent, modelId)
         // As this conversation is offered them: a task, for one, is not offered tools_request.
         val offering = tools.offeringFor(agent, ceiling, session)
-        val (carriedLent, findableLent) = BuiltInTools.lentTo(agent, lent)?.specs().orEmpty()
-            .partition { BuiltInTools.carried(agent, it.name, ceiling) }
-        val carried = (offering.core + carriedLent).map { it.name }
-        val findable = (offering.searchable + findableLent).map { it.name }
+        val lentSpecs = BuiltInTools.lentTo(agent, lent)?.specs().orEmpty()
+        // Split as the round splits it, by the one rule. See [io.mszymanski.orknux.server.chat.ToolCeilings.split].
+        val start = ceilings.split(agent, modelId, offering, lentSpecs) { tools.offeringFor(agent, it, session) }
 
         /*
-         * Two lists only where the agent has a ceiling of its own. Without one
-         * everything is carried up to the provider's own limit, and that limit
-         * is a fact about the provider rather than about this agent's setup - a
-         * reader shown "findable" beside an agent nobody gave a ceiling would
-         * go looking for a setting that is not there.
+         * Two lists only where something is left to be found. Without that
+         * everything goes out, and a reader shown "findable" beside an agent
+         * whose every tool was sent would go looking for a setting that is
+         * not there.
          */
-        val (held, found) = if (ceiling == null) (carried + findable) to emptyList() else carried to findable
+        val held = (start.core + start.lent).map { it.name }
+        val found = start.findable.map { it.name }
 
         return mapper.writeValueAsString(
             linkedMapOf(
@@ -121,7 +120,7 @@ class AgentDetails(
                 "model" to modelName,
                 // With what it lends in the list of tools, as the round sends it. Issue #546.
                 "systemPrompt" to briefedWith(
-                    BuiltInTools.listed(prompt, agent, BuiltInTools.lentTo(agent, lent)?.specs().orEmpty()),
+                    BuiltInTools.listed(prompt, lentSpecs, start.carried, start.hunting),
                     lent?.briefing(),
                 ),
                 "tools" to held.sorted(),
