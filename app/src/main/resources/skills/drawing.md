@@ -1,6 +1,6 @@
 ---
 name: Diagrams and charts
-description: Which tool draws what, the syntax that works, and how a drawing reaches a chat, an HTML page, a PDF or an archive.
+description: Which tool draws what - a diagram, a chart, a picture, or a mockup of a screen or form as a wireframe - the syntax that works, and how a drawing reaches a chat, an HTML page, a PDF or an archive.
 ---
 
 # Diagrams and charts
@@ -13,12 +13,20 @@ out.
 
 ## Which tool
 
+- **A mockup or wireframe** - of a screen, a page, a form, a dialog, an app's
+  UI: a sign-up form, a dashboard, a settings screen - is a wireframe, drawn
+  with `orknux_create_wireframe` where you have it (in hand, or loaded with the
+  tool search). Not SVG: a wireframe is something the person can open and
+  change in the wireframe editor, and a picture is not. A picture of it goes
+  into the conversation by itself; answer with the wireframe's `url`, which is
+  where it opens. Change one with `orknux_change_wireframe`, never by drawing a
+  new one.
 - **A diagram** - boxes and arrows, a sequence, states, a timeline - is
   `diagram_render`.
 - **A chart** - numbers with labels - is `charts_render`. A pie is a chart, not
   a diagram.
-- **Anything else** - an icon, a badge, a layout, a picture made of shapes - is
-  `svg_draw`, with SVG you write yourself. Any colour SVG or CSS can say draws:
+- **Anything else** - an icon, a badge, an illustration, a picture made of
+  shapes - is `svg_draw`, with SVG you write yourself. Any colour SVG or CSS can say draws:
   names, hex, `rgb()`, `hsl()`, alpha, gradients. `svg_toPng` turns an SVG
   already kept under a key into a PNG, for a chat that will not show an SVG.
 - **A report with drawings in it, as a PDF** is `pdf_fromHtml` with the drawing
