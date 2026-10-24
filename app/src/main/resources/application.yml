@@ -919,6 +919,7 @@ orknux:
     video.max.mb: ${ORKNUX_TUNING_VIDEO_MAX_MB:200}
     images.brush.pixels: ${ORKNUX_TUNING_IMAGES_BRUSH_PIXELS:12}
     images.blur.pixels: ${ORKNUX_TUNING_IMAGES_BLUR_PIXELS:12}
+    images.blur.falloff.pixels: ${ORKNUX_TUNING_IMAGES_BLUR_FALLOFF_PIXELS:0}
     images.feather.pixels: ${ORKNUX_TUNING_IMAGES_FEATHER_PIXELS:8}
     wireframe.elements.most: ${ORKNUX_TUNING_WIREFRAME_ELEMENTS_MOST:2000}
     wireframe.html.inline.characters: ${ORKNUX_TUNING_WIREFRAME_HTML_INLINE_CHARACTERS:100000}

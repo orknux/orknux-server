@@ -70,12 +70,15 @@ class DesignImageAPI(
         access.requireVisible(workspaceId)
         val brush = io.mszymanski.orknux.server.tuning.Tunable.IMAGE_BRUSH_PIXELS
         val blur = io.mszymanski.orknux.server.tuning.Tunable.IMAGE_BLUR_PIXELS
+        val falloff = io.mszymanski.orknux.server.tuning.Tunable.IMAGE_BLUR_FALLOFF_PIXELS
         val feather = io.mszymanski.orknux.server.tuning.Tunable.IMAGE_FEATHER_PIXELS
         return ImageEditorSettingsView(
             brush = tuning[brush],
             brushMost = brush.most,
             blur = tuning[blur],
             blurMost = blur.most,
+            blurFalloff = tuning[falloff],
+            blurFalloffMost = falloff.most,
             feather = tuning[feather],
             featherMost = feather.most,
         )
@@ -826,6 +829,10 @@ data class ImageEditorSettingsView(
     val blur: Int,
     /** The largest radius it may be given. */
     val blurMost: Int,
+    /** How far the blur fades out inside its selection's edge, to start with; 0 is a hard edge. */
+    val blurFalloff: Int,
+    /** The furthest it may fade. */
+    val blurFalloffMost: Int,
     /** How far a Magic edit's edge is softened, to start with; 0 is a hard edge. */
     val feather: Int,
     /** The furthest it may be softened. */

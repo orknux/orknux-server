@@ -418,19 +418,25 @@ class DesignImageAPITest(
     @Test
     fun `the image editor's tools start where Admin Settings says`() {
         fun settings() = graphQlTester.document(
-            """query { designImageEditorSettings(workspaceId: $workspaceId) { brush brushMost blur blurMost feather featherMost } }""",
+            """query { designImageEditorSettings(workspaceId: $workspaceId) { brush brushMost blur blurMost blurFalloff blurFalloffMost feather featherMost } }""",
         ).execute()
         settings()
             .path("designImageEditorSettings.brush").entity(Int::class.java).isEqualTo(12)
             .path("designImageEditorSettings.brushMost").entity(Int::class.java).isEqualTo(500)
             .path("designImageEditorSettings.blur").entity(Int::class.java).isEqualTo(12)
             .path("designImageEditorSettings.blurMost").entity(Int::class.java).isEqualTo(254)
+            .path("designImageEditorSettings.blurFalloff").entity(Int::class.java).isEqualTo(0)
+            .path("designImageEditorSettings.blurFalloffMost").entity(Int::class.java).isEqualTo(500)
             .path("designImageEditorSettings.featherMost").entity(Int::class.java).isEqualTo(256)
         try {
             graphQlTester.document("""mutation { setTunable(key: "images.brush.pixels", value: 40) { value } }""").execute()
-            settings().path("designImageEditorSettings.brush").entity(Int::class.java).isEqualTo(40)
+            graphQlTester.document("""mutation { setTunable(key: "images.blur.falloff.pixels", value: 16) { value } }""").execute()
+            settings()
+                .path("designImageEditorSettings.brush").entity(Int::class.java).isEqualTo(40)
+                .path("designImageEditorSettings.blurFalloff").entity(Int::class.java).isEqualTo(16)
         } finally {
             graphQlTester.document("""mutation { setTunable(key: "images.brush.pixels", value: null) { value } }""").execute()
+            graphQlTester.document("""mutation { setTunable(key: "images.blur.falloff.pixels", value: null) { value } }""").execute()
         }
     }
 

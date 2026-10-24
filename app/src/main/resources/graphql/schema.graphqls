@@ -8665,6 +8665,10 @@ type ImageEditorSettings {
     blur: Int!
     "The largest radius the blur may be given."
     blurMost: Int!
+    "How far the blur fades out inside a rectangle or lasso's edge to start with; 0 is a hard edge."
+    blurFalloff: Int!
+    "The furthest the blur may fade at its edge."
+    blurFalloffMost: Int!
     "How far a Magic edit's selection edge is softened to start with; 0 is a hard edge."
     feather: Int!
     "The furthest a Magic edit's edge may be softened."

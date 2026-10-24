@@ -480,6 +480,7 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_VIDEO_MAX_MB` | The largest video kept, in MB. | `200` |
 | `ORKNUX_TUNING_IMAGES_BRUSH_PIXELS` | How wide the image editor's brush starts, in pixels. | `12` |
 | `ORKNUX_TUNING_IMAGES_BLUR_PIXELS` | How strongly the image editor's blur starts, in pixels. | `12` |
+| `ORKNUX_TUNING_IMAGES_BLUR_FALLOFF_PIXELS` | How far the image editor's blur fades out inside its selection's edge, in pixels; 0 is a hard edge. | `0` |
 | `ORKNUX_TUNING_IMAGES_FEATHER_PIXELS` | How far a Magic edit's edge is feathered, in pixels. | `8` |
 | `ORKNUX_TUNING_WIREFRAME_ELEMENTS_MOST` | How many elements one wireframe may hold, in items. | `2000` |
 | `ORKNUX_TUNING_WIREFRAME_HTML_INLINE_CHARACTERS` | How long a wireframe's HTML may be and still be handed to a model, in characters. | `100000` |

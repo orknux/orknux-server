@@ -311,6 +311,16 @@ enum class Tunable(
         "The blur's radius in the picture's own pixels. Whoever blurs can choose another, up to the most this may be set to.",
     ),
     /*
+     * How far a selective blur fades out inside its selection's edge, in the
+     * picture's own pixels, to start with: 0 stops the blur hard at the edge,
+     * as it always did, so an installation that changes nothing blurs as before.
+     */
+    IMAGE_BLUR_FALLOFF_PIXELS(
+        "images.blur.falloff.pixels", 0, 0, 500, TuningSection.MEDIA, TuningUnit.PIXELS,
+        "How far the image editor's blur fades at its edge",
+        "Inside a rectangle or lasso, the blur weakens towards the edge across this many of the picture's own pixels. Zero is a hard edge. Whoever blurs can choose another.",
+    ),
+    /*
      * How far the edge of a Magic edit's selection is softened when the change
      * is laid over the picture, in its own pixels. The right width depends on
      * the picture and the change, so this is where the form starts and not a
