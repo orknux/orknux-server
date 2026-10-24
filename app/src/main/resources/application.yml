@@ -272,6 +272,12 @@ orknux:
     # administrator can turn the chat off from the screen, but not back on
     # where the operator has said no.
     enabled: ${ORKNUX_CHAT_ENABLED:true}
+    # Whether a chat answer's shell blocks carry a Run button, which runs the
+    # command on the machine this server is on, for an administrator. Where a
+    # fresh installation starts: Admin -> Settings holds what it is now. Off for
+    # a server and its image; the desktop app sets it on, because there the
+    # machine is the person's own.
+    run-commands: ${ORKNUX_CHAT_RUN_COMMANDS:false}
     # How many rounds of tool calls an agent gets before it has to answer. One
     # call to the model is a round: it answers, or it asks for tools and what it
     # asks for is run and handed back. This is where a fresh installation
@@ -901,6 +907,8 @@ orknux:
     search.results.most: ${ORKNUX_TUNING_SEARCH_RESULTS_MOST:20}
     search.timeout.seconds: ${ORKNUX_TUNING_SEARCH_TIMEOUT_SECONDS:20}
     script.log.lines: ${ORKNUX_TUNING_SCRIPT_LOG_LINES:500}
+    command.timeout.seconds: ${ORKNUX_TUNING_COMMAND_TIMEOUT_SECONDS:600}
+    command.output.characters: ${ORKNUX_TUNING_COMMAND_OUTPUT_CHARACTERS:200000}
     pictures.per.run: ${ORKNUX_TUNING_PICTURES_PER_RUN:20}
     speeches.per.run: ${ORKNUX_TUNING_SPEECHES_PER_RUN:20}
     chat.audio.max.mb: ${ORKNUX_TUNING_CHAT_AUDIO_MAX_MB:20}

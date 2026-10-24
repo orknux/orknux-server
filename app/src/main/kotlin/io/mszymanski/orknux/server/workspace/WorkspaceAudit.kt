@@ -29,11 +29,9 @@ enum class WorkspaceAuditCategory {
     CHAT,
 
     /**
-     * Commands run on a machine over SSH, and the shells they ran on.
-     *
-     * Nothing writes it any more: shells were removed. It stays because the
-     * entries written while they existed hold it, and a row whose category no
-     * longer parses would take the whole audit page with it.
+     * Commands run on a machine: once over SSH, on the shells that were
+     * removed, and now from a chat answer's Run button, on the server's own
+     * machine. The old entries keep it parseable either way.
      */
     SHELL,
 

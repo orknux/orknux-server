@@ -128,7 +128,7 @@ the server - and said at startup, on Doctor and across every page.
 | `ORKNUX_LDAP_BIND_PASSWORD` | That account's password. | `admin` | **Yes** under LDAP |
 | `ORKNUX_LDAP_USER_SEARCH_BASE` | Where people are looked for, under the base. | `ou=people` | No |
 | `ORKNUX_LDAP_USER_SEARCH_FILTER` | How a typed username is matched; `{0}` is what was typed. | `(uid={0})` | No |
-| `ORKNUX_LDAP_GROUP_SEARCH_BASE` | Where groups live. Workspace groups must sit under this base to be picked up; empty disables group search. | `ou=groups` | No |
+| `ORKNUX_LDAP_GROUP_SEARCH_BASE` | Where groups live; workspace groups must sit under it. Empty disables group search. | `ou=groups` | No |
 | `ORKNUX_LDAP_GROUP_SEARCH_FILTER` | How a person's groups are found; `{0}` is their DN. | `(member={0})` | No |
 
 **OIDC** - read only when `ORKNUX_AUTH_METHOD=OIDC`. Two flows: a browser returns
@@ -196,7 +196,7 @@ the step runs. The README's **Publishing** has the rest.
 | `ORKNUX_TEMPORAL_ENABLED` | `false` runs workflows on the calling thread, without retries or resumption. Not for a deployment. | `true` | No |
 | `ORKNUX_TEMPORAL_TARGET` | Host and port of the Temporal frontend. | `localhost:7233` | **Yes** in a deployment, unless Temporal is off |
 | `ORKNUX_TEMPORAL_NAMESPACE` | The Temporal namespace to run in. | `default` | No |
-| `ORKNUX_TEMPORAL_TASK_QUEUE` | The queue workers take work from. Change it to run two installations against one Temporal. | `orknux-workflow` | No |
+| `ORKNUX_TEMPORAL_TASK_QUEUE` | The queue workers take work from. Change it to share one Temporal between installations. | `orknux-workflow` | No |
 | `ORKNUX_TEMPORAL_RUN_TIMEOUT_HOURS` | How long a whole run may take, waits included. | `24` | No |
 | `ORKNUX_TEMPORAL_STEP_TIMEOUT_SECONDS` | How long one step's own work may take. It does not bound a *wait*, which parks the step. | `300` | No |
 | `ORKNUX_TEMPORAL_STEP_ATTEMPTS` | Tries of a failing step; a node's own retry is separate. | `3` | No |
@@ -208,7 +208,7 @@ the step runs. The README's **Publishing** has the rest.
 | `ORKNUX_INLINE_RESTART_ATTEMPTS` | Inline only: goes an agent step cut short by restarts gets; Admin Settings overrides. | `3` | No |
 | `ORKNUX_INLINE_MAX_WAIT` | Inline engine only: how long a run may stay parked before the step fails. | `5m` | No |
 | `ORKNUX_TASK_MAX_TURNS` | How often a task's agent may be asked before stopping, unless the workspace sets its own. | `40` | No |
-| `ORKNUX_TASK_WORKING_TIME` | The longest a task may be *working*. Not wall clock: time parked waiting to be approved counts for none. | `2h` | No |
+| `ORKNUX_TASK_WORKING_TIME` | The longest a task may be *working*. Time parked awaiting approval does not count. | `2h` | No |
 | `ORKNUX_TASK_PATIENCE` | How long a parked task waits for a person. | `7d` | No |
 | `ORKNUX_TASK_SWEEP_MINUTES` | How long a task may sit at Queued before being handed over again; Admin -> Settings overrides it. | `5` | No |
 | `ORKNUX_EXECUTION_RETENTION_DAYS` | How long a finished run is kept, with its steps. Admin -> Settings is the switch; this is the floor. | `90` | No |
@@ -233,7 +233,7 @@ stopped.
 | `ORKNUX_SCRIPT_STATEMENT_LIMIT` | How many statements one may execute - what catches a loop that never ends. | `5000000` | No |
 | `ORKNUX_SCRIPT_LOG_LEVEL` | The lowest level `orknux.log` keeps, decided inside the sandbox: `debug`, `info`, `warn`, `error`, `off`. | `info` | No |
 | `ORKNUX_PLUGIN_LOG_LEVEL` | The same, for plugins. Separate so debugging one does not turn up every function. | `info` | No |
-| `ORKNUX_PLUGIN_TIMEOUT_MILLIS` | The same for a plugin, a bundle that loads slower. Admin -> Settings overrides it, 1 to 300 seconds. | `30000` | No |
+| `ORKNUX_PLUGIN_TIMEOUT_MILLIS` | The same for a plugin, which loads slower. Admin -> Settings overrides it, 1 to 300 seconds. | `30000` | No |
 | `ORKNUX_PLUGIN_STATEMENT_LIMIT` | The same, for a plugin. | `10000000` | No |
 | `ORKNUX_HTTP_REQUEST_TIMEOUT_SECONDS` | How long a workflow's own HTTP request may take. | `30` | No |
 | `ORKNUX_LIBRARY_REGISTRY_URL` | Where a library installed by name is fetched from. Empty: upload only. | `https://registry.npmjs.org` | No |
@@ -284,7 +284,7 @@ must be signed with the release key this image carries. **On by default.**
 | `ORKNUX_CONNECTION_ALLOW_LINK_LOCAL` | Link-local addresses (cloud metadata) are refused unless this is on; private and loopback always reach. | `false` | No |
 | `ORKNUX_CONNECTION_ENTRA_AUTHORITY` | Where an Entra ID token is asked for; a sovereign cloud has its own. | `https://login.microsoftonline.com` | No |
 | `ORKNUX_SLACK_ENABLED` | One Socket Mode websocket per Slack connection holding an app-level token. | `true` | No |
-| `ORKNUX_SLACK_RECONCILE_SECONDS` | How often open sockets are compared with stored connections, so a new token listens without a restart. | `30` | No |
+| `ORKNUX_SLACK_RECONCILE_SECONDS` | How often open sockets are matched to stored connections, so a new token needs no restart. | `30` | No |
 | `ORKNUX_SLACK_RETRY_FAILED_SECONDS` | How long a connection Slack refused is left alone; a new token or Reconnect clears it. | `300` | No |
 | `ORKNUX_SLACK_QUIET_PERIOD` | How long a socket may be silent before a ping; unanswered, it is reopened. `0` is off. | `10m` | No |
 
@@ -303,8 +303,9 @@ a rule at all.
 
 | Variable | What it does | Default | Required |
 | --- | --- | --- | --- |
-| `ORKNUX_CHAT_ENABLED` | Whether this installation has a chat at all. `false` is final: the screen can turn it off but not back on. | `true` | No |
-| `ORKNUX_ATTACHMENTS_ENABLED` | Whether files may be attached - to a chat message, an issue or a comment. `false` is final too. | `true` | No |
+| `ORKNUX_CHAT_ENABLED` | Whether this installation has a chat. `false` is final: the screen cannot turn it back on. | `true` | No |
+| `ORKNUX_CHAT_RUN_COMMANDS` | Offers Run on chat shell blocks, run here for an admin. Admin -> Settings overrides. | `false` | No |
+| `ORKNUX_ATTACHMENTS_ENABLED` | Whether files may be attached to a message, an issue or a comment. `false` is final too. | `true` | No |
 | `ORKNUX_ATTACHMENTS_LOCATION` | Where the bytes go, a directory per workspace. **An absolute path on a volume.** | `data/attachments` | **Yes** if attachments are on |
 | `ORKNUX_ATTACHMENTS_MAX_FILE_SIZE_MB` | The largest file that will be accepted. | `25` | No |
 | `ORKNUX_UPLOAD_MAX_FILE_SIZE` | The servlet's cap on one uploaded file; keep it at or above the attachment cap. | `25MB` | No |
@@ -334,7 +335,7 @@ Admin -> Settings shows under its limits - timeouts, retries, caps.
 | --- | --- | --- | --- |
 | `ORKNUX_PORT` | The port this server listens on inside the container. | `8080` | No |
 | `ORKNUX_ALLOWED_ORIGINS` | Where the interface is served from, if not here. Comma separated. | `http://localhost:5173` | **Yes** where the interface is elsewhere |
-| `ORKNUX_BASE_URL` | Where a browser reaches the interface, for links sent out. Admin -> Settings -> Address overrides it. | `http://localhost:5173` | **Yes** for password resets |
+| `ORKNUX_BASE_URL` | Where a browser reaches the interface, for links sent out. Admin -> Settings overrides it. | `http://localhost:5173` | **Yes** for password resets |
 | `ORKNUX_WEBHOOK_MAX_BODY_SIZE` | The most a webhook caller may post to `/api/webhooks/…`. More is refused with 413. | `1MB` | No |
 | `ORKNUX_ASYNC_REQUEST_TIMEOUT` | How long a request answered with a promise may stay open. | `330s` | No |
 | `ORKNUX_SESSION_TIMEOUT` | How long a session survives without being used. A fortnight suits a tool behind an identity provider. | `14d` | No |

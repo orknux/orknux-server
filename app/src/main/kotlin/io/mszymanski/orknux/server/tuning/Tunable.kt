@@ -10,6 +10,7 @@ enum class TuningSection(val title: String) {
     MODELS("Model calls"),
     AGENTS("Agents"),
     CODE("Functions and HTTP"),
+    COMMANDS("Commands from the chat"),
     MEDIA("Pictures and speech"),
     WORKFLOWS("Workflows and triggers"),
     PLUGINS("Plugins and libraries"),
@@ -194,6 +195,18 @@ enum class Tunable(
         "The lines are handed back with the answer and shown on the run; past this many they still reach the server's log but no longer travel with the result.",
     ),
 
+    /* ---- Commands from the chat ---- */
+
+    COMMAND_TIMEOUT_SECONDS(
+        "command.timeout.seconds", 600, 1, 86_400, TuningSection.COMMANDS, TuningUnit.SECONDS,
+        "How long a command run from the chat may take",
+        "A command run with the Run button on a chat answer is stopped after this long. An elevated one counts the time the administrator prompt waits for an answer. Its output stays readable for as long again after it ends.",
+    ),
+    COMMAND_OUTPUT_CHARACTERS(
+        "command.output.characters", 200_000, 1_000, 10_000_000, TuningSection.COMMANDS, TuningUnit.CHARACTERS,
+        "How much of a command's output is kept",
+        "What a command run from the chat prints past this is dropped, and the page says it was cut. The command runs on regardless.",
+    ),
     /* ---- Pictures and speech ---- */
 
     STEP_PICTURES_MOST(

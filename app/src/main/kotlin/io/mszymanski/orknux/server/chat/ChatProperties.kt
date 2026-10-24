@@ -16,6 +16,14 @@ data class ChatProperties(
     val enabled: Boolean = true,
 
     /**
+     * Whether an answer's shell blocks carry a Run button, which runs the
+     * command on this server's machine for an administrator. Where a fresh
+     * installation starts - off, and on in the desktop app, whose machine is
+     * the person's own; Admin -> Settings holds what it is now.
+     */
+    val runCommands: Boolean = false,
+
+    /**
      * How many times an agent may call tools before it has to answer.
      *
      * Eight was written into the code, and eight is right for an agent with two

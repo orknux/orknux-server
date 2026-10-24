@@ -1,0 +1,70 @@
+# The Run button on a chat answer's shell blocks: a command, run on the machine
+# this server is on, by an administrator, while Admin > Settings allows it.
+
+extend type Query {
+    "Whether a chat answer's shell blocks may be run, what a fresh installation would answer, and when it last changed. Administrators."
+    commandRunsEnabled: CommandRunSwitch!
+    "What the chat may offer this person: the block languages that run here, none where they may not, and whether elevation can be asked for. Anybody signed in."
+    commandRunsOffered: CommandRunOffer!
+    "A run this person started: its state, and what it printed from character `from` on. Administrators."
+    commandRun(id: ID!, from: Int): CommandRun!
+}
+
+extend type Mutation {
+    "Offers or withholds Run on a chat answer's shell blocks. Administrators."
+    setCommandRuns(enabled: Boolean!): CommandRunSwitch!
+    """
+    Runs a block's command on this server's machine, `language` being what the
+    block was tagged. `elevated` asks the operating system for administrator
+    rights: UAC on Windows, pkexec on Linux. Administrators, while the switch is on.
+    """
+    runCommand(command: String!, language: String!, elevated: Boolean): CommandRun!
+    "Stops a run this person started. Administrators."
+    stopCommandRun(id: ID!): CommandRun!
+}
+
+type CommandRunSwitch {
+    enabled: Boolean!
+    "What ORKNUX_CHAT_RUN_COMMANDS says, which is where a fresh installation starts."
+    configured: Boolean!
+    "When the switch was last pressed; null if it never was."
+    changedAt: String
+    changedBy: String
+}
+
+type CommandRunOffer {
+    "The block languages that can be run here, lower case; empty where Run is not offered."
+    languages: [String!]!
+    "Whether Run as administrator can be offered."
+    elevation: Boolean!
+}
+
+enum CommandRunState {
+    RUNNING
+    "It ended by itself; exitCode is its own."
+    EXITED
+    STOPPED
+    TIMED_OUT
+    "The operating system's administrator prompt was declined or dismissed."
+    DECLINED
+    "It could not be started; message says what was reported."
+    FAILED
+}
+
+type CommandRun {
+    id: ID!
+    state: CommandRunState!
+    "What it printed, stdout and stderr together, from the character asked for on."
+    output: String!
+    "Where the next read starts."
+    next: Int!
+    "Null while it runs, and where the process left none."
+    exitCode: Int
+    "What the operating system reported, where it did not simply exit."
+    message: String
+    "Whether output past the cap was dropped."
+    truncated: Boolean!
+    elevated: Boolean!
+    "How long it may take before it is stopped."
+    timeoutSeconds: Int!
+}

@@ -58,6 +58,9 @@ interface InstallationSettingRepository : JpaRepository<InstallationSetting, Str
 object SettingNames {
     const val ATTACHMENTS_ENABLED = "attachments.enabled"
     const val CHAT_ENABLED = "chat.enabled"
+
+    /** Whether a chat answer's shell blocks carry a Run button. */
+    const val CHAT_RUN_COMMANDS = "chat.run.commands"
     const val USAGE_TRACKING = "usage.tracking"
     const val SESSION_RATINGS = "session.ratings"
     const val CHAT_REVIEWS = "session.reviews.chat"
@@ -272,6 +275,26 @@ class InstallationSettings(
 
     @Transactional
     fun setChatEnabled(enabled: Boolean, by: String) = hold(SettingNames.CHAT_ENABLED, enabled, by)
+
+    /**
+     * Whether a chat answer's shell blocks may be run on this server's machine.
+     *
+     * The metrics bargain rather than the chat's: the file is where a fresh
+     * installation starts - ORKNUX_CHAT_RUN_COMMANDS, off for a server and on
+     * in the desktop app - and what an administrator stored is the answer from
+     * then on. A floor would make the switch unpressable on every server, which
+     * is where it is off.
+     */
+    fun chatRunCommands(): Boolean =
+        settings.findByIdOrNull(SettingNames.CHAT_RUN_COMMANDS)?.value?.toBooleanStrictOrNull() ?: chat.runCommands
+
+    /** What a fresh installation would answer. */
+    fun chatRunCommandsConfigured(): Boolean = chat.runCommands
+
+    fun chatRunCommandsChanged(): InstallationSetting? = settings.findByIdOrNull(SettingNames.CHAT_RUN_COMMANDS)
+
+    @Transactional
+    fun setChatRunCommands(enabled: Boolean, by: String) = hold(SettingNames.CHAT_RUN_COMMANDS, enabled, by)
 
     /**
      * Whether a chat may carry files.

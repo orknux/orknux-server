@@ -402,6 +402,7 @@ installation starts from.
 
 | Variable | What it sets | Default |
 |---|---|---|
+| `ORKNUX_CHAT_RUN_COMMANDS` | Whether a chat answer's shell blocks carry Run, which runs the command on this server's machine for an administrator. Where a fresh installation starts; Admin -> Settings holds what it is now. The desktop app sets it `true`. | `false` |
 | `ORKNUX_CHAT_MAX_ROUNDS` | Tool rounds one chat answer may take. | `100` |
 | `ORKNUX_CHAT_MAX_SUBAGENTS` | Other agents one conversation may ask. | `25` |
 | `ORKNUX_CHAT_TOOLS_NAMED_IN_SEARCH` | Findable tools `tool_find` names outright. | `40` |
@@ -467,6 +468,8 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_SEARCH_RESULTS_MOST` | The most results one web search may ask for, in items. | `20` |
 | `ORKNUX_TUNING_SEARCH_TIMEOUT_SECONDS` | How long one web search may take, in seconds. | `20` |
 | `ORKNUX_TUNING_SCRIPT_LOG_LINES` | How many lines one function call may log back, in lines. | `500` |
+| `ORKNUX_TUNING_COMMAND_TIMEOUT_SECONDS` | How long a command run from the chat may take, in seconds. | `600` |
+| `ORKNUX_TUNING_COMMAND_OUTPUT_CHARACTERS` | How much of a command's output is kept, in characters. | `200000` |
 | `ORKNUX_TUNING_PICTURES_PER_RUN` | How many pictures one workflow run or task may draw, in items. | `20` |
 | `ORKNUX_TUNING_SPEECHES_PER_RUN` | How many times one workflow run may speak, in items. | `20` |
 | `ORKNUX_TUNING_CHAT_AUDIO_MAX_MB` | The largest sound a chat message may send to a model, in MB. | `20` |

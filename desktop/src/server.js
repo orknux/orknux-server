@@ -195,6 +195,8 @@ class Server {
       ORKNUX_SELF_UPDATE: this.selfUpdate ? 'true' : 'false',
       // The server's desktop mode: its open-access warning names the person at the machine, and it stops when its input closes.
       ORKNUX_DESKTOP: 'true',
+      // Run on a chat answer's shell blocks: the machine is the person's own here, and Windows and Linux have a prompt to ask for administrator rights with. A value already in the environment wins.
+      ORKNUX_CHAT_RUN_COMMANDS: process.env.ORKNUX_CHAT_RUN_COMMANDS ?? (process.platform === 'win32' || process.platform === 'linux' ? 'true' : 'false'),
       MALLOC_ARENA_MAX: process.env.MALLOC_ARENA_MAX ?? '2',
     };
     this.apply(prepared, network);
