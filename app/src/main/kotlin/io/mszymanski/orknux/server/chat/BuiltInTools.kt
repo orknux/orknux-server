@@ -59,7 +59,10 @@ enum class BuiltInGovernance {
     /** Offered while the agent holds any memory catalog. */
     MEMORY_CATALOGS,
 
-    /** Offered while the agent has orknux access. */
+    /**
+     * Offered while the agent has orknux access, and then each switched by name
+     * - hidden, offered, or carried where it is marked Always - like [GRANT].
+     */
     ORKNUX_ACCESS,
 
     /**
@@ -380,8 +383,8 @@ class BuiltInTools(
          * The rule [AgentTools.offeringFor] keeps for every other tool, applied
          * to the built-ins: only an agent carrying a ceiling of its own drops
          * anything, and under one what is marked Always is carried and the rest
-         * is looked for. A name that is not a grant-governed built-in is always
-         * carried here, because whether *it* is found is somebody else's decision.
+         * is looked for, and the orknux_* tools likewise. A name that is neither
+         * is always carried here, because whether *it* is found is somebody else's decision.
          */
         fun carried(agent: Agent, name: String, ceiling: Int? = agent.maxTools): Boolean =
             /*
@@ -392,9 +395,21 @@ class BuiltInTools(
              * seen instead, and never looked.
              */
             if (name == HTTP_ALLOW_LIST) HTTP.any { it in agent.tools } else
-            (name !in GRANTED_SET && name !in REACHING_SET) ||
+            (name !in GRANTED_SET && name !in REACHING_SET && !orknux(name)) ||
                 ceiling == null ||
                 name in agent.requiredTools
+
+        /**
+         * Whether this is one of the orknux_* tools, which follow the same
+         * Hide, Offer, Always as the grant-governed built-ins while the agent
+         * has Orknux access. They used to travel on every turn whatever was
+         * marked, so an agent under a ceiling could not leave one to be found;
+         * V424 marked them Always on the agents that predate that.
+         */
+        fun orknux(name: String): Boolean = name.startsWith(ORKNUX_PREFIX)
+
+        /** OrknuxTools.PREFIX, which its private companion keeps to itself; the inventory test holds the two together. */
+        private const val ORKNUX_PREFIX = "orknux_"
 
         /**
          * The shed as this agent may use it: every tool it lends that the agent

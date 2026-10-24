@@ -54,6 +54,7 @@ class GrantRequestToolsTest(
     @Autowired val briefing: AgentBriefing,
     @Autowired val boxRows: io.mszymanski.orknux.server.box.BoxRepository,
     @Autowired val boxTools: io.mszymanski.orknux.server.box.BoxTools,
+    @Autowired val builtIns: BuiltInTools,
 ) {
 
     private var workspaceId = 0L
@@ -204,6 +205,27 @@ class GrantRequestToolsTest(
         // A box is not a tool: nothing was loaded under its name, and it is no longer something to ask for.
         assertThat(recorder.toolsFound(conversation)).doesNotContain(name)
         assertThat(call(GrantRequestTools.LIST).path("tools").values().map { it.path("name").stringValue() }).doesNotContain(name)
+    }
+
+    /**
+     * Orknux access granted in a chat brings its tools in at Always, as a new
+     * agent starts with them, and loaded where the agent asked. The orknux_*
+     * tools have an Offer of their own since 1.2.0; an agent under a tool limit
+     * given them this way still carries every one.
+     */
+    @Test
+    fun `accepting Orknux access marks its tools Always and loads them where asked`() {
+        agents.save(agents.findByIdOrNull(agent.id!!)!!.apply { maxTools = 100 })
+        call(GrantRequestTools.ASK, mapOf("tools" to listOf(GrantRequestTools.ORKNUX), "why" to "to read the runs", "load" to true))
+        answer(GrantRequestTools.ACCEPT_AND_LOAD)
+            .path("answerRequest.outcome").entity(String::class.java).isEqualTo("Granted - ${GrantRequestTools.ORKNUX}")
+
+        val after = agents.findByIdOrNull(agent.id!!)!!
+        val names = builtIns.orknuxNames()
+        assertThat(after.orknuxAccess).isTrue()
+        assertThat(after.requiredTools).containsAll(names)
+        assertThat(tools.offeringFor(after).core.map { it.name }).containsAll(names)
+        assertThat(recorder.toolsFound(conversation)).containsAll(names)
     }
 
     @Test

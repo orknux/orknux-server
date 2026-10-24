@@ -293,7 +293,13 @@ class GrantRequestTools(
                         if (BuiltInTools.reaches(one.name)) agent.tools.add(one.name) else agent.hiddenTools.remove(one.name)
                     Kind.WORKSPACE_TOOL, Kind.PLUGIN_TOOL -> agent.tools.add(one.name)
                     Kind.MCP_SERVER -> agent.mcpServers.add(one.name)
-                    Kind.ORKNUX -> agent.orknuxAccess = true
+                    Kind.ORKNUX -> {
+                        agent.orknuxAccess = true
+                        // At Always, as a new agent starts with them: each may be set to Offer on its page.
+                        builtIns.orknuxNames()
+                            .filter { it !in agent.hiddenTools && it !in agent.requiredTools }
+                            .forEach { agent.requiredTools.add(it) }
+                    }
                     Kind.CONNECTION -> one.connectionId?.let { agent.connections.add(it) }
                     Kind.BOX -> one.boxLabel?.let { agent.boxLabels = agent.boxLabels + it }
                 }
