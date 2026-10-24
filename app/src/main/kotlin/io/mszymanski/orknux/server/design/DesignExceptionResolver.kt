@@ -13,6 +13,8 @@ class DesignExceptionResolver : DataFetcherExceptionResolverAdapter() {
     override fun resolveToSingleError(exception: Throwable, environment: DataFetchingEnvironment): GraphQLError? {
         val errorType = when (exception) {
             is DesignImageRefusedException -> ErrorType.BAD_REQUEST
+            is DesignVideoRefusedException -> ErrorType.BAD_REQUEST
+            is DesignVideoSettingNotTakenException -> ErrorType.BAD_REQUEST
             else -> return null
         }
         return refused(exception, errorType, environment)

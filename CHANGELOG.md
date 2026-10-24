@@ -19,6 +19,7 @@ have failed.
 
 ### ✨ Added
 
+- **Videos in Design.** A Videos page lists the workspace's videos with their poster, prompt, model, length and state, and its editor makes one from a prompt with a model of the new kind Video - through stable-diffusion.cpp's server (Wan and the other video models it loads) or an OpenAI-shaped `/videos` - offering only the settings that model takes: frames, fps, size and seed, or length and size, and a picture to start from. A video is queued, followed with its progress, kept with the attachments and played in the page, and survives a reload or a restart of the server; Convert to video on a picture opens the editor with it as the first frame. How many are made at once, how often each is asked about, how long one may take and the largest kept are under Limits.
 - **An agent can ask for a box.** `tools_ungranted` lists the box labels it does not hold and `tools_request` asks for one in the chat; accepted, the label is added to the agent as on its page.
 - **`svg_read`** answers the markup of an SVG kept under a key - a drawing or an attached .svg - so an agent can read and change it.
 - **`sheet_read` reads an attached CSV, .xlsx or .xls** a page of rows at a time: a workbook's sheets by name, dates as ISO 8601, formulas as their saved values, a CSV's delimiter (comma, semicolon, tab) found by itself and quoting and a byte-order mark handled. The note on an attached sheet names it. Rows per page, characters per answer and how far a workbook may unpack are on Admin → Settings (`ORKNUX_TUNING_SHEET_*`).

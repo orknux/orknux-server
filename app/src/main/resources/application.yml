@@ -905,6 +905,10 @@ orknux:
     speeches.per.run: ${ORKNUX_TUNING_SPEECHES_PER_RUN:20}
     chat.audio.max.mb: ${ORKNUX_TUNING_CHAT_AUDIO_MAX_MB:20}
     midi.read.notes: ${ORKNUX_TUNING_MIDI_READ_NOTES:2000}
+    videos.at.once: ${ORKNUX_TUNING_VIDEOS_AT_ONCE:1}
+    video.poll.seconds: ${ORKNUX_TUNING_VIDEO_POLL_SECONDS:5}
+    video.longest.minutes: ${ORKNUX_TUNING_VIDEO_LONGEST_MINUTES:120}
+    video.max.mb: ${ORKNUX_TUNING_VIDEO_MAX_MB:200}
     action.retry.seconds: ${ORKNUX_TUNING_ACTION_RETRY_SECONDS:30}
     action.wait.seconds: ${ORKNUX_TUNING_ACTION_WAIT_SECONDS:3600}
     trigger.remember.minutes: ${ORKNUX_TUNING_TRIGGER_REMEMBER_MINUTES:10}

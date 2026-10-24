@@ -471,6 +471,10 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_SPEECHES_PER_RUN` | How many times one workflow run may speak, in items. | `20` |
 | `ORKNUX_TUNING_CHAT_AUDIO_MAX_MB` | The largest sound a chat message may send to a model, in MB. | `20` |
 | `ORKNUX_TUNING_MIDI_READ_NOTES` | How many notes midi_read lists from one file, in items. | `2000` |
+| `ORKNUX_TUNING_VIDEOS_AT_ONCE` | How many videos are made at once, in items. | `1` |
+| `ORKNUX_TUNING_VIDEO_POLL_SECONDS` | How often a video being made is asked about, in seconds. | `5` |
+| `ORKNUX_TUNING_VIDEO_LONGEST_MINUTES` | How long one video may take, in minutes. | `120` |
+| `ORKNUX_TUNING_VIDEO_MAX_MB` | The largest video kept, in MB. | `200` |
 | `ORKNUX_TUNING_ACTION_RETRY_SECONDS` | How often a waiting action asks again, in seconds. | `30` |
 | `ORKNUX_TUNING_ACTION_WAIT_SECONDS` | How long a waiting action waits when it does not say, in seconds. | `3600` |
 | `ORKNUX_TUNING_TRIGGER_REMEMBER_MINUTES` | How long a trigger remembers an event it ran on, in minutes. | `10` |

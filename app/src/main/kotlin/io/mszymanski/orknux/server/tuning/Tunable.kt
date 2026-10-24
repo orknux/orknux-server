@@ -229,6 +229,33 @@ enum class Tunable(
         "Past this many the answer stops listing them and says how many more there were; the tracks, tempo and time signature are still given whole.",
     ),
 
+    /*
+     * Design's Videos page. Issue #658. A video is a job its backend runs for
+     * minutes, so how many run at once, how often each is asked about, how
+     * long it may take and how large a file is kept are the four numbers that
+     * decide what it costs.
+     */
+    VIDEOS_AT_ONCE(
+        "videos.at.once", 1, 1, 16, TuningSection.MEDIA, TuningUnit.ITEMS,
+        "How many videos are made at once",
+        "Videos asked for in Design wait their turn past this many. A local video server makes one at a time however many it is sent.",
+    ),
+    VIDEO_POLL_SECONDS(
+        "video.poll.seconds", 5, 1, 300, TuningSection.MEDIA, TuningUnit.SECONDS,
+        "How often a video being made is asked about",
+        "Each ask is one request to the video's server; the page's progress moves this often.",
+    ),
+    VIDEO_LONGEST_MINUTES(
+        "video.longest.minutes", 120, 1, 1440, TuningSection.MEDIA, TuningUnit.MINUTES,
+        "How long one video may take",
+        "A video still not made after this is given up on, and said to have failed.",
+    ),
+    VIDEO_MAX_MB(
+        "video.max.mb", 200, 1, 4096, TuningSection.MEDIA, TuningUnit.MB,
+        "The largest video kept",
+        "A video larger than this is not collected from its server, and is said to have failed.",
+    ),
+
     /* ---- Workflows and triggers ---- */
 
     ACTION_RETRY_SECONDS(

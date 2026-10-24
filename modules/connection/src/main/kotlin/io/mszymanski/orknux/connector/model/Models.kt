@@ -62,6 +62,18 @@ enum class ModelKind {
      * [ModelUpscaleClient].
      */
     UPSCALE,
+
+    /**
+     * Text in - and a picture to start from, where the model takes one - a
+     * video out: what Design's Videos page makes with. Issue #658.
+     *
+     * A kind of its own rather than a switch on an image model, because it
+     * answers nothing an image model is asked: a video is a job the backend
+     * runs for minutes and is asked about until it is done, through
+     * stable-diffusion.cpp's `/sdcpp/v1/vid_gen` or OpenAI's `/videos`. See
+     * [ModelVideoClient].
+     */
+    VIDEO,
 }
 
 /** How often a token quota starts again. */

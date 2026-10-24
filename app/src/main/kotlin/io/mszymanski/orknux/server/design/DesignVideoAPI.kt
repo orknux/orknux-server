@@ -1,0 +1,361 @@
+package io.mszymanski.orknux.server.design
+
+import io.mszymanski.orknux.connector.model.ModelKind
+import io.mszymanski.orknux.connector.model.ModelService
+import io.mszymanski.orknux.connector.model.ModelVideoClient
+import io.mszymanski.orknux.connector.model.VideoSetting
+import io.mszymanski.orknux.connector.model.VideoSettingKind
+import io.mszymanski.orknux.connector.model.VideoSettingNames
+import io.mszymanski.orknux.connector.model.VideoSettings
+import io.mszymanski.orknux.server.attachment.AttachmentDownloads
+import io.mszymanski.orknux.server.attachment.AttachmentStore
+import io.mszymanski.orknux.server.attachment.InstallationSettings
+import io.mszymanski.orknux.server.attachment.PictureFilenames
+import io.mszymanski.orknux.server.graphql.Refusal
+import io.mszymanski.orknux.server.security.WorkspaceAccess
+import io.mszymanski.orknux.server.workflow.WorkspaceArtifactAPI
+import io.mszymanski.orknux.server.workspace.ModelNotFoundForWorkspaceException
+import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
+import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
+import org.springframework.core.io.InputStreamResource
+import org.springframework.data.repository.findByIdOrNull
+import org.springframework.graphql.data.method.annotation.Argument
+import org.springframework.graphql.data.method.annotation.MutationMapping
+import org.springframework.graphql.data.method.annotation.QueryMapping
+import org.springframework.http.ResponseEntity
+import org.springframework.security.authentication.AnonymousAuthenticationToken
+import org.springframework.security.core.context.SecurityContextHolder
+import org.springframework.stereotype.Controller
+import org.springframework.transaction.annotation.Transactional
+import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.ResponseBody
+
+/**
+ * Design's Videos page: asking a video model for a video, the list of what
+ * was asked for and made, and serving the files. Issue #658.
+ *
+ * Asking queues and answers at once; [DesignVideoQueue] asks the backend and
+ * keeps asking about it. Straight to the model chosen, as the image editor is,
+ * with exactly the settings that model said it takes - a setting it does not
+ * take is refused here rather than sent and silently dropped.
+ */
+@Controller
+class DesignVideoAPI(
+    private val videos: DesignVideoRepository,
+    private val queue: DesignVideoQueue,
+    private val models: ModelService,
+    private val client: ModelVideoClient,
+    private val store: AttachmentStore,
+    private val settings: InstallationSettings,
+    private val downloads: AttachmentDownloads,
+    private val access: WorkspaceAccess,
+    private val auditRecorder: WorkspaceAuditRecorder,
+    private val artifacts: WorkspaceArtifactAPI,
+) {
+
+    /** What one video model takes beyond a prompt, asked of its backend now. */
+    @QueryMapping
+    fun designVideoSettings(@Argument workspaceId: Long, @Argument modelId: Long): DesignVideoSettingsView {
+        access.requireVisible(workspaceId)
+        val model = models.model(modelId)?.takeIf { it.workspaceId == workspaceId }
+            ?: throw ModelNotFoundForWorkspaceException(modelId)
+        if (model.kind != ModelKind.VIDEO) throw DesignVideoRefusedException("${model.name} is not a video model.")
+        return when (val taken = client.settings(modelId)) {
+            is VideoSettings.Taken -> DesignVideoSettingsView(taken.settings.map(::settingView), null)
+            is VideoSettings.Failed -> DesignVideoSettingsView(emptyList(), taken.reason)
+        }
+    }
+
+    /** The workspace's videos, newest first - made, on their way, failed or stopped - matching [search] where one is given. */
+    @QueryMapping
+    fun designVideos(@Argument workspaceId: Long, @Argument search: String?): List<DesignVideoView> {
+        access.requireVisible(workspaceId)
+        val hunted = search?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        val all = videos.findByWorkspaceIdOrderByRequestedAtDescIdDesc(workspaceId)
+        val queued = queuedOrder()
+        return all
+            .filter { hunted == null || it.name.lowercase().contains(hunted) || it.prompt.lowercase().contains(hunted) }
+            .map { view(it, queued) }
+    }
+
+    /** One video, in whatever state it is; null for one not here. */
+    @QueryMapping
+    fun designVideo(@Argument workspaceId: Long, @Argument id: Long): DesignVideoView? {
+        access.requireVisible(workspaceId)
+        return videos.findByIdOrNull(id)?.takeIf { it.workspaceId == workspaceId }?.let { view(it, queuedOrder()) }
+    }
+
+    /** Refused here, before it waits, for anything that could never be made. */
+    @MutationMapping
+    @Transactional
+    fun queueDesignVideo(@Argument input: QueueDesignVideoInput): DesignVideoView {
+        val workspaceId = input.workspaceId.toLong()
+        access.requireVisible(workspaceId)
+        val modelId = input.modelId.toLong()
+        val model = models.model(modelId)?.takeIf { it.workspaceId == workspaceId }
+            ?: throw ModelNotFoundForWorkspaceException(modelId)
+        if (model.kind != ModelKind.VIDEO) throw DesignVideoRefusedException("${model.name} is not a video model.")
+
+        val prompt = input.prompt.trim()
+        if (prompt.isEmpty()) throw DesignVideoRefusedException("Say what the video should be of.")
+        val longest = settings.imageMaxPrompt()
+        if (prompt.length > longest) {
+            throw DesignVideoRefusedException("That description is too long to make a video from; say it in under $longest characters.")
+        }
+        if (!settings.attachmentsEnabled()) {
+            throw DesignVideoRefusedException("A video is kept as an attachment, and attachments are turned off for this installation.")
+        }
+        val called = input.name?.trim()?.takeIf { it.isNotEmpty() }
+        if (called != null && called.length > NAME_LENGTH) {
+            throw DesignVideoRefusedException("A video's name is at most $NAME_LENGTH characters.")
+        }
+
+        // What the model takes, asked of it now: a setting outside that is refused, never sent and ignored.
+        val taken = when (val asked = client.settings(modelId)) {
+            is VideoSettings.Taken -> asked.settings.associateBy { it.name }
+            is VideoSettings.Failed -> throw DesignVideoRefusedException(asked.reason)
+        }
+        fun number(name: String, value: Long?): Long? {
+            value ?: return null
+            val setting = taken[name] ?: throw DesignVideoSettingNotTakenException(model.name, name)
+            if ((setting.least != null && value < setting.least!!) || (setting.most != null && value > setting.most!!)) {
+                throw DesignVideoRefusedException("$value is outside what ${model.name} takes for $name: ${setting.least} to ${setting.most}.")
+            }
+            return value
+        }
+        fun choice(name: String, value: String?): String? {
+            val chosen = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+            val setting = taken[name] ?: throw DesignVideoSettingNotTakenException(model.name, name)
+            if (setting.kind == VideoSettingKind.CHOICE && chosen !in setting.choices) {
+                throw DesignVideoRefusedException("${model.name} takes $name as one of ${setting.choices.joinToString(", ")}.")
+            }
+            return chosen
+        }
+        val startImageId = input.startImageId?.trim()?.takeIf { it.isNotEmpty() }
+        if (startImageId != null) {
+            if (VideoSettingNames.START_IMAGE !in taken) throw DesignVideoSettingNotTakenException(model.name, VideoSettingNames.START_IMAGE)
+            val start = artifacts.storedOf(workspaceId, startImageId)
+                ?: throw DesignVideoRefusedException("The picture to start from is not here any more.")
+            if (!start.contentType.startsWith("image/")) throw DesignVideoRefusedException("A video starts from a picture, and that file is not one.")
+        }
+
+        val video = videos.save(
+            DesignVideo(
+                workspaceId = workspaceId,
+                modelId = modelId,
+                modelName = model.name,
+                prompt = prompt,
+                name = called ?: PictureFilenames.nameOf(prompt),
+                seconds = choice(VideoSettingNames.SECONDS, input.seconds?.toString())?.toInt(),
+                size = choice(VideoSettingNames.SIZE, input.size),
+                frames = number(VideoSettingNames.FRAMES, input.frames?.toLong())?.toInt(),
+                fps = number(VideoSettingNames.FPS, input.fps?.toLong())?.toInt(),
+                width = number(VideoSettingNames.WIDTH, input.width?.toLong())?.toInt(),
+                height = number(VideoSettingNames.HEIGHT, input.height?.toLong())?.toInt(),
+                seed = number(VideoSettingNames.SEED, seedOf(input.seed)),
+                startImageId = startImageId,
+                requestedBy = currentName(),
+            ),
+        )
+        auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Video queued in Design with ${model.name}")
+        queue.queued(video)
+        return view(video, queuedOrder())
+    }
+
+    /**
+     * Stops a video waiting or being made. One waiting is never started; one
+     * being made is cancelled at its backend where the backend can be asked
+     * to, and whatever comes of it is not kept.
+     */
+    @MutationMapping
+    fun stopDesignVideo(@Argument workspaceId: Long, @Argument id: Long): DesignVideoView {
+        access.requireVisible(workspaceId)
+        val video = videos.findByIdOrNull(id)?.takeIf { it.workspaceId == workspaceId }
+            ?: throw DesignVideoRefusedException("That video is not here any more.")
+        if (videos.stop(id, java.time.OffsetDateTime.now()) != 1) {
+            throw DesignVideoRefusedException("This video is not waiting or being made any more.")
+        }
+        val stopped = videos.findByIdOrNull(id) ?: video
+        queue.stopped(stopped)
+        auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Video ${video.name} stopped in Design")
+        return view(stopped, queuedOrder())
+    }
+
+    /** A video taken off the page, its file with it. Not one being made: stop it first. */
+    @MutationMapping
+    @Transactional
+    fun removeDesignVideo(@Argument workspaceId: Long, @Argument id: Long): Boolean {
+        access.requireVisible(workspaceId)
+        val video = videos.findByIdOrNull(id)?.takeIf { it.workspaceId == workspaceId } ?: return false
+        if (video.status == DesignVideoStatus.GENERATING) {
+            throw DesignVideoRefusedException("This video is being made; stop it before removing it.")
+        }
+        videos.delete(video)
+        video.location?.let { runCatching { store.remove(it) } }
+        video.posterLocation?.let { runCatching { store.remove(it) } }
+        auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Video ${video.filename ?: video.name} removed from Design")
+        return true
+    }
+
+    /** The file, to anybody who can see the workspace; answered as missing otherwise. */
+    @GetMapping("/api/design-videos/{id}")
+    @ResponseBody
+    fun download(@PathVariable id: Long): ResponseEntity<InputStreamResource> {
+        val video = videos.findByIdOrNull(id)?.takeIf { access.canSee(it.workspaceId) }
+        val location = video?.location?.takeIf { store.exists(it) } ?: return ResponseEntity.notFound().build()
+        return downloads.serve(
+            filename = requireNotNull(video.filename),
+            contentType = video.contentType ?: "application/octet-stream",
+            sizeBytes = video.sizeBytes ?: 0,
+            location = location,
+        )
+    }
+
+    /** The picture shown for a video before it plays. */
+    @GetMapping("/api/design-videos/{id}/poster")
+    @ResponseBody
+    fun poster(@PathVariable id: Long): ResponseEntity<InputStreamResource> {
+        val video = videos.findByIdOrNull(id)?.takeIf { access.canSee(it.workspaceId) }
+        val location = video?.posterLocation?.takeIf { store.exists(it) } ?: return ResponseEntity.notFound().build()
+        val type = video.posterContentType ?: "image/png"
+        return downloads.serve(
+            filename = PictureFilenames.of(video.name, type),
+            contentType = type,
+            sizeBytes = runCatching { store.open(location).use { it.readAllBytes().size.toLong() } }.getOrDefault(0),
+            location = location,
+        )
+    }
+
+    /** Where each queued video stands in the installation's queue, which is the one the limit is counted over. */
+    private fun queuedOrder(): Map<Long, Int> =
+        videos.findByStatusOrderByRequestedAtAscIdAsc(DesignVideoStatus.QUEUED).mapIndexedNotNull { index, video -> video.id?.let { it to index } }.toMap()
+
+    private fun view(video: DesignVideo, queued: Map<Long, Int>): DesignVideoView {
+        val id = requireNotNull(video.id)
+        val start = video.startImageId?.let { artifacts.storedOf(video.workspaceId, it) }?.view
+        return DesignVideoView(
+            id = id.toString(),
+            status = video.status,
+            name = video.name,
+            prompt = video.prompt,
+            modelId = video.modelId?.toString(),
+            model = video.modelName,
+            seconds = video.seconds,
+            size = video.size,
+            frames = video.frames,
+            fps = video.fps,
+            width = video.width,
+            height = video.height,
+            seed = video.seed?.toString(),
+            startImageId = video.startImageId,
+            startImageUrl = start?.url,
+            requestedBy = video.requestedBy,
+            requestedAt = video.requestedAt.toString(),
+            startedAt = video.startedAt?.toString(),
+            finishedAt = video.finishedAt?.toString(),
+            reason = video.reason,
+            progress = video.progress,
+            ahead = if (video.status == DesignVideoStatus.QUEUED) queued[id] else null,
+            url = video.location?.let { "/api/design-videos/$id" },
+            posterUrl = video.posterLocation?.let { "/api/design-videos/$id/poster" },
+            contentType = video.contentType,
+            sizeBytes = video.sizeBytes?.toInt(),
+            durationSeconds = video.durationSeconds,
+        )
+    }
+
+    private fun seedOf(text: String?): Long? {
+        val said = text?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        return said.toLongOrNull() ?: throw DesignVideoRefusedException("A seed is a whole number.")
+    }
+
+    private fun settingView(setting: VideoSetting) =DesignVideoSettingView(
+        name = setting.name,
+        kind = setting.kind,
+        choices = setting.choices,
+        least = setting.least?.toString(),
+        most = setting.most?.toString(),
+        preset = setting.preset,
+    )
+
+    private fun currentName(): String {
+        val authentication = SecurityContextHolder.getContext().authentication
+        return authentication?.takeIf { it.isAuthenticated && it !is AnonymousAuthenticationToken }?.name ?: "somebody"
+    }
+
+    private companion object {
+        /** The column's own width: a name is a title, not a description. */
+        const val NAME_LENGTH = 255
+    }
+}
+
+data class QueueDesignVideoInput(
+    val workspaceId: String,
+    /** A VIDEO model of this workspace. */
+    val modelId: String,
+    val prompt: String,
+    val name: String? = null,
+    val seconds: Int? = null,
+    val size: String? = null,
+    val frames: Int? = null,
+    val fps: Int? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+    /** A whole number as text: a backend's seed is 64 bits, wider than a GraphQL Int. */
+    val seed: String? = null,
+    /** A picture of the workspace's to start from, by its artifact id. */
+    val startImageId: String? = null,
+)
+
+data class DesignVideoSettingView(
+    val name: String,
+    val kind: VideoSettingKind,
+    val choices: List<String>,
+    /** Bounds as text, for the same reason as a seed. */
+    val least: String?,
+    val most: String?,
+    val preset: String?,
+)
+
+data class DesignVideoSettingsView(val settings: List<DesignVideoSettingView>, val reason: String?)
+
+data class DesignVideoView(
+    val id: String,
+    val status: DesignVideoStatus,
+    val name: String,
+    val prompt: String,
+    val modelId: String?,
+    val model: String,
+    val seconds: Int?,
+    val size: String?,
+    val frames: Int?,
+    val fps: Int?,
+    val width: Int?,
+    val height: Int?,
+    val seed: String?,
+    val startImageId: String?,
+    val startImageUrl: String?,
+    val requestedBy: String,
+    val requestedAt: String,
+    val startedAt: String?,
+    val finishedAt: String?,
+    val reason: String?,
+    val progress: Int?,
+    val ahead: Int?,
+    val url: String?,
+    val posterUrl: String?,
+    val contentType: String?,
+    val sizeBytes: Int?,
+    val durationSeconds: Double?,
+)
+
+/** Why no video was asked for, in the words the page shows. */
+class DesignVideoRefusedException(reason: String) : RuntimeException(reason)
+
+/** A setting the chosen model does not take: refused, never sent and dropped. */
+class DesignVideoSettingNotTakenException(val model: String, val setting: String) : RuntimeException(
+    "$model does not take $setting.",
+), Refusal {
+    override val arguments get() = mapOf("model" to model, "setting" to setting)
+}

@@ -1,0 +1,126 @@
+# Design's Videos page. Issue #658.
+
+extend type Query {
+    """
+    What one VIDEO model takes beyond a prompt, asked of its server now: only
+    these may be sent with a video. Empty with a reason where the server could
+    not be asked or makes no video.
+    """
+    designVideoSettings(workspaceId: ID!, modelId: ID!): DesignVideoSettings!
+    "This workspace's videos, newest first: made, on their way, failed or stopped."
+    designVideos(workspaceId: ID!, search: String): [DesignVideo!]!
+    "One video, in whatever state it is; null for one not here."
+    designVideo(workspaceId: ID!, id: ID!): DesignVideo
+}
+
+extend type Mutation {
+    """
+    Queues a video to be made by one video model, and answers at once; it is
+    made in turn and kept on Design's Videos page. Refused where the model is
+    not a video model of this workspace, a setting is one it does not take, or
+    the installation keeps no attachments.
+    """
+    queueDesignVideo(input: QueueDesignVideoInput!): DesignVideo!
+    "Stops a video waiting or being made; nothing is kept of it."
+    stopDesignVideo(workspaceId: ID!, id: ID!): DesignVideo!
+    "Takes a video off the page, its file with it. Refused for one being made."
+    removeDesignVideo(workspaceId: ID!, id: ID!): Boolean!
+}
+
+"How a video setting is asked for."
+enum VideoSettingKind {
+    "One of choices."
+    CHOICE
+    "A whole number between least and most."
+    NUMBER
+    "A picture of the workspace's, sent as the first frame."
+    PICTURE
+}
+
+"One thing a video model takes beyond the prompt."
+type DesignVideoSetting {
+    "seconds, size, frames, fps, width, height, seed or startImage."
+    name: String!
+    kind: VideoSettingKind!
+    "What a CHOICE may be, as the server spells it."
+    choices: [String!]!
+    "A NUMBER's bounds, as text: a seed is wider than an Int."
+    least: String
+    most: String
+    "What the server uses when it is left out, where it says."
+    preset: String
+}
+
+type DesignVideoSettings {
+    settings: [DesignVideoSetting!]!
+    "Why nothing could be learnt, where nothing could."
+    reason: String
+}
+
+enum DesignVideoStatus {
+    QUEUED
+    GENERATING
+    DONE
+    FAILED
+    "Stopped by somebody while it waited or was made: neither made nor failed."
+    STOPPED
+}
+
+"A video asked for on Design's Videos page, and where it is on its way to being made."
+type DesignVideo {
+    id: ID!
+    status: DesignVideoStatus!
+    name: String!
+    prompt: String!
+    "Null once that model is removed; model still names it."
+    modelId: ID
+    model: String!
+    seconds: Int
+    "WIDTHxHEIGHT, for a server that takes a size as one word."
+    size: String
+    frames: Int
+    fps: Int
+    width: Int
+    height: Int
+    seed: String
+    "The picture it starts from, by its artifact id."
+    startImageId: ID
+    startImageUrl: String
+    requestedBy: String!
+    requestedAt: String!
+    startedAt: String
+    finishedAt: String
+    "Why it was not made, on a FAILED one."
+    reason: String
+    "How far it has got, in percent, where its server says."
+    progress: Int
+    "How many queued videos are made before this one; null unless QUEUED."
+    ahead: Int
+    "The file, once DONE."
+    url: String
+    "A picture to show before it plays, where there is one."
+    posterUrl: String
+    contentType: String
+    sizeBytes: Int
+    durationSeconds: Float
+}
+
+"A video to make on Design's Videos page, straight from one video model. Each setting is one designVideoSettings names, or left out."
+input QueueDesignVideoInput {
+    workspaceId: ID!
+    "A VIDEO model of this workspace."
+    modelId: ID!
+    prompt: String!
+    "Null or blank names it after its prompt's first words."
+    name: String
+    seconds: Int
+    size: String
+    frames: Int
+    fps: Int
+    width: Int
+    height: Int
+    "A whole number, as text."
+    seed: String
+    "A picture of the workspace's to start from, by its artifact id."
+    startImageId: ID
+}

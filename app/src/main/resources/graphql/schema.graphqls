@@ -5675,6 +5675,8 @@ enum ModelKind {
     DECISION
     "A picture in, the same picture larger out, by an algorithm its server names; only under a STABLE_DIFFUSION_WEBUI provider."
     UPSCALE
+    "Text in, and a picture to start from where the model takes one, a video out: what Design's Videos page makes with."
+    VIDEO
 }
 
 "How often a token quota starts again; NEVER makes it a total rather than a rate."
