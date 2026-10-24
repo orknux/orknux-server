@@ -113,10 +113,7 @@ class NpmRegistry(
 
         val manifest = json("$registry/${encoded(name)}/$version", "$name@$version")
         val distribution = manifest.path("dist")
-        val tarball = distribution.path("tarball").asString("").trim()
-        if (!tarball.startsWith("http://") && !tarball.startsWith("https://")) {
-            throw LibraryRegistrySilentException("$name@$version", "it named no file to download")
-        }
+        val tarball = tarballOf(distribution, "$name@$version")
 
         // The version the registry answered with, not the one that was asked for.
         // They agree for an exact version, and the registry is the one that knows.
@@ -279,10 +276,7 @@ class NpmRegistry(
 
         val manifest = json("$registry/${encoded(name)}/$version", named)
         val distribution = manifest.path("dist")
-        val tarball = distribution.path("tarball").asString("").trim()
-        if (!tarball.startsWith("http://") && !tarball.startsWith("https://")) {
-            throw LibraryRegistrySilentException(named, "it named no file to download")
-        }
+        val tarball = tarballOf(distribution, named)
 
         val resolved = manifest.path("version").asString(version).ifBlank { version }
         val archive = bytes(tarball, "$name@$resolved")
@@ -539,35 +533,72 @@ class NpmRegistry(
     }
 
     /**
+     * Where the registry says the file is, or the refusal.
+     *
+     * `https` only, unless the administrator configured the registry itself as
+     * `http` - an offline mirror on a private network is a real installation,
+     * and refusing its files would be refusing the setup it chose. Its metadata
+     * travels in the clear too, so on such a registry the hash protects against
+     * a damaged file and nothing on the path; that is the administrator's
+     * decision to make, and the URL they typed is where it was made. A registry
+     * reached over `https` that names an `http` file is refused, since that file
+     * is the one thing on the way that nobody chose to send in the clear.
+     */
+    internal fun tarballOf(distribution: JsonNode, named: String): String {
+        val tarball = distribution.path("tarball").asString("").trim()
+        val plain = registry?.startsWith("http://", ignoreCase = true) == true
+        return when {
+            tarball.startsWith("https://", ignoreCase = true) -> tarball
+            tarball.startsWith("http://", ignoreCase = true) && plain -> tarball
+            tarball.startsWith("http://", ignoreCase = true) -> throw LibraryRegistrySilentException(
+                named,
+                "the registry named a file at an http:// address, and a file is fetched only over https " +
+                    "from a registry that is itself reached over https",
+            )
+            else -> throw LibraryRegistrySilentException(named, "it named no file to download")
+        }
+    }
+
+    /**
      * Hashes what arrived and compares it with what the registry said it would be.
      *
-     * `dist.integrity` is the modern spelling and `dist.shasum` the old one; a
-     * registry answering with neither is refused rather than trusted, because an
-     * artefact nothing can be compared against is exactly the thing this feature
-     * is not allowed to store. What comes back is the claim that was checked, and
-     * it goes on the row.
+     * Only `dist.integrity`, and only SHA-256, -384 or -512. The old `dist.shasum`
+     * is SHA-1, which a collision defeats - two files hashing alike can be made
+     * to order - and the hash is the one thing standing between a mirror and the
+     * code this server stores and runs. GitHub's SHA-1 webhook signature is
+     * refused for the same reason. So a registry offering only a shasum is
+     * refused, saying so, rather than trusted with the weaker claim; so is one
+     * offering neither. What comes back is the claim that was checked, and it
+     * goes on the row.
      */
     internal fun verify(archive: ByteArray, distribution: JsonNode, named: String): String {
         val integrity = distribution.path("integrity").asString("").trim()
-        if (integrity.isNotEmpty()) {
-            val algorithm = integrity.substringBefore('-', "")
-            val expected = integrity.substringAfter('-', "")
-            val digest = when (algorithm) {
-                "sha512" -> "SHA-512"
-                "sha384" -> "SHA-384"
-                "sha256" -> "SHA-256"
-                else -> throw LibraryRegistrySilentException(named, "it hashed the file with \"$algorithm\"")
-            }
-            val actual = Base64.getEncoder().encodeToString(MessageDigest.getInstance(digest).digest(archive))
-            if (actual != expected) throw LibraryIntegrityException(named, integrity, "$algorithm-$actual")
-            return integrity
+        if (integrity.isEmpty()) {
+            val shasum = distribution.path("shasum").asString("").trim()
+            throw LibraryRegistrySilentException(
+                named,
+                if (shasum.isNotEmpty()) {
+                    "the registry offered only a SHA-1 shasum, which is not enough to trust a file by; " +
+                        "a registry has to state an integrity of sha256, sha384 or sha512"
+                } else {
+                    "it did not say what the file hashes to"
+                },
+            )
         }
-
-        val shasum = distribution.path("shasum").asString("").trim().lowercase()
-        if (shasum.isEmpty()) throw LibraryRegistrySilentException(named, "it did not say what the file hashes to")
-        val actual = MessageDigest.getInstance("SHA-1").digest(archive).joinToString("") { "%02x".format(it) }
-        if (actual != shasum) throw LibraryIntegrityException(named, "sha1-$shasum", "sha1-$actual")
-        return "sha1-$shasum"
+        val algorithm = integrity.substringBefore('-', "")
+        val expected = integrity.substringAfter('-', "")
+        val digest = when (algorithm) {
+            "sha512" -> "SHA-512"
+            "sha384" -> "SHA-384"
+            "sha256" -> "SHA-256"
+            else -> throw LibraryRegistrySilentException(
+                named,
+                "it hashed the file with \"$algorithm\", and only sha256, sha384 and sha512 are accepted",
+            )
+        }
+        val actual = Base64.getEncoder().encodeToString(MessageDigest.getInstance(digest).digest(archive))
+        if (actual != expected) throw LibraryIntegrityException(named, integrity, "$algorithm-$actual")
+        return integrity
     }
 
     private fun json(url: String, named: String, accept: String = "application/json"): JsonNode {

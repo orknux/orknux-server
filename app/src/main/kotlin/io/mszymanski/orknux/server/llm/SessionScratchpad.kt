@@ -3,6 +3,8 @@ package io.mszymanski.orknux.server.llm
 import io.mszymanski.orknux.server.tuning.Tuning
 import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.server.attachment.InstallationSettings
+import io.mszymanski.orknux.server.regex.AuthoredRegex
+import io.mszymanski.orknux.server.regex.RegexTooSlowException
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.GeneratedValue
@@ -393,7 +395,10 @@ class SessionScratchpadService(
      * every `<img` with a src, every heading - and the lines around a hit, to
      * give scratchpad_replace an old text that is exactly once in the file.
      * Pads holding bytes are skipped: there are no lines in a PNG. Matched line
-     * by line, so a pattern cannot run away across a whole document.
+     * by line, so a pattern cannot run away across a whole document - but forty
+     * characters of one line are enough for `(a|a?){60}b` never to finish, so
+     * the whole search also runs against one clock (see [AuthoredRegex]) and
+     * answers why it stopped when that runs out.
      *
      * @return the hits, or a sentence saying why the pattern cannot be read
      */
@@ -414,10 +419,17 @@ class SessionScratchpadService(
         }
         val around = context.coerceAtLeast(0)
         val hits = mutableListOf<ScratchpadGrepHit>()
+        val seconds = tuning[Tunable.REGEX_MATCH_SECONDS]
+        val deadline = AuthoredRegex.deadlineIn(seconds)
         within.filter { it.contentType == null }.forEach { pad ->
             val lines = pad.content.lines()
             lines.forEachIndexed { index, line ->
-                if (regex.containsMatchIn(line)) {
+                val found = try {
+                    regex.containsMatchIn(AuthoredRegex.bounded(line, deadline, seconds))
+                } catch (slow: RegexTooSlowException) {
+                    return Result.failure(IllegalArgumentException(slow.message))
+                }
+                if (found) {
                     fun cut(from: Int, to: Int) = (from until to).map { lines[it].take(HIT_LENGTH) }
                     hits += ScratchpadGrepHit(
                         name = pad.name,

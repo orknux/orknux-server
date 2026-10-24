@@ -206,6 +206,21 @@ class ScratchpadTest(
     }
 
     /**
+     * Line by line bounds how far a pattern can run, not how long: forty a's
+     * on one line are enough for `(a|a?){60}b` never to finish. The search is
+     * stopped at its time limit and says so.
+     */
+    @Test
+    fun `a regex search that would backtrack for ever is stopped and says so`() {
+        ok(pads.create(session, "as.txt", "Forty a's", "a".repeat(40)))
+        val shed = requireNotNull(tools.shed(session))
+        val answer = org.junit.jupiter.api.Assertions.assertTimeoutPreemptively<String>(java.time.Duration.ofSeconds(20)) {
+            shed.run(io.mszymanski.orknux.connector.model.ToolCall("1", "scratchpad_search", """{"query":"(a|a?){60}b","regex":"true"}"""))
+        }
+        assertThat(answer).contains("seconds")
+    }
+
+    /**
      * A report zipped with its stylesheet and pictures, laid out as a PDF.
      * Issue #563: the picture is found inside the zip by its relative path, so
      * nothing is reported as not drawn.

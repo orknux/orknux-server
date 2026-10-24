@@ -110,6 +110,14 @@ class LlmSessionStore(
         }
     }
 
+    /**
+     * The most bytes one binary value can be and still be kept: [put] counts the
+     * JSON it is handed, which for bytes is a quoted base64 string, four
+     * characters for every three bytes. A writer that streams bytes in stops
+     * here rather than finding out from [put] after it has read them all.
+     */
+    fun mostBinaryBytes(): Long = (settings.sessionValueMaxMb() * 1024L * 1024L - 2) / 4 * 3
+
     @Transactional(readOnly = true)
     override fun get(sessionId: Long, key: String): String? =
         entries.findByIdOrNull(LlmSessionStoreKey(sessionId, key))?.value

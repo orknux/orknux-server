@@ -892,6 +892,9 @@ orknux:
     sheet.rows.most: ${ORKNUX_TUNING_SHEET_ROWS_MOST:200}
     sheet.answer.characters: ${ORKNUX_TUNING_SHEET_ANSWER_CHARACTERS:60000}
     sheet.unpacked.mb: ${ORKNUX_TUNING_SHEET_UNPACKED_MB:100}
+    regex.match.seconds: ${ORKNUX_TUNING_REGEX_MATCH_SECONDS:2}
+    watcher.match.characters: ${ORKNUX_TUNING_WATCHER_MATCH_CHARACTERS:1000000}
+    watcher.result.characters: ${ORKNUX_TUNING_WATCHER_RESULT_CHARACTERS:10000}
     http.timeout.seconds: ${ORKNUX_TUNING_HTTP_TIMEOUT_SECONDS:30}
     http.body.characters: ${ORKNUX_TUNING_HTTP_BODY_CHARACTERS:200000}
     http.download.mb: ${ORKNUX_TUNING_HTTP_DOWNLOAD_MB:5}

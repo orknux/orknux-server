@@ -1,7 +1,12 @@
 package io.mszymanski.orknux.server.watcher
 
+import io.mszymanski.orknux.server.regex.AuthoredRegex
+import io.mszymanski.orknux.server.regex.RegexTooSlowException
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
+import org.junit.jupiter.api.Assertions.assertTimeoutPreemptively
 import org.junit.jupiter.api.Test
+import java.time.Duration
 
 /**
  * What a watcher's condition matches, and what the Watchers skill says it
@@ -129,5 +134,37 @@ class WatcherConditionTest {
         assertThat(WatcherCondition.problemWithPath("")).contains("tool_result_path")
         assertThat(WatcherCondition.problemWithPath("body")).contains("starts with")
         assertThat(WatcherCondition.problemWithPath("$[")).contains("not a JSONPath")
+    }
+
+    /**
+     * `(a|a?){60}b` on forty a's: an alternative that can match nothing, inside
+     * a repetition. On this JDK it does not come back - measured, not assumed -
+     * and nothing in `java.util.regex` will stop it. Run on a thread of the
+     * test's own, so a match that never returns fails this test rather than
+     * hanging the suite.
+     */
+    @Test
+    fun `a pattern that backtracks without end is stopped, not waited for`() {
+        assertTimeoutPreemptively(Duration.ofSeconds(20)) {
+            assertThatThrownBy { WatcherCondition.match(WatcherConditionKind.REGEX, "(a|a?){60}b", "a".repeat(40), seconds = 1) }
+                .isInstanceOf(RegexTooSlowException::class.java)
+                .hasMessageContaining("after 1 second")
+        }
+        // The clock is not in the way of a pattern that finishes.
+        assertThat(WatcherCondition.match(WatcherConditionKind.REGEX, "b$", "a".repeat(100_000) + "b", seconds = 1)).isEqualTo("b")
+    }
+
+    /** The length the other patterns this server runs are held to, refused when the watcher is set. */
+    @Test
+    fun `a pattern past the shared length is refused, and a result past its length is not searched`() {
+        assertThat(WatcherCondition.problemWith(WatcherConditionKind.REGEX, "a".repeat(AuthoredRegex.MAX_PATTERN))).isNull()
+        assertThat(WatcherCondition.problemWith(WatcherConditionKind.REGEX, "a".repeat(AuthoredRegex.MAX_PATTERN + 1)))
+            .contains("at most ${AuthoredRegex.MAX_PATTERN} characters")
+        assertThatThrownBy { WatcherCondition.match(WatcherConditionKind.REGEX, "done", "x".repeat(101) + "done", mostCharacters = 100) }
+            .isInstanceOf(WatcherResultTooLongException::class.java)
+            .hasMessageContaining("tool_result_path")
+        // Narrowed by the path, the same result is searched.
+        val result = """{"log":"${"x".repeat(200)}","state":"done"}"""
+        assertThat(WatcherCondition.match(WatcherConditionKind.REGEX, "done", "\$.state", result, mostCharacters = 100)).isEqualTo("done")
     }
 }

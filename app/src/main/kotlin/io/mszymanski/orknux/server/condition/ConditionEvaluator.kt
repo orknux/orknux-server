@@ -23,6 +23,11 @@ import org.springframework.stereotype.Service
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 import io.mszymanski.orknux.server.workflow.MappingMode
+import io.mszymanski.orknux.server.regex.AuthoredRegex
+import io.mszymanski.orknux.server.regex.AuthoredRegex.MAX_PATTERN
+import io.mszymanski.orknux.server.regex.RegexTooSlowException
+import io.mszymanski.orknux.server.tuning.Tunable
+import io.mszymanski.orknux.server.tuning.Tuning
 import java.time.Clock
 import java.time.OffsetDateTime
 import java.time.LocalTime
@@ -52,6 +57,8 @@ class ConditionEvaluator(
     private val timeouts: ScriptTimeouts,
     private val mapper: ObjectMapper,
     private val clock: Clock = Clock.systemDefaultZone(),
+    /** The numbers this reads from Admin -> Settings. Issue #453. */
+    private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
     /**
@@ -423,9 +430,11 @@ class ConditionEvaluator(
      * that does not compile; it cannot catch one that is slow, because a regex
      * that backtracks is not throwing, it is working.
      *
-     * Nothing has been shown to blow up on this runtime — the textbook
-     * backtracking shapes all come back in about a millisecond here — so these
-     * two are a bound rather than a fix for something observed, and both sit
+     * The textbook backtracking shapes come back in about a millisecond on
+     * this runtime, but `(a|a?){60}b` against forty a's does not come back at
+     * all - eleven characters, well inside both bounds - so the match itself
+     * runs against a clock as well; see [AuthoredRegex]. One that runs out of
+     * time is no match, as a pattern past the bounds is. The two lengths sit
      * far above anything real. [MAX_PATTERN] is the width of the column the
      * pattern is stored in, so it cannot refuse a pattern that could have been
      * saved; [MAX_VALUE] is past any message a chat will render, and the
@@ -444,7 +453,15 @@ class ConditionEvaluator(
             )
             return false
         }
-        return runCatching { Regex(pattern).containsMatchIn(value) }.getOrElse { false }
+        val seconds = tuning[Tunable.REGEX_MATCH_SECONDS]
+        return try {
+            AuthoredRegex.containsMatchIn(Regex(pattern), value, seconds)
+        } catch (slow: RegexTooSlowException) {
+            log.warn("{} did not finish its pattern within {}s against {} value characters", condition.name, seconds, value.length)
+            false
+        } catch (unreadable: IllegalArgumentException) {
+            false
+        }
     }
 
     /** Whether the clock is between the two listed times, as HH:mm. */
@@ -499,12 +516,6 @@ class ConditionEvaluator(
 
         /** The name a reference starts with to read the event rather than the input. */
         const val TRIGGER = "trigger"
-
-        /**
-         * The longest pattern MATCHES will run. `workflow_condition_value.value`
-         * is VARCHAR(500), so a pattern longer than this was never stored.
-         */
-        const val MAX_PATTERN = 500
 
         /**
          * The longest value MATCHES will run a pattern against. A Slack message

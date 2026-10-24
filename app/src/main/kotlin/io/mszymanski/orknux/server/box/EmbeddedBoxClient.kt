@@ -157,10 +157,16 @@ class EmbeddedBoxClient(private val orkbox: Orkbox) : BoxClient {
         )
     }
 
-    override fun exportArchive(id: String, path: String?): ByteArray = call {
-        val session = manager.get(id)
-        files.stat(session, path ?: "")
-        ByteArrayOutputStream().also { files.exportArchive(session, path, it) }.toByteArray()
+    override fun exportArchive(id: String, path: String?, most: Long): ByteArray {
+        // Drained rather than cut off: see BoxArchives.AtMost for why this one cannot stop early.
+        val out = BoxArchives.AtMost(most, drain = true)
+        call {
+            val session = manager.get(id)
+            files.stat(session, path ?: "")
+            files.exportArchive(session, path, out)
+        }
+        if (out.exceeded) throw BoxArchiveTooLargeException(most)
+        return out.toByteArray()
     }
 
     override fun importArchive(id: String, path: String?, archive: ByteArray) =

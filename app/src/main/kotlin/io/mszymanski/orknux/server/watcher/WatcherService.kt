@@ -9,7 +9,10 @@ import io.mszymanski.orknux.server.llm.LlmSessionRecorder
 import io.mszymanski.orknux.server.llm.SessionEventKind
 import io.mszymanski.orknux.server.llm.SessionInbox
 import io.mszymanski.orknux.server.task.TaskRepository
+import io.mszymanski.orknux.server.regex.RegexTooSlowException
 import io.mszymanski.orknux.server.task.TaskWorker
+import io.mszymanski.orknux.server.tuning.Tunable
+import io.mszymanski.orknux.server.tuning.Tuning
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
 import org.slf4j.LoggerFactory
@@ -102,6 +105,8 @@ class WatcherService(
     private val recorder: LlmSessionRecorder,
     private val audit: WorkspaceAuditRecorder,
     transactions: PlatformTransactionManager,
+    /** The numbers this reads from Admin -> Settings. Issue #453. */
+    private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -179,9 +184,13 @@ class WatcherService(
          */
         val now0 = agentTools.getObject()
             .run(agent, ToolCall("watcher-set-check", asked.tool, asked.arguments), sessionId)
-        WatcherCondition.match(asked.kind, asked.condition, asked.toolResultPath, now0)?.let { matched ->
-            throw WatcherAlreadyMatches(matched, now0)
+        val already = try {
+            matchOf(asked.kind, asked.condition, asked.toolResultPath, now0)
+        } catch (unbounded: RuntimeException) {
+            whyNotMatched(unbounded) ?: throw unbounded
+            throw WatcherRefused(unbounded.message ?: "That condition could not be held against the result.")
         }
+        already?.let { matched -> throw WatcherAlreadyMatches(excerpt(matched), excerpt(now0)) }
 
         val now = OffsetDateTime.now()
         val saved = inTransaction.execute {
@@ -390,14 +399,24 @@ class WatcherService(
         // Outside any transaction: a tool may take as long as the thing it calls.
         val result = agentTools.getObject()
             .run(agent, ToolCall("watcher-$id-${watcher.checks + 1}", watcher.tool, watcher.arguments), watcher.sessionId)
-        val matched = WatcherCondition.match(watcher.conditionKind, watcher.condition, watcher.toolResultPath, result)
+        /*
+         * A pattern that will not finish, or a result too long to search, ends
+         * this watcher and only this one: the tick goes on to the next, which
+         * a match that never returned used to keep waiting for ever.
+         */
+        val matched = try {
+            matchOf(watcher.conditionKind, watcher.condition, watcher.toolResultPath, result)
+        } catch (unbounded: RuntimeException) {
+            fail(id, whyNotMatched(unbounded) ?: throw unbounded)
+            return
+        }
 
         inTransaction.executeWithoutResult {
             // Read again: a person may have stopped it while the tool ran.
             val held = watchers.findByIdOrNull(id)?.takeIf { it.status == WatcherStatus.ACTIVE } ?: return@executeWithoutResult
             held.checks += 1
             held.lastCheckedAt = now
-            held.lastResult = result
+            held.lastResult = excerpt(result)
             when {
                 matched != null -> fire(held, matched, result, now)
                 !now.isBefore(held.expiresAt) -> timeOut(held, result)
@@ -413,11 +432,11 @@ class WatcherService(
 
     private fun fire(watcher: Watcher, matched: String, result: String, now: OffsetDateTime) {
         val id = watcher.id
-        watcher.matched = matched
+        watcher.matched = excerpt(matched)
         end(watcher, WatcherStatus.FIRED, "Fired on check ${watcher.checks}.")
         recorder.note(
             watcher.sessionId,
-            "Watcher #$id fired on check ${watcher.checks}: ${describe(watcher)} matched $matched.",
+            "Watcher #$id fired on check ${watcher.checks}: ${describe(watcher)} matched ${excerpt(matched)}.",
         )
         val after = Duration.between(watcher.createdAt, now).toSeconds()
         inbox.post(
@@ -425,7 +444,7 @@ class WatcherService(
             SessionEventKind.WATCHER,
             "Watcher #$id fired. You asked to be told when ${watcher.tool} returned something matching " +
                 "${describe(watcher)}; on check ${watcher.checks}, ${after}s after you set it, it did." +
-                noteOf(watcher) + " What matched: $matched. What ${watcher.tool} returned: $result " +
+                noteOf(watcher) + " What matched: ${excerpt(matched)}. What ${watcher.tool} returned: ${excerpt(result)} " +
                 "The watcher has ended; set another with ${WatcherTools.SET} if you need to keep watching.",
         )
     }
@@ -462,7 +481,7 @@ class WatcherService(
             SessionEventKind.WATCHER,
             "Watcher #${watcher.id} has not matched yet, and this is $spacing. " +
                 "You asked to be told when ${watcher.tool} returned something matching ${describe(watcher)}." +
-                noteOf(watcher) + " On check ${watcher.checks} it returned: $result " +
+                noteOf(watcher) + " On check ${watcher.checks} it returned: ${excerpt(result)} " +
                 "Judge it yourself. If what you are waiting for has in fact happened, end the watcher with " +
                 "${WatcherTools.FINISH} and act on it. If the condition or the arguments are wrong, change them " +
                 "with ${WatcherTools.UPDATE}. If it is simply not there yet, there is nothing to tell anyone: it carries on by itself.",
@@ -482,7 +501,7 @@ class WatcherService(
             SessionEventKind.WATCHER,
             "Watcher #$id timed out: ${watcher.tool} was called ${watcher.checks} times over " +
                 "${watcher.timeoutSeconds}s and ${describe(watcher)} never matched." + noteOf(watcher) +
-                " What it returned last: $result " + afterTimeout(),
+                " What it returned last: ${excerpt(result)} " + afterTimeout(),
         )
     }
 
@@ -537,6 +556,35 @@ class WatcherService(
 
     private fun ownedBy(watcher: Watcher, agent: Agent, sessionId: Long): Boolean =
         if (agent.id != null) watcher.agentId == agent.id else watcher.agentId == null && watcher.sessionId == sessionId
+
+    /**
+     * The beginning of what a tool returned, as much as Admin Settings keeps,
+     * and how much was left out. Every check used to write the whole answer
+     * into the row and every wake-up to hand all of it to the agent - a
+     * conversation's worth from `orknux_session`, a build log from a box - and
+     * the agent pays for every character it is handed. The condition is still
+     * held against the whole result; only what is kept and told is cut.
+     */
+    private fun excerpt(text: String): String {
+        val most = tuning[Tunable.WATCHER_RESULT_CHARACTERS]
+        if (text.length <= most) return text
+        return text.take(most) + " [${text.length - most} more characters of this result were not kept here; " +
+            "the condition was held against all of it.]"
+    }
+
+    private fun matchOf(kind: WatcherConditionKind, condition: String, path: String?, result: String): String? =
+        WatcherCondition.match(
+            kind, condition, path, result,
+            seconds = tuning[Tunable.REGEX_MATCH_SECONDS],
+            mostCharacters = tuning[Tunable.WATCHER_MATCH_CHARACTERS],
+        )
+
+    /** The sentence for a match that was given up on, or null for a failure that is something else. */
+    private fun whyNotMatched(failure: RuntimeException): String? = when (failure) {
+        is RegexTooSlowException -> "Its regular expression was stopped: ${failure.message}"
+        is WatcherResultTooLongException -> "Its regular expression was not run: ${failure.message}"
+        else -> null
+    }
 
     private fun noteOf(watcher: Watcher): String =
         watcher.note?.takeIf { it.isNotBlank() }?.let { " Your note: $it." }.orEmpty()

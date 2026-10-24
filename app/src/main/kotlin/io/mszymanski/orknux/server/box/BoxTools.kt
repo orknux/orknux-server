@@ -851,7 +851,17 @@ class BoxTools(
         val conversation = held.conversation
         val path = args.text("path")
         val key = args.text("key") ?: "box.${held.row.id}.archive"
-        val bytes = held.client.exportArchive(held.row.remoteSessionId, path)
+        /*
+         * Bounded by what the store would keep, and while it is read: it used to
+         * be read whole, copied again as base64, and only then refused by the
+         * store for its size. One limit, the store's, rather than a second
+         * number for the same thing.
+         */
+        val bytes = try {
+            held.client.exportArchive(held.row.remoteSessionId, path, store.mostBinaryBytes())
+        } catch (tooLarge: BoxArchiveTooLargeException) {
+            throw Refused(tooLarge.message ?: "The archive is too large to keep")
+        }
         touch(held)
         store.put(conversation, key, mapper.writeValueAsString(Base64.getEncoder().encodeToString(bytes)), StoredKind(ARCHIVE_TYPE, true))
             ?.let { throw Refused("The archive could not be kept: $it") }
