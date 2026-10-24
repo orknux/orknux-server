@@ -155,6 +155,8 @@ class ResearchCapability(
                     answered(reportOf(pipeline.run(asked, knobs)))
                 }
             }
+        } catch (nothing: ResearchNothingReadException) {
+            failed(nothing.message ?: "read nothing.")
         } catch (refused: ResearchModelFailedException) {
             // A model that refused may answer later; anything else is settled.
             ScriptResult.Failed(refused.message ?: "the model did not answer", System.currentTimeMillis() - started, settled = false)
@@ -207,6 +209,7 @@ class ResearchCapability(
         "seen" to gathered.seen,
         "pages" to gathered.pages,
         "level" to gathered.level,
+        "refused" to gathered.refused,
         "limits" to linkedMapOf(
             RESULTS_PER_QUERY to gathered.limits.resultsPerQuery,
             MAX_SOURCES to gathered.limits.maxSources,

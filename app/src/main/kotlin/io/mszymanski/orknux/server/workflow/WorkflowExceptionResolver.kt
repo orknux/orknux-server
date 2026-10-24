@@ -14,6 +14,7 @@ import io.mszymanski.orknux.server.action.ActionHeaderVariableElsewhereException
 import io.mszymanski.orknux.server.action.ActionHoldsPlaceholderException
 import io.mszymanski.orknux.server.action.ActionSettingMissingException
 import io.mszymanski.orknux.server.action.ActionSubtypeMismatchException
+import io.mszymanski.orknux.server.action.FunctionBuiltInException
 import io.mszymanski.orknux.server.action.FunctionExternallyManagedException
 import io.mszymanski.orknux.server.action.FunctionSignatureMismatchException
 import io.mszymanski.orknux.server.action.FunctionImportedException
@@ -190,6 +191,7 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ActionFailedException,
             is FunctionSignatureMismatchException,
             is FunctionExternallyManagedException,
+            is FunctionBuiltInException,
             is FunctionNameTakenException,
             is FunctionNameInvalidException,
             is FunctionParamInvalidException,

@@ -355,17 +355,17 @@ class ResearchModes(
         private val SEEDED = listOf(
             Depth(
                 ResearchModeKind.SHALLOW, "Shallow", "Research: Shallow",
-                "Analysis > Research, shallow: a few searches and a short report.",
+                "Explore > Research, shallow: a few searches and a short report.",
                 Knobs(sub = 3, breadth = 0, depth = 1, results = 3, sources = 8, pages = 1),
             ),
             Depth(
                 ResearchModeKind.MEDIUM, "Medium", "Research: Medium",
-                "Analysis > Research, medium: a broader plan and one level of follow-up questions.",
+                "Explore > Research, medium: a broader plan and one level of follow-up questions.",
                 Knobs(sub = 5, breadth = 2, depth = 2, results = 4, sources = 20, pages = 2),
             ),
             Depth(
                 ResearchModeKind.DEEP, "Deep", "Research: Deep",
-                "Analysis > Research, deep: follow-up questions three levels down, sources checked against each other.",
+                "Explore > Research, deep: follow-up questions three levels down, sources checked against each other.",
                 Knobs(sub = 6, breadth = 4, depth = 3, results = 5, sources = 50, pages = 3),
             ),
         )

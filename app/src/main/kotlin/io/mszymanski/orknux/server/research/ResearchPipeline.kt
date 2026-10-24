@@ -92,6 +92,13 @@ data class ResearchGathered(
     /** The deepest level searched; 1 is the plan's own queries. */
     val level: Int,
     val limits: ResearchLimits,
+    /**
+     * What the search answered where it answered a refusal rather than
+     * results - no key, a spent quota - each said once, in its own words.
+     * Handed on so that a research which read nothing can say what the
+     * search told it.
+     */
+    val refused: List<String> = emptyList(),
 )
 
 /** Which of a mode workflow's steps a research is in. */
@@ -119,6 +126,15 @@ data class ResearchFound(val report: String, val sources: List<ResearchSource>)
 
 /** The model would not answer, so the research cannot go on. */
 class ResearchModelFailedException(reason: String) : RuntimeException(reason)
+
+/**
+ * Nothing was read, so there is nothing to write a report from. Settled: the
+ * same request reads the same nothing until somebody changes what it reads
+ * with - the search's key, the documents, the websites.
+ *
+ * Worded as the verb phrase a failed function's reason is, after its name.
+ */
+class ResearchNothingReadException(reason: String) : RuntimeException(reason)
 
 /**
  * A research, in the steps a mode's workflow draws: plan, gather, follow up,
@@ -207,7 +223,20 @@ class ResearchPipeline(
             visit(asked, reading, tracker)
             return reading.gathered(emptyList(), level = 1)
         }
-        val findings = search(asked, reading, queries.distinct(), level = 1, tracker)
+        val distinct = queries.distinct()
+        val findings = search(asked, reading, distinct, level = 1, tracker)
+        /*
+         * Every query refused and nothing read: going on would hand Write an
+         * empty list and a model that writes a report anyway, from what it
+         * already believed. Research 4 on the development server was exactly
+         * that - three searches each answered "no search key set", and a PDF.
+         */
+        if (reading.sources.isEmpty() && distinct.isNotEmpty() && reading.refusals >= distinct.size) {
+            throw ResearchNothingReadException(
+                "read no source: the search answered ${reading.refused.joinToString("; ") { "\"$it\"" }} " +
+                    "to ${if (distinct.size == 1) "the query" else "all ${distinct.size} queries"}.",
+            )
+        }
         return reading.gathered(findings, level = 1)
     }
 
@@ -278,6 +307,8 @@ class ResearchPipeline(
     fun write(asked: ResearchAsked, gathered: ResearchGathered): ResearchFound {
         val tracker = Tracker(asked.researchId, ResearchStage.WRITE)
         val sources = gathered.sources
+        // A report from no sources is the model's own belief written up as research.
+        if (sources.isEmpty()) throw ResearchNothingReadException(nothingRead(gathered))
         val excludedDocuments = saved.findAllById(asked.documentsExclude)
             .filter { it.workspaceId == asked.workspaceId }
             .map { it.name }
@@ -288,20 +319,27 @@ class ResearchPipeline(
             appendLine(register(asked.language))
             if (excludedDocuments.isNotEmpty()) appendLine("Do not use: ${excludedDocuments.joinToString(", ")}.")
             appendLine()
-            if (sources.isEmpty()) {
-                appendLine("No sources could be read. Say so, and say what would be needed to answer.")
-            } else {
-                appendLine("Sources, by number:")
-                sources.forEach { source ->
-                    appendLine()
-                    appendLine("[${source.number}] ${source.title} - ${source.url}")
-                    appendLine(source.notes)
-                }
+            appendLine("Sources, by number:")
+            sources.forEach { source ->
+                appendLine()
+                appendLine("[${source.number}] ${source.title} - ${source.url}")
+                appendLine(source.notes)
             }
         })
         val report = withSources(written.trim(), sources)
         tracker.step("Report written")
         return ResearchFound(report, sources)
+    }
+
+    /** Why Write has nothing to go on, in what was done rather than a guess at why it came to nothing. */
+    private fun nothingRead(gathered: ResearchGathered): String = buildString {
+        append("has no source to write a report from: nothing was read")
+        val searches = gathered.searched.size
+        if (searches > 0) append(" in ").append(searches).append(if (searches == 1) " search" else " searches")
+        append('.')
+        if (gathered.refused.isNotEmpty()) {
+            append(" The search answered: ").append(gathered.refused.joinToString("; ") { "\"$it\"" }).append('.')
+        }
     }
 
     /** Says a step on the research where there is one: what [ResearchDelivery] writes while it saves. */
@@ -329,7 +367,10 @@ class ResearchPipeline(
             tracker.searching(reading.searched, level)
             val found = web.search(asked.workspaceId, scoped(query, asked.websitesInclude), limits.resultsPerQuery)
                 .getOrElse { why ->
-                    tracker.step("The search answered: ${why.message}")
+                    val said = why.message?.trim()?.ifEmpty { null } ?: "no results and no reason"
+                    reading.refusals += 1
+                    if (said !in reading.refused) reading.refused += said
+                    tracker.step("The search answered: $said")
                     emptyList()
                 }
             val learnt = mutableListOf<Int>()
@@ -365,18 +406,23 @@ class ResearchPipeline(
         val searched = mutableListOf<String>()
         val seen = mutableSetOf<String>()
         val pages = mutableMapOf<String, Int>()
+        val refused = mutableListOf<String>()
+
+        /** Searches this step asked that answered a refusal rather than results. */
+        var refusals = 0
 
         constructor(gathered: ResearchGathered) : this(gathered.limits) {
             sources += gathered.sources
             searched += gathered.searched
             seen += gathered.seen
             pages += gathered.pages
+            refused += gathered.refused
         }
 
         val full get() = sources.size >= limits.maxSources
 
         fun gathered(findings: List<ResearchFinding>, level: Int) =
-            ResearchGathered(sources.toList(), findings, searched.toList(), seen.toList(), pages.toMap(), level, limits)
+            ResearchGathered(sources.toList(), findings, searched.toList(), seen.toList(), pages.toMap(), level, limits, refused.toList())
     }
 
     /** The model's notes on one source, or null where it found nothing that bears on the question. */
@@ -513,6 +559,7 @@ class ResearchPipeline(
                 maxSources = number(limits, "maxSources", 10).coerceIn(1, tuning[Tunable.RESEARCH_SOURCES_MOST]),
                 maxPagesPerSource = number(limits, "maxPagesPerSource", 1).coerceAtLeast(1),
             ),
+            refused = texts("refused"),
         )
     }
 

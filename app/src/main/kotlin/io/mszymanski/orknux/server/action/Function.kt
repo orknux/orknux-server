@@ -414,12 +414,15 @@ interface WorkflowFunctionRepository : JpaRepository<WorkflowFunction, Long> {
     fun findByWorkspaceIdAndName(workspaceId: Long, name: String): WorkflowFunction?
 
     /**
-     * One workspace's functions and the organisation's together.
+     * One workspace's functions and the organisation's together: what the
+     * plugins brought and what the release brings. The release's own were left
+     * out once, and an action calling `research_plan` then opened on an empty
+     * picker, because the list it reads its choice from had no such row.
      *
      * A single query, so the page and the ordering are the database's answer
      * rather than something reassembled afterwards from two of them.
      */
-    @Query("select f from WorkflowFunction f where f.workspaceId = :workspaceId or f.scope = 'PLUGIN'")
+    @Query("select f from WorkflowFunction f where f.workspaceId = :workspaceId or f.scope in ('PLUGIN', 'EMBEDDED')")
     fun findByWorkspaceIdOrPlugin(workspaceId: Long, pageable: Pageable): Page<WorkflowFunction>
 
     /**
@@ -432,7 +435,7 @@ interface WorkflowFunctionRepository : JpaRepository<WorkflowFunction, Long> {
      */
     @Query(
         "select f from WorkflowFunction f " +
-            "where (f.workspaceId = :workspaceId or f.scope = \'PLUGIN\') " +
+            "where (f.workspaceId = :workspaceId or f.scope in (\'PLUGIN\', \'EMBEDDED\')) " +
             "and (lower(f.name) like lower(concat(\'%\', :looking, \'%\')) " +
             "or lower(coalesce(f.description, \'\')) like lower(concat(\'%\', :looking, \'%\')))",
     )
@@ -450,7 +453,7 @@ interface WorkflowFunctionRepository : JpaRepository<WorkflowFunction, Long> {
      */
     @Query(
         "select f from WorkflowFunction f " +
-            "where (f.workspaceId = :workspaceId or f.scope = 'PLUGIN') and f.scope = :scope",
+            "where (f.workspaceId = :workspaceId or f.scope in ('PLUGIN', 'EMBEDDED')) and f.scope = :scope",
     )
     fun findByWorkspaceIdOrPluginScoped(
         workspaceId: Long,
@@ -502,6 +505,17 @@ class FunctionNameTakenException(val name: String) :
 class FunctionExternallyManagedException(val name: String) : RuntimeException(
     "\"$name\" is provided by a plugin and cannot be changed here. " +
         "Load the plugin again to change what it declares.",
+), Refusal {
+
+    override val arguments get() = mapOf("name" to name)
+}
+
+/**
+ * Somebody tried to change a function the release brings, which has no code
+ * here to change: the release runs it. Issue #501.
+ */
+class FunctionBuiltInException(val name: String) : RuntimeException(
+    "\"$name\" is brought by Orknux itself and cannot be changed here.",
 ), Refusal {
 
     override val arguments get() = mapOf("name" to name)
