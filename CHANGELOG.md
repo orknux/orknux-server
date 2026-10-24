@@ -47,6 +47,7 @@ have failed.
 - **Crop in the image editor.** The rail's Crop selects the part to keep with a rectangle, dims the rest and says the size it will be; Crop or Enter keeps it as a version.
 - **A brush in the image editor.** Paint over the picture by hand in a width and colour of your own; each stroke is a step Undo takes back, and Apply - or putting the brush down, or Save - keeps them as one version. Its width is in the picture's own pixels and starts at Admin → Settings → Limits (`ORKNUX_TUNING_IMAGES_BRUSH_PIXELS`, 12).
 - **Selective blur in the image editor.** Select part of the picture with a rectangle or a lasso and blur inside it only; the radius is in the picture's own pixels and starts at Admin → Settings → Limits (`ORKNUX_TUNING_IMAGES_BLUR_PIXELS`, 12). Each part blurred is a version.
+- **Feather for the Magic edit.** A Feather in pixels beside the prompt softens the selection's edge, so the redrawn part blends into the picture instead of leaving a seam; 0 is a hard edge, as before. It is in the picture's own pixels and starts at Admin → Settings → Limits (`ORKNUX_TUNING_IMAGES_FEATHER_PIXELS`, 8). The blend is done by the server as it lays the change over the picture - the edit endpoint reads a mask as yes or no, and no edit provider here takes a mask blur of its own.
 
 ### 🔧 Changed
 

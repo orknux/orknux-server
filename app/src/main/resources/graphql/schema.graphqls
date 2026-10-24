@@ -8586,6 +8586,8 @@ type DesignImageJob {
     checkpoint: String
     "What the picture was asked not to contain; null is none given, and the model's own default was sent."
     negativePrompt: String
+    "How far an edit's selection edge was softened, in the picture's own pixels; null for anything else."
+    feather: Int
     "The picture, once DRAWN."
     image: Artifact
 }
@@ -8613,6 +8615,10 @@ type ImageEditorSettings {
     blur: Int!
     "The largest radius the blur may be given."
     blurMost: Int!
+    "How far a Magic edit's selection edge is softened to start with; 0 is a hard edge."
+    feather: Int!
+    "The furthest a Magic edit's edge may be softened."
+    featherMost: Int!
 }
 
 """ A change the image editor made itself, to keep as a version of the picture. """
@@ -8731,6 +8737,12 @@ input EditDesignImageInput {
     "A PNG the picture's size, base64, transparent where the change goes."
     mask: String!
     name: String
+    """
+    How far the selection's edge is softened when the change is laid over the
+    picture, in its own pixels: the two blend across about this many either
+    side of the edge. 0 is a hard edge; null is the installation's.
+    """
+    feather: Int
     "What the change must not bring in; null is the model's default. Refused where the model does not take a negative prompt."
     negativePrompt: String
 }

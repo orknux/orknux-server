@@ -29,7 +29,13 @@ import org.springframework.data.repository.findByIdOrNull
  * Drawing on Design's Images page: straight to the image model chosen, kept
  * with what it was drawn with, and listed beside everything else that was drawn.
  */
-@SpringBootTest(properties = ["orknux.attachments.location=target/test-design-images"])
+@SpringBootTest(
+    properties = [
+        "orknux.attachments.location=target/test-design-images",
+        // Hard edges unless a test asks otherwise, so an edit's pixels are exactly the original's or the model's.
+        "orknux.tuning.images.feather.pixels=0",
+    ],
+)
 @AutoConfigureGraphQlTester
 @WithMockUser(username = "alice", roles = ["ADMINS"])
 class DesignImageAPITest(
@@ -410,18 +416,72 @@ class DesignImageAPITest(
 
     @Test
     fun `the image editor's tools start where Admin Settings says`() {
-        fun settings() = graphQlTester.document("""query { designImageEditorSettings(workspaceId: $workspaceId) { brush brushMost blur blurMost } }""").execute()
+        fun settings() = graphQlTester.document(
+            """query { designImageEditorSettings(workspaceId: $workspaceId) { brush brushMost blur blurMost feather featherMost } }""",
+        ).execute()
         settings()
             .path("designImageEditorSettings.brush").entity(Int::class.java).isEqualTo(12)
             .path("designImageEditorSettings.brushMost").entity(Int::class.java).isEqualTo(500)
             .path("designImageEditorSettings.blur").entity(Int::class.java).isEqualTo(12)
             .path("designImageEditorSettings.blurMost").entity(Int::class.java).isEqualTo(254)
+            .path("designImageEditorSettings.featherMost").entity(Int::class.java).isEqualTo(256)
         try {
             graphQlTester.document("""mutation { setTunable(key: "images.brush.pixels", value: 40) { value } }""").execute()
             settings().path("designImageEditorSettings.brush").entity(Int::class.java).isEqualTo(40)
         } finally {
             graphQlTester.document("""mutation { setTunable(key: "images.brush.pixels", value: null) { value } }""").execute()
         }
+    }
+
+    @Test
+    fun `a feathered edit blends the change into the picture across the selection's edge`() {
+        val modelId = model("Editor", "IMAGE")
+        val white = png(20, 2) { _, _ -> WHITE }
+        val source = images.save(
+            DesignImage(
+                workspaceId = workspaceId, modelId = modelId, modelName = "Editor", prompt = "A white strip",
+                size = null, quality = null, style = null, filename = "strip.png", contentType = "image/png",
+                sizeBytes = white.size.toLong(), location = store.put(workspaceId, "strip.png", white), drawnBy = "alice",
+                name = "Strip",
+            ),
+        )
+        // The left half selected; the model answers red everywhere.
+        val mask = Base64.getEncoder().encodeToString(png(20, 2) { x, _ -> if (x < 10) 0x00000000 else 0xFF000000.toInt() })
+        fun edit(feather: String): java.awt.image.BufferedImage {
+            val asked = graphQlTester.document(
+                """mutation { queueDesignImageEdit(input: {
+                     workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", modelId: $modelId, prompt: "Make it red", mask: "$mask"$feather
+                   }) { id feather } }""",
+            ).execute().path("queueDesignImageEdit.id").entity(String::class.java).get()
+            val id = drawnPicture(asked)
+            return javax.imageio.ImageIO.read(store.open(requireNotNull(images.findByIdOrNull(id.removePrefix("DESIGN-").toLong())).location))
+        }
+        fun blended(rgb: Int) = rgb != RED && rgb != WHITE
+
+        // A hard edge, as before: red to the tenth column, white from the eleventh.
+        val hard = edit(", feather: 0")
+        assertThat(listOf(hard.getRGB(9, 0), hard.getRGB(10, 0))).containsExactly(RED, WHITE)
+
+        // Feathered by four: the two meet in a blend across the edge, and far from it each is itself.
+        val soft = edit(", feather: 4")
+        assertThat(soft.getRGB(0, 0)).isEqualTo(RED)
+        assertThat(soft.getRGB(19, 0)).isEqualTo(WHITE)
+        assertThat(blended(soft.getRGB(9, 0)) && blended(soft.getRGB(10, 0))).isTrue()
+        assertThat(jobs.findAll().map { it.feather }).contains(4)
+
+        // None asked: the installation's.
+        try {
+            graphQlTester.document("""mutation { setTunable(key: "images.feather.pixels", value: 4) { value } }""").execute()
+            assertThat(blended(edit("").getRGB(10, 0))).isTrue()
+        } finally {
+            graphQlTester.document("""mutation { setTunable(key: "images.feather.pixels", value: null) { value } }""").execute()
+        }
+
+        graphQlTester.document(
+            """mutation { queueDesignImageEdit(input: {
+                 workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", modelId: $modelId, prompt: "Make it red", mask: "$mask", feather: 999
+               }) { id } }""",
+        ).execute().errors().satisfy { assertThat(it.single().message).contains("A feather is 0 to 256 pixels") }
     }
 
     @Test

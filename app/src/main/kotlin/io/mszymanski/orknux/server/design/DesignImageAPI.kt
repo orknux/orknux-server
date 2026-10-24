@@ -70,11 +70,14 @@ class DesignImageAPI(
         access.requireVisible(workspaceId)
         val brush = io.mszymanski.orknux.server.tuning.Tunable.IMAGE_BRUSH_PIXELS
         val blur = io.mszymanski.orknux.server.tuning.Tunable.IMAGE_BLUR_PIXELS
+        val feather = io.mszymanski.orknux.server.tuning.Tunable.IMAGE_FEATHER_PIXELS
         return ImageEditorSettingsView(
             brush = tuning[brush],
             brushMost = brush.most,
             blur = tuning[blur],
             blurMost = blur.most,
+            feather = tuning[feather],
+            featherMost = feather.most,
         )
     }
 
@@ -152,6 +155,11 @@ class DesignImageAPI(
         val mask = runCatching { java.util.Base64.getDecoder().decode(input.mask.substringAfter("base64,")) }.getOrNull()
             ?.takeIf { it.isNotEmpty() }
             ?: throw DesignImageRefusedException("The selection could not be read; select again.")
+        val feathering = io.mszymanski.orknux.server.tuning.Tunable.IMAGE_FEATHER_PIXELS
+        val feather = input.feather ?: tuning[feathering]
+        if (feather !in 0..feathering.most) {
+            throw DesignImageRefusedException("A feather is 0 to ${feathering.most} pixels.")
+        }
 
         val job = jobs.save(
             DesignImageJob(
@@ -167,6 +175,7 @@ class DesignImageAPI(
                 sourceId = input.imageId,
                 maskLocation = store.put(workspaceId, "mask.png", mask),
                 negativePrompt = negativeFor(model, input.negativePrompt),
+                feather = feather,
             ),
         )
         auditRecorder.record(
@@ -707,6 +716,7 @@ class DesignImageAPI(
             checkpoint = job.checkpoint,
             negativePrompt = job.negativePrompt,
             scale = job.scale,
+            feather = job.feather,
             image = job.imageId?.let { images.findByIdOrNull(it) }?.let(artifacts::describe),
         )
     }
@@ -770,6 +780,8 @@ data class EditDesignImageInput(
     val name: String? = null,
     /** What the change must not bring in; null or blank is the model's default. */
     val negativePrompt: String? = null,
+    /** How far the selection's edge is softened, in the picture's own pixels; null is the installation's. */
+    val feather: Int? = null,
 )
 
 data class UpscaleDesignImageInput(
@@ -801,6 +813,10 @@ data class ImageEditorSettingsView(
     val blur: Int,
     /** The largest radius it may be given. */
     val blurMost: Int,
+    /** How far a Magic edit's edge is softened, to start with; 0 is a hard edge. */
+    val feather: Int,
+    /** The furthest it may be softened. */
+    val featherMost: Int,
 )
 
 data class KeepDesignImageChangeInput(
@@ -866,6 +882,8 @@ data class DesignImageJobView(
     val checkpoint: String? = null,
     /** What it was asked not to contain; null is none given. */
     val negativePrompt: String? = null,
+    /** How far an edit's selection edge was softened, in pixels; null for anything else. */
+    val feather: Int? = null,
     val image: ArtifactView?,
 )
 

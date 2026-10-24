@@ -310,6 +310,17 @@ enum class Tunable(
         "How strongly the image editor's blur starts",
         "The blur's radius in the picture's own pixels. Whoever blurs can choose another, up to the most this may be set to.",
     ),
+    /*
+     * How far the edge of a Magic edit's selection is softened when the change
+     * is laid over the picture, in its own pixels. The right width depends on
+     * the picture and the change, so this is where the form starts and not a
+     * rule. Issue #638.
+     */
+    IMAGE_FEATHER_PIXELS(
+        "images.feather.pixels", 8, 0, 256, TuningSection.MEDIA, TuningUnit.PIXELS,
+        "How far a Magic edit's edge is feathered",
+        "The redrawn part blends into the picture across about this many of its own pixels either side of the selection's edge. Zero is a hard edge. Whoever edits can choose another.",
+    ),
 
     /* ---- Workflows and triggers ---- */
 

@@ -125,7 +125,7 @@ class DesignDrawQueue(
             }
             // An edit keeps every pixel outside the selection: the original's own, not the model's redrawing of it.
             val result = if (asked is Picture.Drawn && original != null && mask != null) {
-                MaskedComposite.keepOutside(original, asked.image, mask)
+                MaskedComposite.keepOutside(original, asked.image, mask, job.feather ?: 0)
                     ?.let { Picture.Drawn(it, "image/png", asked.millis) } ?: asked
             } else {
                 asked
