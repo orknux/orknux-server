@@ -256,6 +256,8 @@ class DesignVideoAPI(
             finishedAt = video.finishedAt?.toString(),
             reason = video.reason,
             progress = video.progress,
+            progressSamplingOnly = video.remoteId?.startsWith(ModelVideoClient.SDCPP_PREFIX) == true,
+            asOf = java.time.OffsetDateTime.now().toString(),
             ahead = if (video.status == DesignVideoStatus.QUEUED) queued[id] else null,
             url = video.location?.let { "/api/design-videos/$id" },
             posterUrl = video.posterLocation?.let { "/api/design-videos/$id/poster" },
@@ -342,6 +344,15 @@ data class DesignVideoView(
     val finishedAt: String?,
     val reason: String?,
     val progress: Int?,
+    /**
+     * Whether [progress] counts only the sampling steps. stable-diffusion.cpp's job
+     * reports the step of the pass it is sampling and nothing after it, so the VAE
+     * decode that follows the last step - about as long again for Wan - is not in
+     * it; OpenAI's progress is the whole job's.
+     */
+    val progressSamplingOnly: Boolean,
+    /** This server's clock when the video was read, so a page can count from [startedAt] on the same clock. */
+    val asOf: String,
     val ahead: Int?,
     val url: String?,
     val posterUrl: String?,

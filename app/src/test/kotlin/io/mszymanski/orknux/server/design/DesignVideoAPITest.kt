@@ -218,10 +218,20 @@ class DesignVideoAPITest(
 
         // Half way: what the page is told while it is made.
         await().atMost(Duration.ofSeconds(10)).until { videos.findByIdOrNull(id.toLong())?.progress == 50 }
-        graphQlTester.document("""query { designVideo(workspaceId: $workspaceId, id: $id) { status progress url } }""")
+        val before = java.time.OffsetDateTime.now().minusSeconds(1)
+        val halfWay = graphQlTester.document(
+            """query { designVideo(workspaceId: $workspaceId, id: $id) { status progress url startedAt asOf progressSamplingOnly } }""",
+        )
             .execute()
             .path("designVideo.status").entity(String::class.java).isEqualTo("GENERATING")
             .path("designVideo.url").valueIsNull()
+            // stable-diffusion.cpp's progress is its sampling steps: the decode after them is not in it, and the page says so.
+            .path("designVideo.progressSamplingOnly").entity(Boolean::class.java).isEqualTo(true)
+        // The server's clock beside when it started, so a page counts how long it has taken on one clock.
+        val startedAt = java.time.OffsetDateTime.parse(halfWay.path("designVideo.startedAt").entity(String::class.java).get())
+        val asOf = java.time.OffsetDateTime.parse(halfWay.path("designVideo.asOf").entity(String::class.java).get())
+        assertThat(asOf).isAfter(before)
+        assertThat(asOf).isAfterOrEqualTo(startedAt)
 
         await().atMost(Duration.ofSeconds(15)).until { videos.findByIdOrNull(id.toLong())?.status == DesignVideoStatus.DONE }
 
@@ -358,6 +368,11 @@ class DesignVideoAPITest(
         val created = openAiAsked.first { it.first.startsWith("POST /videos") }.second
         assertThat(created).contains("name=\"prompt\"", "A paper boat", "name=\"model\"", "sora-2", "name=\"seconds\"", "8", "name=\"size\"", "1280x720")
         assertThat(openAiAsked.map { it.first }).contains("GET /videos/video_A?", "GET /videos/video_A/content?", "GET /videos/video_A/content?variant=thumbnail")
+
+        // OpenAI's progress is the whole job's.
+        graphQlTester.document("""query { designVideo(workspaceId: $workspaceId, id: $id) { progressSamplingOnly } }""")
+            .execute()
+            .path("designVideo.progressSamplingOnly").entity(Boolean::class.java).isEqualTo(false)
 
         val kept = requireNotNull(videos.findByIdOrNull(id))
         assertThat(kept.contentType).isEqualTo("video/mp4")
