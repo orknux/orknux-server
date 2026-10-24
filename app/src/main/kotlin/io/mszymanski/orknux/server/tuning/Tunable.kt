@@ -303,6 +303,23 @@ enum class Tunable(
     ),
 
     /*
+     * A video made larger: its frames go to an upscale model's WebUI a batch at
+     * a time, and the result may be no larger than this on its longer side -
+     * four times a 1280-wide video is 5120, which no browser plays smoothly and
+     * H.264 as written here does not take.
+     */
+    VIDEO_UPSCALE_BATCH_FRAMES(
+        "video.upscale.batch.frames", 8, 1, 64, TuningSection.MEDIA, TuningUnit.ITEMS,
+        "Most frames sent in one upscale call",
+        "A video's frames go to the upscale model's server this many at a time. More is fewer calls and a larger request each; the progress moves once a batch.",
+    ),
+    VIDEO_UPSCALE_MAX_PIXELS(
+        "video.upscale.max.pixels", 3840, 64, 16384, TuningSection.MEDIA, TuningUnit.PIXELS,
+        "The longest side of an upscaled video",
+        "An upscale that would make a video longer than this on either side is refused before it starts.",
+    ),
+
+    /*
      * Where the image editor's brush starts, in the picture's own pixels -
      * somebody painting chooses their own, from 1 to the most here. Issue #637.
      */

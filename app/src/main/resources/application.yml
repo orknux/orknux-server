@@ -928,6 +928,8 @@ orknux:
     video.poll.seconds: ${ORKNUX_TUNING_VIDEO_POLL_SECONDS:5}
     video.longest.minutes: ${ORKNUX_TUNING_VIDEO_LONGEST_MINUTES:120}
     video.max.mb: ${ORKNUX_TUNING_VIDEO_MAX_MB:200}
+    video.upscale.batch.frames: ${ORKNUX_TUNING_VIDEO_UPSCALE_BATCH_FRAMES:8}
+    video.upscale.max.pixels: ${ORKNUX_TUNING_VIDEO_UPSCALE_MAX_PIXELS:3840}
     images.brush.pixels: ${ORKNUX_TUNING_IMAGES_BRUSH_PIXELS:12}
     images.brush.opacity.percent: ${ORKNUX_TUNING_IMAGES_BRUSH_OPACITY_PERCENT:100}
     images.brush.hardness.percent: ${ORKNUX_TUNING_IMAGES_BRUSH_HARDNESS_PERCENT:50}

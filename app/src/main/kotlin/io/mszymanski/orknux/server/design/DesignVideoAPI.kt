@@ -13,6 +13,8 @@ import io.mszymanski.orknux.server.attachment.InstallationSettings
 import io.mszymanski.orknux.server.attachment.PictureFilenames
 import io.mszymanski.orknux.server.graphql.Refusal
 import io.mszymanski.orknux.server.security.WorkspaceAccess
+import io.mszymanski.orknux.server.tuning.Tunable
+import io.mszymanski.orknux.server.tuning.Tuning
 import io.mszymanski.orknux.server.workflow.WorkspaceArtifactAPI
 import io.mszymanski.orknux.server.workspace.ModelNotFoundForWorkspaceException
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
@@ -30,6 +32,8 @@ import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.ResponseBody
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 /**
  * Design's Videos page: asking a video model for a video, the list of what
@@ -52,6 +56,8 @@ class DesignVideoAPI(
     private val access: WorkspaceAccess,
     private val auditRecorder: WorkspaceAuditRecorder,
     private val artifacts: WorkspaceArtifactAPI,
+    private val upscaler: DesignVideoUpscaler,
+    private val tuning: Tuning,
 ) {
 
     /** What one video model takes beyond a prompt, asked of its backend now. */
@@ -164,6 +170,76 @@ class DesignVideoAPI(
     }
 
     /**
+     * A finished video made larger by an upscale model: every frame through
+     * the model's WebUI, put back together at the same rate with its sound.
+     * Kept as a version of the video, which stays as it was. Refused here for
+     * anything that could never be made - a video not finished, a model that
+     * does not upscale, a result larger than the installation allows.
+     */
+    @MutationMapping
+    @Transactional
+    fun queueDesignVideoUpscale(@Argument input: UpscaleDesignVideoInput): DesignVideoView {
+        val workspaceId = input.workspaceId.toLong()
+        access.requireVisible(workspaceId)
+        val modelId = input.modelId.toLong()
+        val model = models.model(modelId)?.takeIf { it.workspaceId == workspaceId }
+            ?: throw ModelNotFoundForWorkspaceException(modelId)
+        if (model.kind != ModelKind.UPSCALE) throw DesignVideoRefusedException("${model.name} is not an upscale model.")
+        if (input.scale !in 1.0..8.0) throw DesignVideoRefusedException("A video can be made 1 to 8 times larger.")
+        if (!settings.attachmentsEnabled()) {
+            throw DesignVideoRefusedException("A video is kept as an attachment, and attachments are turned off for this installation.")
+        }
+        val source = videos.findByIdOrNull(input.videoId.toLong())?.takeIf { it.workspaceId == workspaceId }
+            ?: throw DesignVideoRefusedException("The video to make larger is not here any more.")
+        val location = source.location?.takeIf { source.status == DesignVideoStatus.DONE && store.exists(it) }
+            ?: throw DesignVideoRefusedException("Only a finished video can be made larger.")
+        VideoFrames.unavailable()?.let { throw DesignVideoRefusedException(it) }
+        val probe = probed(location)
+        val (width, height) = DesignVideoUpscaler.upscaledSize(probe.width, probe.height, input.scale)
+        val longest = tuning[Tunable.VIDEO_UPSCALE_MAX_PIXELS]
+        if (maxOf(width, height) > longest) throw DesignVideoTooLargeException(width, height, longest)
+
+        val video = videos.save(
+            DesignVideo(
+                workspaceId = workspaceId,
+                modelId = modelId,
+                modelName = model.name,
+                prompt = source.prompt,
+                name = source.name,
+                frames = source.frames,
+                fps = Math.round(probe.fps).toInt(),
+                width = width,
+                height = height,
+                requestedBy = currentName(),
+                versionOf = source.versionOf ?: source.id,
+                upscaledFrom = source.id,
+                upscaler = input.algorithm?.trim()?.takeIf { it.isNotEmpty() },
+                scale = input.scale,
+            ),
+        )
+        auditRecorder.record(
+            workspaceId,
+            WorkspaceAuditCategory.WORKFLOW,
+            "Video ${source.name} queued to be made ${input.scale}x larger in Design with ${model.name}",
+        )
+        upscaler.queued(video)
+        return view(video, queuedOrder())
+    }
+
+    /** What a stored video is, read off a copy of its file: the store hands out streams, and FFmpeg wants a file it can seek. */
+    private fun probed(location: String): VideoFrames.Probe {
+        val copy = Files.createTempFile("orknux-video-probe-", ".video")
+        return try {
+            store.open(location).use { Files.copy(it, copy, StandardCopyOption.REPLACE_EXISTING) }
+            VideoFrames.probe(copy)
+        } catch (failure: Exception) {
+            throw DesignVideoRefusedException("The video could not be read: ${failure.message ?: failure.javaClass.simpleName}")
+        } finally {
+            runCatching { Files.deleteIfExists(copy) }
+        }
+    }
+
+    /**
      * Stops a video waiting or being made. One waiting is never started; one
      * being made is cancelled at its backend where the backend can be asked
      * to, and whatever comes of it is not kept.
@@ -177,7 +253,7 @@ class DesignVideoAPI(
             throw DesignVideoRefusedException("This video is not waiting or being made any more.")
         }
         val stopped = videos.findByIdOrNull(id) ?: video
-        queue.stopped(stopped)
+        if (stopped.upscaledFrom != null) upscaler.stopped(stopped) else queue.stopped(stopped)
         auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Video ${video.name} stopped in Design")
         return view(stopped, queuedOrder())
     }
@@ -228,8 +304,12 @@ class DesignVideoAPI(
     }
 
     /** Where each queued video stands in the installation's queue, which is the one the limit is counted over. */
-    private fun queuedOrder(): Map<Long, Int> =
-        videos.findByStatusOrderByRequestedAtAscIdAsc(DesignVideoStatus.QUEUED).mapIndexedNotNull { index, video -> video.id?.let { it to index } }.toMap()
+    private fun queuedOrder(): Map<Long, Int> {
+        // Two queues: videos a model makes wait for videos, upscales for the image queue's slots.
+        val made = videos.findByStatusAndUpscaledFromIsNullOrderByRequestedAtAscIdAsc(DesignVideoStatus.QUEUED)
+        val upscaled = videos.findByStatusAndUpscaledFromIsNotNullOrderByRequestedAtAscIdAsc(DesignVideoStatus.QUEUED)
+        return listOf(made, upscaled).flatMap { queue -> queue.mapIndexedNotNull { index, video -> video.id?.let { it to index } } }.toMap()
+    }
 
     private fun view(video: DesignVideo, queued: Map<Long, Int>): DesignVideoView {
         val id = requireNotNull(video.id)
@@ -264,6 +344,12 @@ class DesignVideoAPI(
             contentType = video.contentType,
             sizeBytes = video.sizeBytes?.toInt(),
             durationSeconds = video.durationSeconds,
+            versionOf = video.versionOf?.toString(),
+            upscaledFrom = video.upscaledFrom?.toString(),
+            upscaler = video.upscaler,
+            scale = video.scale,
+            framesDone = video.framesDone,
+            framesTotal = video.framesTotal,
         )
     }
 
@@ -359,10 +445,37 @@ data class DesignVideoView(
     val contentType: String?,
     val sizeBytes: Int?,
     val durationSeconds: Double?,
+    /** The video this is a version of; null for one a video model made. */
+    val versionOf: String? = null,
+    /** The video an upscale took its frames from; null for anything else. */
+    val upscaledFrom: String? = null,
+    val upscaler: String? = null,
+    val scale: Double? = null,
+    /** How many of an upscale's frames are done, of [framesTotal]; null until it has counted them. */
+    val framesDone: Int? = null,
+    val framesTotal: Int? = null,
+)
+
+data class UpscaleDesignVideoInput(
+    val workspaceId: String,
+    /** A finished video of this workspace. */
+    val videoId: String,
+    /** An UPSCALE model of this workspace. */
+    val modelId: String,
+    /** One of the WebUI's algorithms; null or blank is the model's own. */
+    val algorithm: String? = null,
+    val scale: Double,
 )
 
 /** Why no video was asked for, in the words the page shows. */
 class DesignVideoRefusedException(reason: String) : RuntimeException(reason)
+
+/** An upscale whose result would be larger than the installation lets a video be made. */
+class DesignVideoTooLargeException(val width: Int, val height: Int, val longest: Int) : RuntimeException(
+    "It would be $width × $height, longer than the $longest pixels an upscaled video may be.",
+), Refusal {
+    override val arguments get() = mapOf("width" to width, "height" to height, "longest" to longest)
+}
 
 /** A setting the chosen model does not take: refused, never sent and dropped. */
 class DesignVideoSettingNotTakenException(val model: String, val setting: String) : RuntimeException(

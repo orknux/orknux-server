@@ -481,6 +481,8 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_VIDEO_POLL_SECONDS` | How often a video being made is asked about, in seconds. | `5` |
 | `ORKNUX_TUNING_VIDEO_LONGEST_MINUTES` | How long one video may take, in minutes. | `120` |
 | `ORKNUX_TUNING_VIDEO_MAX_MB` | The largest video kept, in MB. | `200` |
+| `ORKNUX_TUNING_VIDEO_UPSCALE_BATCH_FRAMES` | Most frames sent in one upscale call, in items. | `8` |
+| `ORKNUX_TUNING_VIDEO_UPSCALE_MAX_PIXELS` | The longest side of an upscaled video, in pixels. | `3840` |
 | `ORKNUX_TUNING_IMAGES_BRUSH_PIXELS` | How wide the image editor's brush starts, in pixels. | `12` |
 | `ORKNUX_TUNING_IMAGES_BRUSH_OPACITY_PERCENT` | How opaque the image editor's brush starts, in percent. | `100` |
 | `ORKNUX_TUNING_IMAGES_BRUSH_HARDNESS_PERCENT` | How hard the soft brush's and the eraser's edge starts, in percent. | `50` |

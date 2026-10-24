@@ -21,6 +21,15 @@ extend type Mutation {
     the installation keeps no attachments.
     """
     queueDesignVideo(input: QueueDesignVideoInput!): DesignVideo!
+    """
+    Queues a finished video to be made larger by an UPSCALE model: every frame
+    through the model's Stable Diffusion WebUI, put back together at the same
+    rate with its sound. Kept as a new version; the video stays as it was. Waits
+    in the image queue, under the same limit as pictures. Refused where the
+    video is not finished or the result would be larger than the installation
+    allows.
+    """
+    queueDesignVideoUpscale(input: UpscaleDesignVideoInput!): DesignVideo!
     "Stops a video waiting or being made; nothing is kept of it."
     stopDesignVideo(workspaceId: ID!, id: ID!): DesignVideo!
     "Takes a video off the page, its file with it. Refused for one being made."
@@ -107,6 +116,17 @@ type DesignVideo {
     contentType: String
     sizeBytes: Int
     durationSeconds: Float
+    "The video this is a version of; null for one a video model made."
+    versionOf: ID
+    "The video an upscale took its frames from; null for anything else."
+    upscaledFrom: ID
+    "The WebUI's algorithm an upscale uses; null for the model's own."
+    upscaler: String
+    "How many times larger an upscale makes it."
+    scale: Float
+    "How many of an upscale's frames are done, of framesTotal; null until they are counted."
+    framesDone: Int
+    framesTotal: Int
 }
 
 "A video to make on Design's Videos page, straight from one video model. Each setting is one designVideoSettings names, or left out."
@@ -127,4 +147,17 @@ input QueueDesignVideoInput {
     seed: String
     "A picture of the workspace's to start from, by its artifact id."
     startImageId: ID
+}
+
+"A finished video to make larger, frame by frame, through an UPSCALE model's WebUI."
+input UpscaleDesignVideoInput {
+    workspaceId: ID!
+    "A finished video of this workspace."
+    videoId: ID!
+    "An UPSCALE model of this workspace."
+    modelId: ID!
+    "One of the WebUI's algorithms, as designUpscaleAlgorithms names them; null or blank is the model's own."
+    algorithm: String
+    "How many times larger, 1 to 8."
+    scale: Float!
 }

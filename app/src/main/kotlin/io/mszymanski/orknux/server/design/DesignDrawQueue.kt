@@ -43,6 +43,7 @@ class DesignDrawQueue(
     private val auditRecorder: WorkspaceAuditRecorder,
     private val artifacts: io.mszymanski.orknux.server.workflow.WorkspaceArtifactAPI,
     private val layers: DesignImageLayers,
+    private val slots: DesignDrawSlots,
 ) : SmartLifecycle {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -52,7 +53,10 @@ class DesignDrawQueue(
     }
 
     private val counter = AtomicInteger()
-    private val drawingNow = AtomicInteger()
+
+    init {
+        slots.whenFreed(::dispatch)
+    }
 
     @Volatile
     private var running = false
@@ -81,15 +85,19 @@ class DesignDrawQueue(
     fun dispatch() {
         if (!running) return
         val waiting = jobs.findByStatusOrderByRequestedAtAscIdAsc(DesignImageJobStatus.QUEUED).iterator()
-        while (drawingNow.get() < settings.imageDrawsAtOnce() && waiting.hasNext()) {
+        // The limit is shared with videos being upscaled (DesignDrawSlots), so it is asked one slot at a time.
+        while (waiting.hasNext()) {
             val id = requireNotNull(waiting.next().id)
+            if (!slots.take()) break
             // Another server sharing the database may have taken it first.
-            if (jobs.claim(id, OffsetDateTime.now()) != 1) continue
-            drawingNow.incrementAndGet()
+            if (jobs.claim(id, OffsetDateTime.now()) != 1) {
+                slots.giveBack()
+                continue
+            }
             try {
                 workers.execute { draw(id) }
             } catch (refused: RuntimeException) {
-                drawingNow.decrementAndGet()
+                slots.giveBack()
                 fail(id, "The server is stopping; ask again once it is back.")
                 log.warn("Design image {} could not be started", id, refused)
             }
@@ -189,8 +197,8 @@ class DesignDrawQueue(
             log.warn("Design image {} failed while drawing", id, failure)
             fail(id, failure.message ?: "The drawing failed.")
         } finally {
-            drawingNow.decrementAndGet()
-            dispatch()
+            // Tells this queue and the video upscales alike that a slot is free.
+            slots.release()
         }
     }
 
