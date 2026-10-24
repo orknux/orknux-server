@@ -170,7 +170,7 @@ class NoteToSelfTest(
         } finally {
             settings.setNoteMaxCharacters(settings.noteMaxCharactersConfigured(), "alice")
         }
-        assertThat(settings.noteMaxCharacters()).isEqualTo(1000)
+        assertThat(settings.noteMaxCharacters()).isEqualTo(DEFAULT_NOTE_CHARACTERS)
     }
 
     /**

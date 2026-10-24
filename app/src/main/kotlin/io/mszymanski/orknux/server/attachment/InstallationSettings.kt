@@ -2858,7 +2858,7 @@ const val DEFAULT_COPY_LOCK_WAIT_SECONDS = 60
  */
 const val MIN_NOTE_CHARACTERS = 100
 const val MAX_NOTE_CHARACTERS = 10000
-const val DEFAULT_NOTE_CHARACTERS = 1000
+const val DEFAULT_NOTE_CHARACTERS = 2000
 
 class NoteLengthOutOfRangeException(val characters: Int) : RuntimeException(
     "$characters is not a length a note to self can be held to. " +
