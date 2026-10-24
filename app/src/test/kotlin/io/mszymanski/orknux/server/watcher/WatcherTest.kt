@@ -586,4 +586,36 @@ class WatcherTest(
         assertThat(events.findAll().single().body).contains("Watcher #$stuck").contains("has ended without matching")
         assertThat(watchers.findById(after).orElseThrow().checks).isEqualTo(1)
     }
+
+    /**
+     * A watcher on a verbose tool rewrote the whole of its answer into the row
+     * on every check, and handed the whole of it to the agent on a wake-up.
+     * Both get the beginning of it now, saying how much was left out.
+     */
+    @Test
+    fun `a long result is kept, and told, as its beginning and how much was cut`() {
+        fun answering(status: String) {
+            tool.source = "export default async function buildStatus() { return { status: '$status', log: 'x'.repeat(50000) }; }"
+            tool.typescript = tool.source
+            agentTools.save(tool)
+        }
+        answering("running")
+        val id = idIn(set())
+        due(id)
+        service.tick()
+        val looked = watchers.findById(id).orElseThrow()
+        assertThat(looked.lastResult!!.length).isLessThan(20_000)
+        assertThat(looked.lastResult).startsWith("{").contains("more characters")
+
+        answering("done")
+        due(id)
+        service.tick()
+        val fired = watchers.findById(id).orElseThrow()
+        assertThat(fired.status).isEqualTo(WatcherStatus.FIRED)
+        assertThat(fired.matched!!.length).isLessThan(20_000)
+        val told = events.findAll().single().body
+        // What matched and what was returned, each cut to the setting: two excerpts, where it was two whole answers.
+        assertThat(told.length).isLessThan(25_000)
+        assertThat(told).contains("more characters").contains(WatcherTools.SET)
+    }
 }

@@ -460,6 +460,7 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_SHEET_UNPACKED_MB` | The most one part of a workbook may unpack to, in MB. | `100` |
 | `ORKNUX_TUNING_REGEX_MATCH_SECONDS` | How long one regular expression somebody wrote may take to match, in seconds. | `2` |
 | `ORKNUX_TUNING_WATCHER_MATCH_CHARACTERS` | The longest result a watcher's regular expression is held against, in characters. | `1000000` |
+| `ORKNUX_TUNING_WATCHER_RESULT_CHARACTERS` | How much of a watcher's result is kept and shown to its agent, in characters. | `10000` |
 | `ORKNUX_TUNING_HTTP_TIMEOUT_SECONDS` | How long one HTTP request from a tool may take, in seconds. | `30` |
 | `ORKNUX_TUNING_HTTP_BODY_CHARACTERS` | How much of an HTTP answer a tool hands a model, in characters. | `200000` |
 | `ORKNUX_TUNING_HTTP_DOWNLOAD_MB` | The largest file a tool may download, in MB. | `5` |

@@ -155,6 +155,11 @@ enum class Tunable(
         "The longest result a watcher's regular expression is held against",
         "A watcher whose tool answers with more than this ends, and tells its agent to point tool_result_path at the part that matters.",
     ),
+    WATCHER_RESULT_CHARACTERS(
+        "watcher.result.characters", 10_000, 500, 1_000_000, TuningSection.AGENTS, TuningUnit.CHARACTERS,
+        "How much of a watcher's result is kept and shown to its agent",
+        "Each check keeps the beginning of what the tool returned, and the message that wakes the agent carries the same; the rest is cut, and the message says how much. The condition is still held against all of it.",
+    ),
 
     /* ---- Functions and HTTP ---- */
 
