@@ -17,6 +17,7 @@ import io.mszymanski.orknux.server.workflow.WorkflowRepository
 import io.mszymanski.orknux.workflow.execution.ExecutionLogRepository
 import io.mszymanski.orknux.workflow.execution.ExecutionStatus
 import io.mszymanski.orknux.workflow.execution.ExecutionStepRepository
+import io.mszymanski.orknux.workflow.execution.LogLevel
 import io.mszymanski.orknux.workflow.execution.StepStatus
 import io.mszymanski.orknux.workflow.execution.WorkflowExecutionRepository
 import org.assertj.core.api.Assertions.assertThat
@@ -165,6 +166,40 @@ class ActionNodeRunnerTest(
         assertThat(step.status).isEqualTo(StepStatus.FAILED)
         assertThat(step.error).contains("bad payload")
         assertThat(executions.findAll().single().status).isEqualTo(ExecutionStatus.FAILED)
+    }
+
+    /**
+     * What a function says with `orknux.log` is in the run's log, under its
+     * step, before the line the step ends on - and said before it threw, too.
+     * The sandbox kept the lines on its answer and nothing wrote them, so the
+     * run page's log for a function step had nothing a function said.
+     */
+    @Test
+    fun `what a function logs is in the run's log under its step, whether it returns or throws`() {
+        val functionId = function(
+            "chatty",
+            """
+            export default function chatty(input, format) {
+              orknux.log.info("looked at", input.id);
+              orknux.log.warn("format is", format);
+              orknux.log.error("about to fail");
+              if (input.id === 8) throw new Error("bad payload");
+              return { ok: true };
+            }
+            """.trimIndent(),
+        )
+        graph(functionAction(functionId, "Chatty"))
+
+        val runId = start()
+        val said = logs.findByExecutionIdOrderBySequenceAsc(runId).filter { it.nodeKey == "act" }
+        assertThat(said.map { it.message }.take(3)).containsExactly("looked at 7", "Warning: format is compact", "about to fail")
+        assertThat(said.map { it.level }.take(3)).containsExactly(LogLevel.INFO, LogLevel.INFO, LogLevel.ERROR)
+        assertThat(said).hasSize(4)
+
+        val failed = start("""{"payload":{"id":8},"format":"compact"}""", expectFailure = true)
+        assertThat(logs.findByExecutionIdOrderBySequenceAsc(failed).filter { it.nodeKey == "act" }.map { it.message })
+            .startsWith("looked at 8", "Warning: format is compact", "about to fail")
+            .anyMatch { it.contains("bad payload") }
     }
 
     @Test

@@ -22,9 +22,11 @@ import io.mszymanski.orknux.server.condition.ConditionNotDecidableException
 import io.mszymanski.orknux.server.condition.WorkflowConditionRepository
 import io.mszymanski.orknux.workflow.execution.ExecutionStep
 import io.mszymanski.orknux.workflow.execution.KIND_RUNNER_ORDER
+import io.mszymanski.orknux.workflow.execution.LogLevel
 import io.mszymanski.orknux.workflow.execution.NodeKind
 import io.mszymanski.orknux.workflow.execution.NodeRunner
 import io.mszymanski.orknux.workflow.execution.PermanentFailure
+import io.mszymanski.orknux.workflow.execution.RunLogger
 import io.mszymanski.orknux.workflow.execution.StepResult
 import io.mszymanski.orknux.workflow.execution.StepStatus
 import io.mszymanski.orknux.workflow.script.ScriptResult
@@ -84,6 +86,8 @@ class ActionNodeRunner(
     /** The plugin a PLUGIN_ACTION names, and what that plugin declares. Issue #438. */
     private val plugins: PluginRepository,
     private val pluginActions: PluginActions,
+    /** Where what a function said on its way is written, under its step; see [logged]. */
+    private val runLog: RunLogger,
     /** The numbers this reads from Admin -> Settings. Issue #453. */
     private val tuning: Tuning = Tuning.DEFAULTS,
 ) : NodeRunner {
@@ -461,6 +465,7 @@ class ActionNodeRunner(
             action.workspaceId,
             origin = originOf(step),
         )
+        logged(step, result)
 
         return when (result) {
             is ScriptResult.Returned -> StepResult(
@@ -568,6 +573,7 @@ class ActionNodeRunner(
             action.workspaceId,
             origin = originOf(step),
         )
+        logged(step, result)
 
         return when (result) {
             is ScriptResult.Returned -> StepResult(StepStatus.COMPLETED, handedOn(step, declared, result.json, input))
@@ -578,6 +584,35 @@ class ActionNodeRunner(
                 "${step.name}: ${action.name} ${result.reason}",
                 permanent = result.settled,
             )
+        }
+    }
+
+    /**
+     * What a function or a plugin action said on its way - its `orknux.log`
+     * lines, or an embedded step's account of what it did - written to the
+     * run's log under this step, so the run page shows it beside the step it
+     * belongs to, in the order it was said and before the line the step ends
+     * on. Written whether the call answered or threw: a call that stopped
+     * halfway is the one whose lines are most worth reading.
+     *
+     * Each line is `level words`, as the sandbox keeps it. An error is an
+     * error in the run's log; a warning keeps its word, because the run's log
+     * has no level for it; the rest is information. How many there are was
+     * already bounded where they were said, by `script.log.lines`.
+     */
+    private fun logged(step: ExecutionStep, result: ScriptResult) {
+        val said = when (result) {
+            is ScriptResult.Returned -> result.logs
+            is ScriptResult.Failed -> result.logs
+        }
+        said.forEach { line ->
+            val level = line.substringBefore(' ')
+            val words = line.substringAfter(' ', line).trim().ifEmpty { return@forEach }
+            when (level) {
+                "error" -> runLog.write(step.executionId, step.nodeKey, LogLevel.ERROR, words)
+                "warn" -> runLog.write(step.executionId, step.nodeKey, LogLevel.INFO, "Warning: $words")
+                else -> runLog.write(step.executionId, step.nodeKey, LogLevel.INFO, words)
+            }
         }
     }
 

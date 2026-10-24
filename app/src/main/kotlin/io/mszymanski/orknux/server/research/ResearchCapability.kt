@@ -109,14 +109,21 @@ class ResearchCapability(
         val declared = functions().firstOrNull { it.name == name } ?: return null
         val given = Given(declared, arguments)
         val started = System.currentTimeMillis()
-        fun failed(reason: String) = ScriptResult.Failed(reason, System.currentTimeMillis() - started)
-        fun answered(value: Any?) = ScriptResult.Returned(mapper.writeValueAsString(value), System.currentTimeMillis() - started)
+        /*
+         * What the step did, said on its answer the way a function's
+         * `orknux.log` lines are, so the action node writes it to the run's
+         * log under this step - and bounded by the same number they are.
+         */
+        val said = ResearchLog(tuning[Tunable.SCRIPT_LOG_LINES])
+        fun failed(reason: String) = ScriptResult.Failed(reason, System.currentTimeMillis() - started, logs = said.lines())
+        fun answered(value: Any?) =
+            ScriptResult.Returned(mapper.writeValueAsString(value), System.currentTimeMillis() - started, logs = said.lines())
 
         val question = given.text(QUESTION) ?: return failed("needs a question.")
         val researchId = given.text(RESEARCH)?.toLongOrNull()
             ?.takeIf { id -> researches.findByIdOrNull(id)?.workspaceId == workspaceId }
 
-        if (name == SAVE) return save(given, workspaceId, researchId, question).let(::answered)
+        if (name == SAVE) return save(given, workspaceId, researchId, question, said).let(::answered)
 
         val modelId = given.text(MODEL)?.toLongOrNull()?.let { chatModels.usable(workspaceId, it)?.id }
             ?: return failed(
@@ -138,7 +145,7 @@ class ResearchCapability(
 
         return try {
             when (name) {
-                PLAN -> answered(mapOf(QUERIES to pipeline.plan(asked, given.number(SUB_QUESTIONS).coerceAtLeast(1))))
+                PLAN -> answered(mapOf(QUERIES to pipeline.plan(asked, given.number(SUB_QUESTIONS).coerceAtLeast(1), said)))
                 GATHER -> {
                     /*
                      * A list where Plan is this function, and the planner's
@@ -151,12 +158,14 @@ class ResearchCapability(
                         .ifEmpty { given.text(QUERIES)?.let(pipeline::listFrom).orEmpty() }
                         .ifEmpty { listOf(question) }
                     pipeline.planned(researchId, queries)
-                    answered(shapeOf(pipeline.gather(asked, queries, limits(given))))
+                    answered(shapeOf(pipeline.gather(asked, queries, limits(given), said)))
                 }
                 FOLLOW_UP -> {
                     val gathered = pipeline.gatheredFrom(given.node(GATHERED))
                         ?: return failed("needs what Gather found: point its gathered at that step's output.")
-                    val deepened = pipeline.followUp(asked, gathered, given.number(BREADTH).coerceAtLeast(0), given.number(DEPTH).coerceAtLeast(1))
+                    val deepened = pipeline.followUp(
+                        asked, gathered, given.number(BREADTH).coerceAtLeast(0), given.number(DEPTH).coerceAtLeast(1), said,
+                    )
                     // The writing comes next, and may be an agent that would write from nothing.
                     pipeline.requireRead(deepened)
                     pipeline.note(researchId, ResearchStage.WRITE, "Writing the report")
@@ -165,7 +174,7 @@ class ResearchCapability(
                 WRITE -> {
                     val gathered = pipeline.gatheredFrom(given.node(GATHERED))
                         ?: return failed("needs what was gathered: point its gathered at that step's output.")
-                    answered(reportOf(pipeline.write(asked, gathered)))
+                    answered(reportOf(pipeline.write(asked, gathered, said)))
                 }
                 else -> {
                     val knobs = ResearchKnobs(
@@ -176,14 +185,16 @@ class ResearchCapability(
                         maxSources = limits(given).maxSources,
                         maxPagesPerSource = limits(given).maxPagesPerSource,
                     )
-                    answered(reportOf(pipeline.run(asked, knobs)))
+                    answered(reportOf(pipeline.run(asked, knobs, said)))
                 }
             }
         } catch (nothing: ResearchNothingReadException) {
             failed(nothing.message ?: "read nothing.")
         } catch (refused: ResearchModelFailedException) {
             // A model that refused may answer later; anything else is settled.
-            ScriptResult.Failed(refused.message ?: "the model did not answer", System.currentTimeMillis() - started, settled = false)
+            ScriptResult.Failed(
+                refused.message ?: "the model did not answer", System.currentTimeMillis() - started, settled = false, logs = said.lines(),
+            )
         }
     }
 
@@ -192,8 +203,10 @@ class ResearchCapability(
      * written on the research and answered rather than thrown, as it always
      * was: the report is written and kept, and only the file is missing.
      */
-    private fun save(given: Given, workspaceId: Long, researchId: Long?, question: String): Map<String, Any?> {
-        val written = given.text(REPORT) ?: return mapOf("error" to "There is no report to save.")
+    private fun save(given: Given, workspaceId: Long, researchId: Long?, question: String, said: ResearchLog): Map<String, Any?> {
+        val written = given.text(REPORT) ?: return mapOf("error" to "There is no report to save.").also {
+            said.warn("There is no report to save")
+        }
         /*
          * Handed what was gathered, the report is a draft - the writer agent's
          * answer - and the numbered list of what it cites goes after it here,
@@ -203,6 +216,10 @@ class ResearchCapability(
         val cited = pipeline.gatheredFrom(given.node(GATHERED))?.sources
         val report = if (cited == null) written else pipeline.withSources(written.trim(), cited)
         if (cited != null) pipeline.note(researchId, ResearchStage.WRITE, "Report written")
+        said.info(
+            "Report of ${report.length} characters" +
+                (cited?.let { ", with ${it.size} ${if (it.size == 1) "source" else "sources"} listed after it" } ?: ", saved as it was handed"),
+        )
         val found = linkedMapOf<String, Any?>(ResearchModes.REPORT to report)
         cited?.let { found["sources"] = it.map { source -> mapOf("number" to source.number, "title" to source.title, "url" to source.url) } }
         val format = given.text(OUTPUT_FORMAT)?.let { runCatching { ResearchOutputFormat.valueOf(it.uppercase()) }.getOrNull() }
@@ -212,11 +229,13 @@ class ResearchCapability(
         return when (val delivered = delivery.deliver(workspaceId, question, format, report)) {
             is ResearchDelivery.Delivered.Saved -> {
                 researchId?.let { researches.noteDelivered(it, delivered.artifactId, null) }
+                said.info("Saved ${delivered.fileName} on the Artifacts page as artifact ${delivered.artifactId}")
                 pipeline.note(researchId, ResearchStage.SAVE, "Finished")
                 found + mapOf("artifact" to delivered.artifactId, "file" to delivered.fileName)
             }
             is ResearchDelivery.Delivered.Refused -> {
                 researchId?.let { researches.noteDelivered(it, null, delivered.reason) }
+                said.warn("Not saved as a ${if (format == ResearchOutputFormat.PDF) "PDF" else "document"}: ${delivered.reason}")
                 pipeline.note(researchId, ResearchStage.SAVE, "Finished without a file")
                 found + mapOf("error" to delivered.reason)
             }

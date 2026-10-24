@@ -37,8 +37,9 @@ import org.springframework.transaction.annotation.Transactional
  * behind them. Issue #659.
  *
  * **Real workflows, not a feature dressed as one.** Shallow, Medium and Deep
- * are each an ordinary workflow of the workspace, a chain of five nodes - Plan,
- * Gather, Follow up, Write, Save. **Where a model does the thinking, the node
+ * are each an ordinary workflow of the workspace, a chain of five nodes - Plan
+ * research, Gather sources, Deepen findings, Write report, Save report, called
+ * Plan, Gather, Follow up, Write and Save below and by their keys. **Where a model does the thinking, the node
  * is an agent**: Plan is the workspace's Research planner and Write its
  * Research writer, two ordinary agents on the Agents page whose instructions
  * are what the planning and the writing are told, each node naming the model
@@ -67,7 +68,8 @@ import org.springframework.transaction.annotation.Transactional
  * calling `research_run`, and then five action nodes with the model's work
  * hidden inside Plan and Write. Where a seeded mode's workflow is still
  * exactly either of those, as it was seeded, [ensure] draws the current shape
- * in its place with the same numbers. A workflow somebody edited - a knob, a
+ * in its place with the same numbers; one still the current shape under the
+ * steps' former one-word names is given the names they have now. A workflow somebody edited - a knob, a
  * name, a node or a line added - is theirs and is left as it is, still running
  * the functions it calls, which all still work.
  *
@@ -144,6 +146,9 @@ class ResearchModes(
                 val depth = SEEDED.firstOrNull { it.kind == mode.kind } ?: return@mapNotNull null
                 val workflowId = mode.workflowId ?: return@mapNotNull null
                 if (!assignments.existsByWorkspaceIdAndWorkflowId(workspaceId, workflowId)) return@mapNotNull null
+                if (renamed(workspaceId, workflowId, depth)) {
+                    log.info("Research mode {} of workspace {} given its steps' current names", depth.modeName, workspaceId)
+                }
                 if (relaid(workspaceId, workflowId, depth)) {
                     log.info("Research mode {} of workspace {} laid out again", depth.modeName, workspaceId)
                 }
@@ -173,6 +178,30 @@ class ResearchModes(
     private fun xOf(at: Int) = at * SPACING
     private fun yOf(step: Step) = if (step.key == SAVE) DROP else 0.0
 
+    /**
+     * Gives a mode drawn in the current shape under the steps' former names -
+     * Plan, Gather, Follow up, Write, Save - the names and descriptions they
+     * have now, and the actions its nodes call theirs. Only where every node
+     * still has the former name and description it was seeded with: one
+     * renamed by somebody means the workflow is theirs, and none of it is
+     * touched. An action is renamed only while it still has the name it was
+     * made with, and only to a name nothing else in the workspace has.
+     */
+    private fun renamed(workspaceId: Long, workflowId: Long, depth: Depth): Boolean {
+        if (!untouchedCurrent(workspaceId, workflowId, depth) { FORMER.getValue(it.key) }) return false
+        val held = nodes.findByWorkflowId(workflowId).associateBy { it.nodeKey }
+        STEPS.forEach { step ->
+            val node = held.getValue(step.key)
+            node.name = step.nodeName
+            node.description = step.description
+            nodes.save(node)
+            val former = FORMER.getValue(step.key).actionName ?: return@forEach
+            val action = node.actionId?.let { actions.findByIdOrNull(it) } ?: return@forEach
+            if (action.name == former || action.name == "$former$FALLBACK") adopted(workspaceId, action, requireNotNull(step.actionName))
+        }
+        return true
+    }
+
     /** Puts a mode drawn in the current shape back where [lay] would draw it, moving nothing else. */
     private fun relaid(workspaceId: Long, workflowId: Long, depth: Depth): Boolean {
         if (!untouchedCurrent(workspaceId, workflowId, depth)) return false
@@ -193,8 +222,14 @@ class ResearchModes(
     /**
      * Whether a workflow is still exactly the shape [lay] draws now - its nodes,
      * agents, actions, outputs, parameters and lines - wherever its cards sit.
+     * Named as [named] says, which is the current names unless asked about the former ones.
      */
-    private fun untouchedCurrent(workspaceId: Long, workflowId: Long, depth: Depth): Boolean {
+    private fun untouchedCurrent(
+        workspaceId: Long,
+        workflowId: Long,
+        depth: Depth,
+        named: (Step) -> Named = { Named(it.nodeName, it.description) },
+    ): Boolean {
         val drawn = edges.findByWorkflowId(workflowId)
         val wantedLines = STEPS.zipWithNext().map { (from, to) -> from.key to to.key }.toSet()
         if (drawn.size != wantedLines.size || drawn.any { it.branch != null } || drawn.map { it.sourceKey to it.targetKey }.toSet() != wantedLines) {
@@ -212,8 +247,8 @@ class ResearchModes(
                 node.kind == NodeKind.ACTION && action != null && function != null && action.workspaceId == workspaceId && action.functionId == function.id
             }
             kindAndPart &&
-                node.name == step.nodeName &&
-                node.description == step.description &&
+                node.name == named(step).nodeName &&
+                node.description == named(step).description &&
                 node.enabled &&
                 node.outputName == step.outputName &&
                 signature(node.mappings) == signature(mappingsOf(step, STEPS, depth.knobs))
@@ -278,20 +313,32 @@ class ResearchModes(
     /** What the workspace's modes are drawn with: the step actions and the two agents, found by name or made. */
     private fun parts(workspaceId: Long): Parts = Parts(
         actions = STEPS.mapNotNull { step ->
-            step.function?.let { step.key to requireNotNull(action(workspaceId, "$ACTION_NAME: ${step.nodeName}", functionId(it)).id) }
+            step.function?.let {
+                step.key to requireNotNull(
+                    action(workspaceId, requireNotNull(step.actionName), FORMER.getValue(step.key).actionName, functionId(it)).id,
+                )
+            }
         }.toMap(),
         agents = STEPS.mapNotNull { step -> step.agent?.let { step.key to requireNotNull(agent(workspaceId, it).id) } }.toMap(),
     )
 
-    /** An action calling one research function, found by name or made. */
-    private fun action(workspaceId: Long, wanted: String, functionId: Long): WorkflowAction {
-        actions.findByWorkspaceIdAndName(workspaceId, wanted)
+    /**
+     * An action calling one research function, found by name or made.
+     *
+     * Found under its name, or under that name with [FALLBACK] after it - the
+     * name it was made with where somebody's own action had the plain one.
+     * Then under the name it had before the steps were renamed, with or
+     * without [FALLBACK], and given its current name where that is free: a
+     * workspace seeded before then has its actions under the former names, and
+     * missing them would make a second set beside the first.
+     */
+    private fun action(workspaceId: Long, wanted: String, former: String?, functionId: Long): WorkflowAction {
+        fun calling(name: String) = actions.findByWorkspaceIdAndName(workspaceId, name)
             ?.takeIf { it.subtype == ActionSubtype.FUNCTION && it.functionId == functionId }
-            ?.let { return it }
-        val name = wanted.takeIf { actions.findByWorkspaceIdAndName(workspaceId, it) == null } ?: "$wanted (Analysis)"
-        actions.findByWorkspaceIdAndName(workspaceId, name)
-            ?.takeIf { it.subtype == ActionSubtype.FUNCTION && it.functionId == functionId }
-            ?.let { return it }
+        calling(wanted)?.let { return it }
+        calling("$wanted$FALLBACK")?.let { return it }
+        former?.let { (calling(it) ?: calling("$it$FALLBACK"))?.let { held -> return adopted(workspaceId, held, wanted) } }
+        val name = wanted.takeIf { actions.findByWorkspaceIdAndName(workspaceId, it) == null } ?: "$wanted$FALLBACK"
         return actions.save(
             WorkflowAction(
                 workspaceId = workspaceId,
@@ -301,6 +348,15 @@ class ResearchModes(
                 functionId = functionId,
             ),
         )
+    }
+
+    /** A step's action under a former name, given [wanted] - or [wanted] with [FALLBACK] - where nothing else has it. */
+    private fun adopted(workspaceId: Long, action: WorkflowAction, wanted: String): WorkflowAction {
+        val name = listOf(wanted, "$wanted$FALLBACK").firstOrNull { actions.findByWorkspaceIdAndName(workspaceId, it) == null }
+            ?: return action
+        log.info("Research action {} of workspace {} renamed {}", action.name, workspaceId, name)
+        action.name = name
+        return actions.save(action)
     }
 
     /**
@@ -445,11 +501,16 @@ class ResearchModes(
         val outputName: String,
         val request: List<String>,
         val function: String? = null,
+        /** The catalogue action a function step calls, by name. */
+        val actionName: String? = null,
         val agent: SeededAgent? = null,
         val reads: List<Pair<String, String>> = emptyList(),
         val prompt: ((Knobs) -> String)? = null,
         val knobs: (Knobs) -> List<Pair<String, Int>> = { emptyList() },
     )
+
+    /** What a step's node is called and says it does, and what its action is called. */
+    private data class Named(val nodeName: String, val description: String, val actionName: String? = null)
 
     companion object {
 
@@ -465,6 +526,9 @@ class ResearchModes(
 
         /** What the one action of a mode's workflow was called before the steps were nodes, and what they are named after. */
         const val ACTION_NAME = "Research"
+
+        /** What goes after an action's name where somebody's own action already has it. */
+        private const val FALLBACK = " (Analysis)"
 
         /** The step nodes' keys, left to right. */
         const val PLAN = "plan"
@@ -521,9 +585,10 @@ class ResearchModes(
         private val MODEL_OF_THE_RESEARCH = ResearchCapability.MODEL
 
         private val GATHER_STEP = Step(
-            GATHER, "Gather", "Searches each query and notes what it reads",
+            GATHER, "Gather sources", "Searches each query and takes notes on sources",
             "gathered",
             function = ResearchCapability.GATHER,
+            actionName = "$ACTION_NAME: Gather sources",
             request = listOf(
                 ResearchCapability.RESEARCH, ResearchCapability.QUESTION, ResearchCapability.MODEL,
                 ResearchCapability.WEBSITES_INCLUDE, ResearchCapability.WEBSITES_EXCLUDE, ResearchCapability.DOCUMENTS_INCLUDE,
@@ -541,9 +606,10 @@ class ResearchModes(
         )
 
         private val FOLLOW_UP_STEP = Step(
-            FOLLOW_UP, "Follow up", "Searches follow-up questions, to the depth set",
+            FOLLOW_UP, "Deepen findings", "Searches follow-up questions to the set depth",
             "deepened",
             function = ResearchCapability.FOLLOW_UP,
+            actionName = "$ACTION_NAME: Deepen findings",
             request = listOf(
                 ResearchCapability.RESEARCH, ResearchCapability.QUESTION, ResearchCapability.MODEL,
                 ResearchCapability.WEBSITES_INCLUDE, ResearchCapability.WEBSITES_EXCLUDE, ResearchCapability.WEB_SEARCH,
@@ -562,7 +628,7 @@ class ResearchModes(
          */
         private val STEPS = listOf(
             Step(
-                PLAN, "Plan", "Research planner writes the search queries",
+                PLAN, "Plan research", "Research planner drafts the search queries",
                 PLAN,
                 agent = PLANNER,
                 request = listOf(MODEL_OF_THE_RESEARCH),
@@ -571,7 +637,7 @@ class ResearchModes(
             GATHER_STEP,
             FOLLOW_UP_STEP,
             Step(
-                WRITE, "Write", "Research writer writes the cited report",
+                WRITE, "Write report", "Research writer drafts the cited report",
                 DRAFT,
                 agent = WRITER,
                 request = listOf(MODEL_OF_THE_RESEARCH),
@@ -584,12 +650,26 @@ class ResearchModes(
                 },
             ),
             Step(
-                SAVE, "Save", "Lists the sources and saves the report",
+                SAVE, "Save report", "Appends the sources and saves the report",
                 OUTPUT,
                 function = ResearchCapability.SAVE,
+                actionName = "$ACTION_NAME: Save report",
                 request = listOf(ResearchCapability.RESEARCH, ResearchCapability.QUESTION, ResearchCapability.OUTPUT_FORMAT),
                 reads = listOf(ResearchCapability.REPORT to DRAFT, ResearchCapability.GATHERED to "deepened"),
             ),
+        )
+
+        /**
+         * What the current shape's steps were called before they had the names
+         * above, with their actions' names then: what [ensure] recognises to
+         * rename. Drawn under these, a mode is still as it was seeded.
+         */
+        private val FORMER = mapOf(
+            PLAN to Named("Plan", "Research planner writes the search queries"),
+            GATHER to Named("Gather", "Searches each query and notes what it reads", "$ACTION_NAME: Gather"),
+            FOLLOW_UP to Named("Follow up", "Searches follow-up questions, to the depth set", "$ACTION_NAME: Follow up"),
+            WRITE to Named("Write", "Research writer writes the cited report"),
+            SAVE to Named("Save", "Lists the sources and saves the report", "$ACTION_NAME: Save"),
         )
 
         /** The five actions a mode was drawn as before Plan and Write were agents: what [ensure] recognises to redraw. */
@@ -601,14 +681,14 @@ class ResearchModes(
                 knobs = { listOf(ResearchCapability.SUB_QUESTIONS to it.sub) },
             ),
             Step(
-                GATHER, GATHER_STEP.nodeName, "Reads the documents, then searches every query and notes what it reads.", GATHER_STEP.outputName,
+                GATHER, "Gather", "Reads the documents, then searches every query and notes what it reads.", GATHER_STEP.outputName,
                 function = ResearchCapability.GATHER,
                 request = GATHER_STEP.request,
                 reads = listOf(ResearchCapability.QUERIES to "plan.${ResearchCapability.QUERIES}"),
                 knobs = GATHER_STEP.knobs,
             ),
             Step(
-                FOLLOW_UP, FOLLOW_UP_STEP.nodeName, "Asks follow-up questions from what was learnt and searches those, to the depth set.",
+                FOLLOW_UP, "Follow up", "Asks follow-up questions from what was learnt and searches those, to the depth set.",
                 FOLLOW_UP_STEP.outputName,
                 function = ResearchCapability.FOLLOW_UP,
                 request = FOLLOW_UP_STEP.request,
