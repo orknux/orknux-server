@@ -3,6 +3,7 @@ package io.mszymanski.orknux.server.embedded
 import io.mszymanski.orknux.server.tuning.Tuning
 import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.connector.proxy.ProxyRouter
+import io.mszymanski.orknux.connector.security.HeldCredential
 import io.mszymanski.orknux.server.action.ValueType
 import io.mszymanski.orknux.workflow.script.ScriptResult
 import org.slf4j.LoggerFactory
@@ -29,7 +30,8 @@ import java.time.Duration
  * it. See [SearchSettings].
  *
  * **The key never passes through the model.** The server makes the call and the
- * key is read from an encrypted column on the way out; nothing above this holds
+ * key is read on the way out - from its encrypted column, or from the workspace
+ * variable secret it points at; nothing above this holds
  * it, nothing logs it, and the screen that sets it is told only that one is set.
  *
  * **A picture's address goes straight to whatever uploads it.** `searchImages`
@@ -91,11 +93,25 @@ class SearchCapability(
         val limit = asked.path(LIMIT).takeIf { it.isNumber }?.intValue()?.coerceIn(1, most) ?: minOf(SOME_RESULTS, most)
 
         val engine = settings.engineOf(workspaceId)
-        val key = settings.keyOf(workspaceId)
-            ?: return refusal(
+        // Read here, at the moment of the call, so a variable's new value is the one sent.
+        val key = when (val held = settings.keyOf(workspaceId)) {
+            is HeldCredential.Held -> held.value
+            HeldCredential.Absent -> return refusal(
                 "This workspace has no search key set. An administrator sets the engine and its key under " +
                     "the workspace's Search settings.",
             )
+            is HeldCredential.Missing -> return refusal(
+                "This workspace's search key reads a workspace variable that no longer exists. An administrator " +
+                    "chooses another under the workspace's Search settings.",
+            )
+            is HeldCredential.Empty -> return refusal(
+                "This workspace's search key reads the variable ${held.name}, which has no value yet.",
+            )
+            is HeldCredential.Sealed -> return refusal(
+                "This workspace's search key cannot be read with this installation's secret key; " +
+                    "an administrator sets it again under the workspace's Search settings.",
+            )
+        }
 
         val pictures = when (name) {
             SEARCH -> false

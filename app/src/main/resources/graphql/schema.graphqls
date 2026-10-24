@@ -1134,15 +1134,27 @@ type Mutation {
     """
     Sets what a workspace searches with. Issue #510.
 
-    An empty apiKey clears it and a null leaves it alone, which is what lets a
-    form save the engine without sending back a secret it was never shown.
+    An empty apiKey clears it, reference and all, and a null leaves it alone,
+    which is what lets a form save the engine without sending back a secret it
+    was never shown. A value keeps a copy and drops any reference.
+    `apiKeyVariableId` points the key at a workspace variable secret instead and
+    drops any copy; sending it together with a value is refused. Administrators
+    of the workspace only, and recorded.
     """
     setWorkspaceSearch(
         workspaceId: ID!,
         engine: String,
         apiKey: String,
+        apiKeyVariableId: ID,
         composeAnswer: Boolean
     ): WorkspaceSearch!
+    """
+    The workspace's own search key, for the settings page's Show; null where
+    none is kept or where it is read from a variable, which `revealVariable`
+    reveals. Needs a role that reads this workspace's secrets, or one that
+    administers it, and is recorded in the workspace's audit log.
+    """
+    revealWorkspaceSearchKey(workspaceId: ID!): String
     """
     Switches a plugin off, or back on. Administrators only.
 
@@ -6968,15 +6980,25 @@ type WorkspacePlugin {
 """
 What a workspace searches the web with.
 
-The key itself is never here. It is encrypted in its column and answered only
-as [keySet]: a screen that could read one back is a screen that puts a
-credential in somebody's browser history.
+The key itself is never here. It is the workspace's own encrypted copy, or a
+workspace variable secret it reads, and a screen that wants to show it asks
+`revealWorkspaceSearchKey`, which is recorded.
 """
 type WorkspaceSearch {
     "Which index: tavily or brave."
     engine: String!
-    "Whether a key is set. Never the key."
+    "Whether a key of its own is kept. False for one reading a variable. Never the key."
     keySet: Boolean!
+    """
+    The workspace variable secret the key is read from, or null when it keeps
+    its own copy. Those are the two, and they are exclusive.
+    """
+    apiKeyVariableId: ID
+    "What that variable is called and which catalog holds it, for drawing the reference."
+    apiKeyVariableName: String
+    apiKeyVariableCatalog: String
+    "A reference pointing at nothing, reported rather than assumed away."
+    apiKeyVariableMissing: Boolean!
     "Whether tavily also composes a short answer over the results, which costs more."
     composeAnswer: Boolean!
     "The indexes this workspace may choose, and why it would."
@@ -6985,7 +7007,10 @@ type WorkspaceSearch {
 
 "One index a workspace may search, with the sentence a form shows beside it."
 type SearchEngineChoice {
+    "What is stored and sent: tavily or brave."
     name: String!
+    "What a person reads: Tavily or Brave."
+    title: String!
     description: String!
 }
 

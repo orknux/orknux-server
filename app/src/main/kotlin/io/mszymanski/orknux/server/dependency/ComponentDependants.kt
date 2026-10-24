@@ -77,6 +77,7 @@ class ComponentDependants(
     private val mcpServers: McpServerService,
     private val workflows: io.mszymanski.orknux.server.workflow.WorkflowRepository,
     private val assignments: io.mszymanski.orknux.server.workflow.WorkspaceWorkflowRepository,
+    private val search: io.mszymanski.orknux.server.embedded.SearchSettings,
 ) {
 
     /**
@@ -304,7 +305,21 @@ class ComponentDependants(
             qualified(DependencyKind.CONNECTION, it.id, it.name, workspaceId, "the connection ${it.name}")
         } + mcpServers.serversReading(workspaceId, id).map {
             qualified(DependencyKind.MCP_SERVER, it.id, it.name, workspaceId, "the MCP server ${it.name}")
-        }
+        } + listOfNotNull(
+            // The workspace's own web search key, opened on its settings page at the section.
+            workspaces.findByIdOrNull(workspaceId)?.takeIf { search.reads(workspaceId, id) }?.let { held ->
+                Dependant(
+                    kind = DependencyKind.WORKSPACE,
+                    id = workspaceId,
+                    name = "Web search key",
+                    workspaceId = workspaceId,
+                    workspaceName = held.name,
+                    published = false,
+                    phrase = "the workspace's web search key",
+                    section = "search",
+                )
+            },
+        )
     }
 
     /**
