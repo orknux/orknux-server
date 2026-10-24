@@ -1,7 +1,5 @@
 package io.mszymanski.orknux.server.research
 
-import io.mszymanski.orknux.server.embedded.PdfWriter
-import io.mszymanski.orknux.server.workflow.SavedArtifacts
 import io.mszymanski.orknux.workflow.execution.ExecutionService
 import io.mszymanski.orknux.workflow.execution.ExecutionStatus
 import io.mszymanski.orknux.workflow.execution.ExecutionStepRepository
@@ -14,9 +12,6 @@ import io.mszymanski.orknux.workflow.execution.StepStatus
 import io.mszymanski.orknux.workflow.execution.WorkflowExecution
 import io.mszymanski.orknux.workflow.execution.WorkflowExecutionRepository
 import jakarta.annotation.PreDestroy
-import org.commonmark.ext.gfm.tables.TablesExtension
-import org.commonmark.parser.Parser
-import org.commonmark.renderer.html.HtmlRenderer
 import org.slf4j.LoggerFactory
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.TransactionDefinition
@@ -26,7 +21,6 @@ import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
 import tools.jackson.databind.ObjectMapper
 import java.time.OffsetDateTime
-import java.util.Base64
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -45,12 +39,10 @@ import java.util.concurrent.Executors
  * gives the run's id back only once it has ended, so there is nothing else to
  * match on while it runs.
  *
- * **The report is the server's to lay out.** The workflow answers in markdown -
- * one field, whatever the workflow does to get there - and turning that into a
- * PDF or a document is done here, the same way every time, with the libraries
- * the rest of the server already uses: commonmark for the HTML and the PDF
- * writer `pdf_fromHtml` uses for the page. A workflow that had to produce the
- * file itself would be one more thing for every custom mode to get right.
+ * **Saved once.** A seeded mode's Save step saves the report itself; a
+ * workflow that ended without one - a custom mode, or one drawn before the
+ * steps were nodes - has it saved here when the run ends, by the same
+ * [ResearchDelivery].
  */
 @Component
 class ResearchRuns(
@@ -58,8 +50,7 @@ class ResearchRuns(
     private val executions: WorkflowExecutionRepository,
     private val steps: ExecutionStepRepository,
     private val runs: ExecutionService,
-    private val saved: SavedArtifacts,
-    private val pdf: PdfWriter,
+    private val delivery: ResearchDelivery,
     private val mapper: ObjectMapper,
     transactions: PlatformTransactionManager,
 ) {
@@ -207,63 +198,21 @@ class ResearchRuns(
         }
     }
 
-    /** Saves the report as the file it was asked for, on the Artifacts page. */
+    /**
+     * Saves the report as the file it was asked for, on the Artifacts page -
+     * unless the workflow's own Save step has, or has tried and said why not:
+     * a research is saved once, however its workflow was drawn.
+     */
     private fun deliver(research: Research, report: String) {
-        val title = titleOf(report, research.question)
-        val description = "Research: ${research.question.trim().replace(Regex("\\s+"), " ").take(MOST_DESCRIPTION)}"
-        val saving = when (research.outputFormat) {
-            ResearchOutputFormat.DOCUMENT ->
-                saved.save(research.workspaceId, SAVED_BY, fileName(title, "md"), description, report, base64 = false)
-            ResearchOutputFormat.PDF -> when (val written = pdf.fromHtml(html(report), title)) {
-                is PdfWriter.Written.Refused -> {
-                    research.error = "The report could not be laid out as a PDF: ${written.reason}"
-                    return
-                }
-                is PdfWriter.Written.Made -> saved.save(
-                    research.workspaceId, SAVED_BY, fileName(title, "pdf"), description,
-                    Base64.getEncoder().encodeToString(written.pdf), base64 = true,
-                )
-            }
-        }
-        when (saving) {
-            is SavedArtifacts.Saving.Saved -> research.artifactId = saving.artifact.id
-            is SavedArtifacts.Saving.Refused -> research.error = "The report could not be saved as a file: ${saving.reason}"
+        if (research.artifactId != null || research.error != null) return
+        when (val delivered = delivery.deliver(research.workspaceId, research.question, research.outputFormat, report)) {
+            is ResearchDelivery.Delivered.Saved -> research.artifactId = delivered.artifactId
+            is ResearchDelivery.Delivered.Refused -> research.error = delivered.reason
         }
     }
 
     companion object {
         /** What the run carries the research's id under. */
         const val RESEARCH = "research"
-
-        /** Who the Artifacts page says saved a report. */
-        const val SAVED_BY = "Research"
-
-        private const val MOST_DESCRIPTION = 400
-        private const val MOST_FILE_NAME = 80
-
-        private val extensions = listOf(TablesExtension.create())
-        private val parser: Parser = Parser.builder().extensions(extensions).build()
-
-        /**
-         * Markdown to HTML, with any HTML the model wrote escaped rather than
-         * kept: what a model writes is untrusted, and the PDF writer would
-         * otherwise lay out whatever markup a page it read talked it into.
-         */
-        private val renderer: HtmlRenderer =
-            HtmlRenderer.builder().extensions(extensions).escapeHtml(true).sanitizeUrls(true).build()
-
-        fun html(markdown: String): String = renderer.render(parser.parse(markdown))
-
-        /** The report's own first heading, or the question where it has none. */
-        fun titleOf(report: String, question: String): String =
-            report.lineSequence().map { it.trim() }.firstOrNull { it.startsWith("# ") }?.removePrefix("# ")?.trim()
-                ?.takeIf { it.isNotEmpty() }
-                ?: question.trim().lineSequence().first()
-
-        /** A file name a download can carry: letters, digits and dashes. */
-        fun fileName(title: String, extension: String): String {
-            val stem = title.lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), "-").trim('-').take(MOST_FILE_NAME).trim('-')
-            return "${stem.ifEmpty { "research" }}.$extension"
-        }
     }
 }

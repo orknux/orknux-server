@@ -602,7 +602,15 @@ class GraphValidator(
             // agent fills it as it answers, so nothing needs to lead into it.
             val declaration = node.kind == NodeKind.SESSION ||
                 nodes.any { it.kind == NodeKind.AGENT && it.outputNodeKey == node.nodeKey }
-            if (node.kind != NodeKind.TRIGGER && !declaration && incoming == 0 && nodes.size > 1) {
+            /*
+             * Without a trigger, a node no line at all leads into is where a run
+             * begins - `detached` in the engine says the same - so a research
+             * mode's first step, or any workflow started by hand or by the API,
+             * is not one a run never reaches. One whose only line in is from a
+             * session still is: the engine waits for a step there. Issue #659.
+             */
+            val beginning = nodes.none { it.kind == NodeKind.TRIGGER } && known.none { it.targetKey == node.nodeKey }
+            if (node.kind != NodeKind.TRIGGER && !declaration && incoming == 0 && nodes.size > 1 && !beginning) {
                 problems += GraphProblem(
                     severity = GraphProblemSeverity.WARNING,
                     nodeKey = node.nodeKey,

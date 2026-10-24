@@ -91,6 +91,7 @@ class ResearchBriefs(
         sources: ResearchSources,
         included: List<SavedArtifact>,
         excluded: List<SavedArtifact>,
+        useWebSearch: Boolean = true,
     ): String = buildString {
         appendLine("Research this question and write a report on it.")
         appendLine()
@@ -110,6 +111,9 @@ class ResearchBriefs(
             },
         )
         appendLine()
+        if (!useWebSearch) {
+            appendLine("Do not search the web: read only the documents given and the pages of the websites named.")
+        }
         if (sources.websitesInclude.isNotEmpty()) {
             appendLine("Keep to these websites; search and cite nothing else on the web: ${sources.websitesInclude.joinToString(", ")}.")
         }

@@ -198,6 +198,20 @@ class GraphValidatorTest(
         assertThat(problems).anySatisfy { assertThat(it).contains("Orphan has nothing before it") }
     }
 
+    /** Without a trigger the first node is where a run begins, as the engine has it, and nothing is wrong with that. */
+    @Test
+    fun `in a graph with no trigger, the node nothing leads into is where a run starts and is not warned about`() {
+        val problems = save(
+            nodes = """
+                { key: "first", kind: ACTION, name: "First", x: 0, y: 0 },
+                { key: "second", kind: ACTION, name: "Second", x: 400, y: 0 }
+            """,
+            edges = """{ source: "first", target: "second" }""",
+        )
+
+        assertThat(problems).noneSatisfy { assertThat(it).contains("has nothing before it") }
+    }
+
     /**
      * Saved into an object node, an answer is spoken for: the object node is
      * where it is read, so the agent stops offering its fields - one answer,
