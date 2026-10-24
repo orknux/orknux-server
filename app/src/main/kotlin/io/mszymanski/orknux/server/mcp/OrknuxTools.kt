@@ -796,6 +796,11 @@ class OrknuxTools(
                         ToolParameterSpec("mode", "A research mode's name: Shallow, Medium, Deep or one the workspace added. Shallow when left out.", required = false),
                         ToolParameterSpec("model", "The chat model to research with: its name or id. Left out, the workspace's first chat model.", required = false),
                         ToolParameterSpec("webSearch", "Whether to search the web; false reads only the documents and sitesInclude. true when left out.", required = false),
+                        ToolParameterSpec(
+                            "includeImages",
+                            "Whether to look for images, place them in the report and keep each on the Artifacts page. false when left out.",
+                            required = false,
+                        ),
                         ToolParameterSpec("sitesInclude", "Websites to keep to, as a list of hosts.", required = false, LIST),
                         ToolParameterSpec("sitesExclude", "Websites never to read, as a list of hosts.", required = false, LIST),
                         ToolParameterSpec("documentsInclude", "Ids of the workspace's documents to read.", required = false, LIST),
@@ -1997,6 +2002,7 @@ class OrknuxTools(
                     documentsInclude = documents.getValue("documentsInclude"),
                     documentsExclude = documents.getValue("documentsExclude"),
                     useWebSearch = flag(arguments, "webSearch"),
+                    includeImages = flag(arguments, "includeImages"),
                 ),
             )
         }
@@ -2024,6 +2030,7 @@ class OrknuxTools(
                 "mode" to held.modeName,
                 "model" to held.modelName,
                 "webSearch" to held.useWebSearch,
+                "includeImages" to held.includeImages,
                 "status" to held.status,
                 "step" to held.progress?.step,
                 "subQuestions" to held.progress?.subQuestions.orEmpty(),
@@ -2031,6 +2038,9 @@ class OrknuxTools(
                 "sources" to held.sources.map { mapOf("number" to it.number, "title" to it.title, "url" to absolute(it.url)) },
                 "report" to held.result,
                 "file" to held.fileUrl?.let(::absolute),
+                "images" to held.images.map {
+                    mapOf("number" to it.number, "caption" to it.caption, "file" to absolute(it.fileUrl), "from" to (it.page ?: it.url).let(::absolute))
+                },
                 "error" to held.error,
                 "run" to held.executionId?.let { runLink(scope.workspaceId, it) },
                 "url" to researchLink(scope.workspaceId, held.id),

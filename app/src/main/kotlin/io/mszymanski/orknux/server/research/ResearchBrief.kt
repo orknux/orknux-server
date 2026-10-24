@@ -6,10 +6,13 @@ import io.mszymanski.orknux.server.tuning.Tuning
 import io.mszymanski.orknux.server.workflow.SavedArtifact
 import io.mszymanski.orknux.server.workflow.SavedArtifactRepository
 import org.apache.pdfbox.Loader
+import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject
 import org.apache.pdfbox.text.PDFTextStripper
 import org.jsoup.Jsoup
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
+import java.io.ByteArrayOutputStream
+import javax.imageio.ImageIO
 
 /**
  * Where a research may look, as it was asked for. Issue #659.
@@ -24,6 +27,9 @@ data class ResearchSources(
     val documentsInclude: List<Long> = emptyList(),
     val documentsExclude: List<Long> = emptyList(),
 )
+
+/** A picture a document holds: where it is said to be, and its bytes where they were taken out of the document itself. */
+class DocumentPicture(val hit: ImageHit, val bytes: ByteArray?)
 
 /**
  * The workspace's documents a research can be pointed at, and what one says.
@@ -56,9 +62,49 @@ class ResearchDocuments(
         }
     }.onFailure { log.warn("Could not read document {} for a research", document.id, it) }.getOrNull()
 
+    /**
+     * The pictures in a document, at most [most] of them: those a PDF holds,
+     * as PNG bytes taken out of it, and those an HTML page shows with words of
+     * its own, as addresses to fetch. Nothing else a research reads holds any.
+     */
+    fun pictures(document: SavedArtifact, most: Int): List<DocumentPicture> = runCatching {
+        val link = "/api/artifacts/${document.id}"
+        when (typeOf(document.contentType)) {
+            PDF -> {
+                val bytes = store.open(document.location).use { it.readBytes() }
+                Loader.loadPDF(bytes).use { pdf ->
+                    val found = mutableListOf<DocumentPicture>()
+                    pdf.pages.forEachIndexed { at, page ->
+                        val resources = page.resources ?: return@forEachIndexed
+                        resources.xObjectNames.forEach { name ->
+                            if (found.size >= most) return@use found
+                            val image = resources.getXObject(name) as? PDImageXObject ?: return@forEach
+                            // Drawn out in full to be written again, so one past this is left in the document rather than in memory.
+                            if (image.width.toLong() * image.height > MOST_PDF_PICTURE_PIXELS) return@forEach
+                            val png = ByteArrayOutputStream().also { ImageIO.write(image.image, "png", it) }.toByteArray()
+                            found += DocumentPicture(
+                                ImageHit("$link#page=${at + 1}", "${document.name}, page ${at + 1}", link),
+                                png,
+                            )
+                        }
+                    }
+                    found
+                }
+            }
+            HTML -> {
+                val page = Jsoup.parse(store.open(document.location).use { String(it.readBytes(), Charsets.UTF_8) })
+                WorkspaceResearchWeb.picturesOn(page, link).take(most).map { DocumentPicture(it, null) }
+            }
+            else -> emptyList()
+        }
+    }.onFailure { log.warn("Could not look for pictures in document {} for a research", document.id, it) }.getOrDefault(emptyList())
+
     companion object {
         private const val PDF = "application/pdf"
         private const val HTML = "text/html"
+
+        /** The most pixels a picture taken out of a PDF may have: a large photograph, not a poster. */
+        private const val MOST_PDF_PICTURE_PIXELS = 25_000_000L
 
         private fun typeOf(contentType: String) = contentType.lowercase().substringBefore(';').trim()
 
@@ -92,6 +138,7 @@ class ResearchBriefs(
         included: List<SavedArtifact>,
         excluded: List<SavedArtifact>,
         useWebSearch: Boolean = true,
+        includeImages: Boolean = false,
     ): String = buildString {
         appendLine("Research this question and write a report on it.")
         appendLine()
@@ -113,6 +160,13 @@ class ResearchBriefs(
         appendLine()
         if (!useWebSearch) {
             appendLine("Do not search the web: read only the documents given and the pages of the websites named.")
+        }
+        if (includeImages) {
+            appendLine(
+                "Look for images that bear on the question as well" +
+                    (if (useWebSearch) "" else ", only on the pages and in the documents you read") +
+                    ", and place in the report those that help the reader, each with its caption and where it came from.",
+            )
         }
         if (sources.websitesInclude.isNotEmpty()) {
             appendLine("Keep to these websites; search and cite nothing else on the web: ${sources.websitesInclude.joinToString(", ")}.")
