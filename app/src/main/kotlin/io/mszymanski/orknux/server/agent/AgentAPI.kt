@@ -223,7 +223,7 @@ class AgentAPI(
                 icon = input.icon?.trim()?.ifEmpty { null } ?: DEFAULT_AGENT_ICON,
                 // Nothing of the workspace's, and every built-in: a fresh agent
                 // hides none, and hiding is the only thing stored. Issue #455.
-                requiredTools = BuiltInTools.GRANTED.toMutableList(),
+                requiredTools = startingAlways(input.orknuxAccess ?: STARTS_WITH_ORKNUX_ACCESS),
                 // And the skills the server brings, for the same reason: they
                 // are what a command means, and an agent that holds none has no
                 // commands to tell anybody about. Issue #471. With every
@@ -312,7 +312,7 @@ class AgentAPI(
                 // The bot icon, the same default a hand-made agent takes. Issue #415.
                 icon = DEFAULT_AGENT_ICON,
                 // As a hand-made agent: nothing hidden, so every built-in. #455.
-                requiredTools = BuiltInTools.GRANTED.toMutableList(),
+                requiredTools = startingAlways(STARTS_WITH_ORKNUX_ACCESS),
                 // And the server's own skills and its plugins', as a hand-made
                 // agent has. Still nothing of the workspace's, which is what the
                 // paragraph above is about: these catalogs are the
@@ -604,6 +604,17 @@ class AgentAPI(
                 .filter { it.isNotEmpty() && it in granted }
                 .distinct()
                 .toMutableList()
+        }
+        /*
+         * Orknux access given on a save that sent no marks - the MCP, a script -
+         * brings its tools in at Always, as a new agent's start: what granting
+         * it meant before each orknux_* tool had an Offer of its own. The form
+         * sends the marks it drew, which is the same unless somebody changed one.
+         */
+        if (agent.orknuxAccess && !previousOrknux && input.requiredTools == null) {
+            builtIns.orknuxNames()
+                .filter { it !in agent.hiddenTools && it !in agent.requiredTools }
+                .forEach { agent.requiredTools.add(it) }
         }
         // And the same rule where the marks were not sent: a grant taken away
         // takes its Always mark with it, or the mark names a tool nothing resolves.
@@ -924,7 +935,17 @@ class AgentAPI(
      * has not hidden. What the screen is shown, and what an Always mark is
      * held to. Issue #455.
      */
-    private fun held(agent: Agent): Set<String> = agent.tools.toSet() + BuiltInTools.grantedTo(agent)
+    private fun held(agent: Agent): Set<String> = agent.tools.toSet() + BuiltInTools.grantedTo(agent) +
+        // And the orknux_* tools it has not hidden, while the grant is on: each may be marked Always.
+        (if (agent.orknuxAccess) builtIns.orknuxNames().filter { it !in agent.hiddenTools } else emptyList())
+
+    /**
+     * What a new agent carries on every turn: every built-in, and the orknux_*
+     * tools where it starts with the grant - which is what an agent carried
+     * before those had an Offer of their own.
+     */
+    private fun startingAlways(orknuxAccess: Boolean): MutableList<String> =
+        (BuiltInTools.GRANTED + (if (orknuxAccess) builtIns.orknuxNames() else emptyList())).toMutableList()
 
     /** Whoever is asking, for the stamp a revision of this state will carry. */
     private fun currentUser(): String =

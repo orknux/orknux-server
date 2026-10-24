@@ -151,9 +151,11 @@ class AgentTools(
          * #444: `save_artifact`, `find_connections` and `ask_agent` are rows on
          * the Tools list with the same Hide, Offer, Always control as everything
          * else, so under a ceiling one left at Offer is found rather than
-         * carried - the rule every other tool already lived by. What comes with
-         * a wider grant - the skills, the memories, orknux - stays
-         * where it was: it has no Always mark to read, and it is few.
+         * carried - the rule every other tool already lived by. The orknux_*
+         * tools too, since 1.2.0: inside the Orknux access grant each has the
+         * same three states, so one left at Offer is found. What comes with
+         * another wider grant - the skills, the memories - stays where it was:
+         * it has no Always mark to read, and it is few.
          */
         val always = agent.requiredTools.toSet()
         val (carried, findable) = core.partition { BuiltInTools.carried(agent, it.name, ceiling) }

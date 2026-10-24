@@ -45,6 +45,7 @@ have failed.
 - Setting somebody's password, or changing your own, ends their other sessions.
 - A webhook whose authentication function refuses a caller answers 404, like an unknown path, rather than 401.
 - `ORKNUX_SESSION_COOKIE_SAME_SITE` and `ORKNUX_SESSION_COOKIE_HTTP_ONLY` now take effect; they were ignored.
+- **An agent's orknux_ tools can be set to Offer.** While Orknux access is on each cycles Hide, Offer and Always on the Tools list like every other row, and one at Offer is found rather than carried once a tool limit is set. Existing agents with Orknux access have every orknux_ tool they had not hidden marked Always on upgrade, so they carry exactly what they did; a new agent, or one given the grant, starts with them at Always.
 - **A chat's thinking is drawn where it happened, and as the session draws it.** What a model thinks after a tool call is a folded section of its own among the calls, live and after a reload, rather than added to one block above them; each is the session page's red thinking card, and the chat's calls and thinking are a step smaller than the answer.
 
 ### 🐛 Fixed
