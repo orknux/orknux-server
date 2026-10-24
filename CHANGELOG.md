@@ -44,6 +44,8 @@ have failed.
 
 - **Negative prompts for pictures.** What a picture must not contain is sent beside the prompt where the server takes one - stable-diffusion.cpp's server (inside the prompt, as `<sd_cpp_extra_args>`) and a Stable Diffusion WebUI's Harmonize (`negative_prompt`) - from the image editor's Negative prompt box, an agent's draw tool and a default on the model's page; a model on OpenAI's API, which takes none, is not offered one and refuses one sent anyway.
 
+- **Export a model provider** from its row on the Models page: the provider and all its models in one file, without its key, which Import reads back in.
+
 ### 🔧 Changed
 
 - **The search on Skills and Memory is one box above the catalogs and searches every catalog, a plugin's included:** matches are grouped under each catalog's name, the column counts them, and choosing a catalog narrows the search to it.

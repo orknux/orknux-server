@@ -61,16 +61,32 @@ class ModelTransferAPI(
     private val templates: ComponentTemplateService,
 ) {
 
-    /** The chosen models, or all of them, as a file; [models] is a comma-separated list of ids. */
+    /**
+     * The chosen models, or all of them, as a file; [models] and [providers] are
+     * comma-separated lists of ids. A provider named in [providers] travels with
+     * every model it has, and travels even with none - exporting a provider is
+     * exporting the provider, not only what happens to hang off it.
+     */
     @GetMapping("/api/workspaces/{workspaceId}/models/export")
     @ResponseBody
     // Not read-only: the export is audited.
     @Transactional
-    fun export(@PathVariable workspaceId: Long, @RequestParam(required = false) models: String?): ResponseEntity<ByteArray> {
+    fun export(
+        @PathVariable workspaceId: Long,
+        @RequestParam(required = false) models: String?,
+        @RequestParam(required = false) providers: String?,
+    ): ResponseEntity<ByteArray> {
         access.requireVisible(workspaceId)
-        val wanted = models?.split(',')?.mapNotNull { it.trim().toLongOrNull() }?.toSet()?.takeIf { it.isNotEmpty() }
-        val (root, count) = modelsFile(workspaceId, wanted)
-        audit.record(workspaceId, WorkspaceAuditCategory.MODEL, "$count model${if (count == 1) "" else "s"} exported")
+        fun ids(list: String?) = list?.split(',')?.mapNotNull { it.trim().toLongOrNull() }?.toSet()?.takeIf { it.isNotEmpty() }
+        val wantedProviders = ids(providers)
+        val (root, count) = modelsFile(workspaceId, ids(models), wantedProviders)
+        val shipped = root.path("modelProviders").values().map { it.path("name").asString("") }
+        audit.record(
+            workspaceId,
+            WorkspaceAuditCategory.MODEL,
+            if (wantedProviders != null) "Model provider${if (shipped.size == 1) "" else "s"} ${shipped.joinToString()} exported"
+            else "$count model${if (count == 1) "" else "s"} exported",
+        )
         return ResponseEntity.ok()
             .contentType(MediaType.APPLICATION_JSON)
             .header(
@@ -84,7 +100,11 @@ class ModelTransferAPI(
      * The chosen models, or all of them, under their providers and without any
      * key - the file an export downloads and a template of models holds.
      */
-    private fun modelsFile(workspaceId: Long, wanted: Set<Long>?): Pair<tools.jackson.databind.node.ObjectNode, Int> {
+    private fun modelsFile(
+        workspaceId: Long,
+        wanted: Set<Long>?,
+        wantedProviders: Set<Long>? = null,
+    ): Pair<tools.jackson.databind.node.ObjectNode, Int> {
         val root = mapper.createObjectNode()
         root.put("format", MODELS_FILE_FORMAT)
         root.put("formatVersion", MODELS_FILE_VERSION)
@@ -93,18 +113,24 @@ class ModelTransferAPI(
         root.put("exportedAt", OffsetDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME))
         val rows = root.putArray("modelProviders")
         var count = 0
+        var providerCount = 0
         providers.findByWorkspaceId(workspaceId, Sort.by("name")).forEach { held ->
+            if (wantedProviders != null && held.id !in wantedProviders) return@forEach
             val chosen = this.models.findByProviderId(requireNotNull(held.id))
-                .filter { wanted == null || it.id in wanted }
+                .filter { wantedProviders != null || wanted == null || it.id in wanted }
                 .sortedBy { it.name }
-            if (chosen.isEmpty()) return@forEach
+            if (chosen.isEmpty() && wantedProviders == null) return@forEach
+            providerCount++
             val row = rows.addObject()
             providerNode(held, held.secretVariableId != null || !held.secret.isNullOrBlank(), row)
             val modelRows = row.putArray("models")
             chosen.forEach { modelNode(it, modelRows.addObject()) }
             count += chosen.size
         }
-        if (count == 0) throw ModelFileRefusedException("There are no such models in this workspace to export.")
+        if (wantedProviders != null && providerCount == 0) {
+            throw ModelFileRefusedException("There are no such model providers in this workspace to export.")
+        }
+        if (wantedProviders == null && count == 0) throw ModelFileRefusedException("There are no such models in this workspace to export.")
         return root to count
     }
 

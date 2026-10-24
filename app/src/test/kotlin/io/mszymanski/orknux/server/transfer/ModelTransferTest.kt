@@ -45,7 +45,7 @@ class ModelTransferTest(
         val image = model("Drawer", "IMAGE")
         model("Left behind", "CHAT")
 
-        val file = String(requireNotNull(api.export(from, "$chat,$image").body), StandardCharsets.UTF_8)
+        val file = String(requireNotNull(api.export(from, "$chat,$image", null).body), StandardCharsets.UTF_8)
         assertThat(file).contains("orknux-models", "Talker", "Drawer", "http://lab.invalid/v1").doesNotContain("sk-secret", "Left behind")
 
         fun import() = graphQlTester.document("mutation(\$w: ID!, \$c: String!) { importModels(workspaceId: \$w, content: \$c) { providers needsKey models skipped } }")
@@ -70,6 +70,43 @@ class ModelTransferTest(
                 assertThat(it.single().message).isEqualTo("That is not a models file.")
                 assertThat(it.single().extensions["code"]).isEqualTo("ModelFileRefused")
             }
+    }
+
+    /** One provider from its row: every model it has, a provider with none still travels, and nobody else's comes along. */
+    @Test
+    fun `a provider exported from its row carries all its models, or none, and reads in elsewhere`() {
+        val from = requireNotNull(workspaces.save(Workspace(name = "provider from ${System.nanoTime()}")).id)
+        val into = requireNotNull(workspaces.save(Workspace(name = "provider into ${System.nanoTime()}")).id)
+        fun provider(name: String) = graphQlTester.document(
+            """mutation { createModelProvider(input: {
+                 workspaceId: $from, name: "$name", type: OPENAI, endpoint: "http://$name.invalid/v1", secret: "sk-$name"
+               }) { id } }""",
+        ).execute().path("createModelProvider.id").entity(Long::class.java).get()
+        val lab = provider("lab")
+        val empty = provider("empty")
+        val other = provider("other")
+        fun model(on: Long, name: String) = graphQlTester.document(
+            """mutation { createModel(input: { providerId: $on, name: "$name", modelId: "$name-id", kind: CHAT }) { id } }""",
+        ).execute().path("createModel.id").entity(Long::class.java).get()
+        model(lab, "One")
+        model(lab, "Two")
+        model(other, "Elsewhere")
+
+        val file = String(requireNotNull(api.export(from, null, "$lab").body), StandardCharsets.UTF_8)
+        assertThat(file).contains("http://lab.invalid/v1", "\"One\"", "\"Two\"").doesNotContain("sk-lab", "Elsewhere", "empty.invalid")
+
+        val bare = String(requireNotNull(api.export(from, null, "$empty").body), StandardCharsets.UTF_8)
+        assertThat(bare).contains("http://empty.invalid/v1").doesNotContain("sk-empty")
+        graphQlTester.document("mutation(\$w: ID!, \$c: String!) { importModels(workspaceId: \$w, content: \$c) { providers models } }")
+            .variable("w", into).variable("c", bare).execute()
+            .path("importModels.providers").entityList(String::class.java).containsExactly("empty")
+            .path("importModels.models").entityList(String::class.java).hasSize(0)
+        assertThat(providers.findByWorkspaceIdAndName(into, "empty")).isNotNull
+
+        val stranger = requireNotNull(workspaces.save(Workspace(name = "stranger ${System.nanoTime()}")).id)
+        val refused = runCatching { api.export(stranger, null, "$lab") }.exceptionOrNull()
+        assertThat(refused).isInstanceOf(ModelFileRefusedException::class.java)
+            .hasMessage("There are no such model providers in this workspace to export.")
     }
 
     /** Published as a template and offered on the Models page only; used, it reads in as its file would. */
