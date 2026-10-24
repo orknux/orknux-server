@@ -424,6 +424,11 @@ class ModelChatClient(
      * @param onReading how far the server has got reading the prompt, before
      *   it writes anything - reported by a [ProviderType.LLAMA_CPP] provider
      *   only, on every frame that carries it. See [PromptProgress].
+     *
+     * @param reasoningEffort an effort this call asks for in place of the
+     *   model's own, or null for the model as it is configured - what a chat's
+     *   composer chose (#654). Sent only where the provider takes one, the
+     *   same as the model's own.
      */
     fun stream(
         modelId: Long,
@@ -433,20 +438,22 @@ class ModelChatClient(
         hangup: Hangup? = null,
         onCalling: (tool: String, chars: Int) -> Unit = { _, _ -> },
         onReading: (PromptProgress) -> Unit = {},
+        reasoningEffort: String? = null,
         onChunk: (String) -> Unit,
     ): ChatCompletion {
         unwatchable(modelId, turns)?.let { return it }
         unheard(modelId, turns)?.let { return it }
         val limits = throttled(modelId)
         spoken(modelId)?.let { shape ->
+            val model = asCalled(shape.model, null, reasoningEffort)
             return through(modelId, shape, limits) {
-                openAi.stream(shape.provider, shape.model, wire(shape.provider, turns), tools, onThinking, hangup, onCalling, onReading, onChunk)
+                openAi.stream(shape.provider, model, wire(shape.provider, turns), tools, onThinking, hangup, onCalling, onReading, onChunk)
             }
         }
 
         if (hangup?.hungUp == true) return ChatCompletion.Failed(HUNG_UP, permanent = false)
 
-        val call = prepare(modelId, turns, streaming = true, tools = tools)
+        val call = prepare(modelId, turns, streaming = true, tools = tools, reasoningEffort = reasoningEffort)
         if (call is Prepared.Failed) return ChatCompletion.Failed(call.reason)
         val ready = call as Prepared.Call
 
@@ -910,6 +917,8 @@ class ModelChatClient(
      * @param brief a call that wants less of the model than its own settings
      *   allow - fewer tokens, the least thinking - or null for the model as it
      *   is configured. See [Brief].
+     * @param reasoningEffort an effort asked for in place of the model's own;
+     *   see [stream].
      */
     fun complete(
         modelId: Long,
@@ -917,6 +926,7 @@ class ModelChatClient(
         tools: List<ToolSpec> = emptyList(),
         hangup: Hangup? = null,
         brief: Brief? = null,
+        reasoningEffort: String? = null,
     ): ChatCompletion {
         if (hangup?.hungUp == true) return ChatCompletion.Failed(HUNG_UP, permanent = false)
         unwatchable(modelId, turns)?.let { return it }
@@ -924,13 +934,13 @@ class ModelChatClient(
         val limits = throttled(modelId)
         if (hangup?.hungUp == true) return ChatCompletion.Failed(HUNG_UP, permanent = false)
         spoken(modelId)?.let { shape ->
-            val model = brief?.applied(shape.model) ?: shape.model
+            val model = asCalled(shape.model, brief, reasoningEffort)
             return through(modelId, shape, limits) {
                 openAi.complete(shape.provider, model, wire(shape.provider, turns), tools, hangup)
             }
         }
 
-        val call = prepare(modelId, turns, streaming = false, tools = tools, brief = brief)
+        val call = prepare(modelId, turns, streaming = false, tools = tools, brief = brief, reasoningEffort = reasoningEffort)
         if (call is Prepared.Failed) return ChatCompletion.Failed(call.reason)
         val ready = call as Prepared.Call
 
@@ -1001,6 +1011,22 @@ class ModelChatClient(
     }
 
     private data class Spoken(val provider: ModelProvider, val model: LlmModel)
+
+    /**
+     * [model] as this call sends it: the effort a caller chose in place of the
+     * model's own, then a [Brief] on top. Applied to a detached copy, as [Brief]
+     * is, so nothing here can be saved back over what an administrator chose.
+     * The effort comes first so a brief asking for the least thinking still has
+     * the last word.
+     */
+    private fun asCalled(model: LlmModel, brief: Brief?, reasoningEffort: String?): LlmModel {
+        val chosen = if (reasoningEffort == null || reasoningEffort == model.reasoningEffort) {
+            model
+        } else {
+            model.copied(model.providerId, model.name).also { it.reasoningEffort = reasoningEffort }
+        }
+        return brief?.applied(chosen) ?: chosen
+    }
 
     /**
      * A call carrying a video to a model that may not be sent one, refused
@@ -1252,10 +1278,11 @@ class ModelChatClient(
         streaming: Boolean,
         tools: List<ToolSpec> = emptyList(),
         brief: Brief? = null,
+        reasoningEffort: String? = null,
     ): Prepared {
         val stored = models.findByIdOrNull(modelId)
             ?: return Prepared.Failed("That model no longer exists")
-        val model = brief?.applied(stored) ?: stored
+        val model = asCalled(stored, brief, reasoningEffort)
         if (!model.enabled) return Prepared.Failed("${model.name} is not active")
 
         val provider = providers.findByIdOrNull(model.providerId)

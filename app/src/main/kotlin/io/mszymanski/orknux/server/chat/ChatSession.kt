@@ -158,6 +158,21 @@ class ChatSession(
      */
     @Column(name = "spent_pictures", nullable = false)
     var spentPictures: Int = 0,
+
+    /**
+     * How hard the model thinks in this chat, chosen from the composer, or null
+     * for the model's own setting. Issue #654.
+     *
+     * Sent in place of the model's `reasoningEffort` for this chat's turns and
+     * never written back to it: the model is shared by every agent and step
+     * that names it, and one person wanting a quick answer here is no reason
+     * for all of them to think less. Checked against the provider when it is
+     * set; a provider that does not take it is still sent nothing, because
+     * the client asks [io.mszymanski.orknux.connector.model.ChatParameters]
+     * again at the moment of sending.
+     */
+    @Column(name = "reasoning_effort", length = 16)
+    var reasoningEffort: String? = null,
 )
 
 interface ChatSessionRepository : JpaRepository<ChatSession, Long> {

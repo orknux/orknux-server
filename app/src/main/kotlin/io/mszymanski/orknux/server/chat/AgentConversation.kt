@@ -404,10 +404,12 @@ class AgentConversation(
         watch: RoundWatch? = null,
         hangup: Hangup? = null,
         interjections: Interjections? = null,
+        /** See the same parameter on the other [answer]. */
+        reasoningEffort: String? = null,
     ): ChatCompletion {
         val agent = agents.findByIdOrNull(agentId)
             ?: return ChatCompletion.Failed("That agent no longer exists")
-        return answer(modelId, agent, turns, into, shed, watch, hangup, interjections)
+        return answer(modelId, agent, turns, into, shed, watch, hangup, interjections, reasoningEffort = reasoningEffort)
     }
 
     /**
@@ -467,11 +469,17 @@ class AgentConversation(
          * A workflow node passes its own level's answer.
          */
         quiet: Boolean = agent.chattiness == io.mszymanski.orknux.server.agent.Chattiness.NONE,
+        /**
+         * An effort asked for in place of the model's own in every round of this
+         * answer, or null for the model as configured: what a chat's composer
+         * chose (#654). Not used by the summariser, which is another call.
+         */
+        reasoningEffort: String? = null,
     ): ChatCompletion {
         fun refused(why: String) = ChatCompletion.Failed(why, permanent = false).also { record(into, agent, it) }
         val run = {
             bulkheads.heapRefusal()?.let { refused(it) }
-                ?: held(modelId, agent, turns, into, shed, watch, hangup, interjections, spoke, quiet)
+                ?: held(modelId, agent, turns, into, shed, watch, hangup, interjections, spoke, quiet, reasoningEffort)
         }
         return if (gated) bulkheads.turn(::refused, run) else run()
     }
@@ -487,6 +495,7 @@ class AgentConversation(
         interjections: Interjections?,
         spoke: ((String) -> Unit)?,
         quiet: Boolean,
+        reasoningEffort: String?,
     ): ChatCompletion {
         /*
          * The agent's own ceiling, or none where the provider is handed every
@@ -682,7 +691,7 @@ class AgentConversation(
              */
             kept?.sent(told)
             val once = if (watch == null) {
-                models.complete(modelId, told, hangup = hangup).also { told(watch, it) }
+                models.complete(modelId, told, hangup = hangup, reasoningEffort = reasoningEffort).also { told(watch, it) }
             } else {
                 val writing = WritingProgress(watch, settings.writingProgressMillis().toLong(), settings.readingShownAfterSeconds() * 1000L)
                 models.stream(
@@ -692,6 +701,7 @@ class AgentConversation(
                     hangup = hangup,
                     onCalling = writing::calling,
                     onReading = writing::reading,
+                    reasoningEffort = reasoningEffort,
                 ) {
                     watch.answering()
                     writing.answer(it)
@@ -924,7 +934,7 @@ class AgentConversation(
             // workflow's agent node is stopped this way, and most of them keep
             // no session and so nobody watching. Issue #440.
             val answer = if (watch == null) {
-                models.complete(modelId, conversation, offered, hangup = hangup)
+                models.complete(modelId, conversation, offered, hangup = hangup, reasoningEffort = reasoningEffort)
             } else {
                 val writing = WritingProgress(watch, settings.writingProgressMillis().toLong(), settings.readingShownAfterSeconds() * 1000L)
                 models.stream(
@@ -935,6 +945,7 @@ class AgentConversation(
                     hangup = hangup,
                     onCalling = writing::calling,
                     onReading = writing::reading,
+                    reasoningEffort = reasoningEffort,
                 ) {
                     watch.answering()
                     writing.answer(it)

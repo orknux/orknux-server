@@ -94,6 +94,31 @@ class ModelService(
         return LlmModelView(model, provider)
     }
 
+    /**
+     * The reasoning efforts [modelId] may be asked for, as its provider spells
+     * them; empty for a model whose provider takes none, a model that is not a
+     * chat model, and a model that is gone. The same answer the model page is
+     * drawn from ([ChatParameters]), so a chat cannot offer a word its model's
+     * page would refuse.
+     */
+    fun reasoningEfforts(modelId: Long): List<String> {
+        val model = models.findByIdOrNull(modelId) ?: return emptyList()
+        val provider = providers.findByIdOrNull(model.providerId) ?: return emptyList()
+        return ChatParameters.forModel(provider, model.kind)
+            .firstOrNull { it.name == ChatParameters.REASONING_EFFORT }?.choices.orEmpty()
+    }
+
+    /**
+     * [given] as a reasoning effort for [modelId]: trimmed, null where blank,
+     * and refused where the model's provider does not take one or not that word.
+     * What a chat's own effort is checked with before it is kept.
+     */
+    fun heldReasoningEffort(modelId: Long, given: String?): String? {
+        val model = models.findByIdOrNull(modelId) ?: throw ModelNotFoundException(modelId)
+        val provider = providers.findByIdOrNull(model.providerId) ?: throw ModelNotFoundException(modelId)
+        return ChatParameters.held(provider, model.kind, ChatParameters.REASONING_EFFORT, given)
+    }
+
     /** A provider as the form describes it, not yet saved: what a create saves and a draft check probes. */
     private fun built(input: CreateProviderInput, name: String, endpoint: String, own: String?, reference: Long?): ModelProvider {
         val provider = ModelProvider(

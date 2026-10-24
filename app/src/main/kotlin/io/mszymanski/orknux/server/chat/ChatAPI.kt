@@ -11,6 +11,7 @@ import org.springframework.data.repository.findByIdOrNull
 import org.springframework.graphql.data.method.annotation.Argument
 import org.springframework.graphql.data.method.annotation.MutationMapping
 import org.springframework.graphql.data.method.annotation.QueryMapping
+import org.springframework.graphql.data.method.annotation.SchemaMapping
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.stereotype.Controller
 import org.springframework.transaction.annotation.Transactional
@@ -194,6 +195,31 @@ class ChatAPI(
     }
 
     /**
+     * How hard the chat's model thinks from its next turn, or null for the
+     * model's own setting. The chat's owner only, and not audited, for the
+     * reason renaming and pinning are not: a chat is one person's, and its
+     * settings change nothing anybody else runs. Issue #654.
+     */
+    @MutationMapping
+    fun setChatReasoningEffort(@Argument id: Long, @Argument effort: String?): ChatSessionView {
+        requireOwn(chats.session(id) ?: throw ChatSessionNotFoundException(id))
+        return describe(chats.setReasoningEffort(id, effort))
+    }
+
+    /**
+     * The efforts the composer offers: what the model answering this chat
+     * takes, by the rule its model page is drawn from. Empty hides the control.
+     * Resolved per field rather than in [describe], so the sidebar's list of
+     * chats does not read every chat's provider to draw nothing with it.
+     */
+    @SchemaMapping(typeName = "ChatSession", field = "reasoningEfforts")
+    fun reasoningEfforts(view: ChatSessionView): List<String> {
+        val session = chats.session(view.id) ?: return emptyList()
+        val modelId = chats.modelAnswering(session) ?: return emptyList()
+        return models.reasoningEfforts(modelId)
+    }
+
+    /**
      * Hands the chat to one of the workspace's agents.
      *
      * There is no null and there is no `chooseChatModel` beside this any more.
@@ -336,6 +362,7 @@ class ChatAPI(
             spentCachedInputTokens = session.spentCachedInputTokens,
             spentPictures = session.spentPictures,
             unreadCount = unread,
+            reasoningEffort = session.reasoningEffort,
         )
     }
 
@@ -434,6 +461,8 @@ data class ChatSessionView(
     val spentPictures: Int,
     /** Answers that arrived since its owner last had it open; nought where there are none. */
     val unreadCount: Int = 0,
+    /** The effort this chat asks for over its model's own, or null for the model's setting. */
+    val reasoningEffort: String? = null,
 )
 
 data class ChatMessageView(

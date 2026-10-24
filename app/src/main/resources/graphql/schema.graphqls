@@ -2125,6 +2125,14 @@ type Mutation {
     renameChat(id: ID!, title: String!): ChatSession!
     setChatPinned(id: ID!, pinned: Boolean!): ChatSession!
     """
+    How hard the chat's model thinks from its next turn - one of the chat's
+    `reasoningEfforts` - or null for the model's own setting. The model itself
+    is not changed. Refused with `ModelParameterNotTaken` for a model whose
+    provider takes no effort and `ModelParameterValueInvalid` for a word it
+    does not take. Only the chat's owner. Issue #654.
+    """
+    setChatReasoningEffort(id: ID!, effort: String): ChatSession!
+    """
     Hands the chat to one of the workspace's agents.
 
     There is no null, and there is no `chooseChatModel` beside this any more.
@@ -4487,6 +4495,17 @@ type ChatSession {
     add nought and read as free.
     """
     spentPictures: Int!
+    """
+    The reasoning effort this chat asks for in place of its model's own, or
+    null for the model's setting - which is what a chat starts with.
+    """
+    reasoningEffort: String
+    """
+    The efforts the model answering this chat takes, as its provider spells
+    them, lowest first; empty where it takes none, and the composer then draws
+    no control for it.
+    """
+    reasoningEfforts: [String!]!
 }
 
 """

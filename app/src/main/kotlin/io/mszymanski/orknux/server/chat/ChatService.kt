@@ -856,6 +856,25 @@ class ChatService(
     }
 
     /**
+     * How hard the chat's model thinks from the next turn on, or null for the
+     * model's own setting. Checked against the model answering now, and
+     * refused for one whose provider takes no effort or not this word - the
+     * same refusal the model page gives. See [ChatSession.reasoningEffort].
+     */
+    @Transactional
+    fun setReasoningEffort(id: Long, effort: String?): ChatSession {
+        val session = sessions.findByIdOrNull(id) ?: throw ChatSessionNotFoundException(id)
+        val given = effort?.trim()?.ifEmpty { null }
+        session.reasoningEffort = if (given == null) {
+            null
+        } else {
+            val modelId = modelAnswering(session) ?: throw ChatModelNotChosenException()
+            catalogue.heldReasoningEffort(modelId, given)
+        }
+        return session
+    }
+
+    /**
      * Hands the chat to one of the workspace's agents.
      *
      * The agent's model becomes the chat's, because an agent that cannot be run
@@ -953,7 +972,7 @@ class ChatService(
         if (start.agentId == null) {
             // A bare model is offered nothing: no tools of its own, and nothing
             // lent either - there is no round to lend into.
-            models.complete(start.modelId, start.turns)
+            models.complete(start.modelId, start.turns, reasoningEffort = start.reasoningEffort)
         } else {
             /*
              * An agent may need its tools before it can answer; a bare model
@@ -1002,12 +1021,18 @@ class ChatService(
             if (session != null && watch != null) {
                 val written = SessionThinking(session, name, recorder)
                 try {
-                    conversation.answer(start.modelId, start.agentId, start.turns, session, lent, Both(watch, written), hangup)
+                    conversation.answer(
+                        start.modelId, start.agentId, start.turns, session, lent, Both(watch, written), hangup,
+                        reasoningEffort = start.reasoningEffort,
+                    )
                 } finally {
                     written.settle()
                 }
             } else {
-                conversation.answer(start.modelId, start.agentId, start.turns, session, lent, watch, hangup).also { done ->
+                conversation.answer(
+                    start.modelId, start.agentId, start.turns, session, lent, watch, hangup,
+                    reasoningEffort = start.reasoningEffort,
+                ).also { done ->
                     if (session != null && done is ChatCompletion.Answered && done.reasoning.isNotBlank()) {
                         recorder.thoughtFor(recorder.thinking(session, name, done.reasoning), done.reasoning, done.reasoningMillis)
                     }
@@ -1175,6 +1200,7 @@ class ChatService(
             agentId = session.agentId,
             llmSessionId = into,
             conversationId = session.conversationId,
+            reasoningEffort = session.reasoningEffort,
             // The turn being sent now is built on its own rather than picked out
             // of the thread by its position, because it is no longer the last
             // thing in the list: what the tools returned goes between.
@@ -1205,6 +1231,7 @@ class ChatService(
             agentId = session.agentId,
             llmSessionId = into,
             conversationId = session.conversationId,
+            reasoningEffort = session.reasoningEffort,
             turns = briefed(session) +
                 (sentBefore(session, into) ?: (standing(session, into) + thread.map { ChatTurn(role(it), it.text.orEmpty()) } + recalled(session, into))),
         )
@@ -1284,6 +1311,7 @@ class ChatService(
             agentId = session.agentId,
             llmSessionId = into,
             conversationId = session.conversationId,
+            reasoningEffort = session.reasoningEffort,
             turns = briefed(session) +
                 (sentBefore(session, into) ?: (standing(session, into) + asked.map { ChatTurn(role(it), it.text.orEmpty()) } + recalled(session, into))),
         )
@@ -1672,4 +1700,10 @@ data class ChatSendStart(
      * comes to believe the product lost their conversation.
      */
     val compacted: Compacted? = null,
+    /**
+     * The effort the chat's composer chose over the model's own, or null for
+     * the model as configured. Carried for the reason [agentId] is. See
+     * [ChatSession.reasoningEffort].
+     */
+    val reasoningEffort: String? = null,
 )

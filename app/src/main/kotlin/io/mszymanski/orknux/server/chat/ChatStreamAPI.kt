@@ -365,6 +365,7 @@ class ChatStreamAPI(
                             onThinking = { piece -> send("thinking", mapOf("text" to piece)) },
                             hangup = hangup,
                             onReading = reading::reading,
+                            reasoningEffort = start.reasoningEffort,
                         ) { piece -> send("chunk", mapOf("text" to piece)) }
                     } else {
                         /*
