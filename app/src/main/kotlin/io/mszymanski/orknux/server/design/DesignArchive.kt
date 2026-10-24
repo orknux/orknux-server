@@ -17,12 +17,18 @@ import java.util.zip.ZipOutputStream
  * that a later version can add files beside these two without the reader of
  * this one minding. Read and written here and nowhere else, so the format has
  * one definition.
+ *
+ * Version 2 adds the picture's layers from the image editor: a PNG each under
+ * `layers/`, listed in `project.json` in the order they stack with their names
+ * and whether each is shown. The picture's own file is still the layers
+ * flattened, so a reader of version 1 - or anything that opens a ZIP - finds
+ * the picture as it looks.
  */
 object DesignArchive {
 
     /** What `project.json` says it is; anything else is not one of these. */
     const val FORMAT = "orknux-picture"
-    const val VERSION = 1
+    const val VERSION = 2
     const val PROJECT = "project.json"
 
     /** What a project says about its picture: everything but the bytes. */
@@ -37,13 +43,20 @@ object DesignArchive {
         val drawnAt: String?,
     )
 
-    data class Read(val project: Project, val image: ByteArray) {
+    /** One layer, the picture itself marked [picture]: its name, whether it is shown, and its PNG. */
+    data class Layer(val name: String?, val visible: Boolean, val picture: Boolean, val png: ByteArray) {
         override fun equals(other: Any?): Boolean = this === other
         override fun hashCode(): Int = System.identityHashCode(this)
     }
 
-    fun write(mapper: ObjectMapper, project: Project, image: ByteArray, contentType: String): ByteArray {
+    data class Read(val project: Project, val image: ByteArray, val layers: List<Layer> = emptyList()) {
+        override fun equals(other: Any?): Boolean = this === other
+        override fun hashCode(): Int = System.identityHashCode(this)
+    }
+
+    fun write(mapper: ObjectMapper, project: Project, image: ByteArray, contentType: String, layers: List<Layer> = emptyList()): ByteArray {
         val picture = "picture." + extensionOf(contentType)
+        val files = layers.indices.map { "layers/$it.png" }
         val json = mapper.writeValueAsBytes(
             linkedMapOf(
                 "format" to FORMAT,
@@ -60,6 +73,9 @@ object DesignArchive {
                     "drawnBy" to project.drawnBy,
                     "drawnAt" to project.drawnAt,
                 ),
+                "layers" to layers.mapIndexed { at, layer ->
+                    linkedMapOf("file" to files[at], "name" to layer.name, "visible" to layer.visible, "picture" to layer.picture)
+                },
             ),
         )
         val out = ByteArrayOutputStream()
@@ -67,33 +83,39 @@ object DesignArchive {
             zip.putNextEntry(ZipEntry(PROJECT))
             zip.write(json)
             zip.closeEntry()
-            // Stored, not deflated: a picture is compressed already, and squeezing it again only costs time.
-            zip.putNextEntry(
-                ZipEntry(picture).apply {
-                    method = ZipEntry.STORED
-                    size = image.size.toLong()
-                    compressedSize = image.size.toLong()
-                    crc = java.util.zip.CRC32().apply { update(image) }.value
-                },
-            )
-            zip.write(image)
-            zip.closeEntry()
+            stored(zip, picture, image)
+            layers.forEachIndexed { at, layer -> stored(zip, files[at], layer.png) }
         }
         return out.toByteArray()
+    }
+
+    /** Stored, not deflated: a picture is compressed already, and squeezing it again only costs time. */
+    private fun stored(zip: ZipOutputStream, name: String, bytes: ByteArray) {
+        zip.putNextEntry(
+            ZipEntry(name).apply {
+                method = ZipEntry.STORED
+                size = bytes.size.toLong()
+                compressedSize = bytes.size.toLong()
+                crc = java.util.zip.CRC32().apply { update(bytes) }.value
+            },
+        )
+        zip.write(bytes)
+        zip.closeEntry()
     }
 
     /**
      * The project and its picture, or why not. Nothing in it is trusted: each
      * entry is read up to [maxBytes] and no further, so an archive that
-     * claims little and unpacks to a great deal is refused rather than held.
+     * claims little and unpacks to a great deal is refused rather than held,
+     * and it holds at most [mostLayers] layers, the picture itself counted.
      */
-    fun read(mapper: ObjectMapper, archive: ByteArray, maxBytes: Long): Read {
+    fun read(mapper: ObjectMapper, archive: ByteArray, maxBytes: Long, mostLayers: Int): Read {
         val entries = mutableMapOf<String, ByteArray>()
         ZipInputStream(ByteArrayInputStream(archive)).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
                 if (entry.isDirectory) continue
-                if (entries.size >= MAX_ENTRIES) throw DesignImageRefusedException("That .orkx file holds more than a picture and its project.")
+                if (entries.size >= mostLayers + ROOM) throw DesignImageRefusedException("That .orkx file holds more than a picture, its layers and its project.")
                 entries[entry.name] = bounded(zip, maxBytes)
             }
         }
@@ -103,6 +125,18 @@ object DesignArchive {
         if (text(tree, "format") != FORMAT) throw DesignImageRefusedException("That .orkx file is not an Orknux picture.")
         val image = text(tree, "picture")?.let { entries[it] }
             ?: throw DesignImageRefusedException("That .orkx file holds no picture.")
+        val listed = tree.path("layers").takeIf { it.isArray }?.toList().orEmpty()
+        if (listed.size > mostLayers) throw DesignImageRefusedException("That .orkx file holds more layers than this installation keeps.")
+        val layers = listed.map { layer ->
+            val png = text(layer, "file")?.let { entries[it] }
+                ?: throw DesignImageRefusedException("A layer that .orkx file lists is not in it.")
+            Layer(
+                name = text(layer, "name"),
+                visible = layer.path("visible").let { !it.isBoolean || it.booleanValue() },
+                picture = layer.path("picture").let { it.isBoolean && it.booleanValue() },
+                png = png,
+            )
+        }
         val drawn = tree.path("drawnWith")
         return Read(
             Project(
@@ -116,6 +150,7 @@ object DesignArchive {
                 drawnAt = text(drawn, "drawnAt"),
             ),
             image,
+            layers,
         )
     }
 
@@ -144,6 +179,6 @@ object DesignArchive {
         else -> "png"
     }
 
-    /** A project and a picture, and room for what a later version adds beside them. */
-    private const val MAX_ENTRIES = 16
+    /** Beside the layers: a project and a picture, and room for what a later version adds. */
+    private const val ROOM = 16
 }

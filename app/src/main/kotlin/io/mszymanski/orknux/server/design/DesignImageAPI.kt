@@ -59,6 +59,7 @@ class DesignImageAPI(
     private val upscaling: ModelUpscaleClient,
     private val mapper: tools.jackson.databind.ObjectMapper,
     private val tuning: io.mszymanski.orknux.server.tuning.Tuning,
+    private val layers: DesignImageLayers,
 ) {
 
     /**
@@ -81,6 +82,7 @@ class DesignImageAPI(
             blurFalloffMost = falloff.most,
             feather = tuning[feather],
             featherMost = feather.most,
+            layersMost = tuning[io.mszymanski.orknux.server.tuning.Tunable.IMAGE_LAYERS_MOST],
         )
     }
 
@@ -353,7 +355,9 @@ class DesignImageAPI(
             ?: throw DesignImageRefusedException("The file could not be read.")
         val maxBytes = settings.maxFileSizeMb() * 1024 * 1024
         // An .orkx archive brings its project with it; a picture alone brings only what the page says.
-        val archived = input.archive.orNullIfBlank()?.let { DesignArchive.read(mapper, decoded(it), maxBytes) }
+        val archived = input.archive.orNullIfBlank()?.let {
+            DesignArchive.read(mapper, decoded(it), maxBytes, tuning[io.mszymanski.orknux.server.tuning.Tunable.IMAGE_LAYERS_MOST] + 1)
+        }
         val bytes = archived?.image ?: decoded(input.image.orNullIfBlank() ?: throw DesignImageRefusedException("There is no file to import."))
         if (bytes.size > maxBytes) throw DesignImageRefusedException("That picture is larger than this installation keeps.")
         val contentType = pictureTypeOf(bytes)
@@ -382,6 +386,14 @@ class DesignImageAPI(
                 name = name,
             ),
         )
+        // The archive's layers come with it, checked as a change's are.
+        archived?.layers?.takeIf { it.isNotEmpty() }?.let { stack ->
+            val read = layersOf(
+                stack.map { DesignImageLayerInput(it.name, it.visible, it.picture, java.util.Base64.getEncoder().encodeToString(it.png)) },
+                bytes,
+            )
+            layers.keep(workspaceId, "DESIGN-${saved.id}", read)
+        }
         auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Image $filename imported into Design")
         return artifacts.describe(saved)
     }
@@ -416,6 +428,7 @@ class DesignImageAPI(
         }
         val contentType = pictureTypeOf(bytes)
             ?: throw DesignImageRefusedException("That file is not a picture this can keep: a PNG, JPEG, WebP or GIF.")
+        val stack = input.layers?.let { layersOf(it, bytes) }
         val view = source.view
         val name = view.name ?: PictureFilenames.nameOf(view.prompt)
         val filename = PictureFilenames.of(name, contentType)
@@ -438,6 +451,8 @@ class DesignImageAPI(
                 versionOf = view.versionOf ?: input.imageId,
             ),
         )
+        // The layers it was made with, kept beside it; a change sent without any is the picture flat.
+        if (!stack.isNullOrEmpty()) layers.keep(workspaceId, "DESIGN-${version.id}", stack)
         val job = jobs.save(
             DesignImageJob(
                 workspaceId = workspaceId,
@@ -472,6 +487,64 @@ class DesignImageAPI(
             bytes.size >= 12 && starts(0x52, 0x49, 0x46, 0x46) && String(bytes, 8, 4, Charsets.US_ASCII) == "WEBP" -> "image/webp"
             else -> null
         }
+    }
+
+    /**
+     * The layers a change was sent with, read and checked: the picture itself
+     * first and only there, as many as Admin Settings allows, each a PNG the
+     * picture's own size - a layer of another size would not line up with the
+     * flattened file it is kept beside.
+     */
+    private fun layersOf(given: List<DesignImageLayerInput>, flattened: ByteArray): List<LayerPixels> {
+        if (given.isEmpty()) return emptyList()
+        val most = tuning[io.mszymanski.orknux.server.tuning.Tunable.IMAGE_LAYERS_MOST]
+        if (given.size > most + 1) throw DesignImageRefusedException("A picture keeps at most $most layers over it.")
+        if (!given.first().picture || given.drop(1).any { it.picture }) {
+            throw DesignImageRefusedException("The picture itself is the lowest layer, and the only one.")
+        }
+        val size = PictureScaling.read(flattened)?.let { it.width to it.height }
+            ?: throw DesignImageRefusedException("The changed picture could not be read.")
+        val maxBytes = settings.maxFileSizeMb() * 1024 * 1024
+        return given.map { layer ->
+            val png = runCatching { java.util.Base64.getDecoder().decode(layer.image.substringAfter("base64,")) }.getOrNull()
+                ?.takeIf { it.isNotEmpty() && pictureTypeOf(it) == "image/png" }
+                ?: throw DesignImageRefusedException("A layer could not be read; layers are kept as PNG.")
+            if (png.size > maxBytes) throw DesignImageRefusedException("A layer is larger than this installation keeps.")
+            val read = PictureScaling.read(png) ?: throw DesignImageRefusedException("A layer could not be read; layers are kept as PNG.")
+            if (read.width to read.height != size) throw DesignImageRefusedException("Every layer is the picture's own size.")
+            val name = layer.name?.trim()?.takeIf { it.isNotEmpty() }
+            if (!layer.picture && name == null) throw DesignImageRefusedException("Every layer has a name.")
+            if (name != null && name.length > NAME_LENGTH) throw DesignImageRefusedException("A layer's name is at most $NAME_LENGTH characters.")
+            LayerPixels(name, layer.visible, layer.picture, png)
+        }
+    }
+
+    /**
+     * A picture's layers in the image editor, the picture itself first - its
+     * pixels without the layers over it - or none for a picture kept flat.
+     */
+    @QueryMapping
+    fun designImageLayers(@Argument workspaceId: Long, @Argument imageId: String): List<DesignImageLayerView> {
+        access.requireVisible(workspaceId)
+        artifacts.storedOf(workspaceId, imageId) ?: return emptyList()
+        return layers.of(workspaceId, imageId).map {
+            DesignImageLayerView(
+                id = requireNotNull(it.id).toString(),
+                name = it.name,
+                visible = it.visible,
+                picture = it.picture,
+                url = "/api/design-image-layers/${it.id}",
+            )
+        }
+    }
+
+    /** A layer's pixels, to anybody who can see its workspace - as its picture is. */
+    @GetMapping("/api/design-image-layers/{id}")
+    @ResponseBody
+    fun layer(@PathVariable id: Long): ResponseEntity<InputStreamResource> {
+        val layer = layers.byId(id)?.takeIf { access.canSee(it.workspaceId) && store.exists(it.location) }
+            ?: return ResponseEntity.notFound().build()
+        return downloads.serve(filename = "layer-$id.png", contentType = "image/png", sizeBytes = layer.sizeBytes, location = layer.location)
     }
 
     /**
@@ -603,6 +676,8 @@ class DesignImageAPI(
             if (!artifacts.replaceBytes(workspaceId, of, version.location, version.contentType, version.sizeBytes)) {
                 throw DesignImageRefusedException("The picture these changes were made to is not here any more; save them as a copy.")
             }
+            // And its layers, or none where it was kept flat: the picture is what the version was.
+            layers.move(workspaceId, "DESIGN-${version.id}", of)
             images.delete(version)
             requireNotNull(artifacts.storedOf(workspaceId, of)).view
         }
@@ -641,6 +716,7 @@ class DesignImageAPI(
         versions.forEach {
             images.delete(it)
             runCatching { store.remove(it.location) }
+            layers.forget(workspaceId, "DESIGN-${it.id}")
         }
         return versions.size
     }
@@ -671,6 +747,7 @@ class DesignImageAPI(
             ),
             store.open(stored.location).use { it.readBytes() },
             stored.contentType,
+            layers.pixelsOf(workspaceId, artifactId).map { DesignArchive.Layer(it.name, it.visible, it.picture, it.png) },
         )
         val filename = PictureFilenames.of(view.name ?: PictureFilenames.nameOf(view.prompt), "image/png").substringBeforeLast('.') + ".orkx"
         return ResponseEntity.ok()
@@ -837,16 +914,38 @@ data class ImageEditorSettingsView(
     val feather: Int,
     /** The furthest it may be softened. */
     val featherMost: Int,
+    /** How many layers a picture may keep over it. */
+    val layersMost: Int,
 )
 
 data class KeepDesignImageChangeInput(
     val workspaceId: String,
     /** The picture the change was made to, by its artifact id. */
     val imageId: String,
-    /** The changed picture's file, base64. */
+    /** The changed picture's file, base64: with layers, them flattened. */
     val image: String,
     /** What was done, as the editor's history says it. */
     val change: String,
+    /** The layers it was made with, the picture itself first; null or empty keeps it flat. */
+    val layers: List<DesignImageLayerInput>? = null,
+)
+
+data class DesignImageLayerInput(
+    /** What it is called; null for the picture itself. */
+    val name: String? = null,
+    val visible: Boolean,
+    /** The picture itself, under every layer: first, and only there. */
+    val picture: Boolean = false,
+    /** Its pixels, a PNG the picture's own size, base64. */
+    val image: String,
+)
+
+data class DesignImageLayerView(
+    val id: String,
+    val name: String?,
+    val visible: Boolean,
+    val picture: Boolean,
+    val url: String,
 )
 
 data class UpscaleAlgorithmsView(

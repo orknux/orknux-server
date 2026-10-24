@@ -331,6 +331,16 @@ enum class Tunable(
         "How far a Magic edit's edge is feathered",
         "The redrawn part blends into the picture across about this many of its own pixels either side of the selection's edge. Zero is a hard edge. Whoever edits can choose another.",
     ),
+    /*
+     * How many layers a picture keeps over it in the image editor. Each is a
+     * PNG the picture's size, kept with every version of it until Save or
+     * Discard, so this is what bounds the disk one picture can take.
+     */
+    IMAGE_LAYERS_MOST(
+        "images.layers.most", 32, 1, 256, TuningSection.MEDIA, TuningUnit.ITEMS,
+        "How many layers a picture may keep",
+        "Over the picture itself, in the image editor. Each is a picture the same size, kept with every unsaved version, so more layers take more disk.",
+    ),
 
     /* ---- Workflows and triggers ---- */
 

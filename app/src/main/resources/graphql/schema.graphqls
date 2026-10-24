@@ -472,6 +472,12 @@ type Query {
     drawn, failed or stopped. The editor's strip, read again on a reload.
     """
     designImageHistory(workspaceId: ID!, imageId: ID!): [DesignImageJob!]!
+    """
+    A picture's layers in the image editor, the picture itself first - its
+    pixels without the layers over it. Empty for a picture kept flat, whose
+    own file is all there is.
+    """
+    designImageLayers(workspaceId: ID!, imageId: ID!): [DesignImageLayer!]!
 
     """
     The "Custom" actions one workflow owns - exactly what workspaceActions
@@ -8673,6 +8679,8 @@ type ImageEditorSettings {
     feather: Int!
     "The furthest a Magic edit's edge may be softened."
     featherMost: Int!
+    "How many layers a picture may keep over it: the installation's number."
+    layersMost: Int!
 }
 
 """ A change the image editor made itself, to keep as a version of the picture. """
@@ -8684,6 +8692,37 @@ input KeepDesignImageChangeInput {
     image: String!
     "What was done, as the editor's history says it; at most 255 characters."
     change: String!
+    """
+    The layers the change was made with, the picture itself first; image is
+    then them flattened. Null or empty keeps the version flat.
+    """
+    layers: [DesignImageLayerInput!]
+}
+
+""" One layer of a picture in the image editor, as a change is kept with it. """
+input DesignImageLayerInput {
+    "What it is called; null for the picture itself."
+    name: String
+    visible: Boolean!
+    "The picture itself, under every layer: the first, and only there."
+    picture: Boolean = false
+    "Its pixels, base64: a PNG the picture's own size, transparent where nothing is on it."
+    image: String!
+}
+
+"""
+One layer of a picture in the image editor. The picture's own file is the
+layers flattened; these are what the editor opens again.
+"""
+type DesignImageLayer {
+    id: ID!
+    "What it is called; null for the picture itself."
+    name: String
+    visible: Boolean!
+    "The picture itself, at the foot of the stack: its pixels without the layers over it."
+    picture: Boolean!
+    "Where its PNG is served."
+    url: String!
 }
 
 """ A picture brought in from outside, to keep in Design. """
