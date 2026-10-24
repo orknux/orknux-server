@@ -36,6 +36,7 @@ have failed.
 
 ### 🔧 Changed
 
+- **The search on Skills and Memory is one box above the catalogs and searches every catalog, a plugin's included:** matches are grouped under each catalog's name, the column counts them, and choosing a catalog narrows the search to it.
 - **An agent's note to itself may be 2,000 characters by default**, up from 1,000; an installation that set its own limit in Admin Settings keeps it.
 - **The desktop app starts in about half the time.** Its server runs from an unpacked copy of the jar with an AOT cache made for the runtime it ships - about 8 seconds to the first page instead of 18 on a Windows test machine. A release the server installs itself still starts the old way.
 - **A chat's title no longer waits on a busy companion model.** Past Admin Settings' Chat Title Time Limit (30 seconds, `ORKNUX_CHAT_TITLE_SECONDS`), or when it fails, the chat's own model names it.
