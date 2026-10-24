@@ -94,6 +94,10 @@ type DesignVideo {
     reason: String
     "How far it has got, in percent, where its server says."
     progress: Int
+    "Whether progress counts only the sampling steps, as stable-diffusion.cpp's does: the decode after the last step is not in it."
+    progressSamplingOnly: Boolean!
+    "This server's clock when the video was read, to count from startedAt on the same clock."
+    asOf: String!
     "How many queued videos are made before this one; null unless QUEUED."
     ahead: Int
     "The file, once DONE."
