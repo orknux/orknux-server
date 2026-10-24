@@ -251,6 +251,17 @@ enum class Tunable(
         "How many elements one wireframe may hold",
         "A save, from the editor or from a model drawing in it, that would leave more is refused and says how many there were.",
     ),
+    /*
+     * Counted in characters because that is what a model pays for: the page
+     * orknux_wireframe_html hands back is read in full, and a drawing of
+     * thousands of elements is a page of hundreds of thousands. Past this the
+     * answer carries the link to the page and not the page.
+     */
+    WIREFRAME_HTML_INLINE_CHARACTERS(
+        "wireframe.html.inline.characters", 100_000, 1_000, 5_000_000, TuningSection.MEDIA, TuningUnit.CHARACTERS,
+        "How long a wireframe's HTML may be and still be handed to a model",
+        "A longer page is answered with the link to download it instead of the page itself.",
+    ),
 
     /*
      * Design's Videos page. Issue #658. A video is a job its backend runs for
