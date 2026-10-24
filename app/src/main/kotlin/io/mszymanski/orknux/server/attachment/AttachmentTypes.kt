@@ -29,6 +29,7 @@ object AttachmentTypes {
     const val TSV = "text/tab-separated-values"
     const val XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     const val XLS = "application/vnd.ms-excel"
+    const val ODS = "application/vnd.oasis.opendocument.spreadsheet"
     const val MP3 = "audio/mpeg"
     const val WAV = "audio/wav"
     const val FLAC = "audio/flac"
@@ -43,6 +44,7 @@ object AttachmentTypes {
         "tsv" to (TSV to setOf("", UNKNOWN, "text/plain")),
         "xlsx" to (XLSX to setOf("", UNKNOWN, "application/zip", "application/x-zip-compressed")),
         "xls" to (XLS to setOf("", UNKNOWN)),
+        "ods" to (ODS to setOf("", UNKNOWN, "application/zip", "application/x-zip-compressed")),
         "mp3" to (MP3 to setOf("", UNKNOWN, "audio/mp3", "audio/x-mp3", "audio/mpeg3", "audio/x-mpeg")),
         "wav" to (WAV to setOf("", UNKNOWN, "audio/x-wav", "audio/wave", "audio/vnd.wave")),
         "flac" to (FLAC to setOf("", UNKNOWN, "audio/x-flac")),

@@ -1,8 +1,15 @@
 package io.mszymanski.orknux.server.embedded
 
+import com.github.miachm.sods.OdsOptionParameters
+import com.github.miachm.sods.OfficeCurrency
+import com.github.miachm.sods.OfficePercentage
+import com.github.miachm.sods.SpreadSheet
 import org.apache.commons.csv.CSVFormat
 import org.apache.commons.csv.CSVParser
 import org.apache.poi.poifs.filesystem.FileMagic
+import org.apache.poi.openxml4j.exceptions.InvalidFormatException
+import org.apache.poi.openxml4j.exceptions.NotOfficeXmlFileException
+import org.apache.poi.openxml4j.exceptions.ODFNotOfficeXmlFileException
 import org.apache.poi.openxml4j.opc.OPCPackage
 import org.apache.poi.openxml4j.opc.PackageAccess
 import org.apache.poi.openxml4j.util.ZipSecureFile
@@ -23,11 +30,16 @@ import java.io.ByteArrayInputStream
 import java.io.StringReader
 import java.math.BigDecimal
 import java.nio.file.Files
+import java.time.Duration
+import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.temporal.ChronoUnit
+import java.util.zip.ZipFile
+import java.util.zip.ZipInputStream
 
 /**
- * A page of rows out of a CSV or a workbook, for sheet_read.
+ * A page of rows out of a CSV or a workbook - .xlsx, .xls or .ods - for sheet_read.
  *
  * Rows are numbered as the sheet numbers them, from 1, header included, so
  * "row 40" means the same thing to the agent and to the person who opened the
@@ -38,8 +50,8 @@ import java.time.temporal.ChronoUnit
  * Every cell is answered as text: a number as its plain value (12.5, not the
  * "12,50 zł" a format would draw), a date as ISO 8601, a formula as the value
  * the file last saved for it, a boolean as TRUE or FALSE and an error as its
- * code. Parsing is the libraries' - Commons CSV and POI - and nothing here
- * reads a byte of either format by hand.
+ * code. Parsing is the libraries' - Commons CSV, POI, and SODS for an .ods -
+ * and nothing here reads a byte of any of those formats by hand.
  */
 @Component
 class SheetReader {
@@ -111,7 +123,11 @@ class SheetReader {
 
     /* ------------------------------------------------------------- workbook */
 
-    /** Whether these bytes are a workbook POI can open, .xlsx or .xls. */
+    /**
+     * Whether these bytes look like a workbook: an OLE2 file (.xls) or a zip,
+     * which an .xlsx and an .ods both are. Which of those a zip is, or whether
+     * it is neither, is [workbook]'s to say - with a reason a model can repeat.
+     */
     fun isWorkbook(bytes: ByteArray): Boolean = magicOf(bytes) in setOf(FileMagic.OOXML, FileMagic.OLE2)
 
     /**
@@ -123,10 +139,35 @@ class SheetReader {
     fun workbook(bytes: ByteArray, sheet: String?, from: Int, to: Int?, limits: Limits): Reading =
         try {
             when (magicOf(bytes)) {
-                FileMagic.OOXML -> xlsx(bytes, sheet, from, to, limits)
+                FileMagic.OOXML -> when (val odf = openDocumentTypeOf(bytes)) {
+                    null -> xlsx(bytes, sheet, from, to, limits)
+                    ODS -> ods(bytes, sheet, from, to, limits)
+                    else -> Reading.Refused(
+                        "That is an OpenDocument file of another kind ($odf), not a spreadsheet. " +
+                            "A workbook is an .ods, an .xlsx or an .xls.",
+                    )
+                }
                 FileMagic.OLE2 -> xls(bytes, sheet, from, to, limits)
-                else -> Reading.Refused("That is not a workbook: it is neither an .xlsx nor an .xls.")
+                else -> Reading.Refused("That is not a workbook: it is neither an .ods, an .xlsx nor an .xls.")
             }
+        } catch (unannounced: ODFNotOfficeXmlFileException) {
+            /*
+             * POI saw an OpenDocument file its mimetype entry did not announce
+             * - one written with that entry out of place, which the format
+             * forbids and some writers do anyway. SODS reads it or says why not.
+             */
+            try {
+                ods(bytes, sheet, from, to, limits)
+            } catch (failure: Exception) {
+                Reading.Refused("That workbook could not be read: " + (failure.message ?: failure.javaClass.simpleName))
+            }
+        } catch (notOffice: NotOfficeXmlFileException) {
+            Reading.Refused("That is a zip but not a workbook: it holds neither an .ods nor an .xlsx.")
+        } catch (unpackaged: InvalidFormatException) {
+            // A zip with no content-types part, which every .xlsx has: an archive of something else.
+            Reading.Refused(
+                "That is a zip but not a workbook: it holds neither an .ods nor an .xlsx (${unpackaged.message}).",
+            )
         } catch (failure: Exception) {
             Reading.Refused("That workbook could not be read: " + (failure.message ?: failure.javaClass.simpleName))
         }
@@ -233,6 +274,109 @@ class SheetReader {
             Reading.Read(window.finish(sheets = names, sheet = name, delimiter = null))
         }
 
+    /**
+     * What an OpenDocument zip says it is, or null where it says nothing.
+     *
+     * The format's own answer: an ODF package opens with an entry called
+     * `mimetype` holding its type, so an .ods is known by its content and not
+     * by a name a browser or a person gave it - an .ods renamed .xlsx is still
+     * read, and an .odt is refused as what it is.
+     */
+    private fun openDocumentTypeOf(bytes: ByteArray): String? = runCatching {
+        ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
+            zip.nextEntry?.takeIf { it.name == "mimetype" } ?: return null
+            zip.readNBytes(MIMETYPE_MOST).decodeToString().trim().ifEmpty { null }
+        }
+    }.getOrNull()
+
+    /**
+     * An .ods, by SODS.
+     *
+     * SODS holds a whole workbook in memory, and an .ods is a zip - so before
+     * it is handed over every XML part is unpacked once and counted, and one
+     * that comes to more than [Limits.unpackedBytes] refuses the file, as POI
+     * refuses an .xlsx part. Counted by inflating rather than read off the
+     * sizes the zip declares, which are whatever its writer wanted them to be.
+     * Styles, pictures, charts and macros are not loaded: a cell's type is on
+     * the cell, and nothing else here is read.
+     */
+    private fun ods(bytes: ByteArray, sheet: String?, from: Int, to: Int?, limits: Limits): Reading {
+        val file = Files.createTempFile("orknux-sheet-", ".ods")
+        try {
+            Files.write(file, bytes)
+            ZipFile(file.toFile()).use { zip ->
+                val buffer = ByteArray(64 * 1024)
+                for (entry in zip.entries()) {
+                    if (!entry.name.endsWith(".xml")) continue
+                    var unpacked = 0L
+                    zip.getInputStream(entry).use { stream ->
+                        while (true) {
+                            val read = stream.read(buffer)
+                            if (read < 0) break
+                            unpacked += read
+                            if (unpacked > limits.unpackedBytes) {
+                                return Reading.Refused(
+                                    "That workbook could not be read: its part ${entry.name} unpacks to more than " +
+                                        "${limits.unpackedBytes / (1024 * 1024)} MB, the most one part may.",
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            val options = OdsOptionParameters().apply {
+                isLoadStyles = false
+                isLoadImages = false
+                isLoadGraphs = false
+                isLoadMacros = false
+            }
+            val book = SpreadSheet(file.toFile(), options)
+            val names = book.sheets.map { it.name }
+            val chosen = if (sheet == null) {
+                book.sheets.firstOrNull()
+            } else {
+                book.sheets.firstOrNull { it.name.equals(sheet.trim(), ignoreCase = true) }
+            }
+            chosen ?: return Reading.Refused(noSheet(sheet, names))
+            val window = Window(from, to, limits)
+            val values: Array<Array<Any?>> =
+                if (chosen.maxRows == 0 || chosen.maxColumns == 0) emptyArray() else chosen.dataRange.values
+            // Trailing empty rows are formatting a sheet carries, not rows of it - a .ods often has thousands.
+            values.map { row -> row.map(::odsText).dropLastWhile { it.isEmpty() } }
+                .dropLastWhile { it.isEmpty() }
+                .forEach(window::offer)
+            return Reading.Read(window.finish(sheets = names, sheet = chosen.name, delimiter = null))
+        } finally {
+            Files.deleteIfExists(file)
+        }
+    }
+
+    /**
+     * An .ods cell as text, by the rules [CellText] keeps for a workbook: a
+     * number plain, a date ISO 8601 and alone where it has no time of day, a
+     * time of day alone, a boolean TRUE or FALSE. SODS answers each typed, so
+     * a currency or a percentage is its number - 0.04, not "4%".
+     */
+    private fun odsText(value: Any?): String = when (value) {
+        null -> ""
+        is String -> value
+        is Boolean -> if (value) "TRUE" else "FALSE"
+        is Number -> plain(value.toDouble())
+        is LocalDate -> value.toString()
+        is LocalDateTime -> value.truncatedTo(ChronoUnit.SECONDS).let { at ->
+            if (at == at.toLocalDate().atStartOfDay()) at.toLocalDate().toString() else at.toString()
+        }
+        is Duration ->
+            if (!value.isNegative && value < Duration.ofDays(1)) {
+                LocalTime.MIDNIGHT.plus(value).truncatedTo(ChronoUnit.SECONDS).toString()
+            } else {
+                value.toString()
+            }
+        is OfficeCurrency -> value.value?.let(::plain).orEmpty()
+        is OfficePercentage -> value.value?.let(::plain).orEmpty()
+        else -> value.toString()
+    }
+
     private fun noSheet(asked: String?, names: List<String>): String =
         if (asked == null || names.isEmpty()) "That workbook has no sheets."
         else "That workbook has no sheet called \"$asked\". Its sheets are: ${names.joinToString(", ")}."
@@ -253,7 +397,7 @@ class SheetReader {
                     else -> at.toString()
                 }
             }
-            return BigDecimal.valueOf(value).stripTrailingZeros().toPlainString()
+            return plain(value)
         }
     }
 
@@ -296,6 +440,15 @@ class SheetReader {
     }
 
     private companion object {
+        /** What an .ods says it is, in its `mimetype` entry. */
+        const val ODS = "application/vnd.oasis.opendocument.spreadsheet"
+
+        /** Longer than any OpenDocument type; a `mimetype` entry is never read past it. */
+        const val MIMETYPE_MOST = 200
+
+        /** A number as its plain value: 12.5, 3, 0.04 - never 3.0 or 1.2E7. */
+        fun plain(value: Double): String = BigDecimal.valueOf(value).stripTrailingZeros().toPlainString()
+
         val DELIMITERS = listOf(',', ';', '\t', '|')
 
         /** How many opening lines decide the delimiter: enough to see a pattern, few enough to be instant. */

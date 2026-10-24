@@ -217,6 +217,87 @@ class ChatDrawingTest(
     }
 
     /**
+     * A picture a tool makes so the model can *look* at something is shown to
+     * the model and to nobody else. An agent reading sheet music called
+     * pdf_preview, and the person was shown a full-size render of their own
+     * PDF in the chat.
+     */
+    @Test
+    fun `a page pdf_preview draws goes to the model alone, and the model is told the person did not see it`() {
+        val chatId = chatWithAgent(
+            serve { body ->
+                when {
+                    body.contains("onlyYouSeeIt") -> saying("It is in C major.")
+                    else -> Round(tool = "pdf_preview", arguments = """{"contentKey":"attachment.$pdfId"}""")
+                }
+            },
+        )
+        val sent = uploadedPdf()
+
+        stream(chatId, "What key is this in?", listOf(sent))
+
+        // Nothing but the PDF the person sent: no picture was filed on the chat.
+        assertThat(attachments.findAll().map { it.contentType }).containsExactly("application/pdf")
+        assertThat(thread(chatId)).noneMatch { it.contains("/api/attachments/") }
+        assertThat(thread(chatId).last()).isEqualTo("assistant:It is in C major.")
+
+        // The next request carries the page to the model, as an image, saying the person has not seen it.
+        val next = offered.last()
+        assertThat(next).contains("data:image/png;base64,")
+        assertThat(next).contains("onlyYouSeeIt").contains("The person has not seen it")
+        assertThat(next).doesNotContain("inConversation")
+    }
+
+    /** pdf_toPng puts its picture in the chat only when it is asked to, which is when the person asked to see one. */
+    @Test
+    fun `pdf_toPng puts its picture in the chat when show is passed, and not otherwise`() {
+        val html = "<p>Hello</p>"
+        val chatId = chatWithAgent(
+            serve { body ->
+                when {
+                    body.contains("inConversation") -> saying("Here it is.")
+                    body.contains("onlyYouSeeIt") -> Round(tool = "pdf_toPng", arguments = """{"html":"$html","show":true}""")
+                    else -> Round(tool = "pdf_toPng", arguments = """{"html":"$html"}""")
+                }
+            },
+        )
+
+        stream(chatId, "Show me the page")
+
+        val filed = attachments.findAll().single()
+        assertThat(filed.contentType).isEqualTo("image/png")
+        assertThat(thread(chatId)).containsExactly(
+            "user:Show me the page",
+            "assistant:![](/api/attachments/${filed.id})",
+            "assistant:Here it is.",
+        )
+    }
+
+    /** The id of the PDF [uploadedPdf] put in the composer, which the stub's tool call names. */
+    private var pdfId: Long = 0
+
+    /** A one-page PDF in somebody's composer, made with PDFBox so pdf_preview has a real page to draw. */
+    private fun uploadedPdf(): Long {
+        val bytes = org.apache.pdfbox.pdmodel.PDDocument().use { document ->
+            document.addPage(org.apache.pdfbox.pdmodel.PDPage())
+            java.io.ByteArrayOutputStream().also(document::save).toByteArray()
+        }
+        pdfId = requireNotNull(
+            attachments.save(
+                ChatAttachment(
+                    workspaceId = workspaceId,
+                    filename = "score.pdf",
+                    contentType = "application/pdf",
+                    sizeBytes = bytes.size.toLong(),
+                    location = store.put(workspaceId, "score.pdf", bytes),
+                    uploadedBy = "alice",
+                ),
+            ).id,
+        )
+        return pdfId
+    }
+
+    /**
      * And the same thing on the streamed path.
      *
      * Not the same test twice. [AgentConversation] reads a watched round as a

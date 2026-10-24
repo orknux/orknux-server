@@ -1438,7 +1438,8 @@ class AgentConversation(
 
                         val picture = AgentTools.pictureIn(got)
                         // Put where the reader is, where the round has somewhere to put it; the model is told so.
-                        val placed = picture?.let { made ->
+                        // Not one made for the model to look at: that one is shown to the model and nobody else.
+                        val placed = picture?.takeUnless { it.forModel }?.let { made ->
                             runCatching { shed?.pictured(call.name, made) }
                                 .onFailure { log.warn("A picture {} made could not be put in the conversation", call.name, it) }
                                 .getOrNull()

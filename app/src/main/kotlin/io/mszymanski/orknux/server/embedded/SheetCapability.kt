@@ -11,7 +11,8 @@ import tools.jackson.databind.ObjectMapper
 import java.util.Base64
 
 /**
- * Reading a CSV or a workbook somebody attached, a page of rows at a time.
+ * Reading a CSV or a workbook somebody attached - .xlsx, .xls or .ods - a page
+ * of rows at a time.
  *
  * Before this an attached .xlsx was base64 under a key nothing read, and a CSV
  * was readable only as one long string - a model asked about row 4,000 of an
@@ -38,8 +39,8 @@ class SheetCapability(
         EmbeddedTool(
             name = READ,
             readOnly = true,
-            summary = "Reads rows of a CSV or Excel workbook kept under a key.",
-            description = "Reads an attached CSV, .xlsx or .xls kept under a $KEY in this session and answers a page " +
+            summary = "Reads rows of a CSV, an Excel workbook or an OpenDocument spreadsheet kept under a key.",
+            description = "Reads an attached CSV, .xlsx, .xls or .ods (LibreOffice, OpenOffice) kept under a $KEY in this session and answers a page " +
                 "of its rows as cells, numbered as the sheet numbers them from 1, with how many rows there are. " +
                 "Dates come as ISO 8601 and formulas as their saved values. A workbook's answer lists its sheets; " +
                 "pass $SHEET to read another. Pass $FROM for the row to start at to read further - the answer says " +
@@ -148,6 +149,7 @@ class SheetCapability(
             AttachmentTypes.TSV,
             AttachmentTypes.XLSX,
             AttachmentTypes.XLS,
+            AttachmentTypes.ODS,
             "application/csv",
         )
     }

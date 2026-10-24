@@ -727,7 +727,13 @@ class AgentTools(
         val base64 = java.util.Base64.getEncoder().encodeToString(shown)
         if (base64.length > MOST_PICTURE_CHARS) return refused("\"$named\" is too large a picture to look at.")
         return mapper.writeValueAsString(
-            mapOf(PICTURE to base64, PICTURE_TYPE to shownType, "note" to "The picture is shown to you with this answer."),
+            // Looked at, not made: the picture is the person's already, or somebody's - never posted back to them.
+            mapOf(
+                PICTURE to base64,
+                PICTURE_TYPE to shownType,
+                PICTURE_FOR_MODEL to true,
+                "note" to "The picture is shown to you with this answer.",
+            ),
         )
     }
 
@@ -939,6 +945,25 @@ class AgentTools(
          */
         const val PICTURE_KEY = "pictureKey"
 
+        /**
+         * Whether a picture is for the model alone, said by the tool that made
+         * it: `true` where the picture is how the model *looks* at something -
+         * a PDF page, an attachment - rather than something made for the
+         * person to see.
+         *
+         * Every picture used to be put in the chat as well, which is right for
+         * a chart or a diagram somebody asked for and wrong for a model
+         * checking a page: an agent reading sheet music called pdf_preview and
+         * the person was shown a full-size render of their own PDF. A field on
+         * the answer and not a list of tool names, so a tool that is added
+         * says which kind it is where it makes the picture.
+         */
+        const val PICTURE_FOR_MODEL = "pictureForModel"
+
+        /** What the model is told in place of where the picture went, when it went nowhere but to the model. */
+        const val SEEN_ONLY_BY_YOU = "Only you see this picture: it was not put in the conversation, and the person " +
+            "has not seen it. Do not speak of it as something they can see; say in words what matters in it."
+
         /** What a picture is hung on where the tool named no type. */
         const val PICTURE_DEFAULT_TYPE = "image/png"
 
@@ -969,7 +994,8 @@ class AgentTools(
             val type = node.path(PICTURE_TYPE).asString("").ifEmpty { PICTURE_DEFAULT_TYPE }
             if (!type.startsWith("image/")) return null
             val key = node.path(PICTURE_KEY).asString("").trim().ifEmpty { null }
-            Picture(dataUrl = "data:$type;base64,$base64", type = type, chars = base64.length, key = key)
+            val forModel = node.path(PICTURE_FOR_MODEL).let { it.isBoolean && it.booleanValue() }
+            Picture(dataUrl = "data:$type;base64,$base64", type = type, chars = base64.length, key = key, forModel = forModel)
         }.getOrNull()
 
         /**
@@ -989,7 +1015,8 @@ class AgentTools(
             edited.put("shown", true)
             edited.put("pictureBytes", picture.chars / 4 * 3)
             // Where the picture went beside the model, said where the model reads what the tool did.
-            if (placed != null) edited.put("inConversation", placed)
+            if (picture.forModel) edited.put("onlyYouSeeIt", SEEN_ONLY_BY_YOU)
+            else if (placed != null) edited.put("inConversation", placed)
             jackson.writeValueAsString(edited)
         }.getOrElse { result }
 
@@ -1043,6 +1070,8 @@ class AgentTools(
              * each of which is its own. See [PICTURE_KEY].
              */
             val key: String? = null,
+            /** Made for the model to look at, and kept from the person. See [PICTURE_FOR_MODEL]. */
+            val forModel: Boolean = false,
         ) {
 
             /**
@@ -1053,7 +1082,9 @@ class AgentTools(
              * called a tool, so saying which one it is looking at is the
              * difference between an answer and a guess.
              */
-            fun noteFor(tool: String) = "The picture $tool just made, to look at."
+            fun noteFor(tool: String) =
+                if (forModel) "The picture $tool just made, for you to look at. The person has not seen it."
+                else "The picture $tool just made, to look at."
         }
 
         private val jackson = ObjectMapper()

@@ -142,7 +142,7 @@ enum class Tunable(
     SHEET_UNPACKED_MB(
         "sheet.unpacked.mb", 100, 1, 2_000, TuningSection.AGENTS, TuningUnit.MB,
         "The most one part of a workbook may unpack to",
-        "An .xlsx is a zip, and a small one can unpack to gigabytes. A workbook with a part larger than this is refused rather than read.",
+        "An .xlsx or an .ods is a zip, and a small one can unpack to gigabytes. A workbook with a part larger than this is refused rather than read.",
     ),
     /*
      * A time and not a length, because the patterns that never finish are
