@@ -412,7 +412,7 @@ class WorkspaceDuplicateTest(
                 "topK", "minP", "repeatPenalty", "enabled", "tokenLimit", "resetInterval", "requestsPerMinute",
                 "throttleTokensPerSecond", "throttleRequestsPerSecond", "acceptRetryAfter", "answerLimitMinutes", "inputCostPerMillion",
                 "outputCostPerMillion", "cachedInputCostPerMillion", "cacheWriteCostPerMillion", "voice", "skipEmptyLines", "imageCostPerImage",
-                "takesVideo", "takesAudio",
+                "takesVideo", "takesAudio", "negativePrompt",
             ),
         )
         copied.forEach { (type, carried) ->

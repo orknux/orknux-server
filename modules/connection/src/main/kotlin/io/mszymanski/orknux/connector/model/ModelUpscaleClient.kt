@@ -170,11 +170,24 @@ class ModelUpscaleClient(
      * The whole picture redrawn lightly - img2img at [strength], its own size,
      * from [prompt] - so the seams between parts redrawn apart become one
      * picture. [checkpoint] null is whatever the WebUI has loaded.
+     * [negativePrompt] is what the redraw must not bring in, as img2img's own
+     * `negative_prompt`; null takes the model's default. Issue #657.
      */
-    fun harmonize(modelId: Long, image: ByteArray, prompt: String, strength: Double, checkpoint: String?): Picture {
+    fun harmonize(
+        modelId: Long,
+        image: ByteArray,
+        prompt: String,
+        strength: Double,
+        checkpoint: String?,
+        negativePrompt: String? = null,
+    ): Picture {
         val (model, provider) = when (val found = upscaler(modelId)) {
             is Found.No -> return Picture.Failed(found.reason)
             is Found.Yes -> found.model to found.provider
+        }
+        val negative = when (val resolved = NegativePrompts.resolved(provider, model, negativePrompt)) {
+            is NegativePrompts.Resolved.Refused -> return Picture.Failed(resolved.reason)
+            is NegativePrompts.Resolved.Sent -> resolved.value
         }
         // The WebUI's own bounds; the installation's narrower ones are the caller's.
         if (strength !in 0.0..1.0) return Picture.Failed("A strength is between 0 and 1")
@@ -190,6 +203,7 @@ class ModelUpscaleClient(
         val asked = buildMap<String, Any> {
             put("init_images", listOf(Base64.getEncoder().encodeToString(image)))
             put("prompt", prompt)
+            negative?.let { put(NegativePrompts.FIELD, it) }
             put("denoising_strength", strength)
             // Its own size: the WebUI otherwise draws 512 square and the picture changes shape.
             put("width", size.width)

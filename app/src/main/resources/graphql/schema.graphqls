@@ -5732,6 +5732,8 @@ type ModelProvider {
     editMask: EditMask
     "Whether it does, the default resolved."
     offersAllTools: Boolean!
+    "Whether its models draw with a negative prompt: stable-diffusion.cpp's server and a Stable Diffusion WebUI do, the OpenAI shape does not. Issue #657."
+    takesNegativePrompt: Boolean!
     "The most tools one request carries, as set. Null is what the type takes."
     maxTools: Int
     "How many that is, the default resolved."
@@ -5866,6 +5868,10 @@ type Model {
     hold it on.
     """
     takesAudio: Boolean!
+    "What its pictures must not contain, sent when a drawing names no negative prompt of its own; null is none. Issue #657."
+    negativePrompt: String
+    "Whether its provider draws with a negative prompt; where it does not, none is offered or taken."
+    takesNegativePrompt: Boolean!
 }
 
 "One day of the usage chart."
@@ -6042,6 +6048,8 @@ input CreateModelInput {
     takesVideo: Boolean
     "Whether a sound attached to a chat is sent to it. Absent is off; on is refused where chatModelParameters does not list takesAudio."
     takesAudio: Boolean
+    "What its pictures must not contain, by default. Refused where the provider does not take a negative prompt."
+    negativePrompt: String
 }
 
 input UpdateModelInput {
@@ -6078,6 +6086,8 @@ input UpdateModelInput {
     takesAudio: Boolean
     "The provider to move it to, in the same workspace. Null leaves it where it is."
     providerId: ID
+    "What its pictures must not contain, by default; sent with the rest, so null clears it. Refused where the provider does not take a negative prompt."
+    negativePrompt: String
 }
 
 "The Quotas and Limits card. Null is no limit, which is what an emptied box means."
@@ -8558,6 +8568,8 @@ type DesignImageJob {
     strength: Float
     "The WebUI checkpoint a Harmonize redraws with; null for anything else."
     checkpoint: String
+    "What the picture was asked not to contain; null is none given, and the model's own default was sent."
+    negativePrompt: String
     "The picture, once DRAWN."
     image: Artifact
 }
@@ -8651,6 +8663,8 @@ input HarmonizeDesignImageInput {
     strength: Float
     "A WebUI checkpoint, one of designHarmonizeOptions; null is the one it has loaded."
     checkpoint: String
+    "What the redraw must not bring in; null is the model's default. Refused where the model does not take a negative prompt."
+    negativePrompt: String
 }
 
 "What Harmonize can be asked with one model."
@@ -8678,6 +8692,8 @@ input EditDesignImageInput {
     "A PNG the picture's size, base64, transparent where the change goes."
     mask: String!
     name: String
+    "What the change must not bring in; null is the model's default. Refused where the model does not take a negative prompt."
+    negativePrompt: String
 }
 
 """ A picture to draw on Design's Images page, straight from one image model. """
@@ -8692,6 +8708,8 @@ input DrawDesignImageInput {
     style: String
     "What to call it; null or blank names it after its prompt's first words."
     name: String
+    "What the picture must not contain; null is the model's default. Refused where the model does not take a negative prompt."
+    negativePrompt: String
 }
 
 type ArtifactPage {

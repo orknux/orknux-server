@@ -1,6 +1,8 @@
 package io.mszymanski.orknux.server.design
 
+import io.mszymanski.orknux.connector.model.LlmModelView
 import io.mszymanski.orknux.connector.model.ModelKind
+import io.mszymanski.orknux.connector.model.NegativePrompts
 import io.mszymanski.orknux.connector.model.ModelUpscaleClient
 import io.mszymanski.orknux.connector.model.ModelService
 import io.mszymanski.orknux.server.attachment.AttachmentDownloads
@@ -95,6 +97,7 @@ class DesignImageAPI(
                 style = input.style.orNullIfBlank(),
                 requestedBy = currentName(),
                 name = called,
+                negativePrompt = negativeFor(model, input.negativePrompt),
             ),
         )
         auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Image queued in Design with ${model.name}")
@@ -145,6 +148,7 @@ class DesignImageAPI(
                 name = input.name.orNullIfBlank(),
                 sourceId = input.imageId,
                 maskLocation = store.put(workspaceId, "mask.png", mask),
+                negativePrompt = negativeFor(model, input.negativePrompt),
             ),
         )
         auditRecorder.record(
@@ -256,6 +260,7 @@ class DesignImageAPI(
                 maskLocation = mask,
                 strength = strength,
                 checkpoint = if (webUi) input.checkpoint.orNullIfBlank() else null,
+                negativePrompt = negativeFor(model, input.negativePrompt),
             ),
         )
         auditRecorder.record(
@@ -609,6 +614,7 @@ class DesignImageAPI(
             upscaler = job.upscaler,
             strength = job.strength,
             checkpoint = job.checkpoint,
+            negativePrompt = job.negativePrompt,
             scale = job.scale,
             image = job.imageId?.let { images.findByIdOrNull(it) }?.let(artifacts::describe),
         )
@@ -620,6 +626,20 @@ class DesignImageAPI(
     }
 
     private fun String?.orNullIfBlank(): String? = this?.trim()?.takeIf { it.isNotEmpty() }
+
+    /**
+     * A negative prompt as a request keeps it, refused here - before it waits -
+     * on a model whose provider takes none, rather than left out of the drawing.
+     */
+    private fun negativeFor(model: LlmModelView, given: String?): String? {
+        val asked = given.orNullIfBlank() ?: return null
+        if (!model.takesNegativePrompt) throw DesignImageRefusedException(NegativePrompts.notTaken(model.name) + ".")
+        val longest = settings.imageMaxPrompt()
+        if (asked.length > longest) {
+            throw DesignImageRefusedException("That negative prompt is too long to draw from; say it in under $longest characters.")
+        }
+        return asked
+    }
 
     private companion object {
         /** The column's own width: a name is a title, not a description. */
@@ -641,6 +661,8 @@ data class DrawDesignImageInput(
     val style: String? = null,
     /** What to call it; null or blank names it after its prompt's first words. */
     val name: String? = null,
+    /** What the picture must not contain; null or blank is the model's default. */
+    val negativePrompt: String? = null,
 )
 
 data class EditDesignImageInput(
@@ -652,6 +674,8 @@ data class EditDesignImageInput(
     /** A PNG the picture's size, base64, transparent where the change goes. */
     val mask: String,
     val name: String? = null,
+    /** What the change must not bring in; null or blank is the model's default. */
+    val negativePrompt: String? = null,
 )
 
 data class UpscaleDesignImageInput(
@@ -687,6 +711,8 @@ data class HarmonizeDesignImageInput(
     val strength: Double? = null,
     /** A WebUI checkpoint by title; null or blank is the one it has loaded. */
     val checkpoint: String? = null,
+    /** What the redraw must not bring in; null or blank is the model's default. */
+    val negativePrompt: String? = null,
 )
 
 data class HarmonizeOptionsView(
@@ -723,6 +749,8 @@ data class DesignImageJobView(
     val strength: Double? = null,
     /** The WebUI checkpoint a Harmonize redraws with; null for anything else. */
     val checkpoint: String? = null,
+    /** What it was asked not to contain; null is none given. */
+    val negativePrompt: String? = null,
     val image: ArtifactView?,
 )
 

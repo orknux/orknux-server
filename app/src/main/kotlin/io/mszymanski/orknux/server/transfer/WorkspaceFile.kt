@@ -267,6 +267,7 @@ internal val MODEL_FIELDS: List<FileField<LlmModel, *>> = listOf(
     FileField("imageCostPerImage", { it.imageCostPerImage }, { m, v -> m.imageCostPerImage = v }, DECIMAL_OR_NULL),
     FileField("takesVideo", { it.takesVideo }, { m, v -> m.takesVideo = v }, YES_NO),
     FileField("takesAudio", { it.takesAudio }, { m, v -> m.takesAudio = v }, YES_NO),
+    FileField("negativePrompt", { it.negativePrompt }, { m, v -> m.negativePrompt = v }, TEXT_OR_NULL),
 )
 
 /** A connection as a file holds it; [inherits] names the installation's default it reads, if any. */

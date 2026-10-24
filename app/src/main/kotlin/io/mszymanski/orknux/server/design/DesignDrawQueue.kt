@@ -118,10 +118,10 @@ class DesignDrawQueue(
                 upscaling.upscale(modelId, original, job.upscaler, scale)
             } else if (original != null && mask != null) {
                 log.info("Design image {} editing {} with {}", id, job.sourceId, job.modelName)
-                drawing.edit(modelId, job.prompt, original, mask)
+                drawing.edit(modelId, job.prompt, original, mask, job.negativePrompt)
             } else {
                 log.info("Design image {} drawing with {} at {}", id, job.modelName, job.size ?: "the model's size")
-                drawing.draw(modelId, job.prompt, ImageOptions(job.size, job.quality, job.style))
+                drawing.draw(modelId, job.prompt, ImageOptions(job.size, job.quality, job.style, job.negativePrompt))
             }
             // An edit keeps every pixel outside the selection: the original's own, not the model's redrawing of it.
             val result = if (asked is Picture.Drawn && original != null && mask != null) {
@@ -203,9 +203,9 @@ class DesignDrawQueue(
             id, job.sourceId, strength, job.checkpoint ?: "its loaded checkpoint", job.modelName,
             if (image != null && working != null) "${working.first}x${working.second}, scaled from ${image.width}x${image.height}" else "its own size",
         )
-        if (image == null || working == null) return upscaling.harmonize(modelId, original, job.prompt, strength, job.checkpoint)
+        if (image == null || working == null) return upscaling.harmonize(modelId, original, job.prompt, strength, job.checkpoint, job.negativePrompt)
         val sent = PictureScaling.png(PictureScaling.fitted(image, working.first, working.second))
-        val answer = upscaling.harmonize(modelId, sent, job.prompt, strength, job.checkpoint)
+        val answer = upscaling.harmonize(modelId, sent, job.prompt, strength, job.checkpoint, job.negativePrompt)
         if (answer !is Picture.Drawn) return answer
         val redrawn = PictureScaling.read(answer.image) ?: return answer
         return Picture.Drawn(PictureScaling.png(PictureScaling.fitted(redrawn, image.width, image.height)), "image/png", answer.millis)

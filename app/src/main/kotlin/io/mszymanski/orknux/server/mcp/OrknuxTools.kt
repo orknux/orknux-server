@@ -1253,6 +1253,7 @@ class OrknuxTools(
                 voice = held.voice,
                 skipEmptyLines = held.skipEmptyLines,
                 imageCostPerImage = dollars(node, "imageCostPerImage", held.imageCostPerImage),
+                negativePrompt = held.negativePrompt,
             )
         }.getOrElse { return refuse(it.message ?: "Those settings could not be read") }
 

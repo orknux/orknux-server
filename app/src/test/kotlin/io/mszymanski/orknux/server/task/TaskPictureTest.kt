@@ -358,6 +358,48 @@ class TaskPictureTest(
         assertThat(pictures.count()).isEqualTo(1)
     }
 
+    /**
+     * A negative prompt is offered where the model draws with one, and reaches
+     * stable-diffusion.cpp's server the one way it reads one on its OpenAI-shaped
+     * route: inside the prompt, as `<sd_cpp_extra_args>`. Issue #657.
+     */
+    @Test
+    fun `a negative prompt is offered where the model takes one and reaches the wire inside the prompt`() {
+        val taskId = drawingTask(type = "STABLE_DIFFUSION_CPP") { body ->
+            if (body.contains(DREW)) {
+                finishing("Here it is.")
+            } else {
+                calling("task_draw_picture", """{\"description\":\"A red square\",\"negative_prompt\":\"text, watermark\"}""")
+            }
+        }
+
+        assertThat(loop.advance(taskId)).isEqualTo(TaskTurn.Over)
+
+        assertThat(offered.first()).contains("\"negative_prompt\"")
+        val prompt = tools.jackson.databind.json.JsonMapper.builder().build().readTree(drawn.single()).path("prompt").stringValue()
+        assertThat(prompt).isEqualTo("""A red square <sd_cpp_extra_args>{"negative_prompt":"text, watermark"}</sd_cpp_extra_args>""")
+    }
+
+    /**
+     * Where the model takes none, none is offered - and one sent anyway is
+     * refused to the agent rather than left out of a picture drawn without it.
+     */
+    @Test
+    fun `a model that takes no negative prompt is not offered one, and one sent anyway is refused`() {
+        val taskId = drawingTask { body ->
+            when {
+                body.contains("does not take a negative prompt") -> finishing("No picture, then.")
+                else -> calling("task_draw_picture", """{\"description\":\"A red square\",\"negative_prompt\":\"text\"}""")
+            }
+        }
+
+        assertThat(loop.advance(taskId)).isEqualTo(TaskTurn.Over)
+
+        assertThat(offered.first()).contains("task_draw_picture").doesNotContain("negative_prompt")
+        assertThat(drawn).isEmpty()
+        assertThat(pictures.count()).isZero()
+    }
+
     /* ------------------------------------------------------------- the stubs */
 
     /** A stub answering chat completions, which is what the agent thinks with. */
@@ -381,7 +423,7 @@ class TaskPictureTest(
      *   providers actually refuse a description - a 400 carrying the reason in
      *   `error.message`, which is the sentence the agent is handed.
      */
-    private fun drawWith(draws: Boolean = true) {
+    private fun drawWith(draws: Boolean = true, type: String = "OPENAI") {
         server.createContext("/images/generations") { exchange ->
             asked += exchange.requestURI.path
             drawn += exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
@@ -397,7 +439,7 @@ class TaskPictureTest(
             }
         }
 
-        val modelId = model("Drawer", "stub-image", "IMAGE")
+        val modelId = model("Drawer", "stub-image", "IMAGE", type = type)
         graphQlTester.document(
             """mutation { setWorkspaceImageModel(workspaceId: $workspaceId, modelId: $modelId) { id } }""",
         ).execute().path("setWorkspaceImageModel.id").hasValue()
@@ -437,12 +479,13 @@ class TaskPictureTest(
     private fun drawingTask(
         turns: Int = 10,
         draws: Boolean = true,
+        type: String = "OPENAI",
         answer: (String) -> String = { body ->
             if (body.contains(DREW)) finishing("Here is the diagram.") else drawingCall()
         },
     ): Long {
         val taskId = taskFor(serve(answer), turns)
-        drawWith(draws)
+        drawWith(draws, type)
         return taskId
     }
 
@@ -492,10 +535,11 @@ class TaskPictureTest(
         modelId: String,
         kind: String,
         endpoint: String = "http://${server.address.hostString}:${server.address.port}",
+        type: String = "OPENAI",
     ): Long {
         val providerId = graphQlTester.document(
             """mutation { createModelProvider(input: {
-                 workspaceId: $workspaceId, name: "$name provider", type: OPENAI,
+                 workspaceId: $workspaceId, name: "$name provider", type: $type,
                  endpoint: "$endpoint", secret: "sk-test"
                }) { id } }""",
         ).execute().path("createModelProvider.id").entity(Long::class.java).get()

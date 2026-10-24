@@ -56,6 +56,12 @@ data class ImageOptions(
     val size: String? = null,
     val quality: String? = null,
     val style: String? = null,
+    /**
+     * What the picture must not contain, for a server that takes one - see
+     * [NegativePrompts]. Null takes the model's own default, where it has one.
+     * Issue #657.
+     */
+    val negativePrompt: String? = null,
 ) {
     companion object {
         /** The model's own defaults throughout; what a chat's button and a task's tool send. */
@@ -134,20 +140,25 @@ class ModelImageClient(
      *   image node names its own. Left out, the model's defaults stand.
      */
     fun draw(modelId: Long, prompt: String, options: ImageOptions = ImageOptions.NONE): Picture =
-        call(modelId, prompt) { provider, model, asked -> media.draw(provider, model, asked, options) }
+        call(modelId, prompt, options.negativePrompt) { provider, model, asked, negative ->
+            media.draw(provider, model, asked, options.copy(negativePrompt = negative))
+        }
 
     /**
      * Changes a picture where its mask is transparent, as the prompt says -
      * the standard `/images/edits` interface, by the same model checks, guard
      * and accounting as [draw].
+     *
+     * @param negativePrompt what the change must not bring in; null takes the
+     *   model's own default. Refused where the provider takes none.
      */
-    fun edit(modelId: Long, prompt: String, image: ByteArray, mask: ByteArray): Picture =
-        call(modelId, prompt) { provider, model, asked ->
+    fun edit(modelId: Long, prompt: String, image: ByteArray, mask: ByteArray, negativePrompt: String? = null): Picture =
+        call(modelId, prompt, negativePrompt) { provider, model, asked, negative ->
             val style = provider.editMask ?: when {
                 provider.type == ProviderType.OPENAI && servesStableDiffusionCpp(provider) -> EditMask.WHITE
                 else -> provider.type.editMask
             }
-            media.edit(provider, model, asked, image, if (style == EditMask.WHITE) EditMasks.whiteOnBlack(mask) else mask)
+            media.edit(provider, model, asked, image, if (style == EditMask.WHITE) EditMasks.whiteOnBlack(mask) else mask, negative)
         }
 
     /**
@@ -171,7 +182,8 @@ class ModelImageClient(
     private fun call(
         modelId: Long,
         prompt: String,
-        ask: (ModelProvider, LlmModel, String) -> OpenAiMedia.Drawn,
+        negativePrompt: String?,
+        ask: (ModelProvider, LlmModel, String, String?) -> OpenAiMedia.Drawn,
     ): Picture {
         val model = models.findByIdOrNull(modelId)
             ?: return Picture.Failed("That model no longer exists")
@@ -187,6 +199,13 @@ class ModelImageClient(
             ?: return Picture.Failed("The provider ${model.name} belongs to has been removed")
 
         cannotDraw(provider)?.let { return Picture.Failed(it) }
+
+        // Refused rather than left out where the provider takes none: a picture
+        // drawn with what somebody asked to keep out of it is not what they asked for.
+        val negative = when (val resolved = NegativePrompts.resolved(provider, model, negativePrompt)) {
+            is NegativePrompts.Resolved.Refused -> return Picture.Failed(resolved.reason)
+            is NegativePrompts.Resolved.Sent -> resolved.value
+        }
 
         /*
          * The base, because the SDK builds the path.
@@ -212,7 +231,7 @@ class ModelImageClient(
 
         val started = System.currentTimeMillis()
         return try {
-            when (val drawn = ask(provider, model, asked)) {
+            when (val drawn = ask(provider, model, asked, negative)) {
                 is OpenAiMedia.Drawn.Failed -> Picture.Failed(drawn.reason)
                 is OpenAiMedia.Drawn.Bytes -> {
                     val bytes = runCatching { Base64.getDecoder().decode(drawn.base64) }.getOrNull()

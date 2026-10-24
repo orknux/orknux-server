@@ -34,6 +34,8 @@ have failed.
 - **Tabs in the desktop app.** A link the interface opens in a new tab, Ctrl+click and the middle button open a tab instead of a window; Ctrl+T, Ctrl+W, Ctrl+Tab and Ctrl+Shift+Tab work as in a browser, and closing the last tab closes the window.
 - **Model speed.** Where the provider reports its timings - llama.cpp does; OpenAI, Azure, vLLM, Ollama and Anthropic do not, and show nothing - a session's page shows the prompt and generation speed in tokens per second beside its cost, averaged by tokens over its calls, and a Speeds panel lists each call's; a model's page shows the same over its newest calls, as many as Admin → Settings says (`ORKNUX_TUNING_MODEL_SPEED_CALLS`, 50).
 
+- **Negative prompts for pictures.** What a picture must not contain is sent beside the prompt where the server takes one - stable-diffusion.cpp's server (inside the prompt, as `<sd_cpp_extra_args>`) and a Stable Diffusion WebUI's Harmonize (`negative_prompt`) - from the image editor's Negative prompt box, an agent's draw tool and a default on the model's page; a model on OpenAI's API, which takes none, is not offered one and refuses one sent anyway.
+
 ### 🔧 Changed
 
 - **The search on Skills and Memory is one box above the catalogs and searches every catalog, a plugin's included:** matches are grouped under each catalog's name, the column counts them, and choosing a catalog narrows the search to it.
