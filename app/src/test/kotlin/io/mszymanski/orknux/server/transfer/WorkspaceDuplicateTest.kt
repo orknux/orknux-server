@@ -46,6 +46,7 @@ class WorkspaceDuplicateTest(
     @Autowired val workspaceApi: io.mszymanski.orknux.server.workspace.WorkspaceAPI,
     @Autowired val researchModes: io.mszymanski.orknux.server.research.ResearchModeRepository,
     @Autowired val researches: io.mszymanski.orknux.server.research.ResearchRepository,
+    @Autowired val workflowNodes: io.mszymanski.orknux.server.workflow.WorkflowNodeRepository,
 ) {
 
     /**
@@ -482,9 +483,15 @@ class WorkspaceDuplicateTest(
             .path("researchModes[*].kind").entityList(String::class.java).containsExactly("SHALLOW", "MEDIUM", "DEEP")
             .path("researchModes[*].workflowId").entityList(Long::class.java).get()
         assertThat(modeWorkflows).containsExactlyInAnyOrderElementsOf(carried.map { it.workflow.id })
-        // One of each step's action, adopted rather than made a second time beside the copied ones.
+        // One of each step's action and one of each agent, adopted rather than made a second time beside the copied ones.
         assertThat(actions.findByWorkspaceId(copy).map { it.name }.filter { it.startsWith("Research") })
-            .containsExactlyInAnyOrder("Research: Plan", "Research: Gather", "Research: Follow up", "Research: Write", "Research: Save")
+            .containsExactlyInAnyOrder("Research: Gather", "Research: Follow up", "Research: Save")
+        val copiedAgents = agents.findByWorkspaceId(copy, org.springframework.data.domain.Pageable.unpaged()).content
+        assertThat(copiedAgents.map { it.name }.filter { it.startsWith("Research") })
+            .containsExactlyInAnyOrder("Research planner", "Research writer")
+        // And the copy's agent nodes point at the copy's agents.
+        val agentNodes = carried.flatMap { workflowNodes.findByWorkflowId(requireNotNull(it.workflow.id)) }.mapNotNull { it.agentId }
+        assertThat(agentNodes).hasSize(6).allMatch { id -> copiedAgents.any { it.id == id } }
 
         graphQlTester.document("""query { researches(workspaceId: $copy) { totalElements } }""").execute()
             .path("researches.totalElements").entity(Int::class.java).isEqualTo(0)

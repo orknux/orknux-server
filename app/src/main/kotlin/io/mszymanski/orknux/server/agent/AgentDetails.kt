@@ -82,8 +82,9 @@ class AgentDetails(
      *   string to the round and to this, and [briefedWith] puts the lent shed's
      *   paragraph on the end here exactly as the round puts it there.
      */
-    fun snapshot(agent: Agent, lent: ToolShed?, prompt: String?, session: Long? = null): String {
-        val modelName = agent.modelId?.let { models.findByIdOrNull(it)?.name }
+    fun snapshot(agent: Agent, lent: ToolShed?, prompt: String?, session: Long? = null, modelId: Long? = agent.modelId): String {
+        // The model this turn is answered by: a workflow node may name one other than the agent's.
+        val modelName = modelId?.let { models.findByIdOrNull(it)?.name }
         val connectionNames = agent.connections
             .mapNotNull { connections.workspaceConnection(it)?.takeIf { held -> held.workspaceId == agent.workspaceId }?.name }
 

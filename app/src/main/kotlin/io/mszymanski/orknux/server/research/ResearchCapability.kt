@@ -25,6 +25,14 @@ import tools.jackson.databind.ObjectMapper
  * it found as its output, under the name its node gives it, which is how every
  * node in this product hands anything on.
  *
+ * A mode's workflow calls only Gather, Follow up and Save now: its Plan and
+ * Write are agent nodes (see [ResearchModes]), so that the thinking is a model
+ * on the canvas rather than one inside a function. `research_plan` and
+ * `research_write` stay for a workflow drawn as the five actions and kept
+ * that way, and Gather reads the planner agent's answer as well as Plan's
+ * list; Save, handed what was gathered, puts the numbered sources after the
+ * writer agent's draft.
+ *
  * `research_run` is the first four in one call. It is what a mode's workflow
  * was before the steps were nodes, and a workflow somebody drew around it, or
  * a copy of one, still calls it.
@@ -79,9 +87,11 @@ class ResearchCapability(
         ),
         EmbeddedFunction(
             name = SAVE,
-            description = "A research's last step: saves the report on the Artifacts page as a PDF or a document. " +
-                "Answers the file's id and name, or why it could not be saved.",
-            params = listOf(P_RESEARCH, P_QUESTION, P_REPORT, P_OUTPUT_FORMAT),
+            description = "A research's last step: saves the report on the Artifacts page as a PDF or a document, " +
+                "with the numbered list of the sources it cites after it where it is handed what was gathered. " +
+                "Answers the report, its sources and the file's id and name, or why it could not be saved.",
+            // What was gathered last, so a Save drawn before it was a parameter reads every other one where it did.
+            params = listOf(P_RESEARCH, P_QUESTION, P_REPORT, P_OUTPUT_FORMAT, P_CITED),
         ),
         EmbeddedFunction(
             name = RUN,
@@ -130,13 +140,27 @@ class ResearchCapability(
             when (name) {
                 PLAN -> answered(mapOf(QUERIES to pipeline.plan(asked, given.number(SUB_QUESTIONS).coerceAtLeast(1))))
                 GATHER -> {
-                    val queries = given.texts(QUERIES).ifEmpty { listOf(question) }
+                    /*
+                     * A list where Plan is this function, and the planner's
+                     * answer as text where Plan is an agent node: read as the
+                     * JSON array it was asked for, or as lines. Written on the
+                     * research here, because an agent node has no research to
+                     * write its plan on.
+                     */
+                    val queries = given.texts(QUERIES)
+                        .ifEmpty { given.text(QUERIES)?.let(pipeline::listFrom).orEmpty() }
+                        .ifEmpty { listOf(question) }
+                    pipeline.planned(researchId, queries)
                     answered(shapeOf(pipeline.gather(asked, queries, limits(given))))
                 }
                 FOLLOW_UP -> {
                     val gathered = pipeline.gatheredFrom(given.node(GATHERED))
                         ?: return failed("needs what Gather found: point its gathered at that step's output.")
-                    answered(shapeOf(pipeline.followUp(asked, gathered, given.number(BREADTH).coerceAtLeast(0), given.number(DEPTH).coerceAtLeast(1))))
+                    val deepened = pipeline.followUp(asked, gathered, given.number(BREADTH).coerceAtLeast(0), given.number(DEPTH).coerceAtLeast(1))
+                    // The writing comes next, and may be an agent that would write from nothing.
+                    pipeline.requireRead(deepened)
+                    pipeline.note(researchId, ResearchStage.WRITE, "Writing the report")
+                    answered(shapeOf(deepened))
                 }
                 WRITE -> {
                     val gathered = pipeline.gatheredFrom(given.node(GATHERED))
@@ -169,7 +193,18 @@ class ResearchCapability(
      * was: the report is written and kept, and only the file is missing.
      */
     private fun save(given: Given, workspaceId: Long, researchId: Long?, question: String): Map<String, Any?> {
-        val report = given.text(REPORT) ?: return mapOf("error" to "There is no report to save.")
+        val written = given.text(REPORT) ?: return mapOf("error" to "There is no report to save.")
+        /*
+         * Handed what was gathered, the report is a draft - the writer agent's
+         * answer - and the numbered list of what it cites goes after it here,
+         * in the pipeline's words, so it is always there and always right
+         * whoever wrote the prose.
+         */
+        val cited = pipeline.gatheredFrom(given.node(GATHERED))?.sources
+        val report = if (cited == null) written else pipeline.withSources(written.trim(), cited)
+        if (cited != null) pipeline.note(researchId, ResearchStage.WRITE, "Report written")
+        val found = linkedMapOf<String, Any?>(ResearchModes.REPORT to report)
+        cited?.let { found["sources"] = it.map { source -> mapOf("number" to source.number, "title" to source.title, "url" to source.url) } }
         val format = given.text(OUTPUT_FORMAT)?.let { runCatching { ResearchOutputFormat.valueOf(it.uppercase()) }.getOrNull() }
             ?: researchId?.let { researches.findByIdOrNull(it)?.outputFormat }
             ?: ResearchOutputFormat.DOCUMENT
@@ -178,12 +213,12 @@ class ResearchCapability(
             is ResearchDelivery.Delivered.Saved -> {
                 researchId?.let { researches.noteDelivered(it, delivered.artifactId, null) }
                 pipeline.note(researchId, ResearchStage.SAVE, "Finished")
-                mapOf("artifact" to delivered.artifactId, "file" to delivered.fileName)
+                found + mapOf("artifact" to delivered.artifactId, "file" to delivered.fileName)
             }
             is ResearchDelivery.Delivered.Refused -> {
                 researchId?.let { researches.noteDelivered(it, null, delivered.reason) }
                 pipeline.note(researchId, ResearchStage.SAVE, "Finished without a file")
-                mapOf("error" to delivered.reason)
+                found + mapOf("error" to delivered.reason)
             }
         }
     }
@@ -199,8 +234,13 @@ class ResearchCapability(
         "sources" to found.sources.map { mapOf("number" to it.number, "title" to it.title, "url" to it.url) },
     )
 
-    /** What Gather and Follow up hand on, as plain maps: the shape [ResearchPipeline.gatheredFrom] reads. */
+    /**
+     * What Gather and Follow up hand on, as plain maps: the shape
+     * [ResearchPipeline.gatheredFrom] reads - and the sources once more as the
+     * writing reads them, under `notes`, for a writer agent node's prompt.
+     */
     private fun shapeOf(gathered: ResearchGathered) = linkedMapOf(
+        NOTES to pipeline.notesOf(gathered.sources),
         "sources" to gathered.sources.map {
             linkedMapOf("number" to it.number, "title" to it.title, "url" to it.url, "kind" to it.kind, "notes" to it.notes)
         },
@@ -278,6 +318,9 @@ class ResearchCapability(
         const val GATHERED = "gathered"
         const val REPORT = "report"
 
+        /** The sources and their notes as text, in what Gather and Follow up hand on. */
+        const val NOTES = "notes"
+
         /** The request's own fields, read off what started the run; every one of them is in the run's payload. */
         val REQUEST = listOf(
             RESEARCH, QUESTION, LANGUAGE, MODEL, OUTPUT_FORMAT, WEB_SEARCH,
@@ -303,6 +346,10 @@ class ResearchCapability(
         private val P_QUERIES = EmbeddedParam(QUERIES, ValueType.ARRAY, "The search queries Plan wrote.", required = true)
         private val P_GATHERED = EmbeddedParam(GATHERED, ValueType.MAP, "What Gather, or Follow up, answered.", required = true)
         private val P_REPORT = EmbeddedParam(REPORT, ValueType.STRING, "The report Write answered, in Markdown.", required = true)
+        private val P_CITED = EmbeddedParam(
+            GATHERED, ValueType.MAP,
+            "What Follow up answered, whose numbered sources are listed after the report; left out, the report is saved as it is.",
+        )
 
         private val RUN_PARAMS = listOf(
             P_RESEARCH, P_QUESTION, P_LANGUAGE, P_MODEL, P_WEBSITES_INCLUDE, P_WEBSITES_EXCLUDE, P_DOCUMENTS_INCLUDE,

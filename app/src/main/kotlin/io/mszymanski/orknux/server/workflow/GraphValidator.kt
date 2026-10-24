@@ -171,11 +171,20 @@ class GraphValidator(
                  */
                 node.outputNodeKey != null -> Ports()
                 named.isEmpty() && shape == null -> Ports(passThrough = true, opaque = true)
-                shape == null -> Ports(outputs = listOf(ActionParamView(named, ValueType.STRING)))
-                named.isEmpty() -> Ports(outputs = shape.properties.map { ActionParamView(it.name, typeOf(it.kind)) })
+                /*
+                 * An answer that is an object - named, or held to a shape - is
+                 * merged into what the run carries, as every step's is (see
+                 * `Payloads.carry`), so what reached the agent still reaches
+                 * the node after it. Offered as replaced, a Save after a writer
+                 * agent was warned that the notes it reads from two steps back
+                 * were produced by nothing, while the run handed them over.
+                 */
+                shape == null -> Ports(outputs = listOf(ActionParamView(named, ValueType.STRING)), passThrough = true)
+                named.isEmpty() -> Ports(outputs = shape.properties.map { ActionParamView(it.name, typeOf(it.kind)) }, passThrough = true)
                 else -> Ports(
                     outputs = listOf(ActionParamView(named, ValueType.OBJECT)) +
                         shape.properties.map { ActionParamView("$named.${it.name}", typeOf(it.kind)) },
+                    passThrough = true,
                 )
             }
         }
@@ -953,7 +962,15 @@ class GraphValidator(
         fun answered(field: String): Boolean {
             val steps = field.split('.')
             return if (steps.first() == TRIGGER) {
-                triggers.isNotEmpty() && (steps.size == 1 || triggerOpaque || steps[1] in triggerFields)
+                /*
+                 * With no trigger node, what starts the run - a person, the
+                 * API, a Workflow node, a research - hands it whatever it
+                 * hands it, and nothing in the graph says what that is. A
+                 * reference to `trigger.x` is given the benefit of the doubt
+                 * there (see [reads]), and a placeholder reads the same field
+                 * the same way.
+                 */
+                triggers.isEmpty() || steps.size == 1 || triggerOpaque || steps[1] in triggerFields
             } else {
                 steps.first() != NodeExpressions.VARIABLES && (othersOpaque || steps.first() in produced)
             }
@@ -977,7 +994,7 @@ class GraphValidator(
                 val (asVariables, asFields) = Placeholders.fieldsIn(mapping.expression)
                     .partition { it.split('.').first() == NodeExpressions.VARIABLES }
                 val unanswered = asFields.filter { !answered(it) }.map {
-                    if (!it.startsWith("$TRIGGER.") && answered("$TRIGGER.$it")) {
+                    if (!it.startsWith("$TRIGGER.") && triggers.isNotEmpty() && answered("$TRIGGER.$it")) {
                         // The trigger's fields are read under its name, as the edges show them.
                         "${node.name}: \"${mapping.name}\" holds {{$it}}; the trigger's $it is {{$TRIGGER.$it}}"
                     } else {

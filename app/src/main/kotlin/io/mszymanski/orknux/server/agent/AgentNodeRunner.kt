@@ -104,6 +104,8 @@ class AgentNodeRunner(
     private val asks: org.springframework.beans.factory.ObjectProvider<io.mszymanski.orknux.server.chat.AgentRunTools>,
     /** What the session's model was sent, sent again as it was; see [io.mszymanski.orknux.server.llm.SessionPrompt]. */
     private val prompts: io.mszymanski.orknux.server.llm.SessionPrompt,
+    /** Whether a model a node names is one its workspace may talk to; see [MODEL]. */
+    private val chatModels: WorkspaceChatModels,
 ) : NodeRunner {
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
@@ -148,16 +150,43 @@ class AgentNodeRunner(
             return StepResult(StepStatus.SKIPPED, "${agent.name} is not active, so it was not asked.")
         }
 
-        // A model is the one thing it cannot do without, and being told so is
-        // more useful than an empty answer.
-        val modelId = agent.modelId
-            ?: throw StepFailedException(
-                step.nodeKey,
-                "${agent.name} has no model chosen, so it cannot answer",
-                // An agent nobody has finished configuring is the same agent on
-                // the second attempt. This is a form to fill in, not a wait.
-                permanent = true,
-            )
+        val payload = expressions.parse(input)
+        val started = expressions.parse(trigger)
+        val mappings = expressions.mappingsOf(step)
+
+        /*
+         * The model this node thinks with: its own `model` parameter where it
+         * names one, and the agent's otherwise. A parameter rather than a
+         * second agent per model, so a workflow can hand one agent the model
+         * whoever started the run chose - a research names its model when it
+         * starts, and its planner and writer are the same two agents whichever
+         * that is. Checked as an agent's own model is: a chat model this
+         * workspace may use, or the step refuses rather than asking another.
+         */
+        val named = mappings[MODEL]
+            ?.let { expressions.textOf(it, payload, started) }
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+        val modelId = if (named != null) {
+            named.toLongOrNull()?.let { chatModels.usable(agent.workspaceId, it)?.id }
+                ?: throw StepFailedException(
+                    step.nodeKey,
+                    "${step.name} names the model \"$named\", which is no chat model this workspace can use",
+                    // The same parameter names the same model on the next attempt.
+                    permanent = true,
+                )
+        } else {
+            // A model is the one thing it cannot do without, and being told so is
+            // more useful than an empty answer.
+            agent.modelId
+                ?: throw StepFailedException(
+                    step.nodeKey,
+                    "${agent.name} has no model chosen, so it cannot answer",
+                    // An agent nobody has finished configuring is the same agent on
+                    // the second attempt. This is a form to fill in, not a wait.
+                    permanent = true,
+                )
+        }
 
         /*
          * The node's own wording, if it was given any.
@@ -171,9 +200,6 @@ class AgentNodeRunner(
          * Both fall back to what they did before, so a node drawn before this
          * existed runs exactly as it did.
          */
-        val payload = expressions.parse(input)
-        val started = expressions.parse(trigger)
-        val mappings = expressions.mappingsOf(step)
 
         val prompt = mappings[PROMPT]
             ?.let { expressions.textOf(it, payload, started) }
@@ -406,7 +432,7 @@ class AgentNodeRunner(
          * read as complete; a lent shed's paragraph goes on the end of it by the
          * rule the round uses.
          */
-        sessions.describeAgent(session, agentDetails.snapshot(agent, shed, instructed))
+        sessions.describeAgent(session, agentDetails.snapshot(agent, shed, instructed, modelId = modelId))
 
         /*
          * How much of it this agent is allowed to bring back.
@@ -1023,7 +1049,7 @@ class AgentNodeRunner(
         return words.map { it.trim() }.filter { it.isNotEmpty() }
     }
 
-    private companion object {
+    companion object {
         /** What a written list of skill ids is split on. */
         val SEPARATORS = Regex("[,\\s]+")
 
@@ -1049,6 +1075,12 @@ class AgentNodeRunner(
 
         /** Replaces the agent's own briefing for this node only. */
         const val SYSTEM_PROMPT = "systemPrompt"
+
+        /**
+         * The id of the chat model this node thinks with, written or read off
+         * the run. Blank or absent is the agent's own model.
+         */
+        const val MODEL = "model"
 
         /** NONE, LOW, MEDIUM or HIGH: how much the agent says while it works, for this node only. */
         const val CHATTINESS = "chattiness"
