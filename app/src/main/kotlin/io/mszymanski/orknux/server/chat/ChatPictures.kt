@@ -171,6 +171,9 @@ class ChatPictures(
      * does with one it drew - nothing is drawn or charged, so nothing waits on
      * an image model.
      */
+    /** Whether [show] has anywhere to keep a picture. */
+    fun accepts(): Boolean = settings.attachmentsEnabled()
+
     fun show(chat: ChatSession, tool: String, picture: AgentTools.Companion.Picture): ChatDrawing {
         if (!settings.attachmentsEnabled()) {
             return ChatDrawing.Refused("Attachments are turned off for this installation, so a picture has nowhere to be kept.")

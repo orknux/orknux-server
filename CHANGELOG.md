@@ -64,7 +64,7 @@ have failed.
 - **Feather for the Magic edit.** A Feather in pixels beside the prompt softens the selection's edge, so the redrawn part blends into the picture instead of leaving a seam; 0 is a hard edge, as before. It is in the picture's own pixels and starts at Admin → Settings → Limits (`ORKNUX_TUNING_IMAGES_FEATHER_PIXELS`, 8). The blend is done by the server as it lays the change over the picture - the edit endpoint reads a mask as yes or no, and no edit provider here takes a mask blur of its own.
 
 - **Export a model provider** from its row on the Models page: the provider and all its models in one file, without its key, which Import reads back in.
-- **A wireframe an agent draws in a chat is shown in the chat.** `orknux_create_wireframe`, `orknux_change_wireframe` and `orknux_draw_wireframe` put a grey picture of the drawing above the agent's answer, beside the link that opens it in the editor, and keep it as SVG under a key for whatever sends a file; it is at most 1600 pixels wide (`ORKNUX_TUNING_WIREFRAME_PICTURE_PIXELS`).
+- **A wireframe an agent draws in a chat is shown in the chat.** `orknux_create_wireframe`, `orknux_change_wireframe` and `orknux_draw_wireframe` put a grey picture of the drawing above the agent's answer - one per wireframe per turn, as it was last drawn - beside the link that opens it in the editor, and keep it as SVG under a key for whatever sends a file; it is at most 1600 pixels wide (`ORKNUX_TUNING_WIREFRAME_PICTURE_PIXELS`).
 
 ### 🔧 Changed
 

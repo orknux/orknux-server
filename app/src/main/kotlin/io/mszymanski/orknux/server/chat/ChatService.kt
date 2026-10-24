@@ -967,7 +967,14 @@ class ChatService(
         watch: RoundWatch? = null,
         shed: ToolShed? = null,
         hangup: Hangup? = null,
-    ): ChatCompletion = Prompting.by(prompterOf(start)) { asked(start, watch, shed, hangup) }
+    ): ChatCompletion = Prompting.by(prompterOf(start)) {
+        try {
+            asked(start, watch, shed, hangup)
+        } finally {
+            // What the door's shed held back to the end of the turn, above the answer the door writes next. Chat 979.
+            runCatching { shed?.settle() }.onFailure { log.warn("What a chat turn held back could not be put in the chat", it) }
+        }
+    }
 
     /**
      * Who a chat's turn is booked to in Admin > Reports: the person whose chat it

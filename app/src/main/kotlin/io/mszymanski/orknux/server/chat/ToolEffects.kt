@@ -61,6 +61,8 @@ class ToolEffects(private val orknux: OrknuxTools) {
             override fun run(call: ToolCall): String = shed.run(call)
 
             override fun pictured(tool: String, picture: AgentTools.Companion.Picture): String? = shed.pictured(tool, picture)
+
+            override fun settle() = shed.settle()
         }
     }
 }

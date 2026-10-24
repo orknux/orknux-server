@@ -271,6 +271,51 @@ class MockupWireframeTest(
             .contains("/design/wireframes/${made.id}").contains("inConversation")
     }
 
+    /**
+     * Chat 979: created and changed in one turn, the wireframe was shown twice,
+     * the first picture already out of date. One picture per wireframe per
+     * turn, as it was last drawn, still above the answer.
+     */
+    @Test
+    fun `a wireframe created and changed in one turn is one picture, the changed one`() {
+        val created = mapper.writeValueAsString(
+            mapOf(
+                "name" to "Login",
+                "add" to listOf(mapOf("type" to "frame", "x" to 0, "y" to 0, "w" to 320, "h" to 200, "text" to "Log in")),
+            ),
+        )
+        val changed = mapper.writeValueAsString(
+            mapOf(
+                "wireframe" to "Login",
+                "add" to listOf(mapOf("type" to "button", "x" to 20, "y" to 120, "w" to 280, "h" to 40, "text" to "Log in")),
+            ),
+        )
+        val chatId = chatWithAgent(
+            serve { _ ->
+                when (offered.size) {
+                    1 -> WireframeTools.CREATE to created
+                    2 -> WireframeTools.CHANGE to changed
+                    else -> null to "Here it is."
+                }
+            },
+        )
+        graphQlTester.document("""mutation { sendChatMessage(id: $chatId, text: "a login screen mockup") { millis } }""")
+            .execute().path("sendChatMessage.millis").hasValue()
+
+        val made = wireframes.findByWorkspaceIdOrderByUpdatedAtDescIdDesc(workspaceId).single()
+        assertThat(made.document).contains("button")
+        val filed = attachments.findAll().filter { it.chatSessionId == chatId }
+        assertThat(filed).describedAs("one picture of the one wireframe").hasSize(1)
+        assertThat(filed.single().filename).contains("change")
+        val conversation = requireNotNull(chatSessions.findByIdOrNull(chatId)).conversationId
+        assertThat(history.findByConversationId(conversation).map { "${it.messageType.name.lowercase()}:${it.text.orEmpty()}" })
+            .containsExactly(
+                "user:a login screen mockup",
+                "assistant:![](/api/attachments/${filed.single().id})",
+                "assistant:Here it is.",
+            )
+    }
+
     /* ---------------------------------------------------------- the fixtures */
 
     /** A stub that answers each request with a tool call (name to arguments) or, where the name is null, words. */
