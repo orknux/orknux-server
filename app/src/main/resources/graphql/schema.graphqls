@@ -8681,6 +8681,12 @@ type ImageEditorSettings {
     featherMost: Int!
     "How many layers a picture may keep over it: the installation's number."
     layersMost: Int!
+    "How opaque the brush starts, in percent: every tip but the marker."
+    brushOpacity: Int!
+    "How hard the soft tip's and the eraser's edge starts, in percent; 0 fades across half the width."
+    brushHardness: Int!
+    "How opaque the marker starts, in percent."
+    markerOpacity: Int!
 }
 
 """ A change the image editor made itself, to keep as a version of the picture. """

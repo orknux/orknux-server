@@ -918,6 +918,9 @@ orknux:
     video.longest.minutes: ${ORKNUX_TUNING_VIDEO_LONGEST_MINUTES:120}
     video.max.mb: ${ORKNUX_TUNING_VIDEO_MAX_MB:200}
     images.brush.pixels: ${ORKNUX_TUNING_IMAGES_BRUSH_PIXELS:12}
+    images.brush.opacity.percent: ${ORKNUX_TUNING_IMAGES_BRUSH_OPACITY_PERCENT:100}
+    images.brush.hardness.percent: ${ORKNUX_TUNING_IMAGES_BRUSH_HARDNESS_PERCENT:50}
+    images.marker.opacity.percent: ${ORKNUX_TUNING_IMAGES_MARKER_OPACITY_PERCENT:50}
     images.blur.pixels: ${ORKNUX_TUNING_IMAGES_BLUR_PIXELS:12}
     images.blur.falloff.pixels: ${ORKNUX_TUNING_IMAGES_BLUR_FALLOFF_PIXELS:0}
     images.feather.pixels: ${ORKNUX_TUNING_IMAGES_FEATHER_PIXELS:8}

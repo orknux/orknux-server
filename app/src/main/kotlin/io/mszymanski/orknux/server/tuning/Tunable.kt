@@ -27,6 +27,7 @@ enum class TuningUnit(val said: String) {
     LINES("lines"),
     MB("MB"),
     PIXELS("pixels"),
+    PERCENT("percent"),
 }
 
 /**
@@ -299,6 +300,27 @@ enum class Tunable(
         "images.brush.pixels", 12, 1, 500, TuningSection.MEDIA, TuningUnit.PIXELS,
         "How wide the image editor's brush starts",
         "In the picture's own pixels, so zooming does not change it. Whoever paints can choose another width, up to the most this may be set to.",
+    ),
+    /*
+     * Where the image editor's brush's opacity starts, and how hard a soft
+     * tip's edge is - whoever paints moves both on the brush's bar. The marker
+     * starts at an opacity of its own, since a marker is see-through by what
+     * it is: at the brush's 100 it would be a square tip by another name.
+     */
+    IMAGE_BRUSH_OPACITY_PERCENT(
+        "images.brush.opacity.percent", 100, 1, 100, TuningSection.MEDIA, TuningUnit.PERCENT,
+        "How opaque the image editor's brush starts",
+        "Every tip but the marker starts here. Whoever paints can choose another.",
+    ),
+    IMAGE_BRUSH_HARDNESS_PERCENT(
+        "images.brush.hardness.percent", 50, 0, 100, TuningSection.MEDIA, TuningUnit.PERCENT,
+        "How hard the soft brush's edge starts",
+        "The soft tip and the eraser fade across what is left of their width; zero fades across half of it. Whoever paints can choose another.",
+    ),
+    IMAGE_MARKER_OPACITY_PERCENT(
+        "images.marker.opacity.percent", 50, 1, 100, TuningSection.MEDIA, TuningUnit.PERCENT,
+        "How opaque the image editor's marker starts",
+        "A marker's strokes are see-through, and darken what they cross. Whoever paints can choose another.",
     ),
     /*
      * Where the image editor's selective blur starts, in the picture's own

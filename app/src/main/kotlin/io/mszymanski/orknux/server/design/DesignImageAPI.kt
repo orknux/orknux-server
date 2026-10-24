@@ -83,6 +83,9 @@ class DesignImageAPI(
             feather = tuning[feather],
             featherMost = feather.most,
             layersMost = tuning[io.mszymanski.orknux.server.tuning.Tunable.IMAGE_LAYERS_MOST],
+            brushOpacity = tuning[io.mszymanski.orknux.server.tuning.Tunable.IMAGE_BRUSH_OPACITY_PERCENT],
+            brushHardness = tuning[io.mszymanski.orknux.server.tuning.Tunable.IMAGE_BRUSH_HARDNESS_PERCENT],
+            markerOpacity = tuning[io.mszymanski.orknux.server.tuning.Tunable.IMAGE_MARKER_OPACITY_PERCENT],
         )
     }
 
@@ -916,6 +919,12 @@ data class ImageEditorSettingsView(
     val featherMost: Int,
     /** How many layers a picture may keep over it. */
     val layersMost: Int,
+    /** How opaque the brush starts, in percent: every tip but the marker. */
+    val brushOpacity: Int,
+    /** How hard the soft tip's and the eraser's edge starts, in percent. */
+    val brushHardness: Int,
+    /** How opaque the marker starts, in percent. */
+    val markerOpacity: Int,
 )
 
 data class KeepDesignImageChangeInput(

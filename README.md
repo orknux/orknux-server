@@ -479,6 +479,9 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_VIDEO_LONGEST_MINUTES` | How long one video may take, in minutes. | `120` |
 | `ORKNUX_TUNING_VIDEO_MAX_MB` | The largest video kept, in MB. | `200` |
 | `ORKNUX_TUNING_IMAGES_BRUSH_PIXELS` | How wide the image editor's brush starts, in pixels. | `12` |
+| `ORKNUX_TUNING_IMAGES_BRUSH_OPACITY_PERCENT` | How opaque the image editor's brush starts, in percent. | `100` |
+| `ORKNUX_TUNING_IMAGES_BRUSH_HARDNESS_PERCENT` | How hard the soft brush's and the eraser's edge starts, in percent. | `50` |
+| `ORKNUX_TUNING_IMAGES_MARKER_OPACITY_PERCENT` | How opaque the image editor's marker starts, in percent. | `50` |
 | `ORKNUX_TUNING_IMAGES_BLUR_PIXELS` | How strongly the image editor's blur starts, in pixels. | `12` |
 | `ORKNUX_TUNING_IMAGES_BLUR_FALLOFF_PIXELS` | How far the image editor's blur fades out inside its selection's edge, in pixels; 0 is a hard edge. | `0` |
 | `ORKNUX_TUNING_IMAGES_FEATHER_PIXELS` | How far a Magic edit's edge is feathered, in pixels. | `8` |
