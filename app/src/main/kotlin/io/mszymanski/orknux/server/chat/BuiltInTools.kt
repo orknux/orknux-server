@@ -248,6 +248,8 @@ class BuiltInTools(
             "svg_read",
             "sheet_read",
             "midi_read",
+            "midi_write",
+            "midi_render",
             "markdown_toText",
             "date_today",
             "date_now",

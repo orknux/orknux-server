@@ -406,6 +406,7 @@ installation starts from.
 | `ORKNUX_CHAT_MAX_ROUNDS` | Tool rounds one chat answer may take. | `100` |
 | `ORKNUX_CHAT_MAX_SUBAGENTS` | Other agents one conversation may ask. | `25` |
 | `ORKNUX_CHAT_TOOLS_NAMED_IN_SEARCH` | Findable tools `tool_find` names outright. | `40` |
+| `ORKNUX_MUSIC_SOUNDFONT` | A SoundFont (`.sf2`) `midi_render` plays MIDI with: an absolute path on this machine, on a volume in a container. Read on every render. Empty uses the JDK's built-in bank, which is small and sounds it - a General MIDI SoundFont such as FluidR3_GM or GeneralUser GS is the difference between a demo and music. | empty |
 | `ORKNUX_CHAT_COMPLETION_CONTEXT_TURNS` | Latest chat messages a sentence completion is shown. | `6` |
 | `ORKNUX_CHAT_COMPLETION_MAX_TOKENS` | The most tokens one sentence completion may be. | `64` |
 | `ORKNUX_CHAT_COMPLETION_TIMEOUT_MILLIS` | How long a sentence completion may take before it is dropped. | `4000` |
@@ -477,6 +478,9 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_SPEECHES_PER_RUN` | How many times one workflow run may speak, in items. | `20` |
 | `ORKNUX_TUNING_CHAT_AUDIO_MAX_MB` | The largest sound a chat message may send to a model, in MB. | `20` |
 | `ORKNUX_TUNING_MIDI_READ_NOTES` | How many notes midi_read lists from one file, in items. | `2000` |
+| `ORKNUX_TUNING_MIDI_RENDER_LONGEST_SECONDS` | The longest piece midi_render turns into sound, in seconds. | `300` |
+| `ORKNUX_TUNING_MIDI_RENDER_SAMPLE_RATE` | The sample rate midi_render synthesises at, in Hz. | `44100` |
+| `ORKNUX_TUNING_MIDI_RENDER_MP3_KBITS` | The bitrate of an MP3 midi_render encodes, in kbit/s. | `192` |
 | `ORKNUX_TUNING_VIDEOS_AT_ONCE` | How many videos are made at once, in items. | `1` |
 | `ORKNUX_TUNING_VIDEO_POLL_SECONDS` | How often a video being made is asked about, in seconds. | `5` |
 | `ORKNUX_TUNING_VIDEO_LONGEST_MINUTES` | How long one video may take, in minutes. | `120` |

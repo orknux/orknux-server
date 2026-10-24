@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.agent
 
+import io.mszymanski.orknux.server.embedded.EmbeddedCapability
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver
 import org.springframework.stereotype.Service
 
@@ -29,7 +31,15 @@ import org.springframework.stereotype.Service
  * one screen people go to to do exactly those things.
  */
 @Service
-class BuiltInSkills {
+class BuiltInSkills(
+    /**
+     * The tools the release embeds, for a page that names one: see [named].
+     * A provider rather than the list, because those capabilities reach far
+     * into the server and a page of markdown should not decide the order the
+     * context is built in.
+     */
+    private val embedded: ObjectProvider<EmbeddedCapability>,
+) {
 
     /**
      * The one catalog, or none where the files are missing - a build without
@@ -67,6 +77,7 @@ class BuiltInSkills {
         val files = runCatching { resolver.getResources("classpath*:skills/*.md") }.getOrDefault(emptyArray())
         return files.mapNotNull { file ->
             val content = runCatching { file.inputStream.bufferedReader().use { it.readText() } }.getOrNull()
+                ?.let(::named)
                 ?: return@mapNotNull null
             val name = nameOf(content) ?: file.filename?.removeSuffix(".md") ?: return@mapNotNull null
             GrantedSkill(
@@ -77,6 +88,39 @@ class BuiltInSkills {
                 content = content,
             )
         }.sortedBy { it.name }
+    }
+
+    /**
+     * A page with every tool it names written as that tool is declared.
+     *
+     * A page that spells `midi_write` out goes on saying it after the tool is
+     * renamed, and a model told to call a name that is not there believes the
+     * page. So a page names an embedded tool as `{{tool:midi.write}}` - its
+     * capability's key and its own name, as the capability declares both - and
+     * any other built-in as `{{tool:save_artifact}}`, which is resolved only
+     * where [io.mszymanski.orknux.server.chat.BuiltInTools.GRANTED] holds it.
+     * A parameter is `{{param:midi.write.append}}`, resolved where that tool
+     * declares it.
+     * What does not resolve is left as written, so a test reading the page
+     * finds it rather than a model.
+     */
+    internal fun named(content: String): String {
+        if (!content.contains("{{tool:") && !content.contains("{{param:")) return content
+        val capabilities = embedded.orderedStream().toList()
+        val declared = capabilities.flatMap { capability ->
+            capability.tools().map { "${capability.key}.${it.name}" to "${capability.key}_${it.name}" }
+        }.toMap()
+        val parameters = capabilities.flatMap { capability ->
+            capability.tools().flatMap { tool -> tool.params.map { "${capability.key}.${tool.name}.${it.name}" to it.name } }
+        }.toMap()
+        val granted = io.mszymanski.orknux.server.chat.BuiltInTools.GRANTED.toSet()
+        return REFERENCE.replace(content) { match ->
+            val said = match.groupValues[2].trim()
+            when (match.groupValues[1]) {
+                "tool" -> declared[said] ?: said.takeIf { it in granted }
+                else -> parameters[said]
+            } ?: match.value
+        }
     }
 
     /** What the frontmatter calls it; the file's name where it says nothing. */
@@ -118,6 +162,13 @@ class BuiltInSkills {
          * before committing, a branch and not main, a pull request.
          */
         const val PROJECT_CHANGES = "box-project-changes"
+
+        /**
+         * A tool a page names by its declaration - `{{tool:midi.write}}`,
+         * `{{tool:save_artifact}}` - or one of an embedded tool's parameters,
+         * `{{param:midi.write.append}}`.
+         */
+        val REFERENCE = Regex("\\{\\{(tool|param):([A-Za-z0-9_.]+)}}")
 
         /** How far into a file the frontmatter can be; it is the first thing in one. */
         private const val FRONTMATTER_LINES = 20
