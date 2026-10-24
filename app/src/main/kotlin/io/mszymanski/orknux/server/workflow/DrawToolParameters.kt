@@ -46,6 +46,13 @@ import tools.jackson.databind.ObjectMapper
  * through the same [ImageModelCapabilities.held] - rather than sent on to
  * arrive back as a provider's 400 about a field. The agent reads the list and
  * asks again; nothing was charged for.
+ *
+ * ### A negative prompt, only where it is drawn with
+ *
+ * Issue #657. What the picture must not contain, offered only where the model's
+ * server takes one - stable-diffusion.cpp's does, OpenAI's API has no such field.
+ * Where it is not offered and is sent anyway, the call is refused rather than
+ * drawn without it.
  */
 @Service
 class DrawToolParameters(
@@ -66,7 +73,7 @@ class DrawToolParameters(
     fun offering(tool: ToolSpec, modelId: Long?): ToolSpec =
         tool.copy(parameters = tool.parameters + parameters(modelId))
 
-    /** Width and height always; quality only where this model's endpoint takes one. */
+    /** Width and height always; quality and a negative prompt only where this model takes them. */
     fun parameters(modelId: Long?): List<ToolParameterSpec> {
         val spec = modelId?.let { capabilities.specFor(it) }
         val size = spec?.firstOrNull { it.name == SIZE }
@@ -91,6 +98,14 @@ class DrawToolParameters(
                     name = QUALITY,
                     description = "How carefully the picture is drawn: one of ${it.describeChoices()}. " +
                         "Leave it out for the model's default; a higher quality costs more.",
+                )
+            },
+            modelId?.takeIf { capabilities.takesNegativePrompt(it) }?.let {
+                ToolParameterSpec(
+                    name = NEGATIVE_PROMPT,
+                    description = "What the picture must not contain, as a short list of things - " +
+                        "\"text, watermark, extra fingers\" - rather than a sentence saying \"no\". " +
+                        "Leave it out for the model's own default.",
                 )
             },
         )
@@ -151,13 +166,13 @@ class DrawToolParameters(
         }
 
         val quality = word(tree, QUALITY)
-        val options = ImageOptions(size = size, quality = quality)
+        val options = ImageOptions(size = size, quality = quality, negativePrompt = word(tree, NEGATIVE_PROMPT))
 
         return try {
             val held = capabilities.held(modelId, options, refusing = true)
             Asked.Options(modelId?.let { capabilities.narrow(it, held) } ?: held)
         } catch (refused: ImageParameterInvalidException) {
-            Asked.Refused(refused.message ?: "That is not a size or quality this model takes.")
+            Asked.Refused(refused.message ?: "That is not a size, quality or negative prompt this model takes.")
         }
     }
 
@@ -214,6 +229,7 @@ class DrawToolParameters(
         const val WIDTH = "width"
         const val HEIGHT = "height"
         const val QUALITY = "quality"
+        const val NEGATIVE_PROMPT = "negative_prompt"
         private const val SIZE = "size"
     }
 }

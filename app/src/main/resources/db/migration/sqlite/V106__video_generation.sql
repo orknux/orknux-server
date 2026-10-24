@@ -6,7 +6,7 @@
 -- outside a transaction (V106__video_generation.sql.conf). Every column it has
 -- gained since V64 is carried: cached_input_cost_per_million (V77),
 -- cache_write_cost_per_million (V82), answer_limit_minutes (V89), takes_video
--- (V96) and takes_audio (V101).
+-- (V96), takes_audio (V101) and negative_prompt (V104).
 
 PRAGMA foreign_keys = OFF;
 
@@ -46,14 +46,15 @@ CREATE TABLE llm_model_new
     answer_limit_minutes          integer,
     takes_video                   boolean not null default false,
     takes_audio                   boolean not null default false,
+    negative_prompt               text,
     constraint uk_llm_model_name UNIQUE (provider_id, name),
     constraint ck_llm_model_kind CHECK (((kind) IN ('CHAT', 'EMBEDDING', 'COMPLETION', 'TRANSCRIPTION', 'SPEECH', 'IMAGE', 'DECISION', 'UPSCALE', 'VIDEO'))),
     constraint ck_llm_model_reset CHECK (((reset_interval) IN ('DAILY', 'WEEKLY', 'MONTHLY', 'NEVER'))),
     constraint llm_model_provider_id_fkey FOREIGN KEY (provider_id) REFERENCES model_provider(id) ON DELETE CASCADE
 );
 
-INSERT INTO llm_model_new (id, provider_id, name, model_id, kind, context_window, max_output, parallel_tool_calls, temperature, top_p, top_k, min_p, repeat_penalty, enabled, token_limit, reset_interval, requests_per_minute, throttle_tokens_per_second, throttle_requests_per_second, accept_retry_after, input_cost_per_million, output_cost_per_million, voice, speech_skip_empty_lines, image_cost_per_image, reasoning_effort, cached_input_cost_per_million, cache_write_cost_per_million, answer_limit_minutes, takes_video, takes_audio)
-SELECT id, provider_id, name, model_id, kind, context_window, max_output, parallel_tool_calls, temperature, top_p, top_k, min_p, repeat_penalty, enabled, token_limit, reset_interval, requests_per_minute, throttle_tokens_per_second, throttle_requests_per_second, accept_retry_after, input_cost_per_million, output_cost_per_million, voice, speech_skip_empty_lines, image_cost_per_image, reasoning_effort, cached_input_cost_per_million, cache_write_cost_per_million, answer_limit_minutes, takes_video, takes_audio FROM llm_model;
+INSERT INTO llm_model_new (id, provider_id, name, model_id, kind, context_window, max_output, parallel_tool_calls, temperature, top_p, top_k, min_p, repeat_penalty, enabled, token_limit, reset_interval, requests_per_minute, throttle_tokens_per_second, throttle_requests_per_second, accept_retry_after, input_cost_per_million, output_cost_per_million, voice, speech_skip_empty_lines, image_cost_per_image, reasoning_effort, cached_input_cost_per_million, cache_write_cost_per_million, answer_limit_minutes, takes_video, takes_audio, negative_prompt)
+SELECT id, provider_id, name, model_id, kind, context_window, max_output, parallel_tool_calls, temperature, top_p, top_k, min_p, repeat_penalty, enabled, token_limit, reset_interval, requests_per_minute, throttle_tokens_per_second, throttle_requests_per_second, accept_retry_after, input_cost_per_million, output_cost_per_million, voice, speech_skip_empty_lines, image_cost_per_image, reasoning_effort, cached_input_cost_per_million, cache_write_cost_per_million, answer_limit_minutes, takes_video, takes_audio, negative_prompt FROM llm_model;
 
 DROP TABLE llm_model;
 

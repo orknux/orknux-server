@@ -397,6 +397,7 @@ class ModelService(
                 imageCostPerImage = input.imageCostPerImage?.toBigDecimal(),
                 takesVideo = ChatParameters.held(provider, kind, ChatParameters.TAKES_VIDEO, input.takesVideo),
                 takesAudio = ChatParameters.held(provider, kind, ChatParameters.TAKES_AUDIO, input.takesAudio),
+                negativePrompt = NegativePrompts.held(provider, name, input.negativePrompt),
             ),
         )
         return LlmModelView(model, provider)
@@ -469,6 +470,8 @@ class ModelService(
         model.imageCostPerImage = input.imageCostPerImage?.toBigDecimal()
         input.takesVideo?.let { model.takesVideo = ChatParameters.held(provider, kind, ChatParameters.TAKES_VIDEO, it) }
         input.takesAudio?.let { model.takesAudio = ChatParameters.held(provider, kind, ChatParameters.TAKES_AUDIO, it) }
+        // As the form sends it, so empty clears it; refused on a provider that takes none.
+        model.negativePrompt = NegativePrompts.held(provider, name, input.negativePrompt)
         return LlmModelView(model, provider)
     }
 
@@ -928,6 +931,8 @@ data class CreateModelInput(
     val takesVideo: Boolean? = null,
     /** Whether a sound attached to a chat is sent to it; on only where [ChatParameters] declares it. */
     val takesAudio: Boolean? = null,
+    /** What its pictures must not contain, by default; only where [ProviderType.takesNegativePrompt]. */
+    val negativePrompt: String? = null,
 )
 
 /** The model's own details, all of them, as the form that edits them sends them. */
@@ -973,6 +978,11 @@ data class UpdateModelInput(
      * otherwise have nowhere to put it.
      */
     val providerId: Long? = null,
+    /**
+     * What its pictures must not contain, by default. Sent with the rest, so
+     * null clears it; refused on a provider whose type takes none.
+     */
+    val negativePrompt: String? = null,
 )
 
 /** The Quotas and Limits card, which saves its fields together. Null is no limit. */
@@ -1029,6 +1039,8 @@ data class ModelProviderView(
     val editMask: EditMask?,
     /** Whether it does, the default resolved. */
     val offersAllTools: Boolean,
+    /** Whether its models draw with a negative prompt; see [ProviderType.takesNegativePrompt]. */
+    val takesNegativePrompt: Boolean,
     /** The most tools one request carries, as set; null is the type's, which [toolCap] resolves. */
     val maxTools: Int?,
     /** How many it is, the default resolved. */
@@ -1077,6 +1089,7 @@ data class ModelProviderView(
         offerAllTools = provider.offerAllTools,
         editMask = provider.editMask,
         offersAllTools = provider.offersAllTools(),
+        takesNegativePrompt = provider.type.takesNegativePrompt,
         maxTools = provider.maxTools,
         toolCap = provider.toolCap(),
         status = provider.status,
@@ -1134,6 +1147,10 @@ data class LlmModelView(
     val takesVideo: Boolean = false,
     /** Whether a sound attached to a chat is sent to it. See [LlmModel.takesAudio]. */
     val takesAudio: Boolean = false,
+    /** What its pictures must not contain, by default; null is none. See [LlmModel.negativePrompt]. */
+    val negativePrompt: String? = null,
+    /** Whether its provider draws with a negative prompt, so whether one is offered at all. */
+    val takesNegativePrompt: Boolean = false,
 ) {
     constructor(model: LlmModel, provider: ModelProvider) : this(
         id = requireNotNull(model.id),
@@ -1169,6 +1186,8 @@ data class LlmModelView(
         imageCostPerImage = model.imageCostPerImage?.toDouble(),
         takesVideo = model.takesVideo,
         takesAudio = model.takesAudio,
+        negativePrompt = model.negativePrompt,
+        takesNegativePrompt = provider.type.takesNegativePrompt,
     )
 }
 

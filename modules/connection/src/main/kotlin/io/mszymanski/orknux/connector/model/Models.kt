@@ -181,6 +181,20 @@ enum class ProviderType {
         get() = if (this == STABLE_DIFFUSION_CPP) EditMask.WHITE else EditMask.TRANSPARENT
 
     /**
+     * Whether this type's server draws with a negative prompt - what the
+     * picture must not contain - beside the prompt. Issue #657.
+     *
+     * stable-diffusion.cpp's server reads one on its OpenAI-shaped routes only
+     * inside the prompt, as `<sd_cpp_extra_args>{"negative_prompt": ...}`, which
+     * it takes out before drawing; a WebUI's `/sdapi/v1/img2img` takes
+     * `negative_prompt` in its body. OpenAI's image API has no such field, and
+     * neither does anything imitating it, so a negative prompt is never offered
+     * there rather than sent to be ignored.
+     */
+    val takesNegativePrompt: Boolean
+        get() = this == STABLE_DIFFUSION_CPP || this == STABLE_DIFFUSION_WEBUI
+
+    /**
      * The most tools this provider will accept on one request.
      *
      * Asked of the provider rather than written at the call site, because the
@@ -625,6 +639,7 @@ fun LlmModel.copied(providerId: Long, name: String): LlmModel = LlmModel(
         imageCostPerImage = imageCostPerImage,
         takesVideo = takesVideo,
         takesAudio = takesAudio,
+        negativePrompt = negativePrompt,
 )
 
 /**
@@ -893,6 +908,14 @@ class LlmModel(
      */
     @Column(name = "takes_audio", nullable = false)
     var takesAudio: Boolean = false,
+
+    /**
+     * What this model's pictures must not contain, sent as the negative prompt
+     * of a drawing that names none of its own. Null is none. Only a provider
+     * whose type [ProviderType.takesNegativePrompt] may hold one. Issue #657.
+     */
+    @Column(name = "negative_prompt", columnDefinition = "text")
+    var negativePrompt: String? = null,
 )
 
 /**

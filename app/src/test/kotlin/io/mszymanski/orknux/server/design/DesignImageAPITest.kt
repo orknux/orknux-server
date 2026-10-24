@@ -925,7 +925,128 @@ class DesignImageAPITest(
         assertThat(images.count()).isEqualTo(1)
     }
 
-    private fun model(name: String, kind: String, keyed: Boolean = true, type: String = "OPENAI", modelId: String = "stub-$kind"): Long {
+    /**
+     * A negative prompt reaches stable-diffusion.cpp's server the one way its
+     * OpenAI-shaped routes read one - inside the prompt, as `<sd_cpp_extra_args>`
+     * - on a drawing and on an edit; and the model's own default stands in
+     * where a request names none. Issue #657.
+     */
+    @Test
+    fun `a negative prompt reaches stable-diffusion cpp's server inside the prompt, and the model's default stands in for none`() {
+        val modelId = model("Local", "IMAGE", type = "STABLE_DIFFUSION_CPP", extra = """, negativePrompt: "  blurry  " """)
+        graphQlTester.document("""query { model(id: $modelId) { negativePrompt takesNegativePrompt } }""").execute()
+            .path("model.negativePrompt").entity(String::class.java).isEqualTo("blurry")
+            .path("model.takesNegativePrompt").entity(Boolean::class.java).isEqualTo(true)
+
+        val asked = graphQlTester.document(
+            """mutation { queueDesignImage(input: {
+                 workspaceId: $workspaceId, modelId: $modelId, prompt: "A red square", negativePrompt: "text, \"watermark\""
+               }) { id negativePrompt } }""",
+        ).execute()
+            .path("queueDesignImage.negativePrompt").entity(String::class.java).isEqualTo("text, \"watermark\"")
+            .path("queueDesignImage.id").entity(String::class.java).get()
+        drawnPicture(asked)
+        val json = tools.jackson.databind.json.JsonMapper.builder().build()
+        assertThat(json.readTree(drawn.single()).path("prompt").stringValue())
+            .isEqualTo("""A red square <sd_cpp_extra_args>{"negative_prompt":"text, \"watermark\""}</sd_cpp_extra_args>""")
+        // No top-level field: the server reads none on this route, and a stub cannot tell one ignored from one read.
+        assertThat(json.readTree(drawn.single()).has("negative_prompt")).isFalse()
+
+        drawn.clear()
+        drawnPicture(
+            graphQlTester.document(
+                """mutation { queueDesignImage(input: { workspaceId: $workspaceId, modelId: $modelId, prompt: "A red square" }) { id } }""",
+            ).execute().path("queueDesignImage.id").entity(String::class.java).get(),
+        )
+        assertThat(json.readTree(drawn.single()).path("prompt").stringValue())
+            .isEqualTo("""A red square <sd_cpp_extra_args>{"negative_prompt":"blurry"}</sd_cpp_extra_args>""")
+
+        val source = whiteSource()
+        val mask = Base64.getEncoder().encodeToString(png(2, 2) { x, _ -> if (x == 0) 0x00000000 else 0xFF000000.toInt() })
+        drawnPicture(
+            graphQlTester.document(
+                """mutation { queueDesignImageEdit(input: {
+                     workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", modelId: $modelId, prompt: "Make it red",
+                     mask: "$mask", negativePrompt: "birds"
+                   }) { id } }""",
+            ).execute().path("queueDesignImageEdit.id").entity(String::class.java).get(),
+        )
+        assertThat(edited.single()).contains("""Make it red <sd_cpp_extra_args>{"negative_prompt":"birds"}</sd_cpp_extra_args>""")
+    }
+
+    /** img2img takes `negative_prompt` in its body; a WebUI model's default stands in where none is given. Issue #657. */
+    @Test
+    fun `harmonizing through a WebUI sends its negative prompt to img2img`() {
+        val webUi = model(
+            "Forge", "UPSCALE", type = "STABLE_DIFFUSION_WEBUI", keyed = false, modelId = "Lanczos",
+            extra = """, negativePrompt: "seams" """,
+        )
+        val source = whiteSource()
+        fun harmonize(negative: String) = drawnPicture(
+            graphQlTester.document(
+                """mutation { queueDesignImageHarmonize(input: {
+                     workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", modelId: $webUi, prompt: "A white square"$negative
+                   }) { id } }""",
+            ).execute().path("queueDesignImageHarmonize.id").entity(String::class.java).get(),
+        )
+        val json = tools.jackson.databind.json.JsonMapper.builder().build()
+
+        harmonize(""", negativePrompt: "people" """)
+        assertThat(json.readTree(harmonized.single()).path("negative_prompt").stringValue()).isEqualTo("people")
+        assertThat(json.readTree(harmonized.single()).path("prompt").stringValue()).isEqualTo("A white square")
+
+        harmonized.clear()
+        harmonize("")
+        assertThat(json.readTree(harmonized.single()).path("negative_prompt").stringValue()).isEqualTo("seams")
+    }
+
+    /**
+     * OpenAI's image API has no negative prompt: the model says it takes none,
+     * a default cannot be saved on it, and a request naming one is refused
+     * before anything is asked - never drawn without it. Issue #657.
+     */
+    @Test
+    fun `a model whose provider takes no negative prompt says so, and one asked of it is refused`() {
+        val modelId = model("Drawer", "IMAGE")
+        graphQlTester.document("""query { model(id: $modelId) { negativePrompt takesNegativePrompt } }""").execute()
+            .path("model.takesNegativePrompt").entity(Boolean::class.java).isEqualTo(false)
+            .path("model.negativePrompt").valueIsNull()
+
+        graphQlTester.document(
+            """mutation { queueDesignImage(input: {
+                 workspaceId: $workspaceId, modelId: $modelId, prompt: "A red square", negativePrompt: "text"
+               }) { id } }""",
+        ).execute().errors().satisfy {
+            assertThat(it.single().message).isEqualTo("Drawer does not take a negative prompt; leave it out.")
+        }
+        val providerId = requireNotNull(models.findByIdOrNull(modelId)).providerId
+        graphQlTester.document(
+            """mutation { createModel(input: { providerId: $providerId, name: "Other", modelId: "x", kind: IMAGE, negativePrompt: "text" }) { id } }""",
+        ).execute().errors().satisfy {
+            assertThat(it.single().extensions["code"]).isEqualTo("NegativePromptNotTaken")
+        }
+        graphQlTester.document(
+            """mutation { updateModel(id: $modelId, input: { name: "Drawer", modelId: "stub-IMAGE", kind: IMAGE, negativePrompt: "text" }) { id } }""",
+        ).execute().errors().satisfy {
+            assertThat(it.single().extensions["code"]).isEqualTo("NegativePromptNotTaken")
+        }
+        // Blank is none, and is no reason to refuse.
+        graphQlTester.document(
+            """mutation { queueDesignImage(input: {
+                 workspaceId: $workspaceId, modelId: $modelId, prompt: "A red square", negativePrompt: "  "
+               }) { id } }""",
+        ).execute().path("queueDesignImage.id").entity(String::class.java).get().let(::drawnPicture)
+        assertThat(drawn.single()).doesNotContain("sd_cpp_extra_args").doesNotContain("negative")
+    }
+
+    private fun model(
+        name: String,
+        kind: String,
+        keyed: Boolean = true,
+        type: String = "OPENAI",
+        modelId: String = "stub-$kind",
+        extra: String = "",
+    ): Long {
         val key = if (keyed) """, secret: "sk-test"""" else ""
         val providerId = graphQlTester.document(
             """mutation { createModelProvider(input: {
@@ -934,7 +1055,7 @@ class DesignImageAPITest(
                }) { id } }""",
         ).execute().path("createModelProvider.id").entity(Long::class.java).get()
         return graphQlTester.document(
-            """mutation { createModel(input: { providerId: $providerId, name: "$name", modelId: "$modelId", kind: $kind }) { id } }""",
+            """mutation { createModel(input: { providerId: $providerId, name: "$name", modelId: "$modelId", kind: $kind$extra }) { id } }""",
         ).execute().path("createModel.id").entity(Long::class.java).get()
     }
 

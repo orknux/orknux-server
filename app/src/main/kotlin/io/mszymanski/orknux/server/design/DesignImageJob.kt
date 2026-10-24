@@ -110,6 +110,13 @@ class DesignImageJob(
     /** The WebUI checkpoint a Harmonize redraws with; null is the one it has loaded. */
     @Column(length = 255)
     val checkpoint: String? = null,
+
+    /**
+     * What the picture must not contain, as it was asked; null is none given,
+     * and the model's own default goes in its place. Issue #657.
+     */
+    @Column(name = "negative_prompt", columnDefinition = "text")
+    val negativePrompt: String? = null,
 )
 
 interface DesignImageJobRepository : JpaRepository<DesignImageJob, Long> {

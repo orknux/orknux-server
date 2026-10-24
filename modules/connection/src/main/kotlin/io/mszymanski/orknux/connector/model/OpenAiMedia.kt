@@ -61,7 +61,9 @@ class OpenAiMedia(private val clients: ModelClients, private val probe: ModelPro
          * does not know is answered 400 with the provider's own sentence, which
          * the caller shows.
          */
-        val params = ImageGenerateParams.builder().model(model.modelId).prompt(prompt).n(1)
+        // A negative prompt has no field in this API; the one server here that
+        // takes one reads it from inside the prompt. Null is the prompt as given.
+        val params = ImageGenerateParams.builder().model(model.modelId).prompt(NegativePrompts.carried(prompt, options.negativePrompt)).n(1)
         options.size?.let { params.size(ImageGenerateParams.Size.of(it)) }
         options.quality?.let { params.quality(ImageGenerateParams.Quality.of(it)) }
         options.style?.let { params.style(ImageGenerateParams.Style.of(it)) }
@@ -84,14 +86,21 @@ class OpenAiMedia(private val clients: ModelClients, private val probe: ModelPro
      * up beside their generation endpoint, whichever edit model they run. Both parts are sent named as PNG files, because
      * servers that read the multipart body decide what a part is from its name.
      */
-    fun edit(provider: ModelProvider, model: LlmModel, prompt: String, image: ByteArray, mask: ByteArray): Drawn {
+    fun edit(
+        provider: ModelProvider,
+        model: LlmModel,
+        prompt: String,
+        image: ByteArray,
+        mask: ByteArray,
+        negativePrompt: String? = null,
+    ): Drawn {
         val client = when (val ready = ready(provider)) {
             is Ready.No -> return Drawn.Failed(ready.reason)
             is Ready.Yes -> ready.client
         }
         val params = ImageEditParams.builder()
             .model(model.modelId)
-            .prompt(prompt)
+            .prompt(NegativePrompts.carried(prompt, negativePrompt))
             .n(1)
             .image(
                 MultipartField.builder<ImageEditParams.Image>()

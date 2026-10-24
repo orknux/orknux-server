@@ -122,6 +122,18 @@ class ImageModelCapabilities(
         }
     }
 
+    /**
+     * Whether this model draws with a negative prompt - its provider's type
+     * says, see [ProviderType.takesNegativePrompt]. False where the model or
+     * its provider has gone. Kept apart from [specFor]: a negative prompt is
+     * text beside the prompt, not a parameter picked from a list, and the
+     * editors that draw one control per entry there have nothing to draw it with.
+     */
+    fun takesNegativePrompt(modelId: Long): Boolean {
+        val model = models.findByIdOrNull(modelId) ?: return false
+        return providers.findByIdOrNull(model.providerId)?.type?.takesNegativePrompt ?: false
+    }
+
     /** OpenAI's own API host, or an Azure one somebody registered under the plain type. */
     private fun hostedByOpenAi(endpoint: String): Boolean {
         val host = runCatching { java.net.URI(endpoint.trim()).host }.getOrNull()?.lowercase() ?: return true
@@ -144,7 +156,17 @@ class ImageModelCapabilities(
             size = held(spec, modelName, "size", options.size, refusing),
             quality = held(spec, modelName, "quality", options.quality, refusing),
             style = held(spec, modelName, "style", options.style, refusing),
+            negativePrompt = heldNegative(modelId, modelName, options.negativePrompt, refusing),
         )
+    }
+
+    /** A negative prompt kept as given, and refused on a save where the model takes none. */
+    private fun heldNegative(modelId: Long?, modelName: String, given: String?, refusing: Boolean): String? {
+        val value = given?.trim()?.ifEmpty { null } ?: return null
+        if (refusing && modelId != null && models.findByIdOrNull(modelId) != null && !takesNegativePrompt(modelId)) {
+            throw ImageParameterInvalidException.negativeNotTaken(modelName)
+        }
+        return value
     }
 
     private fun held(
@@ -176,6 +198,9 @@ class ImageModelCapabilities(
             size = options.size?.takeIf { "size" in takes },
             quality = options.quality?.takeIf { "quality" in takes },
             style = options.style?.takeIf { "style" in takes },
+            // Kept, even where the model takes none: the drawing refuses it in a
+            // sentence, where leaving it out would draw what was asked to be kept out.
+            negativePrompt = options.negativePrompt,
         )
     }
 
@@ -235,6 +260,10 @@ class ImageParameterInvalidException private constructor(message: String) : Runt
     companion object {
         fun offList(model: String, parameter: String, value: String, takes: ImageParameterSpec) = ImageParameterInvalidException(
             "\"$value\" is not a $parameter $model takes. Choose one of ${takes.describeChoices()}, or leave it to the model's default",
+        )
+
+        fun negativeNotTaken(model: String) = ImageParameterInvalidException(
+            io.mszymanski.orknux.connector.model.NegativePrompts.notTaken(model),
         )
 
         fun notTaken(model: String, parameter: String, spec: List<ImageParameterSpec>) = ImageParameterInvalidException(
