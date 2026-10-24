@@ -1,6 +1,7 @@
 package io.mszymanski.orknux.server.embedded
 
 import io.mszymanski.orknux.server.action.ValueType
+import io.mszymanski.orknux.server.chat.AgentTools
 import io.mszymanski.orknux.server.llm.LlmSessionStore
 import io.mszymanski.orknux.server.llm.SessionScratchpadService
 import io.mszymanski.orknux.server.plugin.PdfRenderer
@@ -89,12 +90,14 @@ class PdfCapability(
                 "including <pre class=\"mermaid\"> and <pre class=\"chart\"> blocks, and the same $PAD and " +
                 "$KEY shortcuts so a long page is not typed through you. Answers both the picture and a $KEY " +
                 "for it, so you can see it and still send it; for a document somebody keeps, use " +
-                "$FROM_HTML instead.",
+                "$FROM_HTML instead. Only you see the picture unless you pass $SHOW true, which puts it in the " +
+                "conversation for the person - do that when they asked to see it.",
             params = listOf(
                 EmbeddedParam(HTML, ValueType.STRING, "The page itself. Leave out when passing $PAD or $KEY."),
                 EmbeddedParam(PAD, ValueType.STRING, "A scratchpad in this session holding the page."),
                 EmbeddedParam(KEY, ValueType.STRING, "A key something handed you, holding the page."),
                 EmbeddedParam(WIDTH, ValueType.NUMBER, "How wide the picture should be, in pixels."),
+                EmbeddedParam(SHOW, ValueType.BOOLEAN, "true to put the picture in the conversation, where the person sees it. Left out, only you see it."),
             ),
         ),
         EmbeddedTool(
@@ -117,8 +120,10 @@ class PdfCapability(
             readOnly = true,
             summary = "Draws one page of a PDF so you can look at it.",
             description = "Draws one page of a PDF as a picture, so you can see what a document you made " +
-                "actually looks like rather than assuming it worked. Takes a $KEY, and answers both the picture " +
-                "and a $KEY of its own - so you can see it and still pass it on to be sent.",
+                "actually looks like rather than assuming it worked, or read what text alone does not carry - " +
+                "music, a drawing, a scanned page. Takes a $KEY, and answers both the picture " +
+                "and a $KEY of its own - so you can see it and still pass it on to be sent. Only you see the " +
+                "picture: it is not put in the conversation.",
             params = listOf(
                 EmbeddedParam(KEY, ValueType.STRING, "The key the document is kept under.", required = true),
                 EmbeddedParam(PAGE, ValueType.NUMBER, "Which page, counting from 1. Left out, the first."),
@@ -311,7 +316,8 @@ class PdfCapability(
                 drawn.width,
                 drawn.height,
                 sessionId,
-                linkedMapOf(
+                forModel = !shown(asked),
+                also = linkedMapOf(
                     /*
                      * How many pages it came to, because a page that ran to
                      * three and was drawn as one is a picture missing two
@@ -346,7 +352,7 @@ class PdfCapability(
         return when (val drawn = renderer.png(pdf, number(asked, PAGE) ?: 1, number(asked, WIDTH))) {
             is PdfRenderer.Drawing.Refused -> refusal(drawn.reason)
             is PdfRenderer.Drawing.Drawn ->
-                pictureAnswer("preview", drawn.png, drawn.width, drawn.height, sessionId, mapOf("pages" to drawn.pages))
+                pictureAnswer("preview", drawn.png, drawn.width, drawn.height, sessionId, forModel = true, also = mapOf("pages" to drawn.pages))
         }
     }
 
@@ -418,15 +424,18 @@ class PdfCapability(
         width: Int,
         height: Int,
         sessionId: Long?,
+        forModel: Boolean,
         also: Map<String, Any?> = emptyMap(),
     ): String {
         val base64 = Base64.getEncoder().encodeToString(png)
         val answer = linkedMapOf<String, Any?>(
-            "picture" to base64,
-            "pictureType" to "image/png",
+            AgentTools.PICTURE to base64,
+            AgentTools.PICTURE_TYPE to "image/png",
             "width" to width,
             "height" to height,
         )
+        // A page drawn so the model can look at it is not posted to the person; see AgentTools.PICTURE_FOR_MODEL.
+        if (forModel) answer[AgentTools.PICTURE_FOR_MODEL] = true
         answer.putAll(also)
         if (sessionId != null) {
             val key = named + "." + java.lang.Long.toString(System.nanoTime(), 36)
@@ -491,6 +500,11 @@ class PdfCapability(
     private fun text(node: JsonNode, name: String): String? =
         node.path(name).takeIf { it.isTextual }?.stringValue()
 
+    /** Whether the person asked to see it: `show` true, sent as a boolean or as its text. */
+    private fun shown(asked: JsonNode): Boolean = asked.path(SHOW).let { said ->
+        (said.isBoolean && said.booleanValue()) || (said.isTextual && said.stringValue().trim().equals("true", ignoreCase = true))
+    }
+
     private fun number(node: JsonNode, name: String): Int? =
         node.path(name).takeIf { it.isNumber }?.intValue()?.takeIf { it > 0 }
 
@@ -523,5 +537,6 @@ class PdfCapability(
         const val TO = "to"
         const val PAGE = "page"
         const val WIDTH = "width"
+        const val SHOW = "show"
     }
 }
