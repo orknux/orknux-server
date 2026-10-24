@@ -909,6 +909,7 @@ orknux:
     video.poll.seconds: ${ORKNUX_TUNING_VIDEO_POLL_SECONDS:5}
     video.longest.minutes: ${ORKNUX_TUNING_VIDEO_LONGEST_MINUTES:120}
     video.max.mb: ${ORKNUX_TUNING_VIDEO_MAX_MB:200}
+    wireframe.elements.most: ${ORKNUX_TUNING_WIREFRAME_ELEMENTS_MOST:2000}
     action.retry.seconds: ${ORKNUX_TUNING_ACTION_RETRY_SECONDS:30}
     action.wait.seconds: ${ORKNUX_TUNING_ACTION_WAIT_SECONDS:3600}
     trigger.remember.minutes: ${ORKNUX_TUNING_TRIGGER_REMEMBER_MINUTES:10}

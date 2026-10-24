@@ -59,6 +59,9 @@ import java.time.format.DateTimeFormatter
  * not of what it has done. Carrying the history over would make a new workspace
  * claim work it never did.
  *
+ * **What was drawn in Design**, pictures and wireframes alike, for the same
+ * reason: it is work done in the workspace, not how the workspace is set up.
+ *
  * **Secrets.** A variable marked secret comes with its value, re-encrypted
  * into the copy. It used to arrive empty and be listed, on the grounds that a
  * credential in two places should be somebody's decision - but copying is an

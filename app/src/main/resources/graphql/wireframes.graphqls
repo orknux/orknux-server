@@ -1,0 +1,65 @@
+# Wireframes, issue #655: low-fidelity drawings of screens, kept in the Design
+# perspective beside its images, drawn by hand in the editor and by a chat
+# model through the orknux_* wireframe tools. Anybody who can see the workspace.
+
+extend type Query {
+    "A workspace's wireframes, the one worked on last first."
+    wireframes(workspaceId: ID!): [Wireframe!]!
+    "One wireframe; null where there is none."
+    wireframe(id: ID!): Wireframe
+}
+
+extend type Mutation {
+    "Makes a wireframe, empty or holding `document`."
+    createWireframe(workspaceId: ID!, name: String!, document: String): Wireframe!
+    renameWireframe(id: ID!, name: String!): Wireframe!
+    """
+    Writes a whole drawing over the one held. With `revision`, refused when the
+    wireframe has been saved since that revision - by somebody else or by a model.
+    """
+    saveWireframe(id: ID!, document: String!, revision: Int): Wireframe!
+    deleteWireframe(id: ID!): Boolean!
+    """
+    Asks a chat model to draw in the wireframe: the conversation so far, oldest
+    first, ending with what is asked now. Whatever it draws is saved as it goes.
+    """
+    askWireframe(id: ID!, modelId: ID!, messages: [WireframeChatTurnInput!]!): WireframeAnswer!
+}
+
+"A wireframe and its drawing."
+type Wireframe {
+    id: ID!
+    workspaceId: ID!
+    name: String!
+    """
+    The drawing, as JSON: {"elements": [{id, type, x, y, w, h, text, props}]},
+    whole pixels from the top left. Types are frame, rect, text, button, input,
+    image, line, arrow and note; a line or an arrow runs from (x, y) to
+    (x + w, y + h).
+    """
+    document: String!
+    elementCount: Int!
+    "Counts the saves; what saveWireframe is checked against."
+    revision: Int!
+    createdBy: String!
+    "ISO-8601."
+    createdAt: String!
+    updatedBy: String!
+    "ISO-8601."
+    updatedAt: String!
+}
+
+"What a model said, and the drawing as it stands after it."
+type WireframeAnswer {
+    answer: String!
+    "Whether it saved anything."
+    changed: Boolean!
+    wireframe: Wireframe!
+}
+
+"One turn of the editor's conversation."
+input WireframeChatTurnInput {
+    "user or assistant."
+    role: String!
+    content: String!
+}

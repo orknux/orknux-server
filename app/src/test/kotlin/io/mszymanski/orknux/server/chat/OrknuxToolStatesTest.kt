@@ -122,7 +122,12 @@ class OrknuxToolStatesTest(
     fun `the migration keeps an existing agent carrying its orknux tools`() {
         val id = created("From 1.1", orknuxAccess = true)
         val without = created("From 1.1 without", orknuxAccess = false)
-        val names = builtIns.orknuxNames()
+        /*
+         * The surface the migration was written for: a tool added since arrives
+         * at Offer on an agent that predates it, as the migration says, until a
+         * migration of its own marks it.
+         */
+        val names = builtIns.orknuxNames().filter { it in written() }
         listOf(id, without).forEach { one ->
             val agent = requireNotNull(agents.findByIdOrNull(one))
             agent.requiredTools = BuiltInTools.GRANTED.toMutableList()
@@ -151,10 +156,12 @@ class OrknuxToolStatesTest(
     /** The names the migration writes out are the surface's, not a misspelling of one. */
     @Test
     fun `the migration names only orknux tools that exist`() {
-        val written = Regex("'(orknux_[a-z_]+)'").findAll(migration()).map { it.groupValues[1] }.toList()
+        val written = written()
         assertThat(written).isNotEmpty.doesNotHaveDuplicates()
         assertThat(builtIns.orknuxNames()).containsAll(written)
     }
+
+    private fun written(): List<String> = Regex("'(orknux_[a-z_]+)'").findAll(migration()).map { it.groupValues[1] }.toList()
 
     private fun migration(): String {
         val sqlite = isSqlite(jdbc.dataSource?.let { jdbcUrlOf(it) })

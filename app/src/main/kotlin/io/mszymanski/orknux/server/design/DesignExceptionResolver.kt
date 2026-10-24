@@ -15,6 +15,13 @@ class DesignExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is DesignImageRefusedException -> ErrorType.BAD_REQUEST
             is DesignVideoRefusedException -> ErrorType.BAD_REQUEST
             is DesignVideoSettingNotTakenException -> ErrorType.BAD_REQUEST
+            is WireframeNotFoundException -> ErrorType.NOT_FOUND
+            is WireframeNameInvalidException,
+            is WireframeDocumentInvalidException,
+            is WireframeTooLargeException,
+            is WireframeChangedException,
+            is WireframeAnswerFailedException,
+            -> ErrorType.BAD_REQUEST
             else -> return null
         }
         return refused(exception, errorType, environment)

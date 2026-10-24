@@ -203,6 +203,8 @@ class OrknuxTools(
     private val buildTools: WorkflowBuildTools,
     /** The manual, read-only and the same for every workspace; see [ManualTools]. */
     private val manualTools: ManualTools,
+    /** Reading and drawing wireframes; see [WireframeTools]. Issue #655. */
+    private val wireframeTools: WireframeTools,
     private val access: io.mszymanski.orknux.server.security.WorkspaceAccess,
     private val newsTools: NewsTools,
     private val web: WebProperties,
@@ -276,7 +278,8 @@ class OrknuxTools(
     private fun issueLink(workspaceId: Long, number: Int) = link("/workspace/$workspaceId/issues/$number")
 
     /** What to offer, which depends on whether this caller may start anything. */
-    fun specs(scope: OrknuxScope): List<ToolSpec> = ownSpecs(scope) + buildTools.specs(scope) + manualTools.specs()
+    fun specs(scope: OrknuxScope): List<ToolSpec> =
+        ownSpecs(scope) + buildTools.specs(scope) + wireframeTools.specs(scope) + manualTools.specs()
 
     private fun ownSpecs(scope: OrknuxScope): List<ToolSpec> = buildList {
         add(
@@ -924,6 +927,8 @@ class OrknuxTools(
                 manualTools.run(name, arguments)
             } else if (buildTools.handles(name)) {
                 access.actingIn(scope.workspaceId, scope.actor) { buildTools.run(scope, name, arguments) }
+            } else if (wireframeTools.handles(name)) {
+                access.actingIn(scope.workspaceId, scope.actor) { wireframeTools.run(scope, name, arguments) }
             } else {
                 refuse("There is no tool called $name")
             }

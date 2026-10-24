@@ -228,6 +228,16 @@ enum class Tunable(
         "How many notes midi_read lists from one file",
         "Past this many the answer stops listing them and says how many more there were; the tracks, tempo and time signature are still given whole.",
     ),
+    /*
+     * Counted in elements because that is what a model drawing one adds, and
+     * what the editor draws one by one: a wireframe the browser can no longer
+     * move around in is lost work, however few bytes it is.
+     */
+    WIREFRAME_ELEMENTS_MOST(
+        "wireframe.elements.most", 2000, 10, 100_000, TuningSection.MEDIA, TuningUnit.ITEMS,
+        "How many elements one wireframe may hold",
+        "A save, from the editor or from a model drawing in it, that would leave more is refused and says how many there were.",
+    ),
 
     /*
      * Design's Videos page. Issue #658. A video is a job its backend runs for

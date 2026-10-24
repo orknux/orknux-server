@@ -475,6 +475,7 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_VIDEO_POLL_SECONDS` | How often a video being made is asked about, in seconds. | `5` |
 | `ORKNUX_TUNING_VIDEO_LONGEST_MINUTES` | How long one video may take, in minutes. | `120` |
 | `ORKNUX_TUNING_VIDEO_MAX_MB` | The largest video kept, in MB. | `200` |
+| `ORKNUX_TUNING_WIREFRAME_ELEMENTS_MOST` | How many elements one wireframe may hold, in items. | `2000` |
 | `ORKNUX_TUNING_ACTION_RETRY_SECONDS` | How often a waiting action asks again, in seconds. | `30` |
 | `ORKNUX_TUNING_ACTION_WAIT_SECONDS` | How long a waiting action waits when it does not say, in seconds. | `3600` |
 | `ORKNUX_TUNING_TRIGGER_REMEMBER_MINUTES` | How long a trigger remembers an event it ran on, in minutes. | `10` |
