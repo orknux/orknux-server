@@ -292,12 +292,9 @@ must be signed with the release key this image carries. **On by default.**
 above are the installation's own relay; mail a *workflow* sends is a connection
 like any other, on the workspace's form.
 
-**A proxy is a rule, not an environment variable.** Rules live on **Admin ->
-Networking**, match the request URL, and carry every outbound call - model
-providers, connections, Slack, OIDC, a function's `orknux.http`, the relay
-above. Each client is given them explicitly, so an `HTTPS_PROXY` in the
-environment is used by none of them. LDAP is not HTTP and cannot be carried by
-a rule at all.
+**A proxy is a rule, not an environment variable.** Rules on **Admin ->
+Networking** match the request URL and carry every outbound HTTP call; an
+`HTTPS_PROXY` in the environment is used by none of them, and LDAP by no rule.
 
 ## Chat, attachments and the tracker
 
@@ -308,13 +305,14 @@ a rule at all.
 | `ORKNUX_ATTACHMENTS_ENABLED` | Whether files may be attached to a message, an issue or a comment. `false` is final too. | `true` | No |
 | `ORKNUX_ATTACHMENTS_LOCATION` | Where the bytes go, a directory per workspace. **An absolute path on a volume.** | `data/attachments` | **Yes** if attachments are on |
 | `ORKNUX_ATTACHMENTS_MAX_FILE_SIZE_MB` | The largest file that will be accepted. | `25` | No |
-| `ORKNUX_UPLOAD_MAX_FILE_SIZE` | The servlet's cap on one uploaded file; keep it at or above the attachment cap. | `25MB` | No |
+| `ORKNUX_UPLOAD_MAX_FILE_SIZE` | The servlet's cap on one file; at or above the attachment cap. | `25MB` | No |
 | `ORKNUX_UPLOAD_MAX_REQUEST_SIZE` | The cap on a whole upload request. | `26MB` | No |
 
 The tracker uses the chat's attachments.
 
 ORKNUX_CHAT_MAX_ROUNDS, ORKNUX_CHAT_RETITLE_EVERY, ORKNUX_CHAT_TITLE_SECONDS, ORKNUX_CHAT_MAX_SUBAGENTS, ORKNUX_CHAT_TOOLS_NAMED_IN_SEARCH, ORKNUX_OBJECT_MAX_DEPTH,
-ORKNUX_CHAT_COMPLETION_CONTEXT_TURNS, ORKNUX_CHAT_COMPLETION_MAX_TOKENS, ORKNUX_CHAT_COMPLETION_TIMEOUT_MILLIS, ORKNUX_CHAT_COMPLETION_PAUSE_MILLIS, ORKNUX_CHAT_VIDEO_MAX_MB,
+ORKNUX_CHAT_COMPLETION_CONTEXT_TURNS, ORKNUX_CHAT_COMPLETION_MAX_TOKENS, ORKNUX_CHAT_COMPLETION_TIMEOUT_MILLIS, ORKNUX_CHAT_COMPLETION_PAUSE_MILLIS, ORKNUX_CHAT_REPLY_SUGGESTIONS, ORKNUX_CHAT_REPLY_SUGGESTIONS_MAX_TOKENS,
+ORKNUX_CHAT_REPLY_SUGGESTIONS_TIMEOUT_MILLIS, ORKNUX_CHAT_VIDEO_MAX_MB,
 ORKNUX_IMAGE_MAX_PROMPT, ORKNUX_IMAGE_DRAWS_AT_ONCE, ORKNUX_IMAGE_HARMONIZE_STRENGTH, ORKNUX_IMAGE_HARMONIZE_SIZE, ORKNUX_COMMAND_MARKER, ORKNUX_LDAP_GROUP_SEARCH_SUBTREE, ORKNUX_MODEL_CHECK_INITIAL_DELAY,
 ORKNUX_CONNECTION_CHECK_INITIAL_DELAY, ORKNUX_SCHEDULER_THREADS, ORKNUX_SCHEDULER_POLLING_INTERVAL,
 ORKNUX_REVISION_SWEEP_ENABLED, ORKNUX_REVISION_SWEEP_INTERVAL,

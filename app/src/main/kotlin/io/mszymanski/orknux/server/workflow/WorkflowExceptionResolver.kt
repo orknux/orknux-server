@@ -282,6 +282,9 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is io.mszymanski.orknux.server.attachment.CompletionMaxTokensOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.CompletionTimeoutOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.CompletionPauseOutOfRangeException,
+            /* And suggested replies' two of their own. */
+            is io.mszymanski.orknux.server.attachment.ReplySuggestionsOutOfRangeException,
+            is io.mszymanski.orknux.server.attachment.ReplySuggestionsMaxTokensOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.VideoMaxOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.ObjectDepthOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.ImagePromptOutOfRangeException,

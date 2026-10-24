@@ -41,6 +41,7 @@ class ChatAPI(
     private val generations: ChatGenerations,
     /** How a sentence being typed might go on; see [ChatSentences]. */
     private val sentences: ChatSentences,
+    private val replies: ChatReplies,
 ) {
 
     /**
@@ -152,6 +153,21 @@ class ChatAPI(
         requireOwn(session)
         if (!settings.chatEnabled()) return null
         return sentences.continuation(session, text)
+    }
+
+    /**
+     * Replies the person might send next to the answer this chat ends on, as
+     * plain text. A query for the reason a completion is one: the history is
+     * not written. What it does keep, on the chat's row, is the suggestions
+     * themselves against the answer they were for, so asking again for the
+     * same answer is not a second model call.
+     */
+    @QueryMapping
+    fun chatReplySuggestions(@Argument chatId: Long): List<String> {
+        val session = chats.session(chatId) ?: throw ChatSessionNotFoundException(chatId)
+        requireOwn(session)
+        if (!settings.chatEnabled()) return emptyList()
+        return replies.suggestions(session)
     }
 
     @MutationMapping

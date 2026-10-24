@@ -77,6 +77,9 @@ object SettingNames {
     const val CHAT_COMPLETION_MAX_TOKENS = "chat.completion.max.tokens"
     const val CHAT_COMPLETION_TIMEOUT_MILLIS = "chat.completion.timeout.millis"
     const val CHAT_COMPLETION_PAUSE_MILLIS = "chat.completion.pause.millis"
+    const val CHAT_REPLY_SUGGESTIONS = "chat.reply.suggestions"
+    const val CHAT_REPLY_SUGGESTIONS_MAX_TOKENS = "chat.reply.suggestions.max.tokens"
+    const val CHAT_REPLY_SUGGESTIONS_TIMEOUT_MILLIS = "chat.reply.suggestions.timeout.millis"
     const val CHAT_VIDEO_MAX_MB = "chat.video.max.mb"
     const val OBJECT_MAX_DEPTH = "objects.max.depth"
     const val IMAGE_MAX_PROMPT = "images.max.prompt"
@@ -608,6 +611,50 @@ class InstallationSettings(
     fun setChatCompletionPauseMillis(millis: Int, by: String) {
         if (millis !in COMPLETION_PAUSE_MILLIS) throw CompletionPauseOutOfRangeException(millis)
         holdInt(SettingNames.CHAT_COMPLETION_PAUSE_MILLIS, millis, by)
+    }
+
+    /*
+     * Suggested replies under the latest answer. Three numbers, each what
+     * Admin -> Settings holds or, until somebody changes it, what the file says.
+     */
+
+    /** How many replies are suggested under an answer; 0 suggests none. */
+    fun chatReplySuggestions(): Int =
+        heldInt(SettingNames.CHAT_REPLY_SUGGESTIONS, REPLY_SUGGESTIONS) ?: chatReplySuggestionsConfigured()
+
+    /** What a fresh installation does - ORKNUX_CHAT_REPLY_SUGGESTIONS. */
+    fun chatReplySuggestionsConfigured(): Int = chat.replySuggestions.coerceIn(REPLY_SUGGESTIONS)
+
+    @Transactional
+    fun setChatReplySuggestions(count: Int, by: String) {
+        if (count !in REPLY_SUGGESTIONS) throw ReplySuggestionsOutOfRangeException(count)
+        holdInt(SettingNames.CHAT_REPLY_SUGGESTIONS, count, by)
+    }
+
+    /** The most tokens all of an answer's suggested replies together may be. */
+    fun chatReplySuggestionsMaxTokens(): Int =
+        heldInt(SettingNames.CHAT_REPLY_SUGGESTIONS_MAX_TOKENS, REPLY_SUGGESTIONS_MAX_TOKENS) ?: chatReplySuggestionsMaxTokensConfigured()
+
+    /** What a fresh installation does - ORKNUX_CHAT_REPLY_SUGGESTIONS_MAX_TOKENS. */
+    fun chatReplySuggestionsMaxTokensConfigured(): Int = chat.replySuggestionsMaxTokens.coerceIn(REPLY_SUGGESTIONS_MAX_TOKENS)
+
+    @Transactional
+    fun setChatReplySuggestionsMaxTokens(tokens: Int, by: String) {
+        if (tokens !in REPLY_SUGGESTIONS_MAX_TOKENS) throw ReplySuggestionsMaxTokensOutOfRangeException(tokens)
+        holdInt(SettingNames.CHAT_REPLY_SUGGESTIONS_MAX_TOKENS, tokens, by)
+    }
+
+    /** How long suggested replies may take before they are given up on, in milliseconds. */
+    fun chatReplySuggestionsTimeoutMillis(): Int =
+        heldInt(SettingNames.CHAT_REPLY_SUGGESTIONS_TIMEOUT_MILLIS, COMPLETION_TIMEOUT_MILLIS) ?: chatReplySuggestionsTimeoutMillisConfigured()
+
+    /** What a fresh installation does - ORKNUX_CHAT_REPLY_SUGGESTIONS_TIMEOUT_MILLIS. */
+    fun chatReplySuggestionsTimeoutMillisConfigured(): Int = chat.replySuggestionsTimeoutMillis.coerceIn(COMPLETION_TIMEOUT_MILLIS)
+
+    @Transactional
+    fun setChatReplySuggestionsTimeoutMillis(millis: Int, by: String) {
+        if (millis !in COMPLETION_TIMEOUT_MILLIS) throw CompletionTimeoutOutOfRangeException(millis)
+        holdInt(SettingNames.CHAT_REPLY_SUGGESTIONS_TIMEOUT_MILLIS, millis, by)
     }
 
     /** The largest video a chat message may send to a model that takes video, in megabytes. */
@@ -2284,6 +2331,26 @@ val COMPLETION_CONTEXT_TURNS = 0..50
 val COMPLETION_MAX_TOKENS = 1..500
 val COMPLETION_TIMEOUT_MILLIS = 200..60_000
 val COMPLETION_PAUSE_MILLIS = 100..10_000
+
+/*
+ * What suggested replies' two numbers of their own may be; their time limit is
+ * a completion's range. Six is as many chips as fit under an answer on one or
+ * two lines, and a thousand tokens is six long replies with room to spare.
+ */
+val REPLY_SUGGESTIONS = 0..6
+val REPLY_SUGGESTIONS_MAX_TOKENS = 1..1000
+
+class ReplySuggestionsOutOfRangeException(val count: Int) : RuntimeException(
+    "A chat cannot suggest $count replies. Choose between ${REPLY_SUGGESTIONS.first} and ${REPLY_SUGGESTIONS.last}.",
+), io.mszymanski.orknux.server.graphql.Refusal {
+    override val arguments get() = mapOf("count" to count)
+}
+
+class ReplySuggestionsMaxTokensOutOfRangeException(val tokens: Int) : RuntimeException(
+    "Suggested replies cannot be $tokens tokens long. Choose between ${REPLY_SUGGESTIONS_MAX_TOKENS.first} and ${REPLY_SUGGESTIONS_MAX_TOKENS.last}.",
+), io.mszymanski.orknux.server.graphql.Refusal {
+    override val arguments get() = mapOf("tokens" to tokens)
+}
 
 class CompletionContextTurnsOutOfRangeException(val turns: Int) : RuntimeException(
     "A completion cannot be shown $turns messages. Choose between ${COMPLETION_CONTEXT_TURNS.first} and ${COMPLETION_CONTEXT_TURNS.last}.",
