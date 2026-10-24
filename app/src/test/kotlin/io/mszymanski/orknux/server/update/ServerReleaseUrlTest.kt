@@ -204,6 +204,12 @@ class ServerReleaseUrlTest(
             .path("serverReleasesAtUrl[1].jarUrl").entity(String::class.java)
             .isEqualTo("http://${where()}/repo/jars/orknux-server-99.0.1.jar")
 
+        // Typed without a scheme, the directory is taken as http.
+        graphQlTester.document("""{ serverReleasesAtUrl(url: "${where()}/repo/") { version jarUrl } }""").execute()
+            .path("serverReleasesAtUrl[*].version").entityList(String::class.java).containsExactly("99.0.2", "99.0.1")
+            .path("serverReleasesAtUrl[1].jarUrl").entity(String::class.java)
+            .isEqualTo("http://${where()}/repo/jars/orknux-server-99.0.1.jar")
+
         graphQlTester.document("""{ serverReleasesAtUrl(url: "http://${where()}/repo/releases.json") { version } }""")
             .execute().errors().satisfy { assertThat(it.single().extensions["code"]).isEqualTo("ServerReleaseUrlRefused") }
     }

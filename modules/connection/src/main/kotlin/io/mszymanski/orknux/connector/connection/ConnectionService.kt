@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.connector.connection
 
+import io.mszymanski.orknux.connector.Addresses
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Sort
 import org.springframework.data.repository.findByIdOrNull
@@ -118,7 +119,15 @@ class ConnectionService(
  * and no reason to let an administrator type a different one; see [SLACK_API_URL].
  */
 private fun ConnectionInput.slackAwareUrl(): String =
-    if (type == ConnectionType.SLACK) SLACK_API_URL else url.orEmpty().trim()
+    if (type == ConnectionType.SLACK) SLACK_API_URL else typedUrl(type, url)
+
+/**
+ * A connection's address as it is stored: an HTTP one typed without a scheme is
+ * taken as http ([Addresses.withScheme]); a mail server's is a host name and is
+ * only trimmed.
+ */
+internal fun typedUrl(type: ConnectionType, url: String?): String =
+    if (type == ConnectionType.SMTP) url.orEmpty().trim() else Addresses.withScheme(url.orEmpty())
 
 /** A description as it is kept: trimmed, at most [DESCRIPTION_LENGTH] characters, and nothing rather than blank. */
 internal fun String?.described(): String? = this?.trim()?.take(DESCRIPTION_LENGTH)?.ifEmpty { null }

@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.security
 
+import io.mszymanski.orknux.connector.Addresses
 import io.mszymanski.orknux.server.attachment.InstallationSetting
 import io.mszymanski.orknux.server.attachment.InstallationSettingRepository
 import io.mszymanski.orknux.server.graphql.Refusal
@@ -44,13 +45,14 @@ class InstallationAddress(
 
     /**
      * Sets the address, or clears it back to the configured one when [url] is
-     * blank. Refused unless it is an absolute http or https address - a link
+     * blank. Typed without a scheme it is taken as http ([Addresses.withScheme]);
+     * refused unless it is then an absolute http or https address - a link
      * built on anything else opens nowhere.
      */
     @Transactional
     fun set(url: String?, by: String) {
         val repository = requireNotNull(settings)
-        val given = url?.trim()?.trimEnd('/').orEmpty()
+        val given = Addresses.withScheme(url.orEmpty()).trimEnd('/')
         if (given.isEmpty()) {
             repository.deleteById(NAME)
             return
@@ -81,7 +83,7 @@ class InstallationAddress(
 }
 
 class InstallationAddressInvalidException(val url: String) : RuntimeException(
-    "$url is not an address this installation can be reached at. Give one starting with https:// or http://, " +
+    "$url is not an address this installation can be reached at. Give an http or https address, " +
         "such as https://orknux.example.com.",
 ), Refusal {
     override val arguments get() = mapOf("url" to url)

@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.box
 
+import io.mszymanski.orknux.connector.Addresses
 import io.mszymanski.orknux.connector.proxy.ProxyRouter
 import io.mszymanski.orknux.server.agent.Agent
 import org.springframework.data.repository.findByIdOrNull
@@ -143,10 +144,11 @@ class Boxes(
     companion object {
         /**
          * An address a box can be reached at, as it is stored: an http or https
-         * URL with a host, without a trailing slash. Null where it is not one.
+         * URL with a host, without a trailing slash - typed without a scheme,
+         * it is taken as http, by [Addresses.withScheme]. Null where it is not one.
          */
         fun normalisedAddress(address: String): String? {
-            val given = address.trim().trimEnd('/')
+            val given = Addresses.withScheme(address).trimEnd('/')
             val uri = runCatching { URI(given) }.getOrNull() ?: return null
             if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrBlank()) return null
             if (uri.query != null || uri.fragment != null) return null

@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.action
 
+import io.mszymanski.orknux.connector.Addresses
 import io.mszymanski.orknux.server.tuning.Tuning
 import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.connector.connection.ConnectionType
@@ -167,7 +168,7 @@ class ActionAPI(
                 speechText = input.speechText?.trim()?.ifEmpty { null },
                 speechVoice = input.speechVoice?.trim()?.ifEmpty { null },
                 speechModelId = input.speechModelId,
-                url = input.url?.trim()?.ifEmpty { null },
+                url = input.url?.let(Addresses::withScheme)?.ifEmpty { null },
                 method = input.method?.trim()?.uppercase()?.ifEmpty { null },
                 headers = writtenHeaders(input.workspaceId, input.headerRows, input.headers),
                 functionId = input.functionId,
@@ -221,7 +222,7 @@ class ActionAPI(
         input.speechText?.let { action.speechText = it.trim().ifEmpty { null } }
         input.speechVoice?.let { action.speechVoice = it.trim().ifEmpty { null } }
         input.speechModelId?.let { action.speechModelId = it }
-        input.url?.let { action.url = it.trim().ifEmpty { null } }
+        input.url?.let { action.url = Addresses.withScheme(it).ifEmpty { null } }
         input.method?.let { action.method = it.trim().uppercase().ifEmpty { null } }
         /*
          * Rows win when the form sent any, and the form sends them whenever it

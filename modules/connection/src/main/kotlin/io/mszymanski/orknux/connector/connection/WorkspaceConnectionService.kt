@@ -74,7 +74,7 @@ class WorkspaceConnectionService(
         // neither is asked for: the form that asks has only one answer to offer
         // and one more field to get wrong. Filled in here rather than in the
         // caller so that every caller gets it.
-        val url = if (slack) SLACK_API_URL else input.url.orEmpty().trim()
+        val url = if (slack) SLACK_API_URL else typedUrl(input.type, input.url)
         if (name.isEmpty()) throw ConnectionNameInvalidException()
         if (url.isEmpty()) throw ConnectionUrlInvalidException()
         // A plugin's kind of host is an HTTP endpoint with a label over it; on
@@ -147,7 +147,7 @@ class WorkspaceConnectionService(
             if (connection.pluginType != null && connection.type != ConnectionType.HTTP) {
                 throw ConnectionPluginTypeInvalidException("A plugin's kind of connection is an HTTP connection")
             }
-            input.url?.trim()?.let { url ->
+            input.url?.let { typedUrl(connection.type, it) }?.let { url ->
                 if (url.isEmpty()) throw ConnectionUrlInvalidException()
                 connection.url = url
             }
@@ -156,7 +156,7 @@ class WorkspaceConnectionService(
         }
 
         input.authType?.let { connection.authType = it }
-        input.urlOverride?.let { connection.urlOverride = it.trim().ifEmpty { null } }
+        input.urlOverride?.let { connection.urlOverride = typedUrl(connection.type, it).ifEmpty { null } }
         input.grantNewAgents?.let { connection.grantNewAgents = it }
 
         /*
@@ -300,7 +300,7 @@ class WorkspaceConnectionService(
      */
     fun testDraftConnection(input: CreateWorkspaceConnectionInput): CheckResult {
         val slack = input.type == ConnectionType.SLACK
-        val url = if (slack) SLACK_API_URL else input.url.orEmpty().trim()
+        val url = if (slack) SLACK_API_URL else typedUrl(input.type, input.url)
         if (url.isEmpty()) throw ConnectionUrlInvalidException()
         val pluginType = input.pluginType?.trim()?.ifEmpty { null }
         if (pluginType != null && input.type != ConnectionType.HTTP) {

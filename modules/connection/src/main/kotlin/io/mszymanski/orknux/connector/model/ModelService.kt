@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.connector.model
 
+import io.mszymanski.orknux.connector.Addresses
 import io.mszymanski.orknux.connector.CredentialReader
 import io.mszymanski.orknux.connector.connection.CheckOutcome
 import io.mszymanski.orknux.connector.security.HeldSecret
@@ -131,7 +132,7 @@ class ModelService(
      */
     fun checkProviderDraft(input: CreateProviderInput, id: Long?): io.mszymanski.orknux.connector.connection.CheckResult {
         val stored = id?.let { providers.findByIdOrNull(it) ?: throw ModelProviderNotFoundException(it) }
-        val endpoint = input.endpoint.trim()
+        val endpoint = Addresses.withScheme(input.endpoint)
         if (endpoint.isEmpty()) throw ModelProviderEndpointInvalidException()
         val typed = input.secret?.trim()
         val own = typed?.ifEmpty { null }
@@ -147,7 +148,7 @@ class ModelService(
     @Transactional
     fun createProvider(input: CreateProviderInput): ModelProviderView {
         val name = input.name.trim()
-        val endpoint = input.endpoint.trim()
+        val endpoint = Addresses.withScheme(input.endpoint)
         if (name.isEmpty()) throw ModelProviderNameInvalidException()
         if (endpoint.isEmpty()) throw ModelProviderEndpointInvalidException()
         if (providers.findByWorkspaceIdAndName(input.workspaceId, name) != null) {
@@ -186,7 +187,7 @@ class ModelService(
         val provider = providers.findByIdOrNull(id) ?: throw ModelProviderNotFoundException(id)
 
         val name = input.name.trim()
-        val endpoint = input.endpoint.trim()
+        val endpoint = Addresses.withScheme(input.endpoint)
         if (name.isEmpty()) throw ModelProviderNameInvalidException()
         if (endpoint.isEmpty()) throw ModelProviderEndpointInvalidException()
         if (name != provider.name && providers.findByWorkspaceIdAndName(provider.workspaceId, name) != null) {
