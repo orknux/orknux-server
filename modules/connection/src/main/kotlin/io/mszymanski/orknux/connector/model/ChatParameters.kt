@@ -43,18 +43,34 @@ data class ChatParameterSpec(
  *   GPT-5 deployments) - `reasoning.effort` on one, `reasoning_effort` on the
  *   other. Azure has no `top_k`, `min_p` or `repeat_penalty`.
  * - **OPENAI on OpenAI's own host** - the same SDK call to api.openai.com:
- *   `temperature` and `top_p`, and none of the three llama.cpp additions.
+ *   `temperature`, `top_p` and `reasoning_effort`
+ *   (`ChatCompletionCreateParams.reasoningEffort`), and none of the three
+ *   llama.cpp additions. A model that refuses an effort beside function tools
+ *   on chat completions - see [OpenAiResponses] - says so in its error; the
+ *   field is sent only where somebody set it.
  * - **OPENAI anywhere else** - a llama.cpp server, a gateway, vLLM behind the
  *   OpenAI shape, which is where [ProviderType] says such a server belongs.
  *   llama.cpp's `/v1/chat/completions` reads `top_k`, `min_p` and
  *   `repeat_penalty` beside the OpenAI fields, and those are what
  *   [OpenAiChat] puts in the body. (vLLM reads `top_k` and `min_p` too, but
- *   calls its penalty `repetition_penalty`.)
+ *   calls its penalty `repetition_penalty`.) It reads `reasoning_effort` as
+ *   well, and so do vLLM's and most gateways' chat completions.
+ * - **LLAMA_CPP** - the same: llama.cpp's server reads the OpenAI
+ *   `reasoning_effort` off the request body and hands it to the model's chat
+ *   template as the `reasoning_effort` variable, `none` turning thinking off
+ *   (tools/server/README.md, "`reasoning_effort`: If `none`,
+ *   reasoning/thinking is disabled. Otherwise, the value is made available to
+ *   the jinja template"; tools/server/server-common.cpp,
+ *   `oaicompat_chat_params_parse`). The SDK field is therefore the whole of it:
+ *   no `chat_template_kwargs` is written by hand.
  * - **OLLAMA** - the same SDK call to Ollama's OpenAI-compatible `/v1`, whose
  *   `ChatCompletionRequest` (ollama/openai/openai.go) carries `temperature`
  *   and `top_p` and no `top_k`, `min_p` or `repeat_penalty`: sent there, they
  *   were silently dropped. Those three are Ollama's native `/api/chat`
- *   options, which this product does not call.
+ *   options, which this product does not call. It does carry
+ *   `reasoning_effort`, mapped onto Ollama's `think` (docs/api/
+ *   openai-compatibility.mdx: "`reasoning_effort` and `reasoning.effort`
+ *   control model thinking", `none` asking for no thinking).
  * - **ANTHROPIC** - the Messages body built in [ModelChatClient]:
  *   `temperature` (held to 1.0 at most), `top_p` and `top_k`; it has no
  *   min-p and no repeat penalty.
@@ -104,9 +120,9 @@ object ChatParameters {
     private val takesAudio = ChatParameterSpec(TAKES_AUDIO, ChatParameterKind.SWITCH)
 
     /**
-     * How hard a reasoning model thinks before it answers. The SDK knows more
-     * words than these (`none`, `xhigh`), but these are the four every Azure
-     * reasoning deployment takes.
+     * How hard a reasoning model thinks before it answers, on Azure. The SDK
+     * knows more words than these (`none`, `xhigh`, `max`), but these are the
+     * four every Azure reasoning deployment takes.
      */
     val REASONING_EFFORT_SPEC = ChatParameterSpec(
         REASONING_EFFORT,
@@ -114,10 +130,24 @@ object ChatParameters {
         listOf("minimal", "low", "medium", "high"),
     )
 
+    /**
+     * The same setting everywhere else that reads `reasoning_effort`: every
+     * word openai-java's `ReasoningEffort` knows. Which of them a model honours
+     * is the model's - OpenAI's models differ, and llama.cpp hands the word to
+     * the model's template and Ollama maps it onto the model's own levels - so
+     * the list is the API's and the choice is whoever configures the model.
+     */
+    val OPEN_REASONING_EFFORT_SPEC = ChatParameterSpec(
+        REASONING_EFFORT,
+        ChatParameterKind.CHOICE,
+        listOf("none", "minimal", "low", "medium", "high", "xhigh", "max"),
+    )
+
     private val AZURE = listOf(temperature, topP, REASONING_EFFORT_SPEC)
-    private val OPENAI_HOSTED = listOf(temperature, topP, takesAudio)
-    private val OPENAI_SHAPED = listOf(temperature, topP, topK, minP, repeatPenalty, takesVideo, takesAudio)
-    private val OLLAMA = listOf(temperature, topP)
+    private val OPENAI_HOSTED = listOf(temperature, topP, OPEN_REASONING_EFFORT_SPEC, takesAudio)
+    private val OPENAI_SHAPED =
+        listOf(temperature, topP, topK, minP, repeatPenalty, OPEN_REASONING_EFFORT_SPEC, takesVideo, takesAudio)
+    private val OLLAMA = listOf(temperature, topP, OPEN_REASONING_EFFORT_SPEC)
     private val ANTHROPIC = listOf(temperature, topP, topK)
 
     /**

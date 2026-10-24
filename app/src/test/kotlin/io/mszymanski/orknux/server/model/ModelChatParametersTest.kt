@@ -20,7 +20,8 @@ import org.springframework.security.test.context.support.WithMockUser
  * declared per provider, drawn from that declaration, and held to it on every
  * save. Azure OpenAI takes temperature, top-p and a reasoning effort; a
  * llama.cpp server behind the OpenAI shape takes the three additions as well;
- * OpenAI itself and Ollama's `/v1` take temperature and top-p.
+ * OpenAI itself, Ollama's `/v1` and llama.cpp take a reasoning effort from the
+ * SDK's whole list; Anthropic takes none.
  */
 @SpringBootTest
 @AutoConfigureGraphQlTester
@@ -50,11 +51,15 @@ class ModelChatParametersTest(
     fun `each provider declares what its API reads, and nothing more`() {
         assertThat(declared(provider("Azure", "AZURE_OPENAI"))).containsExactly("temperature", "topP", "reasoningEffort")
         // OpenAI's own chat completions carry an input_audio part for its audio models.
-        assertThat(declared(provider("OpenAI", "OPENAI", "https://api.openai.com/v1"))).containsExactly("temperature", "topP", "takesAudio")
-        // A llama.cpp server registered under the OpenAI type reads the three additions too, and a video and an audio part.
+        assertThat(declared(provider("OpenAI", "OPENAI", "https://api.openai.com/v1")))
+            .containsExactly("temperature", "topP", "reasoningEffort", "takesAudio")
+        // A llama.cpp server registered under the OpenAI type reads the three additions too, an effort, and a video and an audio part.
         assertThat(declared(provider("Local", "OPENAI", "http://llama.example.invalid:8080/v1")))
-            .containsExactly("temperature", "topP", "topK", "minP", "repeatPenalty", "takesVideo", "takesAudio")
-        assertThat(declared(provider("Ollama", "OLLAMA", "http://ollama.example.invalid:11434"))).containsExactly("temperature", "topP")
+            .containsExactly("temperature", "topP", "topK", "minP", "repeatPenalty", "reasoningEffort", "takesVideo", "takesAudio")
+        assertThat(declared(provider("Llama", "LLAMA_CPP", "http://llama2.example.invalid:8080")))
+            .containsExactly("temperature", "topP", "topK", "minP", "repeatPenalty", "reasoningEffort", "takesVideo", "takesAudio")
+        assertThat(declared(provider("Ollama", "OLLAMA", "http://ollama.example.invalid:11434")))
+            .containsExactly("temperature", "topP", "reasoningEffort")
         assertThat(declared(provider("Anthropic", "ANTHROPIC", "https://api.anthropic.com/v1")))
             .containsExactly("temperature", "topP", "topK")
 
@@ -63,6 +68,28 @@ class ModelChatParametersTest(
             .path("chatModelParameters[2].kind").entity(String::class.java).isEqualTo("CHOICE")
             .path("chatModelParameters[2].choices").entityList(String::class.java).containsExactly("minimal", "low", "medium", "high")
             .path("chatModelParameters[0].kind").entity(String::class.java).isEqualTo("NUMBER")
+
+        // Everywhere else that reads reasoning_effort, every word openai-java's ReasoningEffort knows.
+        val llama = provider("Llama2", "LLAMA_CPP", "http://llama3.example.invalid:8080")
+        graphQlTester.document("""{ chatModelParameters(providerId: $llama) { name kind choices } }""").execute()
+            .path("chatModelParameters[5].name").entity(String::class.java).isEqualTo("reasoningEffort")
+            .path("chatModelParameters[5].choices").entityList(String::class.java)
+            .containsExactly("none", "minimal", "low", "medium", "high", "xhigh", "max")
+    }
+
+    @Test
+    fun `an OpenAI, llama_cpp or Ollama model takes a reasoning effort from the SDK's words`() {
+        val openai = model(provider("OpenAI", "OPENAI", "https://api.openai.com/v1"), "gpt-5")
+        update(openai, """reasoningEffort: "none"""").path("updateModel.reasoningEffort").entity(String::class.java).isEqualTo("none")
+        val llama = model(provider("Llama", "LLAMA_CPP", "http://llama.example.invalid:8080"), "gpt-oss")
+        update(llama, """reasoningEffort: "high"""").path("updateModel.reasoningEffort").entity(String::class.java).isEqualTo("high")
+        val ollama = model(provider("Ollama", "OLLAMA", "http://ollama.example.invalid:11434"), "qwen3")
+        update(ollama, """reasoningEffort: "xhigh"""").path("updateModel.reasoningEffort").entity(String::class.java).isEqualTo("xhigh")
+
+        update(llama, """reasoningEffort: "extreme"""").errors().satisfy { errors ->
+            assertThat(errors.single().extensions["code"]).isEqualTo("ModelParameterValueInvalid")
+        }
+        assertThat(models.findById(llama).get().reasoningEffort).isEqualTo("high")
     }
 
     @Test
@@ -110,10 +137,10 @@ class ModelChatParametersTest(
 
     @Test
     fun `a provider that takes no reasoning effort refuses one`() {
-        val openai = provider("OpenAI", "OPENAI", "https://api.openai.com/v1")
+        val anthropic = provider("Anthropic", "ANTHROPIC", "https://api.anthropic.com/v1")
         graphQlTester.document(
             """mutation { createModel(input: {
-                 providerId: $openai, name: "gpt-4o", modelId: "gpt-4o", kind: CHAT, reasoningEffort: "high"
+                 providerId: $anthropic, name: "claude", modelId: "claude", kind: CHAT, reasoningEffort: "high"
                }) { id } }""",
         ).execute().errors().satisfy { errors ->
             assertThat(errors.single().message).contains("do not take reasoningEffort")
@@ -121,7 +148,7 @@ class ModelChatParametersTest(
         }
         assertThat(models.findAll()).isEmpty()
 
-        val id = model(openai, "gpt-4o")
+        val id = model(anthropic, "claude")
         update(id, """reasoningEffort: "high"""").errors().satisfy { errors ->
             assertThat(errors.single().extensions["code"]).isEqualTo("ModelParameterNotTaken")
         }
@@ -133,7 +160,7 @@ class ModelChatParametersTest(
         update(thoughtful, """reasoningEffort: "low"""")
         graphQlTester.document(
             """mutation { updateModel(id: $thoughtful, input: {
-                 name: "o3", modelId: "o3", kind: CHAT, reasoningEffort: "low", providerId: $openai
+                 name: "o3", modelId: "o3", kind: CHAT, reasoningEffort: "low", providerId: $anthropic
                }) { id } }""",
         ).execute().errors().satisfy { errors ->
             assertThat(errors.single().extensions["code"]).isEqualTo("ModelParameterNotTaken")

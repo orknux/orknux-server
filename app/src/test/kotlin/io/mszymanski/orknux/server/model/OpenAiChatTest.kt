@@ -247,8 +247,8 @@ class OpenAiChatTest {
         }
         assertThat(bodies[0]).contains(""""reasoning_effort":"low"""")
         assertThat(bodies[1]).contains(""""reasoning_effort":"low"""")
-        // Ollama takes no reasoning effort from this product either.
-        assertThat(bodies[2]).doesNotContain("reasoning_effort")
+        // Ollama's /v1 reads reasoning_effort and maps it onto its own think.
+        assertThat(bodies[2]).contains(""""reasoning_effort":"low"""")
     }
 
     @Test

@@ -29,7 +29,11 @@ data class Brief(val maxOutput: Int, val leastReasoning: Boolean = true) {
     }
 
     private companion object {
-        /** The lowest of [ChatParameters.REASONING_EFFORT_SPEC]'s words. */
+        /**
+         * The lowest of [ChatParameters.REASONING_EFFORT_SPEC]'s words, and one
+         * [ChatParameters.OPEN_REASONING_EFFORT_SPEC] holds too. Not `none`: that
+         * turns thinking off, where a brief asks only for less of it.
+         */
         const val LEAST_EFFORT = "minimal"
     }
 }

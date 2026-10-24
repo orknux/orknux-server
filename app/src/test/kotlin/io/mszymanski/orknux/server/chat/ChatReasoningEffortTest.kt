@@ -164,9 +164,63 @@ class ChatReasoningEffortTest(
         assertThat(received.map(::effortSent)).containsOnly("low")
     }
 
+    /**
+     * OpenAI's chat completions and the servers imitating them - vLLM, a
+     * gateway, llama.cpp registered under the OpenAI type - read the effort as
+     * `reasoning_effort` at the top of the body, which is the SDK's own field.
+     */
+    @Test
+    fun `an OpenAI-type model offers the SDK's efforts and sends the one chosen as reasoning_effort`() {
+        val modelId = completionsModel("OPENAI", serveCompletions())
+        val chatId = chat(agent("Reviewer", modelId))
+
+        graphQlTester.document("""{ chatSession(id: $chatId) { reasoningEfforts } }""")
+            .execute().errors().verify()
+            .path("chatSession.reasoningEfforts").entityList(String::class.java)
+            .containsExactly("none", "minimal", "low", "medium", "high", "xhigh", "max")
+
+        graphQlTester.document("""mutation { setChatReasoningEffort(id: $chatId, effort: "high") { id } }""")
+            .execute().errors().verify()
+        assertThat(completionsEffort(send(chatId))).isEqualTo("high")
+        assertThat(requireNotNull(models.findByIdOrNull(modelId)).reasoningEffort).isNull()
+
+        graphQlTester.document("""mutation { setChatReasoningEffort(id: $chatId, effort: null) { id } }""")
+            .execute().errors().verify()
+        assertThat(mapper.readTree(send(chatId)).has("reasoning_effort")).isFalse()
+    }
+
+    /**
+     * llama.cpp's server reads the same top-level `reasoning_effort` and hands
+     * it to the model's chat template (tools/server/server-common.cpp), `none`
+     * turning thinking off - so it goes as the SDK sends it, on both doors.
+     */
+    @Test
+    fun `a llama_cpp model sends its effort as reasoning_effort, streamed or not`() {
+        val modelId = completionsModel("LLAMA_CPP", serveCompletions())
+        val agentId = agent("Reviewer", modelId)
+        val chatId = chat(agentId)
+
+        graphQlTester.document("""mutation { setChatReasoningEffort(id: $chatId, effort: "none") { reasoningEffort } }""")
+            .execute().errors().verify()
+            .path("setChatReasoningEffort.reasoningEffort").entity(String::class.java).isEqualTo("none")
+        assertThat(completionsEffort(send(chatId))).isEqualTo("none")
+
+        received.clear()
+        val answer = conversation.answer(
+            modelId,
+            agentId,
+            listOf(ChatTurn("user", "Quickly, please.")),
+            watch = object : RoundWatch {},
+            reasoningEffort = "medium",
+        )
+        assertThat(answer).isInstanceOf(ChatCompletion.Answered::class.java)
+        assertThat(received).isNotEmpty
+        assertThat(received.map(::completionsEffort)).containsOnly("medium")
+    }
+
     @Test
     fun `a model that takes no effort offers none and refuses one`() {
-        val modelId = openAiShapedModel(serveCompletions())
+        val modelId = anthropicModel()
         val chatId = chat(agent("Reviewer", modelId))
 
         graphQlTester.document("""{ chatSession(id: $chatId) { reasoningEfforts } }""")
@@ -225,6 +279,10 @@ class ChatReasoningEffortTest(
     private fun effortSent(body: String): String? =
         mapper.readTree(body).path("reasoning").path("effort").asString(null)
 
+    /** The chat-completions spelling: `reasoning_effort`, beside the messages. */
+    private fun completionsEffort(body: String): String? =
+        mapper.readTree(body).path("reasoning_effort").asString(null)
+
     private fun chat(agentId: Long): Long = graphQlTester.document(
         """mutation { startChat(input: { workspaceId: $workspaceId, agentId: $agentId }) { id } }""",
     ).execute().errors().verify().path("startChat.id").entity(Long::class.java).get()
@@ -255,11 +313,24 @@ class ChatReasoningEffortTest(
         ).execute().errors().verify().path("createModel.id").entity(Long::class.java).get()
     }
 
-    /** A llama.cpp-style server behind the OpenAI shape, which takes no effort. */
-    private fun openAiShapedModel(endpoint: String): Long {
+    /** A server speaking OpenAI's chat completions, registered as [type]. */
+    private fun completionsModel(type: String, endpoint: String): Long {
         val providerId = graphQlTester.document(
             """mutation { createModelProvider(input: {
-                 workspaceId: $workspaceId, name: "Stub", endpoint: "$endpoint", secret: "sk-test"
+                 workspaceId: $workspaceId, name: "Stub", type: $type, endpoint: "$endpoint", secret: "sk-test"
+               }) { id } }""",
+        ).execute().errors().verify().path("createModelProvider.id").entity(Long::class.java).get()
+
+        return graphQlTester.document(
+            """mutation { createModel(input: { providerId: $providerId, name: "Stub", modelId: "stub", kind: CHAT }) { id } }""",
+        ).execute().errors().verify().path("createModel.id").entity(Long::class.java).get()
+    }
+
+    /** Anthropic's Messages, which take no effort from this product. Never called. */
+    private fun anthropicModel(): Long {
+        val providerId = graphQlTester.document(
+            """mutation { createModelProvider(input: {
+                 workspaceId: $workspaceId, name: "Anthropic", type: ANTHROPIC, endpoint: "https://anthropic.example.invalid/v1", secret: "sk-test"
                }) { id } }""",
         ).execute().errors().verify().path("createModelProvider.id").entity(Long::class.java).get()
 

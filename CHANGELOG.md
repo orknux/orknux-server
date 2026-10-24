@@ -58,6 +58,8 @@ have failed.
 
 ### 🔧 Changed
 
+- **A reasoning effort for OpenAI, OpenAI-compatible, llama.cpp and Ollama models, not only Azure.** Their model page and the chat composer now offer None, Minimal, Low, Medium, High, Extra high and Max, sent as the chat completions' `reasoning_effort`, which llama.cpp's server hands to the model's chat template (`none` turns thinking off) and Ollama maps onto its own thinking levels; unset sends nothing, as before, and Anthropic still takes none.
+- **The chat's mode switch is the application's own list.** Default, Plan and Auto open above the composer with each row's meaning on hover, drawn like the reasoning-effort pill it now sits beside, before the microphone.
 - **The search on Skills and Memory is one box above the catalogs and searches every catalog, a plugin's included:** matches are grouped under each catalog's name, the column counts them, and choosing a catalog narrows the search to it.
 - **An agent's note to itself may be 2,000 characters by default**, up from 1,000; an installation that set its own limit in Admin Settings keeps it.
 - **The desktop app starts in about half the time.** Its server runs from an unpacked copy of the jar with an AOT cache made for the runtime it ships - about 8 seconds to the first page instead of 18 on a Windows test machine. A release the server installs itself still starts the old way.
