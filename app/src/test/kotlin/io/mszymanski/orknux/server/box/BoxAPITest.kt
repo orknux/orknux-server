@@ -327,6 +327,27 @@ class BoxAPITest(
     }
 
     @Test
+    fun `an address typed without a scheme is taken as http, tested and stored that way`() {
+        val bare = stub.address.removePrefix("http://")
+        assertThat(bare).doesNotContain("://")
+
+        graphQlTester.document("""mutation { testBoxConnection(address: "$bare", token: "change-me") { ok } }""")
+            .execute().path("testBoxConnection.ok").entity(Boolean::class.java).isEqualTo(true)
+
+        val id = create("bare", address = " $bare/ ")
+        assertThat(boxes.findById(id.toLong()).get().address).isEqualTo(stub.address)
+
+        graphQlTester.document("""mutation { updateBox(id: "$id", input: { name: "bare", label: "build", address: "https://orkbox.invalid" }) { id } }""")
+            .execute().errors().verify()
+        assertThat(boxes.findById(id.toLong()).get().address).isEqualTo("https://orkbox.invalid")
+
+        refusedWith(
+            """mutation { updateBox(id: "$id", input: { name: "bare", label: "build", address: "orkbox.invalid?x=1" }) { id } }""",
+            "BoxAddressInvalid", mapOf("address" to "orkbox.invalid?x=1"),
+        )
+    }
+
+    @Test
     fun `every setting reads its default, takes a value in range and refuses one outside it`() {
         val defaults = graphQlTester.document(
             """{ installationSettings {

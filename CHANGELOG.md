@@ -46,6 +46,7 @@ have failed.
 - A webhook whose authentication function refuses a caller answers 404, like an unknown path, rather than 401.
 - `ORKNUX_SESSION_COOKIE_SAME_SITE` and `ORKNUX_SESSION_COOKIE_HTTP_ONLY` now take effect; they were ignored.
 - **A chat's thinking is drawn where it happened, and as the session draws it.** What a model thinks after a tool call is a folded section of its own among the calls, live and after a reload, rather than added to one block above them; each is the session page's red thinking card, and the chat's calls and thinking are a step smaller than the answer.
+- **An address typed without a scheme is taken as http.** `192.168.0.10:8081` in a box's, an MCP server's, a model provider's, a connection's, an HTTP action's or the installation's address, or a release URL, is stored as `http://192.168.0.10:8081`, and the field shows the `http://` once it is left; one typed with `https://` is kept as typed, and a mail server's host stays a host.
 
 ### 🐛 Fixed
 

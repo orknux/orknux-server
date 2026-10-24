@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.update
 
+import io.mszymanski.orknux.connector.Addresses
 import graphql.GraphQLError
 import graphql.schema.DataFetchingEnvironment
 import io.mszymanski.orknux.server.graphql.refused
@@ -169,7 +170,7 @@ class ServerReleaseAPI(
     fun installServerReleaseFromUrl(@Argument url: String, @Argument credential: String?): ServerReleaseDownloadView {
         access.requireAdmin()
         updates.requireSource(ServerReleaseSource.URL)
-        return ServerReleaseDownloadView.of(background.startUrl(url, credential, currentUser()))
+        return ServerReleaseDownloadView.of(background.startUrl(Addresses.withScheme(url), credential, currentUser()))
     }
 
     /**
@@ -200,7 +201,7 @@ class ServerReleaseAPI(
         access.requireAdmin()
         updates.requireSource(ServerReleaseSource.URL)
         val stored = updates.stored().map { it.version }.toSet()
-        return fetcher.listed(url, credential, after = updates.runningVersion())
+        return fetcher.listed(Addresses.withScheme(url), credential, after = updates.runningVersion())
             .map { ListedServerReleaseView(it.version, it.jarUrl, it.version in stored) }
     }
 

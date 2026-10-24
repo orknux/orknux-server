@@ -48,9 +48,18 @@ class InstallationAddressAPITest(
     }
 
     @Test
+    fun `an address typed without a scheme is taken as http`() {
+        graphQlTester.document("""mutation { setInstallationAddress(url: " 192.168.0.190:8090/ ") { stored } }""").execute()
+            .path("setInstallationAddress.stored").entity(String::class.java).isEqualTo("http://192.168.0.190:8090")
+        assertThat(linked()).isEqualTo("http://192.168.0.190:8090/workspace/1")
+    }
+
+    @Test
     fun `an address that is not one is refused`() {
-        graphQlTester.document("""mutation { setInstallationAddress(url: "orknux.example.com") { url } }""").execute()
-            .errors().expect { it.extensions["code"] == "InstallationAddressInvalid" }
+        graphQlTester.document("""mutation { setInstallationAddress(url: "orknux.example.com?page=1") { url } }""").execute()
+            .errors().expect { it.extensions["code"] == "InstallationAddressInvalid" }.verify()
+        graphQlTester.document("""mutation { setInstallationAddress(url: "ftp://orknux.example.com") { url } }""").execute()
+            .errors().expect { it.extensions["code"] == "InstallationAddressInvalid" }.verify()
     }
 
     @Test

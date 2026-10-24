@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.connector.connection
 
+import io.mszymanski.orknux.connector.Addresses
 import io.mszymanski.orknux.connector.CredentialReader
 import io.mszymanski.orknux.connector.security.HeldSecret
 import io.mszymanski.orknux.connector.security.SecretReferences
@@ -107,7 +108,7 @@ class McpServerService(
      * check is recorded, there being no server to record it on.
      */
     fun checkMcpServerDraft(input: CreateMcpServerInput): McpServerCheck {
-        val address = input.address.trim()
+        val address = Addresses.withScheme(input.address)
         if (address.isEmpty()) throw McpServerAddressInvalidException()
         val own = input.secret?.trim()?.ifEmpty { null }
         val variable = references.bind(input.workspaceId, input.secretVariableId, own)
@@ -127,7 +128,7 @@ class McpServerService(
     @Transactional
     fun createMcpServer(input: CreateMcpServerInput): McpServerView {
         val name = input.name.trim()
-        val address = input.address.trim()
+        val address = Addresses.withScheme(input.address)
         if (name.isEmpty()) throw McpServerNameInvalidException()
         if (address.isEmpty()) throw McpServerAddressInvalidException()
         if (servers.findByWorkspaceIdAndName(input.workspaceId, name) != null) throw McpServerNameTakenException(name)
@@ -155,7 +156,7 @@ class McpServerService(
         val server = servers.findByIdOrNull(id) ?: throw McpServerNotFoundException(id)
 
         val name = input.name.trim()
-        val address = input.address.trim()
+        val address = Addresses.withScheme(input.address)
         if (name.isEmpty()) throw McpServerNameInvalidException()
         if (address.isEmpty()) throw McpServerAddressInvalidException()
         if (name != server.name && servers.findByWorkspaceIdAndName(server.workspaceId, name) != null) {
