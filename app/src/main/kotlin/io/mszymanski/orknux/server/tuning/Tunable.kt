@@ -264,6 +264,16 @@ enum class Tunable(
         "How long a wireframe's HTML may be and still be handed to a model",
         "A longer page is answered with the link to download it instead of the page itself.",
     ),
+    /*
+     * Counted in pixels because that is what a chat has room for: the picture
+     * of a wireframe an agent drew is put in the conversation beside its link,
+     * drawn at twice its own size for sharpness and never wider than this.
+     */
+    WIREFRAME_PICTURE_PIXELS(
+        "wireframe.picture.pixels", 1600, 200, 4096, TuningSection.MEDIA, TuningUnit.PIXELS,
+        "How wide the picture of a wireframe an agent drew may be",
+        "The picture put in a chat beside the wireframe's link; a wider drawing is scaled down to this.",
+    ),
 
     /*
      * Design's Videos page. Issue #658. A video is a job its backend runs for

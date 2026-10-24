@@ -7,6 +7,13 @@ import io.mszymanski.orknux.server.design.WireframeDocument
 import io.mszymanski.orknux.server.design.WireframeDocumentInvalidException
 import io.mszymanski.orknux.server.design.WireframeElementType
 import io.mszymanski.orknux.server.design.WireframeRepository
+import io.mszymanski.orknux.server.design.WireframeSvg
+import io.mszymanski.orknux.server.chat.AgentTools
+import io.mszymanski.orknux.server.llm.LlmSessionStore
+import io.mszymanski.orknux.server.plugin.SvgRenderer
+import io.mszymanski.orknux.workflow.script.StoredKind
+import tools.jackson.databind.node.ObjectNode
+import java.util.Base64
 import io.mszymanski.orknux.server.design.WireframeView
 import io.mszymanski.orknux.server.security.InstallationAddress
 import io.mszymanski.orknux.server.security.WebProperties
@@ -37,17 +44,25 @@ class WireframeTools(
     private val web: WebProperties,
     private val address: InstallationAddress,
     private val mapper: ObjectMapper,
+    /** For the picture of what was drawn, put in the conversation beside the link. */
+    private val svgs: SvgRenderer,
+    /** Where that picture's SVG is kept, under a key, as every drawing in a session is. */
+    private val scratch: LlmSessionStore,
     private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
     private val document = WireframeDocument(mapper)
 
+    private val pictures = WireframeSvg()
+
     fun specs(scope: OrknuxScope): List<ToolSpec> = buildList {
         add(
             ToolSpec(
                 name = LIST,
-                description = "The wireframes in this workspace, the one worked on last first: id, name, how many elements each holds, and where it opens.",
+                description = "The wireframes in this workspace - the mockups of screens, pages and forms drawn here - the one " +
+                    "worked on last first: id, name, how many elements each holds, and where it opens.",
                 parameters = emptyList(),
+                summary = "Lists the workspace's wireframes (mockups)",
             ),
         )
         add(
@@ -56,6 +71,7 @@ class WireframeTools(
                 description = "One wireframe in full: every element with its id, type, position, size, text and props. " +
                     "Read it before changing it.",
                 parameters = listOf(ToolParameterSpec(WIREFRAME, "The wireframe's name, or its id.", required = true)),
+                summary = "Reads one wireframe (mockup) in full",
             ),
         )
         add(
@@ -65,14 +81,19 @@ class WireframeTools(
                     "with its elements placed where they were drawn, buttons, fields and pictures as real HTML elements. " +
                     "Answers the page and a link to download it; a page too long to hand over is answered with the link alone.",
                 parameters = listOf(ToolParameterSpec(WIREFRAME, "The wireframe's name, or its id.", required = true)),
+                summary = "A wireframe (mockup) as one HTML page",
             ),
         )
         if (!scope.mayWrite) return@buildList
         add(
             ToolSpec(
                 name = CREATE,
-                description = "Makes a new wireframe in this workspace and answers its id and where it opens. " +
-                    "Give it elements to draw it at once, or draw it afterwards. $ELEMENTS_SAID",
+                description = "Draws a mockup or wireframe of a screen, a page, a form or an app's UI - a sign-up form, a " +
+                    "dashboard, a settings screen - as a new wireframe in this workspace, which a person can open and " +
+                    "change in the wireframe editor. This is what to use when somebody asks for a mockup, a wireframe or " +
+                    "a layout of an interface; a picture drawn in SVG is not one. Give it elements to draw it at once, " +
+                    "or draw it afterwards. $ANSWERED $ELEMENTS_SAID",
+                summary = "Draws a mockup of a screen or form",
                 parameters = listOf(
                     ToolParameterSpec("name", "What it is called.", required = true),
                     ToolParameterSpec(ADD, "The elements to start it with. $ELEMENT_SAID", required = false, schema = ELEMENT_LIST),
@@ -82,8 +103,9 @@ class WireframeTools(
         add(
             ToolSpec(
                 name = CHANGE,
-                description = "Changes a wireframe in one save: adds elements, changes some by id, and removes some by id, " +
-                    "leaving everything else where it is. $ELEMENTS_SAID",
+                description = "Changes a wireframe (a mockup of a screen or form) in one save: adds elements, changes some " +
+                    "by id, and removes some by id, leaving everything else where it is. $ANSWERED $ELEMENTS_SAID",
+                summary = "Changes part of a wireframe (mockup)",
                 parameters = listOf(
                     ToolParameterSpec(WIREFRAME, "The wireframe's name, or its id.", required = true),
                     ToolParameterSpec(ADD, "Elements to add. $ELEMENT_SAID", required = false, schema = ELEMENT_LIST),
@@ -105,8 +127,9 @@ class WireframeTools(
         add(
             ToolSpec(
                 name = DRAW,
-                description = "Replaces everything on a wireframe with the elements given. Use it to start a drawing over; " +
-                    "to change part of one, use $CHANGE. $ELEMENTS_SAID",
+                description = "Replaces everything on a wireframe (a mockup of a screen or form) with the elements given. " +
+                    "Use it to start a drawing over; to change part of one, use $CHANGE. $ANSWERED $ELEMENTS_SAID",
+                summary = "Redraws a whole wireframe (mockup)",
                 parameters = listOf(
                     ToolParameterSpec(WIREFRAME, "The wireframe's name, or its id.", required = true),
                     ToolParameterSpec(ELEMENTS, "Every element the wireframe should hold. $ELEMENT_SAID", required = true, schema = ELEMENT_LIST),
@@ -130,7 +153,7 @@ class WireframeTools(
                     CHANGE -> withWireframe(scope, asked) { change(scope, it, asked) }
                     DRAW -> withWireframe(scope, asked) { held ->
                         val elements = list(asked.path(ELEMENTS)) ?: return@withWireframe refuse("Give $ELEMENTS, as a list.")
-                        shown(scope, api.saveElements(held.id, document.elements(elements)))
+                        drawn(scope, api.saveElements(held.id, document.elements(elements)))
                     }
                     else -> refuse("There is no tool called $name")
                 }
@@ -153,7 +176,7 @@ class WireframeTools(
         val name = text(asked.path("name")) ?: return refuse("What is it called? Give it a name.")
         val elements = list(asked.path(ADD))?.let(document::elements).orEmpty()
         val made = api.createWireframe(scope.workspaceId, name, document.write(elements))
-        return shown(scope, made)
+        return drawn(scope, made)
     }
 
     private fun change(scope: OrknuxScope, held: WireframeView, asked: JsonNode): String {
@@ -184,7 +207,7 @@ class WireframeTools(
             }
         }.orEmpty()
         if (gone.isEmpty() && byId.isEmpty() && added.isEmpty()) return refuse("Nothing to change: give $ADD, $UPDATE or $REMOVE")
-        return shown(scope, api.saveElements(held.id, changed + added))
+        return drawn(scope, api.saveElements(held.id, changed + added))
     }
 
     /**
@@ -221,6 +244,50 @@ class WireframeTools(
             "elements" to document.read(view.document).map(document::shown),
         ),
     )
+
+    /**
+     * What a drawing tool answers: the wireframe as [shown] has it, and a
+     * picture of it where the call came from a conversation.
+     *
+     * Asked for after chat 974, where an agent drew a sign-up form properly and
+     * answered with the link and a paragraph about it: the person wanted to see
+     * the mockup where they had asked for it. The picture goes in the answer's
+     * `picture`, which the round lifts out and puts in the conversation above
+     * the agent's answer - as every drawn picture is - so the model only has to
+     * add the link. A PNG, because that is what a chat and a model can both look
+     * at; the SVG it was drawn from is kept under `contentKey`, for a model that
+     * is asked for the file. Through the MCP endpoint and in the editor's own
+     * chat there is no conversation to put it in, and the editor is already
+     * showing it, so the answer is as it was.
+     */
+    private fun drawn(scope: OrknuxScope, view: WireframeView): String {
+        val answer = shown(scope, view)
+        val session = scope.session ?: return answer
+        val svg = runCatching { pictures.drawing(document.read(view.document)) }.getOrNull() ?: return answer
+        val natural = svg.substringAfter("width=\"").substringBefore('"').toIntOrNull() ?: return answer
+        // The Tunable stops at the renderer's own ceiling, 4096 pixels.
+        val width = minOf(natural * 2, tuning[Tunable.WIREFRAME_PICTURE_PIXELS])
+        val png = when (val made = svgs.png(svg, width)) {
+            is SvgRenderer.Drawing.Drawn -> made
+            is SvgRenderer.Drawing.Refused -> return answer
+        }
+        val key = "wireframe." + view.id + "." + java.lang.Long.toString(System.nanoTime(), 36) + ".svg"
+        scratch.put(
+            session, key, mapper.writeValueAsString(Base64.getEncoder().encodeToString(svg.toByteArray())),
+            StoredKind("image/svg+xml", true),
+        )
+        val tree = mapper.readTree(answer) as ObjectNode
+        tree.put(AgentTools.PICTURE, Base64.getEncoder().encodeToString(png.png))
+        tree.put(AgentTools.PICTURE_TYPE, "image/png")
+        tree.put("contentKey", key)
+        tree.put(
+            "note",
+            "A picture of the wireframe goes into the conversation with this answer. In your answer give the " +
+                "person the url, which opens it in the wireframe editor; contentKey holds the picture as SVG, " +
+                "for whatever sends or saves a file.",
+        )
+        return mapper.writeValueAsString(tree)
+    }
 
     private fun withWireframe(scope: OrknuxScope, asked: JsonNode, then: (WireframeView) -> String): String {
         val named = text(asked.path(WIREFRAME)) ?: return refuse("Which wireframe? Give its name or id; $LIST lists them.")
@@ -275,6 +342,11 @@ class WireframeTools(
         /** The kinds there are, from the enum the document is checked against. */
         private val ELEMENTS_SAID: String =
             "Element types: " + WireframeElementType.entries.joinToString("; ") { "${it.key} - ${it.said}" } + "."
+
+        /** What the drawing tools answer, said in each so a model knows to hand the link on. */
+        private const val ANSWERED =
+            "Answers the wireframe with its url - where it opens in the editor, to give the person - and, in a " +
+                "conversation, puts a picture of it there."
 
         private const val ELEMENT_SAID =
             "Each is {id, type, x, y, w, h, text, props}: whole pixels from the top left, id optional on a new one."

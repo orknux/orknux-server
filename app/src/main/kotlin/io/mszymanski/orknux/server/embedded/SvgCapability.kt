@@ -3,6 +3,7 @@ package io.mszymanski.orknux.server.embedded
 import io.mszymanski.orknux.server.action.ValueType
 import io.mszymanski.orknux.server.attachment.InstallationSettings
 import io.mszymanski.orknux.server.llm.LlmSessionStore
+import io.mszymanski.orknux.server.mcp.WireframeTools
 import io.mszymanski.orknux.server.plugin.SvgRenderer
 import io.mszymanski.orknux.workflow.script.ScriptResult
 import org.springframework.stereotype.Component
@@ -43,12 +44,16 @@ class SvgCapability(
         EmbeddedTool(
             name = DRAW,
             readOnly = true,
-            summary = "Draws a picture from SVG markup you write, in any colours.",
+            // The front of it is what survives in a long tool list, so the not-a-mockup half is up there.
+            summary = "Pictures in SVG, not screen mockups",
             description = "Draws SVG markup you write and answers it as a picture you can look at or send. " +
                 "Start with <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"…\" height=\"…\" viewBox=\"…\">. " +
                 "Colour with fill and stroke: names (teal), #hex, rgb() and hsl() with alpha, fill-opacity, and " +
                 "<linearGradient> or <radialGradient> under <defs>. Nothing outside the markup is fetched, so " +
-                "no linked images or web fonts. A diagram or a chart has a tool of its own that draws it from a description.",
+                "no linked images or web fonts. A diagram or a chart has a tool of its own that draws it from a description. " +
+                "For an illustration, an icon or a picture - not for a mockup or wireframe of a screen, a page, a form " +
+                "or an app's UI: where you have ${WireframeTools.CREATE}, whether in hand or to load, draw that as a wireframe " +
+                "with it, which a person can open and change in the wireframe editor.",
             params = listOf(
                 EmbeddedParam(SVG, ValueType.STRING, "The SVG markup.", required = true),
                 EmbeddedParam(FORMAT, ValueType.STRING, "\"png\" (the default) or \"svg\". Either way the answer is a contentKey."),

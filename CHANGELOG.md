@@ -61,6 +61,7 @@ have failed.
 - **Feather for the Magic edit.** A Feather in pixels beside the prompt softens the selection's edge, so the redrawn part blends into the picture instead of leaving a seam; 0 is a hard edge, as before. It is in the picture's own pixels and starts at Admin → Settings → Limits (`ORKNUX_TUNING_IMAGES_FEATHER_PIXELS`, 8). The blend is done by the server as it lays the change over the picture - the edit endpoint reads a mask as yes or no, and no edit provider here takes a mask blur of its own.
 
 - **Export a model provider** from its row on the Models page: the provider and all its models in one file, without its key, which Import reads back in.
+- **A wireframe an agent draws in a chat is shown in the chat.** `orknux_create_wireframe`, `orknux_change_wireframe` and `orknux_draw_wireframe` put a grey picture of the drawing above the agent's answer, beside the link that opens it in the editor, and keep it as SVG under a key for whatever sends a file; it is at most 1600 pixels wide (`ORKNUX_TUNING_WIREFRAME_PICTURE_PIXELS`).
 
 ### 🔧 Changed
 
@@ -88,6 +89,7 @@ have failed.
 
 ### 🐛 Fixed
 
+- **Asked for a mockup, an agent draws a wireframe rather than an SVG picture.** Nothing it read said a mockup was a wireframe: `svg_draw`'s description and the drawing skill sent "a layout" to SVG, and the wireframe tools, at Offer behind the tool search on an agent with a tool limit, were described only as making a wireframe. `svg_draw`, the wireframe tools and the Diagrams and charts skill now say a mockup of a screen, page or form is drawn with `orknux_create_wireframe`, and the tool search finds it by "mockup", "screen" or "form".
 - **A research that read nothing no longer writes a report.** When every search is refused - a workspace with no search key, a spent quota - Gather fails saying what the search answered, and when nothing else was read Follow up fails saying how many searches it made, before the writer is asked, rather than the model writing up what it already believed and the report being saved as a PDF.
 - **An action calling a built-in function opens with that function chosen.** The functions Orknux brings itself - `research_plan` and the other steps, `pdf_fromHtml` - were missing from the workspace's function list and their scope from the API, so the Research step actions showed an empty Function picker and the function's page failed; they are listed now, under Built in on the Functions page, and open read-only.
 - **The Research list reads as one table**: every cell but the question and the status at one size, text regular and links medium, and the status the Runs list's badge. The model a research used links to the model's page, in the list and on the research.
