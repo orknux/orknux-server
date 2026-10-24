@@ -31,6 +31,25 @@ class AuditRedactionTest {
             .isEqualTo("""{"url":"https://x.example","password":"***","apiKey": "***"}""")
         assertThat(AuditRedaction.redact("""{"title":"rotate the password policy"}"""))
             .isEqualTo("""{"title":"rotate the password policy"}""")
+        assertThat(AuditRedaction.redact("""{"password":"a\"b\\c","name":"x"}"""))
+            .isEqualTo("""{"password":"***","name":"x"}""")
+    }
+
+    /**
+     * A chat's turn died on a StackOverflowError here: the member's value was matched one recursion per character,
+     * and an agent writing a script of a few thousand characters through a tool call took its thread's stack.
+     */
+    @Test
+    fun `a long JSON string value is redacted without running out of stack`() {
+        val script = buildString { repeat(20_000) { append("Write-Host \\\"step $it\\\"\\n") } }
+        val arguments = """{"session":7,"path":"all.ps1","content":"$script","token":"abc"}"""
+        var redacted: String? = null
+        var failure: Throwable? = null
+        val thread = Thread(null, { runCatching { redacted = AuditRedaction.redact(arguments) }.onFailure { failure = it } }, "small-stack", 256L * 1024)
+        thread.start()
+        thread.join()
+        assertThat(failure).isNull()
+        assertThat(redacted).endsWith(""""token":"***"}""").contains(""""content":"$script"""")
     }
 
     @Test

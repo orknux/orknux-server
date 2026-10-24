@@ -54,6 +54,7 @@ have failed.
 
 ### 🐛 Fixed
 
+- **A chat turn whose agent passed a long script to a tool is no longer lost.** Hiding passwords in the call's arguments ran out of stack on a few thousand characters, the turn ended without a word and the chat kept only the question; and a turn that breaks for any reason now says why in the chat and in its session.
 - **An SVG attached to a chat no longer breaks it.** It was sent to the model as an SVG picture, which no provider loads, and every later message in that chat failed with it; it is now shown to the model drawn, a chat that already holds one recovers, and `picture_view` draws one kept as text.
 - **An agent's chats follow it to a new model.** Each chat kept the model it began with, so an agent moved to another model or provider went on calling the old one until a new chat was started.
 - An identity provider's sign-in whose username matched an internal account's was given that account's roles.

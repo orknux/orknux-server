@@ -312,7 +312,9 @@ object AuditRedaction {
      * Only a string value, and only under a name the assignment rule would also
      * have hidden. Issue #588.
      */
-    private val JSON_MEMBER = Regex("""("([A-Za-z0-9_.\-]{1,64})"\s*:\s*")((?:[^"\\]|\\.)*)"""")
+    // Unrolled, with possessive runs: `(?:[^"\\]|\\.)*` recursed once per character, and a tool call carrying a
+    // script a few thousand characters long overflowed the chat thread's stack and lost the turn.
+    private val JSON_MEMBER = Regex("""("([A-Za-z0-9_.\-]{1,64})"\s*:\s*")([^"\\]*+(?:\\.[^"\\]*+)*+)"""")
 
     private fun jsonMembers(text: String): String = text.replace(JSON_MEMBER) { match ->
         if (looksLikeCredentialName(match.groupValues[2]) && match.groupValues[3].isNotEmpty()) {

@@ -86,6 +86,7 @@ class ChatStreamAPI(
     private val videos: ChatVideos,
     /** Whether the sounds on a message may go to the model answering it, and in which format. */
     private val audios: ChatAudios,
+    private val sessions: io.mszymanski.orknux.server.llm.LlmSessionRecorder,
 ) {
 
     /**
@@ -309,6 +310,8 @@ class ChatStreamAPI(
                 // Set the moment the answer is safely in the history, so the
                 // rescue below cannot run on top of one that did arrive.
                 var kept = false
+                // Where a turn that breaks says so: the session view is where somebody looks when a chat goes quiet.
+                var recordedIn: Long? = null
                 try {
                     /*
                      * The turn, built here so that compacting can be announced
@@ -321,6 +324,7 @@ class ChatStreamAPI(
                     val start = begin { event, payload -> send(event, payload) }
                     // The session this turn is recorded in, said at once: a chat opens its session with its first
                     // turn, and the page's link to it waited for the turn to end, or for a reload.
+                    recordedIn = start.llmSessionId
                     start.llmSessionId?.let { send("session", mapOf("id" to it.toString())) }
                     start.compacted?.let { held ->
                         send(
@@ -456,12 +460,18 @@ class ChatStreamAPI(
                             )
                         }
                     }
-                } catch (failure: Exception) {
-                    // The provider, the store - something the turn needed. The
-                    // only thing left is not to lose the thread's state in
-                    // silence.
+                } catch (failure: Throwable) {
+                    // The provider, the store, a stack overflow in something the turn ran - an Error too, since one
+                    // ended this thread without a word and the chat dropped the turn with nobody told why. Said in
+                    // the session and to the page, not only in the log.
                     log.warn("Chat {} could not finish its answer", id, failure)
+                    val why = "The answer stopped on an error in the server: ${failure.javaClass.simpleName}" +
+                        (failure.message?.takeIf { it.isNotBlank() }?.let { ": ${it.take(300)}" } ?: "")
+                    recordedIn?.let { session ->
+                        runCatching { sessions.note(session, why) }.onFailure { log.warn("Chat {} could not record its error", id, it) }
+                    }
                     if (!kept) runCatching(giveUp).onFailure { log.warn("Chat {} could not be put back", id, it) }
+                    runCatching { send("error", mapOf("reason" to why)) }
                 } finally {
                     generations.release(id, generation)
                     SecurityContextHolder.clearContext()
