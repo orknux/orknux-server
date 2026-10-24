@@ -14,6 +14,8 @@ import io.mszymanski.orknux.server.agent.Chattiness
 import io.mszymanski.orknux.server.agent.GrantExemptions
 import io.mszymanski.orknux.server.chat.BuiltInTools
 import io.mszymanski.orknux.server.embedded.EmbeddedCapabilities
+import io.mszymanski.orknux.server.tuning.Tunable
+import io.mszymanski.orknux.server.tuning.Tuning
 import io.mszymanski.orknux.server.workflow.MappingMode
 import io.mszymanski.orknux.server.workflow.NodeExpressions
 import io.mszymanski.orknux.server.workflow.NodeKind
@@ -73,6 +75,17 @@ import org.springframework.transaction.annotation.Transactional
  * name, a node or a line added - is theirs and is left as it is, still running
  * the functions it calls, which all still work.
  *
+ * **Tried again by default.** Every step is drawn with a retry policy - as
+ * many tries and as long a wait as [Tunable.RESEARCH_STEP_RETRIES] and
+ * [Tunable.RESEARCH_STEP_RETRY_SECONDS] say when it is drawn - because a model
+ * that answers with nothing once answers the same request in full a moment
+ * later, and a research of many minutes should not be lost to it. The policy
+ * spends attempts only on a failure that says it could come out differently:
+ * a model that did not answer, not a research that read nothing. It is the
+ * node's, like any knob, and is not part of what makes a workflow look edited;
+ * a workflow still as it was drawn but with no retry setting on any step - one
+ * made before there were any - is given it.
+ *
  * **Adopted by name.** A copied or imported workspace arrives with the
  * workflows, the actions and the agents already in it, under the names written
  * here, and a second set beside them would be a name refused or a duplicate
@@ -90,6 +103,7 @@ class ResearchModes(
     private val agents: AgentRepository,
     /** Only to write the research functions' rows where start-up has not yet; see [functionId]. */
     private val embedded: ObjectProvider<EmbeddedCapabilities>,
+    private val tuning: Tuning,
 ) : GrantExemptions {
 
     /**
@@ -151,6 +165,9 @@ class ResearchModes(
                 }
                 if (relaid(workspaceId, workflowId, depth)) {
                     log.info("Research mode {} of workspace {} laid out again", depth.modeName, workspaceId)
+                }
+                if (retried(workspaceId, workflowId, depth)) {
+                    log.info("Research mode {} of workspace {} given its steps' retry policy", depth.modeName, workspaceId)
                 }
                 (workflowId to depth).takeIf {
                     untouchedSingle(workspaceId, workflowId, depth, legacy) || untouchedActions(workspaceId, workflowId, depth)
@@ -220,9 +237,45 @@ class ResearchModes(
     }
 
     /**
+     * Gives a mode drawn in the current shape, and with no retry setting on any
+     * of its steps, the policy [lay] draws them with now. One whose steps carry
+     * any retry setting at all - somebody's own numbers, or a policy cut back
+     * to one attempt with its wait left behind - is not touched.
+     */
+    private fun retried(workspaceId: Long, workflowId: Long, depth: Depth): Boolean {
+        if (tuning[Tunable.RESEARCH_STEP_RETRIES] < 1) return false
+        if (!untouchedCurrent(workspaceId, workflowId, depth)) return false
+        val held = nodes.findByWorkflowId(workflowId)
+        if (held.any(::hasRetrySettings)) return false
+        held.forEach { node ->
+            retrying(node)
+            nodes.save(node)
+        }
+        return true
+    }
+
+    /** Writes the installation's research retry policy on a step's node; none where it says no retries. */
+    private fun retrying(node: WorkflowNode) {
+        val retries = tuning[Tunable.RESEARCH_STEP_RETRIES]
+        if (retries < 1) return
+        // Attempts in all, as the node counts them: the first go and the retries after it.
+        node.retryAttempts = retries + 1
+        node.retryBackoffSeconds = tuning[Tunable.RESEARCH_STEP_RETRY_SECONDS]
+    }
+
+    private fun hasRetrySettings(node: WorkflowNode): Boolean =
+        listOf(
+            node.retryAttempts, node.retryBackoffSeconds, node.retryMultiplier,
+            node.retryMaxWaitSeconds, node.retryJitter, node.retryBudgetSeconds,
+        ).any { it != null }
+
+    /**
      * Whether a workflow is still exactly the shape [lay] draws now - its nodes,
      * agents, actions, outputs, parameters and lines - wherever its cards sit.
      * Named as [named] says, which is the current names unless asked about the former ones.
+     * A step's retry policy is not looked at: it is a setting the steps are
+     * drawn with and the installation's to change, and what it says has no
+     * bearing on whether the work is still the work that was seeded.
      */
     private fun untouchedCurrent(
         workspaceId: Long,
@@ -429,6 +482,7 @@ class ResearchModes(
                 ).also {
                     // Its answer goes on whole, when it is done: a draft handed on in pieces is a report saved in pieces.
                     if (step.agent != null) it.streamOutput = false
+                    retrying(it)
                 },
             )
         }

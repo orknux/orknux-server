@@ -458,8 +458,11 @@ class ResearchPipeline(
         "[${source.number}] ${source.title} - ${source.url}\n${source.notes}"
     }
 
-    /** Says a step on the research where there is one: what [ResearchDelivery] writes while it saves. */
-    fun note(researchId: Long?, stage: ResearchStage, said: String) {
+    /**
+     * Says a step on the research where there is one: what [ResearchDelivery] writes while it saves.
+     * A null [stage] keeps the one already written, for a step that is not one of the five.
+     */
+    fun note(researchId: Long?, stage: ResearchStage?, said: String) {
         Tracker(researchId, stage).step(said)
     }
 
@@ -653,13 +656,13 @@ class ResearchPipeline(
      * from nothing, and the page goes on showing one research rather than
      * five that each forgot the one before.
      */
-    private inner class Tracker(private val researchId: Long?, stage: ResearchStage) {
+    private inner class Tracker(private val researchId: Long?, stage: ResearchStage?) {
         private var now = ResearchProgress(step = "Starting", stage = stage)
         private var sources: List<ResearchSource> = emptyList()
 
         init {
             researchId?.let { researches.findByIdOrNull(it) }?.let { held ->
-                progressFrom(held.progress)?.let { now = it.copy(stage = stage) }
+                progressFrom(held.progress)?.let { now = it.copy(stage = stage ?: it.stage) }
                 sources = sourcesFrom(held.foundSources)
             }
         }
@@ -696,6 +699,8 @@ class ResearchPipeline(
             searched = texts("searched"),
             level = read.path("level").takeIf { it.isNumber }?.intValue() ?: 0,
             sourcesRead = read.path("sourcesRead").takeIf { it.isNumber }?.intValue() ?: 0,
+            stage = read.path("stage").takeIf { it.isTextual }?.stringValue()
+                ?.let { held -> ResearchStage.entries.firstOrNull { it.name == held } },
         )
     }
 

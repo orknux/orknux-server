@@ -8,6 +8,7 @@ import io.mszymanski.orknux.workflow.execution.GraphVersion
 import io.mszymanski.orknux.workflow.execution.RunEnded
 import io.mszymanski.orknux.workflow.execution.RunStarted
 import io.mszymanski.orknux.workflow.execution.StartExecutionInput
+import io.mszymanski.orknux.workflow.execution.StepRetrying
 import io.mszymanski.orknux.workflow.execution.StepStatus
 import io.mszymanski.orknux.workflow.execution.WorkflowExecution
 import io.mszymanski.orknux.workflow.execution.WorkflowExecutionRepository
@@ -51,6 +52,7 @@ class ResearchRuns(
     private val steps: ExecutionStepRepository,
     private val runs: ExecutionService,
     private val delivery: ResearchDelivery,
+    private val pipeline: ResearchPipeline,
     private val mapper: ObjectMapper,
     transactions: PlatformTransactionManager,
 ) {
@@ -124,6 +126,27 @@ class ResearchRuns(
                 if (research.executionId == null) researches.attachRun(requireNotNull(research.id), event.executionId)
             }
         }.onFailure { log.warn("Could not note run {} on its research", event.executionId, it) }
+    }
+
+    /**
+     * Says on the research that a step failed and is being tried again, and
+     * when: otherwise its line goes on naming what the failed attempt was
+     * doing while the run sits out the wait.
+     */
+    @TransactionalEventListener(fallbackExecution = true)
+    fun retrying(event: StepRetrying) {
+        runCatching {
+            alone.executeWithoutResult {
+                val run = executions.findByIdOrNull(event.executionId) ?: return@executeWithoutResult
+                val research = researchOf(run)?.takeIf { it.status == ResearchStatus.RUNNING } ?: return@executeWithoutResult
+                pipeline.note(
+                    research.id,
+                    STAGES[event.nodeKey],
+                    "${event.stepName} failed on attempt ${event.attempt} of ${event.attempts}; " +
+                        "trying again in ${event.wait.toSeconds()}s",
+                )
+            }
+        }.onFailure { log.warn("Could not note a retry on the research of run {}", event.executionId, it) }
     }
 
     @TransactionalEventListener(fallbackExecution = true)
@@ -223,5 +246,14 @@ class ResearchRuns(
     companion object {
         /** What the run carries the research's id under. */
         const val RESEARCH = "research"
+
+        /** The stage each of a seeded mode's steps is, by its node's key. */
+        private val STAGES = mapOf(
+            ResearchModes.PLAN to ResearchStage.PLAN,
+            ResearchModes.GATHER to ResearchStage.GATHER,
+            ResearchModes.FOLLOW_UP to ResearchStage.FOLLOW_UP,
+            ResearchModes.WRITE to ResearchStage.WRITE,
+            ResearchModes.SAVE to ResearchStage.SAVE,
+        )
     }
 }

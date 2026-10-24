@@ -31,6 +31,10 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Primary
+import org.springframework.context.event.EventListener
+import io.mszymanski.orknux.server.tuning.Tunable
+import io.mszymanski.orknux.workflow.execution.StepRetrying
+import io.mszymanski.orknux.workflow.execution.StepStatus
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.graphql.test.tester.ExecutionGraphQlServiceTester
 import org.springframework.mock.web.MockMultipartFile
@@ -88,12 +92,17 @@ class ResearchTest(
     @Autowired val runSteps: ExecutionStepRepository,
     @Autowired val agents: io.mszymanski.orknux.server.agent.AgentRepository,
     @Autowired val runLogs: io.mszymanski.orknux.workflow.execution.ExecutionLogRepository,
+    @Autowired val tunables: io.mszymanski.orknux.server.tuning.Tunables,
+    @Autowired val retries: RetryWatch,
 ) {
 
     private var workspaceId: Long = 0
     private lateinit var server: HttpServer
     private val received = CopyOnWriteArrayList<String>()
     private val stamp = System.nanoTime().toString().takeLast(9)
+
+    /** While set, the stub answers the writer with nothing, until the run has parked Write for another attempt. */
+    @Volatile private var writerSilent = false
 
     @BeforeEach
     fun workspace() {
@@ -102,6 +111,8 @@ class ResearchTest(
         web.read.clear()
         web.refusing = null
         web.finding = true
+        retries.seen.clear()
+        writerSilent = false
         // What createWorkspace does after its access check, so a test signed in as somebody else has one too.
         workspaceId = requireNotNull(workspaceApi.create("Research $stamp", null).id)
     }
@@ -405,6 +416,116 @@ class ResearchTest(
         assertThat(agents.findByWorkspaceId(workspaceId, org.springframework.data.domain.Sort.unsorted()).map { it.name }.filter { it.startsWith("Research") })
             .containsExactlyInAnyOrder("Research planner", "Research writer")
         assertThat(modesOf()).hasSize(3)
+    }
+
+    /* ------------------------------------------------------------ retries --- */
+
+    @Test
+    fun `every step of a seeded mode is drawn with the retry policy the tunables say`() {
+        // The installation's numbers, on the workspace made in setUp.
+        val attempts = tunables[Tunable.RESEARCH_STEP_RETRIES] + 1
+        val wait = tunables[Tunable.RESEARCH_STEP_RETRY_SECONDS]
+        modesOf().forEach { mode ->
+            assertThat(nodes.findByWorkflowId((mode["workflowId"] as String).toLong()))
+                .hasSize(5)
+                .allMatch { it.retryAttempts == attempts && it.retryBackoffSeconds == wait }
+        }
+
+        // Changed, a workspace made afterwards is drawn with the new numbers.
+        try {
+            tunables.set(Tunable.RESEARCH_STEP_RETRIES, 4, "alice")
+            tunables.set(Tunable.RESEARCH_STEP_RETRY_SECONDS, 7, "alice")
+            workspaceId = requireNotNull(workspaceApi.create("Research retried $stamp", null).id)
+            modesOf().forEach { mode ->
+                assertThat(nodes.findByWorkflowId((mode["workflowId"] as String).toLong()))
+                    .hasSize(5)
+                    .allMatch { it.retryAttempts == 5 && it.retryBackoffSeconds == 7 && it.retryMultiplier == null }
+            }
+        } finally {
+            tunables.set(Tunable.RESEARCH_STEP_RETRIES, null, "alice")
+            tunables.set(Tunable.RESEARCH_STEP_RETRY_SECONDS, null, "alice")
+        }
+    }
+
+    @Test
+    fun `a seeded mode made before there were retries is given them, and one somebody edited is not`() {
+        val shallow = modeWorkflow("SHALLOW")
+        val medium = modeWorkflow("MEDIUM")
+        val deep = modeWorkflow("DEEP")
+        fun noRetries(workflowId: Long) = nodes.saveAll(
+            nodes.findByWorkflowId(workflowId).onEach { it.retryAttempts = null; it.retryBackoffSeconds = null },
+        )
+        // As every workflow was seeded until now.
+        listOf(shallow, medium, deep).forEach(::noRetries)
+        // Medium's planner asks something of somebody's own.
+        nodes.saveAll(nodes.findByWorkflowId(medium).onEach { node ->
+            if (node.nodeKey == "plan") node.mappings.first { it.name == "prompt" }.expression = "My own planning prompt"
+        })
+        // Deep's writer has a policy of somebody's own, and the rest none: theirs to have decided.
+        nodes.saveAll(nodes.findByWorkflowId(deep).onEach { node ->
+            if (node.nodeKey == "write") {
+                node.retryAttempts = 5
+                node.retryBackoffSeconds = 60
+            }
+        })
+
+        researchModes.ensure(workspaceId)
+
+        val attempts = tunables[Tunable.RESEARCH_STEP_RETRIES] + 1
+        val wait = tunables[Tunable.RESEARCH_STEP_RETRY_SECONDS]
+        assertThat(nodes.findByWorkflowId(shallow)).allMatch { it.retryAttempts == attempts && it.retryBackoffSeconds == wait }
+        assertThat(nodes.findByWorkflowId(medium)).allMatch { it.retryAttempts == null && it.retryBackoffSeconds == null }
+        assertThat(nodes.findByWorkflowId(deep).associate { it.nodeKey to it.retryAttempts })
+            .isEqualTo(mapOf("plan" to null, "gather" to null, "followUp" to null, "write" to 5, "save" to null))
+
+        // And a retry policy is no edit: Shallow, retried now, is still laid out again when its cards are heaped.
+        nodes.saveAll(nodes.findByWorkflowId(shallow).onEach { it.positionX = 5.0; it.positionY = 5.0 })
+        researchModes.ensure(workspaceId)
+        assertThat(nodes.findByWorkflowId(shallow).map { it.positionX }.distinct()).hasSize(5)
+    }
+
+    /**
+     * Research 3632 on the development server: the writer's model, llama.cpp
+     * serving Qwen, stopped after its thinking and said nothing, and the
+     * research failed at Write - while the same request by hand, and the same
+     * research run again straight after, wrote the report.
+     */
+    @Test
+    fun `a writer that answers with nothing is tried again, and the research completes`() {
+        val modelId = model(serve())
+        writerSilent = true
+        // Somebody's shorter wait, so the test does not sit out the installation's.
+        nodes.saveAll(nodes.findByWorkflowId(modeWorkflow("SHALLOW")).onEach { it.retryBackoffSeconds = 1 })
+
+        val id = start(
+            """{ workspaceId: $workspaceId, question: "Why are there tides?", modeId: ${modeId("SHALLOW")}, modelId: $modelId, language: FORMAL, outputFormat: DOCUMENT }""",
+        )
+        // What the page says while Write waits for its second go.
+        var said: String? = null
+        val until = System.currentTimeMillis() + 30_000
+        while (said == null && System.currentTimeMillis() < until) {
+            val held = requireNotNull(researches.findByIdOrNull(id))
+            said = held.progress?.takeIf { it.contains("trying again") }
+            if (held.status != ResearchStatus.RUNNING) break
+            Thread.sleep(20)
+        }
+        val done = settled(id)
+
+        assertThat(done.status).describedAs(done.error).isEqualTo(ResearchStatus.COMPLETED)
+        assertThat(done.result).startsWith("# Tides").contains("## Sources")
+        assertThat(said).contains("Write report failed on attempt 1 of 3; trying again in 1s").contains("\"stage\":\"WRITE\"")
+
+        val steps = runSteps.findByExecutionIdOrderByOrderAsc(requireNotNull(done.executionId)).associateBy { it.nodeKey }
+        assertThat(steps.getValue("write").attempts).isEqualTo(2)
+        assertThat(steps.getValue("write").status).isEqualTo(StepStatus.COMPLETED)
+        assertThat(steps.filterKeys { it != "write" }.values).allMatch { it.attempts == 1 }
+        assertThat(retries.seen.map { it.nodeKey }).containsExactly("write")
+        // On the run, under the step, as any retry is.
+        assertThat(runLogs.findByExecutionIdOrderBySequenceAsc(requireNotNull(done.executionId)).filter { it.nodeKey == "write" }.map { it.message })
+            .anyMatch {
+                it.startsWith("Write report failed on attempt 1 of 3: Research writer could not answer: The provider answered with no message") &&
+                    it.contains("Trying again")
+            }
     }
 
     /* ----------------------------------------------- plan, gather, write --- */
@@ -763,8 +884,13 @@ class ResearchTest(
         assertThat(asked(WRITE)).isEmpty()
         assertThat(done.result).isNull()
         assertThat(done.artifactId).isNull()
-        assertThat(runSteps.findByExecutionIdOrderByOrderAsc(requireNotNull(done.executionId)).single { it.nodeKey == "gather" }.status)
-            .isEqualTo(io.mszymanski.orknux.workflow.execution.StepStatus.FAILED)
+        val gather = runSteps.findByExecutionIdOrderByOrderAsc(requireNotNull(done.executionId)).single { it.nodeKey == "gather" }
+        assertThat(gather.status).isEqualTo(StepStatus.FAILED)
+        // Settled: the same searches would read the same nothing, so the step's retry policy spends no attempt on it.
+        assertThat(gather.retryAttempts).isGreaterThan(1)
+        assertThat(gather.attempts).isEqualTo(1)
+        assertThat(retries.seen).isEmpty()
+        assertThat(web.searched).hasSize(3)
         // Each refusal in the step's log, quoted as the search said it, though the step failed.
         assertThat(runLogs.findByExecutionIdOrderBySequenceAsc(requireNotNull(done.executionId)).filter { it.nodeKey == "gather" }.map { it.message })
             .contains("Warning: Searched \"tide causes\": the search answered \"This workspace has no search key set.\"")
@@ -1115,6 +1241,8 @@ class ResearchTest(
             val body = exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
             received += body
             val answer = when {
+                // Nothing said, as llama.cpp's Qwen answered research 3632's writer: a stop with no message.
+                writerSilent && body.contains(opening(WRITE)) && retries.seen.none { it.nodeKey == "write" } -> ""
                 body.contains(opening(PLAN)) -> """["tide causes", "tide timing", "tide records"]"""
                 body.contains(opening(FOLLOW_UP)) -> """["moon distance and tides"]"""
                 body.contains(opening(NOTES)) -> "The moon's gravity raises tides."
@@ -1165,11 +1293,24 @@ class ResearchTest(
         }
     }
 
+    /** Every step a run parked for another attempt, as the engine announced it. */
+    class RetryWatch {
+        val seen = CopyOnWriteArrayList<StepRetrying>()
+
+        @EventListener
+        fun on(event: StepRetrying) {
+            seen += event
+        }
+    }
+
     @TestConfiguration
     class Web {
         @Bean
         @Primary
         fun stubWeb(): StubWeb = StubWeb()
+
+        @Bean
+        fun retryWatch(): RetryWatch = RetryWatch()
     }
 
     private companion object {

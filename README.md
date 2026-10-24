@@ -496,6 +496,8 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_RESEARCH_DOCUMENT_CHARACTERS` | How much of the chosen documents a research is handed, in characters. | `200000` |
 | `ORKNUX_TUNING_RESEARCH_SOURCES_MOST` | The most sources one research may read, in items. | `100` |
 | `ORKNUX_TUNING_RESEARCH_PAGE_CHARACTERS` | How much of one page a research reads, in characters. | `20000` |
+| `ORKNUX_TUNING_RESEARCH_STEP_RETRIES` | How many times a research mode's step is tried again, in times. | `2` |
+| `ORKNUX_TUNING_RESEARCH_STEP_RETRY_SECONDS` | How long a research mode's step waits before trying again, in seconds. | `10` |
 | `ORKNUX_TUNING_PLUGIN_HTTP_BODY_MB` | The largest text answer a plugin's request may read, in MB. | `2` |
 | `ORKNUX_TUNING_PLUGIN_DOWNLOAD_MB` | The largest binary answer a plugin's request may read, in MB. | `5` |
 | `ORKNUX_TUNING_PLUGIN_UPLOAD_MB` | The largest file a plugin may upload, in MB. | `10` |

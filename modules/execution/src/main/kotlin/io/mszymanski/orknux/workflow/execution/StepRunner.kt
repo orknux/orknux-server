@@ -56,6 +56,25 @@ data class StepParked(val executionId: Long, val nodeKey: String, val sessionId:
 data class StepFinished(val executionId: Long, val nodeKey: String, val sessionId: Long)
 
 /**
+ * A step failed and its node's retry policy parked it for another attempt.
+ *
+ * The run's log already says so under the step; this is for whatever a run is
+ * doing on somebody's behalf and has a line of its own to keep current - a
+ * research's progress - so it can say the same thing rather than go on naming
+ * the attempt that failed. Published rather than called, as [StepParked] is.
+ */
+data class StepRetrying(
+    val executionId: Long,
+    val nodeKey: String,
+    val stepName: String,
+    /** The attempt that failed, counting from one. */
+    val attempt: Int,
+    val attempts: Int,
+    val wait: Duration,
+    val reason: String,
+)
+
+/**
  * A run has ended - completed, failed or stopped. Published so a run waiting on
  * it, the caller of a Workflow node, can be woken rather than wait out its
  * timer; this module knows nothing of who waits on whom.
@@ -572,6 +591,9 @@ class StepRunner(
             LogLevel.INFO,
             "${step.name} failed on attempt ${step.attempts} of ${policy.attempts}: $reason. " +
                 "Trying again at ${retryAt(java.time.Instant.now(), wait, zone())}, in ${wait.toSeconds()}s",
+        )
+        published.publishEvent(
+            StepRetrying(executionId, step.nodeKey, step.name, step.attempts, policy.attempts, wait, reason),
         )
         // It produced nothing, so the next attempt is handed what this one was.
         return StepOutcome(StepStatus.WAITING, input, resumeAfter = wait)
