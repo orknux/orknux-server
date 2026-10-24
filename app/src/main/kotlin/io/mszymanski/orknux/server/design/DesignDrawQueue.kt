@@ -42,6 +42,7 @@ class DesignDrawQueue(
     private val settings: InstallationSettings,
     private val auditRecorder: WorkspaceAuditRecorder,
     private val artifacts: io.mszymanski.orknux.server.workflow.WorkspaceArtifactAPI,
+    private val layers: DesignImageLayers,
 ) : SmartLifecycle {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -160,10 +161,15 @@ class DesignDrawQueue(
                             versionOf = source?.let { it.view.versionOf ?: job.sourceId },
                         ),
                     )
+                    // Kept before the row says DRAWN, so a page that sees it drawn finds its layers too.
+                    val layered = job.sourceId?.let { from ->
+                        layeredChange(job, from, "DESIGN-${saved.id}", picture.image, original, mask)
+                    } ?: false
                     // Stopped while the picture was being filed: the row decides, and the picture goes.
                     if (jobs.drawn(id, requireNotNull(saved.id)) != 1) {
                         images.delete(saved)
                         runCatching { store.remove(saved.location) }
+                        if (layered) layers.forget(job.workspaceId, "DESIGN-${saved.id}")
                         log.info("Design image {} was stopped as it was drawn; its picture is thrown away", id)
                         return
                     }
@@ -186,6 +192,41 @@ class DesignDrawQueue(
             drawingNow.decrementAndGet()
             dispatch()
         }
+    }
+
+    /**
+     * A model's change to a picture that has layers, given to its version as a
+     * layer of its own over the ones it was asked of - which are copied to the
+     * version, each made the result's size where an upscale changed it - rather
+     * than flattening them into the picture: an image editor puts a generated
+     * change on a layer and leaves the rest alone. A Magic edit's layer holds
+     * the change alone, inside the selection; a change to the whole picture -
+     * an upscale, a clean-up, a Harmonize - holds all of it, and hiding it shows
+     * the layers as they were. The version's file is the result as ever, which
+     * is exactly the layers flattened. A picture kept flat stays flat: its
+     * change is the picture, as before. Answers whether layers were kept.
+     */
+    private fun layeredChange(job: DesignImageJob, from: String, version: String, result: ByteArray, original: ByteArray?, mask: ByteArray?): Boolean {
+        if (layers.of(job.workspaceId, from).isEmpty()) return false
+        val drawn = PictureScaling.read(result) ?: return false
+        val change = if (mask != null && original != null && job.scale == null && job.strength == null) {
+            MaskedComposite.changeOnly(original, result, mask, job.feather ?: 0) ?: return false
+        } else {
+            PictureScaling.png(drawn)
+        }
+        val scale = job.scale
+        val name = when {
+            job.strength != null -> "Harmonized"
+            scale == 1.0 -> "Cleaned up"
+            scale != null -> "Upscaled " + java.math.BigDecimal.valueOf(scale).stripTrailingZeros().toPlainString() + "x"
+            else -> job.prompt.take(LAYER_NAME_LENGTH)
+        }
+        layers.keep(
+            job.workspaceId,
+            version,
+            layers.copied(job.workspaceId, from, drawn.width, drawn.height) + LayerPixels(name, visible = true, picture = false, png = change),
+        )
+        return true
     }
 
     /**
@@ -272,4 +313,9 @@ class DesignDrawQueue(
     }
 
     override fun isRunning(): Boolean = running
+
+    private companion object {
+        /** A layer's name is a title, as a picture's is: the column's own width. */
+        const val LAYER_NAME_LENGTH = 255
+    }
 }

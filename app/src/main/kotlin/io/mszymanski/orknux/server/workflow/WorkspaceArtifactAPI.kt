@@ -52,6 +52,8 @@ class WorkspaceArtifactAPI(
     private val store: AttachmentStore,
     private val access: WorkspaceAccess,
     private val auditRecorder: WorkspaceAuditRecorder,
+    /** A picture's layers in the image editor, which go with it. */
+    private val layers: io.mszymanski.orknux.server.design.DesignImageLayers,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -272,7 +274,10 @@ class WorkspaceArtifactAPI(
         designImages.findByWorkspaceIdAndVersionOf(gone.workspaceId, id).forEach { version ->
             designImages.delete(version)
             runCatching { store.remove(version.location) }
+            layers.forget(gone.workspaceId, "${ArtifactKind.DESIGN.name}-${version.id}")
         }
+        // And its layers, the picture's and every draft's.
+        layers.forget(gone.workspaceId, id)
 
         auditRecorder.record(
             gone.workspaceId,

@@ -31,18 +31,9 @@ object MaskedComposite {
     fun keepOutside(original: ByteArray, changed: ByteArray, mask: ByteArray, feather: Int = 0): ByteArray? {
         val base = read(original) ?: return null
         val answer = read(changed)?.let { fitted(it, base.width, base.height) } ?: return null
-        val where = read(mask)?.let { fitted(it, base.width, base.height) } ?: return null
         val width = base.width
         val height = base.height
-
-        // How much of the change each pixel takes: all of it inside the selection, none outside.
-        val weight = FloatArray(width * height)
-        for (y in 0 until height) {
-            for (x in 0 until width) {
-                if ((where.getRGB(x, y) ushr 24) < OPAQUE_ENOUGH) weight[y * width + x] = 1f
-            }
-        }
-        if (feather > 0) softened(weight, width, height, feather)
+        val weight = weightsOf(mask, width, height, feather) ?: return null
 
         val out = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
         for (y in 0 until height) {
@@ -63,6 +54,43 @@ object MaskedComposite {
             ImageIO.write(out, "png", bytes)
             bytes.toByteArray()
         }
+    }
+
+    /**
+     * The model's change alone, on a layer of its own: its pixels where the
+     * selection is, fading out across the feather, and transparent everywhere
+     * else - what a picture with layers gets a Magic edit as, over the layers
+     * it was asked of. Laid over the picture as it was, it is exactly what
+     * [keepOutside] makes. Null where either picture cannot be read.
+     */
+    fun changeOnly(original: ByteArray, changed: ByteArray, mask: ByteArray, feather: Int = 0): ByteArray? {
+        val base = read(original) ?: return null
+        val answer = read(changed)?.let { fitted(it, base.width, base.height) } ?: return null
+        val width = base.width
+        val height = base.height
+        val weight = weightsOf(mask, width, height, feather) ?: return null
+        val out = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                val pixel = answer.getRGB(x, y)
+                val alpha = ((pixel ushr 24) * weight[y * width + x]).roundToInt().coerceIn(0, 255)
+                out.setRGB(x, y, (alpha shl 24) or (pixel and 0xFFFFFF))
+            }
+        }
+        return PictureScaling.png(out)
+    }
+
+    /** How much of the change each pixel takes: all of it inside the selection, none outside, softened across the feather. */
+    private fun weightsOf(mask: ByteArray, width: Int, height: Int, feather: Int): FloatArray? {
+        val where = read(mask)?.let { fitted(it, width, height) } ?: return null
+        val weight = FloatArray(width * height)
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                if ((where.getRGB(x, y) ushr 24) < OPAQUE_ENOUGH) weight[y * width + x] = 1f
+            }
+        }
+        if (feather > 0) softened(weight, width, height, feather)
+        return weight
     }
 
     /** Each channel of the two, [share] of the way from [from] to [to]. */

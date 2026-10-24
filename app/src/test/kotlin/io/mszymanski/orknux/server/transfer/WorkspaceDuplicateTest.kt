@@ -47,7 +47,45 @@ class WorkspaceDuplicateTest(
     @Autowired val researchModes: io.mszymanski.orknux.server.research.ResearchModeRepository,
     @Autowired val researches: io.mszymanski.orknux.server.research.ResearchRepository,
     @Autowired val workflowNodes: io.mszymanski.orknux.server.workflow.WorkflowNodeRepository,
+    @Autowired val designImages: io.mszymanski.orknux.server.design.DesignImageRepository,
+    @Autowired val layerRows: io.mszymanski.orknux.server.design.DesignImageLayerRepository,
+    @Autowired val layers: io.mszymanski.orknux.server.design.DesignImageLayers,
 ) {
+
+    /**
+     * What was drawn in Design is work done in a workspace, not how it is set
+     * up, so a copy carries no picture - and so none of a picture's layers
+     * from the image editor either, which would belong to nothing there.
+     */
+    @Test
+    fun `a copy carries no Design picture and none of its layers`() {
+        val stamp = System.nanoTime()
+        val source = requireNotNull(workspaces.save(Workspace(name = "dup-layers-$stamp")).id)
+        val pixel = java.util.Base64.getDecoder().decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        )
+        val picture = designImages.save(
+            io.mszymanski.orknux.server.design.DesignImage(
+                workspaceId = source, modelId = null, modelName = "Drawer", prompt = "A dot", size = null, quality = null,
+                style = null, filename = "dot.png", contentType = "image/png", sizeBytes = pixel.size.toLong(),
+                location = "nowhere/dot.png", drawnBy = "alice", name = "Dot",
+            ),
+        )
+        layers.keep(
+            source,
+            "DESIGN-${picture.id}",
+            listOf(
+                io.mszymanski.orknux.server.design.LayerPixels(null, visible = true, picture = true, png = pixel),
+                io.mszymanski.orknux.server.design.LayerPixels("Eyes", visible = true, picture = false, png = pixel),
+            ),
+        )
+
+        val copy = duplicator.duplicate(source, "dup-layers-copy-$stamp", "alice").workspaceId
+
+        assertThat(designImages.findByWorkspaceIdAndVersionOfIsNull(copy)).isEmpty()
+        assertThat(layerRows.findAll().filter { it.workspaceId == copy }).isEmpty()
+        assertThat(layers.of(source, "DESIGN-${picture.id}").map { it.name }).containsExactly(null, "Eyes")
+    }
 
     /**
      * A copy says how far it has got as it goes. Issue #572: a large copy showed

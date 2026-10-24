@@ -418,10 +418,15 @@ class DesignImageAPITest(
     @Test
     fun `the image editor's tools start where Admin Settings says`() {
         fun settings() = graphQlTester.document(
-            """query { designImageEditorSettings(workspaceId: $workspaceId) { brush brushMost blur blurMost blurFalloff blurFalloffMost feather featherMost } }""",
+            """query { designImageEditorSettings(workspaceId: $workspaceId) {
+                 brush brushMost blur blurMost blurFalloff blurFalloffMost feather featherMost brushOpacity brushHardness markerOpacity } }""",
         ).execute()
         settings()
             .path("designImageEditorSettings.brush").entity(Int::class.java).isEqualTo(12)
+            // Each tip's start, which the brush's bar opens at: the marker see-through, the soft tip half hard.
+            .path("designImageEditorSettings.brushOpacity").entity(Int::class.java).isEqualTo(100)
+            .path("designImageEditorSettings.brushHardness").entity(Int::class.java).isEqualTo(50)
+            .path("designImageEditorSettings.markerOpacity").entity(Int::class.java).isEqualTo(50)
             .path("designImageEditorSettings.brushMost").entity(Int::class.java).isEqualTo(500)
             .path("designImageEditorSettings.blur").entity(Int::class.java).isEqualTo(12)
             .path("designImageEditorSettings.blurMost").entity(Int::class.java).isEqualTo(254)
