@@ -410,7 +410,9 @@ type Query {
         "Ascending when absent, so a column of names reads A to Z."
         ascending: Boolean,
         "Only workflows whose name or description holds this. Absent is all of them."
-        search: String
+        search: String,
+        "The hidden ones as well; absent or false leaves them out."
+        showHidden: Boolean
     ): WorkspaceWorkflowPage!
     """
     The workspace's action catalogue: the blocks its workflows are built from.
@@ -1755,7 +1757,9 @@ type Mutation {
     """
     duplicateWorkflow(id: ID!, name: String): WorkspaceWorkflow!
     setWorkflowEnabled(id: ID!, enabled: Boolean!): WorkspaceWorkflow!
-    "Saves the workflow settings form; the definition is shared by every workspace using it."
+    "Keeps a workflow off the Workflows list until Show hidden is ticked, or puts it back. It still runs."
+    setWorkflowHidden(id: ID!, hidden: Boolean!): WorkspaceWorkflow!
+    "Saves the workflow settings form;the definition is shared by every workspace using it."
     updateWorkflow(id: ID!, input: UpdateWorkflowInput!): WorkspaceWorkflow!
     "Unassigns the workflow from the workspace; the definition is kept."
     removeWorkflow(id: ID!): Boolean!
@@ -3521,6 +3525,8 @@ type WorkspaceWorkflow {
     description: String
     "Off means no trigger, schedule or tool call starts it. Run still does."
     enabled: Boolean!
+    "Kept off the list unless Show hidden is ticked; the research workflows start this way."
+    hidden: Boolean!
     "Where it last got to; null until it has run."
     lastRun: LastRun
     "When a scheduled trigger will start it next, ISO-8601; null when nothing schedules it or it is switched off."

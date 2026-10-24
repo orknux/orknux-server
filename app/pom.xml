@@ -269,6 +269,17 @@
             <artifactId>commonmark</artifactId>
             <version>0.29.0</version>
         </dependency>
+        <!--
+          Tables, for a research report laid out as a PDF: a model writes a
+          comparison as a GFM table, and core commonmark renders one as a
+          paragraph of pipes. The same project and licence as the parser above.
+          Issue #659.
+        -->
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark-ext-gfm-tables</artifactId>
+            <version>0.29.0</version>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -61,6 +61,25 @@ interface WorkspaceWorkflowRepository : JpaRepository<WorkspaceWorkflow, Long> {
         pageable: Pageable,
     ): Page<WorkspaceWorkflow>
 
+    /** The list without the hidden ones, which is what it is until "Show hidden" is ticked. Issue #659. */
+    fun findByWorkspaceIdAndWorkflowHiddenFalse(workspaceId: Long, pageable: Pageable): Page<WorkspaceWorkflow>
+
+    /** [searching], without the hidden ones. */
+    @Query(
+        """
+        SELECT a FROM WorkspaceWorkflow a
+        WHERE a.workspaceId = :workspaceId
+          AND a.workflow.hidden = false
+          AND (LOWER(a.workflow.name) LIKE LOWER(CONCAT('%', :looking, '%'))
+            OR LOWER(COALESCE(a.workflow.description, '')) LIKE LOWER(CONCAT('%', :looking, '%')))
+        """,
+    )
+    fun searchingShown(
+        @Param("workspaceId") workspaceId: Long,
+        @Param("looking") looking: String,
+        pageable: Pageable,
+    ): Page<WorkspaceWorkflow>
+
     /**
      * All of them, for a caller asking about the workspace rather than showing
      * it a page - which in practice means "does anything here still name this

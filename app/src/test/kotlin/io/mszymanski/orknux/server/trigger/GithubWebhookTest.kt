@@ -103,7 +103,8 @@ class GithubWebhookTest(
         firings.deleteAll()
         triggers.deleteAll()
         pluginSettings.deleteAll()
-        functions.deleteAll()
+        // Not the release's own, which every workspace's Research action calls (#659) and start-up writes back anyway.
+        functions.deleteAll(functions.findAll().filter { it.scope != io.mszymanski.orknux.server.action.FunctionScope.EMBEDDED })
         plugins.deleteAll()
         logs.deleteAll()
         steps.deleteAll()

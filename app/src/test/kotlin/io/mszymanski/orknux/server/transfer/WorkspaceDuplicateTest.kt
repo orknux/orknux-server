@@ -43,6 +43,9 @@ class WorkspaceDuplicateTest(
     @Autowired val memoryCatalogs: io.mszymanski.orknux.server.memory.MemoryCatalogRepository,
     @Autowired val memories: io.mszymanski.orknux.server.memory.MemoryRepository,
     @Autowired val actions: io.mszymanski.orknux.server.action.WorkflowActionRepository,
+    @Autowired val workspaceApi: io.mszymanski.orknux.server.workspace.WorkspaceAPI,
+    @Autowired val researchModes: io.mszymanski.orknux.server.research.ResearchModeRepository,
+    @Autowired val researches: io.mszymanski.orknux.server.research.ResearchRepository,
 ) {
 
     /**
@@ -443,5 +446,45 @@ class WorkspaceDuplicateTest(
         assertThat(fields - WORKSPACE_SETTINGS.map { it.key }.toSet() - models - left)
             .describedAs("fields of Workspace a copy and a workspace file have not decided on")
             .isEmpty()
+    }
+
+    /**
+     * What a copy decides about research. Issue #659.
+     *
+     * The research a workspace did is its history, like its runs, so it stays
+     * with the original. The three modes come with the copy as what they are -
+     * hidden workflows and the Research action they call, carried like any other - and
+     * the copy's modes are found among those by name rather than made again, so
+     * the copy has one set and they are its own, not pointers into the original.
+     */
+    @Test
+    fun `a copy carries the research workflows hidden and as its own modes, and leaves the research behind`() {
+        val stamp = System.nanoTime()
+        val source = requireNotNull(workspaceApi.create("dup-research-$stamp", null).id)
+        val shallow = researchModes.findByWorkspaceIdOrderByPositionAscIdAsc(source).first()
+        researches.save(
+            io.mszymanski.orknux.server.research.Research(
+                workspaceId = source, question = "Tides", modeId = shallow.id, modeName = shallow.name,
+                workflowId = requireNotNull(shallow.workflowId), workflowName = "Research: Shallow",
+                language = io.mszymanski.orknux.server.research.ResearchLanguage.FORMAL,
+                outputFormat = io.mszymanski.orknux.server.research.ResearchOutputFormat.DOCUMENT,
+                sources = "{}", startedBy = "alice",
+            ),
+        )
+
+        val copy = duplicator.duplicate(source, "dup-research-copy-$stamp", "alice").workspaceId
+
+        val carried = workspaceWorkflows.findByWorkspaceId(copy).filter { it.workflow.name.startsWith("Research: ") }
+        assertThat(carried.map { it.workflow.name }).containsExactlyInAnyOrder("Research: Shallow", "Research: Medium", "Research: Deep")
+        assertThat(carried).allMatch { it.workflow.hidden }
+
+        val modeWorkflows = graphQlTester.document("""query { researchModes(workspaceId: $copy) { kind workflowId } }""").execute()
+            .path("researchModes[*].kind").entityList(String::class.java).containsExactly("SHALLOW", "MEDIUM", "DEEP")
+            .path("researchModes[*].workflowId").entityList(Long::class.java).get()
+        assertThat(modeWorkflows).containsExactlyInAnyOrderElementsOf(carried.map { it.workflow.id })
+        assertThat(actions.findByWorkspaceId(copy).count { it.name == "Research" }).isEqualTo(1)
+
+        graphQlTester.document("""query { researches(workspaceId: $copy) { totalElements } }""").execute()
+            .path("researches.totalElements").entity(Int::class.java).isEqualTo(0)
     }
 }

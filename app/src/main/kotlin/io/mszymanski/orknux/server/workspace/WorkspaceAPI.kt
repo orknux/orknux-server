@@ -72,6 +72,8 @@ class WorkspaceAPI(
     private val copyProgress: io.mszymanski.orknux.server.transfer.WorkspaceCopyProgress,
     /** Only to say how many agents one may ask where the workspace has not said. Issue #380. */
     private val installation: io.mszymanski.orknux.server.attachment.InstallationSettings,
+    /** Where a new workspace's research modes are made; see `createWorkspace`. Issue #659. */
+    private val researchModes: io.mszymanski.orknux.server.research.ResearchModes,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -303,6 +305,12 @@ class WorkspaceAPI(
                 isDefault = true,
             ),
         )
+        /*
+         * And the three research modes, with the hidden workflows and the agent
+         * behind them, so Answer > Research has something to run on the first
+         * visit. Issue #659.
+         */
+        researchModes.ensure(requireNotNull(workspace.id))
         return workspace
     }
 

@@ -910,6 +910,9 @@ orknux:
     trigger.remember.minutes: ${ORKNUX_TUNING_TRIGGER_REMEMBER_MINUTES:10}
     trigger.remembered: ${ORKNUX_TUNING_TRIGGER_REMEMBERED:5000}
     schedules.per.tick: ${ORKNUX_TUNING_SCHEDULES_PER_TICK:60}
+    research.document.characters: ${ORKNUX_TUNING_RESEARCH_DOCUMENT_CHARACTERS:200000}
+    research.sources.most: ${ORKNUX_TUNING_RESEARCH_SOURCES_MOST:100}
+    research.page.characters: ${ORKNUX_TUNING_RESEARCH_PAGE_CHARACTERS:20000}
     plugin.http.body.mb: ${ORKNUX_TUNING_PLUGIN_HTTP_BODY_MB:2}
     plugin.download.mb: ${ORKNUX_TUNING_PLUGIN_DOWNLOAD_MB:5}
     plugin.upload.mb: ${ORKNUX_TUNING_PLUGIN_UPLOAD_MB:10}

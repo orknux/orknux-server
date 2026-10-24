@@ -1,0 +1,212 @@
+package io.mszymanski.orknux.server.research
+
+import jakarta.persistence.Column
+import jakarta.persistence.Entity
+import jakarta.persistence.EnumType
+import jakarta.persistence.Enumerated
+import jakarta.persistence.GeneratedValue
+import jakarta.persistence.GenerationType
+import jakarta.persistence.Id
+import jakarta.persistence.Table
+import org.springframework.data.domain.Page
+import org.springframework.data.domain.Pageable
+import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Modifying
+import org.springframework.data.jpa.repository.Query
+import org.springframework.data.repository.query.Param
+import org.springframework.transaction.annotation.Transactional
+import java.time.OffsetDateTime
+
+/** Which of the three seeded depths a mode is, or one somebody added. */
+enum class ResearchModeKind {
+    SHALLOW,
+    MEDIUM,
+    DEEP,
+    CUSTOM,
+}
+
+/** The register the report is written in. */
+enum class ResearchLanguage {
+    ACADEMIC,
+    COLLOQUIAL,
+    FORMAL,
+}
+
+/** What the report is handed over as: a file to open, or a page to read here. */
+enum class ResearchOutputFormat {
+    PDF,
+    DOCUMENT,
+}
+
+/** Where a research has got to; the run's own ending, read when it ends. */
+enum class ResearchStatus {
+    RUNNING,
+    COMPLETED,
+    FAILED,
+    STOPPED,
+}
+
+/**
+ * How deep a research goes, said as the workflow that does it. Issue #659.
+ *
+ * A mode is a pointer and nothing else: what a shallow research *does* is its
+ * workflow's, which is the workspace's to edit like any other. The three
+ * seeded ones are named for what they are and may not be removed; a custom
+ * one is a name somebody chose and a workflow they picked.
+ */
+@Entity
+@Table(name = "research_mode")
+class ResearchMode(
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    val id: Long? = null,
+
+    @Column(name = "workspace_id", nullable = false)
+    val workspaceId: Long,
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    val kind: ResearchModeKind,
+
+    @Column(nullable = false, length = 100)
+    var name: String,
+
+    /**
+     * The workflow a research in this mode runs. Held by id without a key: a
+     * workflow leaves a workspace by its assignment and its definition stays,
+     * so one that has gone is said on the page rather than cascaded away.
+     */
+    @Column(name = "workflow_id")
+    var workflowId: Long? = null,
+
+    @Column(nullable = false)
+    var position: Int = 0,
+
+    @Column(name = "created_at", nullable = false)
+    val createdAt: OffsetDateTime = OffsetDateTime.now(),
+)
+
+/**
+ * One question researched, and what came of it. Issue #659.
+ *
+ * The mode, the workflow and the model are written down by name beside their
+ * ids, because a list of past research is read long after any of them may
+ * have been renamed or removed, and "Deep, with GPT" is what the row has to
+ * keep saying.
+ */
+@Entity
+@Table(name = "research")
+class Research(
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    val id: Long? = null,
+
+    @Column(name = "workspace_id", nullable = false)
+    val workspaceId: Long,
+
+    @Column(nullable = false, columnDefinition = "text")
+    val question: String,
+
+    @Column(name = "mode_id")
+    val modeId: Long? = null,
+
+    @Column(name = "mode_name", nullable = false, length = 100)
+    val modeName: String,
+
+    @Column(name = "workflow_id", nullable = false)
+    val workflowId: Long,
+
+    @Column(name = "workflow_name", nullable = false, length = 255)
+    val workflowName: String,
+
+    @Column(name = "model_id")
+    val modelId: Long? = null,
+
+    @Column(name = "model_name", length = 255)
+    val modelName: String? = null,
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    val language: ResearchLanguage,
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "output_format", nullable = false, length = 16)
+    val outputFormat: ResearchOutputFormat,
+
+    /** The websites and documents included and excluded, as [ResearchSources] JSON. */
+    @Column(nullable = false, columnDefinition = "text")
+    val sources: String,
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    var status: ResearchStatus = ResearchStatus.RUNNING,
+
+    /** The run doing it; null only for the moment between the row and the start. */
+    @Column(name = "execution_id")
+    var executionId: Long? = null,
+
+    /** The report as the workflow wrote it, in markdown; null until it is finished. */
+    @Column(columnDefinition = "text")
+    var result: String? = null,
+
+    /** Where it has got to while it runs, as [ResearchProgress] JSON; written by [ResearchPipeline]. */
+    @Column(columnDefinition = "text")
+    var progress: String? = null,
+
+    /** The sources it read, numbered as the report cites them, as a JSON list of [ResearchSource]. */
+    @Column(name = "found_sources", columnDefinition = "text")
+    var foundSources: String? = null,
+
+    /** The file the report was saved as, on the Artifacts page; null where it could not be. */
+    @Column(name = "artifact_id")
+    var artifactId: Long? = null,
+
+    /** Why it did not finish, or why the file could not be made. */
+    @Column(columnDefinition = "text")
+    var error: String? = null,
+
+    @Column(name = "started_by", nullable = false, length = 255)
+    val startedBy: String,
+
+    @Column(name = "started_at", nullable = false)
+    val startedAt: OffsetDateTime = OffsetDateTime.now(),
+
+    @Column(name = "finished_at")
+    var finishedAt: OffsetDateTime? = null,
+)
+
+interface ResearchModeRepository : JpaRepository<ResearchMode, Long> {
+
+    fun findByWorkspaceIdOrderByPositionAscIdAsc(workspaceId: Long): List<ResearchMode>
+
+    fun existsByWorkspaceIdAndKindNot(workspaceId: Long, kind: ResearchModeKind): Boolean
+
+    fun existsByWorkspaceIdAndName(workspaceId: Long, name: String): Boolean
+}
+
+interface ResearchRepository : JpaRepository<Research, Long> {
+
+    fun findByWorkspaceIdOrderByStartedAtDescIdDesc(workspaceId: Long, pageable: Pageable): Page<Research>
+
+    fun findByExecutionId(executionId: Long): Research?
+
+    /**
+     * Writes the run's id on a research that has none yet, without loading and
+     * saving the row: the run may end and settle the research on another
+     * thread at any moment, and a whole-row save from here would put it back.
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE Research r SET r.executionId = :executionId WHERE r.id = :id AND r.executionId IS NULL")
+    fun attachRun(@Param("id") id: Long, @Param("executionId") executionId: Long): Int
+
+    /**
+     * Where a running research has got to, written by the pipeline as it goes.
+     * Two columns and no more, for the reason [attachRun] gives: the run's end
+     * is written by another thread, and a whole row saved from here would undo it.
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE Research r SET r.progress = :progress, r.foundSources = :sources WHERE r.id = :id")
+    fun noteProgress(@Param("id") id: Long, @Param("progress") progress: String, @Param("sources") sources: String): Int
+}

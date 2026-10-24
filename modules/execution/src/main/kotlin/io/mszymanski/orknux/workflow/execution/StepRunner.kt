@@ -62,6 +62,13 @@ data class StepFinished(val executionId: Long, val nodeKey: String, val sessionI
  */
 data class RunEnded(val executionId: Long)
 
+/**
+ * A run has been written down and is about to be walked. Published so whoever
+ * asked for it on another thread can learn its id while it runs - the inline
+ * engine hands the id back only once the walk is over. Issue #659.
+ */
+data class RunStarted(val executionId: Long)
+
 data class RetryPolicy(
     val attempts: Int,
     /** The wait before the second attempt, and the whole of it at [NO_GROWTH]. */

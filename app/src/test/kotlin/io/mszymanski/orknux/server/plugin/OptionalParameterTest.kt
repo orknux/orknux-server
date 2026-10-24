@@ -48,7 +48,8 @@ class OptionalParameterTest(
     @BeforeEach
     fun reset() {
         plugins.deleteAll()
-        functions.deleteAll()
+        // Not the release's own, which every workspace's Research action calls (#659) and start-up writes back anyway.
+        functions.deleteAll(functions.findAll().filter { it.scope != io.mszymanski.orknux.server.action.FunctionScope.EMBEDDED })
         audit.deleteAll()
         workspaces.deleteAll()
         workspaceId = requireNotNull(workspaces.save(Workspace(name = "backend")).id)

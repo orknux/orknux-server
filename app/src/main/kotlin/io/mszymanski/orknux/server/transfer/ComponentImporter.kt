@@ -1385,7 +1385,10 @@ class ComponentImporter(
         resolved: Map<Pair<ComponentKind, String>, Long>,
     ): Long {
         val node = component.node
-        val workflow = workflows.save(Workflow(name = name, description = node.text("description")))
+        // Hidden where the original was, so a copied workspace's research workflows stay off its list. Issue #659.
+        val workflow = workflows.save(
+            Workflow(name = name, description = node.text("description"), hidden = node.path("hidden").asBoolean(false)),
+        )
         val workflowId = requireNotNull(workflow.id)
         assignments.save(WorkspaceWorkflow(workspaceId = workspaceId, workflow = workflow, enabled = true))
 

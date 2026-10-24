@@ -44,6 +44,15 @@ class Workflow(
      */
     @Column(name = "graph_revision", nullable = false)
     val graphRevision: Long = 0,
+
+    /**
+     * Kept off the Workflows list unless somebody ticks "Show hidden". The
+     * research workflows are seeded this way: they are the workspace's to
+     * edit, and a list of what people built is not where to meet three nobody
+     * did. Hidden is not disabled - it runs exactly as it would shown. Issue #659.
+     */
+    @Column(nullable = false)
+    var hidden: Boolean = false,
 )
 
 /** A workflow made available to a workspace, which the workspace can enable or disable. */

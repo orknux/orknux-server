@@ -64,16 +64,20 @@ class WorkflowAPI(
         @Argument ascending: Boolean?,
         /** What to look for in the name and the description, or null for all of them. */
         @Argument search: String?,
+        /** Whether the hidden workflows are listed too; they are not unless asked for. Issue #659. */
+        @Argument showHidden: Boolean?,
     ): WorkspaceWorkflowPage {
         requireWorkspaceAccess(workspaceId)
         val paged = pageRequest(page, size, sortBy(order, ascending))
         val looking = search?.trim().orEmpty()
+        val all = showHidden == true
 
         return WorkspaceWorkflowPage(
-            if (looking.isEmpty()) {
-                assignments.findByWorkspaceId(workspaceId, paged)
-            } else {
-                assignments.searching(workspaceId, looking, paged)
+            when {
+                looking.isEmpty() && all -> assignments.findByWorkspaceId(workspaceId, paged)
+                looking.isEmpty() -> assignments.findByWorkspaceIdAndWorkflowHiddenFalse(workspaceId, paged)
+                all -> assignments.searching(workspaceId, looking, paged)
+                else -> assignments.searchingShown(workspaceId, looking, paged)
             },
         ) { assignment ->
             val workflowId = requireNotNull(assignment.workflow.id)
@@ -201,6 +205,24 @@ class WorkflowAPI(
         } else {
             auditRecorder.record(assignment.workspaceId, WorkspaceAuditCategory.WORKFLOW, "Workflow $name updated")
         }
+        return WorkspaceWorkflowView(assignment)
+    }
+
+    /**
+     * Keeps a workflow off the list, or puts it back. What the research
+     * workflows are seeded as; anybody who may edit one may show it. Issue #659.
+     */
+    @MutationMapping
+    @Transactional
+    fun setWorkflowHidden(@Argument id: Long, @Argument hidden: Boolean): WorkspaceWorkflowView {
+        val assignment = assignments.findByIdOrNull(id)?.takeIf { access.canSee(it.workspaceId) }
+            ?: throw WorkflowNotFoundException(id)
+        assignment.workflow.hidden = hidden
+        auditRecorder.record(
+            assignment.workspaceId,
+            WorkspaceAuditCategory.WORKFLOW,
+            "Workflow ${assignment.workflow.name} ${if (hidden) "hidden" else "shown"}",
+        )
         return WorkspaceWorkflowView(assignment)
     }
 
@@ -332,6 +354,8 @@ data class WorkspaceWorkflowView(
     val name: String,
     val description: String?,
     val enabled: Boolean,
+    /** Kept off the list unless "Show hidden" is ticked. Issue #659. */
+    val hidden: Boolean = false,
     /** Where the workflow last got to; null until it has run. */
     val lastRun: LastRunView? = null,
     /**
@@ -346,6 +370,7 @@ data class WorkspaceWorkflowView(
         name = assignment.workflow.name,
         description = assignment.workflow.description,
         enabled = assignment.enabled,
+        hidden = assignment.workflow.hidden,
         lastRun = lastRun,
         nextRun = nextRun,
     )

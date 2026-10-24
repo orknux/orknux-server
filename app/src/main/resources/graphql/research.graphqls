@@ -1,0 +1,166 @@
+# Answer > Research: a question researched by one of the workspace's own
+# workflows, and the modes that say which. Issue #659.
+
+extend type Query {
+    "The workspace's research modes, the three every workspace has first."
+    researchModes(workspaceId: ID!): [ResearchMode!]!
+    "The workspace's research, newest first."
+    researches(workspaceId: ID!, page: Int = 0, size: Int = 20): ResearchPage!
+    "One research, with its report; null where it is not there or not the caller's to see."
+    research(id: ID!): Research
+    "The workspace's documents a research can be pointed at: the readable files on the Artifacts page."
+    researchDocuments(workspaceId: ID!): [ResearchDocument!]!
+}
+
+extend type Mutation {
+    "Writes a research down and starts its mode's workflow; answers at once, with it running."
+    startResearch(input: StartResearchInput!): Research!
+    "Takes a research off the list. Its run and its file are kept."
+    deleteResearch(id: ID!): Boolean!
+    "A mode of the workspace's own: a name and a workflow, picked or copied from another mode's."
+    createResearchMode(input: CreateResearchModeInput!): ResearchMode!
+    "Removes a mode somebody added; the three every workspace has are refused."
+    deleteResearchMode(id: ID!): Boolean!
+}
+
+enum ResearchModeKind {
+    SHALLOW
+    MEDIUM
+    DEEP
+    "One somebody added."
+    CUSTOM
+}
+
+enum ResearchLanguage {
+    ACADEMIC
+    COLLOQUIAL
+    FORMAL
+}
+
+enum ResearchOutputFormat {
+    PDF
+    DOCUMENT
+}
+
+enum ResearchStatus {
+    RUNNING
+    COMPLETED
+    FAILED
+    STOPPED
+}
+
+type ResearchMode {
+    id: ID!
+    kind: ResearchModeKind!
+    name: String!
+    "Null where the workflow it named is no longer in the workspace."
+    workflowId: ID
+    workflowName: String
+}
+
+type ResearchDocument {
+    id: ID!
+    name: String!
+    description: String!
+    contentType: String!
+    sizeBytes: Float!
+    savedAt: String!
+}
+
+type Research {
+    id: ID!
+    workspaceId: ID!
+    question: String!
+    modeId: ID
+    "As the mode was called when it was started."
+    modeName: String!
+    workflowId: ID!
+    workflowName: String!
+    modelId: ID
+    modelName: String
+    language: ResearchLanguage!
+    outputFormat: ResearchOutputFormat!
+    websitesInclude: [String!]!
+    websitesExclude: [String!]!
+    "By name."
+    documentsInclude: [String!]!
+    documentsExclude: [String!]!
+    status: ResearchStatus!
+    "The run doing it; null for the moment before it starts."
+    executionId: ID
+    "The report in markdown, once it is finished."
+    result: String
+    "Where it has got to: the step, the sub-questions, what was searched; null before it has begun."
+    progress: ResearchProgress
+    "What it read, numbered as the report cites them."
+    sources: [ResearchSource!]!
+    "The file the report was saved as, on the Artifacts page; null where it could not be."
+    fileName: String
+    fileUrl: String
+    "Where the file is read rather than saved."
+    previewUrl: String
+    "Why it did not finish, or why the file could not be made."
+    error: String
+    startedBy: String!
+    "ISO-8601."
+    startedAt: String!
+    finishedAt: String
+}
+
+type ResearchProgress {
+    "What it is doing now, in a sentence."
+    step: String!
+    "The parts the question was broken into."
+    subQuestions: [String!]!
+    "Every query searched so far, in order."
+    searched: [String!]!
+    "How many levels down it is; 1 is the plan's own queries."
+    level: Int!
+    sourcesRead: Int!
+}
+
+type ResearchSource {
+    number: Int!
+    title: String!
+    "An address, or the Artifacts page's link to a document."
+    url: String!
+    "WEB or DOCUMENT."
+    kind: String!
+    "What was learnt from it."
+    notes: String!
+}
+
+type ResearchPage {
+    content: [Research!]!
+    page: Int!
+    size: Int!
+    totalElements: Int!
+    totalPages: Int!
+}
+
+input StartResearchInput {
+    workspaceId: ID!
+    question: String!
+    modeId: ID!
+    "The chat model that plans, reads and writes; absent leaves it to what the mode's workflow names."
+    modelId: ID
+    language: ResearchLanguage!
+    outputFormat: ResearchOutputFormat!
+    "Domains or addresses to keep to."
+    websitesInclude: [String!]
+    "Domains or addresses never to use."
+    websitesExclude: [String!]
+    "Documents, by id, to read as sources."
+    documentsInclude: [ID!]
+    "Documents, by id, never to use."
+    documentsExclude: [ID!]
+}
+
+input CreateResearchModeInput {
+    workspaceId: ID!
+    name: String!
+    "The workflow the mode runs."
+    workflowId: ID
+    "Or another mode, whose workflow is copied for this one."
+    copyOfModeId: ID
+}

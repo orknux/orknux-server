@@ -619,6 +619,8 @@ class ComponentExporter(
         val workflowId = requireNotNull(held.id)
         return start(ComponentKind.WORKFLOW, held.name).apply {
             put("description", held.description)
+            // Only where it is: a file from before #659 says nothing, and reads as shown.
+            if (held.hidden) put("hidden", true)
             val drawn = putArray("nodes")
             nodes.findByWorkflowId(workflowId).sortedBy { it.nodeKey }.forEach { drawn.add(describeNode(it)) }
             val wired = putArray("edges")

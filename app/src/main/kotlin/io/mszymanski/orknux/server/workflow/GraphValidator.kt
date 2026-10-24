@@ -794,7 +794,17 @@ class GraphValidator(
              */
             val sources = edges.filter { it.targetKey == node.nodeKey }
                 .mapNotNull { if (it.branch == EdgeBranch.FAILURE) incoming[it.sourceKey] else produced[it.sourceKey] }
-            val reaching = sources.fold(Reachable()) { all, one -> all.merge(one) }
+            /*
+             * Where a graph has no trigger, what reaches its first node is
+             * whatever it is started with - a person's Run, the API, a Workflow
+             * node, a research - and nothing here can say what that holds. So
+             * it is opaque, as a node that cannot say what it produces is,
+             * rather than empty: a research workflow's node reading `question`
+             * off its input is not reading a field nothing produces. Issue #659.
+             */
+            val started = sources.isEmpty() && edges.none { it.targetKey == node.nodeKey } &&
+                nodes.none { it.kind == NodeKind.TRIGGER }
+            val reaching = if (started) Reachable(opaque = true) else sources.fold(Reachable()) { all, one -> all.merge(one) }
             incoming[node.nodeKey] = reaching
 
             val port = ports.getValue(node.nodeKey)
