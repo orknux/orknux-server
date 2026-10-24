@@ -190,6 +190,74 @@
         </dependency>
 
         <!--
+          What reads and writes a video: upscaling one on Design's Videos page
+          takes it apart into frames and puts it back together.
+
+          FFmpeg, through JavaCV's FFmpegFrameGrabber and FFmpegFrameRecorder,
+          because the videos here come in every container a backend chooses -
+          WebM from stable-diffusion.cpp, MP4 from OpenAI, MJPEG AVI, animated
+          WebP - and a pure-JVM codec (JCodec, unreleased since 2019) reads
+          H.264 MP4 and little else. Not an ffmpeg binary either: neither image
+          nor the desktop app ships one, and the self-updated jar has to work
+          wherever it lands. bytedeco carries FFmpeg's own libraries inside
+          jars, one per platform, unpacked into ~/.javacpp/cache on first use.
+
+          The platforms are the ones this runs on: linux-x86_64 for both images
+          and the Linux desktop package, windows-x86_64 for the Windows one and
+          for development. Anywhere else a video upscale is refused with the
+          reason. The LGPL build, not -gpl: VP8 and OpenH264 write what is
+          needed, and FFmpeg's LGPL sits inside Orknux's AGPL-3.0 as above.
+
+          JavaCV itself depends on every camera and vision library bytedeco
+          wraps; all of that is excluded and the two it needs here declared.
+        -->
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>javacv</artifactId>
+            <version>${javacv.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>javacpp</artifactId>
+            <version>${javacv.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>javacpp</artifactId>
+            <version>${javacv.version}</version>
+            <classifier>linux-x86_64</classifier>
+        </dependency>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>javacpp</artifactId>
+            <version>${javacv.version}</version>
+            <classifier>windows-x86_64</classifier>
+        </dependency>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>ffmpeg</artifactId>
+            <version>${ffmpeg.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>ffmpeg</artifactId>
+            <version>${ffmpeg.version}</version>
+            <classifier>linux-x86_64</classifier>
+        </dependency>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>ffmpeg</artifactId>
+            <version>${ffmpeg.version}</version>
+            <classifier>windows-x86_64</classifier>
+        </dependency>
+
+        <!--
           What draws a chart. Issue #507.
 
           lets-plot is MIT and pure Kotlin, and `PlotSvgExportCommon` turns a

@@ -131,6 +131,36 @@ class DesignVideo(
 
     @Column(name = "duration_seconds")
     var durationSeconds: Double? = null,
+
+    /**
+     * The video this is a version of - the first one, as every version of a
+     * picture points at the picture - or null for one made by a video model.
+     */
+    @Column(name = "version_of")
+    val versionOf: Long? = null,
+
+    /**
+     * The video whose frames an upscale takes; null for anything else. It is
+     * what marks a row as an upscale, which the image queue makes and the
+     * video queue leaves alone.
+     */
+    @Column(name = "upscaled_from")
+    val upscaledFrom: Long? = null,
+
+    /** The WebUI's algorithm an upscale uses; null for the model's own, and for anything else. */
+    @Column(length = 255)
+    val upscaler: String? = null,
+
+    /** How many times larger an upscale makes it. */
+    @Column
+    val scale: Double? = null,
+
+    /** How many of an upscale's frames are done, of [framesTotal]. */
+    @Column(name = "frames_done")
+    var framesDone: Int? = null,
+
+    @Column(name = "frames_total")
+    var framesTotal: Int? = null,
 )
 
 interface DesignVideoRepository : JpaRepository<DesignVideo, Long> {
@@ -139,6 +169,12 @@ interface DesignVideoRepository : JpaRepository<DesignVideo, Long> {
     fun findByWorkspaceIdOrderByRequestedAtDescIdDesc(workspaceId: Long): List<DesignVideo>
 
     fun findByStatusOrderByRequestedAtAscIdAsc(status: DesignVideoStatus): List<DesignVideo>
+
+    /** Videos a video model makes, in one state: what the video queue counts and takes. */
+    fun findByStatusAndUpscaledFromIsNullOrderByRequestedAtAscIdAsc(status: DesignVideoStatus): List<DesignVideo>
+
+    /** Upscales in one state: what the image queue's limit takes them from. */
+    fun findByStatusAndUpscaledFromIsNotNullOrderByRequestedAtAscIdAsc(status: DesignVideoStatus): List<DesignVideo>
 
     /**
      * Takes one queued video, or reports that somebody else did - an update
@@ -181,6 +217,15 @@ interface DesignVideoRepository : JpaRepository<DesignVideo, Long> {
             "WHERE v.id = :id AND v.status = io.mszymanski.orknux.server.design.DesignVideoStatus.GENERATING",
     )
     fun progressed(@Param("id") id: Long, @Param("remoteId") remoteId: String, @Param("progress") progress: Int?): Int
+
+    /** How many of an upscale's frames are done, for one still being made. */
+    @Modifying(clearAutomatically = true)
+    @Transactional
+    @Query(
+        "UPDATE DesignVideo v SET v.framesDone = :done, v.framesTotal = :total, v.progress = :progress " +
+            "WHERE v.id = :id AND v.status = io.mszymanski.orknux.server.design.DesignVideoStatus.GENERATING",
+    )
+    fun framed(@Param("id") id: Long, @Param("done") done: Int, @Param("total") total: Int, @Param("progress") progress: Int): Int
 
     /** Files the video made for one still being made; 0 when it was stopped meanwhile, and the file is then not kept. */
     @Modifying(clearAutomatically = true)

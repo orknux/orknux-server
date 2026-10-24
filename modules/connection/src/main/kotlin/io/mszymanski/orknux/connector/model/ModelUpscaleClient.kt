@@ -124,6 +124,75 @@ class ModelUpscaleClient(
     }
 
     /**
+     * Several pictures made larger in one call, by the WebUI's `POST
+     * /sdapi/v1/extra-batch-images` - what a video's frames are sent through,
+     * a batch at a time, so a hundred frames are a dozen requests and not a
+     * hundred. The answer is in the order the pictures were sent; one that
+     * answers a different number of pictures is a failure, because a frame out
+     * of place is a video that jumps.
+     */
+    fun upscaleBatch(modelId: Long, images: List<ByteArray>, algorithm: String?, scale: Double): Pictures {
+        val (model, provider) = when (val found = upscaler(modelId)) {
+            is Found.No -> return Pictures.Failed(found.reason)
+            is Found.Yes -> found.model to found.provider
+        }
+        if (images.isEmpty()) return Pictures.Drawn(emptyList(), PNG, 0)
+        if (scale !in MIN_SCALE..MAX_SCALE) return Pictures.Failed("A picture can be made $MIN_SCALE to $MAX_SCALE times larger")
+        val base = provider.endpoint.trimEnd('/')
+        val url = "$base$EXTRA_BATCH_IMAGES"
+        connections.vet(url)?.let { return Pictures.Failed("${provider.name} cannot be called: $it") }
+        val header = when (val credential = probe.credentials(provider)) {
+            is ModelProviderProbe.Credential.Failed -> return Pictures.Failed(credential.reason)
+            is ModelProviderProbe.Credential.Header -> credential.header
+        }
+        val body = mapper.writeValueAsString(
+            mapOf(
+                "imageList" to images.mapIndexed { index, bytes ->
+                    mapOf("data" to Base64.getEncoder().encodeToString(bytes), "name" to "frame-$index.png")
+                },
+                "resize_mode" to 0,
+                "upscaling_resize" to scale,
+                "upscaler_1" to (algorithm?.takeIf { it.isNotBlank() } ?: model.modelId),
+            ),
+        )
+        val started = System.currentTimeMillis()
+        return try {
+            val answer = http.send(
+                HttpRequest.newBuilder(URI(url))
+                    .timeout(limits.answer())
+                    .header(header.name, header.value)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(),
+            )
+            if (answer.statusCode() !in 200..299) {
+                log.warn("Upscaling {} pictures by {} at {} answered {}", images.size, model.name, base, answer.statusCode())
+                return Pictures.Failed("${model.name} answered ${answer.statusCode()}" + detail(answer.body()))
+            }
+            val listed = runCatching { mapper.readTree(answer.body()).path("images") }.getOrNull()
+            if (listed == null || !listed.isArray) return Pictures.Failed("${model.name} answered without pictures")
+            val encoded: List<String?> = (0 until listed.size()).map { index ->
+                listed.get(index)?.takeIf { it.isString }?.stringValue()
+            }
+            if (encoded.size != images.size) {
+                return Pictures.Failed("${model.name} answered ${encoded.size} pictures for the ${images.size} it was sent")
+            }
+            val decoded = encoded.map { one ->
+                one?.substringAfter("base64,")?.takeIf { it.isNotBlank() }
+                    ?.let { runCatching { Base64.getDecoder().decode(it) }.getOrNull() }
+                    ?: return Pictures.Failed("${model.name} answered a picture that could not be read")
+            }
+            val millis = System.currentTimeMillis() - started
+            runCatching { usage.record(modelId, inputTokens = 0, outputTokens = 0, millis = millis) }
+            Pictures.Drawn(decoded, PNG, millis)
+        } catch (failure: Exception) {
+            log.warn("Upscaling {} pictures by {} at {} could not be done", images.size, model.name, base, failure)
+            Pictures.Failed(Unreachable.describe(base, failure, limits.answer()))
+        }
+    }
+
+    /**
      * The checkpoints the model's WebUI can redraw with, by the title
      * `sd_model_checkpoint` takes - the one it has loaded first, so choosing
      * nothing costs no reload.
@@ -306,6 +375,12 @@ class ModelUpscaleClient(
         data class Failed(val reason: String) : Algorithms
     }
 
+    /** Several pictures made larger at once, in the order they were sent. */
+    sealed interface Pictures {
+        data class Drawn(val images: List<ByteArray>, val contentType: String, val millis: Long) : Pictures
+        data class Failed(val reason: String) : Pictures
+    }
+
     /** What a WebUI can redraw with. */
     sealed interface Checkpoints {
         /** By title, the loaded one first. */
@@ -317,6 +392,7 @@ class ModelUpscaleClient(
         val log = LoggerFactory.getLogger(ModelUpscaleClient::class.java)
 
         const val EXTRA_SINGLE_IMAGE = "/sdapi/v1/extra-single-image"
+        const val EXTRA_BATCH_IMAGES = "/sdapi/v1/extra-batch-images"
         const val IMG2IMG = "/sdapi/v1/img2img"
         const val INTERRUPT = "/sdapi/v1/interrupt"
         const val SD_MODELS = "/sdapi/v1/sd-models"

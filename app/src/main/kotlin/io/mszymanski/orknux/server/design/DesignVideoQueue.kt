@@ -81,8 +81,9 @@ class DesignVideoQueue(
     @Synchronized
     fun dispatch() {
         if (!running) return
-        var making = videos.findByStatusOrderByRequestedAtAscIdAsc(DesignVideoStatus.GENERATING).size
-        val waiting = videos.findByStatusOrderByRequestedAtAscIdAsc(DesignVideoStatus.QUEUED).iterator()
+        // An upscale is the image queue's (DesignVideoUpscaler): it is neither counted nor taken here.
+        var making = videos.findByStatusAndUpscaledFromIsNullOrderByRequestedAtAscIdAsc(DesignVideoStatus.GENERATING).size
+        val waiting = videos.findByStatusAndUpscaledFromIsNullOrderByRequestedAtAscIdAsc(DesignVideoStatus.QUEUED).iterator()
         while (making < tuning[Tunable.VIDEOS_AT_ONCE] && waiting.hasNext()) {
             val id = requireNotNull(waiting.next().id)
             if (videos.claim(id, OffsetDateTime.now()) != 1) continue
@@ -246,7 +247,7 @@ class DesignVideoQueue(
 
     override fun start() {
         running = true
-        val left = videos.findByStatusOrderByRequestedAtAscIdAsc(DesignVideoStatus.GENERATING)
+        val left = videos.findByStatusAndUpscaledFromIsNullOrderByRequestedAtAscIdAsc(DesignVideoStatus.GENERATING)
         // Taken by the backend: it went on making it, so it is asked about again. Not yet taken: queued again.
         val (taken, untaken) = left.partition { it.remoteId != null }
         if (untaken.isNotEmpty()) {
