@@ -460,6 +460,8 @@ type Query {
     model's own first - asked of the server, since they differ between servers.
     """
     designUpscaleAlgorithms(workspaceId: ID!, modelId: ID!): UpscaleAlgorithms!
+    "Where the image editor's own tools start and how far each may go: the installation's numbers."
+    designImageEditorSettings(workspaceId: ID!): ImageEditorSettings!
     "What Harmonize can be asked with one model: its strength and, for a WebUI, its checkpoints."
     designHarmonizeOptions(workspaceId: ID!, modelId: ID!): HarmonizeOptions!
     "One picture asked for in Design, in whatever state it is; null for one not here."
@@ -2367,6 +2369,12 @@ type Mutation {
     an .orkx archive with its project - as a Design picture.
     """
     importDesignImage(input: ImportDesignImageInput!): Artifact!
+    """
+    Keeps a change the image editor made itself - rotated, mirrored, cropped,
+    painted, blurred, layers merged - as an unsaved version of the picture, as a
+    model's change is, and answers it already DRAWN.
+    """
+    keepDesignImageChange(input: KeepDesignImageChangeInput!): DesignImageJob!
     "Takes a queued or failed picture off; one being drawn cannot be. False for one not here."
     dismissDesignImageJob(id: ID!): Boolean!
     "Stops a picture waiting or being drawn: a queued one is never started, and what a drawing one comes back with is thrown away."
@@ -8597,6 +8605,8 @@ type DesignImageJob {
     checkpoint: String
     "What the picture was asked not to contain; null is none given, and the model's own default was sent."
     negativePrompt: String
+    "How far an edit's selection edge was softened, in the picture's own pixels; null for anything else."
+    feather: Int
     "The picture, once DRAWN."
     image: Artifact
 }
@@ -8610,8 +8620,35 @@ input UpscaleDesignImageInput {
     modelId: ID!
     "One of designUpscaleAlgorithms; null is the model's own."
     algorithm: String
-    "How many times larger, 1 to 8."
+    "How many times larger, 1 to 8. At 1 it is a Clean up: a restoration model run over the picture, which keeps its size."
     scale: Float!
+}
+
+"Where the image editor's own tools start, and how far each may go, in the picture's own pixels."
+type ImageEditorSettings {
+    "How wide the brush starts."
+    brush: Int!
+    "The widest the brush may be made."
+    brushMost: Int!
+    "The radius the selective blur starts at."
+    blur: Int!
+    "The largest radius the blur may be given."
+    blurMost: Int!
+    "How far a Magic edit's selection edge is softened to start with; 0 is a hard edge."
+    feather: Int!
+    "The furthest a Magic edit's edge may be softened."
+    featherMost: Int!
+}
+
+""" A change the image editor made itself, to keep as a version of the picture. """
+input KeepDesignImageChangeInput {
+    workspaceId: ID!
+    "The picture the change was made to, by its artifact id."
+    imageId: ID!
+    "The changed picture's file, base64: a PNG, JPEG, WebP or GIF."
+    image: String!
+    "What was done, as the editor's history says it; at most 255 characters."
+    change: String!
 }
 
 """ A picture brought in from outside, to keep in Design. """
@@ -8675,6 +8712,8 @@ type UpscaleAlgorithms {
     preferred: String
     "Why the server could not be asked; names is then empty."
     reason: String
+    "Of names, the restoration models Clean up offers - SCUNet, SwinIR, FBCNN, 1x models - by name."
+    restorers: [String!]!
 }
 
 """ The whole picture redrawn lightly, by one model, so the seams between redrawn parts blend. """
@@ -8719,6 +8758,12 @@ input EditDesignImageInput {
     "A PNG the picture's size, base64, transparent where the change goes."
     mask: String!
     name: String
+    """
+    How far the selection's edge is softened when the change is laid over the
+    picture, in its own pixels: the two blend across about this many either
+    side of the edge. 0 is a hard edge; null is the installation's.
+    """
+    feather: Int
     "What the change must not bring in; null is the model's default. Refused where the model does not take a negative prompt."
     negativePrompt: String
 }

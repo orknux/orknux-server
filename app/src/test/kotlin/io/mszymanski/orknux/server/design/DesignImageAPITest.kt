@@ -29,7 +29,13 @@ import org.springframework.data.repository.findByIdOrNull
  * Drawing on Design's Images page: straight to the image model chosen, kept
  * with what it was drawn with, and listed beside everything else that was drawn.
  */
-@SpringBootTest(properties = ["orknux.attachments.location=target/test-design-images"])
+@SpringBootTest(
+    properties = [
+        "orknux.attachments.location=target/test-design-images",
+        // Hard edges unless a test asks otherwise, so an edit's pixels are exactly the original's or the model's.
+        "orknux.tuning.images.feather.pixels=0",
+    ],
+)
 @AutoConfigureGraphQlTester
 @WithMockUser(username = "alice", roles = ["ADMINS"])
 class DesignImageAPITest(
@@ -108,7 +114,8 @@ class DesignImageAPITest(
         // A Stable Diffusion WebUI: its algorithms, and a picture made larger - four pixels for every one.
         server.createContext("/sdapi/v1/upscalers") { exchange ->
             authorised += exchange.requestHeaders.getFirst("Authorization").orEmpty()
-            val bytes = """[{"name":"None"},{"name":"Lanczos"},{"name":"R-ESRGAN 4x+"}]""".toByteArray(StandardCharsets.UTF_8)
+            val bytes = """[{"name":"None"},{"name":"Lanczos"},{"name":"R-ESRGAN 4x+"},{"name":"ScuNET GAN"},{"name":"1x_JPEGDestroyer"}]"""
+                .toByteArray(StandardCharsets.UTF_8)
             exchange.responseHeaders.add("Content-Type", "application/json")
             exchange.sendResponseHeaders(200, bytes.size.toLong())
             exchange.responseBody.use { it.write(bytes) }
@@ -374,6 +381,128 @@ class DesignImageAPITest(
         assertThat(javax.imageio.ImageIO.read(store.open(source.location)).getRGB(0, 0)).isEqualTo(WHITE)
     }
 
+    @Test
+    fun `a change the editor made itself is kept as a drawn version, in the history, and saved like a model's`() {
+        val source = whiteSource()
+        // Rotated in the browser: a picture of another shape, two wide becoming one wide and three tall.
+        val turned = Base64.getEncoder().encodeToString(png(1, 3) { _, _ -> RED })
+        fun keep(of: String, change: String) = graphQlTester.document(
+            """mutation { keepDesignImageChange(input: {
+                 workspaceId: $workspaceId, imageId: "$of", image: "data:image/png;base64,$turned", change: "$change"
+               }) { id status prompt model sourceId image { id versionOf name } } }""",
+        ).execute()
+        val first = keep("DESIGN-${source.id}", "Rotated right")
+            .path("keepDesignImageChange.status").entity(String::class.java).isEqualTo("DRAWN")
+            .path("keepDesignImageChange.prompt").entity(String::class.java).isEqualTo("Rotated right")
+            .path("keepDesignImageChange.model").entity(String::class.java).isEqualTo("Image editor")
+            .path("keepDesignImageChange.image.versionOf").entity(String::class.java).isEqualTo("DESIGN-${source.id}")
+            .path("keepDesignImageChange.image.name").entity(String::class.java).isEqualTo("White")
+            .path("keepDesignImageChange.image.id").entity(String::class.java).get()
+        // A change over that version is a version of the picture itself, not of the round before.
+        val second = keep(first, "Mirrored")
+            .path("keepDesignImageChange.image.versionOf").entity(String::class.java).isEqualTo("DESIGN-${source.id}")
+            .path("keepDesignImageChange.image.id").entity(String::class.java).get()
+        graphQlTester.document("""query { designImageHistory(workspaceId: $workspaceId, imageId: "DESIGN-${source.id}") { prompt status } }""")
+            .execute().path("designImageHistory[*].prompt").entityList(String::class.java).containsExactly("Mirrored", "Rotated right")
+        // Nothing waits: the queue the gallery shows has none of it.
+        graphQlTester.document("""query { designImageQueue(workspaceId: $workspaceId) { id } }""")
+            .execute().path("designImageQueue").entityList(Any::class.java).hasSize(0)
+
+        graphQlTester.document("""mutation { saveDesignImageVersion(workspaceId: $workspaceId, id: "$second") { id } }""").execute()
+        val saved = javax.imageio.ImageIO.read(store.open(requireNotNull(images.findByIdOrNull(requireNotNull(source.id))).location))
+        assertThat(saved.width to saved.height).isEqualTo(1 to 3)
+        assertThat(saved.getRGB(0, 0)).isEqualTo(RED)
+        assertThat(images.findAll().map { it.id }).containsExactly(source.id)
+    }
+
+    @Test
+    fun `the image editor's tools start where Admin Settings says`() {
+        fun settings() = graphQlTester.document(
+            """query { designImageEditorSettings(workspaceId: $workspaceId) { brush brushMost blur blurMost feather featherMost } }""",
+        ).execute()
+        settings()
+            .path("designImageEditorSettings.brush").entity(Int::class.java).isEqualTo(12)
+            .path("designImageEditorSettings.brushMost").entity(Int::class.java).isEqualTo(500)
+            .path("designImageEditorSettings.blur").entity(Int::class.java).isEqualTo(12)
+            .path("designImageEditorSettings.blurMost").entity(Int::class.java).isEqualTo(254)
+            .path("designImageEditorSettings.featherMost").entity(Int::class.java).isEqualTo(256)
+        try {
+            graphQlTester.document("""mutation { setTunable(key: "images.brush.pixels", value: 40) { value } }""").execute()
+            settings().path("designImageEditorSettings.brush").entity(Int::class.java).isEqualTo(40)
+        } finally {
+            graphQlTester.document("""mutation { setTunable(key: "images.brush.pixels", value: null) { value } }""").execute()
+        }
+    }
+
+    @Test
+    fun `a feathered edit blends the change into the picture across the selection's edge`() {
+        val modelId = model("Editor", "IMAGE")
+        val white = png(20, 2) { _, _ -> WHITE }
+        val source = images.save(
+            DesignImage(
+                workspaceId = workspaceId, modelId = modelId, modelName = "Editor", prompt = "A white strip",
+                size = null, quality = null, style = null, filename = "strip.png", contentType = "image/png",
+                sizeBytes = white.size.toLong(), location = store.put(workspaceId, "strip.png", white), drawnBy = "alice",
+                name = "Strip",
+            ),
+        )
+        // The left half selected; the model answers red everywhere.
+        val mask = Base64.getEncoder().encodeToString(png(20, 2) { x, _ -> if (x < 10) 0x00000000 else 0xFF000000.toInt() })
+        fun edit(feather: String): java.awt.image.BufferedImage {
+            val asked = graphQlTester.document(
+                """mutation { queueDesignImageEdit(input: {
+                     workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", modelId: $modelId, prompt: "Make it red", mask: "$mask"$feather
+                   }) { id feather } }""",
+            ).execute().path("queueDesignImageEdit.id").entity(String::class.java).get()
+            val id = drawnPicture(asked)
+            return javax.imageio.ImageIO.read(store.open(requireNotNull(images.findByIdOrNull(id.removePrefix("DESIGN-").toLong())).location))
+        }
+        fun blended(rgb: Int) = rgb != RED && rgb != WHITE
+
+        // A hard edge, as before: red to the tenth column, white from the eleventh.
+        val hard = edit(", feather: 0")
+        assertThat(listOf(hard.getRGB(9, 0), hard.getRGB(10, 0))).containsExactly(RED, WHITE)
+
+        // Feathered by four: the two meet in a blend across the edge, and far from it each is itself.
+        val soft = edit(", feather: 4")
+        assertThat(soft.getRGB(0, 0)).isEqualTo(RED)
+        assertThat(soft.getRGB(19, 0)).isEqualTo(WHITE)
+        assertThat(blended(soft.getRGB(9, 0)) && blended(soft.getRGB(10, 0))).isTrue()
+        assertThat(jobs.findAll().map { it.feather }).contains(4)
+
+        // None asked: the installation's.
+        try {
+            graphQlTester.document("""mutation { setTunable(key: "images.feather.pixels", value: 4) { value } }""").execute()
+            assertThat(blended(edit("").getRGB(10, 0))).isTrue()
+        } finally {
+            graphQlTester.document("""mutation { setTunable(key: "images.feather.pixels", value: null) { value } }""").execute()
+        }
+
+        graphQlTester.document(
+            """mutation { queueDesignImageEdit(input: {
+                 workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", modelId: $modelId, prompt: "Make it red", mask: "$mask", feather: 999
+               }) { id } }""",
+        ).execute().errors().satisfy { assertThat(it.single().message).contains("A feather is 0 to 256 pixels") }
+    }
+
+    @Test
+    fun `a change the editor made is refused when it is not a picture, or the picture is gone`() {
+        val source = whiteSource()
+        val text = Base64.getEncoder().encodeToString("not a picture".toByteArray())
+        graphQlTester.document(
+            """mutation { keepDesignImageChange(input: {
+                 workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", image: "$text", change: "Painted"
+               }) { id } }""",
+        ).execute().errors().satisfy { assertThat(it.single().message).contains("not a picture") }
+        val pixel = Base64.getEncoder().encodeToString(png(1, 1) { _, _ -> RED })
+        graphQlTester.document(
+            """mutation { keepDesignImageChange(input: {
+                 workspaceId: $workspaceId, imageId: "DESIGN-999999", image: "$pixel", change: "Painted"
+               }) { id } }""",
+        ).execute().errors().satisfy { assertThat(it.single().message).contains("not here any more") }
+        assertThat(images.findAll().map { it.id }).containsExactly(source.id)
+    }
+
     private fun png(width: Int, height: Int, colour: (Int, Int) -> Int): ByteArray {
         val image = java.awt.image.BufferedImage(width, height, java.awt.image.BufferedImage.TYPE_INT_ARGB)
         for (y in 0 until height) for (x in 0 until width) image.setRGB(x, y, colour(x, y))
@@ -580,9 +709,12 @@ class DesignImageAPITest(
 
         val upscaler = model("Enlarger", "UPSCALE", type = "STABLE_DIFFUSION_WEBUI", keyed = false, modelId = "Lanczos")
         // The server's own list, the model's own first, and "None" - no upscaling at all - left out.
-        graphQlTester.document("""query { designUpscaleAlgorithms(workspaceId: $workspaceId, modelId: $upscaler) { names preferred reason } }""")
+        graphQlTester.document("""query { designUpscaleAlgorithms(workspaceId: $workspaceId, modelId: $upscaler) { names preferred reason restorers } }""")
             .execute()
-            .path("designUpscaleAlgorithms.names").entityList(String::class.java).containsExactly("Lanczos", "R-ESRGAN 4x+")
+            .path("designUpscaleAlgorithms.names").entityList(String::class.java)
+            .containsExactly("Lanczos", "R-ESRGAN 4x+", "ScuNET GAN", "1x_JPEGDestroyer")
+            // The restoration models among them, what Clean up offers: not an upscaler that only enlarges.
+            .path("designUpscaleAlgorithms.restorers").entityList(String::class.java).containsExactly("ScuNET GAN", "1x_JPEGDestroyer")
             .path("designUpscaleAlgorithms.preferred").entity(String::class.java).isEqualTo("Lanczos")
             .path("designUpscaleAlgorithms.reason").valueIsNull()
 
@@ -609,6 +741,26 @@ class DesignImageAPITest(
         assertThat(kept.versionOf).isEqualTo("DESIGN-${source.id}")
         assertThat(kept.name).isEqualTo("White")
         assertThat(javax.imageio.ImageIO.read(store.open(kept.location)).width).isEqualTo(4)
+    }
+
+    @Test
+    fun `cleaning up runs a restoration model at 1x and keeps the draft at the picture's own size`() {
+        val upscaler = model("Enlarger", "UPSCALE", type = "STABLE_DIFFUSION_WEBUI", keyed = false, modelId = "Lanczos")
+        val source = whiteSource()
+        val version = drawnPicture(
+            graphQlTester.document(
+                """mutation { queueDesignImageUpscale(input: {
+                     workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", modelId: $upscaler, algorithm: "ScuNET GAN", scale: 1
+                   }) { id } }""",
+            ).execute().path("queueDesignImageUpscale.id").entity(String::class.java).get(),
+        )
+        assertThat(upscaled.single()).contains("\"upscaler_1\":\"ScuNET GAN\"", "\"upscaling_resize\":1.0")
+        // The WebUI answered four by four; the draft is the picture's own two by two, restored.
+        val kept = requireNotNull(images.findByIdOrNull(version.removePrefix("DESIGN-").toLong()))
+        val read = javax.imageio.ImageIO.read(store.open(kept.location))
+        assertThat(read.width to read.height).isEqualTo(2 to 2)
+        assertThat(read.getRGB(0, 0)).isEqualTo(RED)
+        assertThat(kept.versionOf).isEqualTo("DESIGN-${source.id}")
     }
 
     @Test

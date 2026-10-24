@@ -58,7 +58,28 @@ class DesignImageAPI(
     private val artifacts: WorkspaceArtifactAPI,
     private val upscaling: ModelUpscaleClient,
     private val mapper: tools.jackson.databind.ObjectMapper,
+    private val tuning: io.mszymanski.orknux.server.tuning.Tuning,
 ) {
+
+    /**
+     * Where the image editor's own tools start, and how far each may go - the
+     * installation's numbers on Admin -> Settings, so a page holds none of its own.
+     */
+    @QueryMapping
+    fun designImageEditorSettings(@Argument workspaceId: Long): ImageEditorSettingsView {
+        access.requireVisible(workspaceId)
+        val brush = io.mszymanski.orknux.server.tuning.Tunable.IMAGE_BRUSH_PIXELS
+        val blur = io.mszymanski.orknux.server.tuning.Tunable.IMAGE_BLUR_PIXELS
+        val feather = io.mszymanski.orknux.server.tuning.Tunable.IMAGE_FEATHER_PIXELS
+        return ImageEditorSettingsView(
+            brush = tuning[brush],
+            brushMost = brush.most,
+            blur = tuning[blur],
+            blurMost = blur.most,
+            feather = tuning[feather],
+            featherMost = feather.most,
+        )
+    }
 
     /** Refused here, before it waits, for anything that could never be drawn. */
     @MutationMapping
@@ -134,6 +155,11 @@ class DesignImageAPI(
         val mask = runCatching { java.util.Base64.getDecoder().decode(input.mask.substringAfter("base64,")) }.getOrNull()
             ?.takeIf { it.isNotEmpty() }
             ?: throw DesignImageRefusedException("The selection could not be read; select again.")
+        val feathering = io.mszymanski.orknux.server.tuning.Tunable.IMAGE_FEATHER_PIXELS
+        val feather = input.feather ?: tuning[feathering]
+        if (feather !in 0..feathering.most) {
+            throw DesignImageRefusedException("A feather is 0 to ${feathering.most} pixels.")
+        }
 
         val job = jobs.save(
             DesignImageJob(
@@ -149,6 +175,7 @@ class DesignImageAPI(
                 sourceId = input.imageId,
                 maskLocation = store.put(workspaceId, "mask.png", mask),
                 negativePrompt = negativeFor(model, input.negativePrompt),
+                feather = feather,
             ),
         )
         auditRecorder.record(
@@ -197,7 +224,11 @@ class DesignImageAPI(
         auditRecorder.record(
             workspaceId,
             WorkspaceAuditCategory.WORKFLOW,
-            "${source.view.name ?: source.view.filename} queued to be made ${input.scale}x larger in Design with ${model.name}",
+            if (input.scale == 1.0) {
+                "${source.view.name ?: source.view.filename} queued to be cleaned up in Design with ${model.name}"
+            } else {
+                "${source.view.name ?: source.view.filename} queued to be made ${input.scale}x larger in Design with ${model.name}"
+            },
         )
         queue.queued(job)
         return view(job)
@@ -296,8 +327,9 @@ class DesignImageAPI(
         val model = models.model(modelId)?.takeIf { it.workspaceId == workspaceId }
             ?: throw ModelNotFoundForWorkspaceException(modelId)
         return when (val offered = upscaling.algorithms(modelId)) {
-            is ModelUpscaleClient.Algorithms.Offered -> UpscaleAlgorithmsView(offered.names, offered.preferred, null)
-            is ModelUpscaleClient.Algorithms.Failed -> UpscaleAlgorithmsView(emptyList(), model.modelId, offered.reason)
+            is ModelUpscaleClient.Algorithms.Offered ->
+                UpscaleAlgorithmsView(offered.names, offered.preferred, null, offered.names.filter { RESTORING.containsMatchIn(it) })
+            is ModelUpscaleClient.Algorithms.Failed -> UpscaleAlgorithmsView(emptyList(), model.modelId, offered.reason, emptyList())
         }
     }
 
@@ -349,6 +381,79 @@ class DesignImageAPI(
         )
         auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Image $filename imported into Design")
         return artifacts.describe(saved)
+    }
+
+    /**
+     * A change the image editor made itself - rotated, mirrored, cropped,
+     * painted, blurred, layers merged - kept as a version of the picture, as a
+     * model's change is, so Undo, Save and Discard treat the two alike. Issue #634.
+     *
+     * No model and no queue: the pixels were worked out in the browser, which
+     * already holds the picture, and are only kept here. So the request is
+     * drawn the moment it is filed, and answered with its version.
+     */
+    @MutationMapping
+    @Transactional
+    fun keepDesignImageChange(@Argument input: KeepDesignImageChangeInput): DesignImageJobView {
+        val workspaceId = input.workspaceId.toLong()
+        access.requireVisible(workspaceId)
+        if (!settings.attachmentsEnabled()) {
+            throw DesignImageRefusedException("A picture is kept as an attachment, and attachments are turned off for this installation.")
+        }
+        val change = input.change.trim()
+        if (change.isEmpty()) throw DesignImageRefusedException("Say what was changed.")
+        if (change.length > NAME_LENGTH) throw DesignImageRefusedException("What was changed is said in at most $NAME_LENGTH characters.")
+        val source = artifacts.storedOf(workspaceId, input.imageId)
+            ?: throw DesignImageRefusedException("The picture to change is not here any more.")
+        val bytes = runCatching { java.util.Base64.getDecoder().decode(input.image.substringAfter("base64,")) }.getOrNull()
+            ?.takeIf { it.isNotEmpty() }
+            ?: throw DesignImageRefusedException("The changed picture could not be read.")
+        if (bytes.size > settings.maxFileSizeMb() * 1024 * 1024) {
+            throw DesignImageRefusedException("That picture is larger than this installation keeps.")
+        }
+        val contentType = pictureTypeOf(bytes)
+            ?: throw DesignImageRefusedException("That file is not a picture this can keep: a PNG, JPEG, WebP or GIF.")
+        val view = source.view
+        val name = view.name ?: PictureFilenames.nameOf(view.prompt)
+        val filename = PictureFilenames.of(name, contentType)
+        val version = images.save(
+            DesignImage(
+                workspaceId = workspaceId,
+                modelId = view.drawnWith?.modelId?.toLongOrNull(),
+                modelName = view.drawnWith?.model ?: IMAGE_EDITOR,
+                prompt = view.prompt,
+                size = null,
+                quality = null,
+                style = null,
+                filename = filename,
+                contentType = contentType,
+                sizeBytes = bytes.size.toLong(),
+                location = store.put(workspaceId, filename, bytes),
+                drawnBy = currentName(),
+                name = name,
+                // A version of the picture itself, not of the round before - as a model's change is.
+                versionOf = view.versionOf ?: input.imageId,
+            ),
+        )
+        val job = jobs.save(
+            DesignImageJob(
+                workspaceId = workspaceId,
+                modelId = null,
+                modelName = IMAGE_EDITOR,
+                prompt = change,
+                size = null,
+                quality = null,
+                style = null,
+                requestedBy = currentName(),
+                startedAt = java.time.OffsetDateTime.now(),
+                status = DesignImageJobStatus.DRAWN,
+                imageId = version.id,
+                name = name,
+                sourceId = input.imageId,
+            ),
+        )
+        auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Change to $name made in Design: $change")
+        return view(job)
     }
 
     /**
@@ -616,6 +721,7 @@ class DesignImageAPI(
             checkpoint = job.checkpoint,
             negativePrompt = job.negativePrompt,
             scale = job.scale,
+            feather = job.feather,
             image = job.imageId?.let { images.findByIdOrNull(it) }?.let(artifacts::describe),
         )
     }
@@ -648,6 +754,17 @@ class DesignImageAPI(
         /** What an imported picture says it was drawn with: nothing here drew it. */
         const val IMPORTED = "Imported"
 
+        /**
+         * A WebUI's restoration models by name: what Clean up offers first. SCUNet
+         * and SwinIR come with AUTOMATIC1111 and Forge; FBCNN and 1x models such
+         * as 1x_JPEGDestroyer are added to its models folder. A name, because the
+         * WebUI's list says nothing else about what a model does. Issue #640.
+         */
+        val RESTORING = Regex("scunet|swinir|fbcnn|jpeg|(^|[^0-9])1x", RegexOption.IGNORE_CASE)
+
+        /** What a change the editor made itself says it was made with: no model made it. */
+        const val IMAGE_EDITOR = "Image editor"
+
         val SHOWN = listOf(DesignImageJobStatus.QUEUED, DesignImageJobStatus.DRAWING, DesignImageJobStatus.FAILED)
     }
 }
@@ -676,6 +793,8 @@ data class EditDesignImageInput(
     val name: String? = null,
     /** What the change must not bring in; null or blank is the model's default. */
     val negativePrompt: String? = null,
+    /** How far the selection's edge is softened, in the picture's own pixels; null is the installation's. */
+    val feather: Int? = null,
 )
 
 data class UpscaleDesignImageInput(
@@ -698,7 +817,38 @@ data class ImportDesignImageInput(
     val prompt: String? = null,
 )
 
-data class UpscaleAlgorithmsView(val names: List<String>, val preferred: String?, val reason: String?)
+data class ImageEditorSettingsView(
+    /** How wide the brush starts, in the picture's own pixels. */
+    val brush: Int,
+    /** The widest it may be made. */
+    val brushMost: Int,
+    /** The blur's radius it starts at, in the picture's own pixels. */
+    val blur: Int,
+    /** The largest radius it may be given. */
+    val blurMost: Int,
+    /** How far a Magic edit's edge is softened, to start with; 0 is a hard edge. */
+    val feather: Int,
+    /** The furthest it may be softened. */
+    val featherMost: Int,
+)
+
+data class KeepDesignImageChangeInput(
+    val workspaceId: String,
+    /** The picture the change was made to, by its artifact id. */
+    val imageId: String,
+    /** The changed picture's file, base64. */
+    val image: String,
+    /** What was done, as the editor's history says it. */
+    val change: String,
+)
+
+data class UpscaleAlgorithmsView(
+    val names: List<String>,
+    val preferred: String?,
+    val reason: String?,
+    /** Of [names], the restoration models Clean up offers: SCUNet, SwinIR, FBCNN and 1x models, by name. */
+    val restorers: List<String>,
+)
 
 data class HarmonizeDesignImageInput(
     val workspaceId: String,
@@ -751,6 +901,8 @@ data class DesignImageJobView(
     val checkpoint: String? = null,
     /** What it was asked not to contain; null is none given. */
     val negativePrompt: String? = null,
+    /** How far an edit's selection edge was softened, in pixels; null for anything else. */
+    val feather: Int? = null,
     val image: ArtifactView?,
 )
 

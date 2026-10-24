@@ -117,6 +117,14 @@ class DesignImageJob(
      */
     @Column(name = "negative_prompt", columnDefinition = "text")
     val negativePrompt: String? = null,
+
+    /**
+     * How far the edge of an edit's selection is softened, in the picture's own
+     * pixels, when the change is laid over the picture; 0 or null is a hard
+     * edge, and null on anything but an edit. Issue #638.
+     */
+    @Column
+    val feather: Int? = null,
 )
 
 interface DesignImageJobRepository : JpaRepository<DesignImageJob, Long> {

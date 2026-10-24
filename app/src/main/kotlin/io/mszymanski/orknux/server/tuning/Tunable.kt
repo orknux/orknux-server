@@ -26,6 +26,7 @@ enum class TuningUnit(val said: String) {
     CHARACTERS("characters"),
     LINES("lines"),
     MB("MB"),
+    PIXELS("pixels"),
 }
 
 /**
@@ -288,6 +289,37 @@ enum class Tunable(
         "video.max.mb", 200, 1, 4096, TuningSection.MEDIA, TuningUnit.MB,
         "The largest video kept",
         "A video larger than this is not collected from its server, and is said to have failed.",
+    ),
+
+    /*
+     * Where the image editor's brush starts, in the picture's own pixels -
+     * somebody painting chooses their own, from 1 to the most here. Issue #637.
+     */
+    IMAGE_BRUSH_PIXELS(
+        "images.brush.pixels", 12, 1, 500, TuningSection.MEDIA, TuningUnit.PIXELS,
+        "How wide the image editor's brush starts",
+        "In the picture's own pixels, so zooming does not change it. Whoever paints can choose another width, up to the most this may be set to.",
+    ),
+    /*
+     * Where the image editor's selective blur starts, in the picture's own
+     * pixels; whoever blurs chooses their own up to the most here. 254 is the
+     * most the stack blur it draws with takes. Issue #636.
+     */
+    IMAGE_BLUR_PIXELS(
+        "images.blur.pixels", 12, 1, 254, TuningSection.MEDIA, TuningUnit.PIXELS,
+        "How strongly the image editor's blur starts",
+        "The blur's radius in the picture's own pixels. Whoever blurs can choose another, up to the most this may be set to.",
+    ),
+    /*
+     * How far the edge of a Magic edit's selection is softened when the change
+     * is laid over the picture, in its own pixels. The right width depends on
+     * the picture and the change, so this is where the form starts and not a
+     * rule. Issue #638.
+     */
+    IMAGE_FEATHER_PIXELS(
+        "images.feather.pixels", 8, 0, 256, TuningSection.MEDIA, TuningUnit.PIXELS,
+        "How far a Magic edit's edge is feathered",
+        "The redrawn part blends into the picture across about this many of its own pixels either side of the selection's edge. Zero is a hard edge. Whoever edits can choose another.",
     ),
 
     /* ---- Workflows and triggers ---- */
