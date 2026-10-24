@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.embedded
 
+import com.github.miachm.sods.Sheet
+import com.github.miachm.sods.SpreadSheet
 import org.apache.poi.hssf.usermodel.HSSFWorkbook
 import org.apache.poi.ss.usermodel.Workbook
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
@@ -8,6 +10,9 @@ import org.junit.jupiter.api.Test
 import java.io.ByteArrayOutputStream
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.util.zip.CRC32
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 /**
  * sheet_read's parsing: a CSV as Excel and people write one, and a workbook
@@ -183,4 +188,103 @@ class SheetReaderTest {
     }
 
     private fun isWorkbook(bytes: ByteArray) = reader.isWorkbook(bytes)
+
+    /* ------------------------------------------------------------------ ODS */
+
+    /** An .ods as LibreOffice would hand one over, built with SODS: two sheets, every kind of cell. */
+    private fun ods(): ByteArray {
+        val book = SpreadSheet()
+        val costs = Sheet("Costs", 5, 4)
+        costs.getRange(0, 0, 1, 3).setValues("item", "amount", "due")
+        costs.getRange(1, 0, 1, 3).setValues("rent", 1200.5, LocalDate.of(2026, 11, 1))
+        costs.getRange(2, 0, 1, 3).setValues("power", 99.0, LocalDateTime.of(2026, 11, 3, 14, 30))
+        // Row 4 left empty on purpose: a gap the sheet's numbering keeps.
+        costs.getRange(4, 0, 1, 4).setValues("total", 1299.5, null, true)
+        book.appendSheet(costs)
+        val notes = Sheet("Notes", 1, 1)
+        notes.getRange(0, 0).setValue("paid by transfer")
+        book.appendSheet(notes)
+        return ByteArrayOutputStream().also(book::save).toByteArray()
+    }
+
+    @Test
+    fun `an ods lists its sheets and answers the first, typed cells as text the way a workbook's are`() {
+        val bytes = ods()
+        assertThat(reader.isWorkbook(bytes)).isTrue()
+        val page = read(reader.workbook(bytes, null, 1, null, roomy))
+        assertThat(page.sheets).containsExactly("Costs", "Notes")
+        assertThat(page.sheet).isEqualTo("Costs")
+        assertThat(page.rows).containsExactly(
+            listOf("item", "amount", "due"),
+            listOf("rent", "1200.5", "2026-11-01"),
+            listOf("power", "99", "2026-11-03T14:30"),
+            emptyList(),
+            listOf("total", "1299.5", "", "TRUE"),
+        )
+        assertThat(page.total).isEqualTo(5)
+        assertThat(page.delimiter).isNull()
+
+        assertThat(read(reader.workbook(bytes, "notes", 1, null, roomy)).rows).containsExactly(listOf("paid by transfer"))
+        val missing = reader.workbook(bytes, "Budget", 1, null, roomy)
+        assertThat((missing as SheetReader.Reading.Refused).reason).contains("Costs, Notes")
+    }
+
+    @Test
+    fun `an ods is paged like any sheet, the header repeated past the first page`() {
+        val page = read(reader.workbook(ods(), null, 2, null, roomy.copy(rows = 2)))
+        assertThat(page.header).containsExactly("item", "amount", "due")
+        assertThat(page.rows.map { it.first() }).containsExactly("rent", "power")
+        assertThat(page.to).isEqualTo(3)
+        assertThat(page.total).isEqualTo(5)
+    }
+
+    @Test
+    fun `an ods part that unpacks past the limit is refused, not read`() {
+        val bytes = SpreadSheet().let { book ->
+            val sheet = Sheet("Big", 2000, 1)
+            repeat(2000) { sheet.getRange(it, 0).setValue("row $it of something long enough") }
+            book.appendSheet(sheet)
+            ByteArrayOutputStream().also(book::save).toByteArray()
+        }
+        val reading = reader.workbook(bytes, null, 1, null, roomy.copy(unpackedBytes = 10_000))
+        assertThat((reading as SheetReader.Reading.Refused).reason).contains("content.xml").contains("unpacks to more than")
+        assertThat(read(reader.workbook(bytes, null, 1, null, roomy)).total).isEqualTo(2000)
+    }
+
+    /** A zip with a `mimetype` entry first, as every OpenDocument package and nothing else has. */
+    private fun zip(mimetype: String?, vararg entries: Pair<String, String>): ByteArray {
+        val out = ByteArrayOutputStream()
+        ZipOutputStream(out).use { zip ->
+            if (mimetype != null) {
+                val bytes = mimetype.toByteArray()
+                zip.putNextEntry(
+                    ZipEntry("mimetype").apply {
+                        method = ZipEntry.STORED
+                        size = bytes.size.toLong()
+                        crc = CRC32().apply { update(bytes) }.value
+                    },
+                )
+                zip.write(bytes)
+                zip.closeEntry()
+            }
+            entries.forEach { (name, text) ->
+                zip.putNextEntry(ZipEntry(name))
+                zip.write(text.toByteArray())
+                zip.closeEntry()
+            }
+        }
+        return out.toByteArray()
+    }
+
+    @Test
+    fun `a zip that is not a spreadsheet is refused saying what it is`() {
+        val plain = zip(null, "notes.txt" to "hello")
+        assertThat(reader.isWorkbook(plain)).isTrue()
+        assertThat((reader.workbook(plain, null, 1, null, roomy) as SheetReader.Reading.Refused).reason)
+            .contains("not a workbook")
+
+        val text = zip("application/vnd.oasis.opendocument.text", "content.xml" to "<x/>")
+        assertThat((reader.workbook(text, null, 1, null, roomy) as SheetReader.Reading.Refused).reason)
+            .contains("application/vnd.oasis.opendocument.text").contains("not a spreadsheet")
+    }
 }
