@@ -43,7 +43,8 @@ class ResearchDocuments(
 
     /** The workspace's readable documents, newest first. */
     fun of(workspaceId: Long): List<SavedArtifact> =
-        saved.findByWorkspaceId(workspaceId).filter { readable(it.contentType) }.sortedByDescending { it.savedAt }
+        saved.findByWorkspaceId(workspaceId).filter { readable(it.contentType) }
+            .sortedWith(compareByDescending<SavedArtifact> { it.savedAt }.thenByDescending { it.id })
 
     /** What the document says, or null where it cannot be read. */
     fun text(document: SavedArtifact): String? = runCatching {

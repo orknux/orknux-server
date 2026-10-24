@@ -1,4 +1,4 @@
-# Answer > Research: a question researched by one of the workspace's own
+# Analysis > Research: a question researched by one of the workspace's own
 # workflows, and the modes that say which. Issue #659.
 
 extend type Query {
@@ -9,7 +9,7 @@ extend type Query {
     "One research, with its report; null where it is not there or not the caller's to see."
     research(id: ID!): Research
     "The workspace's documents a research can be pointed at: the readable files on the Artifacts page."
-    researchDocuments(workspaceId: ID!): [ResearchDocument!]!
+    researchDocuments(workspaceId: ID!, "Words in the name or what the file is; absent is every one." search: String, "How many, newest first; 20 when absent, at most 100." limit: Int): [ResearchDocument!]!
 }
 
 extend type Mutation {

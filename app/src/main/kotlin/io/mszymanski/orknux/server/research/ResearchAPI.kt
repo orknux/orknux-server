@@ -23,7 +23,7 @@ import tools.jackson.databind.ObjectMapper
 import java.time.format.DateTimeFormatter
 
 /**
- * Answer > Research: a question researched by one of the workspace's own
+ * Analysis > Research: a question researched by one of the workspace's own
  * workflows, and the modes that say which. Issue #659.
  *
  * What a research *does* is its mode's workflow, and nothing here reads the
@@ -80,21 +80,36 @@ class ResearchAPI(
         return describe(caughtUp(held))
     }
 
-    /** What a research may be pointed at: the workspace's readable documents. */
+    /**
+     * What a research may be pointed at: the workspace's readable documents,
+     * newest first, narrowed to what a word appears in - the name or what the
+     * file is - and no more than [limit] of them, because a picker shows a few
+     * and a workspace may hold thousands.
+     */
     @QueryMapping
-    fun researchDocuments(@Argument workspaceId: Long): List<ResearchDocumentView> {
+    fun researchDocuments(
+        @Argument workspaceId: Long,
+        @Argument search: String?,
+        @Argument limit: Int?,
+    ): List<ResearchDocumentView> {
         access.requireVisible(workspaceId)
-        return documents.of(workspaceId).map {
-            ResearchDocumentView(
-                id = requireNotNull(it.id),
-                name = it.name,
-                description = it.description,
-                contentType = it.contentType,
-                sizeBytes = it.sizeBytes,
-                savedAt = it.savedAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
-            )
-        }
+        val looking = search?.trim()?.lowercase().orEmpty()
+        return documents.of(workspaceId)
+            .asSequence()
+            .filter { looking.isEmpty() || it.name.lowercase().contains(looking) || it.description.lowercase().contains(looking) }
+            .take((limit ?: DOCUMENTS_SHOWN).coerceIn(1, MOST_DOCUMENTS_SHOWN))
+            .map(::describeDocument)
+            .toList()
     }
+
+    private fun describeDocument(it: io.mszymanski.orknux.server.workflow.SavedArtifact) = ResearchDocumentView(
+        id = requireNotNull(it.id),
+        name = it.name,
+        description = it.description,
+        contentType = it.contentType,
+        sizeBytes = it.sizeBytes,
+        savedAt = it.savedAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+    )
 
     /**
      * Writes the research down and starts its mode's workflow.
@@ -347,6 +362,10 @@ class ResearchAPI(
 
     private companion object {
         const val MOST_QUESTION = 20_000
+
+        /** How many documents a picker is answered with where it does not say; the page of a list, not a behaviour. */
+        const val DOCUMENTS_SHOWN = 20
+        const val MOST_DOCUMENTS_SHOWN = 100
         const val MOST_MODE_NAME = 100
         const val MOST_WEBSITES = 50
         const val MOST_WEBSITE = 500
