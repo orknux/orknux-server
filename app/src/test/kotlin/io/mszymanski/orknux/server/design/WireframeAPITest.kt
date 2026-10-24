@@ -21,6 +21,11 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.graphql.test.tester.ExecutionGraphQlServiceTester
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.security.test.context.support.WithMockUser
+import org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
+import org.springframework.test.web.servlet.setup.DefaultMockMvcBuilder
+import org.springframework.test.web.servlet.setup.MockMvcBuilders
+import org.springframework.web.context.WebApplicationContext
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 import java.net.InetAddress
@@ -51,6 +56,7 @@ class WireframeAPITest(
     @Autowired val models: LlmModelRepository,
     @Autowired val providers: ModelProviderRepository,
     @Autowired val mapper: ObjectMapper,
+    @Autowired val context: WebApplicationContext,
 ) {
 
     private var workspaceId: Long = 0
@@ -63,6 +69,7 @@ class WireframeAPITest(
         audit.deleteAll()
         workspaceId = requireNotNull(workspaces.save(Workspace(name = "wireframes-${System.nanoTime()}")).id)
         tunables.set(Tunable.WIREFRAME_ELEMENTS_MOST, null, "alice")
+        tunables.set(Tunable.WIREFRAME_HTML_INLINE_CHARACTERS, null, "alice")
         received.clear()
     }
 
@@ -70,6 +77,7 @@ class WireframeAPITest(
     fun stop() {
         server?.stop(0)
         tunables.set(Tunable.WIREFRAME_ELEMENTS_MOST, null, "alice")
+        tunables.set(Tunable.WIREFRAME_HTML_INLINE_CHARACTERS, null, "alice")
     }
 
     private fun create(name: String, document: String? = null): Long = graphQlTester.document(
@@ -182,7 +190,7 @@ class WireframeAPITest(
 
         assertThat(tools.specs(scope).map { it.name }).containsAll(WireframeTools.NAMES)
         assertThat(tools.specs(scope.copy(mayWrite = false)).map { it.name }.filter { it in WireframeTools.NAMES })
-            .containsExactlyInAnyOrder(WireframeTools.LIST, WireframeTools.READ)
+            .containsExactlyInAnyOrder(WireframeTools.LIST, WireframeTools.READ, WireframeTools.HTML)
 
         val made = call(
             WireframeTools.CREATE,
@@ -222,6 +230,96 @@ class WireframeAPITest(
         assertThat(audit.findAll().filter { it.message.startsWith("Wireframe Checkout") }.map { it.userId }.toSet())
             .containsExactly("Sketcher")
     }
+
+    /** The editor's export: the drawing it holds, unsaved or not, as a page; checked as a save is, and audited. */
+    @Test
+    fun `the editor exports the drawing it holds as HTML, and the export is audited`() {
+        val id = create("Sign up", """{"elements":[{"id":"f","type":"frame","x":0,"y":0,"w":390,"h":844,"text":"Sign up"}]}""")
+        fun export(document: String?) = graphQlTester.document(
+            """mutation(${'$'}id: ID!, ${'$'}d: String) { exportWireframeHtml(id: ${'$'}id, document: ${'$'}d) }""",
+        ).variable("id", id).variable("d", document).execute()
+
+        val stored = export(null).path("exportWireframeHtml").entity(String::class.java).get()
+        assertThat(stored).startsWith("<!doctype html>").contains("<h2 class=\"screen-title\">Sign up</h2>").doesNotContain("<button")
+
+        val held = export(
+            """{"elements":[{"id":"f","type":"frame","x":0,"y":0,"w":390,"h":844,"text":"Sign up"},
+               {"type":"button","x":24,"y":700,"w":342,"h":48,"text":"<Create>"}]}""",
+        ).path("exportWireframeHtml").entity(String::class.java).get()
+        assertThat(held).contains(">&lt;Create&gt;</button>")
+        // Written nowhere: the stored drawing is as it was.
+        assertThat(elementsOf(id).size()).isEqualTo(1)
+        assertThat(wireframes.findById(id).get().revision).isEqualTo(1)
+
+        export("""{"elements":[{"type":"circle"}]}""").errors()
+            .expect { it.message?.startsWith("The wireframe cannot be saved: element 1 has type circle") == true }.verify()
+        assertThat(audit.findAll().filter { it.message == "Wireframe Sign up exported as HTML" }.map { it.userId })
+            .containsExactly("alice", "alice")
+    }
+
+    /** The link the tool hands out: a download, named after the wireframe, and never a page on this origin. */
+    @Test
+    fun `the HTML downloads from its link, named after the wireframe`() {
+        val id = create("Log in / out", """{"elements":[{"type":"note","x":0,"y":0,"w":100,"h":60,"text":"Hello & bye"}]}""")
+        val answer = mvc().perform(get("/api/wireframes/$id/html")).andReturn().response
+        assertThat(answer.status).isEqualTo(200)
+        assertThat(answer.contentType).startsWith("text/html")
+        assertThat(answer.getHeader("Content-Disposition")).startsWith("attachment").contains("Log in out.html")
+        assertThat(answer.getHeader("X-Content-Type-Options")).isEqualTo("nosniff")
+        assertThat(answer.getHeader("Content-Security-Policy")).startsWith("sandbox")
+        assertThat(answer.getContentAsString(StandardCharsets.UTF_8)).contains(">Hello &amp; bye</aside>")
+        assertThat(audit.findAll().map { it.message }).contains("Wireframe Log in / out exported as HTML")
+
+        assertThat(mvc().perform(get("/api/wireframes/999999999/html")).andReturn().response.status).isEqualTo(404)
+    }
+
+    @Test
+    @WithMockUser(username = "mallory", roles = ["USERS"])
+    fun `somebody who cannot see the workspace cannot export its wireframes`() {
+        val id = requireNotNull(
+            wireframes.save(Wireframe(workspaceId = workspaceId, name = "Secret", document = "{\"elements\":[]}", createdBy = "alice", updatedBy = "alice")).id,
+        )
+        graphQlTester.document("""mutation { exportWireframeHtml(id: $id) }""").execute().errors().expect { true }.verify()
+        val answer = mvc().perform(get("/api/wireframes/$id/html")).andReturn().response
+        assertThat(answer.status).isEqualTo(404)
+        assertThat(answer.getContentAsString(StandardCharsets.UTF_8)).doesNotContain("Secret")
+        assertThat(audit.findAll().map { it.message }).noneMatch { it.contains("exported") }
+    }
+
+    /** orknux_wireframe_html: the page and its link, or the link alone past the Tunable; read-only, and audited. */
+    @Test
+    fun `the tool hands a model the page and its link, and only the link past the Tunable`() {
+        SecurityContextHolder.clearContext()
+        val scope = OrknuxScope(workspaceId = workspaceId, mayWrite = false, actor = "Builder")
+        fun call(arguments: String): JsonNode = mapper.readTree(tools.run(scope, WireframeTools.HTML, arguments))
+        val id = requireNotNull(
+            wireframes.save(
+                Wireframe(
+                    workspaceId = workspaceId, name = "Pricing", createdBy = "alice", updatedBy = "alice",
+                    document = """{"elements":[{"id":"buy","type":"button","x":0,"y":0,"w":120,"h":40,"text":"Buy"}]}""",
+                ),
+            ).id,
+        )
+
+        val answered = call("""{"wireframe":"pricing"}""")
+        assertThat(answered.has("error")).describedAs(answered.toString()).isFalse()
+        assertThat(answered.path("html").stringValue()).contains(">Buy</button>")
+        assertThat(answered.path("download").stringValue()).endsWith("/api/wireframes/$id/html")
+        assertThat(answered.path("url").stringValue()).endsWith("/workspace/$workspaceId/design/wireframes/$id")
+
+        tunables.set(Tunable.WIREFRAME_HTML_INLINE_CHARACTERS, 1_000, "alice")
+        val long = call("""{"wireframe":"$id"}""")
+        assertThat(long.has("html")).isFalse()
+        assertThat(long.path("characters").asInt()).isGreaterThan(1_000)
+        assertThat(long.path("note").stringValue()).contains("past the 1000")
+        assertThat(long.path("download").stringValue()).endsWith("/api/wireframes/$id/html")
+
+        assertThat(call("""{"wireframe":"Nothing"}""").path("error").stringValue()).contains("no wireframe called Nothing")
+        assertThat(audit.findAll().filter { it.message == "Wireframe Pricing exported as HTML" }.map { it.userId })
+            .containsExactly("Builder", "Builder")
+    }
+
+    private fun mvc() = MockMvcBuilders.webAppContextSetup(context).apply<DefaultMockMvcBuilder>(springSecurity()).build()
 
     /** The briefing names every tool it mentions off what is offered, and the chat is offered drawing alone. */
     @Test

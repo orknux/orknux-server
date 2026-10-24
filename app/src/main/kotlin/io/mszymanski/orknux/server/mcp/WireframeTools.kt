@@ -10,6 +10,8 @@ import io.mszymanski.orknux.server.design.WireframeRepository
 import io.mszymanski.orknux.server.design.WireframeView
 import io.mszymanski.orknux.server.security.InstallationAddress
 import io.mszymanski.orknux.server.security.WebProperties
+import io.mszymanski.orknux.server.tuning.Tunable
+import io.mszymanski.orknux.server.tuning.Tuning
 import org.springframework.context.annotation.Lazy
 import org.springframework.stereotype.Service
 import tools.jackson.databind.JsonNode
@@ -35,6 +37,7 @@ class WireframeTools(
     private val web: WebProperties,
     private val address: InstallationAddress,
     private val mapper: ObjectMapper,
+    private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
     private val document = WireframeDocument(mapper)
@@ -52,6 +55,15 @@ class WireframeTools(
                 name = READ,
                 description = "One wireframe in full: every element with its id, type, position, size, text and props. " +
                     "Read it before changing it.",
+                parameters = listOf(ToolParameterSpec(WIREFRAME, "The wireframe's name, or its id.", required = true)),
+            ),
+        )
+        add(
+            ToolSpec(
+                name = HTML,
+                description = "One wireframe written out as a single HTML page - styles inline, no script, each frame a screen " +
+                    "with its elements placed where they were drawn, buttons, fields and pictures as real HTML elements. " +
+                    "Answers the page and a link to download it; a page too long to hand over is answered with the link alone.",
                 parameters = listOf(ToolParameterSpec(WIREFRAME, "The wireframe's name, or its id.", required = true)),
             ),
         )
@@ -112,6 +124,7 @@ class WireframeTools(
             when (name) {
                 LIST -> list(scope)
                 READ -> withWireframe(scope, asked) { shown(scope, it) }
+                HTML -> withWireframe(scope, asked) { html(it) }
                 else -> if (!scope.mayWrite) refuse("This conversation may read what is here, but not change it") else when (name) {
                     CREATE -> create(scope, asked)
                     CHANGE -> withWireframe(scope, asked) { change(scope, it, asked) }
@@ -174,6 +187,31 @@ class WireframeTools(
         return shown(scope, api.saveElements(held.id, changed + added))
     }
 
+    /**
+     * The page, and where to download it. The page itself is text a model can
+     * use - put in a repository, saved as an artifact, read for its structure -
+     * so it is handed over while it is short enough to read; the link is for
+     * the person, and is all there is past the Tunable.
+     */
+    private fun html(view: WireframeView): String {
+        val page = api.html(view.id)
+        val most = tuning[Tunable.WIREFRAME_HTML_INLINE_CHARACTERS]
+        return mapper.writeValueAsString(
+            buildMap {
+                put("id", view.id)
+                put("name", view.name)
+                put("url", link(view))
+                put("download", base() + "/api/wireframes/${view.id}/html")
+                put("characters", page.html.length)
+                if (page.html.length <= most) {
+                    put("html", page.html)
+                } else {
+                    put("note", "The page is ${page.html.length} characters, past the $most this installation hands to a model; give the person the download link.")
+                }
+            },
+        )
+    }
+
     private fun shown(scope: OrknuxScope, view: WireframeView): String = mapper.writeValueAsString(
         mapOf(
             "id" to view.id,
@@ -209,9 +247,9 @@ class WireframeTools(
         else -> null
     }
 
-    private fun link(view: WireframeView): String =
-        address.base().ifEmpty { web.allowedOrigins.firstOrNull()?.trimEnd('/').orEmpty() } +
-            "/workspace/${view.workspaceId}/design/wireframes/${view.id}"
+    private fun link(view: WireframeView): String = base() + "/workspace/${view.workspaceId}/design/wireframes/${view.id}"
+
+    private fun base(): String = address.base().ifEmpty { web.allowedOrigins.firstOrNull()?.trimEnd('/').orEmpty() }
 
     private fun refuse(says: String): String = mapper.writeValueAsString(mapOf("error" to says))
 
@@ -221,11 +259,12 @@ class WireframeTools(
         const val CREATE = "orknux_create_wireframe"
         const val CHANGE = "orknux_change_wireframe"
         const val DRAW = "orknux_draw_wireframe"
+        const val HTML = "orknux_wireframe_html"
 
         /** What the editor's own chat is offered: drawing in the wireframe it has open. */
         val DRAWING = setOf(READ, CHANGE, DRAW)
 
-        val NAMES = setOf(LIST, READ, CREATE, CHANGE, DRAW)
+        val NAMES = setOf(LIST, READ, HTML, CREATE, CHANGE, DRAW)
 
         private const val WIREFRAME = "wireframe"
         private const val ELEMENTS = "elements"

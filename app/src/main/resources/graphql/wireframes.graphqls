@@ -20,6 +20,13 @@ extend type Mutation {
     saveWireframe(id: ID!, document: String!, revision: Int): Wireframe!
     deleteWireframe(id: ID!): Boolean!
     """
+    The wireframe as one HTML page - styles inline, no script, each frame a
+    screen. With `document`, that drawing (what the editor holds) rather than
+    the one saved; it is checked as a save is and written nowhere. A mutation
+    because it is recorded in the audit log.
+    """
+    exportWireframeHtml(id: ID!, document: String): String!
+    """
     Asks a chat model to draw in the wireframe: the conversation so far, oldest
     first, ending with what is asked now. Whatever it draws is saved as it goes.
     """

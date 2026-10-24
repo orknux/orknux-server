@@ -124,6 +124,32 @@ class WireframeAPI(
     }
 
     /**
+     * The wireframe as one HTML page; see [WireframeHtml].
+     *
+     * @param document the drawing as the editor holds it, so an export is what
+     *   is on the screen rather than what was last saved; checked as a save is,
+     *   and written nowhere. Without it, the stored drawing.
+     */
+    @MutationMapping
+    fun exportWireframeHtml(@Argument id: Long, @Argument document: String?): String {
+        val held = find(id)
+        return html(held, if (document == null) this.document.read(held.document) else checked(document))
+    }
+
+    /** The stored drawing as a page, from the download link and the orknux_* tool. */
+    fun html(id: Long): WireframeHtmlPage {
+        val held = find(id)
+        return WireframeHtmlPage(held.name, html(held, document.read(held.document)))
+    }
+
+    /** Written out, and said in the audit log: a page leaving the server is a copy somebody now holds. */
+    private fun html(held: Wireframe, elements: List<WireframeElement>): String {
+        val page = WireframeHtml().page(held.name, elements)
+        audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Wireframe ${held.name} exported as HTML")
+        return page
+    }
+
+    /**
      * Asks a chat model to draw in a wireframe, and answers with what it said and
      * the drawing as it now stands.
      *
@@ -215,6 +241,9 @@ data class WireframeView(
     val updatedBy: String,
     val updatedAt: String,
 )
+
+/** A wireframe's page, and the name it was made from, which a download is named by. */
+data class WireframeHtmlPage(val name: String, val html: String)
 
 data class WireframeAnswerView(
     val answer: String,
