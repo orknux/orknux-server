@@ -124,6 +124,21 @@ enum class Tunable(
         "How many names or searches one tool_find call may carry",
         "What an agent asks for beyond this in one call is ignored.",
     ),
+    /*
+     * A share of the model's window rather than a size, because the windows an
+     * installation runs differ by an order of magnitude. Chat 981: one svg_read
+     * answer of 523,768 characters against a 262,144-token window. TurnWindow.
+     */
+    TOOL_RESULT_WINDOW_PERCENT(
+        "tool.result.window.percent", 25, 1, 90, TuningSection.AGENTS, TuningUnit.PERCENT,
+        "How much of the model's window one tool result may take",
+        "A longer answer is cut to this share of the model's context window, counted at two characters a token, and the model is told how long it was and how to read the rest. Applies to models whose window is known.",
+    ),
+    TURN_WINDOW_RESERVE_PERCENT(
+        "turn.window.reserve.percent", 25, 5, 75, TuningSection.AGENTS, TuningUnit.PERCENT,
+        "How much of the model's window a shrunk turn leaves free",
+        "A turn the provider refuses as too long is summarised and cut until it fits the window less this share, which is left for the tool list, the instructions and the answer.",
+    ),
     SCRATCHPADS_MOST(
         "scratchpad.pads", 50, 1, 1000, TuningSection.AGENTS, TuningUnit.ITEMS,
         "How many scratchpads one session may open",
