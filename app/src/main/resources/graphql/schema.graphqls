@@ -621,6 +621,16 @@ type Query {
     into the chat. Issue #649.
     """
     chatCompletion(chatId: ID!, text: String!): String
+    """
+    Replies the person might send next to the latest answer in a chat, from the
+    workspace's completion model: plain text, one line each, at most as many as
+    the installation suggests. Empty where there is nothing to suggest - no
+    completion model, the chat not ending on a finished answer, or a model that
+    did not answer in time. Kept for the answer they were made for, so asking
+    again for the same answer does not ask the model again. Never written into
+    the chat's history.
+    """
+    chatReplySuggestions(chatId: ID!): [String!]!
     "The instruction sets a workspace's agents are guided by; one catalog's when `catalogId` names one."
     workspaceSkills(workspaceId: ID!, catalogId: ID, page: Int = 0, size: Int = 20): SkillPage!
     "The workspace's skill catalogs, by name, each with what it holds."
@@ -1312,6 +1322,12 @@ type Mutation {
     setChatCompletionTimeoutMillis(millis: Int!): InstallationSettings!
     "How long the chat waits after the last keystroke before asking for a completion. Between 100 and 10000 milliseconds."
     setChatCompletionPauseMillis(millis: Int!): InstallationSettings!
+    "How many replies are suggested under a chat's latest answer. Between 0, which suggests none, and 6."
+    setChatReplySuggestions(count: Int!): InstallationSettings!
+    "The most tokens an answer's suggested replies together may be. Between 1 and 1000."
+    setChatReplySuggestionsMaxTokens(tokens: Int!): InstallationSettings!
+    "How long suggested replies may take before they are given up on. Between 200 and 60000 milliseconds."
+    setChatReplySuggestionsTimeoutMillis(millis: Int!): InstallationSettings!
     "The largest video a chat message may send to a model that takes video. Between 1 and 1024 MB."
     setChatVideoMaxMb(megabytes: Int!): InstallationSettings!
     """
@@ -7168,6 +7184,18 @@ type InstallationSettings {
     chatCompletionPauseMillis: Int!
     "What a fresh installation does - ORKNUX_CHAT_COMPLETION_PAUSE_MILLIS."
     chatCompletionPauseMillisConfigured: Int!
+    "How many replies are suggested under a chat's latest answer; 0 suggests none."
+    chatReplySuggestions: Int!
+    "What a fresh installation does - ORKNUX_CHAT_REPLY_SUGGESTIONS."
+    chatReplySuggestionsConfigured: Int!
+    "The most tokens an answer's suggested replies together may be."
+    chatReplySuggestionsMaxTokens: Int!
+    "What a fresh installation does - ORKNUX_CHAT_REPLY_SUGGESTIONS_MAX_TOKENS."
+    chatReplySuggestionsMaxTokensConfigured: Int!
+    "How long suggested replies may take, in milliseconds, before they are given up on."
+    chatReplySuggestionsTimeoutMillis: Int!
+    "What a fresh installation does - ORKNUX_CHAT_REPLY_SUGGESTIONS_TIMEOUT_MILLIS."
+    chatReplySuggestionsTimeoutMillisConfigured: Int!
     "The largest video a chat message may send to a model that takes video, in MB; a larger one is refused before the model is asked."
     chatVideoMaxMb: Int!
     "What a fresh installation does - ORKNUX_CHAT_VIDEO_MAX_MB."

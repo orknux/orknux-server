@@ -407,9 +407,12 @@ installation starts from.
 | `ORKNUX_CHAT_MAX_SUBAGENTS` | Other agents one conversation may ask. | `25` |
 | `ORKNUX_CHAT_TOOLS_NAMED_IN_SEARCH` | Findable tools `tool_find` names outright. | `40` |
 | `ORKNUX_CHAT_COMPLETION_CONTEXT_TURNS` | Latest chat messages a sentence completion is shown. | `6` |
-| `ORKNUX_CHAT_COMPLETION_MAX_TOKENS` | The most tokens one sentence completion may be. | `32` |
+| `ORKNUX_CHAT_COMPLETION_MAX_TOKENS` | The most tokens one sentence completion may be. | `64` |
 | `ORKNUX_CHAT_COMPLETION_TIMEOUT_MILLIS` | How long a sentence completion may take before it is dropped. | `4000` |
-| `ORKNUX_CHAT_COMPLETION_PAUSE_MILLIS` | The pause in typing before a sentence completion is asked for. | `600` |
+| `ORKNUX_CHAT_COMPLETION_PAUSE_MILLIS` | The pause in typing before a sentence completion is asked for. | `300` |
+| `ORKNUX_CHAT_REPLY_SUGGESTIONS` | Replies suggested under a chat's latest answer; 0 suggests none. | `3` |
+| `ORKNUX_CHAT_REPLY_SUGGESTIONS_MAX_TOKENS` | The most tokens an answer's suggested replies together may be. | `150` |
+| `ORKNUX_CHAT_REPLY_SUGGESTIONS_TIMEOUT_MILLIS` | How long suggested replies may take before they are dropped. | `8000` |
 | `ORKNUX_CHAT_VIDEO_MAX_MB` | The largest video, in MB, a chat message may send to a model that takes video; a larger one is refused before the model is asked. | `20` |
 | `ORKNUX_CHAT_TITLE_SECONDS` | How long the workspace's companion model has to name a chat before the chat's own model is asked, in seconds. Admin -> Settings overrides it. | `30` |
 | `ORKNUX_COMMAND_MARKER` | What marks a skill command in a message. | `!` |

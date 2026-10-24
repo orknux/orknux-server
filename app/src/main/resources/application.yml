@@ -306,10 +306,21 @@ orknux:
     # model is shown, the most tokens it may suggest, how long it may take in
     # milliseconds, and how long the composer waits after the last keystroke
     # before asking. Admin -> Settings overrides each of them.
+    # 64 tokens rather than 32 so a model that repeats the typed words first
+    # still reaches the end of the clause; a 300 ms pause rather than 600
+    # because a newer request hangs up the one before, so asking sooner
+    # costs one call that is cut short, not a queue of them.
     completion-context-turns: ${ORKNUX_CHAT_COMPLETION_CONTEXT_TURNS:6}
-    completion-max-tokens: ${ORKNUX_CHAT_COMPLETION_MAX_TOKENS:32}
+    completion-max-tokens: ${ORKNUX_CHAT_COMPLETION_MAX_TOKENS:64}
     completion-timeout-millis: ${ORKNUX_CHAT_COMPLETION_TIMEOUT_MILLIS:4000}
-    completion-pause-millis: ${ORKNUX_CHAT_COMPLETION_PAUSE_MILLIS:600}
+    completion-pause-millis: ${ORKNUX_CHAT_COMPLETION_PAUSE_MILLIS:300}
+    # Suggested replies under the latest answer, from the same Completion
+    # model: how many (0 offers none), the most tokens all of them together
+    # may be, and how long they may take in milliseconds. Admin -> Settings
+    # overrides each of them.
+    reply-suggestions: ${ORKNUX_CHAT_REPLY_SUGGESTIONS:3}
+    reply-suggestions-max-tokens: ${ORKNUX_CHAT_REPLY_SUGGESTIONS_MAX_TOKENS:150}
+    reply-suggestions-timeout-millis: ${ORKNUX_CHAT_REPLY_SUGGESTIONS_TIMEOUT_MILLIS:8000}
     # The largest video, in megabytes, a chat message may send to a model that
     # takes video; one over it is refused before the model is asked. Sent as
     # base64 on every round of its turn, so kept apart from the attachment cap.

@@ -62,6 +62,12 @@ class InstallationSettingsAPI(
         chatCompletionTimeoutMillisConfigured = settings.chatCompletionTimeoutMillisConfigured(),
         chatCompletionPauseMillis = settings.chatCompletionPauseMillis(),
         chatCompletionPauseMillisConfigured = settings.chatCompletionPauseMillisConfigured(),
+        chatReplySuggestions = settings.chatReplySuggestions(),
+        chatReplySuggestionsConfigured = settings.chatReplySuggestionsConfigured(),
+        chatReplySuggestionsMaxTokens = settings.chatReplySuggestionsMaxTokens(),
+        chatReplySuggestionsMaxTokensConfigured = settings.chatReplySuggestionsMaxTokensConfigured(),
+        chatReplySuggestionsTimeoutMillis = settings.chatReplySuggestionsTimeoutMillis(),
+        chatReplySuggestionsTimeoutMillisConfigured = settings.chatReplySuggestionsTimeoutMillisConfigured(),
         chatVideoMaxMb = settings.chatVideoMaxMb(),
         chatVideoMaxMbConfigured = settings.chatVideoMaxMbConfigured(),
         chatMaxRoundsConfigured = settings.chatMaxRoundsConfigured(),
@@ -766,6 +772,37 @@ class InstallationSettingsAPI(
         return installationSettings()
     }
 
+    /** How many replies are suggested under a chat's latest answer; 0 suggests none. */
+    @MutationMapping
+    fun setChatReplySuggestions(@Argument count: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setChatReplySuggestions(count, currentUser())
+        auditRecorder.record(
+            null,
+            WorkspaceAuditCategory.WORKSPACE,
+            if (count == 0) "Suggested replies turned off" else "$count replies suggested under an answer",
+        )
+        return installationSettings()
+    }
+
+    /** The most tokens an answer's suggested replies together may be. */
+    @MutationMapping
+    fun setChatReplySuggestionsMaxTokens(@Argument tokens: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setChatReplySuggestionsMaxTokens(tokens, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "Suggested replies limited to $tokens tokens")
+        return installationSettings()
+    }
+
+    /** How long suggested replies may take before they are given up on. */
+    @MutationMapping
+    fun setChatReplySuggestionsTimeoutMillis(@Argument millis: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setChatReplySuggestionsTimeoutMillis(millis, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "Suggested replies given up on after $millis ms")
+        return installationSettings()
+    }
+
     /** The largest video a chat message may send to a model that takes video. */
     @MutationMapping
     fun setChatVideoMaxMb(@Argument megabytes: Int): InstallationSettingsView {
@@ -1246,6 +1283,13 @@ data class InstallationSettingsView(
     val chatCompletionTimeoutMillisConfigured: Int,
     val chatCompletionPauseMillis: Int,
     val chatCompletionPauseMillisConfigured: Int,
+    /** Suggested replies under the latest answer: how many, their tokens and their time, and where a fresh installation starts. */
+    val chatReplySuggestions: Int,
+    val chatReplySuggestionsConfigured: Int,
+    val chatReplySuggestionsMaxTokens: Int,
+    val chatReplySuggestionsMaxTokensConfigured: Int,
+    val chatReplySuggestionsTimeoutMillis: Int,
+    val chatReplySuggestionsTimeoutMillisConfigured: Int,
     /** The largest video a chat message may send to a model, in MB, and the file's default. */
     val chatVideoMaxMb: Int,
     val chatVideoMaxMbConfigured: Int,

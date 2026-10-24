@@ -10,7 +10,9 @@ import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.Table
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
+import org.springframework.transaction.annotation.Transactional
 import java.time.OffsetDateTime
 
 /**
@@ -185,6 +187,20 @@ class ChatSession(
     @Enumerated(EnumType.STRING)
     @Column(name = "chat_mode", length = 16)
     var mode: ChatMode? = null,
+
+    /**
+     * The replies suggested under the latest answer, one per line, and a
+     * digest of the answer they were made for. Written only by
+     * [ChatSessionRepository.keepReplySuggestions], never through a save of
+     * the row, so a turn saving its spend cannot be overwritten by them; a
+     * save that writes back an older pair is harmless, because a pair for
+     * another answer is simply not used. See `ChatReplies`.
+     */
+    @Column(name = "reply_suggestions")
+    var replySuggestions: String? = null,
+
+    @Column(name = "reply_suggestions_for", length = 64)
+    var replySuggestionsFor: String? = null,
 )
 
 /**
@@ -236,6 +252,12 @@ interface ChatSessionRepository : JpaRepository<ChatSession, Long> {
     fun findFirstByLlmSessionId(llmSessionId: Long): ChatSession?
 
     fun findByModelId(modelId: Long): List<ChatSession>
+
+    /** The suggested replies for one answer, written on their own so nothing else on the row is touched. */
+    @Modifying
+    @Transactional
+    @Query("update ChatSession c set c.replySuggestions = :suggestions, c.replySuggestionsFor = :answer where c.id = :id")
+    fun keepReplySuggestions(id: Long, suggestions: String, answer: String): Int
 }
 
 class ChatSessionNotFoundException(val id: Long) : RuntimeException("No chat with id $id"), Refusal {

@@ -119,9 +119,21 @@ data class ChatProperties(
      * a suggestion nobody sees, and it is paid for on every pause.
      */
     val completionContextTurns: Int = 6,
-    val completionMaxTokens: Int = 32,
+    val completionMaxTokens: Int = 64,
     val completionTimeoutMillis: Int = 4000,
-    val completionPauseMillis: Int = 600,
+    val completionPauseMillis: Int = 300,
+
+    /**
+     * Suggested replies under the latest answer, where a fresh installation
+     * starts. Asked of the same completion model, shown the same latest
+     * messages. How many it offers - 0 offers none - the most tokens all of
+     * them together may be, and how long it may take before they are not
+     * worth showing. Longer than a completion's on purpose: nobody is typing
+     * while they are written, and the person is reading the answer meanwhile.
+     */
+    val replySuggestions: Int = 3,
+    val replySuggestionsMaxTokens: Int = 150,
+    val replySuggestionsTimeoutMillis: Int = 8000,
 
     /**
      * The largest video, in megabytes, a chat message may send to a model that
