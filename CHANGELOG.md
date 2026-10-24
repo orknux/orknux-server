@@ -46,6 +46,7 @@ have failed.
 - **Import a picture from Orknux in the image editor.** Import is a menu: From a file as before, or From Orknux - the workspace's pictures off the Artifacts page, Design's and those runs, tasks and agents drew or kept, searched by a word - and the one chosen opens in the editor.
 - **Crop in the image editor.** The rail's Crop selects the part to keep with a rectangle, dims the rest and says the size it will be; Crop or Enter keeps it as a version.
 - **A brush in the image editor.** Paint over the picture by hand in a width and colour of your own; each stroke is a step Undo takes back, and Apply - or putting the brush down, or Save - keeps them as one version. Its width is in the picture's own pixels and starts at Admin → Settings → Limits (`ORKNUX_TUNING_IMAGES_BRUSH_PIXELS`, 12).
+- **Selective blur in the image editor.** Select part of the picture with a rectangle or a lasso and blur inside it only; the radius is in the picture's own pixels and starts at Admin → Settings → Limits (`ORKNUX_TUNING_IMAGES_BLUR_PIXELS`, 12). Each part blurred is a version.
 
 ### 🔧 Changed
 

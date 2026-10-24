@@ -300,6 +300,16 @@ enum class Tunable(
         "How wide the image editor's brush starts",
         "In the picture's own pixels, so zooming does not change it. Whoever paints can choose another width, up to the most this may be set to.",
     ),
+    /*
+     * Where the image editor's selective blur starts, in the picture's own
+     * pixels; whoever blurs chooses their own up to the most here. 254 is the
+     * most the stack blur it draws with takes. Issue #636.
+     */
+    IMAGE_BLUR_PIXELS(
+        "images.blur.pixels", 12, 1, 254, TuningSection.MEDIA, TuningUnit.PIXELS,
+        "How strongly the image editor's blur starts",
+        "The blur's radius in the picture's own pixels. Whoever blurs can choose another, up to the most this may be set to.",
+    ),
 
     /* ---- Workflows and triggers ---- */
 

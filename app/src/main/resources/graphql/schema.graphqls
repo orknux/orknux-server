@@ -8609,6 +8609,10 @@ type ImageEditorSettings {
     brush: Int!
     "The widest the brush may be made."
     brushMost: Int!
+    "The radius the selective blur starts at."
+    blur: Int!
+    "The largest radius the blur may be given."
+    blurMost: Int!
 }
 
 """ A change the image editor made itself, to keep as a version of the picture. """

@@ -410,10 +410,12 @@ class DesignImageAPITest(
 
     @Test
     fun `the image editor's tools start where Admin Settings says`() {
-        fun settings() = graphQlTester.document("""query { designImageEditorSettings(workspaceId: $workspaceId) { brush brushMost } }""").execute()
+        fun settings() = graphQlTester.document("""query { designImageEditorSettings(workspaceId: $workspaceId) { brush brushMost blur blurMost } }""").execute()
         settings()
             .path("designImageEditorSettings.brush").entity(Int::class.java).isEqualTo(12)
             .path("designImageEditorSettings.brushMost").entity(Int::class.java).isEqualTo(500)
+            .path("designImageEditorSettings.blur").entity(Int::class.java).isEqualTo(12)
+            .path("designImageEditorSettings.blurMost").entity(Int::class.java).isEqualTo(254)
         try {
             graphQlTester.document("""mutation { setTunable(key: "images.brush.pixels", value: 40) { value } }""").execute()
             settings().path("designImageEditorSettings.brush").entity(Int::class.java).isEqualTo(40)

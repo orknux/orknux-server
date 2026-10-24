@@ -69,7 +69,13 @@ class DesignImageAPI(
     fun designImageEditorSettings(@Argument workspaceId: Long): ImageEditorSettingsView {
         access.requireVisible(workspaceId)
         val brush = io.mszymanski.orknux.server.tuning.Tunable.IMAGE_BRUSH_PIXELS
-        return ImageEditorSettingsView(brush = tuning[brush], brushMost = brush.most)
+        val blur = io.mszymanski.orknux.server.tuning.Tunable.IMAGE_BLUR_PIXELS
+        return ImageEditorSettingsView(
+            brush = tuning[brush],
+            brushMost = brush.most,
+            blur = tuning[blur],
+            blurMost = blur.most,
+        )
     }
 
     /** Refused here, before it waits, for anything that could never be drawn. */
@@ -791,6 +797,10 @@ data class ImageEditorSettingsView(
     val brush: Int,
     /** The widest it may be made. */
     val brushMost: Int,
+    /** The blur's radius it starts at, in the picture's own pixels. */
+    val blur: Int,
+    /** The largest radius it may be given. */
+    val blurMost: Int,
 )
 
 data class KeepDesignImageChangeInput(
