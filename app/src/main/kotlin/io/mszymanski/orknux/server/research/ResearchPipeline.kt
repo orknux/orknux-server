@@ -124,6 +124,46 @@ data class ResearchProgress(
 /** What a research came to. */
 data class ResearchFound(val report: String, val sources: List<ResearchSource>)
 
+/**
+ * What one research step says it did, for the run's log under the step's own
+ * node: each search and what it gave, each page read or skipped and why, the
+ * follow-up questions asked, the file saved.
+ *
+ * Handed back the way a function's `orknux.log` lines are - on its answer,
+ * each line its level and its words - and written to the run's log by the
+ * action node that called it, so the run page shows a research step's lines
+ * where it shows any function's. Facts only: a skip says which rule skipped
+ * it, a refusal is quoted as the search worded it, and nothing guesses why.
+ *
+ * Bounded by [most], the number a function's own log lines are bounded by; a
+ * step that would say more ends on a line saying how many it left out.
+ */
+class ResearchLog(private val most: Int) {
+    private val held = mutableListOf<String>()
+    private var left = 0
+
+    fun info(line: String) = add("info $line")
+    fun warn(line: String) = add("warn $line")
+
+    private fun add(line: String) {
+        if (most <= 0) return
+        if (held.size < most) held += line else left += 1
+    }
+
+    /** What was said, in order, as `level words`. */
+    fun lines(): List<String> =
+        if (left == 0) {
+            held.toList()
+        } else {
+            held + "info $left more ${if (left == 1) "line was" else "lines were"} not kept: this installation keeps $most a step"
+        }
+
+    companion object {
+        /** Says nothing: a call whose lines nobody reads. */
+        val NONE = ResearchLog(0)
+    }
+}
+
 /** The model would not answer, so the research cannot go on. */
 class ResearchModelFailedException(reason: String) : RuntimeException(reason)
 
@@ -182,17 +222,17 @@ class ResearchPipeline(
     private val log = LoggerFactory.getLogger(javaClass)
 
     /** All four steps, one after another: what `research_run` does. */
-    fun run(asked: ResearchAsked, knobs: ResearchKnobs): ResearchFound {
-        val plan = plan(asked, knobs.subQuestions)
-        val gathered = gather(asked, plan, knobs.limits)
-        val deepened = followUp(asked, gathered, knobs.breadth, knobs.depth)
-        val found = write(asked, deepened)
+    fun run(asked: ResearchAsked, knobs: ResearchKnobs, said: ResearchLog = ResearchLog.NONE): ResearchFound {
+        val plan = plan(asked, knobs.subQuestions, said)
+        val gathered = gather(asked, plan, knobs.limits, said)
+        val deepened = followUp(asked, gathered, knobs.breadth, knobs.depth, said)
+        val found = write(asked, deepened, said)
         note(asked.researchId, ResearchStage.WRITE, "Finished")
         return found
     }
 
     /** Plan: the question as [subQuestions] search queries. */
-    fun plan(asked: ResearchAsked, subQuestions: Int): List<String> {
+    fun plan(asked: ResearchAsked, subQuestions: Int, said: ResearchLog = ResearchLog.NONE): List<String> {
         val tracker = Tracker(asked.researchId, ResearchStage.PLAN)
         tracker.step("Planning the research")
         val plan = listFrom(
@@ -202,6 +242,7 @@ class ResearchPipeline(
             }),
         ).take(subQuestions).ifEmpty { listOf(asked.question) }
         tracker.planned(plan)
+        plan.forEach { said.info("Planned query: $it") }
         return plan
     }
 
@@ -225,27 +266,37 @@ class ResearchPipeline(
     }
 
     /** Gather: the documents asked for, then every query searched and what it found read - the first level. */
-    fun gather(asked: ResearchAsked, queries: List<String>, limits: ResearchLimits): ResearchGathered {
+    fun gather(asked: ResearchAsked, queries: List<String>, limits: ResearchLimits, said: ResearchLog = ResearchLog.NONE): ResearchGathered {
         val tracker = Tracker(asked.researchId, ResearchStage.GATHER)
-        val reading = Reading(limits)
+        val reading = Reading(limits, said)
 
         val held = saved.findAllById(asked.documentsInclude).filter { it.workspaceId == asked.workspaceId }
         for (document in held) {
-            if (reading.full) break
+            if (reading.stopped()) break
             tracker.step("Reading ${document.name}")
             val text = documents.text(document)?.trim().orEmpty()
-            if (text.isEmpty()) continue
+            if (text.isEmpty()) {
+                said.info("Skipped document ${document.name}: it has no text to read")
+                continue
+            }
             val pages = text.chunked(tuning[Tunable.RESEARCH_PAGE_CHARACTERS]).take(limits.maxPagesPerSource)
-            val notes = noted(asked, asked.question, document.name, pages.joinToString("\n\n")) ?: continue
+            val notes = noted(asked, asked.question, document.name, pages.joinToString("\n\n"))
+            if (notes == null) {
+                said.info("Skipped document ${document.name}: the model noted nothing in it on the question")
+                continue
+            }
             reading.sources += ResearchSource(reading.sources.size + 1, document.name, "/api/artifacts/${document.id}", "DOCUMENT", notes)
+            said.info("Read document ${document.name} (${pages.size} ${if (pages.size == 1) "page" else "pages"}) as source ${reading.sources.size}")
             tracker.read(reading.sources)
         }
 
         if (!asked.webSearch) {
+            said.info("Web search is off: reading only the documents and the websites to keep to")
             visit(asked, reading, tracker)
             return reading.gathered(emptyList(), level = 1)
         }
         val distinct = queries.distinct()
+        said.info("${distinct.size} ${if (distinct.size == 1) "query" else "queries"} to search: ${distinct.joinToString("; ")}")
         val findings = search(asked, reading, distinct, level = 1, tracker)
         /*
          * Every query refused and nothing read: going on would hand Write an
@@ -268,22 +319,38 @@ class ResearchPipeline(
      * because a follow-up question is a search.
      */
     private fun visit(asked: ResearchAsked, reading: Reading, tracker: Tracker) {
+        val said = reading.said
         for (entry in asked.websitesInclude) {
-            if (reading.full) break
+            if (reading.stopped()) break
             val url = entry.trim().let { if ("://" in it) it else "https://$it" }
-            val host = hostOf(url) ?: continue
-            if (!allowed(host, emptyList(), asked.websitesExclude)) continue
-            if (!reading.seen.add(url)) continue
-            if ((reading.pages[host] ?: 0) >= reading.limits.maxPagesPerSource) continue
-            reading.pages[host] = (reading.pages[host] ?: 0) + 1
+            val host = hostOf(url)
+            if (host == null) {
+                said.info("Skipped $entry: it is not an address")
+                continue
+            }
+            if (!taken(reading, url, host, emptyList(), asked.websitesExclude)) continue
 
             tracker.step("Reading $url")
-            val read = web.read(asked.workspaceId, url) as? PageRead.Read ?: continue
+            val read = when (val answered = web.read(asked.workspaceId, url)) {
+                is PageRead.Read -> answered
+                is PageRead.Unread -> {
+                    said.warn("Could not read $url: ${answered.reason}")
+                    continue
+                }
+            }
             val page = read.text.take(tuning[Tunable.RESEARCH_PAGE_CHARACTERS])
-            if (page.isBlank()) continue
+            if (page.isBlank()) {
+                said.info("Skipped $url: the page has no text")
+                continue
+            }
             val title = read.title?.trim()?.ifEmpty { null } ?: host
-            val notes = noted(asked, asked.question, title, page) ?: continue
+            val notes = noted(asked, asked.question, title, page)
+            if (notes == null) {
+                said.info("Skipped $url: the model noted nothing in it on the question")
+                continue
+            }
             reading.sources += ResearchSource(reading.sources.size + 1, title, url, "WEB", notes)
+            said.info("Read $title ($url) as source ${reading.sources.size}")
             tracker.read(reading.sources)
         }
     }
@@ -294,11 +361,27 @@ class ResearchPipeline(
      * [depth] levels in all. What was gathered is handed back as it was where
      * there is nothing deeper to go.
      */
-    fun followUp(asked: ResearchAsked, gathered: ResearchGathered, breadth: Int, depth: Int): ResearchGathered {
-        val reading = Reading(gathered)
+    fun followUp(
+        asked: ResearchAsked,
+        gathered: ResearchGathered,
+        breadth: Int,
+        depth: Int,
+        said: ResearchLog = ResearchLog.NONE,
+    ): ResearchGathered {
+        val reading = Reading(gathered, said)
         var findings = gathered.findings
         var level = gathered.level + 1
-        if (!asked.webSearch || level > depth || findings.isEmpty() || reading.full) return gathered
+        val none = when {
+            !asked.webSearch -> "No follow-up questions: web search is off"
+            level > depth -> "No follow-up questions: the depth set is $depth, and level ${gathered.level} is searched"
+            findings.isEmpty() -> "No follow-up questions: no search so far led to a source"
+            reading.full -> "No follow-up questions: ${reading.sources.size} sources are read, the most this research reads"
+            else -> null
+        }
+        if (none != null) {
+            said.info(none)
+            return gathered
+        }
 
         val tracker = Tracker(asked.researchId, ResearchStage.FOLLOW_UP)
         while (level <= depth && findings.isNotEmpty() && !reading.full) {
@@ -318,7 +401,11 @@ class ResearchPipeline(
                 ).take(followUps)
             }
             val queries = next.distinct().filter { it !in reading.searched }
-            if (queries.isEmpty()) break
+            if (queries.isEmpty()) {
+                said.info("No new follow-up questions at level $level")
+                break
+            }
+            queries.forEach { said.info("Follow-up question at level $level: $it") }
             findings = search(asked, reading, queries, level, tracker)
             level += 1
         }
@@ -326,7 +413,7 @@ class ResearchPipeline(
     }
 
     /** Write: the report from the notes, citing them, with the numbered list of sources after it. */
-    fun write(asked: ResearchAsked, gathered: ResearchGathered): ResearchFound {
+    fun write(asked: ResearchAsked, gathered: ResearchGathered, said: ResearchLog = ResearchLog.NONE): ResearchFound {
         val tracker = Tracker(asked.researchId, ResearchStage.WRITE)
         val sources = gathered.sources
         // A report from no sources is the model's own belief written up as research.
@@ -346,6 +433,7 @@ class ResearchPipeline(
             append(notesOf(sources))
         })
         val report = withSources(written.trim(), sources)
+        said.info("Wrote the report from ${sources.size} ${if (sources.size == 1) "source" else "sources"}: ${report.length} characters")
         tracker.step("Report written")
         return ResearchFound(report, sources)
     }
@@ -389,8 +477,9 @@ class ResearchPipeline(
     ): List<ResearchFinding> {
         val limits = reading.limits
         val findings = mutableListOf<ResearchFinding>()
+        val told = reading.said
         for (query in queries) {
-            if (reading.full) break
+            if (reading.stopped()) break
             reading.searched += query
             tracker.searching(reading.searched, level)
             val found = web.search(asked.workspaceId, scoped(query, asked.websitesInclude), limits.resultsPerQuery)
@@ -399,28 +488,42 @@ class ResearchPipeline(
                     reading.refusals += 1
                     if (said !in reading.refused) reading.refused += said
                     tracker.step("The search answered: $said")
-                    emptyList()
+                    told.warn("Searched \"$query\": the search answered \"$said\"")
+                    null
                 }
+            if (found != null) told.info("Searched \"$query\": ${found.size} ${if (found.size == 1) "result" else "results"}")
             val learnt = mutableListOf<Int>()
-            for (hit in found.take(limits.resultsPerQuery)) {
-                if (reading.full) break
-                val host = hostOf(hit.url) ?: continue
-                if (!allowed(host, asked.websitesInclude, asked.websitesExclude)) continue
-                if (!reading.seen.add(hit.url)) continue
-                if ((reading.pages[host] ?: 0) >= limits.maxPagesPerSource) continue
-                reading.pages[host] = (reading.pages[host] ?: 0) + 1
+            for (hit in found.orEmpty().take(limits.resultsPerQuery)) {
+                if (reading.stopped()) break
+                val host = hostOf(hit.url)
+                if (host == null) {
+                    told.info("Skipped ${hit.url}: it is not an address")
+                    continue
+                }
+                if (!taken(reading, hit.url, host, asked.websitesInclude, asked.websitesExclude)) continue
 
                 tracker.step("Reading ${hit.title}")
                 val page = when (val read = web.read(asked.workspaceId, hit.url)) {
                     is PageRead.Read -> read.text
                     // A page that cannot be fetched still has what the search said of it.
-                    is PageRead.Unread -> hit.snippet
+                    is PageRead.Unread -> {
+                        told.warn("Could not read ${hit.url}: ${read.reason}; noting what the search said of it instead")
+                        hit.snippet
+                    }
                 }.take(tuning[Tunable.RESEARCH_PAGE_CHARACTERS])
-                if (page.isBlank()) continue
-                val notes = noted(asked, query, hit.title, page) ?: continue
+                if (page.isBlank()) {
+                    told.info("Skipped ${hit.url}: there is no text to read")
+                    continue
+                }
+                val notes = noted(asked, query, hit.title, page)
+                if (notes == null) {
+                    told.info("Skipped ${hit.url}: the model noted nothing in it on the question")
+                    continue
+                }
                 val source = ResearchSource(reading.sources.size + 1, hit.title, hit.url, "WEB", notes)
                 reading.sources += source
                 learnt += source.number
+                told.info("Read ${hit.title} (${hit.url}) as source ${source.number}")
                 tracker.read(reading.sources)
             }
             if (learnt.isNotEmpty()) findings += ResearchFinding(query, learnt)
@@ -428,8 +531,32 @@ class ResearchPipeline(
         return findings
     }
 
+    /**
+     * Whether an address is one to read: where a rule passes it over, which
+     * one is said in the step's log; where it is taken, it is counted against
+     * its website's pages.
+     */
+    private fun taken(reading: Reading, url: String, host: String, include: List<String>, exclude: List<String>): Boolean {
+        val pages = reading.pages[host] ?: 0
+        val skipped = when {
+            !allowed(host, emptyList(), exclude) -> "$host is among the websites to avoid"
+            !allowed(host, include, emptyList()) -> "$host is not among the websites to keep to"
+            // Taken once seen, as it always was, whether or not its website has a page left.
+            !reading.seen.add(url) -> "already looked at"
+            pages >= reading.limits.maxPagesPerSource ->
+                "$pages ${if (pages == 1) "page" else "pages"} of $host taken, the most per source"
+            else -> null
+        }
+        if (skipped != null) {
+            reading.said.info("Skipped $url: $skipped")
+            return false
+        }
+        reading.pages[host] = pages + 1
+        return true
+    }
+
     /** What one step has read so far, picked up where the step before it left off. */
-    private class Reading(val limits: ResearchLimits) {
+    private class Reading(val limits: ResearchLimits, val said: ResearchLog = ResearchLog.NONE) {
         val sources = mutableListOf<ResearchSource>()
         val searched = mutableListOf<String>()
         val seen = mutableSetOf<String>()
@@ -439,7 +566,7 @@ class ResearchPipeline(
         /** Searches this step asked that answered a refusal rather than results. */
         var refusals = 0
 
-        constructor(gathered: ResearchGathered) : this(gathered.limits) {
+        constructor(gathered: ResearchGathered, said: ResearchLog) : this(gathered.limits, said) {
             sources += gathered.sources
             searched += gathered.searched
             seen += gathered.seen
@@ -448,6 +575,17 @@ class ResearchPipeline(
         }
 
         val full get() = sources.size >= limits.maxSources
+
+        private var saidFull = false
+
+        /** Whether the step has read as many sources as it may; said in its log the first time. */
+        fun stopped(): Boolean {
+            if (full && !saidFull) {
+                saidFull = true
+                said.info("Stopped reading at ${sources.size} sources, the most this research reads")
+            }
+            return full
+        }
 
         fun gathered(findings: List<ResearchFinding>, level: Int) =
             ResearchGathered(sources.toList(), findings, searched.toList(), seen.toList(), pages.toMap(), level, limits, refused.toList())
