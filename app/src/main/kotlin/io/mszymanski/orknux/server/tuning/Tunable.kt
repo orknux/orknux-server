@@ -406,6 +406,16 @@ enum class Tunable(
         "How much of one page a research reads",
         "One web page, or one page of a document; the rest is not read. The research's own pages-per-source decides how many.",
     ),
+    RESEARCH_STEP_RETRIES(
+        "research.step.retries", 2, 0, 9, TuningSection.WORKFLOWS, TuningUnit.TIMES,
+        "How many times a research mode's step is tried again",
+        "Written on every step of the research modes' workflows when they are made, as each node's retry policy; a step that failed in a way that could come out differently is tried again this many times. A workflow already made keeps what its nodes say.",
+    ),
+    RESEARCH_STEP_RETRY_SECONDS(
+        "research.step.retry.seconds", 10, 0, 3600, TuningSection.WORKFLOWS, TuningUnit.SECONDS,
+        "How long a research mode's step waits before trying again",
+        "Written on the research modes' steps with the number of tries, as the wait before each one.",
+    ),
 
     /* ---- Plugins and libraries ---- */
 

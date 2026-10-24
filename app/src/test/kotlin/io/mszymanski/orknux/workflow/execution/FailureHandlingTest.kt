@@ -8,6 +8,8 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
 import org.springframework.test.context.TestPropertySource
+import org.springframework.test.context.event.ApplicationEvents
+import org.springframework.test.context.event.RecordApplicationEvents
 import java.time.Duration
 
 /**
@@ -24,6 +26,7 @@ import java.time.Duration
 @SpringBootTest(classes = [OrknuxServer::class])
 @Import(ExecutionTestConfig::class)
 @TestPropertySource(properties = ["orknux.temporal.enabled=false"])
+@RecordApplicationEvents
 class FailureHandlingTest(
     @Autowired val engine: ExecutionEngine,
     @Autowired val executions: WorkflowExecutionRepository,
@@ -102,7 +105,7 @@ class FailureHandlingTest(
     }
 
     @Test
-    fun `a step that fails and then works within its attempts completes, and so does the run`() {
+    fun `a step that fails and then works within its attempts completes, and so does the run`(@Autowired events: ApplicationEvents) {
         graph(
             nodes = listOf(retrying("flaky-post", attempts = 3), node("ok-onwards")),
             edges = listOf(GraphEdge("flaky-post", "ok-onwards")),
@@ -122,6 +125,9 @@ class FailureHandlingTest(
         // The attempts that failed are in the log rather than only in the count.
         assertThat(linesOf(run)).anyMatch { it.contains("failed on attempt 1 of 3") }
         assertThat(linesOf(run)).anyMatch { it.contains("failed on attempt 2 of 3") }
+        // And announced, for whatever keeps a line of its own about the run - a research's progress.
+        assertThat(events.stream(StepRetrying::class.java).map { it.nodeKey to it.attempt }.toList())
+            .containsExactly("flaky-post" to 1, "flaky-post" to 2)
     }
 
     @Test
@@ -138,7 +144,7 @@ class FailureHandlingTest(
      * out that trying again cannot help is not made to prove it twice more.
      */
     @Test
-    fun `a failure the runner called final is not attempted again whatever the policy says`() {
+    fun `a failure the runner called final is not attempted again whatever the policy says`(@Autowired events: ApplicationEvents) {
         graph(
             nodes = listOf(growing("settled-channel", attempts = 5, seconds = 30, multiplier = 2.0)),
             edges = emptyList(),
@@ -152,6 +158,7 @@ class FailureHandlingTest(
         // carrying a wait of thirty seconds proves the second of those.
         assertThat(linesOf(run)).noneMatch { it.contains("Trying again") }
         assertThat(spentBy(run)).isLessThan(Duration.ofSeconds(5))
+        assertThat(events.stream(StepRetrying::class.java).toList()).isEmpty()
     }
 
     /** Attempts left where they were: a node with no policy gets one go. */
