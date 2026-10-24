@@ -36,6 +36,7 @@ class DiagramCapability(
     override fun tools(): List<EmbeddedTool> = listOf(
         EmbeddedTool(
             name = RENDER,
+            readOnly = true,
             summary = "Draws a diagram from mermaid or PlantUML source.",
             description = "Draws a diagram and answers it as a picture you can look at or send. Takes " +
                 "mermaid - flowchart, sequenceDiagram, classDiagram, erDiagram, stateDiagram-v2, mindmap - " +
@@ -136,6 +137,7 @@ class ChartCapability(
     override fun tools(): List<EmbeddedTool> = listOf(
         EmbeddedTool(
             name = RENDER,
+            readOnly = true,
             summary = "Draws a bar, column, line, area, pie, donut or scatter chart.",
             description = "Draws a chart and answers it as a picture you can look at or send. $KIND is one " +
                 "of ${ChartRenderer.Kind.offered()}; $VALUES is a label and a number each, like " +

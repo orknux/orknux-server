@@ -328,6 +328,7 @@ class SkillTool(
 
         val LIST = ToolDescriptor(
             name = "skill_list",
+            readOnly = true,
             description =
                 "List the skills you have been given: the name, what each is for, and which catalog it is in. " +
                     "Call this when you want to know how this workspace goes about something.",
@@ -336,6 +337,7 @@ class SkillTool(
 
         val SEARCH = ToolDescriptor(
             name = "skill_search",
+            readOnly = true,
             description =
                 "Finds the skills whose pages mention what you ask for - a word, a tool name, a key - and " +
                     "shows the lines that do. Use it in the middle of a piece of work, when you hold something " +
@@ -351,6 +353,7 @@ class SkillTool(
 
         val LOAD = ToolDescriptor(
             name = "skill_load",
+            readOnly = true,
             description =
                 "Read one skill in full. Pass the id skill_list gave it, copied as it stands - " +
                     "an id is lower-case words joined by hyphens, like answering-in-a-thread, and nothing " +

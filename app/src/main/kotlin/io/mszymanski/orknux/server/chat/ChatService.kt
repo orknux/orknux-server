@@ -77,6 +77,8 @@ class ChatService(
     private val inbox: io.mszymanski.orknux.server.llm.SessionInbox,
     /** Puts a message's non-picture files where the agent's tools can read them. */
     private val shelf: io.mszymanski.orknux.server.attachment.ChatAttachmentShelf,
+    /** What plan and auto mode lend the agent; see [ChatModes]. Issue #653. */
+    private val modes: ChatModes,
     transactions: PlatformTransactionManager,
 ) {
 
@@ -856,6 +858,18 @@ class ChatService(
     }
 
     /**
+     * Switches how the agent works in this chat, from its next turn on - a
+     * turn already running finishes as it began. [ChatMode.DEFAULT] is stored
+     * as nothing, which is what a chat nobody switched holds. Issue #653.
+     */
+    @Transactional
+    fun setMode(id: Long, mode: ChatMode): ChatSession {
+        val session = sessions.findByIdOrNull(id) ?: throw ChatSessionNotFoundException(id)
+        session.mode = mode.takeUnless { it == ChatMode.DEFAULT }
+        return session
+    }
+
+    /**
      * Hands the chat to one of the workspace's agents.
      *
      * The agent's model becomes the chat's, because an agent that cannot be run
@@ -966,10 +980,19 @@ class ChatService(
              * and waking doors cannot come to lend different things. #445.
              */
             val agent = agents.findByIdOrNull(start.agentId)
+            /*
+             * The chat's mode, read once for the whole turn: switching it while
+             * a turn runs changes the next one, never the rest of this. Plan
+             * mode lends the way to present a plan and keeps back every tool
+             * that changes something; auto mode lends a paragraph. Issue #653.
+             */
+            val mode = sessions.findByConversationId(start.conversationId)?.mode ?: ChatMode.DEFAULT
             val lent = sheds(
                 shed,
+                agent?.let { modes.shed(mode, it, start.llmSessionId) },
                 agent?.let { sessionSheds.of(it, start.llmSessionId) },
             )
+            val planning = mode == ChatMode.PLAN
             /*
              * The thinking goes into the session too, as a task's and a
              * workflow step's always has. A chat relayed it only to the page
@@ -1002,12 +1025,17 @@ class ChatService(
             if (session != null && watch != null) {
                 val written = SessionThinking(session, name, recorder)
                 try {
-                    conversation.answer(start.modelId, start.agentId, start.turns, session, lent, Both(watch, written), hangup)
+                    conversation.answer(
+                        start.modelId, start.agentId, start.turns, session, lent, Both(watch, written), hangup,
+                        readOnly = planning,
+                    )
                 } finally {
                     written.settle()
                 }
             } else {
-                conversation.answer(start.modelId, start.agentId, start.turns, session, lent, watch, hangup).also { done ->
+                conversation.answer(
+                    start.modelId, start.agentId, start.turns, session, lent, watch, hangup, readOnly = planning,
+                ).also { done ->
                     if (session != null && done is ChatCompletion.Answered && done.reasoning.isNotBlank()) {
                         recorder.thoughtFor(recorder.thinking(session, name, done.reasoning), done.reasoning, done.reasoningMillis)
                     }

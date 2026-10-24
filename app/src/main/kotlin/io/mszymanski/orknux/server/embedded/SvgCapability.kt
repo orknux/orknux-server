@@ -42,6 +42,7 @@ class SvgCapability(
     override fun tools(): List<EmbeddedTool> = listOf(
         EmbeddedTool(
             name = DRAW,
+            readOnly = true,
             summary = "Draws a picture from SVG markup you write, in any colours.",
             description = "Draws SVG markup you write and answers it as a picture you can look at or send. " +
                 "Start with <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"…\" height=\"…\" viewBox=\"…\">. " +
@@ -57,6 +58,7 @@ class SvgCapability(
         ),
         EmbeddedTool(
             name = READ,
+            readOnly = true,
             summary = "Reads the SVG markup kept under a key.",
             description = "Answers the markup of an SVG kept under a $KEY in this session - a drawing made as svg, " +
                 "an attached .svg file - so it can be read or changed and drawn again. To look at it as a picture, " +
@@ -66,6 +68,7 @@ class SvgCapability(
         ),
         EmbeddedTool(
             name = TO_PNG,
+            readOnly = true,
             summary = "Turns an SVG into a PNG.",
             description = "Turns an SVG into a PNG picture you can look at or send. Give the $KEY an SVG is " +
                 "kept under in this session - a diagram or a drawing made as svg, an uploaded .svg - or the markup as $SVG.",

@@ -194,6 +194,17 @@ class ChatAPI(
     }
 
     /**
+     * Plan, auto, or neither, from the composer. Issue #653. The owner's own
+     * chat only, and no audit entry, like the pin and the name beside it: a
+     * chat is one person's, and how they work in it is theirs.
+     */
+    @MutationMapping
+    fun setChatMode(@Argument id: Long, @Argument mode: ChatMode): ChatSessionView {
+        requireOwn(chats.session(id) ?: throw ChatSessionNotFoundException(id))
+        return describe(chats.setMode(id, mode))
+    }
+
+    /**
      * Hands the chat to one of the workspace's agents.
      *
      * There is no null and there is no `chooseChatModel` beside this any more.
@@ -336,6 +347,7 @@ class ChatAPI(
             spentCachedInputTokens = session.spentCachedInputTokens,
             spentPictures = session.spentPictures,
             unreadCount = unread,
+            mode = session.mode ?: ChatMode.DEFAULT,
         )
     }
 
@@ -434,6 +446,8 @@ data class ChatSessionView(
     val spentPictures: Int,
     /** Answers that arrived since its owner last had it open; nought where there are none. */
     val unreadCount: Int = 0,
+    /** How the agent works here; see [ChatMode]. Issue #653. */
+    val mode: ChatMode = ChatMode.DEFAULT,
 )
 
 data class ChatMessageView(

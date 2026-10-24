@@ -128,6 +128,7 @@ class ToolSearchTools(
         override fun specs(): List<ToolSpec> = listOf(
             ToolSpec(
                 name = SEARCH,
+                readOnly = true,
                 description = "Finds which tools you could load for a job, by words about it, and says what " +
                     "each does. It loads nothing: call " + FIND + " with the names you want. You can load " +
                     "${searchable.size} tools" + (listed().takeIf { it.isNotEmpty() }?.let { ": $it." } ?: ".") +
@@ -142,6 +143,7 @@ class ToolSearchTools(
             ),
             ToolSpec(
                 name = FIND,
+                readOnly = true,
                 description = "Loads tools by their exact names so you can call them from your next " +
                     "message onwards. A name you cannot load is said to be one, with the nearest real names - " +
                     "it is never swapped for another tool. Load everything the job needs in one call.",
@@ -156,6 +158,7 @@ class ToolSearchTools(
             ),
             ToolSpec(
                 name = DESCRIBE,
+                readOnly = true,
                 description = "Shows tools in full before you load them: the whole description and every " +
                     "parameter, with what it takes and whether it is required. It loads nothing. Use it when " +
                     "you are not sure how a tool is called, rather than guessing its arguments.",

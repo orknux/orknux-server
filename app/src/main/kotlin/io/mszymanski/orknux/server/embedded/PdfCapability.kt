@@ -44,6 +44,7 @@ class PdfCapability(
     override fun tools(): List<EmbeddedTool> = listOf(
         EmbeddedTool(
             name = FROM_HTML,
+            readOnly = true,
             summary = "Lays HTML out as a PDF, drawing diagrams and charts in.",
             description = "Lays a page of HTML out as a PDF on A4 and answers a key for it. Real CSS, tables, " +
                 "lists and page breaks all work. A diagram goes in as <pre class=\"mermaid\">…</pre> and a " +
@@ -65,6 +66,7 @@ class PdfCapability(
         ),
         EmbeddedTool(
             name = FROM_HTML_ZIP,
+            readOnly = true,
             summary = "Lays an HTML report zipped with its pictures out as a PDF.",
             description = "Lays out as a PDF an HTML page kept in a zip with its stylesheet and pictures - " +
                 "the archive zip_files made for a report - and answers a key for it. Stylesheets the page " +
@@ -80,6 +82,7 @@ class PdfCapability(
         ),
         EmbeddedTool(
             name = TO_PNG,
+            readOnly = true,
             summary = "Draws a page of HTML as a picture.",
             description = "Draws HTML as a picture you can look at or send - a chart, a table, a small " +
                 "report, anything you would otherwise have to describe. Takes the same page $FROM_HTML does, " +
@@ -96,6 +99,7 @@ class PdfCapability(
         ),
         EmbeddedTool(
             name = READ,
+            readOnly = true,
             summary = "Reads what a PDF says, as text you can act on.",
             description = "Reads a PDF and answers its text - to find a total, quote a clause, or decide " +
                 "whether a report is worth passing on. Takes a $KEY: the one fromHtml answered, or the one " +
@@ -110,6 +114,7 @@ class PdfCapability(
         ),
         EmbeddedTool(
             name = PREVIEW,
+            readOnly = true,
             summary = "Draws one page of a PDF so you can look at it.",
             description = "Draws one page of a PDF as a picture, so you can see what a document you made " +
                 "actually looks like rather than assuming it worked. Takes a $KEY, and answers both the picture " +

@@ -684,6 +684,7 @@ class AgentTools(
                 parameter.allowed?.let { mapOf("type" to "string", "enum" to it, "description" to parameter.description) },
             )
         },
+        readOnly = descriptor.readOnly,
     )
 
     /**
@@ -841,6 +842,7 @@ class AgentTools(
 
         val VIEW_TOOL = ToolSpec(
             name = VIEW,
+            readOnly = true,
             description = "Shows you the picture a key names, so you can look at it: an image somebody attached " +
                 "(an attachment reader answers its key), a chart or diagram you drew, a page drawn as a picture. " +
                 "Use it before answering about a screenshot or checking a drawing - you cannot see a picture " +
@@ -874,6 +876,7 @@ class AgentTools(
          */
         val VALIDATE_SPEC = ToolSpec(
             name = VALIDATE,
+            readOnly = true,
             description = "Reads a document to say whether it is valid JSON, YAML, HTML or markdown, and " +
                 "where it is not - the line, the column and what a parser made of it. Use it on anything " +
                 "you built and are about to hand on: a config file, a page, an answer something else will " +
@@ -1084,6 +1087,7 @@ class AgentTools(
             ),
             ToolSpec(
                 name = BASE64_ENCODE,
+                readOnly = true,
                 description = "Turns a short piece of text into base64 - a token, a header, a small value " +
                     "some API wants encoded. Not for whole files: everything it answers has to be copied " +
                     "out of here character for character, and a long one gets truncated on the way. A " +
@@ -1094,6 +1098,7 @@ class AgentTools(
             ),
             ToolSpec(
                 name = BASE64_DECODE,
+                readOnly = true,
                 description = "Reads a short piece of base64 back as text. Refuses base64 that does not " +
                     "decode to text, and is not the way to read a whole file.",
                 parameters = listOf(

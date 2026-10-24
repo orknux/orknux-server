@@ -86,6 +86,12 @@ data class EmbeddedTool(
      * reads one from the tool itself, and a rename of either carries through.
      */
     val reads: StoredReader? = null,
+    /**
+     * Whether it changes nothing outside the conversation that calls it - it
+     * reads, works something out, or draws into the conversation's own store.
+     * What a chat in plan mode is offered; see [io.mszymanski.orknux.server.chat.ToolEffects].
+     */
+    val readOnly: Boolean = false,
 )
 
 /** What a tool reads out of a session's store: content types, and the parameter the key goes in. */
@@ -127,4 +133,5 @@ fun EmbeddedTool.spec(key: String): ToolSpec = ToolSpec(
         )
     },
     summary = summary,
+    readOnly = readOnly,
 )

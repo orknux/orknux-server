@@ -53,6 +53,7 @@ class SearchCapability(
     override fun tools(): List<EmbeddedTool> = listOf(
         EmbeddedTool(
             name = SEARCH,
+            readOnly = true,
             summary = "Searches the web and answers readable results.",
             description = "Searches the web and answers title, url and a readable snippet per result. Use it " +
                 "for anything that happened after you were trained, anything that changes - a price, a " +
@@ -65,6 +66,7 @@ class SearchCapability(
         ),
         EmbeddedTool(
             name = SEARCH_IMAGES,
+            readOnly = true,
             summary = "Searches for pictures and answers their addresses.",
             description = "Searches for pictures and answers the image url, what it is, and the page it came " +
                 "from. The url goes straight to whatever uploads a picture from an address, so the bytes " +

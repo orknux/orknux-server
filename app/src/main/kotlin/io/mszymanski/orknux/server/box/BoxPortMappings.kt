@@ -5,6 +5,7 @@ import io.mszymanski.orknux.server.interaction.InteractionHandler
 import io.mszymanski.orknux.server.interaction.InteractionOption
 import io.mszymanski.orknux.server.interaction.InteractionRequest
 import io.mszymanski.orknux.server.interaction.Interactions
+import io.mszymanski.orknux.server.chat.ChatMode
 import io.mszymanski.orknux.server.llm.SessionEventKind
 import io.mszymanski.orknux.server.llm.SessionInbox
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
@@ -132,6 +133,8 @@ class ExposedPorts(
     private val auditRecorder: WorkspaceAuditRecorder,
     /** A provider, because the handler that answers questions about ports is built on this. */
     private val interactions: ObjectProvider<Interactions>,
+    /** Whether the chat asking is in auto mode, which allows without asking. Issue #653. */
+    private val modes: ObjectProvider<io.mszymanski.orknux.server.chat.ChatModes>,
 ) {
     /** What the last look at each enabled port found, and when; see [alive]. */
     private val looked = ConcurrentHashMap<Long, Pair<Boolean, OffsetDateTime>>()
@@ -164,6 +167,22 @@ class ExposedPorts(
                 requestedBy = agentName,
             ),
         )
+        /*
+         * A chat in auto mode goes ahead without waiting for a person: the port
+         * is opened now, as though it had been allowed, and the audit says it
+         * was. Only a port the agent's own box grant lets it ask for reaches
+         * here, so auto mode widens nothing - it only skips the wait. #653.
+         */
+        if (modes.getObject().of(row.llmSessionId) == ChatMode.AUTO) {
+            auditRecorder.recordAutomated(
+                row.workspaceId,
+                WorkspaceAuditCategory.AGENT,
+                "$agentName exposed port $port of box session ${row.id} without asking: the chat is in auto mode",
+                agentName,
+            )
+            enable(mapping, "$agentName (auto mode)")
+            return mapping to true
+        }
         interactions.getObject().ask(
             workspaceId = row.workspaceId,
             llmSessionId = row.llmSessionId,

@@ -93,6 +93,7 @@ class TodoTools(
         override fun specs(): List<ToolSpec> = listOf(
             ToolSpec(
                 name = ADD,
+                readOnly = true,
                 description = "Adds an item to your to-do list for this job. Use the list to plan work you " +
                     "cannot finish in one turn: lay the steps out, then work down them. The item is added at " +
                     "the end and given a number you use to note or complete it later.",
@@ -102,12 +103,14 @@ class TodoTools(
             ),
             ToolSpec(
                 name = LIST,
+                readOnly = true,
                 description = "Lists your to-do items for this job - their numbers, text, any note, and which " +
                     "are done. Read it before assuming what you have planned or finished.",
                 parameters = emptyList(),
             ),
             ToolSpec(
                 name = REORDER,
+                readOnly = true,
                 description = "Puts your to-do items in a new order. Give $ORDER as the item numbers in the " +
                     "order you want them; any you leave out keep their order after the ones you named.",
                 parameters = listOf(
@@ -116,6 +119,7 @@ class TodoTools(
             ),
             ToolSpec(
                 name = NOTE,
+                readOnly = true,
                 description = "Notes something against a to-do item - what you found while doing it, why it is " +
                     "blocked, what is left. Replaces any note already on it.",
                 parameters = listOf(
@@ -125,6 +129,7 @@ class TodoTools(
             ),
             ToolSpec(
                 name = COMPLETE,
+                readOnly = true,
                 description = "Marks a to-do item done, so what is left to do is clear. Give its number.",
                 parameters = listOf(
                     ToolParameterSpec(ID, "The number of the item to complete.", required = true),

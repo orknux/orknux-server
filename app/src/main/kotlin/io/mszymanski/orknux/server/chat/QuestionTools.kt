@@ -130,6 +130,7 @@ class QuestionTools(
 
         val SPEC = ToolSpec(
             name = ASK,
+            readOnly = true,
             description = "Asks the person a question in this conversation, with the answers you can think of " +
                 "drawn as options to click. Each option has a short $LABEL and a $DESCRIPTION of what choosing " +
                 "it means. The person can also answer in their own words. Use it for every question you put to " +

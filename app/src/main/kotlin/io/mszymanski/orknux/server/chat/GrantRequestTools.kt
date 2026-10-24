@@ -417,6 +417,7 @@ class GrantRequestTools(
         val SPECS: List<ToolSpec> = listOf(
             ToolSpec(
                 name = LIST,
+                readOnly = true,
                 description = "Lists the tools you could be given and have not been: built-in tools switched off " +
                     "for you, this workspace's tools, plugins' tools, MCP servers, Orknux access, the " +
                     "workspace's connections a tool reaches a service through, and boxes - sandboxes to run " +

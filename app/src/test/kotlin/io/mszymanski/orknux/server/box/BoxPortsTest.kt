@@ -58,6 +58,7 @@ class BoxPortsTest(
     @Autowired val lines: LlmSessionEventRepository,
     @Autowired val audit: WorkspaceAuditRepository,
     @Autowired val mapper: ObjectMapper,
+    @Autowired val chats: io.mszymanski.orknux.server.chat.ChatSessionRepository,
 ) {
 
     @TempDir
@@ -90,6 +91,7 @@ class BoxPortsTest(
         held.forEach { runCatching { it.close() } }
         stored.deleteAll(stored.findAll().filter { it.name.startsWith("tin.") })
         local.refresh()
+        chats.deleteAll()
         requests.deleteAll()
         ports.deleteAll()
         inbox.deleteAll()
@@ -177,6 +179,24 @@ class BoxPortsTest(
         assertThat(requested()["outcome"]).isEqualTo("Removed")
         assertThat(audit.findAll().map { it.message }).anyMatch { it.contains("exposed at http://localhost:") }
             .anyMatch { it.contains("closed") }.anyMatch { it.contains("removed") }
+    }
+
+    /** Issue #653: a chat in auto mode does not stop for a person to allow the port. */
+    @Test
+    fun `in a chat in auto mode the port opens without a question`() {
+        chats.save(
+            io.mszymanski.orknux.server.chat.ChatSession(
+                workspaceId = workspaceId, conversationId = java.util.UUID.randomUUID().toString(), title = "auto",
+                userId = "alice", llmSessionId = conversation, mode = io.mszymanski.orknux.server.chat.ChatMode.AUTO,
+            ),
+        )
+        val session = opened()
+        val exposed = call("orkbox_expose", mapOf("session" to session, "port" to server.localPort))
+        assertThat(exposed.path("state").stringValue()).isEqualTo("enabled")
+        assertThat(exposed.path("note").stringValue()).contains("auto mode")
+        assertThat(requests.findAll()).isEmpty()
+        assertThat(panel().single()["state"]).isEqualTo("ENABLED")
+        assertThat(audit.findAll().map { it.message }).anyMatch { it.contains("without asking") }
     }
 
     @Test

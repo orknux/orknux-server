@@ -3,6 +3,8 @@ package io.mszymanski.orknux.server.chat
 import io.mszymanski.orknux.server.graphql.Refusal
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
+import jakarta.persistence.EnumType
+import jakarta.persistence.Enumerated
 import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
@@ -158,7 +160,42 @@ class ChatSession(
      */
     @Column(name = "spent_pictures", nullable = false)
     var spentPictures: Int = 0,
+
+    /**
+     * How the agent works in this chat: planning first, or going ahead without
+     * stopping. Null is [ChatMode.DEFAULT], which is how every chat worked
+     * before the switch existed, so a chat nobody switched stores nothing.
+     * Issue #653.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "chat_mode", length = 16)
+    var mode: ChatMode? = null,
 )
+
+/**
+ * How an agent works in one chat, switched from the composer. Issue #653.
+ *
+ * In the spirit of a coding assistant's modes, and only three of them, because
+ * each is a different answer to one question - when does the person get a say.
+ */
+enum class ChatMode {
+    /** As it always was: the agent uses what it holds, and a person is asked where a tool asks one. */
+    DEFAULT,
+
+    /**
+     * The agent only looks - it is offered the tools that change nothing - and
+     * ends by putting a plan to the person. Approving it puts the chat back in
+     * [DEFAULT] and hands the plan back as the next thing to do.
+     */
+    PLAN,
+
+    /**
+     * The agent goes through its tools without stopping: a call that would wait
+     * for a person to allow it is allowed. Still only within what it was
+     * granted - a tool it does not hold is not one auto mode can give it.
+     */
+    AUTO,
+}
 
 interface ChatSessionRepository : JpaRepository<ChatSession, Long> {
 

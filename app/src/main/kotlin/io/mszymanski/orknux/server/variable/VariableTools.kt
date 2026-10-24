@@ -193,7 +193,8 @@ class VariableTools(
                 "Reads one plain workspace variable's value. Secrets cannot be read; name them in orkbox_exec's secrets instead.",
                 listOf(ToolParameterSpec("name", "The variable's name from variable_list, or Catalog/NAME where two catalogs hold it.", true)),
             ),
-        )
+            // Both only read: a secret is never even shown, let alone changed. Issue #653.
+        ).map { it.copy(readOnly = true) }
 
         val NAMES: Set<String> = SPECS.map { it.name }.toSet()
     }

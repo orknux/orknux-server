@@ -43,6 +43,7 @@ class MidiCapability(
     override fun tools(): List<EmbeddedTool> = listOf(
         EmbeddedTool(
             name = READ,
+            readOnly = true,
             summary = "Reads a MIDI file kept under a key: its tracks, tempo and notes.",
             description = "Reads a MIDI file (.mid) kept under a $KEY in this session - an attached one - and answers it " +
                 "as text: the file's format, its tracks, tempo and time signature changes, and every note per track " +

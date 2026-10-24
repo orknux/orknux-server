@@ -49,6 +49,7 @@ class DateCapability(
     override fun tools(): List<EmbeddedTool> = listOf(
         EmbeddedTool(
             name = TODAY,
+            readOnly = true,
             summary = "Today's date, in the working timezone.",
             description = "Today's date as YYYY-MM-DD, in the working timezone or in $TZ when one is given. Ask this " +
                 "rather than assuming: you do not know today's date, and a guess is wrong by however long " +
@@ -57,6 +58,7 @@ class DateCapability(
         ),
         EmbeddedTool(
             name = NOW,
+            readOnly = true,
             summary = "The date and time now, with the working-day flags.",
             description = "The date and time now: iso, date, time, weekday, week, quarter, year, and whether today is a " +
                 "weekend, a holiday or a business day.",
@@ -64,6 +66,7 @@ class DateCapability(
         ),
         EmbeddedTool(
             name = DESCRIBE,
+            readOnly = true,
             summary = "The same account of any date you name.",
             description = "The same account as $NOW, for a date you name. Pass an ISO date (2026-09-19) or an instant " +
                 "(2026-09-19T14:30:00Z); a bare date means midnight in the working timezone.",
@@ -74,6 +77,7 @@ class DateCapability(
         ),
         EmbeddedTool(
             name = SHIFT,
+            readOnly = true,
             summary = "Moves a date by plain time - days, months, years.",
             description = "Moves a date by a plain amount of time and answers the new one as ISO. $UNIT is seconds, " +
                 "minutes, hours, days, weeks, months or years; $AMOUNT may be negative. Months and years " +
@@ -87,6 +91,7 @@ class DateCapability(
         ),
         EmbeddedTool(
             name = SHIFT_BUSINESS,
+            readOnly = true,
             summary = "Moves a date by working days - the one for an SLA.",
             description = "Moves a date by working days, skipping the weekend and the configured holidays, and answers " +
                 "YYYY-MM-DD. $DAYS may be negative. Zero answers the same day where it is a working one and " +
@@ -99,6 +104,7 @@ class DateCapability(
         ),
         EmbeddedTool(
             name = BETWEEN,
+            readOnly = true,
             summary = "How much time lies between two dates.",
             description = "How much time lies between two dates in the $UNIT asked for, as whole units rounded towards " +
                 "zero, negative where $TO is the earlier. Months and years are counted by the calendar, so " +
@@ -111,6 +117,7 @@ class DateCapability(
         ),
         EmbeddedTool(
             name = BETWEEN_BUSINESS,
+            readOnly = true,
             summary = "How many working days lie between two dates.",
             description = "How many working days lie between two dates, skipping weekends and holidays. Counts from " +
                 "$FROM up to but not including $TO, so a Monday to the Tuesday after it is one; negative " +
@@ -122,6 +129,7 @@ class DateCapability(
         ),
         EmbeddedTool(
             name = IS_BUSINESS_HOURS,
+            readOnly = true,
             summary = "Whether a moment is inside the working day.",
             description = "Whether a moment falls inside the working day: a working day at all - not a weekend, not a " +
                 "configured holiday - and between the configured opening and closing times. Leave $WHEN " +

@@ -65,6 +65,7 @@ class TimerTools(
             ),
             ToolSpec(
                 name = LIST,
+                readOnly = true,
                 description = "Lists the reminders you have set that have not come up yet, soonest first, each " +
                     "with its id, its note and how many seconds until it is due.",
                 parameters = emptyList(),

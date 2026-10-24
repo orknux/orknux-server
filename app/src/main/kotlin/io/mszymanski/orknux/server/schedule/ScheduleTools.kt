@@ -96,6 +96,7 @@ class ScheduleTools(
                 ),
                 ToolSpec(
                     name = LIST,
+                    readOnly = true,
                     description = "Lists your running schedules - from every conversation, only yours: each " +
                         "one's id, note, how it comes round, how many times it has run, its limits and when it " +
                         "next comes up. Look here before setting another, so you do not schedule the same thing twice.",

@@ -26,6 +26,12 @@ data class McpTool(
     val description: String,
     /** Parameter names from the tool's own input schema, required ones first. */
     val parameters: List<McpParameter>,
+    /**
+     * The server's `annotations.readOnlyHint`: true where it says the tool
+     * changes nothing. A hint, as the protocol calls it, and the only thing a
+     * server says about it - false where it said nothing. Issue #653.
+     */
+    val readOnly: Boolean = false,
 )
 
 data class McpParameter(
@@ -644,6 +650,7 @@ class McpClient(
             name = name,
             description = node.path("description").stringValue(null).orEmpty(),
             parameters = parameters.sortedByDescending { it.required },
+            readOnly = node.path("annotations").path("readOnlyHint").let { it.isBoolean && it.booleanValue() },
         )
     }
 

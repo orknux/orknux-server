@@ -128,6 +128,7 @@ class WatcherTools(
                 ),
                 ToolSpec(
                     name = LIST,
+                    readOnly = true,
                     description = "Lists your own watchers - only yours, from every conversation: each one's " +
                         "number, the tool and arguments it calls, its condition, interval and timeout, when it " +
                         "gives up, its state, when it was set and last checked, and how many times it has looked. " +
