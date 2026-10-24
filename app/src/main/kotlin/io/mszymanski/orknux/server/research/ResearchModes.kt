@@ -144,6 +144,9 @@ class ResearchModes(
                 val depth = SEEDED.firstOrNull { it.kind == mode.kind } ?: return@mapNotNull null
                 val workflowId = mode.workflowId ?: return@mapNotNull null
                 if (!assignments.existsByWorkspaceIdAndWorkflowId(workspaceId, workflowId)) return@mapNotNull null
+                if (relaid(workspaceId, workflowId, depth)) {
+                    log.info("Research mode {} of workspace {} laid out again", depth.modeName, workspaceId)
+                }
                 (workflowId to depth).takeIf {
                     untouchedSingle(workspaceId, workflowId, depth, legacy) || untouchedActions(workspaceId, workflowId, depth)
                 }
@@ -158,6 +161,62 @@ class ResearchModes(
             nodes.flush()
             lay(workflowId, parts, depth)
             log.info("Research mode {} of workspace {} redrawn with its planner and writer as agent nodes", depth.modeName, workspaceId)
+        }
+    }
+
+    /**
+     * Where a step is drawn: left to right, with Save a row lower. Save also
+     * reads Follow up's sources, and that second line ran straight through the
+     * Write card with its label on top of it; dropped a row, the line passes
+     * under Write and its label sits clear of every card.
+     */
+    private fun xOf(at: Int) = at * SPACING
+    private fun yOf(step: Step) = if (step.key == SAVE) DROP else 0.0
+
+    /** Puts a mode drawn in the current shape back where [lay] would draw it, moving nothing else. */
+    private fun relaid(workspaceId: Long, workflowId: Long, depth: Depth): Boolean {
+        if (!untouchedCurrent(workspaceId, workflowId, depth)) return false
+        val held = nodes.findByWorkflowId(workflowId).associateBy { it.nodeKey }
+        var moved = false
+        STEPS.forEachIndexed { at, step ->
+            val node = held.getValue(step.key)
+            if (node.positionX != xOf(at) || node.positionY != yOf(step)) {
+                node.positionX = xOf(at)
+                node.positionY = yOf(step)
+                nodes.save(node)
+                moved = true
+            }
+        }
+        return moved
+    }
+
+    /**
+     * Whether a workflow is still exactly the shape [lay] draws now - its nodes,
+     * agents, actions, outputs, parameters and lines - wherever its cards sit.
+     */
+    private fun untouchedCurrent(workspaceId: Long, workflowId: Long, depth: Depth): Boolean {
+        val drawn = edges.findByWorkflowId(workflowId)
+        val wantedLines = STEPS.zipWithNext().map { (from, to) -> from.key to to.key }.toSet()
+        if (drawn.size != wantedLines.size || drawn.any { it.branch != null } || drawn.map { it.sourceKey to it.targetKey }.toSet() != wantedLines) {
+            return false
+        }
+        val held = nodes.findByWorkflowId(workflowId).associateBy { it.nodeKey }
+        if (held.keys != STEPS.map { it.key }.toSet()) return false
+        return STEPS.all { step ->
+            val node = held.getValue(step.key)
+            val kindAndPart = if (step.agent != null) {
+                node.kind == NodeKind.AGENT && node.agentId?.let { agents.findByIdOrNull(it) }?.let { it.workspaceId == workspaceId && it.name == step.agent.name } == true
+            } else {
+                val action = node.actionId?.let { actions.findByIdOrNull(it) }
+                val function = functions.findByScopeAndName(FunctionScope.EMBEDDED, ResearchCapability.functionName(requireNotNull(step.function)))
+                node.kind == NodeKind.ACTION && action != null && function != null && action.workspaceId == workspaceId && action.functionId == function.id
+            }
+            kindAndPart &&
+                node.name == step.nodeName &&
+                node.description == step.description &&
+                node.enabled &&
+                node.outputName == step.outputName &&
+                signature(node.mappings) == signature(mappingsOf(step, STEPS, depth.knobs))
         }
     }
 
@@ -308,8 +367,8 @@ class ResearchModes(
                     actionId = parts.actions[step.key],
                     agentId = parts.agents[step.key],
                     outputName = step.outputName,
-                    positionX = at * SPACING,
-                    positionY = 0.0,
+                    positionX = xOf(at),
+                    positionY = yOf(step),
                     mappings = mappingsOf(step, STEPS, depth.knobs).toMutableList(),
                 ).also {
                     // Its answer goes on whole, when it is done: a draft handed on in pieces is a report saved in pieces.
@@ -439,6 +498,8 @@ class ResearchModes(
         private const val CARD = 320.0
         private const val GAP = 320.0
         private const val SPACING = CARD + GAP
+        /** How far below the row Save is drawn: a card's height and a label's clear of it, so Follow up's line to it passes under Write. */
+        private const val DROP = 260.0
 
         val PLANNER = SeededAgent(
             name = "Research planner",

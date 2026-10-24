@@ -108,6 +108,8 @@ type Research {
     "The file the report was saved as, on the Artifacts page; null where it could not be."
     fileName: String
     fileUrl: String
+    "The artifact the report was saved as, for a link to it on the Artifacts page; null where it could not be saved."
+    artifactId: ID
     "Where the file is read rather than saved."
     previewUrl: String
     "Why it did not finish, or why the file could not be made."

@@ -20,15 +20,26 @@ package io.mszymanski.orknux.connector.model
  *   as before: a deployment that does not reason refuses the field, and only a
  *   provider that declares it in [ChatParameters] could ever hold one.
  */
-data class Brief(val maxOutput: Int, val leastReasoning: Boolean = true) {
+data class Brief(val maxOutput: Int, val leastReasoning: Boolean = true, val noThinking: Boolean = false) {
 
-    /** [model] as this call sends it. */
-    fun applied(model: LlmModel): LlmModel = model.copied(model.providerId, model.name).also { copy ->
+    /**
+     * [model] as this call sends it. [efforts] are the words its provider
+     * takes; where `none` is one of them and the call wants [noThinking], that
+     * is sent whatever the model holds - a model that thinks by default, as
+     * Gemma 4 on llama.cpp does, otherwise spends the whole of a few-word
+     * budget thinking and answers nothing at all.
+     */
+    fun applied(model: LlmModel, efforts: List<String> = emptyList()): LlmModel = model.copied(model.providerId, model.name).also { copy ->
         copy.maxOutput = model.maxOutput?.coerceAtMost(maxOutput) ?: maxOutput
-        if (leastReasoning && model.reasoningEffort != null) copy.reasoningEffort = LEAST_EFFORT
+        when {
+            noThinking && NO_EFFORT in efforts -> copy.reasoningEffort = NO_EFFORT
+            leastReasoning && model.reasoningEffort != null -> copy.reasoningEffort = LEAST_EFFORT
+        }
     }
 
     private companion object {
+        /** Thinking off, where the provider takes it: llama.cpp disables reasoning on it, Ollama maps it to think=false. */
+        const val NO_EFFORT = "none"
         /**
          * The lowest of [ChatParameters.REASONING_EFFORT_SPEC]'s words, and one
          * [ChatParameters.OPEN_REASONING_EFFORT_SPEC] holds too. Not `none`: that

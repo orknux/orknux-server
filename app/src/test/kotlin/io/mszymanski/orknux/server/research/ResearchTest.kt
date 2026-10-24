@@ -260,6 +260,32 @@ class ResearchTest(
     }
 
     @Test
+    fun `a mode drawn in today's shape is laid out again, Save a row lower, and an edited one keeps where its cards are`() {
+        val shallow = modeWorkflow("SHALLOW")
+        val medium = modeWorkflow("MEDIUM")
+        fun at(workflowId: Long) = nodes.findByWorkflowId(workflowId).associate { it.nodeKey to (it.positionX to it.positionY) }
+        // Save drawn under the row, so Follow up's line to it passes under Write; the others in one row, left to right.
+        val laid = at(shallow)
+        assertThat(laid.getValue("save").second).isGreaterThan(laid.getValue("write").second + 200)
+        assertThat(listOf("plan", "gather", "followUp", "write", "save").map { laid.getValue(it).first }).isSorted()
+        assertThat(listOf("plan", "gather", "followUp", "write").map { laid.getValue(it).second }.toSet()).hasSize(1)
+
+        // Cards dragged into a heap: put back.
+        nodes.saveAll(nodes.findByWorkflowId(shallow).onEach { it.positionX = 5.0; it.positionY = 5.0 })
+        // Somebody's own prompt on Medium's planner, and its cards moved: left exactly as it is.
+        nodes.saveAll(nodes.findByWorkflowId(medium).onEach { node ->
+            node.positionX = 7.0
+            node.positionY = 7.0
+            if (node.nodeKey == "plan") node.mappings.first { it.name == "prompt" }.expression = "My own planning prompt"
+        })
+
+        researchModes.ensure(workspaceId)
+
+        assertThat(at(shallow)).isEqualTo(laid)
+        assertThat(at(medium).values).allMatch { it == 7.0 to 7.0 }
+    }
+
+    @Test
     fun `a five-action mode workflow somebody edited is left as it is, and still runs its functions`() {
         val shallow = modeWorkflow("SHALLOW")
         // Shallow's numbers, but one source rather than eight: somebody's own.
@@ -362,8 +388,10 @@ class ResearchTest(
 
         val view = graphQlTester.document(
             """query { research(id: $id) { result progress { step subQuestions searched level sourcesRead }
-                 sources { number title url kind notes } fileName } }""",
+                 sources { number title url kind notes } fileName artifactId } }""",
         ).execute()
+        // The report's own artifact, for the page's link to it on the Artifacts page.
+        view.path("research.artifactId").entity(Long::class.java).isEqualTo(requireNotNull(done.artifactId))
         view.path("research.progress.subQuestions").entityList(String::class.java).containsExactly("tide causes", "tide timing", "tide records")
         view.path("research.progress.step").entity(String::class.java).isEqualTo("Finished")
         // Five steps ran, one node each, and the page was told which one it was in.
@@ -810,7 +838,9 @@ class ResearchTest(
         // width, and room between cards for the line's label.
         assertThat(drawn.map { it.description.orEmpty().length }).allMatch { it in 1..50 }
         assertThat(drawn.zipWithNext().map { (one, next) -> next.positionX - one.positionX }).allMatch { it >= 640.0 }
-        assertThat(drawn.map { it.positionY }.distinct()).hasSize(1)
+        // One row, with Save a row lower so Follow up's line to it passes under Write rather than through it.
+        assertThat(drawn.filter { it.nodeKey != "save" }.map { it.positionY }.distinct()).hasSize(1)
+        assertThat(byKey.getValue("save").positionY).isGreaterThan(byKey.getValue("write").positionY + 200)
     }
 
     /** Each step's knobs by name: its written numbers, and on Plan the number its prompt asks for. */

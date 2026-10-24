@@ -96,6 +96,9 @@ class ChatSentenceCompletionTest(
         assertThat(body).contains("Every weekday at nine.").contains("Can we move it to")
         // Held to the installation's limit rather than the model's own.
         assertThat(body).contains("\"max_tokens\":32")
+        // Told not to think, though the model has no effort set: a thinking model otherwise spends
+        // all 32 tokens thinking and answers nothing - what Gemma 4 on llama.cpp did.
+        assertThat(body).contains("\"reasoning_effort\":\"none\"")
 
         // Never written into the chat: the history is the two turns it had.
         assertThat(history.findByConversationId(conversation(chatId))).hasSize(2)

@@ -63,7 +63,8 @@ class ChatSentences(
             modelId,
             turns,
             hangup = hangup,
-            brief = Brief(maxOutput = settings.chatCompletionMaxTokens(), leastReasoning = true),
+            // No thinking at all where the provider can be told so: a few words are wanted, now.
+            brief = Brief(maxOutput = settings.chatCompletionMaxTokens(), leastReasoning = true, noThinking = true),
         )
         return when (answer) {
             is ChatCompletion.Answered -> cleaned(typed, answer.content)

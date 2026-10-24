@@ -945,7 +945,7 @@ class ModelChatClient(
         val limits = throttled(modelId)
         if (hangup?.hungUp == true) return ChatCompletion.Failed(HUNG_UP, permanent = false)
         spoken(modelId)?.let { shape ->
-            val model = asCalled(shape.model, brief, reasoningEffort)
+            val model = asCalled(shape.model, brief, reasoningEffort, shape.provider)
             return through(modelId, shape, limits) {
                 openAi.complete(shape.provider, model, wire(shape.provider, turns), tools, hangup)
             }
@@ -1030,13 +1030,16 @@ class ModelChatClient(
      * The effort comes first so a brief asking for the least thinking still has
      * the last word.
      */
-    private fun asCalled(model: LlmModel, brief: Brief?, reasoningEffort: String?): LlmModel {
+    private fun asCalled(model: LlmModel, brief: Brief?, reasoningEffort: String?, provider: ModelProvider? = null): LlmModel {
         val chosen = if (reasoningEffort == null || reasoningEffort == model.reasoningEffort) {
             model
         } else {
             model.copied(model.providerId, model.name).also { it.reasoningEffort = reasoningEffort }
         }
-        return brief?.applied(chosen) ?: chosen
+        val efforts = provider?.let { held ->
+            ChatParameters.forProvider(held).firstOrNull { it.name == ChatParameters.REASONING_EFFORT }?.choices
+        }.orEmpty()
+        return brief?.applied(chosen, efforts) ?: chosen
     }
 
     /**
