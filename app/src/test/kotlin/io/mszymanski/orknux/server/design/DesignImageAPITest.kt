@@ -374,6 +374,58 @@ class DesignImageAPITest(
         assertThat(javax.imageio.ImageIO.read(store.open(source.location)).getRGB(0, 0)).isEqualTo(WHITE)
     }
 
+    @Test
+    fun `a change the editor made itself is kept as a drawn version, in the history, and saved like a model's`() {
+        val source = whiteSource()
+        // Rotated in the browser: a picture of another shape, two wide becoming one wide and three tall.
+        val turned = Base64.getEncoder().encodeToString(png(1, 3) { _, _ -> RED })
+        fun keep(of: String, change: String) = graphQlTester.document(
+            """mutation { keepDesignImageChange(input: {
+                 workspaceId: $workspaceId, imageId: "$of", image: "data:image/png;base64,$turned", change: "$change"
+               }) { id status prompt model sourceId image { id versionOf name } } }""",
+        ).execute()
+        val first = keep("DESIGN-${source.id}", "Rotated right")
+            .path("keepDesignImageChange.status").entity(String::class.java).isEqualTo("DRAWN")
+            .path("keepDesignImageChange.prompt").entity(String::class.java).isEqualTo("Rotated right")
+            .path("keepDesignImageChange.model").entity(String::class.java).isEqualTo("Image editor")
+            .path("keepDesignImageChange.image.versionOf").entity(String::class.java).isEqualTo("DESIGN-${source.id}")
+            .path("keepDesignImageChange.image.name").entity(String::class.java).isEqualTo("White")
+            .path("keepDesignImageChange.image.id").entity(String::class.java).get()
+        // A change over that version is a version of the picture itself, not of the round before.
+        val second = keep(first, "Mirrored")
+            .path("keepDesignImageChange.image.versionOf").entity(String::class.java).isEqualTo("DESIGN-${source.id}")
+            .path("keepDesignImageChange.image.id").entity(String::class.java).get()
+        graphQlTester.document("""query { designImageHistory(workspaceId: $workspaceId, imageId: "DESIGN-${source.id}") { prompt status } }""")
+            .execute().path("designImageHistory[*].prompt").entityList(String::class.java).containsExactly("Mirrored", "Rotated right")
+        // Nothing waits: the queue the gallery shows has none of it.
+        graphQlTester.document("""query { designImageQueue(workspaceId: $workspaceId) { id } }""")
+            .execute().path("designImageQueue").entityList(Any::class.java).hasSize(0)
+
+        graphQlTester.document("""mutation { saveDesignImageVersion(workspaceId: $workspaceId, id: "$second") { id } }""").execute()
+        val saved = javax.imageio.ImageIO.read(store.open(requireNotNull(images.findByIdOrNull(requireNotNull(source.id))).location))
+        assertThat(saved.width to saved.height).isEqualTo(1 to 3)
+        assertThat(saved.getRGB(0, 0)).isEqualTo(RED)
+        assertThat(images.findAll().map { it.id }).containsExactly(source.id)
+    }
+
+    @Test
+    fun `a change the editor made is refused when it is not a picture, or the picture is gone`() {
+        val source = whiteSource()
+        val text = Base64.getEncoder().encodeToString("not a picture".toByteArray())
+        graphQlTester.document(
+            """mutation { keepDesignImageChange(input: {
+                 workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", image: "$text", change: "Painted"
+               }) { id } }""",
+        ).execute().errors().satisfy { assertThat(it.single().message).contains("not a picture") }
+        val pixel = Base64.getEncoder().encodeToString(png(1, 1) { _, _ -> RED })
+        graphQlTester.document(
+            """mutation { keepDesignImageChange(input: {
+                 workspaceId: $workspaceId, imageId: "DESIGN-999999", image: "$pixel", change: "Painted"
+               }) { id } }""",
+        ).execute().errors().satisfy { assertThat(it.single().message).contains("not here any more") }
+        assertThat(images.findAll().map { it.id }).containsExactly(source.id)
+    }
+
     private fun png(width: Int, height: Int, colour: (Int, Int) -> Int): ByteArray {
         val image = java.awt.image.BufferedImage(width, height, java.awt.image.BufferedImage.TYPE_INT_ARGB)
         for (y in 0 until height) for (x in 0 until width) image.setRGB(x, y, colour(x, y))

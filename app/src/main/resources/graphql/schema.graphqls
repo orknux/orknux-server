@@ -2359,6 +2359,12 @@ type Mutation {
     an .orkx archive with its project - as a Design picture.
     """
     importDesignImage(input: ImportDesignImageInput!): Artifact!
+    """
+    Keeps a change the image editor made itself - rotated, mirrored, cropped,
+    painted, blurred, layers merged - as an unsaved version of the picture, as a
+    model's change is, and answers it already DRAWN.
+    """
+    keepDesignImageChange(input: KeepDesignImageChangeInput!): DesignImageJob!
     "Takes a queued or failed picture off; one being drawn cannot be. False for one not here."
     dismissDesignImageJob(id: ID!): Boolean!
     "Stops a picture waiting or being drawn: a queued one is never started, and what a drawing one comes back with is thrown away."
@@ -8593,6 +8599,17 @@ input UpscaleDesignImageInput {
     algorithm: String
     "How many times larger, 1 to 8."
     scale: Float!
+}
+
+""" A change the image editor made itself, to keep as a version of the picture. """
+input KeepDesignImageChangeInput {
+    workspaceId: ID!
+    "The picture the change was made to, by its artifact id."
+    imageId: ID!
+    "The changed picture's file, base64: a PNG, JPEG, WebP or GIF."
+    image: String!
+    "What was done, as the editor's history says it; at most 255 characters."
+    change: String!
 }
 
 """ A picture brought in from outside, to keep in Design. """

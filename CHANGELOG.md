@@ -42,6 +42,7 @@ have failed.
 - **Model speed.** Where the provider reports its timings - llama.cpp does; OpenAI, Azure, vLLM, Ollama and Anthropic do not, and show nothing - a session's page shows the prompt and generation speed in tokens per second beside its cost, averaged by tokens over its calls, and a Speeds panel lists each call's; a model's page shows the same over its newest calls, as many as Admin → Settings says (`ORKNUX_TUNING_MODEL_SPEED_CALLS`, 50).
 
 - **Negative prompts for pictures.** What a picture must not contain is sent beside the prompt where the server takes one - stable-diffusion.cpp's server (inside the prompt, as `<sd_cpp_extra_args>`) and a Stable Diffusion WebUI's Harmonize (`negative_prompt`) - from the image editor's Negative prompt box, an agent's draw tool and a default on the model's page; a model on OpenAI's API, which takes none, is not offered one and refuses one sent anyway.
+- **Rotate and mirror in the image editor.** A rail of tools down the canvas's left turns the picture a quarter left or right and flips it horizontally or vertically, in the browser and without a model; each is kept as an unsaved version, as a Magic edit is, so Undo, Save and Discard treat them alike (`keepDesignImageChange`).
 
 ### 🔧 Changed
 

@@ -352,6 +352,79 @@ class DesignImageAPI(
     }
 
     /**
+     * A change the image editor made itself - rotated, mirrored, cropped,
+     * painted, blurred, layers merged - kept as a version of the picture, as a
+     * model's change is, so Undo, Save and Discard treat the two alike. Issue #634.
+     *
+     * No model and no queue: the pixels were worked out in the browser, which
+     * already holds the picture, and are only kept here. So the request is
+     * drawn the moment it is filed, and answered with its version.
+     */
+    @MutationMapping
+    @Transactional
+    fun keepDesignImageChange(@Argument input: KeepDesignImageChangeInput): DesignImageJobView {
+        val workspaceId = input.workspaceId.toLong()
+        access.requireVisible(workspaceId)
+        if (!settings.attachmentsEnabled()) {
+            throw DesignImageRefusedException("A picture is kept as an attachment, and attachments are turned off for this installation.")
+        }
+        val change = input.change.trim()
+        if (change.isEmpty()) throw DesignImageRefusedException("Say what was changed.")
+        if (change.length > NAME_LENGTH) throw DesignImageRefusedException("What was changed is said in at most $NAME_LENGTH characters.")
+        val source = artifacts.storedOf(workspaceId, input.imageId)
+            ?: throw DesignImageRefusedException("The picture to change is not here any more.")
+        val bytes = runCatching { java.util.Base64.getDecoder().decode(input.image.substringAfter("base64,")) }.getOrNull()
+            ?.takeIf { it.isNotEmpty() }
+            ?: throw DesignImageRefusedException("The changed picture could not be read.")
+        if (bytes.size > settings.maxFileSizeMb() * 1024 * 1024) {
+            throw DesignImageRefusedException("That picture is larger than this installation keeps.")
+        }
+        val contentType = pictureTypeOf(bytes)
+            ?: throw DesignImageRefusedException("That file is not a picture this can keep: a PNG, JPEG, WebP or GIF.")
+        val view = source.view
+        val name = view.name ?: PictureFilenames.nameOf(view.prompt)
+        val filename = PictureFilenames.of(name, contentType)
+        val version = images.save(
+            DesignImage(
+                workspaceId = workspaceId,
+                modelId = view.drawnWith?.modelId?.toLongOrNull(),
+                modelName = view.drawnWith?.model ?: IMAGE_EDITOR,
+                prompt = view.prompt,
+                size = null,
+                quality = null,
+                style = null,
+                filename = filename,
+                contentType = contentType,
+                sizeBytes = bytes.size.toLong(),
+                location = store.put(workspaceId, filename, bytes),
+                drawnBy = currentName(),
+                name = name,
+                // A version of the picture itself, not of the round before - as a model's change is.
+                versionOf = view.versionOf ?: input.imageId,
+            ),
+        )
+        val job = jobs.save(
+            DesignImageJob(
+                workspaceId = workspaceId,
+                modelId = null,
+                modelName = IMAGE_EDITOR,
+                prompt = change,
+                size = null,
+                quality = null,
+                style = null,
+                requestedBy = currentName(),
+                startedAt = java.time.OffsetDateTime.now(),
+                status = DesignImageJobStatus.DRAWN,
+                imageId = version.id,
+                name = name,
+                sourceId = input.imageId,
+            ),
+        )
+        auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Change to $name made in Design: $change")
+        return view(job)
+    }
+
+    /**
      * What a file is, by its first bytes rather than by what the browser said:
      * the type is what the gallery serves it as, and a name is no evidence.
      */
@@ -648,6 +721,9 @@ class DesignImageAPI(
         /** What an imported picture says it was drawn with: nothing here drew it. */
         const val IMPORTED = "Imported"
 
+        /** What a change the editor made itself says it was made with: no model made it. */
+        const val IMAGE_EDITOR = "Image editor"
+
         val SHOWN = listOf(DesignImageJobStatus.QUEUED, DesignImageJobStatus.DRAWING, DesignImageJobStatus.FAILED)
     }
 }
@@ -696,6 +772,16 @@ data class ImportDesignImageInput(
     val archive: String? = null,
     val name: String? = null,
     val prompt: String? = null,
+)
+
+data class KeepDesignImageChangeInput(
+    val workspaceId: String,
+    /** The picture the change was made to, by its artifact id. */
+    val imageId: String,
+    /** The changed picture's file, base64. */
+    val image: String,
+    /** What was done, as the editor's history says it. */
+    val change: String,
 )
 
 data class UpscaleAlgorithmsView(val names: List<String>, val preferred: String?, val reason: String?)
