@@ -23,6 +23,7 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Primary
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.graphql.test.tester.ExecutionGraphQlServiceTester
+import org.springframework.mock.web.MockMultipartFile
 import org.springframework.security.test.context.support.WithMockUser
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -30,7 +31,7 @@ import java.nio.charset.StandardCharsets
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * Answer > Research. Issue #659.
+ * Analysis > Research. Issue #659.
  *
  * A workspace arrives with three research modes, each a hidden workflow whose
  * one node calls `research_run` with the knobs that make the mode. A research
@@ -61,6 +62,9 @@ class ResearchTest(
     @Autowired val audit: WorkspaceAuditRepository,
     @Autowired val workspaceApi: WorkspaceAPI,
     @Autowired val web: StubWeb,
+    @Autowired val uploads: ResearchUploadAPI,
+    @Autowired val orknux: io.mszymanski.orknux.server.mcp.OrknuxTools,
+    @Autowired val mapper: tools.jackson.databind.ObjectMapper,
 ) {
 
     private var workspaceId: Long = 0
@@ -263,6 +267,85 @@ class ResearchTest(
         assertThat(asked(WRITE).single()).contains("Do not use: rumours.txt").contains("colloquial register").contains("/api/artifacts/$notes")
         assertThat(asked(NOTES) + asked(WRITE)).noneMatch { it.contains("caused by whales") }
         assertThat(researches.findByIdOrNull(requireNotNull(done.id))!!.foundSources).contains("\"kind\":\"DOCUMENT\"")
+    }
+
+    /** A picker asks for a few, by what is typed; a workspace may hold thousands. */
+    @Test
+    fun `documents are found by a word in the name or the description, newest first and no more than asked for`() {
+        document("tides-2024.md", "Spring tides.")
+        document("budget.txt", "Numbers.")
+        document("tides-2025.md", "Neap tides.")
+
+        graphQlTester.document("""query { researchDocuments(workspaceId: $workspaceId, search: "TIDES") { name } }""").execute()
+            .path("researchDocuments[*].name").entityList(String::class.java).containsExactly("tides-2025.md", "tides-2024.md")
+        graphQlTester.document("""query { researchDocuments(workspaceId: $workspaceId, limit: 1) { name } }""").execute()
+            .path("researchDocuments[*].name").entityList(String::class.java).containsExactly("tides-2025.md")
+        // "A note" is every test document's description.
+        graphQlTester.document("""query { researchDocuments(workspaceId: $workspaceId, search: "a note") { name } }""").execute()
+            .path("researchDocuments[*].name").entityList(String::class.java).hasSize(3)
+    }
+
+    /** Uploaded from the dialog, a document is the workspace's like any other, and can be picked at once. */
+    @Test
+    fun `an uploaded document lands on the Artifacts page and can be picked, and one a research cannot read is refused`() {
+        val answer = uploads.upload(
+            workspaceId,
+            listOf(MockMultipartFile("files", "harbour.md", "text/markdown", "A spring tide every fortnight.".toByteArray())),
+        )
+        assertThat(answer.statusCode.value()).isEqualTo(200)
+        val held = saved.findByWorkspaceId(workspaceId).single { it.name == "harbour.md" }
+        assertThat(held.savedBy).isEqualTo("alice")
+        assertThat(store.open(held.location).use { String(it.readBytes()) }).isEqualTo("A spring tide every fortnight.")
+        graphQlTester.document("""query { researchDocuments(workspaceId: $workspaceId, search: "harbour") { id } }""").execute()
+            .path("researchDocuments[0].id").entity(Long::class.java).isEqualTo(held.id!!)
+        assertThat(audit.findAll().map { it.message }).contains("Uploaded harbour.md for research")
+
+        val refused = uploads.upload(
+            workspaceId,
+            listOf(MockMultipartFile("files", "photo.png", "image/png", byteArrayOf(1, 2, 3))),
+        )
+        assertThat(refused.statusCode.value()).isEqualTo(400)
+        assertThat(refused.body.toString()).contains("photo.png is not a document a research can read")
+        assertThat(saved.findByWorkspaceId(workspaceId).map { it.name }).doesNotContain("photo.png")
+    }
+
+    /** An agent - or anything over MCP - starts a research and follows it, through the page's own doors. */
+    @Test
+    fun `orknux tools start a research by mode name and read where it got to`() {
+        val modelId = model(serve())
+        val scope = io.mszymanski.orknux.server.mcp.OrknuxScope(workspaceId = workspaceId, mayWrite = true)
+        assertThat(orknux.specs(scope).map { it.name }).contains("orknux_start_research", "orknux_research")
+
+        val started = mapper.readTree(
+            orknux.run(
+                scope, "orknux_start_research",
+                """{"question":"Why are there tides?","mode":"medium","model":"Researcher model",
+                   "sitesExclude":["tabloid.example"],"register":"academic"}""",
+            ),
+        )
+        assertThat(started.path("error").isMissingNode).describedAs(started.toString()).isTrue()
+        val id = started.path("started").asLong()
+        assertThat(started.path("mode").stringValue()).isEqualTo("Medium")
+        assertThat(started.path("url").stringValue()).endsWith("/workspace/$workspaceId/analysis/research/$id")
+
+        val done = settled(id)
+        assertThat(done.status).describedAs(done.error).isEqualTo(ResearchStatus.COMPLETED)
+        assertThat(done.modelId).isEqualTo(modelId)
+        assertThat(done.language).isEqualTo(ResearchLanguage.ACADEMIC)
+        assertThat(done.outputFormat).isEqualTo(ResearchOutputFormat.PDF)
+        assertThat(web.read).noneMatch { it.contains("tabloid") }
+
+        val read = mapper.readTree(orknux.run(scope, "orknux_research", """{"id":$id}"""))
+        assertThat(read.path("status").stringValue()).isEqualTo("COMPLETED")
+        assertThat(read.path("report").stringValue()).startsWith("# Tides")
+        assertThat(read.path("sources").size()).isGreaterThan(0)
+        assertThat(read.path("file").stringValue()).contains("/api/artifacts/")
+
+        // Read-only conversations may follow one but not start one; and modes are named, not guessed.
+        val reading = scope.copy(mayWrite = false)
+        assertThat(orknux.run(reading, "orknux_start_research", """{"question":"Tides"}""")).contains("may read")
+        assertThat(orknux.run(scope, "orknux_start_research", """{"question":"Tides","mode":"Galactic"}"""))
+            .contains("There is no research mode called Galactic")
     }
 
     @Test

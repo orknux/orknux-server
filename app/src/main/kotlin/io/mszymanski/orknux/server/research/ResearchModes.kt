@@ -81,7 +81,7 @@ class ResearchModes(
         actions.findByWorkspaceIdAndName(workspaceId, ACTION_NAME)
             ?.takeIf { it.subtype == ActionSubtype.FUNCTION && it.functionId == functionId }
             ?.let { return it }
-        val name = ACTION_NAME.takeIf { actions.findByWorkspaceIdAndName(workspaceId, it) == null } ?: "$ACTION_NAME (Answer)"
+        val name = ACTION_NAME.takeIf { actions.findByWorkspaceIdAndName(workspaceId, it) == null } ?: "$ACTION_NAME (Analysis)"
         return actions.findByWorkspaceIdAndName(workspaceId, name) ?: actions.save(
             WorkflowAction(
                 workspaceId = workspaceId,
@@ -170,17 +170,17 @@ class ResearchModes(
         private val SEEDED = listOf(
             Depth(
                 ResearchModeKind.SHALLOW, "Shallow", "Research: Shallow",
-                "Answer > Research, shallow: a few searches and a short report.",
+                "Analysis > Research, shallow: a few searches and a short report.",
                 knobs(sub = 3, breadth = 0, depth = 1, results = 3, sources = 8, pages = 1),
             ),
             Depth(
                 ResearchModeKind.MEDIUM, "Medium", "Research: Medium",
-                "Answer > Research, medium: a broader plan and one level of follow-up questions.",
+                "Analysis > Research, medium: a broader plan and one level of follow-up questions.",
                 knobs(sub = 5, breadth = 2, depth = 2, results = 4, sources = 20, pages = 2),
             ),
             Depth(
                 ResearchModeKind.DEEP, "Deep", "Research: Deep",
-                "Answer > Research, deep: follow-up questions three levels down, sources checked against each other.",
+                "Analysis > Research, deep: follow-up questions three levels down, sources checked against each other.",
                 knobs(sub = 6, breadth = 4, depth = 3, results = 5, sources = 50, pages = 3),
             ),
         )

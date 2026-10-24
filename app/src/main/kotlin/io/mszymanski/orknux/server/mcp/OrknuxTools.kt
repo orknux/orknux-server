@@ -36,6 +36,11 @@ import org.springframework.stereotype.Service
 import java.time.OffsetDateTime
 import tools.jackson.databind.ObjectMapper
 import java.util.concurrent.CompletableFuture
+import io.mszymanski.orknux.server.research.ResearchAPI
+import io.mszymanski.orknux.server.research.ResearchLanguage
+import io.mszymanski.orknux.server.research.ResearchModeKind
+import io.mszymanski.orknux.server.research.ResearchOutputFormat
+import io.mszymanski.orknux.server.research.StartResearchInput
 
 /**
  * Who is asking, and what they are allowed to ask for.
@@ -228,6 +233,8 @@ class OrknuxTools(
     /** The Tasks page's own start, for its access check and audit entry. Lazy: it is a controller, and tasks run agents. */
     @param:Lazy private val taskApi: io.mszymanski.orknux.server.task.TaskAPI,
     private val issues: io.mszymanski.orknux.server.issue.IssueRepository,
+    /** The Research page's own start and read, for their checks and audit entry. Lazy: it is a controller, and a research runs workflows. */
+    @param:Lazy private val researchApi: ResearchAPI,
     transactionManager: org.springframework.transaction.PlatformTransactionManager,
 ) {
 
@@ -308,6 +315,13 @@ class OrknuxTools(
                 name = "orknux_execution",
                 description = "One run in full: every step, what it produced, and what failed.",
                 parameters = listOf(ToolParameterSpec("id", "The run's id.", required = true)),
+            ),
+        )
+        add(
+            ToolSpec(
+                name = RESEARCH,
+                description = "One research: where it has got to, the sources it read, and its report once finished.",
+                parameters = listOf(ToolParameterSpec("id", "The research's id, as $START_RESEARCH answered it.", required = true)),
             ),
         )
         add(
@@ -774,6 +788,30 @@ class OrknuxTools(
             )
             add(
                 ToolSpec(
+                    name = START_RESEARCH,
+                    description = "Starts a research in Analysis: the web and the workspace's documents searched, read " +
+                        "and written up with cited sources. Returns its id; $RESEARCH follows it.",
+                    parameters = listOf(
+                        ToolParameterSpec("question", "What to research.", required = true),
+                        ToolParameterSpec("mode", "A research mode's name: Shallow, Medium, Deep or one the workspace added. Shallow when left out.", required = false),
+                        ToolParameterSpec("model", "The chat model to research with: its name or id. Left out, the mode's own.", required = false),
+                        ToolParameterSpec("sitesInclude", "Websites to keep to, as a list of hosts.", required = false, LIST),
+                        ToolParameterSpec("sitesExclude", "Websites never to read, as a list of hosts.", required = false, LIST),
+                        ToolParameterSpec("documentsInclude", "Ids of the workspace's documents to read.", required = false, LIST),
+                        ToolParameterSpec("documentsExclude", "Ids of documents never to use.", required = false, LIST),
+                        ToolParameterSpec(
+                            "register", "ACADEMIC, COLLOQUIAL or FORMAL; FORMAL when left out.", required = false,
+                            mapOf("type" to "string", "enum" to ResearchLanguage.entries.map { it.name }),
+                        ),
+                        ToolParameterSpec(
+                            "output", "PDF or DOCUMENT; PDF when left out.", required = false,
+                            mapOf("type" to "string", "enum" to ResearchOutputFormat.entries.map { it.name }),
+                        ),
+                    ),
+                ),
+            )
+            add(
+                ToolSpec(
                     name = "orknux_start_task",
                     description =
                         "Starts a task: one of this workspace's agents set to work on a brief, on its own, until it " +
@@ -914,6 +952,8 @@ class OrknuxTools(
             "orknux_suggest_function_code" -> suggest(scope, arguments)
             "orknux_run_workflow" -> runWorkflow(scope, arguments)
             "orknux_start_task" -> startTask(scope, arguments)
+            START_RESEARCH -> startResearch(scope, arguments)
+            RESEARCH -> research(scope, arguments)
             "orknux_rerun_execution" -> rerun(scope, arguments)
             "orknux_set_workflow_enabled" -> setWorkflowEnabled(scope, arguments)
             "orknux_set_agent_enabled" -> setAgentEnabled(scope, arguments)
@@ -1907,6 +1947,109 @@ class OrknuxTools(
         )
     }
 
+    /**
+     * Starts a research, through the Research page's own mutation: the same
+     * checks, the same audit entry, under the caller's name. Issue #659.
+     */
+    private fun startResearch(scope: OrknuxScope, arguments: String): String {
+        if (!scope.mayWrite) return readOnly()
+
+        val question = text(arguments, "question")?.trim()?.ifEmpty { null }
+            ?: return refuse("What should be researched? Give the question.")
+        val modes = access.actingIn(scope.workspaceId, scope.actor) { researchApi.researchModes(scope.workspaceId) }
+        val asked = text(arguments, "mode")?.trim()
+        val mode = if (asked == null) {
+            modes.firstOrNull { it.kind == ResearchModeKind.SHALLOW }
+        } else {
+            modes.firstOrNull { it.name.equals(asked, ignoreCase = true) || it.kind.name.equals(asked, ignoreCase = true) }
+        } ?: return refuse("There is no research mode called ${asked ?: "Shallow"}; there are ${modes.joinToString(", ") { it.name }}")
+        val model = text(arguments, "model")?.trim()?.let { named ->
+            val held = models.models(scope.workspaceId)
+            (named.toLongOrNull()?.let { id -> held.firstOrNull { it.id == id } } ?: held.firstOrNull { it.name.equals(named, ignoreCase = true) })
+                ?: return refuse("There is no model called $named here")
+        }
+        val register = text(arguments, "register")?.trim()?.uppercase()?.let { said ->
+            ResearchLanguage.entries.firstOrNull { it.name == said } ?: return refuse("The register is ACADEMIC, COLLOQUIAL or FORMAL")
+        } ?: ResearchLanguage.FORMAL
+        val output = text(arguments, "output")?.trim()?.uppercase()?.let { said ->
+            ResearchOutputFormat.entries.firstOrNull { it.name == said } ?: return refuse("The output is PDF or DOCUMENT")
+        } ?: ResearchOutputFormat.PDF
+        val documents = listOf("documentsInclude", "documentsExclude").associateWith { name ->
+            strings(arguments, name).map { one ->
+                one.removePrefix("#").toLongOrNull() ?: return refuse("A document is named by its id, such as 12; $one is not one")
+            }
+        }
+
+        val started = access.actingIn(scope.workspaceId, scope.actor) {
+            researchApi.startResearch(
+                StartResearchInput(
+                    workspaceId = scope.workspaceId,
+                    question = question,
+                    modeId = mode.id,
+                    modelId = model?.id,
+                    language = register,
+                    outputFormat = output,
+                    websitesInclude = strings(arguments, "sitesInclude"),
+                    websitesExclude = strings(arguments, "sitesExclude"),
+                    documentsInclude = documents.getValue("documentsInclude"),
+                    documentsExclude = documents.getValue("documentsExclude"),
+                ),
+            )
+        }
+        return mapper.writeValueAsString(
+            mapOf(
+                "started" to started.id,
+                "mode" to started.modeName,
+                "status" to started.status,
+                "url" to researchLink(scope.workspaceId, started.id),
+                "note" to "It runs on its own; ask $RESEARCH about this id to see where it has got to.",
+            ),
+        )
+    }
+
+    /** Where a research has got to, and its report once it has one. */
+    private fun research(scope: OrknuxScope, arguments: String): String {
+        val id = number(arguments, "id") ?: return refuse("Which research? Give its id.")
+        val held = access.actingIn(scope.workspaceId, scope.actor) { researchApi.research(id) }
+            ?.takeIf { it.workspaceId == scope.workspaceId }
+            ?: return refuse("There is no research $id here")
+        return mapper.writeValueAsString(
+            linkedMapOf(
+                "id" to held.id,
+                "question" to held.question,
+                "mode" to held.modeName,
+                "model" to held.modelName,
+                "status" to held.status,
+                "step" to held.progress?.step,
+                "subQuestions" to held.progress?.subQuestions.orEmpty(),
+                "sourcesRead" to (held.progress?.sourcesRead ?: 0),
+                "sources" to held.sources.map { mapOf("number" to it.number, "title" to it.title, "url" to absolute(it.url)) },
+                "report" to held.result,
+                "file" to held.fileUrl?.let(::absolute),
+                "error" to held.error,
+                "run" to held.executionId?.let { runLink(scope.workspaceId, it) },
+                "url" to researchLink(scope.workspaceId, held.id),
+            ),
+        )
+    }
+
+    /** A source or a file the server hosts, linked so it opens from wherever the answer is read. */
+    private fun absolute(url: String): String = if (url.startsWith("/")) link(url) else url
+
+    private fun researchLink(workspaceId: Long, id: Long?) = link("/workspace/$workspaceId/analysis/research/$id")
+
+    /** A list a model sent as a JSON array, or as the text of one, or as words with commas between. */
+    private fun strings(arguments: String, name: String): List<String> = runCatching {
+        val node = mapper.readTree(arguments).path(name)
+        val held = if (node.isString) {
+            val said = node.stringValue().trim()
+            if (said.startsWith("[")) mapper.readTree(said) else return@runCatching said.split(',').map { it.trim() }
+        } else {
+            node
+        }
+        held.mapNotNull { one -> if (one.isString) one.stringValue().trim() else if (one.isNumber) one.asString() else null }
+    }.getOrDefault(emptyList()).filter { it.isNotEmpty() }
+
     /** Runs a past run again, on the input it was given. */
     private fun rerun(scope: OrknuxScope, arguments: String): String {
         if (!scope.mayWrite) return readOnly()
@@ -2053,6 +2196,11 @@ class OrknuxTools(
         const val CREATE_AGENT = "orknux_create_agent"
         const val UPDATE_AGENT = "orknux_update_agent"
         const val UPDATE_MODEL = "orknux_update_model"
+        const val START_RESEARCH = "orknux_start_research"
+        const val RESEARCH = "orknux_research"
+
+        /** What a list parameter is declared as, so a model sends a list rather than the text of one. */
+        val LIST = mapOf("type" to "array", "items" to mapOf("type" to "string"))
         val NULLABLE_INTEGER = mapOf("type" to listOf("integer", "null"))
         val NULLABLE_NUMBER = mapOf("type" to listOf("number", "null"))
         const val TOOLS = "orknux_tools"
