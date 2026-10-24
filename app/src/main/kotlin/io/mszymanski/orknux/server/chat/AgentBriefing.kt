@@ -427,7 +427,18 @@ class AgentBriefing(
          * general: a task is not offered tools_request, and a list naming it
          * there had a model believe it held one, look for it and loop.
          */
-        val held = tools.getObject().offeringFor(agent, session = session).let { it.core + it.searchable }
+        /*
+         * And marked by what a turn starts out carrying, by the rule the round
+         * uses - see [ToolCeilings.split]. It read the agent's own ceiling
+         * while the round read the provider's switch over it, so on llama.cpp
+         * the list said "(load it first)" of tools the request carried and the
+         * model loaded them, a round each.
+         */
+        val all = tools.getObject()
+        val ceilingNow = ceilings.getObject().of(agent)
+        val holding = all.offeringFor(agent, ceilingNow, session)
+        val start = ceilings.getObject().split(agent, agent.modelId, holding, emptyList()) { all.offeringFor(agent, it, session) }
+        val held = holding.core + holding.searchable
         if (held.isNotEmpty()) {
             val block = installation.toolSummariesFullUpTo()
             val step = installation.toolSummaryTrimPercent()
@@ -435,38 +446,18 @@ class AgentBriefing(
             val kept = (MOST_TOOL_SUMMARY_CHARS * (100 - blocks * step).coerceAtLeast(0) / 100)
                 .coerceAtLeast(SHORTEST_SUMMARY)
             /*
-             * Every tool in hand from the first round: the provider offers them
-             * all up front and they fit under its cap, so there is nothing to
-             * find or load - and telling a model to load what it holds is how
-             * it spends a round loading it. See [ToolCeilings].
+             * Every tool in hand from the first round: they all fit in the
+             * request, so there is nothing to find or load - and telling a
+             * model to load what it holds is how it spends a round loading it.
+             * See [ToolCeilings].
              */
-            val allInHand = ceilings.getObject().let { it.offersAll(agent.modelId) && held.size <= (it.cap(agent.modelId) ?: Int.MAX_VALUE) }
+            val allInHand = !start.hunting
             parts += buildString {
-                /*
-                 * Which tool searches, by name. Issue #526: this said "search
-                 * for it by the name below" and never said with what. A skill
-                 * told the agent to post with a tool that is findable and not
-                 * offered; the agent held no such tool, had not been told
-                 * find_tools was the way to it, and looped on the tools it did
-                 * hold - no runaway session ever called find_tools.
-                 */
                 if (allInHand) {
-                    append("These are the tools you have, all of them, and every one is in front of you. ")
-                    appendLine("A tool that is not in this list is not one you have: say so rather than claiming you can do what it would do.")
+                    appendLine(ALL_IN_HAND)
                 } else {
-                    append("These are the tools you have, all of them, whether or not they are in front of you ")
-                    append("this turn. Where one you need is marked (load it first), call ")
-                    append(ToolSearchTools.FIND).append(" with its name from the list below - ")
                     // An example from its own list: core does not name a plugin's tool.
-                    val example = held.minByOrNull { it.name }?.name ?: "its_name"
-                    append(ToolSearchTools.FIND).append(" with names [\"").append(example)
-                    append("\"], say - and it is yours ")
-                    append("from your next message. The marked ones are not in front of you until you do. ")
-                    append("If you do not know which tool a job needs, ").append(ToolSearchTools.SEARCH)
-                    append(" finds them by words about it, and ").append(ToolSearchTools.DESCRIBE)
-                    // Its whole description and parameters, before loading it. Issue #564.
-                    append(" shows one in full before you load it. A tool that is not in this list is not one you have: ")
-                    appendLine("say so rather than claiming you can do what it would do.")
+                    appendLine(behindSearch(held.minByOrNull { it.name }?.name ?: "its_name"))
                 }
                 /*
                  * Which of them are behind the search, marked. Issue #534:
@@ -477,7 +468,7 @@ class AgentBriefing(
                  * Session 510: "I'll call slack_whoIs", then todo_complete,
                  * seven times, the model watching itself do it.
                  */
-                val behind = if (allInHand) emptySet() else tools.getObject().offeringFor(agent, session = session).searchable.map { it.name }.toSet()
+                val behind = if (allInHand) emptySet() else start.findable.map { it.name }.toSet()
                 held.sortedBy { it.name }.forEach { spec ->
                     val said = spec.summary?.trim()?.ifEmpty { null } ?: spec.description.trim()
                     appendLine()
@@ -575,6 +566,37 @@ class AgentBriefing(
     }
 
     companion object {
+        /** The paragraph over the list of tools where every one goes out from the first round. */
+        const val ALL_IN_HAND =
+            "These are the tools you have, all of them, and every one is in front of you. " +
+                "A tool that is not in this list is not one you have: say so rather than claiming you can do what it would do."
+
+        /** How [behindSearch] starts, so the list can be re-marked without knowing its example. */
+        const val BEHIND_SEARCH_START = "These are the tools you have, all of them, whether or not they are in front of you"
+
+        /**
+         * The paragraph over the list of tools where some are behind the search.
+         *
+         * Which tool searches, by name. Issue #526: this said "search for it by
+         * the name below" and never said with what, and no runaway session ever
+         * called find_tools.
+         *
+         * And that a load holds while the marks do not move. The marks are what
+         * the conversation started out carrying, so the system turn is the same
+         * after a load as before it; a model that read "(load it first)" beside
+         * a tool it had just loaded would otherwise load it again.
+         */
+        fun behindSearch(example: String): String =
+            BEHIND_SEARCH_START + " this turn. Where one you need is marked (load it first), call " +
+                ToolSearchTools.FIND + " with its name from the list below - " + ToolSearchTools.FIND +
+                " with names [\"" + example + "\"], say - and it is yours from your next message. The marked ones " +
+                "are not in front of you until you do. Once " + ToolSearchTools.FIND + " says one is loaded it stays " +
+                "yours for the rest of this conversation, still marked here as it was: call it directly rather " +
+                "than loading it again. If you do not know which tool a job needs, " + ToolSearchTools.SEARCH +
+                " finds them by words about it, and " + ToolSearchTools.DESCRIBE + " shows one in full before you " +
+                "load it. A tool that is not in this list is not one you have: say so rather than claiming you " +
+                "can do what it would do."
+
         /**
          * When to look at the skills it was not told to load. Issue #620; see
          * where [grants] says it.

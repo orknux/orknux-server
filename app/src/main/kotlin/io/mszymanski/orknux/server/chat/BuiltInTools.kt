@@ -439,8 +439,18 @@ class BuiltInTools(
          * than a second list after it: two lists of your tools is a question
          * about which one counts.
          */
-        fun listed(system: String?, agent: Agent, lent: List<ToolSpec>, ceiling: Int? = agent.maxTools): String? {
-            if (system == null || lent.isEmpty()) return system
+        /*
+         * And every line marked by what the turn starts out carrying, with the
+         * paragraph above the list saying whether there is anything to load.
+         * The briefing marks its own tools by the same rule, but it is written
+         * without the lent ones, and they count towards the provider's cap - so
+         * the marks are settled here, where the whole of what is sent is known.
+         * Never by what has been loaded since: the system turn stays as it was
+         * after a tool_load, because a provider caching the prompt by its
+         * prefix reads all of it again for one changed byte.
+         */
+        fun listed(system: String?, lent: List<ToolSpec>, carried: Set<String>, hunting: Boolean): String? {
+            if (system == null) return null
             val lines = system.split(NL)
             val listed = lines.indices.filter { ENTRY.containsMatchIn(lines[it]) }
             if (listed.isEmpty()) return system
@@ -450,12 +460,27 @@ class BuiltInTools(
             val added = lent.filter { it.name !in present }.map { spec ->
                 val said = spec.summary?.trim()?.ifEmpty { null }
                     ?: spec.description.trim().substringBefore(". ").take(LENT_SUMMARY_CHARS)
-                "- " + spec.name + (if (carried(agent, spec.name, ceiling)) " (loaded)" else " (load it first)") +
-                    (if (said.isEmpty()) "" else ": " + said)
+                "- " + spec.name + " (loaded)" + (if (said.isEmpty()) "" else ": " + said)
             }
-            val merged = (lines.subList(first, last + 1) + added)
+            fun marked(line: String): String {
+                val entry = ENTRY.find(line) ?: return line
+                val name = entry.groupValues[1]
+                val mark = if (hunting && name !in carried) "load it first" else "loaded"
+                return "- " + name + " (" + mark + ")" + line.substring(entry.range.last + 1)
+            }
+            val merged = (lines.subList(first, last + 1) + added).map(::marked)
                 .sortedBy { ENTRY.find(it)?.groupValues?.get(1) ?: it }
-            return (lines.subList(0, first) + merged + lines.subList(last + 1, lines.size)).joinToString(NL)
+            val head = lines.subList(0, first).toMutableList()
+            val said = head.indexOfLast { it == AgentBriefing.ALL_IN_HAND || it.startsWith(AgentBriefing.BEHIND_SEARCH_START) }
+            if (said >= 0) {
+                val example = present.minOrNull() ?: "its_name"
+                head[said] = when {
+                    !hunting -> AgentBriefing.ALL_IN_HAND
+                    head[said].startsWith(AgentBriefing.BEHIND_SEARCH_START) -> head[said]
+                    else -> AgentBriefing.behindSearch(example)
+                }
+            }
+            return (head + merged + lines.subList(last + 1, lines.size)).joinToString(NL)
         }
 
         /** A line of the briefing's list of tools: "- name (loaded): what it does". */

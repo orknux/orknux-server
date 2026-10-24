@@ -334,7 +334,8 @@ class BuiltInToolsTest(
 
         val found = agent(tools = BuiltInTools.GRANTED, required = emptyList(), ceiling = 10)
         val lent = requireNotNull(BuiltInTools.lentTo(found, shed)).specs()
-        val merged = requireNotNull(BuiltInTools.listed(briefing, found, lent)).split(nl)
+        // Marked by what the turn carries: agent_asks is, the lent note and web_search are behind the search.
+        val merged = requireNotNull(BuiltInTools.listed(briefing, lent, setOf("agent_asks"), hunting = true)).split(nl)
         assertThat(merged).containsSubsequence(
             "- agent_asks (loaded): Lists the agents you asked",
             merged.first { it.startsWith("- note_to_self (load it first)") },
@@ -344,8 +345,11 @@ class BuiltInToolsTest(
         )
         assertThat(merged.joinToString(nl)).doesNotContain("These are yours too")
 
-        val carried = agent(tools = BuiltInTools.GRANTED)
-        assertThat(BuiltInTools.listed(briefing, carried, lent)).contains("- note_to_self (loaded)")
+        assertThat(BuiltInTools.listed(briefing, lent, setOf("agent_asks", "note_to_self"), hunting = true))
+            .contains("- note_to_self (loaded)")
+        // Nothing to find, nothing marked to load: the mark is what the request carries, not a guess at it.
+        assertThat(BuiltInTools.listed(briefing, lent, emptySet(), hunting = false))
+            .contains("- web_search (loaded)").doesNotContain("(load it first)")
     }
 
     /**
