@@ -66,7 +66,7 @@ class Tabs {
    *
    * @param {{url?: string, file?: string, activate?: boolean, after?: Tab|null}} what
    */
-  open({ url, file, activate = true, after = null }) {
+  open({ url, file, query, activate = true, after = null }) {
     const view = new WebContentsView({ webPreferences: this.webPreferences });
     view.setBackgroundColor('#09090b');
     /** @type {Tab} */
@@ -91,7 +91,7 @@ class Tabs {
     if (activate || this.active === null) this.select(tab);
     else this.draw();
     this.layout();
-    if (file) contents.loadFile(file);
+    if (file) contents.loadFile(file, query === undefined ? undefined : { query });
     else contents.loadURL(url);
     return tab;
   }

@@ -16,6 +16,7 @@ const { Server } = require('./server');
 const { Tabs } = require('./tabs');
 const { classify, shortcut } = require('./links');
 const windowState = require('./window-state');
+const look = require('./look');
 const manifest = require('../package.json');
 
 /*
@@ -138,7 +139,7 @@ const PAGE_PREFERENCES = { contextIsolation: true, nodeIntegration: false, sandb
 /** A tab on the interface, or on the splash while there is no interface yet. */
 function open(url, more = {}) {
   if (url !== null) return tabs.open({ url, ...more });
-  const tab = tabs.open({ file: path.join(__dirname, 'splash.html'), ...more });
+  const tab = tabs.open({ file: path.join(__dirname, 'splash.html'), query: look.remembered(data), ...more });
   tab.splash = true;
   return tab;
 }
@@ -213,6 +214,12 @@ function wire(tab) {
   });
   contents.on('before-input-event', keys);
   contents.on('context-menu', (_event, params) => contextMenu(tab, params, contents));
+  // The colours this page is drawn in, for the next start's splash; again on moving within it, which is how leaving Preferences after a Save looks.
+  const remember = () => {
+    if (!tab.splash) look.capture(contents, data);
+  };
+  contents.on('did-finish-load', remember);
+  contents.on('did-navigate-in-page', remember);
 }
 
 /** A link that is not a page of ours: to the operating system, or said why not. */
