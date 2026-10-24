@@ -357,6 +357,48 @@ class BoxToolsTest(
             .isEqualTo("done")
     }
 
+    /**
+     * An export was read whole into memory, copied again as base64, and only
+     * then refused by the store for its size. It is cut off where the store's
+     * limit would be crossed, and the refusal says where that is.
+     */
+    @Test
+    fun `an archive larger than the store keeps is refused as it is read, saying how large`() {
+        stored.save(io.mszymanski.orknux.server.attachment.InstallationSetting(name = "session.store.value.max.mb").apply { value = "1" })
+        try {
+            val session = opened()
+            // Hex of random bytes: gzip halves it and no more, so 2.8 MB of it is an archive of about 1.4 MB.
+            val noise = java.util.HexFormat.of().formatHex(ByteArray(1_400_000).also { java.util.Random(7).nextBytes(it) })
+            val written = call("orkbox_write", mapOf("session" to session, "path" to "big/noise.txt", "content" to noise))
+            assertThat(written.path("error").isMissingNode).describedAs(written.toString()).isTrue()
+
+            val exported = call("orkbox_export", mapOf("session" to session, "path" to "big", "key" to "big.tgz"))
+            assertThat(exported.path("error").stringValue()).contains("more than 767 KB").contains("not kept")
+            assertThat(store.get(conversation, "big.tgz")).isNull()
+        } finally {
+            stored.deleteById("session.store.value.max.mb")
+        }
+    }
+
+    /**
+     * What a remote box's archive is read through: an endless answer is given up
+     * on one buffer past the limit, not read to its end - which for this one
+     * would be never.
+     */
+    @Test
+    fun `an archive read off the wire stops at the limit rather than at its end`() {
+        var handed = 0L
+        val endless = object : java.io.InputStream() {
+            override fun read(): Int = 0.also { handed++ }
+            override fun read(b: ByteArray, off: Int, len: Int): Int = len.also { handed += it }
+        }
+        org.assertj.core.api.Assertions.assertThatThrownBy { BoxArchives.readAtMost(endless, 100_000) }
+            .isInstanceOf(BoxArchiveTooLargeException::class.java)
+            .hasMessageContaining("more than 97 KB")
+        assertThat(handed).isLessThan(200_000)
+        assertThat(BoxArchives.readAtMost(java.io.ByteArrayInputStream(ByteArray(100_000)), 100_000)).hasSize(100_000)
+    }
+
     /** A zip as a session store holds it: base64 bytes, kept as a binary value. */
     private fun storeZip(key: String, entries: Map<String, String>) {
         val bytes = java.io.ByteArrayOutputStream().also { out ->

@@ -248,8 +248,19 @@ class RemoteBoxClient(
         return BoxLogPage(events, page["nextSeq"]?.jsonPrimitive?.longOrNull ?: since)
     }
 
-    override fun exportArchive(id: String, path: String?): ByteArray =
-        exchange("GET", sessionPath(id) + "/archive" + query("path" to path), null).body()
+    /** Read off the wire as it arrives, so an archive past [most] is never held whole. */
+    override fun exportArchive(id: String, path: String?, most: Long): ByteArray {
+        val response = sent("GET", sessionPath(id) + "/archive" + query("path" to path), null, JSON_TYPE, Duration.ZERO,
+            HttpResponse.BodyHandlers.ofInputStream())
+        return response.body().use { body ->
+            if (response.statusCode() !in 200..299) throw refusal(response.statusCode(), body.readNBytes(MOST_PROBLEM_BYTES))
+            try {
+                BoxArchives.readAtMost(body, most)
+            } catch (failed: IOException) {
+                throw BoxCallException(null, BoxCallException.UNREACHABLE, describe(failed))
+            }
+        }
+    }
 
     override fun importArchive(id: String, path: String?, archive: ByteArray) {
         exchange("PUT", sessionPath(id) + "/archive" + query("path" to path), archive, "application/gzip")
@@ -281,6 +292,20 @@ class RemoteBoxClient(
         contentType: String = JSON_TYPE,
         waiting: Duration = Duration.ZERO,
     ): HttpResponse<ByteArray> {
+        val response = sent(method, path, body, contentType, waiting, HttpResponse.BodyHandlers.ofByteArray())
+        if (response.statusCode() in 200..299) return response
+        throw refusal(response.statusCode(), response.body())
+    }
+
+    /** One request, answered however [handler] reads it; the status is the caller's to judge. */
+    private fun <T> sent(
+        method: String,
+        path: String,
+        body: ByteArray?,
+        contentType: String,
+        waiting: Duration,
+        handler: HttpResponse.BodyHandler<T>,
+    ): HttpResponse<T> {
         vet(base + path)?.let { throw BoxCallException(null, BoxCallException.REFUSED, "$base cannot be called: $it") }
         val request = try {
             HttpRequest.newBuilder(URI.create(base + path))
@@ -293,27 +318,25 @@ class RemoteBoxClient(
         } catch (invalid: IllegalArgumentException) {
             throw BoxCallException(null, BoxCallException.UNREACHABLE, "$base is not a usable address: ${invalid.message}")
         }
-        val response = try {
-            client.send(request, HttpResponse.BodyHandlers.ofByteArray())
+        return try {
+            client.send(request, handler)
         } catch (failed: IOException) {
             throw BoxCallException(null, BoxCallException.UNREACHABLE, describe(failed))
         } catch (interrupted: InterruptedException) {
             Thread.currentThread().interrupt()
             throw BoxCallException(null, BoxCallException.UNREACHABLE, "interrupted while waiting for the box")
         }
-        if (response.statusCode() in 200..299) return response
-        throw refusal(response)
     }
 
-    private fun refusal(response: HttpResponse<ByteArray>): BoxCallException {
-        val text = String(response.body(), Charsets.UTF_8)
+    private fun refusal(status: Int, body: ByteArray): BoxCallException {
+        val text = String(body, Charsets.UTF_8)
         val problem = runCatching { JSON.parseToJsonElement(text).jsonObject }.getOrNull()
         val code = problem?.get("code")?.jsonPrimitive?.contentOrNull
-            ?: if (response.statusCode() == 401) "unauthorized" else "http_${response.statusCode()}"
+            ?: if (status == 401) "unauthorized" else "http_${status}"
         val said = problem?.get("detail")?.jsonPrimitive?.contentOrNull
             ?: problem?.get("title")?.jsonPrimitive?.contentOrNull
-            ?: text.trim().take(MOST_DETAIL).ifEmpty { "HTTP ${response.statusCode()}" }
-        return BoxCallException(response.statusCode(), code, said)
+            ?: text.trim().take(MOST_DETAIL).ifEmpty { "HTTP ${status}" }
+        return BoxCallException(status, code, said)
     }
 
     private fun describe(failed: IOException): String = when (failed) {
@@ -336,6 +359,9 @@ class RemoteBoxClient(
 
     private companion object {
         const val JSON_TYPE = "application/json"
+
+        /** As much of a refused archive's answer as is read to say why: a problem+json, not an archive. */
+        const val MOST_PROBLEM_BYTES = 64 * 1024
         const val PAGE_SIZE = 1000
         const val MOST_PAGES = 20
         const val MOST_DETAIL = 1000

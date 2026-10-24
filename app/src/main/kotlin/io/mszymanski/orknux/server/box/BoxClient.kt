@@ -83,8 +83,13 @@ interface BoxClient {
     /** The session's event log after [since]; `execution.output` only where [types] asks for it. */
     fun logs(id: String, since: Long, limit: Int, types: Set<String>?): BoxLogPage
 
-    /** [path], or the whole workspace, as a `.tar.gz`. */
-    fun exportArchive(id: String, path: String?): ByteArray
+    /**
+     * [path], or the whole workspace, as a `.tar.gz` of at most [most] bytes.
+     * Reading stops at the byte past it, with [BoxArchiveTooLargeException]:
+     * an archive is a workspace an agent can fill, and the limit is there so
+     * it is never all in memory at once.
+     */
+    fun exportArchive(id: String, path: String?, most: Long): ByteArray
 
     /** A `.tar` or `.tar.gz` unpacked into [path], or the workspace root. */
     fun importArchive(id: String, path: String?, archive: ByteArray)
