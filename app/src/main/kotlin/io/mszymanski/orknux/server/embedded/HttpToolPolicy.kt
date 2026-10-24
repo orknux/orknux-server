@@ -4,6 +4,11 @@ import io.mszymanski.orknux.server.attachment.InstallationSetting
 import io.mszymanski.orknux.server.attachment.InstallationSettingRepository
 import io.mszymanski.orknux.server.chat.BuiltInTools
 import io.mszymanski.orknux.server.graphql.Refusal
+import io.mszymanski.orknux.server.regex.AuthoredRegex
+import io.mszymanski.orknux.server.regex.RegexTooSlowException
+import io.mszymanski.orknux.server.tuning.Tunable
+import io.mszymanski.orknux.server.tuning.Tuning
+import org.slf4j.LoggerFactory
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -41,7 +46,11 @@ import java.util.regex.PatternSyntaxException
 @Service
 class HttpToolPolicy(
     private val settings: InstallationSettingRepository,
+    /** The numbers this reads from Admin -> Settings. Issue #453. */
+    private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
+
+    private val log = LoggerFactory.getLogger(javaClass)
 
     /** Whether the HTTP tools are offered at all. On unless somebody said otherwise. */
     fun enabled(): Boolean = settings.findByIdOrNull(ENABLED)?.value?.trim()?.toBooleanStrictOrNull() ?: true
@@ -96,7 +105,19 @@ class HttpToolPolicy(
         val rules = if (draft != null) checked(draft.rules) else storedRules()
         val matching = rules.mapIndexedNotNull { at, rule ->
             val pattern = runCatching { Regex(rule.url) }.getOrNull() ?: return@mapIndexedNotNull null
-            if (pattern.matches(url)) at else null
+            /*
+             * The rule is an administrator's and the URL a model's, so the match
+             * runs against a clock (AuthoredRegex). One that runs out of time does
+             * not match: a request no rule was shown to allow is refused.
+             */
+            val seconds = tuning[Tunable.REGEX_MATCH_SECONDS]
+            val matched = try {
+                AuthoredRegex.matches(pattern, url, seconds)
+            } catch (slow: RegexTooSlowException) {
+                log.warn("HTTP tool rule {} did not finish matching a {}-character URL within {}s", at + 1, url.length, seconds)
+                false
+            }
+            if (matched) at else null
         }
         val allowing = matching.firstOrNull { asked in rules[it].methods }
         return when {

@@ -168,6 +168,24 @@ class HttpToolPolicyAPITest(
             .entity(String::class.java).isEqualTo("NO_RULE_MATCHES")
     }
 
+    /**
+     * The rule is an administrator's and the URL a model's, and `(a|a?){60}`
+     * against forty a's never finishes. A rule whose match runs out of time
+     * does not match, so the request is refused rather than the thread held.
+     */
+    @Test
+    fun `a rule whose pattern would backtrack for ever does not match, and does not hold the request`() {
+        val draft = """{ policy: LIST, rules: [{ url: "https://x\\.example/(a|a?){60}b", methods: ["GET"] }] }"""
+        // The timeout runs this on a thread of its own, which the signed-in user has to be carried to.
+        val signedIn = org.springframework.security.core.context.SecurityContextHolder.getContext()
+        val outcome = org.junit.jupiter.api.Assertions.assertTimeoutPreemptively<String>(java.time.Duration.ofSeconds(20)) {
+            org.springframework.security.core.context.SecurityContextHolder.setContext(signedIn)
+            check("https://x.example/" + "a".repeat(40), "GET", draft).path("httpToolCheck.outcome")
+                .entity(String::class.java).get()
+        }
+        assertThat(outcome).isEqualTo("NO_RULE_MATCHES")
+    }
+
     @Test
     @WithMockUser(username = "bob", roles = ["USERS"])
     fun `somebody who is not an administrator sees and changes nothing`() {

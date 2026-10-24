@@ -9,7 +9,10 @@ import io.mszymanski.orknux.server.llm.LlmSessionRecorder
 import io.mszymanski.orknux.server.llm.SessionEventKind
 import io.mszymanski.orknux.server.llm.SessionInbox
 import io.mszymanski.orknux.server.task.TaskRepository
+import io.mszymanski.orknux.server.regex.RegexTooSlowException
 import io.mszymanski.orknux.server.task.TaskWorker
+import io.mszymanski.orknux.server.tuning.Tunable
+import io.mszymanski.orknux.server.tuning.Tuning
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
 import org.slf4j.LoggerFactory
@@ -102,6 +105,8 @@ class WatcherService(
     private val recorder: LlmSessionRecorder,
     private val audit: WorkspaceAuditRecorder,
     transactions: PlatformTransactionManager,
+    /** The numbers this reads from Admin -> Settings. Issue #453. */
+    private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -179,9 +184,13 @@ class WatcherService(
          */
         val now0 = agentTools.getObject()
             .run(agent, ToolCall("watcher-set-check", asked.tool, asked.arguments), sessionId)
-        WatcherCondition.match(asked.kind, asked.condition, asked.toolResultPath, now0)?.let { matched ->
-            throw WatcherAlreadyMatches(matched, now0)
+        val already = try {
+            matchOf(asked.kind, asked.condition, asked.toolResultPath, now0)
+        } catch (unbounded: RuntimeException) {
+            whyNotMatched(unbounded) ?: throw unbounded
+            throw WatcherRefused(unbounded.message ?: "That condition could not be held against the result.")
         }
+        already?.let { matched -> throw WatcherAlreadyMatches(matched, now0) }
 
         val now = OffsetDateTime.now()
         val saved = inTransaction.execute {
@@ -390,7 +399,17 @@ class WatcherService(
         // Outside any transaction: a tool may take as long as the thing it calls.
         val result = agentTools.getObject()
             .run(agent, ToolCall("watcher-$id-${watcher.checks + 1}", watcher.tool, watcher.arguments), watcher.sessionId)
-        val matched = WatcherCondition.match(watcher.conditionKind, watcher.condition, watcher.toolResultPath, result)
+        /*
+         * A pattern that will not finish, or a result too long to search, ends
+         * this watcher and only this one: the tick goes on to the next, which
+         * a match that never returned used to keep waiting for ever.
+         */
+        val matched = try {
+            matchOf(watcher.conditionKind, watcher.condition, watcher.toolResultPath, result)
+        } catch (unbounded: RuntimeException) {
+            fail(id, whyNotMatched(unbounded) ?: throw unbounded)
+            return
+        }
 
         inTransaction.executeWithoutResult {
             // Read again: a person may have stopped it while the tool ran.
@@ -537,6 +556,20 @@ class WatcherService(
 
     private fun ownedBy(watcher: Watcher, agent: Agent, sessionId: Long): Boolean =
         if (agent.id != null) watcher.agentId == agent.id else watcher.agentId == null && watcher.sessionId == sessionId
+
+    private fun matchOf(kind: WatcherConditionKind, condition: String, path: String?, result: String): String? =
+        WatcherCondition.match(
+            kind, condition, path, result,
+            seconds = tuning[Tunable.REGEX_MATCH_SECONDS],
+            mostCharacters = tuning[Tunable.WATCHER_MATCH_CHARACTERS],
+        )
+
+    /** The sentence for a match that was given up on, or null for a failure that is something else. */
+    private fun whyNotMatched(failure: RuntimeException): String? = when (failure) {
+        is RegexTooSlowException -> "Its regular expression was stopped: ${failure.message}"
+        is WatcherResultTooLongException -> "Its regular expression was not run: ${failure.message}"
+        else -> null
+    }
 
     private fun noteOf(watcher: Watcher): String =
         watcher.note?.takeIf { it.isNotBlank() }?.let { " Your note: $it." }.orEmpty()

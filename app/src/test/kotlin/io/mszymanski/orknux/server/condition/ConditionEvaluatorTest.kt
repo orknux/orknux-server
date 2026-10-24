@@ -117,6 +117,21 @@ class ConditionEvaluatorTest(
         assertThat(evaluator.holds(condition, mapper.writeValueAsString(mapOf("text" to enormous)))).isFalse()
     }
 
+    /**
+     * The bounds above are on length, and `(a|a?){60}b` is eleven characters
+     * that never finish failing against forty a's - a value well inside them,
+     * and one a stranger's Slack message can carry. The match is stopped at
+     * its time limit and answers no.
+     */
+    @Test
+    fun `a pattern that would backtrack for ever is stopped and does not match`() {
+        val condition = matching("never finishes", "(a|a?){60}b")
+        val answer = org.junit.jupiter.api.Assertions.assertTimeoutPreemptively<Boolean>(java.time.Duration.ofSeconds(20)) {
+            evaluator.holds(condition, mapper.writeValueAsString(mapOf("text" to "a".repeat(40))))
+        }
+        assertThat(answer).isFalse()
+    }
+
     private fun matching(name: String, pattern: String): WorkflowCondition = conditions.save(
         WorkflowCondition(
             workspaceId = workspaceId,

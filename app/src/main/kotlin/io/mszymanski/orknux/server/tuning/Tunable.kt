@@ -141,6 +141,20 @@ enum class Tunable(
         "The most one part of a workbook may unpack to",
         "An .xlsx is a zip, and a small one can unpack to gigabytes. A workbook with a part larger than this is refused rather than read.",
     ),
+    /*
+     * A time and not a length, because the patterns that never finish are
+     * short: (a|a?){60}b is eleven characters. See AuthoredRegex.
+     */
+    REGEX_MATCH_SECONDS(
+        "regex.match.seconds", 2, 1, 60, TuningSection.AGENTS, TuningUnit.SECONDS,
+        "How long one regular expression somebody wrote may take to match",
+        "Watcher conditions, scratchpad searches, workflow conditions and HTTP tool rules run patterns this server did not write. One still matching after this is stopped and counts as no match; a watcher it belongs to ends and tells its agent why.",
+    ),
+    WATCHER_MATCH_CHARACTERS(
+        "watcher.match.characters", 1_000_000, 10_000, 10_000_000, TuningSection.AGENTS, TuningUnit.CHARACTERS,
+        "The longest result a watcher's regular expression is held against",
+        "A watcher whose tool answers with more than this ends, and tells its agent to point tool_result_path at the part that matters.",
+    ),
 
     /* ---- Functions and HTTP ---- */
 

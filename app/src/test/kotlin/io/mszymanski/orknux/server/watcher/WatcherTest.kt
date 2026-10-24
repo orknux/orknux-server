@@ -22,6 +22,7 @@ import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertTimeoutPreemptively
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -29,6 +30,7 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Import
+import java.time.Duration
 import java.time.OffsetDateTime
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -533,5 +535,55 @@ class WatcherTest(
         assertThat(heard).containsExactly(session)
         assertThat(events.findAll().single().body).contains("was stopped by alice")
         assertThat(notes().last()).isEqualTo("Watcher #$id stopped by alice from the Watchers page.")
+    }
+
+    /** The tool, answering with forty a's in it: what `(a|a?){60}b` never finishes failing to match. */
+    private fun answeringWithAs() {
+        tool.source = "export default async function buildStatus() { return { status: 'running', pad: 'a'.repeat(40) }; }"
+        tool.typescript = tool.source
+        agentTools.save(tool)
+    }
+
+    /** A watcher row as one set before any bound existed would have been saved. */
+    private fun storedWatcher(condition: String, kind: WatcherConditionKind, dueSecondsAgo: Long): Long {
+        val now = OffsetDateTime.now()
+        return requireNotNull(
+            watchers.save(
+                Watcher(
+                    workspaceId = workspaceId, sessionId = session, agentId = agent.id, agentName = agent.name,
+                    tool = "buildStatus", arguments = "{}", conditionKind = kind, condition = condition,
+                    intervalSeconds = 15, timeoutSeconds = 600, createdAt = now.minusSeconds(60),
+                    expiresAt = now.plusSeconds(600), nextCheckAt = now.minusSeconds(dueSecondsAgo),
+                ),
+            ).id,
+        )
+    }
+
+    @Test
+    fun `a regular expression that will not finish matching is refused when it is set`() {
+        answeringWithAs()
+        val answer = assertTimeoutPreemptively<String>(Duration.ofSeconds(30)) { set(condition = "(a|a?){60}b", type = "regex") }
+        assertThat(answer).contains("error").contains("seconds")
+        assertThat(watchers.findAll()).isEmpty()
+    }
+
+    /**
+     * The tick checks watchers one after another, so one whose match never
+     * returned held every watcher after it, and the tick itself, for ever. It
+     * ends that watcher with the reason, and goes on to the next.
+     */
+    @Test
+    fun `a regular expression that will not finish matching ends its watcher and not the tick`() {
+        answeringWithAs()
+        val stuck = storedWatcher("(a|a?){60}b", WatcherConditionKind.REGEX, dueSecondsAgo = 10)
+        val after = storedWatcher("""$[?(@.status == 'done')]""", WatcherConditionKind.JSONPATH, dueSecondsAgo = 1)
+
+        assertThat(assertTimeoutPreemptively<Int>(Duration.ofSeconds(30)) { service.tick() }).isEqualTo(2)
+
+        val ended = watchers.findById(stuck).orElseThrow()
+        assertThat(ended.status).isEqualTo(WatcherStatus.FAILED)
+        assertThat(ended.outcome).contains("regular expression")
+        assertThat(events.findAll().single().body).contains("Watcher #$stuck").contains("has ended without matching")
+        assertThat(watchers.findById(after).orElseThrow().checks).isEqualTo(1)
     }
 }

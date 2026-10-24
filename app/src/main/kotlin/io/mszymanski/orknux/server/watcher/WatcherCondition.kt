@@ -5,6 +5,9 @@ import com.jayway.jsonpath.InvalidPathException
 import com.jayway.jsonpath.JsonPath
 import com.jayway.jsonpath.Option
 import net.minidev.json.JSONStyle
+import io.mszymanski.orknux.server.regex.AuthoredRegex
+import io.mszymanski.orknux.server.regex.RegexTooSlowException
+import io.mszymanski.orknux.server.tuning.Tunable
 import net.minidev.json.JSONValue
 import java.util.regex.PatternSyntaxException
 
@@ -42,7 +45,7 @@ object WatcherCondition {
             "That is not a JSONPath this server can read: ${failure.message}"
         }
 
-        WatcherConditionKind.REGEX -> try {
+        WatcherConditionKind.REGEX -> AuthoredRegex.tooLong(condition) ?: try {
             Regex(condition)
             null
         } catch (failure: PatternSyntaxException) {
@@ -77,11 +80,26 @@ object WatcherCondition {
      * selects into the result read as JSON - a result that is not JSON, or a path
      * that finds nothing, never matches. A selected string is the text a regex
      * is searched in; anything else is its JSON.
+     *
+     * A regular expression is the model's and is bounded twice: it is held
+     * against at most [mostCharacters] of text, past which this throws
+     * [WatcherResultTooLongException] rather than search the beginning and
+     * miss what was further on, and it may match for [seconds] before
+     * [RegexTooSlowException]. Both are said to the agent - see
+     * [WatcherService] - because the cure for either is a change to the
+     * watcher, not a wait.
      */
-    fun match(kind: WatcherConditionKind, condition: String, path: String?, result: String): String? {
+    fun match(
+        kind: WatcherConditionKind,
+        condition: String,
+        path: String?,
+        result: String,
+        seconds: Int = Tunable.REGEX_MATCH_SECONDS.fallback,
+        mostCharacters: Int = Tunable.WATCHER_MATCH_CHARACTERS.fallback,
+    ): String? {
         val whole = path == null || path.trim() == WHOLE
         val subject = if (whole) result else selected(path!!.trim(), result) ?: return null
-        return match(kind, condition, subject)
+        return match(kind, condition, subject, seconds, mostCharacters)
     }
 
     private fun selected(path: String, result: String): String? = runCatching {
@@ -93,9 +111,18 @@ object WatcherCondition {
         }
     }.getOrNull()
 
-    /** What matched, or null where nothing did. */
-    fun match(kind: WatcherConditionKind, condition: String, result: String): String? = when (kind) {
-        WatcherConditionKind.REGEX -> Regex(condition).find(result)?.value
+    /** What matched, or null where nothing did; bounded as the other [match] says. */
+    fun match(
+        kind: WatcherConditionKind,
+        condition: String,
+        result: String,
+        seconds: Int = Tunable.REGEX_MATCH_SECONDS.fallback,
+        mostCharacters: Int = Tunable.WATCHER_MATCH_CHARACTERS.fallback,
+    ): String? = when (kind) {
+        WatcherConditionKind.REGEX -> {
+            if (result.length > mostCharacters) throw WatcherResultTooLongException(result.length, mostCharacters)
+            AuthoredRegex.find(Regex(condition), result, seconds)?.value
+        }
         WatcherConditionKind.JSONPATH -> runCatching {
             val found: Any? = JsonPath.using(LENIENT).parse(result).read<Any?>(condition)
             when {
@@ -120,3 +147,13 @@ object WatcherCondition {
     private val LENIENT: Configuration = Configuration.defaultConfiguration()
         .addOptions(Option.SUPPRESS_EXCEPTIONS)
 }
+
+/**
+ * What a watcher's regular expression would be held against is longer than it
+ * may be. Said to the agent, which can narrow `tool_result_path` to the part of
+ * the result it is waiting on.
+ */
+class WatcherResultTooLongException(val length: Int, val most: Int) : RuntimeException(
+    "The result is $length characters, and a regular expression is held against at most $most. " +
+        "Point tool_result_path at the part of the result that matters, or wait on it with a JSONPath.",
+)
