@@ -52,6 +52,7 @@ class MarkdownCapability(private val mapper: ObjectMapper) : EmbeddedCapability 
     override fun tools(): List<EmbeddedTool> = listOf(
         EmbeddedTool(
             name = TO_TEXT,
+            readOnly = true,
             summary = "Markdown stripped to plain readable text.",
             description = "Turns markdown into plain readable text, for somewhere that shows no formatting: " +
                 "an email subject, a commit message, a log line, a notification. Headings keep their words, " +

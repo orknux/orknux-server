@@ -33,6 +33,7 @@ class LinkTools(
         override fun specs(): List<ToolSpec> = listOf(
             ToolSpec(
                 name = LINK,
+                readOnly = true,
                 description = "Gives the address this installation is reached at, and turns a path into a full " +
                     "link to it. Tools answering about something with a page give its address as a path " +
                     "(\"/workspace/9/tasks/28\"); a path pasted into a message has no host and does not open. " +

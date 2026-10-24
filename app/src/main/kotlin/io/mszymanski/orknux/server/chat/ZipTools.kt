@@ -385,6 +385,7 @@ class ZipTools(
 
         val EXTRACT = ToolDescriptor(
             name = ZIP_EXTRACT,
+            readOnly = true,
             description = "Unpacks a zip into scratchpads, one per file, named by its path inside the archive " +
                 "(index.html, images/orc.png) - so an archive somebody sent, or one you made earlier, can be " +
                 "read and edited. Text files become text pads; pictures and other bytes become pads that hold " +
@@ -406,6 +407,7 @@ class ZipTools(
 
         val ZIP = ToolDescriptor(
             name = ZIP_FILES,
+            readOnly = true,
             description = "Puts several files into one zip and answers with a key for it - for sending, " +
                 "uploading or saving one attachment instead of six. Each file says what it is called inside " +
                 "the archive and where to read it: a scratchpad in this session, a contentKey something " +

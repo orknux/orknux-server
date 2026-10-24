@@ -129,6 +129,17 @@ data class ToolSpec(
      * and the description's own first words stand in.
      */
     val summary: String? = null,
+    /**
+     * Whether calling it changes nothing outside the conversation it is called
+     * in: it reads, it works something out, or it keeps what it found in the
+     * conversation's own working state. Issue #653.
+     *
+     * Declared by whoever declares the tool - an MCP server's `readOnlyHint`,
+     * a built-in's own spec - and false wherever nobody said, because a tool
+     * nobody vouched for is one that may change something. Never sent to a
+     * provider; a chat in plan mode offers only the tools that say this.
+     */
+    val readOnly: Boolean = false,
 )
 
 data class ToolParameterSpec(

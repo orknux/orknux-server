@@ -83,6 +83,7 @@ class HttpCapability(
     override fun tools(): List<EmbeddedTool> = listOf(
         EmbeddedTool(
             name = GET,
+            readOnly = true,
             summary = "Fetches a URL and reads what comes back.",
             description = "Fetches a URL and answers status, ok, headers, body as text and json where the " +
                 "body was a JSON object. A non-2xx is an answer rather than an error, so you can say what " +
@@ -108,6 +109,7 @@ class HttpCapability(
         ),
         EmbeddedTool(
             name = DOWNLOAD,
+            readOnly = true,
             summary = "Fetches bytes and answers a key for them.",
             description = "Fetches a URL as bytes and keeps them here, answering a $KEY rather than base64 - " +
                 "so a file goes from an API into a channel without a megabyte passing through you, which is " +
@@ -119,6 +121,7 @@ class HttpCapability(
         ),
         EmbeddedTool(
             name = ALLOW_LIST,
+            readOnly = true,
             summary = "Where you may send HTTP requests - ask it when asked, or before guessing an address.",
             description = "Which URLs and methods the HTTP tools may request on this installation: either any URL, " +
                 "or a list of rules, each a regular expression for the whole URL and the methods it allows. " +

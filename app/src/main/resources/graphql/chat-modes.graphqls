@@ -1,0 +1,21 @@
+# How an agent works in one chat, switched from the composer. Issue #653.
+
+"How an agent works in a chat."
+enum ChatMode {
+    "As chats always worked: the agent uses what it holds, and a person is asked where a tool asks one."
+    DEFAULT
+    "The agent only looks - it is offered the tools that change nothing - and puts a plan to the person to approve."
+    PLAN
+    "The agent goes through its tools without stopping: a call that would wait for a person's leave is allowed, within its grants."
+    AUTO
+}
+
+extend type ChatSession {
+    "How the agent works in this chat; DEFAULT where nobody switched it."
+    mode: ChatMode!
+}
+
+extend type Mutation {
+    "Switches how the agent works in the caller's own chat, from its next turn on."
+    setChatMode(id: ID!, mode: ChatMode!): ChatSession!
+}

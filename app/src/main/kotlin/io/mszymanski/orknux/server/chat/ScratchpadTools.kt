@@ -107,6 +107,7 @@ class ScratchpadTools(
         override fun specs(): List<ToolSpec> = listOf(
             ToolSpec(
                 name = LIST,
+                readOnly = true,
                 description = "Lists your scratchpads in this session - their names, what each is for, and " +
                     "how large it is. A scratchpad is a working file you keep across the whole session; use " +
                     "one to build up something long that you cannot hold in a single turn. Read this before " +
@@ -115,6 +116,7 @@ class ScratchpadTools(
             ),
             ToolSpec(
                 name = READ,
+                readOnly = true,
                 description = "Reads a scratchpad - the whole of it, or a fragment when it is large. Give " +
                     "$FROM and $LENGTH to read a slice starting at a character offset; leave them out for the " +
                     "whole file.",
@@ -126,6 +128,7 @@ class ScratchpadTools(
             ),
             ToolSpec(
                 name = WRITE,
+                readOnly = true,
                 description = "Creates a scratchpad. On one that already exists this replaces the whole " +
                     "content, which is rarely what you want: to change part of a pad use $REPLACE, and to add " +
                     "to the end use $APPEND. Sending the whole document again to change a paragraph costs the " +
@@ -147,6 +150,7 @@ class ScratchpadTools(
             ),
             ToolSpec(
                 name = APPEND,
+                readOnly = true,
                 description = "Adds text to the end of a scratchpad, without resending what is already there. " +
                     "The cheap way to grow a file a piece at a time.",
                 parameters = listOf(
@@ -162,6 +166,7 @@ class ScratchpadTools(
             ),
             ToolSpec(
                 name = REPLACE,
+                readOnly = true,
                 description = "Replaces one piece of text inside a scratchpad, in place - the cheap way to " +
                     "edit a large file. The old text must appear exactly once; give a longer piece if it does not.",
                 parameters = listOf(
@@ -178,6 +183,7 @@ class ScratchpadTools(
             ),
             ToolSpec(
                 name = SEARCH,
+                readOnly = true,
                 description = "Finds where a piece of text appears across your scratchpads - which file and " +
                     "which line - so you can go to a fragment without reading each file whole. With regex it " +
                     "takes a regular expression instead - every <img, every heading - and context shows the " +
@@ -194,6 +200,7 @@ class ScratchpadTools(
 /* scratchpad_share is gone: see NAMES. Issue #498. */
             ToolSpec(
                 name = KEEP,
+                readOnly = true,
                 description = "Puts a scratchpad's content into this session's store and answers with the " +
                     "key it is under. Use it to hand a file you have written to a tool that takes a key - " +
                     "an upload, a message, a mail - instead of reading the pad and typing its content back, " +
@@ -209,6 +216,7 @@ class ScratchpadTools(
             ),
             ToolSpec(
                 name = DELETE,
+                readOnly = true,
                 description = "Removes a scratchpad and everything in it. Only the file's own session may.",
                 parameters = listOf(
                     ToolParameterSpec(NAME, "Which scratchpad to remove.", required = true),
@@ -221,6 +229,7 @@ class ScratchpadTools(
                 name = one.name,
                 description = one.description,
                 parameters = one.parameters.map { ToolParameterSpec(it.name, it.description, it.required) },
+                readOnly = one.readOnly,
             )
         }
 

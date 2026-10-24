@@ -1,0 +1,263 @@
+package io.mszymanski.orknux.server.chat
+
+import com.sun.net.httpserver.HttpServer
+import io.mszymanski.orknux.connector.model.LlmModelRepository
+import io.mszymanski.orknux.connector.model.ModelProviderRepository
+import io.mszymanski.orknux.server.agent.AgentRepository
+import io.mszymanski.orknux.server.interaction.InteractionRequestRepository
+import io.mszymanski.orknux.server.llm.LlmSessionEventRepository
+import io.mszymanski.orknux.server.llm.LlmSessionRepository
+import io.mszymanski.orknux.server.llm.SessionEventRepository
+import io.mszymanski.orknux.server.workspace.Workspace
+import io.mszymanski.orknux.server.workspace.WorkspaceRepository
+import org.assertj.core.api.Assertions.assertThat
+import org.awaitility.Awaitility.await
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+import org.springframework.ai.chat.memory.ChatMemoryRepository
+import org.springframework.ai.chat.messages.MessageType
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.graphql.test.autoconfigure.tester.AutoConfigureGraphQlTester
+import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.graphql.test.tester.ExecutionGraphQlServiceTester
+import org.springframework.security.test.context.support.WithMockUser
+import tools.jackson.databind.ObjectMapper
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.nio.charset.StandardCharsets
+import java.time.Duration
+import java.util.concurrent.CopyOnWriteArrayList
+
+/**
+ * Plan and auto mode in a chat, issue #653: switched from the composer, plan
+ * mode offering only what changes nothing and ending in a plan the person
+ * approves, which hands the plan back and runs it with every tool offered again.
+ */
+@SpringBootTest
+@AutoConfigureGraphQlTester
+@WithMockUser(username = "alice", roles = ["ADMINS"])
+class ChatModesTest(
+    @Autowired val graphQlTester: ExecutionGraphQlServiceTester,
+    @Autowired val chats: ChatSessionRepository,
+    @Autowired val history: ChatMemoryRepository,
+    @Autowired val agents: AgentRepository,
+    @Autowired val models: LlmModelRepository,
+    @Autowired val providers: ModelProviderRepository,
+    @Autowired val workspaces: WorkspaceRepository,
+    @Autowired val sessions: LlmSessionRepository,
+    @Autowired val lines: LlmSessionEventRepository,
+    @Autowired val inbox: SessionEventRepository,
+    @Autowired val requests: InteractionRequestRepository,
+    @Autowired val mapper: ObjectMapper,
+) {
+
+    private var workspaceId: Long = 0
+    private var server: HttpServer? = null
+
+    /** The tool names each request offered, in the order the requests came. */
+    private val offered = CopyOnWriteArrayList<List<String>>()
+
+    /** Each request's system turn, in the order they came. */
+    private val briefed = CopyOnWriteArrayList<String>()
+
+    @BeforeEach
+    fun reset() {
+        chats.findAll().forEach { history.deleteByConversationId(it.conversationId) }
+        chats.deleteAll()
+        requests.deleteAll()
+        inbox.deleteAll()
+        lines.deleteAll()
+        sessions.deleteAll()
+        agents.deleteAll()
+        models.deleteAll()
+        providers.deleteAll()
+        workspaces.deleteAll()
+        workspaceId = requireNotNull(workspaces.save(Workspace(name = "modes")).id)
+    }
+
+    @AfterEach
+    fun stop() {
+        server?.stop(0)
+    }
+
+    @Test
+    fun `the mode is set on the chat, read back, and the default stores nothing`() {
+        val chatId = chatWithAgent(serve())
+        graphQlTester.document("{ chatSession(id: $chatId) { mode } }").execute()
+            .path("chatSession.mode").entity(String::class.java).isEqualTo("DEFAULT")
+
+        graphQlTester.document("mutation { setChatMode(id: $chatId, mode: PLAN) { mode } }").execute()
+            .path("setChatMode.mode").entity(String::class.java).isEqualTo("PLAN")
+        assertThat(chats.findById(chatId).orElseThrow().mode).isEqualTo(ChatMode.PLAN)
+        graphQlTester.document("{ chatSessions(workspaceId: $workspaceId) { mode } }").execute()
+            .path("chatSessions[0].mode").entity(String::class.java).isEqualTo("PLAN")
+
+        graphQlTester.document("mutation { setChatMode(id: $chatId, mode: DEFAULT) { mode } }").execute()
+            .path("setChatMode.mode").entity(String::class.java).isEqualTo("DEFAULT")
+        assertThat(chats.findById(chatId).orElseThrow().mode).isNull()
+    }
+
+    @Test
+    @WithMockUser(username = "bob", roles = ["ADMINS"])
+    fun `somebody else's chat cannot be switched`() {
+        val chatId = chatWithAgent(serve())
+        val theirs = chats.findById(chatId).orElseThrow()
+        chats.save(
+            ChatSession(
+                workspaceId = workspaceId, conversationId = java.util.UUID.randomUUID().toString(), title = "alice's",
+                userId = "alice", agentId = theirs.agentId, modelId = theirs.modelId,
+            ),
+        ).let { alices ->
+            graphQlTester.document("mutation { setChatMode(id: ${alices.id}, mode: AUTO) { mode } }").execute()
+                .errors().satisfy { assertThat(it).isNotEmpty() }
+            assertThat(chats.findById(requireNotNull(alices.id)).orElseThrow().mode).isNull()
+        }
+    }
+
+    @Test
+    fun `plan mode offers only what changes nothing, refuses the rest, and ends in a plan the person approves`() {
+        val chatId = chatWithAgent(serve())
+        graphQlTester.document("mutation { setChatMode(id: $chatId, mode: PLAN) { mode } }").execute()
+
+        graphQlTester.document("""mutation { sendChatMessage(id: $chatId, text: "Remind me to deploy") { millis } }""")
+            .execute().path("sendChatMessage.millis").hasValue()
+        val chat = chats.findById(chatId).orElseThrow()
+        assertThat(assistantSaid(chat.conversationId)).containsExactly("I have put the plan to you.")
+
+        // Offered: the way to present a plan and what only looks; withheld: a reminder, which changes something.
+        val first = offered.first()
+        assertThat(first).contains(ChatModes.PRESENT, DateTools.NOW).doesNotContain(TimerTools.SET, AgentTools.SAVE_ARTIFACT)
+        assertThat(briefed.first()).contains("plan mode").contains(ChatModes.PRESENT_SPEC.name)
+        // The reminder the model asked for anyway was refused, not set.
+        assertThat(inbox.findAll()).noneMatch { it.kind == io.mszymanski.orknux.server.llm.SessionEventKind.TIMER }
+
+        // The plan is in the conversation as an approval, with its two answers.
+        val session = requireNotNull(chat.llmSessionId)
+        graphQlTester.document("{ sessionRequests(sessionId: $session) { id kind question askedBy allowsText options { id label } } }")
+            .execute()
+            .path("sessionRequests[0].kind").entity(String::class.java).isEqualTo(ChatModes.KIND)
+            .path("sessionRequests[0].question").entity(String::class.java).isEqualTo(PLAN_TEXT)
+            .path("sessionRequests[0].askedBy").entity(String::class.java).isEqualTo("Worker")
+            .path("sessionRequests[0].options[*].id").entityList(String::class.java)
+            .containsExactly(ChatModes.APPROVE, ChatModes.KEEP_PLANNING)
+        val requestId = requests.findAll().single().id
+
+        // Approving leaves plan mode and hands the plan back; the chat wakes and carries it out with everything offered.
+        graphQlTester.document("""mutation { answerRequest(id: $requestId, option: "${ChatModes.APPROVE}") { outcome } }""")
+            .execute().path("answerRequest.outcome").entity(String::class.java).isEqualTo("Approved")
+        assertThat(chats.findById(chatId).orElseThrow().mode).isNull()
+
+        await().atMost(Duration.ofSeconds(15)).untilAsserted {
+            assertThat(assistantSaid(chat.conversationId)).containsExactly("I have put the plan to you.", "Done: reminder set.")
+        }
+        val carried = offered.last()
+        assertThat(carried).contains(TimerTools.SET).doesNotContain(ChatModes.PRESENT)
+        assertThat(briefed.last()).doesNotContain("plan mode")
+    }
+
+    @Test
+    fun `keeping on planning tells the agent so, with what the person wrote, and stays in plan mode`() {
+        val chatId = chatWithAgent(serve())
+        graphQlTester.document("mutation { setChatMode(id: $chatId, mode: PLAN) { mode } }").execute()
+        graphQlTester.document("""mutation { sendChatMessage(id: $chatId, text: "Remind me to deploy") { millis } }""")
+            .execute().path("sendChatMessage.millis").hasValue()
+        val requestId = requests.findAll().single().id
+
+        graphQlTester.document(
+            """mutation { answerRequest(id: $requestId, options: ["${ChatModes.KEEP_PLANNING}"], text: "check the calendar first") { outcome } }""",
+        ).execute().path("answerRequest.outcome").entity(String::class.java).isEqualTo("Keep planning, \"check the calendar first\"")
+        assertThat(chats.findById(chatId).orElseThrow().mode).isEqualTo(ChatMode.PLAN)
+        assertThat(inbox.findAll().map { it.body }).anyMatch { it.contains("keep planning") && it.contains("check the calendar first") }
+        // And the chat wakes to it, still planning.
+        val conversation = chats.findById(chatId).orElseThrow().conversationId
+        await().atMost(Duration.ofSeconds(15)).untilAsserted { assertThat(assistantSaid(conversation)).hasSize(2) }
+        assertThat(offered.last()).contains(ChatModes.PRESENT).doesNotContain(TimerTools.SET)
+    }
+
+    @Test
+    fun `auto mode is said in the briefing and changes nothing about what is offered`() {
+        val chatId = chatWithAgent(serve())
+        graphQlTester.document("mutation { setChatMode(id: $chatId, mode: AUTO) { mode } }").execute()
+        graphQlTester.document("""mutation { sendChatMessage(id: $chatId, text: "Just answer") { millis } }""")
+            .execute().path("sendChatMessage.millis").hasValue()
+        assertThat(briefed.first()).contains("auto mode")
+        assertThat(offered.first()).contains(TimerTools.SET).doesNotContain(ChatModes.PRESENT)
+    }
+
+    private fun assistantSaid(conversation: String): List<String> =
+        history.findByConversationId(conversation).filter { it.messageType == MessageType.ASSISTANT }.map { it.text.orEmpty() }
+
+    /**
+     * In plan mode: asks for a reminder (which is refused), then presents a
+     * plan, then says it did. Handed the approval, it says it is done. Outside
+     * plan mode, with nothing to carry out, it just answers.
+     */
+    private fun serve(): String {
+        val stub = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
+        stub.createContext("/chat/completions") { exchange ->
+            val body = exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
+            val request = mapper.readTree(body)
+            offered += request.path("tools").values().map { it.path("function").path("name").stringValue() }
+            briefed += request.path("messages").values().firstOrNull { it.path("role").stringValue() == "system" }
+                ?.path("content")?.stringValue().orEmpty()
+            val reply = when {
+                body.contains("approved your plan") -> said("Done: reminder set.")
+                body.contains("\\\"presented\\\"") -> said("I have put the plan to you.")
+                body.contains("it was not run") -> called(ChatModes.PRESENT, mapOf(ChatModes.PLAN to PLAN_TEXT))
+                body.contains("in plan mode") -> called(TimerTools.SET, mapOf("seconds" to 60, "note" to "deploy"))
+                else -> said("Answered.")
+            }.toByteArray(StandardCharsets.UTF_8)
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, reply.size.toLong())
+            exchange.responseBody.use { it.write(reply) }
+            exchange.close()
+        }
+        stub.start()
+        server = stub
+        return "http://${stub.address.hostString}:${stub.address.port}"
+    }
+
+    private fun said(content: String) =
+        """{"choices":[{"message":{"role":"assistant","content":"$content"}}],"usage":{"prompt_tokens":9,"completion_tokens":4}}"""
+
+    private fun called(tool: String, arguments: Map<String, Any?>): String {
+        val call = mapOf(
+            "id" to "call_${offered.size}",
+            "type" to "function",
+            "function" to mapOf("name" to tool, "arguments" to mapper.writeValueAsString(arguments)),
+        )
+        return mapper.writeValueAsString(
+            mapOf(
+                "choices" to listOf(mapOf("message" to mapOf("role" to "assistant", "content" to null, "tool_calls" to listOf(call)))),
+                "usage" to mapOf("prompt_tokens" to 9, "completion_tokens" to 4),
+            ),
+        )
+    }
+
+    private fun chatWithAgent(endpoint: String): Long {
+        val providerId = graphQlTester.document(
+            """mutation { createModelProvider(input: {
+                 workspaceId: $workspaceId, name: "Stub", endpoint: "$endpoint", secret: "sk-test"
+               }) { id } }""",
+        ).execute().path("createModelProvider.id").entity(Long::class.java).get()
+        val modelId = graphQlTester.document(
+            """mutation { createModel(input: { providerId: $providerId, name: "Stub", modelId: "stub", kind: CHAT }) { id } }""",
+        ).execute().path("createModel.id").entity(Long::class.java).get()
+        val agentId = graphQlTester.document(
+            """mutation { createAgent(input: { workspaceId: $workspaceId, name: "Worker", type: LLM }) { id } }""",
+        ).execute().path("createAgent.id").entity(Long::class.java).get()
+        graphQlTester.document("""mutation { updateAgent(id: $agentId, input: { name: "Worker", modelId: $modelId }) { id } }""")
+            .execute()
+        val chatId = graphQlTester.document(
+            """mutation { startChat(input: { workspaceId: $workspaceId, title: "Deploy" }) { id } }""",
+        ).execute().path("startChat.id").entity(Long::class.java).get()
+        graphQlTester.document("""mutation { chooseChatAgent(id: $chatId, agentId: $agentId) { id } }""")
+            .execute().path("chooseChatAgent.id").hasValue()
+        return chatId
+    }
+
+    private companion object {
+        const val PLAN_TEXT = "1. Set a reminder for the deploy."
+    }
+}

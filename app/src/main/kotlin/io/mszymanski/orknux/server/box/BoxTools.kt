@@ -334,6 +334,9 @@ class BoxTools(
                 put(
                     "note",
                     when {
+                        // Opened at once: the conversation is in auto mode, so nobody was asked. #653.
+                        mapping.state == BoxPortState.ENABLED && asked ->
+                            "It is exposed at ${mapping.url}; this conversation is in auto mode, so nobody was asked."
                         mapping.state == BoxPortState.ENABLED -> "It is already exposed at ${mapping.url}."
                         !asked -> "You asked for this port already; it is ${mapping.state.name.lowercase()}. You will be told when that changes."
                         else ->
@@ -1237,6 +1240,14 @@ class BoxTools(
         )
         private val EXECUTION_ID = text("execution", "The execution id orkbox_exec answered with.", required = true)
 
+        /**
+         * The ones that only look - at the boxes, a session's files, what a
+         * command printed. Opening a session, running anything and every
+         * write are left out, so a chat in plan mode reads a box session an
+         * earlier turn opened and changes nothing in it. Issue #653.
+         */
+        private val READING = setOf(LIST, SESSIONS, EXECUTION, OUTPUT, FILES, READ, STAT, SEARCH, LOG, PORTS)
+
         val SPECS: List<ToolSpec> = listOf(
             ToolSpec(
                 LIST,
@@ -1556,7 +1567,7 @@ class BoxTools(
                     flag("unpack", "Unpack it as an archive instead of writing it as one file."),
                 ),
             ),
-        )
+        ).map { if (it.name in READING) it.copy(readOnly = true) else it }
 
         val NAMES: Set<String> = SPECS.map { it.name }.toSet()
     }

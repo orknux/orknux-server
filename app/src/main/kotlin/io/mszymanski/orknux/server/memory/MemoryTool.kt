@@ -438,6 +438,7 @@ class MemoryTool(
 
         val DESCRIPTOR = ToolDescriptor(
             name = "memory_search",
+            readOnly = true,
             description = "Search what this workspace has written down. " +
                 "Only the memory catalogs this agent has been given are searched. " +
                 "Call with no query to see what a catalog holds.",
@@ -529,6 +530,8 @@ data class ToolDescriptor(
     val name: String,
     val description: String,
     val parameters: List<ToolParameter>,
+    /** Whether it changes nothing outside the conversation; see [io.mszymanski.orknux.connector.model.ToolSpec.readOnly]. */
+    val readOnly: Boolean = false,
 )
 
 data class ToolParameter(

@@ -60,6 +60,7 @@ class DateTools(
         override fun specs(): List<ToolSpec> = listOf(
             ToolSpec(
                 name = NOW,
+                readOnly = true,
                 description = "Tells you the current date and time. Your training does not tell you what today " +
                     "is, so use this whenever you reason about time - whether something is overdue, how long " +
                     "until a deadline, what day of the week a date falls on. The answer is in UTC; give " +

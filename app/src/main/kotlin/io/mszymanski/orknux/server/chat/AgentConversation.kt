@@ -311,6 +311,8 @@ class AgentConversation(
     private val prompt: io.mszymanski.orknux.server.llm.SessionPrompt,
     /** Where an agent that could not answer is written down, for Admin > Reports > Errors. */
     private val errors: io.mszymanski.orknux.server.errors.ErrorRecorder,
+    /** Which tools change nothing, for a turn held to those; see [ToolEffects]. Issue #653. */
+    private val effects: ToolEffects,
 ) {
 
     /** Sessions already told that not every tool could go up front; told once each, while this server runs. */
@@ -406,10 +408,12 @@ class AgentConversation(
         interjections: Interjections? = null,
         /** See the same parameter on the other [answer]. */
         reasoningEffort: String? = null,
+        /** Whether only the tools that change nothing are offered and run; see the other overload. */
+        readOnly: Boolean = false,
     ): ChatCompletion {
         val agent = agents.findByIdOrNull(agentId)
             ?: return ChatCompletion.Failed("That agent no longer exists")
-        return answer(modelId, agent, turns, into, shed, watch, hangup, interjections, reasoningEffort = reasoningEffort)
+        return answer(modelId, agent, turns, into, shed, watch, hangup, interjections, reasoningEffort = reasoningEffort, readOnly = readOnly)
     }
 
     /**
@@ -475,11 +479,17 @@ class AgentConversation(
          * chose (#654). Not used by the summariser, which is another call.
          */
         reasoningEffort: String? = null,
+        /**
+         * Whether this turn may only look: offered the tools [ToolEffects] says
+         * change nothing - its own and what was lent alike - and refused any
+         * other it names anyway. A chat in plan mode. Issue #653.
+         */
+        readOnly: Boolean = false,
     ): ChatCompletion {
         fun refused(why: String) = ChatCompletion.Failed(why, permanent = false).also { record(into, agent, it) }
         val run = {
             bulkheads.heapRefusal()?.let { refused(it) }
-                ?: held(modelId, agent, turns, into, shed, watch, hangup, interjections, spoke, quiet, reasoningEffort)
+                ?: held(modelId, agent, turns, into, shed, watch, hangup, interjections, spoke, quiet, reasoningEffort, readOnly)
         }
         return if (gated) bulkheads.turn(::refused, run) else run()
     }
@@ -496,6 +506,7 @@ class AgentConversation(
         spoke: ((String) -> Unit)?,
         quiet: Boolean,
         reasoningEffort: String?,
+        readOnly: Boolean,
     ): ChatCompletion {
         /*
          * The agent's own ceiling, or none where the provider is handed every
@@ -504,7 +515,13 @@ class AgentConversation(
          */
         val offersAll = ceilings.offersAll(modelId)
         val ceiling = if (offersAll) null else agent.maxTools
-        val holding = tools.offeringFor(agent, ceiling, into)
+        /*
+         * Less everything that changes something, where this turn may only look.
+         * Filtered here, before any split or search, so a tool held back is
+         * neither declared, nor findable, nor listed as lent. Issue #653.
+         */
+        fun held(offering: Offering) = if (readOnly) effects.readOnly(offering) else offering
+        val holding = held(tools.offeringFor(agent, ceiling, into))
 
         /*
          * What the caller lent, as this agent may use it. Issue #444.
@@ -517,7 +534,7 @@ class AgentConversation(
          * left at Offer and found. A shed's own names - `task_done`, the chat's
          * drawing - are not the list's to switch and are carried as they were.
          */
-        val lending = BuiltInTools.lentTo(agent, shed)
+        val lending = BuiltInTools.lentTo(agent, shed).let { if (readOnly) effects.readOnly(it) else it }
         val (lent, lentFindable) = lending?.specs().orEmpty().partition { BuiltInTools.carried(agent, it.name, ceiling) }
         /*
          * And what the lent tools want said about themselves, put with the
@@ -598,7 +615,7 @@ class AgentConversation(
         val (core, carriedLent, findable) = if (!hunting) {
             Triple(holding.core, lent, holding.searchable + lentFindable)
         } else {
-            val split = if (ceiling == null) tools.offeringFor(agent, limit, into) else holding
+            val split = if (ceiling == null) held(tools.offeringFor(agent, limit, into)) else holding
             val (splitLent, splitLentFindable) = if (ceiling == null) {
                 lending?.specs().orEmpty().partition { BuiltInTools.carried(agent, it.name, limit) }
             } else {
@@ -1362,7 +1379,21 @@ class AgentConversation(
                         val got = if (readBefore != null) {
                             alreadyRead(call, readBefore)
                         } else try {
-                            if (hunt != null && hunt.handles(call.name)) hunt.run(call) else tools.run(agent, call, into)
+                            if (hunt != null && hunt.handles(call.name)) {
+                                hunt.run(call)
+                            } else if (readOnly && (holding.core + holding.searchable).none { it.name == call.name }) {
+                                /*
+                                 * A tool this turn holds back, named anyway - from the
+                                 * briefing's list, or from an earlier turn. Refused by
+                                 * what would run it, not only by the menu, and said as
+                                 * the reason it is: nothing ran. Issue #653.
+                                 */
+                                jackson.writeValueAsString(
+                                    mapOf("error" to "${call.name} changes something, and this conversation is only looking for now: it was not run"),
+                                )
+                            } else {
+                                tools.run(agent, call, into)
+                            }
                         } catch (halted: AgentRoundHalted) {
                             // The lent tool ended the round. What it did is
                             // still written down, or the transcript would stop

@@ -56,6 +56,7 @@ class ConnectionTools(
 
     fun specFor(agent: Agent): ToolSpec = ToolSpec(
         name = FIND,
+        readOnly = true,
         description = "Finds the id of a connection you have been granted - a tool that takes a " +
             "connection needs one of these, and you can name no other. Search by the name of the " +
             "system, of the connection or of what it is for: \"slack\", \"production jira\"; leave the query out to list " +

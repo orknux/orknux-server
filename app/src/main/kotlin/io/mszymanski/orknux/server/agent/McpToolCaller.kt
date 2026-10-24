@@ -67,6 +67,7 @@ class McpToolCaller(
                         parameters = tool.parameters.map {
                             ToolParameterSpec(it.name, it.description, it.required, it.schema)
                         },
+                        readOnly = tool.readOnly,
                     )
                 }
                 // The server's own tool wins a name it already uses; the reading
@@ -186,6 +187,7 @@ class McpToolCaller(
             description = "List the documents ${server.name} offers to be read: each one's uri, name and " +
                 "what it is. Read one with ${qualified(server, READ_RESOURCE)}.",
             parameters = emptyList(),
+            readOnly = true,
         ),
         READ_RESOURCE to ToolSpec(
             name = qualified(server, READ_RESOURCE),
@@ -193,6 +195,7 @@ class McpToolCaller(
                 "${qualified(server, RESOURCES)} gave it. Text comes back as text; anything else comes back as " +
                 "a key to hand to a tool that takes one.",
             parameters = listOf(ToolParameterSpec("uri", "The resource's uri, copied as it was listed.", true)),
+            readOnly = true,
         ),
     )
 

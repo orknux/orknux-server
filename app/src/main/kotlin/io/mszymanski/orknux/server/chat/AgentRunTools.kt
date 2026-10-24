@@ -266,6 +266,7 @@ class AgentRunTools(
     /** What `agent_list` is, to a model. Issue #552. */
     fun listSpec(): ToolSpec = ToolSpec(
         name = LIST,
+        readOnly = true,
         description = "Lists the agents you may ask, with what each can do: its description, model, " +
             "tools, skills, memories and connections. Call it before asking, to pick the agent that " +
             "holds the tool the work needs, rather than asking one and hearing it cannot.",
@@ -304,6 +305,7 @@ class AgentRunTools(
     /** What `agent_asks` is, to a model. Issue #477. */
     fun asksSpec(): ToolSpec = ToolSpec(
         name = ASKS,
+        readOnly = true,
         description = "Lists the agents you have asked in this conversation and how each one is going: " +
             "what it was asked about, whether it is still working, and when it last did anything. " +
             "Also says how many asks you have left. Call it when somebody asks what your agents are " +
@@ -314,6 +316,7 @@ class AgentRunTools(
     /** What `agent_wait` is, to a model. Issue #462. */
     fun waitSpec(): ToolSpec = ToolSpec(
         name = WAIT,
+        readOnly = true,
         description = "Waits for the agents you have asked. Call it when you have nothing else to do and " +
             "something you asked for has not come back yet. It returns as soon as one of them finishes, " +
             "or after the seconds you gave, whichever is first - so waiting costs nothing when the work " +

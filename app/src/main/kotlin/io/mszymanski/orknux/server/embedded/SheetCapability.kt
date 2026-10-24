@@ -37,6 +37,7 @@ class SheetCapability(
     override fun tools(): List<EmbeddedTool> = listOf(
         EmbeddedTool(
             name = READ,
+            readOnly = true,
             summary = "Reads rows of a CSV or Excel workbook kept under a key.",
             description = "Reads an attached CSV, .xlsx or .xls kept under a $KEY in this session and answers a page " +
                 "of its rows as cells, numbered as the sheet numbers them from 1, with how many rows there are. " +

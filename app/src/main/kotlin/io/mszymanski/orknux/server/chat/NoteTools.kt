@@ -92,6 +92,7 @@ class NoteTools(
         override fun specs(): List<ToolSpec> = listOf(
             ToolSpec(
                 name = NOTE,
+                readOnly = true,
                 description = "Writes something down for yourself, kept for the whole of this " +
                     "conversation and put back to you at the start of every later turn. Use it for " +
                     "what you would otherwise have to remember across a long job: what you have " +

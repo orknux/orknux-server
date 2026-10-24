@@ -119,6 +119,16 @@ class McpToolCallTest(
         assertThat(calls.last()).contains(""""items":["a","b"]""")
     }
 
+    /** Issue #653: the server's readOnlyHint is what says a tool changes nothing, and silence says it may. */
+    @Test
+    fun `a tool the server marks readOnlyHint is read-only, and one it says nothing of is not`() {
+        mcpServer("Orders", serve())
+        val agent = agent("Clerk", granted = "Orders")
+        val offered = tools.specsFor(agent).associateBy { it.name }
+        assertThat(offered.getValue("orders__web_search").readOnly).isTrue()
+        assertThat(offered.getValue("orders__place_order").readOnly).isFalse()
+    }
+
     /** A server it was not granted is not listed and cannot be reached. */
     @Test
     fun `an ungranted server contributes nothing`() {
@@ -247,7 +257,7 @@ class McpToolCallTest(
 
                 "tools/list" ->
                     """{"jsonrpc":"2.0","id":2,"result":{"tools":[
-                       {"name":"web_search","description":"Search the web",
+                       {"name":"web_search","description":"Search the web","annotations":{"readOnlyHint":true},
                         "inputSchema":{"type":"object","properties":{
                           "query":{"type":"string","description":"What to search for"},
                           "limit":{"type":"integer"}},"required":["query"]}},
