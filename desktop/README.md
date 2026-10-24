@@ -21,7 +21,10 @@ The main process (`src/main.js`) is what `docker/one/entrypoint.sh` and
 4. **Shows it**: a splash while the server starts, then the interface, in tabs
    (`src/tabs.js`): a link the page opens in a new tab, Ctrl+click and the
    middle button open one, Ctrl+T, Ctrl+W, Ctrl+Tab and Ctrl+Shift+Tab work as
-   in a browser, and closing the last tab closes the window. Web, mail and
+   in a browser, and closing the last tab closes the window. Next and previous
+   tab are also Ctrl+PageDown and Ctrl+PageUp, or whatever Preferences says
+   (`src/page-preload.js` is how the interface tells the app). Right-click on a
+   link into Orknux, or Shift+click, opens it in a new window. Web, mail and
    phone links to anywhere else go to the system's browser or mail program;
    any other kind is refused and said so (`src/links.js`). The window remembers
    its size and position.

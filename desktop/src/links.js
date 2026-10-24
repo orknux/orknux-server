@@ -64,14 +64,83 @@ function classify(target, port) {
   return { kind: 'refused', url: url.href, scheme: url.protocol };
 }
 
+/**
+ * What a link's right-click menu offers, in order: `tab` and `window` for a
+ * page of ours, `outside` for what only the operating system can open, and
+ * `copy` for every link.
+ *
+ * A page of ours opens in a new tab or a new window of this app, never in the
+ * browser: the browser is another site to the server's cookie, so the page
+ * there signs in again. The web is the opposite - a site opened inside the app
+ * has no address bar and no way back - so it still goes out, and is the only
+ * thing that does. A file the page made (blob:) has no address a second page
+ * could load, so it is only copied.
+ *
+ * @param {{kind: string, url: string}} link what classify() said
+ * @returns {{action: 'tab'|'window'|'outside'|'copy', label: string}[]}
+ */
+function linkMenu(link) {
+  const items = [];
+  if (link.kind === 'ours' && !link.url.startsWith('blob:')) {
+    items.push({ action: 'tab', label: 'Open link in new tab' });
+    items.push({ action: 'window', label: 'Open link in new window' });
+  } else if (link.kind === 'outside') {
+    items.push({ action: 'outside', label: /^https?:/.test(link.url) ? 'Open link in browser' : 'Open link' });
+  }
+  items.push({ action: 'copy', label: 'Copy link address' });
+  return items;
+}
+
+/**
+ * Next and previous tab when the interface has not said otherwise - the same
+ * defaults as `DEFAULT_NEXT_TAB_SHORTCUT` and `DEFAULT_PREVIOUS_TAB_SHORTCUT` in
+ * orknux-ui's session/shortcut.ts, which is where they are chosen. Written the
+ * way the interface writes a shortcut: modifiers in a fixed order, then the key.
+ */
+const DEFAULT_TAB_KEYS = Object.freeze({ next: 'Ctrl+PageDown', previous: 'Ctrl+PageUp' });
+
+/** The longest shortcut taken from a page: a format, so a page cannot hand over a novel. */
+const LONGEST_SHORTCUT = 64;
+
+/**
+ * The tab keys a page handed over, or the defaults for whichever is not one.
+ * The page is ours, but it is still a renderer: what crosses is checked.
+ */
+function tabKeys(next, previous) {
+  const fine = (value) => typeof value === 'string' && value.trim() !== '' && value.length <= LONGEST_SHORTCUT;
+  return {
+    next: fine(next) ? next.trim() : DEFAULT_TAB_KEYS.next,
+    previous: fine(previous) ? previous.trim() : DEFAULT_TAB_KEYS.previous,
+  };
+}
+
+/** The keys that are only ever part of a combination; the interface's MODIFIER_KEYS. */
+const MODIFIERS = new Set(['Control', 'Alt', 'Shift', 'Meta', 'OS', 'AltGraph', 'CapsLock', 'Dead']);
+
+/**
+ * A key press written as the interface's `describe` writes one - `Ctrl+PageDown`,
+ * `Ctrl+Shift+T`, `Alt+Space` - or null for a modifier on its own, so a binding
+ * chosen on Preferences is compared as it was recorded there.
+ */
+function described(input) {
+  if (MODIFIERS.has(input.key)) return null;
+  const held = [];
+  if (input.control) held.push('Ctrl');
+  if (input.alt) held.push('Alt');
+  if (input.shift) held.push('Shift');
+  if (input.meta) held.push('Meta');
+  const key = input.key === ' ' ? 'Space' : input.key.length === 1 ? input.key.toUpperCase() : input.key;
+  held.push(key);
+  return held.join('+');
+}
+
 /*
- * The tab keys, as a browser has them on Windows and Linux. Ctrl and not Cmd:
- * the app is built for those two only.
+ * The fixed tab keys, as a browser has them on Windows and Linux. Ctrl and not
+ * Cmd: the app is built for those two only. Ctrl+Tab and Ctrl+Shift+Tab are
+ * here as well as whatever next and previous are bound to, as the other habit.
  */
 const KEYS = {
   Tab: (shift) => (shift ? 'previous' : 'next'),
-  PageDown: (shift) => (shift ? null : 'next'),
-  PageUp: (shift) => (shift ? null : 'previous'),
   F4: (shift) => (shift ? null : 'close'),
   t: (shift) => (shift ? null : 'new'),
   w: (shift) => (shift ? null : 'close'),
@@ -79,14 +148,20 @@ const KEYS = {
 
 /**
  * What a key press asks of the tabs - `new`, `close`, `next`, `previous` - or
- * null. Takes Electron's before-input-event input.
+ * null. Takes Electron's before-input-event input, and the next and previous
+ * keys chosen in the interface, which come first: a choice made there wins over
+ * a fixed key here.
  *
  * A letter is read off the character typed, and off the physical key only where
  * that character is not a Latin letter: Ctrl+T on a Polish or a French layout
  * means T, and on a Russian one the key that carries T.
  */
-function shortcut(input) {
-  if (input.type !== 'keyDown' || !input.control || input.alt || input.meta) return null;
+function shortcut(input, bound = DEFAULT_TAB_KEYS) {
+  if (input.type !== 'keyDown') return null;
+  const said = described(input)?.toLowerCase();
+  if (said === bound.next.toLowerCase()) return 'next';
+  if (said === bound.previous.toLowerCase()) return 'previous';
+  if (!input.control || input.alt || input.meta) return null;
   let key = input.key;
   if (key.length === 1) {
     key = /^[a-z]$/i.test(key) ? key.toLowerCase() : String(input.code ?? '').replace(/^Key/, '').toLowerCase();
@@ -94,4 +169,10 @@ function shortcut(input) {
   return KEYS[key]?.(input.shift) ?? null;
 }
 
-module.exports = { classify, shortcut };
+/** Where stepping `by` from `at` lands among `count` tabs: round from the end to the start, and back. */
+function stepped(at, by, count) {
+  if (count < 1) return -1;
+  return (((at + by) % count) + count) % count;
+}
+
+module.exports = { classify, linkMenu, shortcut, tabKeys, stepped, DEFAULT_TAB_KEYS };

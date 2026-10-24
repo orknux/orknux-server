@@ -8,6 +8,7 @@
  */
 const path = require('node:path');
 const { WebContentsView } = require('electron');
+const { stepped } = require('./links');
 
 /**
  * The strip's height in pixels. A layout choice rather than a behaviour, and
@@ -111,11 +112,10 @@ class Tabs {
     this.draw();
   }
 
-  /** Ctrl+Tab and Ctrl+Shift+Tab: the next or the previous tab, round from the end to the start. */
+  /** The next or the previous tab (links.js says which keys), round from the end to the start and back. */
   step(by) {
     if (this.list.length < 2) return;
-    const at = this.list.indexOf(this.active);
-    this.select(this.list[(at + by + this.list.length) % this.list.length]);
+    this.select(this.list[stepped(this.list.indexOf(this.active), by, this.list.length)]);
   }
 
   /**

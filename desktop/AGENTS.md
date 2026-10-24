@@ -52,7 +52,15 @@ server stays in the app, always on `127.0.0.1` - the server's own links say
 refused as cross-site. The web, mail and the phone go to the operating system,
 and every other scheme is refused out loud, because Windows and Linux both run
 whatever is registered for a scheme and a link in a chat is something an agent
-wrote. `node --test` covers it; tabs and the strip need a display.
+wrote. `node --test` covers it; tabs and the strip need a display. A page of
+ours opens in a tab or a window of this app and never in the browser, where it
+would be another site with no session.
+
+**The tab keys are the interface's.** Next and previous tab are shortcuts on
+Preferences like any other, kept in the page's storage; `page-preload.js` is
+the one door they come through, and the only thing a page may say to this
+process. `links.js` holds the same defaults for the moments before a page has
+spoken - change one, change the other.
 
 **No Node on the host.** Build and test in `docker/Dockerfile`. The Windows
 `.exe` can be made here in `electronuserland/builder:wine` (see README) and
