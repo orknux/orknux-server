@@ -482,7 +482,9 @@ class WorkspaceDuplicateTest(
             .path("researchModes[*].kind").entityList(String::class.java).containsExactly("SHALLOW", "MEDIUM", "DEEP")
             .path("researchModes[*].workflowId").entityList(Long::class.java).get()
         assertThat(modeWorkflows).containsExactlyInAnyOrderElementsOf(carried.map { it.workflow.id })
-        assertThat(actions.findByWorkspaceId(copy).count { it.name == "Research" }).isEqualTo(1)
+        // One of each step's action, adopted rather than made a second time beside the copied ones.
+        assertThat(actions.findByWorkspaceId(copy).map { it.name }.filter { it.startsWith("Research") })
+            .containsExactlyInAnyOrder("Research: Plan", "Research: Gather", "Research: Follow up", "Research: Write", "Research: Save")
 
         graphQlTester.document("""query { researches(workspaceId: $copy) { totalElements } }""").execute()
             .path("researches.totalElements").entity(Int::class.java).isEqualTo(0)

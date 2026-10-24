@@ -3,7 +3,17 @@ package io.mszymanski.orknux.server.research
 import com.sun.net.httpserver.HttpServer
 import io.mszymanski.orknux.server.action.WorkflowActionRepository
 import io.mszymanski.orknux.server.attachment.AttachmentStore
+import io.mszymanski.orknux.server.action.ActionSubtype
+import io.mszymanski.orknux.server.action.ActionType
+import io.mszymanski.orknux.server.action.FunctionScope
+import io.mszymanski.orknux.server.action.WorkflowAction
+import io.mszymanski.orknux.server.action.WorkflowFunctionRepository
+import io.mszymanski.orknux.server.workflow.GraphValidator
 import io.mszymanski.orknux.server.workflow.MappingMode
+import io.mszymanski.orknux.server.workflow.NodeMapping
+import io.mszymanski.orknux.server.workflow.WorkflowEdgeRepository
+import io.mszymanski.orknux.server.workflow.WorkflowNode
+import io.mszymanski.orknux.workflow.execution.ExecutionStepRepository
 import io.mszymanski.orknux.server.workflow.NodeKind
 import io.mszymanski.orknux.server.workflow.SavedArtifactRepository
 import io.mszymanski.orknux.server.workflow.SavedArtifacts
@@ -33,8 +43,10 @@ import java.util.concurrent.CopyOnWriteArrayList
 /**
  * Analysis > Research. Issue #659.
  *
- * A workspace arrives with three research modes, each a hidden workflow whose
- * one node calls `research_run` with the knobs that make the mode. A research
+ * A workspace arrives with three research modes, each a hidden workflow of
+ * five steps - Plan, Gather, Follow up, Write, Save - whose nodes hold the
+ * knobs that make the mode; one still drawn as the single `research_run` node
+ * it once was is redrawn, and one somebody edited is left alone. A research
  * plans sub-questions, searches each through the workspace's search with the
  * websites to keep to and avoid applied, reads what it found and notes it,
  * goes deeper with follow-up questions to the mode's depth, and writes a report
@@ -65,6 +77,11 @@ class ResearchTest(
     @Autowired val uploads: ResearchUploadAPI,
     @Autowired val orknux: io.mszymanski.orknux.server.mcp.OrknuxTools,
     @Autowired val mapper: tools.jackson.databind.ObjectMapper,
+    @Autowired val edges: WorkflowEdgeRepository,
+    @Autowired val validator: GraphValidator,
+    @Autowired val researchModes: ResearchModes,
+    @Autowired val functions: WorkflowFunctionRepository,
+    @Autowired val runSteps: ExecutionStepRepository,
 ) {
 
     private var workspaceId: Long = 0
@@ -89,30 +106,124 @@ class ResearchTest(
     /* ------------------------------------------------------------- seeded --- */
 
     @Test
-    fun `a new workspace has the three modes, each a hidden workflow whose node holds the mode's knobs`() {
+    fun `a new workspace has the three modes, each a hidden workflow of five steps whose nodes hold the mode's knobs`() {
         val seeded = modesOf()
         assertThat(seeded.map { it["kind"] }).containsExactly("SHALLOW", "MEDIUM", "DEEP")
         assertThat(seeded.map { it["workflowName"] }).containsExactly("Research: Shallow", "Research: Medium", "Research: Deep")
 
         val ids = seeded.map { (it["workflowId"] as String).toLong() }
         assertThat(workflows.findAllById(ids)).allMatch { it.hidden }
-        val action = requireNotNull(actions.findByWorkspaceIdAndName(workspaceId, ResearchModes.ACTION_NAME))
 
         val knobs = ids.map { id ->
-            val node = nodes.findByWorkflowId(id).single()
-            assertThat(node.kind).isEqualTo(NodeKind.ACTION)
-            assertThat(node.actionId).isEqualTo(action.id)
-            // The request is read off what started the run, by name.
-            ResearchCapability.REQUEST.forEach { name ->
-                assertThat(node.mappings.single { it.name == name }.mode).isEqualTo(MappingMode.REFERENCE)
+            val drawn = nodes.findByWorkflowId(id).sortedBy { it.positionX }
+            assertThat(drawn.map { it.name }).containsExactly("Plan", "Gather", "Follow up", "Write", "Save")
+            assertThat(drawn).allMatch { it.kind == NodeKind.ACTION }
+            // Each step calls its own action, which calls its own function.
+            drawn.forEach { node ->
+                val action = actions.findByIdOrNull(requireNotNull(node.actionId))!!
+                assertThat(action.name).isEqualTo("Research: ${node.name}")
             }
-            node.mappings.filter { it.mode == MappingMode.VALUE }.associate { it.name to it.expression.toInt() }
+            // A chain, left to right.
+            assertThat(edges.findByWorkflowId(id).map { it.sourceKey to it.targetKey }).containsExactlyInAnyOrder(
+                "plan" to "gather", "gather" to "followUp", "followUp" to "write", "write" to "save",
+            )
+            // The request is read off what started the run; what a step before found, off the run.
+            drawn.forEach { node ->
+                node.mappings.filter { it.name in ResearchCapability.REQUEST }.forEach {
+                    assertThat(it.mode).isEqualTo(MappingMode.REFERENCE)
+                    assertThat(it.expression).isEqualTo("trigger.${it.name}")
+                }
+            }
+            assertThat(drawn[1].mappings.single { it.name == "queries" }.expression).isEqualTo("plan.queries")
+            assertThat(drawn[4].mappings.single { it.name == "report" }.expression).isEqualTo("research.report")
+            // And it is a graph that holds together, with nothing to warn about.
+            assertThat(validator.problems(drawn, edges.findByWorkflowId(id), workspaceId = workspaceId)).isEmpty()
+
+            // Every knob on the step it is about, and nowhere else.
+            drawn.associate { node ->
+                node.name to node.mappings.filter { it.mode == MappingMode.VALUE }.associate { it.name to it.expression.toInt() }
+            }
         }
-        // Each deeper than the one before, on every knob that is about depth.
-        listOf(ResearchCapability.SUB_QUESTIONS, ResearchCapability.DEPTH, ResearchCapability.MAX_SOURCES).forEach { knob ->
-            assertThat(knobs.map { it.getValue(knob) }).describedAs(knob).isSorted().doesNotHaveDuplicates()
+        assertThat(knobs.map { it.mapValues { (_, values) -> values.keys } }).allMatch {
+            it == mapOf(
+                "Plan" to setOf(ResearchCapability.SUB_QUESTIONS),
+                "Gather" to setOf(ResearchCapability.RESULTS_PER_QUERY, ResearchCapability.MAX_SOURCES, ResearchCapability.MAX_PAGES_PER_SOURCE),
+                "Follow up" to setOf(ResearchCapability.BREADTH, ResearchCapability.DEPTH),
+                "Write" to emptySet(),
+                "Save" to emptySet(),
+            )
         }
-        assertThat(knobs.first().getValue(ResearchCapability.DEPTH)).isEqualTo(1)
+        // The modes' numbers: sub-questions, breadth, depth, results per query, sources, pages per source.
+        val numbers = knobs.map { steps ->
+            val all = steps.values.fold(emptyMap<String, Int>()) { one, other -> one + other }
+            listOf(
+                ResearchCapability.SUB_QUESTIONS, ResearchCapability.BREADTH, ResearchCapability.DEPTH,
+                ResearchCapability.RESULTS_PER_QUERY, ResearchCapability.MAX_SOURCES, ResearchCapability.MAX_PAGES_PER_SOURCE,
+            ).map { all.getValue(it) }
+        }
+        assertThat(numbers).containsExactly(listOf(3, 0, 1, 3, 8, 1), listOf(5, 2, 2, 4, 20, 2), listOf(6, 4, 3, 5, 50, 3))
+    }
+
+    /* ------------------------------------------------------------ upgrade --- */
+
+    @Test
+    fun `a mode workflow still as it was first seeded, one node, is redrawn as the five steps with the same numbers`() {
+        val medium = modeWorkflow("MEDIUM")
+        legacy(medium, mapOf(SUB to 5, BREADTH to 2, DEPTH to 2, RESULTS to 4, SOURCES to 20, PAGES to 2))
+
+        researchModes.ensure(workspaceId)
+
+        val drawn = nodes.findByWorkflowId(medium).sortedBy { it.positionX }
+        assertThat(drawn.map { it.name }).containsExactly("Plan", "Gather", "Follow up", "Write", "Save")
+        assertThat(drawn.flatMap { it.mappings }.filter { it.mode == MappingMode.VALUE }.associate { it.name to it.expression })
+            .containsExactlyInAnyOrderEntriesOf(
+                mapOf(SUB to "5", BREADTH to "2", DEPTH to "2", RESULTS to "4", SOURCES to "20", PAGES to "2"),
+            )
+        assertThat(edges.findByWorkflowId(medium)).hasSize(4)
+
+        // And it runs as the steps.
+        val modelId = model(serve())
+        val done = settled(
+            start("""{ workspaceId: $workspaceId, question: "Why are there tides?", modeId: ${modeId("MEDIUM")}, modelId: $modelId, language: FORMAL, outputFormat: DOCUMENT }"""),
+        )
+        assertThat(done.status).describedAs(done.error).isEqualTo(ResearchStatus.COMPLETED)
+        assertThat(stepsOf(done)).containsExactly("plan", "gather", "followUp", "write", "save")
+    }
+
+    @Test
+    fun `a mode workflow somebody edited is left as it is, and still runs in one step`() {
+        val shallow = modeWorkflow("SHALLOW")
+        // Shallow's numbers, but one source rather than eight: somebody's own.
+        legacy(shallow, mapOf(SUB to 3, BREADTH to 0, DEPTH to 1, RESULTS to 3, SOURCES to 1, PAGES to 1))
+
+        researchModes.ensure(workspaceId)
+
+        val kept = nodes.findByWorkflowId(shallow).single()
+        assertThat(kept.nodeKey).isEqualTo("research")
+        assertThat(kept.mappings.single { it.name == SOURCES }.expression).isEqualTo("1")
+
+        val modelId = model(serve())
+        val done = settled(
+            start("""{ workspaceId: $workspaceId, question: "Why are there tides?", modeId: ${modeId("SHALLOW")}, modelId: $modelId, language: FORMAL, outputFormat: DOCUMENT }"""),
+        )
+        assertThat(done.status).describedAs(done.error).isEqualTo(ResearchStatus.COMPLETED)
+        assertThat(web.read).hasSize(1)
+        assertThat(stepsOf(done)).containsExactly("research")
+        // Saved when the run ended, as it always was.
+        assertThat(saved.findByIdOrNull(requireNotNull(done.artifactId))!!.name).isEqualTo("tides.md")
+        assertThat(researches.findByIdOrNull(requireNotNull(done.id))!!.progress).contains("\"step\":\"Finished\"")
+    }
+
+    @Test
+    fun `a mode workflow whose node was renamed is not redrawn either`() {
+        val deep = modeWorkflow("DEEP")
+        legacy(deep, mapOf(SUB to 6, BREADTH to 4, DEPTH to 3, RESULTS to 5, SOURCES to 50, PAGES to 3))
+        val node = nodes.findByWorkflowId(deep).single()
+        node.name = "Dig"
+        nodes.save(node)
+
+        researchModes.ensure(workspaceId)
+        assertThat(nodes.findByWorkflowId(deep).map { it.name }).containsExactly("Dig")
     }
 
     @Test
@@ -147,7 +258,8 @@ class ResearchTest(
 
         // As a copied workspace arrives: the workflows and the action there, no modes.
         assertThat(modesOf().map { it["workflowId"]?.toString()?.toLong() }).isEqualTo(before)
-        assertThat(actions.findByWorkspaceId(workspaceId).filter { it.name.startsWith(ResearchModes.ACTION_NAME) }).hasSize(1)
+        assertThat(actions.findByWorkspaceId(workspaceId).filter { it.name.startsWith(ResearchModes.ACTION_NAME) }.map { it.name })
+            .containsExactlyInAnyOrder("Research: Plan", "Research: Gather", "Research: Follow up", "Research: Write", "Research: Save")
         assertThat(modesOf()).hasSize(3)
     }
 
@@ -185,6 +297,10 @@ class ResearchTest(
         ).execute()
         view.path("research.progress.subQuestions").entityList(String::class.java).containsExactly("tide causes", "tide timing", "tide records")
         view.path("research.progress.step").entity(String::class.java).isEqualTo("Finished")
+        // Five steps ran, one node each, and the page was told which one it was in.
+        assertThat(stepsOf(done)).containsExactly("plan", "gather", "followUp", "write", "save")
+        graphQlTester.document("""query { research(id: $id) { progress { stage } } }""").execute()
+            .path("research.progress.stage").entity(String::class.java).isEqualTo("SAVE")
         val urls = view.path("research.sources[*].url").entityList(String::class.java).get()
         assertThat(urls).isNotEmpty().allMatch { it.startsWith("https://") && !it.contains("tabloid") }
         // At most three results a query and eight sources, as Shallow's node says.
@@ -237,8 +353,8 @@ class ResearchTest(
         ).execute().path("createResearchMode.workflowId").entity(Long::class.java).get()
         assertThat(workflows.findByIdOrNull(copied)!!.hidden).isTrue()
 
-        // Written on the copy's node, the way somebody would in the editor.
-        val node = nodes.findByWorkflowId(copied).single()
+        // Written on the copy's Gather node, the way somebody would in the editor.
+        val node = nodes.findByWorkflowId(copied).single { it.nodeKey == ResearchModes.GATHER }
         node.mappings.single { it.name == ResearchCapability.MAX_SOURCES }.expression = "1"
         nodes.save(node)
 
@@ -346,6 +462,16 @@ class ResearchTest(
         assertThat(orknux.run(reading, "orknux_start_research", """{"question":"Tides"}""")).contains("may read")
         assertThat(orknux.run(scope, "orknux_start_research", """{"question":"Tides","mode":"Galactic"}"""))
             .contains("There is no research mode called Galactic")
+        assertThat(orknux.run(scope, "orknux_start_research", """{"question":"Tides","webSearch":false}"""))
+            .contains("Without web search, pick documents or websites to read")
+
+        // Left out, the model is the workspace's chat model: a research always has one.
+        val unnamed = mapper.readTree(
+            orknux.run(scope, "orknux_start_research", """{"question":"Tides","sitesInclude":["one.example.org"],"webSearch":false}"""),
+        )
+        val second = settled(unnamed.path("started").asLong())
+        assertThat(second.modelId).isEqualTo(modelId)
+        assertThat(second.useWebSearch).isFalse()
     }
 
     @Test
@@ -360,13 +486,49 @@ class ResearchTest(
         assertThat(store.open(file.location).use { it.readNBytes(4) }).isEqualTo("%PDF".toByteArray())
     }
 
+    /** No step of a mode's workflow holds a model, so a research without one is refused rather than run to fail. */
     @Test
-    fun `a research with no model to use says so`() {
-        val done = settled(
-            start("""{ workspaceId: $workspaceId, question: "Tides", modeId: ${modeId("SHALLOW")}, language: FORMAL, outputFormat: DOCUMENT }"""),
+    fun `a research is not started without a model`() {
+        refused("""{ workspaceId: $workspaceId, question: "Tides", modeId: ${modeId("SHALLOW")}, language: FORMAL, outputFormat: DOCUMENT }""", "ResearchModelMissing")
+        assertThat(researches.findAll().filter { it.workspaceId == workspaceId }).isEmpty()
+    }
+
+    /* --------------------------------------------------------- web search --- */
+
+    @Test
+    fun `without web search a research reads only its documents and the websites it keeps to, and searches nothing`() {
+        val notes = document("notes.md", "The harbour master logs a spring tide every fortnight.")
+        val modelId = model(serve())
+
+        val id = start(
+            """{ workspaceId: $workspaceId, question: "How often are spring tides?", modeId: ${modeId("MEDIUM")}, modelId: $modelId,
+                 language: FORMAL, outputFormat: DOCUMENT, useWebSearch: false, documentsInclude: [$notes],
+                 websitesInclude: ["harbour.example.org/tides", "https://tabloid.example/gossip"], websitesExclude: ["tabloid.example"] }""",
         )
-        assertThat(done.status).isEqualTo(ResearchStatus.FAILED)
-        assertThat(done.error).contains("needs a chat model")
+        val done = settled(id)
+        assertThat(done.status).describedAs(done.error).isEqualTo(ResearchStatus.COMPLETED)
+        assertThat(done.useWebSearch).isFalse()
+
+        // No search at all, not even a follow-up one at Medium's depth; the website kept to is read where it was typed.
+        assertThat(web.searched).isEmpty()
+        assertThat(asked(FOLLOW_UP)).isEmpty()
+        assertThat(web.read).containsExactly("https://harbour.example.org/tides")
+        assertThat(asked(WRITE).single()).contains("/api/artifacts/$notes").contains("https://harbour.example.org/tides")
+        graphQlTester.document("""query { research(id: $id) { useWebSearch sources { url } } }""").execute()
+            .path("research.useWebSearch").entity(Boolean::class.java).isEqualTo(false)
+            .path("research.sources[*].url").entityList(String::class.java)
+            .containsExactly("/api/artifacts/$notes", "https://harbour.example.org/tides")
+    }
+
+    @Test
+    fun `without web search, documents or websites, there is nothing to read and the start is refused`() {
+        val modelId = model(serve())
+        refused(
+            """{ workspaceId: $workspaceId, question: "Tides", modeId: ${modeId("SHALLOW")}, modelId: $modelId, language: FORMAL,
+                 outputFormat: PDF, useWebSearch: false, websitesExclude: ["tabloid.example"] }""",
+            "ResearchNothingToRead",
+        )
+        assertThat(researches.findAll().filter { it.workspaceId == workspaceId }).isEmpty()
     }
 
     @Test
@@ -456,6 +618,40 @@ class ResearchTest(
             .execute().path("researchModes").entity(List::class.java).get() as List<Map<String, Any?>>
 
     private fun modeId(kind: String): Long = (modesOf().first { it["kind"] == kind }["id"] as String).toLong()
+
+    private fun modeWorkflow(kind: String): Long = (modesOf().first { it["kind"] == kind }["workflowId"] as String).toLong()
+
+    /** The nodes a research's run went through, in order. */
+    private fun stepsOf(research: Research): List<String> =
+        runSteps.findByExecutionIdOrderByOrderAsc(requireNotNull(research.executionId)).map { it.nodeKey }
+
+    /**
+     * A mode's workflow as it was seeded before the steps were nodes: one node
+     * calling `research_run` through an action called Research, with the
+     * request read off the run by name and the numbers given.
+     */
+    private fun legacy(workflowId: Long, knobs: Map<String, Int>) {
+        edges.deleteAll(edges.findByWorkflowId(workflowId))
+        nodes.deleteAll(nodes.findByWorkflowId(workflowId))
+        val function = requireNotNull(functions.findByScopeAndName(FunctionScope.EMBEDDED, ResearchCapability.FUNCTION_NAME))
+        val action = actions.findByWorkspaceIdAndName(workspaceId, ResearchModes.ACTION_NAME) ?: actions.save(
+            WorkflowAction(
+                workspaceId = workspaceId, name = ResearchModes.ACTION_NAME, type = ActionType.EXECUTE,
+                subtype = ActionSubtype.FUNCTION, functionId = function.id,
+            ),
+        )
+        val request = listOf("research", "question", "language", "model", "websitesInclude", "websitesExclude", "documentsInclude", "documentsExclude")
+        nodes.save(
+            WorkflowNode(
+                workflowId = workflowId, nodeKey = "research", kind = NodeKind.ACTION, name = "Research",
+                actionId = action.id, outputName = "research", positionX = 0.0, positionY = 0.0,
+                mappings = (
+                    request.map { NodeMapping(name = it, expression = it, mode = MappingMode.REFERENCE) } +
+                        knobs.map { (name, value) -> NodeMapping(name = name, expression = value.toString(), mode = MappingMode.VALUE) }
+                    ).toMutableList(),
+            ),
+        )
+    }
 
     private fun listed(showHidden: Boolean, search: String? = null): List<String> {
         val looking = search?.let { ", search: \"$it\"" }.orEmpty()
@@ -557,6 +753,12 @@ class ResearchTest(
     }
 
     private companion object {
+        const val SUB = ResearchCapability.SUB_QUESTIONS
+        const val BREADTH = ResearchCapability.BREADTH
+        const val DEPTH = ResearchCapability.DEPTH
+        const val RESULTS = ResearchCapability.RESULTS_PER_QUERY
+        const val SOURCES = ResearchCapability.MAX_SOURCES
+        const val PAGES = ResearchCapability.MAX_PAGES_PER_SOURCE
         const val PLAN = ResearchPipeline.PLAN
         const val NOTES = ResearchPipeline.NOTES
         const val FOLLOW_UP = ResearchPipeline.FOLLOW_UP

@@ -9,24 +9,25 @@ import io.mszymanski.orknux.server.workflow.SavedArtifactRepository
 import org.slf4j.LoggerFactory
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
+import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 import java.net.URI
 
 /**
- * How far a research digs: what a mode's workflow sets on its Research node.
- * Issue #659.
+ * How far a research digs: the knobs of its steps, which a mode's workflow
+ * writes on each step's node. Issue #659.
  *
- * @param subQuestions how many parts the question is broken into first.
+ * @param subQuestions how many parts the question is broken into first. Plan's.
  * @param breadth how many follow-up questions one finding leads to, at the
  *   first level below the plan; halved at each level after, as gpt-researcher
- *   narrows its deep mode.
+ *   narrows its deep mode. Follow up's.
  * @param depth how many levels of searching there are; 1 is the plan's own
- *   questions and nothing after.
- * @param resultsPerQuery how many of a search's results are looked at.
+ *   questions and nothing after. Follow up's.
+ * @param resultsPerQuery how many of a search's results are looked at. Gather's.
  * @param maxSources the most sources read in all; the research stops looking
- *   when it has this many.
+ *   when it has this many. Gather's.
  * @param maxPagesPerSource how many pages are read of one source: addresses on
- *   one website, or pages of one document.
+ *   one website, or pages of one document. Gather's.
  */
 data class ResearchKnobs(
     val subQuestions: Int,
@@ -35,21 +36,31 @@ data class ResearchKnobs(
     val resultsPerQuery: Int,
     val maxSources: Int,
     val maxPagesPerSource: Int,
-)
+) {
+    val limits get() = ResearchLimits(resultsPerQuery, maxSources, maxPagesPerSource)
+}
 
-/** Everything one research is asked, as the pipeline takes it. */
+/**
+ * How much a research reads. Set on Gather and handed on with what it
+ * gathered, so Follow up keeps to the same numbers without a second copy of
+ * them on its own node to disagree with the first.
+ */
+data class ResearchLimits(val resultsPerQuery: Int, val maxSources: Int, val maxPagesPerSource: Int)
+
+/** Everything one research is asked, as every step takes it. */
 data class ResearchAsked(
     val workspaceId: Long,
-    /** The research row to keep up to date, or null for a run of the function on its own. */
+    /** The research row to keep up to date, or null for a run of the functions on their own. */
     val researchId: Long?,
     val question: String,
     val language: ResearchLanguage,
     val modelId: Long,
-    val websitesInclude: List<String>,
-    val websitesExclude: List<String>,
-    val documentsInclude: List<Long>,
-    val documentsExclude: List<Long>,
-    val knobs: ResearchKnobs,
+    val websitesInclude: List<String> = emptyList(),
+    val websitesExclude: List<String> = emptyList(),
+    val documentsInclude: List<Long> = emptyList(),
+    val documentsExclude: List<Long> = emptyList(),
+    /** Whether to search the web; off, only the documents and the websites to keep to are read. */
+    val webSearch: Boolean = true,
 )
 
 /** One source the report may cite, numbered as it cites it. */
@@ -63,6 +74,35 @@ data class ResearchSource(
     val notes: String,
 )
 
+/** One query searched, and the sources it led to by number: what a follow-up question is asked from. */
+data class ResearchFinding(val query: String, val sources: List<Int>)
+
+/**
+ * What Gather hands Follow up, and Follow up hands Write: everything read so
+ * far, and enough of how it was read for the next step to go on from there
+ * rather than start again - what was searched, which addresses were taken,
+ * how many pages of each website, and what the deepest level found.
+ */
+data class ResearchGathered(
+    val sources: List<ResearchSource>,
+    val findings: List<ResearchFinding>,
+    val searched: List<String>,
+    val seen: List<String>,
+    val pages: Map<String, Int>,
+    /** The deepest level searched; 1 is the plan's own queries. */
+    val level: Int,
+    val limits: ResearchLimits,
+)
+
+/** Which of a mode workflow's steps a research is in. */
+enum class ResearchStage {
+    PLAN,
+    GATHER,
+    FOLLOW_UP,
+    WRITE,
+    SAVE,
+}
+
 /** Where a research has got to, as the page draws it. */
 data class ResearchProgress(
     val step: String,
@@ -70,6 +110,8 @@ data class ResearchProgress(
     val searched: List<String> = emptyList(),
     val level: Int = 0,
     val sourcesRead: Int = 0,
+    /** The step doing it; null on a progress written before the steps were nodes. */
+    val stage: ResearchStage? = null,
 )
 
 /** What a research came to. */
@@ -79,27 +121,32 @@ data class ResearchFound(val report: String, val sources: List<ResearchSource>)
 class ResearchModelFailedException(reason: String) : RuntimeException(reason)
 
 /**
- * A research, done: plan, gather, go deeper, write. Issue #659.
+ * A research, in the steps a mode's workflow draws: plan, gather, follow up,
+ * write - and save, which [ResearchDelivery] does. Issue #659.
  *
  * The shape gpt-researcher and Perplexica's deep mode share, written out here
- * so every knob of it is one a mode's workflow sets:
+ * so every knob of it is one a step's node sets:
  *
  * 1. **Plan.** The model breaks the question into [ResearchKnobs.subQuestions]
  *    search queries.
- * 2. **Gather.** Each query is searched with the workspace's own search, the
- *    websites to keep to and to avoid applied to what comes back; every page
- *    kept is read, and the model condenses what it says about the question
- *    into notes held with its title and address. The documents asked for are
- *    read the same way, a page at a time.
- * 3. **Deeper.** Below the first level, each finding leads to follow-up
- *    questions - [ResearchKnobs.breadth] of them, halving at each level - to
- *    [ResearchKnobs.depth] levels, the recursion gpt-researcher's deep mode is.
+ * 2. **Gather.** The documents asked for are read, a page at a time; then each
+ *    query is searched with the workspace's own search, the websites to keep
+ *    to and to avoid applied to what comes back; every page kept is read, and
+ *    the model condenses what it says about the question into notes held with
+ *    its title and address.
+ * 3. **Follow up.** Each finding leads to follow-up questions -
+ *    [ResearchKnobs.breadth] of them, halving at each level - searched and
+ *    read the same way, to [ResearchKnobs.depth] levels: the recursion
+ *    gpt-researcher's deep mode is. At depth 1 it hands on what it was given.
  * 4. **Write.** The model writes the report from the notes alone, citing them
  *    as [n] against a numbered Sources list, in the register asked for. The
  *    list is the pipeline's, not the model's, so it is always there and always
  *    right.
  *
- * Every step is written to the research as it is taken, which is what the page
+ * Each step is a function of its own - see [ResearchCapability] - and hands the
+ * next what it found through the run, the way any node hands on its output.
+ * [run] is the four in one call, which is what `research_run` still is. Every
+ * step is written to the research as it is taken, which is what the page
  * shows while it runs and what a finished research keeps.
  */
 @Component
@@ -115,90 +162,125 @@ class ResearchPipeline(
 
     private val log = LoggerFactory.getLogger(javaClass)
 
-    fun run(asked: ResearchAsked): ResearchFound {
-        val tracker = Tracker(asked.researchId)
-        val knobs = asked.knobs
-        val sources = mutableListOf<ResearchSource>()
+    /** All four steps, one after another: what `research_run` does. */
+    fun run(asked: ResearchAsked, knobs: ResearchKnobs): ResearchFound {
+        val plan = plan(asked, knobs.subQuestions)
+        val gathered = gather(asked, plan, knobs.limits)
+        val deepened = followUp(asked, gathered, knobs.breadth, knobs.depth)
+        val found = write(asked, deepened)
+        note(asked.researchId, ResearchStage.WRITE, "Finished")
+        return found
+    }
 
-        // --- plan ---------------------------------------------------------
+    /** Plan: the question as [subQuestions] search queries. */
+    fun plan(asked: ResearchAsked, subQuestions: Int): List<String> {
+        val tracker = Tracker(asked.researchId, ResearchStage.PLAN)
         tracker.step("Planning the research")
         val plan = listFrom(
             ask(asked, PLAN, buildString {
                 appendLine("Question: ${asked.question}")
-                append("Write exactly ${knobs.subQuestions} search queries.")
+                append("Write exactly $subQuestions search queries.")
             }),
-        ).take(knobs.subQuestions).ifEmpty { listOf(asked.question) }
+        ).take(subQuestions).ifEmpty { listOf(asked.question) }
         tracker.planned(plan)
+        return plan
+    }
 
-        // --- documents ----------------------------------------------------
+    /** Gather: the documents asked for, then every query searched and what it found read - the first level. */
+    fun gather(asked: ResearchAsked, queries: List<String>, limits: ResearchLimits): ResearchGathered {
+        val tracker = Tracker(asked.researchId, ResearchStage.GATHER)
+        val reading = Reading(limits)
+
         val held = saved.findAllById(asked.documentsInclude).filter { it.workspaceId == asked.workspaceId }
         for (document in held) {
-            if (sources.size >= knobs.maxSources) break
+            if (reading.full) break
             tracker.step("Reading ${document.name}")
             val text = documents.text(document)?.trim().orEmpty()
             if (text.isEmpty()) continue
-            val pages = text.chunked(tuning[Tunable.RESEARCH_PAGE_CHARACTERS]).take(knobs.maxPagesPerSource)
+            val pages = text.chunked(tuning[Tunable.RESEARCH_PAGE_CHARACTERS]).take(limits.maxPagesPerSource)
             val notes = noted(asked, asked.question, document.name, pages.joinToString("\n\n")) ?: continue
-            sources += ResearchSource(sources.size + 1, document.name, "/api/artifacts/${document.id}", "DOCUMENT", notes)
-            tracker.read(sources)
+            reading.sources += ResearchSource(reading.sources.size + 1, document.name, "/api/artifacts/${document.id}", "DOCUMENT", notes)
+            tracker.read(reading.sources)
         }
 
-        // --- gather, and deeper ------------------------------------------
-        val excludedDocuments = saved.findAllById(asked.documentsExclude).map { it.name }
-        val seen = mutableSetOf<String>()
-        val pagesOf = mutableMapOf<String, Int>()
-        var level = 1
-        var queries = plan
-        while (queries.isNotEmpty() && level <= knobs.depth && sources.size < knobs.maxSources) {
-            val next = mutableListOf<String>()
-            val asksOnward = level < knobs.depth
-            val followUps = maxOf(1, knobs.breadth shr (level - 1))
-            for (query in queries) {
-                if (sources.size >= knobs.maxSources) break
-                tracker.searching(query, level)
-                val found = web.search(asked.workspaceId, scoped(query, asked.websitesInclude), knobs.resultsPerQuery)
-                    .getOrElse { why ->
-                        tracker.step("The search answered: ${why.message}")
-                        emptyList()
-                    }
-                val learnt = mutableListOf<String>()
-                for (hit in found.take(knobs.resultsPerQuery)) {
-                    if (sources.size >= knobs.maxSources) break
-                    val host = hostOf(hit.url) ?: continue
-                    if (!allowed(host, asked.websitesInclude, asked.websitesExclude)) continue
-                    if (!seen.add(hit.url)) continue
-                    if ((pagesOf[host] ?: 0) >= knobs.maxPagesPerSource) continue
-                    pagesOf[host] = (pagesOf[host] ?: 0) + 1
+        if (!asked.webSearch) {
+            visit(asked, reading, tracker)
+            return reading.gathered(emptyList(), level = 1)
+        }
+        val findings = search(asked, reading, queries.distinct(), level = 1, tracker)
+        return reading.gathered(findings, level = 1)
+    }
 
-                    tracker.step("Reading ${hit.title}")
-                    val page = when (val read = web.read(asked.workspaceId, hit.url)) {
-                        is PageRead.Read -> read.text
-                        // A page that cannot be fetched still has what the search said of it.
-                        is PageRead.Unread -> hit.snippet
-                    }.take(tuning[Tunable.RESEARCH_PAGE_CHARACTERS])
-                    if (page.isBlank()) continue
-                    val notes = noted(asked, query, hit.title, page) ?: continue
-                    sources += ResearchSource(sources.size + 1, hit.title, hit.url, "WEB", notes)
-                    learnt += notes
-                    tracker.read(sources)
-                }
-                if (asksOnward && learnt.isNotEmpty()) {
-                    next += listFrom(
-                        ask(asked, FOLLOW_UP, buildString {
-                            appendLine("Question: ${asked.question}")
-                            appendLine("Query searched: $query")
-                            appendLine("What was learnt:")
-                            appendLine(learnt.joinToString("\n\n"))
-                            append("Write exactly $followUps follow-up search queries.")
-                        }),
-                    ).take(followUps)
-                }
+    /**
+     * Without web search: each website to keep to read at the address it was
+     * typed as, with no search asked for. What it finds leads nowhere further,
+     * because a follow-up question is a search.
+     */
+    private fun visit(asked: ResearchAsked, reading: Reading, tracker: Tracker) {
+        for (entry in asked.websitesInclude) {
+            if (reading.full) break
+            val url = entry.trim().let { if ("://" in it) it else "https://$it" }
+            val host = hostOf(url) ?: continue
+            if (!allowed(host, emptyList(), asked.websitesExclude)) continue
+            if (!reading.seen.add(url)) continue
+            if ((reading.pages[host] ?: 0) >= reading.limits.maxPagesPerSource) continue
+            reading.pages[host] = (reading.pages[host] ?: 0) + 1
+
+            tracker.step("Reading $url")
+            val read = web.read(asked.workspaceId, url) as? PageRead.Read ?: continue
+            val page = read.text.take(tuning[Tunable.RESEARCH_PAGE_CHARACTERS])
+            if (page.isBlank()) continue
+            val title = read.title?.trim()?.ifEmpty { null } ?: host
+            val notes = noted(asked, asked.question, title, page) ?: continue
+            reading.sources += ResearchSource(reading.sources.size + 1, title, url, "WEB", notes)
+            tracker.read(reading.sources)
+        }
+    }
+
+    /**
+     * Follow up: from each finding, [breadth] follow-up questions - halved at
+     * every level after the first below the plan - searched and read, down to
+     * [depth] levels in all. What was gathered is handed back as it was where
+     * there is nothing deeper to go.
+     */
+    fun followUp(asked: ResearchAsked, gathered: ResearchGathered, breadth: Int, depth: Int): ResearchGathered {
+        val reading = Reading(gathered)
+        var findings = gathered.findings
+        var level = gathered.level + 1
+        if (!asked.webSearch || level > depth || findings.isEmpty() || reading.full) return gathered
+
+        val tracker = Tracker(asked.researchId, ResearchStage.FOLLOW_UP)
+        while (level <= depth && findings.isNotEmpty() && !reading.full) {
+            val followUps = maxOf(1, breadth shr (level - 2))
+            tracker.step("Asking follow-up questions")
+            val next = findings.flatMap { finding ->
+                val learnt = finding.sources.mapNotNull { number -> reading.sources.firstOrNull { it.number == number }?.notes }
+                if (learnt.isEmpty()) return@flatMap emptyList()
+                listFrom(
+                    ask(asked, FOLLOW_UP, buildString {
+                        appendLine("Question: ${asked.question}")
+                        appendLine("Query searched: ${finding.query}")
+                        appendLine("What was learnt:")
+                        appendLine(learnt.joinToString("\n\n"))
+                        append("Write exactly $followUps follow-up search queries.")
+                    }),
+                ).take(followUps)
             }
-            queries = next.distinct().filter { it !in tracker.searched }
+            val queries = next.distinct().filter { it !in reading.searched }
+            if (queries.isEmpty()) break
+            findings = search(asked, reading, queries, level, tracker)
             level += 1
         }
+        return reading.gathered(findings, level = level - 1)
+    }
 
-        // --- write --------------------------------------------------------
+    /** Write: the report from the notes, citing them, with the numbered list of sources after it. */
+    fun write(asked: ResearchAsked, gathered: ResearchGathered): ResearchFound {
+        val tracker = Tracker(asked.researchId, ResearchStage.WRITE)
+        val sources = gathered.sources
+        val excludedDocuments = saved.findAllById(asked.documentsExclude)
+            .filter { it.workspaceId == asked.workspaceId }
+            .map { it.name }
         tracker.step("Writing the report")
         val written = ask(asked, WRITE, buildString {
             appendLine("Question: ${asked.question}")
@@ -218,8 +300,83 @@ class ResearchPipeline(
             }
         })
         val report = withSources(written.trim(), sources)
-        tracker.step("Finished")
+        tracker.step("Report written")
         return ResearchFound(report, sources)
+    }
+
+    /** Says a step on the research where there is one: what [ResearchDelivery] writes while it saves. */
+    fun note(researchId: Long?, stage: ResearchStage, said: String) {
+        Tracker(researchId, stage).step(said)
+    }
+
+    /**
+     * One level of searching: every query searched, what it found read and
+     * noted, until the research has as many sources as it may. Answers what
+     * each query led to, which is what the next level is asked from.
+     */
+    private fun search(
+        asked: ResearchAsked,
+        reading: Reading,
+        queries: List<String>,
+        level: Int,
+        tracker: Tracker,
+    ): List<ResearchFinding> {
+        val limits = reading.limits
+        val findings = mutableListOf<ResearchFinding>()
+        for (query in queries) {
+            if (reading.full) break
+            reading.searched += query
+            tracker.searching(reading.searched, level)
+            val found = web.search(asked.workspaceId, scoped(query, asked.websitesInclude), limits.resultsPerQuery)
+                .getOrElse { why ->
+                    tracker.step("The search answered: ${why.message}")
+                    emptyList()
+                }
+            val learnt = mutableListOf<Int>()
+            for (hit in found.take(limits.resultsPerQuery)) {
+                if (reading.full) break
+                val host = hostOf(hit.url) ?: continue
+                if (!allowed(host, asked.websitesInclude, asked.websitesExclude)) continue
+                if (!reading.seen.add(hit.url)) continue
+                if ((reading.pages[host] ?: 0) >= limits.maxPagesPerSource) continue
+                reading.pages[host] = (reading.pages[host] ?: 0) + 1
+
+                tracker.step("Reading ${hit.title}")
+                val page = when (val read = web.read(asked.workspaceId, hit.url)) {
+                    is PageRead.Read -> read.text
+                    // A page that cannot be fetched still has what the search said of it.
+                    is PageRead.Unread -> hit.snippet
+                }.take(tuning[Tunable.RESEARCH_PAGE_CHARACTERS])
+                if (page.isBlank()) continue
+                val notes = noted(asked, query, hit.title, page) ?: continue
+                val source = ResearchSource(reading.sources.size + 1, hit.title, hit.url, "WEB", notes)
+                reading.sources += source
+                learnt += source.number
+                tracker.read(reading.sources)
+            }
+            if (learnt.isNotEmpty()) findings += ResearchFinding(query, learnt)
+        }
+        return findings
+    }
+
+    /** What one step has read so far, picked up where the step before it left off. */
+    private class Reading(val limits: ResearchLimits) {
+        val sources = mutableListOf<ResearchSource>()
+        val searched = mutableListOf<String>()
+        val seen = mutableSetOf<String>()
+        val pages = mutableMapOf<String, Int>()
+
+        constructor(gathered: ResearchGathered) : this(gathered.limits) {
+            sources += gathered.sources
+            searched += gathered.searched
+            seen += gathered.seen
+            pages += gathered.pages
+        }
+
+        val full get() = sources.size >= limits.maxSources
+
+        fun gathered(findings: List<ResearchFinding>, level: Int) =
+            ResearchGathered(sources.toList(), findings, searched.toList(), seen.toList(), pages.toMap(), level, limits)
     }
 
     /** The model's notes on one source, or null where it found nothing that bears on the question. */
@@ -276,18 +433,29 @@ class ResearchPipeline(
         }.trimEnd()
     }
 
-    /** Keeps the research row up to date, where there is one. */
-    private inner class Tracker(private val researchId: Long?) {
-        private var now = ResearchProgress(step = "Starting")
-        val searched = mutableListOf<String>()
+    /**
+     * Keeps the research row up to date, where there is one.
+     *
+     * Each step is a call of its own, so a tracker starts from what the row
+     * already says - the plan, what was searched, the sources - rather than
+     * from nothing, and the page goes on showing one research rather than
+     * five that each forgot the one before.
+     */
+    private inner class Tracker(private val researchId: Long?, stage: ResearchStage) {
+        private var now = ResearchProgress(step = "Starting", stage = stage)
         private var sources: List<ResearchSource> = emptyList()
+
+        init {
+            researchId?.let { researches.findByIdOrNull(it) }?.let { held ->
+                progressFrom(held.progress)?.let { now = it.copy(stage = stage) }
+                sources = sourcesFrom(held.foundSources)
+            }
+        }
 
         fun step(said: String) = write(now.copy(step = said))
         fun planned(plan: List<String>) = write(now.copy(step = "Planned ${plan.size} questions", subQuestions = plan))
-        fun searching(query: String, level: Int) {
-            searched += query
-            write(now.copy(step = "Searching: $query", searched = searched.toList(), level = level))
-        }
+        fun searching(searched: List<String>, level: Int) =
+            write(now.copy(step = "Searching: ${searched.last()}", searched = searched.toList(), level = level))
         fun read(found: List<ResearchSource>) {
             sources = found.toList()
             write(now.copy(sourcesRead = found.size))
@@ -300,6 +468,63 @@ class ResearchPipeline(
                 researches.noteProgress(id, mapper.writeValueAsString(next), mapper.writeValueAsString(sources))
             }.onFailure { log.warn("Could not note the progress of research {}", id, it) }
         }
+    }
+
+    /*
+     * Read as trees, here and below: the application's mapper does not bind a
+     * Kotlin constructor, and what an older server wrote should read as what
+     * it has rather than stop the research.
+     */
+    private fun progressFrom(held: String?): ResearchProgress? {
+        val read = held?.let { runCatching { mapper.readTree(it) }.getOrNull() }?.takeIf { it.isObject } ?: return null
+        fun texts(key: String) = read.path(key).mapNotNull { one -> one.takeIf { it.isTextual }?.stringValue() }
+        return ResearchProgress(
+            step = read.path("step").takeIf { it.isTextual }?.stringValue().orEmpty(),
+            subQuestions = texts("subQuestions"),
+            searched = texts("searched"),
+            level = read.path("level").takeIf { it.isNumber }?.intValue() ?: 0,
+            sourcesRead = read.path("sourcesRead").takeIf { it.isNumber }?.intValue() ?: 0,
+        )
+    }
+
+    private fun sourcesFrom(held: String?): List<ResearchSource> =
+        held?.let { runCatching { mapper.readTree(it) }.getOrNull() }?.takeIf { it.isArray }?.let(::sourcesOf).orEmpty()
+
+    /** What a step handed on, as the next one takes it; null where it is not that. */
+    fun gatheredFrom(node: JsonNode?): ResearchGathered? {
+        if (node == null || !node.isObject) return null
+        fun texts(key: String) = node.path(key).mapNotNull { one -> one.takeIf { it.isTextual }?.stringValue() }
+        fun number(at: JsonNode, key: String, default: Int) = at.path(key).takeIf { it.isNumber }?.intValue() ?: default
+        val limits = node.path("limits")
+        return ResearchGathered(
+            sources = sourcesOf(node.path("sources")),
+            findings = node.path("findings").mapNotNull { one ->
+                val query = one.path("query").takeIf { it.isTextual }?.stringValue() ?: return@mapNotNull null
+                ResearchFinding(query, one.path("sources").mapNotNull { n -> n.takeIf { it.isNumber }?.intValue() })
+            },
+            searched = texts("searched"),
+            seen = texts("seen"),
+            pages = node.path("pages").properties()
+                .mapNotNull { (host, n) -> n.takeIf { it.isNumber }?.let { host to it.intValue() } }
+                .toMap(),
+            level = number(node, "level", 1).coerceAtLeast(1),
+            limits = ResearchLimits(
+                resultsPerQuery = number(limits, "resultsPerQuery", 5).coerceAtLeast(1),
+                maxSources = number(limits, "maxSources", 10).coerceIn(1, tuning[Tunable.RESEARCH_SOURCES_MOST]),
+                maxPagesPerSource = number(limits, "maxPagesPerSource", 1).coerceAtLeast(1),
+            ),
+        )
+    }
+
+    private fun sourcesOf(list: JsonNode): List<ResearchSource> = list.mapNotNull { one ->
+        val url = one.path("url").takeIf { it.isTextual }?.stringValue() ?: return@mapNotNull null
+        ResearchSource(
+            number = one.path("number").takeIf { it.isNumber }?.intValue() ?: return@mapNotNull null,
+            title = one.path("title").takeIf { it.isTextual }?.stringValue() ?: url,
+            url = url,
+            kind = one.path("kind").takeIf { it.isTextual }?.stringValue() ?: "WEB",
+            notes = one.path("notes").takeIf { it.isTextual }?.stringValue().orEmpty(),
+        )
     }
 
     companion object {

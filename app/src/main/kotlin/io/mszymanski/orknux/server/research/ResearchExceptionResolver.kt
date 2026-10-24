@@ -21,6 +21,8 @@ class ResearchExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ResearchQuestionTooLongException,
             is ResearchModeWorkflowMissingException,
             is ResearchModelUnusableException,
+            is ResearchModelMissingException,
+            is ResearchNothingToReadException,
             is ResearchTooManyWebsitesException,
             is ResearchWebsiteTooLongException,
             is ResearchModeNameInvalidException,

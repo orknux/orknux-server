@@ -49,6 +49,15 @@ enum ResearchStatus {
     STOPPED
 }
 
+"Which step of a mode's workflow a research is in: its nodes, left to right."
+enum ResearchStage {
+    PLAN
+    GATHER
+    FOLLOW_UP
+    WRITE
+    SAVE
+}
+
 type ResearchMode {
     id: ID!
     kind: ResearchModeKind!
@@ -85,6 +94,8 @@ type Research {
     "By name."
     documentsInclude: [String!]!
     documentsExclude: [String!]!
+    "Whether it searches the web; off, it read only the documents and the websites to keep to."
+    useWebSearch: Boolean!
     status: ResearchStatus!
     "The run doing it; null for the moment before it starts."
     executionId: ID
@@ -117,6 +128,8 @@ type ResearchProgress {
     "How many levels down it is; 1 is the plan's own queries."
     level: Int!
     sourcesRead: Int!
+    "The step doing it; null on a research that ran before the steps were nodes, or in one step of its own."
+    stage: ResearchStage
 }
 
 type ResearchSource {
@@ -142,7 +155,7 @@ input StartResearchInput {
     workspaceId: ID!
     question: String!
     modeId: ID!
-    "The chat model that plans, reads and writes; absent leaves it to what the mode's workflow names."
+    "The chat model that plans, reads and writes; a start without one is refused."
     modelId: ID
     language: ResearchLanguage!
     outputFormat: ResearchOutputFormat!
@@ -154,6 +167,8 @@ input StartResearchInput {
     documentsInclude: [ID!]
     "Documents, by id, never to use."
     documentsExclude: [ID!]
+    "Whether to search the web; off reads only the documents and the websites to keep to. On when absent."
+    useWebSearch: Boolean
 }
 
 input CreateResearchModeInput {

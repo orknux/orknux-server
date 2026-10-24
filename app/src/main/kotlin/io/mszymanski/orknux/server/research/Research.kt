@@ -137,6 +137,13 @@ class Research(
     @Column(nullable = false, columnDefinition = "text")
     val sources: String,
 
+    /**
+     * Whether the research searches the web. Off, it reads only the documents
+     * picked and the pages of the websites to keep to, as they were typed.
+     */
+    @Column(name = "use_web_search", nullable = false)
+    val useWebSearch: Boolean = true,
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     var status: ResearchStatus = ResearchStatus.RUNNING,
@@ -209,4 +216,14 @@ interface ResearchRepository : JpaRepository<Research, Long> {
     @Transactional
     @Query("UPDATE Research r SET r.progress = :progress, r.foundSources = :sources WHERE r.id = :id")
     fun noteProgress(@Param("id") id: Long, @Param("progress") progress: String, @Param("sources") sources: String): Int
+
+    /**
+     * The file a research's Save step made, or why it could not make one -
+     * written as it happens, for the reason [attachRun] gives, and read by
+     * [ResearchRuns] at the end so the report is not saved a second time.
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE Research r SET r.artifactId = :artifactId, r.error = :error WHERE r.id = :id")
+    fun noteDelivered(@Param("id") id: Long, @Param("artifactId") artifactId: Long?, @Param("error") error: String?): Int
 }

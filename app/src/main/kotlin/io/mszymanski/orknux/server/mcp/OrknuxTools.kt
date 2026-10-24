@@ -794,7 +794,8 @@ class OrknuxTools(
                     parameters = listOf(
                         ToolParameterSpec("question", "What to research.", required = true),
                         ToolParameterSpec("mode", "A research mode's name: Shallow, Medium, Deep or one the workspace added. Shallow when left out.", required = false),
-                        ToolParameterSpec("model", "The chat model to research with: its name or id. Left out, the mode's own.", required = false),
+                        ToolParameterSpec("model", "The chat model to research with: its name or id. Left out, the workspace's first chat model.", required = false),
+                        ToolParameterSpec("webSearch", "Whether to search the web; false reads only the documents and sitesInclude. true when left out.", required = false),
                         ToolParameterSpec("sitesInclude", "Websites to keep to, as a list of hosts.", required = false, LIST),
                         ToolParameterSpec("sitesExclude", "Websites never to read, as a list of hosts.", required = false, LIST),
                         ToolParameterSpec("documentsInclude", "Ids of the workspace's documents to read.", required = false, LIST),
@@ -1963,11 +1964,13 @@ class OrknuxTools(
         } else {
             modes.firstOrNull { it.name.equals(asked, ignoreCase = true) || it.kind.name.equals(asked, ignoreCase = true) }
         } ?: return refuse("There is no research mode called ${asked ?: "Shallow"}; there are ${modes.joinToString(", ") { it.name }}")
+        val held = models.models(scope.workspaceId)
+        // A research always has its model; left out, the one the Research page offers first.
         val model = text(arguments, "model")?.trim()?.let { named ->
-            val held = models.models(scope.workspaceId)
             (named.toLongOrNull()?.let { id -> held.firstOrNull { it.id == id } } ?: held.firstOrNull { it.name.equals(named, ignoreCase = true) })
                 ?: return refuse("There is no model called $named here")
-        }
+        } ?: held.firstOrNull { it.kind == io.mszymanski.orknux.connector.model.ModelKind.CHAT }
+            ?: return refuse("There is no chat model in this workspace to research with")
         val register = text(arguments, "register")?.trim()?.uppercase()?.let { said ->
             ResearchLanguage.entries.firstOrNull { it.name == said } ?: return refuse("The register is ACADEMIC, COLLOQUIAL or FORMAL")
         } ?: ResearchLanguage.FORMAL
@@ -1986,13 +1989,14 @@ class OrknuxTools(
                     workspaceId = scope.workspaceId,
                     question = question,
                     modeId = mode.id,
-                    modelId = model?.id,
+                    modelId = model.id,
                     language = register,
                     outputFormat = output,
                     websitesInclude = strings(arguments, "sitesInclude"),
                     websitesExclude = strings(arguments, "sitesExclude"),
                     documentsInclude = documents.getValue("documentsInclude"),
                     documentsExclude = documents.getValue("documentsExclude"),
+                    useWebSearch = flag(arguments, "webSearch"),
                 ),
             )
         }
@@ -2019,6 +2023,7 @@ class OrknuxTools(
                 "question" to held.question,
                 "mode" to held.modeName,
                 "model" to held.modelName,
+                "webSearch" to held.useWebSearch,
                 "status" to held.status,
                 "step" to held.progress?.step,
                 "subQuestions" to held.progress?.subQuestions.orEmpty(),

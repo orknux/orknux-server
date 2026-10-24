@@ -146,6 +146,10 @@ class ResearchAPI(
             documentsInclude = included.map { requireNotNull(it.id) },
             documentsExclude = excluded.map { requireNotNull(it.id) },
         )
+        // A research always has its model: no step of a mode's workflow holds one of its own.
+        if (model == null) throw ResearchModelMissingException()
+        val useWebSearch = input.useWebSearch ?: true
+        if (!useWebSearch && included.isEmpty() && websitesInclude.isEmpty()) throw ResearchNothingToReadException()
 
         val research = researches.save(
             Research(
@@ -155,11 +159,12 @@ class ResearchAPI(
                 modeName = mode.name,
                 workflowId = requireNotNull(assignment.workflow.id),
                 workflowName = assignment.workflow.name,
-                modelId = model?.id,
-                modelName = model?.name,
+                modelId = model.id,
+                modelName = model.name,
                 language = input.language,
                 outputFormat = input.outputFormat,
                 sources = mapper.writeValueAsString(sources),
+                useWebSearch = useWebSearch,
                 startedBy = SecurityContextHolder.getContext().authentication?.name ?: "system",
             ),
         )
@@ -171,8 +176,8 @@ class ResearchAPI(
 
         /*
          * The request as the mode's workflow reads it: one field per thing
-         * asked, under the names `research_run` takes, so the seeded node
-         * points a parameter at each. The brief beside them says all of it in
+         * asked, under the names the research functions take, so each seeded
+         * step points a parameter at the ones it needs. The brief beside them says all of it in
          * prose, for a workflow somebody writes around an agent instead.
          */
         val payload = mapper.writeValueAsString(
@@ -181,13 +186,14 @@ class ResearchAPI(
                 ResearchCapability.QUESTION to question,
                 "mode" to mode.name,
                 ResearchCapability.LANGUAGE to input.language.name,
-                "outputFormat" to input.outputFormat.name,
-                ResearchCapability.MODEL to model?.id?.toString(),
+                ResearchCapability.OUTPUT_FORMAT to input.outputFormat.name,
+                ResearchCapability.MODEL to model.id.toString(),
                 ResearchCapability.WEBSITES_INCLUDE to websitesInclude,
                 ResearchCapability.WEBSITES_EXCLUDE to websitesExclude,
                 ResearchCapability.DOCUMENTS_INCLUDE to included.map { requireNotNull(it.id).toString() },
                 ResearchCapability.DOCUMENTS_EXCLUDE to excluded.map { requireNotNull(it.id).toString() },
-                ResearchModes.BRIEF to briefs.of(question, input.language, input.outputFormat, sources, included, excluded),
+                ResearchCapability.WEB_SEARCH to useWebSearch,
+                ResearchModes.BRIEF to briefs.of(question, input.language, input.outputFormat, sources, included, excluded, useWebSearch),
             ),
         )
         following.launch(research, payload)
@@ -316,6 +322,7 @@ class ResearchAPI(
             websitesExclude = list("websitesExclude"),
             documentsInclude = documents("documentsInclude"),
             documentsExclude = documents("documentsExclude"),
+            useWebSearch = research.useWebSearch,
             status = research.status,
             executionId = research.executionId,
             result = research.result,
@@ -345,6 +352,8 @@ class ResearchAPI(
             searched = texts("searched"),
             level = read.path("level").takeIf { it.isNumber }?.intValue() ?: 0,
             sourcesRead = read.path("sourcesRead").takeIf { it.isNumber }?.intValue() ?: 0,
+            stage = read.path("stage").takeIf { it.isTextual }
+                ?.let { runCatching { ResearchStage.valueOf(it.stringValue()) }.getOrNull() },
         )
     }
 
@@ -384,6 +393,8 @@ data class StartResearchInput(
     val websitesExclude: List<String>? = null,
     val documentsInclude: List<Long>? = null,
     val documentsExclude: List<Long>? = null,
+    /** Absent is on: a research searches the web unless told not to. */
+    val useWebSearch: Boolean? = null,
 )
 
 data class CreateResearchModeInput(
@@ -429,6 +440,7 @@ data class ResearchView(
     val websitesExclude: List<String>,
     val documentsInclude: List<String>,
     val documentsExclude: List<String>,
+    val useWebSearch: Boolean,
     val status: ResearchStatus,
     val executionId: Long?,
     val result: String?,
@@ -451,6 +463,7 @@ data class ResearchProgressView(
     val searched: List<String>,
     val level: Int,
     val sourcesRead: Int,
+    val stage: ResearchStage?,
 )
 
 data class ResearchSourceView(
@@ -486,6 +499,11 @@ class ResearchModeWorkflowMissingException(val mode: String) :
 }
 
 class ResearchModelUnusableException : RuntimeException("That model cannot be used for research in this workspace")
+
+class ResearchModelMissingException : RuntimeException("Choose the chat model to research with")
+
+class ResearchNothingToReadException :
+    RuntimeException("Without web search, pick documents or websites to read")
 
 class ResearchDocumentNotFoundException(val id: Long) :
     RuntimeException("No readable document with id $id in this workspace"), Refusal {
