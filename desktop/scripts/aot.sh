@@ -36,6 +36,10 @@ rm -rf resources/server/app
 "$JAVA" -Djarmode=tools -jar resources/server/app.jar extract \
     --destination resources/server/app --application-filename app.jar
 
+# Whole seconds, before the cache records them: it compares a jar's time to the tick, and the time put back after an
+# install (see aot-times.tsv below) is written in seconds - a fraction left here was a cache refused on every start.
+find resources/server/app -name '*.jar' -type f | while IFS= read -r jar; do touch -d "@$(stat -c %Y "$jar")" "$jar"; done
+
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 mkdir -p "$scratch/tmp" "$scratch/attachments"
@@ -64,4 +68,9 @@ there="$(native "$scratch")"
 ) || { tail -n 50 "$scratch/training.log" >&2; echo "the training start failed" >&2; exit 1; }
 
 [ -s resources/server/app/app.aot ] || { tail -n 50 "$scratch/training.log" >&2; echo "no AOT cache was written" >&2; exit 1; }
+
+# The cache refuses any jar whose timestamp moved, and an installer stamps every file with the time it was installed:
+# the 1.2.0 desktop started without it for exactly that. So the times are written down here, and server.js puts them back.
+(cd resources/server/app && find . -name '*.jar' -type f -printf '%T@\t%P\n' | sed 's/\.[0-9]*\t/\t/' > aot-times.tsv)
+[ -s resources/server/app/aot-times.tsv ] || { echo "no jar times were written" >&2; exit 1; }
 echo "aot: $(du -sh resources/server/app | cut -f1) at resources/server/app, cache $(du -h resources/server/app/app.aot | cut -f1)"

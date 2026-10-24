@@ -100,8 +100,50 @@ function launchOf(jar, imageJar) {
   if (path.resolve(jar) !== path.resolve(imageJar) || !fs.existsSync(path.join(unpacked, 'app.jar'))) {
     return { cwd: undefined, jar, options: [] };
   }
-  const cache = fs.existsSync(path.join(unpacked, 'app.aot')) ? ['-XX:AOTCache=app.aot'] : [];
+  const hasCache = fs.existsSync(path.join(unpacked, 'app.aot'));
+  if (hasCache) restoreTimes(unpacked);
+  const cache = hasCache ? ['-XX:AOTCache=app.aot'] : [];
   return { cwd: unpacked, jar: 'app.jar', options: cache };
+}
+
+/**
+ * Puts back the times the jars had when the cache was made.
+ *
+ * The JVM refuses a cache when a jar it was made from has another timestamp,
+ * and an installer - NSIS and the MSI alike - stamps every file with the time
+ * it was installed: the cache built for #650 was refused on the first install
+ * and every start took as long as before. scripts/aot.sh writes the times down
+ * as `seconds<TAB>path` beside the cache. A file that cannot be touched - an
+ * install somebody cannot write to - is left as it is, and the start goes on
+ * without the cache, as it would have anyway.
+ *
+ * @param {string} unpacked the unpacked server directory
+ * @returns {number} how many files had their time put back
+ */
+function restoreTimes(unpacked) {
+  let held;
+  try {
+    held = fs.readFileSync(path.join(unpacked, 'aot-times.tsv'), 'utf8');
+  } catch {
+    return 0;
+  }
+  let restored = 0;
+  for (const line of held.split(/\r?\n/)) {
+    const tab = line.indexOf('\t');
+    if (tab <= 0) continue;
+    const seconds = Number(line.slice(0, tab));
+    const file = path.join(unpacked, line.slice(tab + 1));
+    // Inside the directory only: the list is ours, but a path is still a path.
+    if (!Number.isFinite(seconds) || !path.resolve(file).startsWith(path.resolve(unpacked) + path.sep)) continue;
+    try {
+      if (Math.floor(fs.statSync(file).mtimeMs / 1000) === seconds) continue;
+      fs.utimesSync(file, seconds, seconds);
+      restored += 1;
+    } catch {
+      // Not writable, or gone: the JVM says so in the log and starts without the cache.
+    }
+  }
+  return restored;
 }
 
 class Server {
@@ -331,4 +373,4 @@ class Server {
   }
 }
 
-module.exports = { Server, launchOf };
+module.exports = { Server, launchOf, restoreTimes };
