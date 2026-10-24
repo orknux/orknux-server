@@ -145,7 +145,15 @@ class AgentBriefing(
             Chattiness.HIGH -> REPORT_EVERYTHING
         }
 
-        val instructions = skills.list(agent)
+        /*
+         * Only where the agent can read one. The server's own skills reach every
+         * agent, so this paragraph was written for one with the skill tools
+         * hidden too - the research writer, told to call skill_list, wrote the
+         * call out as its report. A model told of a tool it does not have
+         * believes it, and acts on it however it can.
+         */
+        val readsSkills = BuiltInTools.granted(agent, io.mszymanski.orknux.server.agent.SkillTool.LOAD.name)
+        val instructions = if (readsSkills) skills.list(agent) else emptyList()
 
         if (instructions.isNotEmpty()) {
             /*

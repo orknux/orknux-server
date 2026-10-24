@@ -442,6 +442,8 @@ class ResearchTest(
         assertThat(write).contains("Register: FORMAL").contains("Documents not to use: none").contains("[1] ").contains("The moon's gravity raises tides.")
         assertThat(modelOf(write)).isEqualTo("research-$stamp-Chosen")
         assertThat(toolsOf(write)).isEmpty()
+        // Nor told of any: a model told of skill_list it was not given wrote the call out as the report.
+        assertThat(asked(PLAN) + asked(WRITE)).allSatisfy { assertThat(it).doesNotContain("skill_list").doesNotContain("skill_load") }
         assertThat(asked(NOTES).map(::modelOf)).isNotEmpty().allMatch { it == "research-$stamp-Chosen" }
 
         val view = graphQlTester.document(
