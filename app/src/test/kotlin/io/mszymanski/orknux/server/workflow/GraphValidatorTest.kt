@@ -50,8 +50,9 @@ class GraphValidatorTest(
         edges.deleteAll()
         actions.deleteAll()
         conditions.deleteAll()
-        functions.deleteAll()
+        // A trigger names the function that checks its caller, so it goes first.
         triggers.deleteAll()
+        functions.deleteAll()
         assignments.deleteAll()
         workflows.deleteAll()
         audit.deleteAll()

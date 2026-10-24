@@ -306,6 +306,21 @@ enum class Tunable(
         "How many runs one schedule may start in one tick",
         "A schedule finer than the tick starts every occurrence that came due since the last one; past this many in one round the rest are dropped and a warning is logged.",
     ),
+    RESEARCH_DOCUMENT_CHARACTERS(
+        "research.document.characters", 200_000, 1_000, 5_000_000, TuningSection.WORKFLOWS, TuningUnit.CHARACTERS,
+        "How much of the chosen documents a research is handed",
+        "Counted across every document included in one research; the text past it is left out and the research is told so.",
+    ),
+    RESEARCH_SOURCES_MOST(
+        "research.sources.most", 100, 1, 1_000, TuningSection.WORKFLOWS, TuningUnit.ITEMS,
+        "The most sources one research may read",
+        "Whatever a mode's workflow asks for; each source read is a model call, so this bounds what one research costs.",
+    ),
+    RESEARCH_PAGE_CHARACTERS(
+        "research.page.characters", 20_000, 1_000, 500_000, TuningSection.WORKFLOWS, TuningUnit.CHARACTERS,
+        "How much of one page a research reads",
+        "One web page, or one page of a document; the rest is not read. The research's own pages-per-source decides how many.",
+    ),
 
     /* ---- Plugins and libraries ---- */
 

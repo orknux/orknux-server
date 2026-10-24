@@ -136,6 +136,8 @@ class ExecutionPlanner(
     private val metrics: WorkflowRunMetrics,
     /** How wide a run with splits may go; read once per plan. Issue #285. */
     private val concurrency: StepConcurrency,
+    /** Where [RunStarted] is told. Issue #659. */
+    private val published: org.springframework.context.ApplicationEventPublisher,
 ) {
 
     /**
@@ -219,6 +221,7 @@ class ExecutionPlanner(
         )
         val executionId = requireNotNull(execution.id)
         metrics.runStarted()
+        published.publishEvent(RunStarted(executionId))
 
         val recorded = steps.saveAll(
             order.mapIndexed { index, node ->
