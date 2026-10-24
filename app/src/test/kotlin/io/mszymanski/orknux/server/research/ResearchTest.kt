@@ -111,6 +111,8 @@ class ResearchTest(
         web.read.clear()
         web.refusing = null
         web.finding = true
+        web.searchedImages.clear()
+        web.fetchedImages.clear()
         retries.seen.clear()
         writerSilent = false
         // What createWorkspace does after its access check, so a test signed in as somebody else has one too.
@@ -809,6 +811,174 @@ class ResearchTest(
         assertThat(researches.findAll().filter { it.workspaceId == workspaceId }).isEmpty()
     }
 
+    /* ------------------------------------------------------------- images --- */
+
+    @Test
+    fun `a research not asked for images looks for none, fetches none and tells the writer of none`() {
+        val modelId = model(serve())
+        val id = start(
+            """{ workspaceId: $workspaceId, question: "Why are there tides?", modeId: ${modeId("SHALLOW")}, modelId: $modelId,
+                 language: FORMAL, outputFormat: PDF }""",
+        )
+        val done = settled(id)
+        assertThat(done.status).describedAs(done.error).isEqualTo(ResearchStatus.COMPLETED)
+        assertThat(done.includeImages).isFalse()
+        assertThat(web.searchedImages).isEmpty()
+        assertThat(web.fetchedImages).isEmpty()
+        assertThat(done.foundImages).isNull()
+        assertThat(asked(WRITE).single()).doesNotContain("Images you may place")
+        assertThat(saved.findByWorkspaceId(workspaceId).map { it.contentType }).noneMatch { it.startsWith("image/") }
+        graphQlTester.document("""query { research(id: $id) { includeImages images { number } } }""").execute()
+            .path("research.includeImages").entity(Boolean::class.java).isEqualTo(false)
+            .path("research.images").entityList(Any::class.java).hasSize(0)
+    }
+
+    @Test
+    fun `a research asked for images keeps those within the caps as artifacts, says why it passed each other one over, and lays out the one placed in its PDF`() {
+        tunables.set(Tunable.RESEARCH_IMAGES_MOST, 3, "alice")
+        tunables.set(Tunable.RESEARCH_IMAGE_MB, 1, "alice")
+        try {
+            val modelId = model(serve())
+            val id = start(
+                """{ workspaceId: $workspaceId, question: "Why are there tides?", modeId: ${modeId("SHALLOW")}, modelId: $modelId,
+                     language: FORMAL, outputFormat: PDF, websitesExclude: ["tabloid.example"], includeImages: true }""",
+            )
+            val done = settled(id)
+            assertThat(done.status).describedAs(done.error).isEqualTo(ResearchStatus.COMPLETED)
+            assertThat(done.includeImages).isTrue()
+
+            // The picture search asked once, for the question; then the pictures on the pages read.
+            assertThat(web.searchedImages).containsExactly("Why are there tides?")
+            // Three kept, the most this installation keeps: the fourth worth keeping is never fetched, nor one on a website to avoid.
+            assertThat(web.fetchedImages).doesNotContain("$PICTURES/extra.png", "https://tabloid.example/whale.png")
+            val view = graphQlTester.document(
+                """query { research(id: $id) { includeImages images { number caption url page contentType width height artifactId fileUrl } result } }""",
+            ).execute()
+            view.path("research.includeImages").entity(Boolean::class.java).isEqualTo(true)
+            view.path("research.images[*].number").entityList(Int::class.java).containsExactly(1, 2, 3)
+            view.path("research.images[*].caption").entityList(String::class.java)
+                .containsExactly("The moon over the bay", "A diver at low tide", "A tide chart")
+            view.path("research.images[*].contentType").entityList(String::class.java).containsExactly("image/png", "image/jpeg", "image/gif")
+            view.path("research.images[0].page").entity(String::class.java).isEqualTo("https://bay.example.org/moon")
+            val artifactIds = view.path("research.images[*].artifactId").entityList(Long::class.java).get()
+            // Each kept as an artifact of its own, the picture's own bytes, which the page shows it from.
+            artifactIds.zip(listOf("image/png", "image/jpeg", "image/gif")).forEach { (artifactId, type) ->
+                val file = saved.findByIdOrNull(artifactId)!!
+                assertThat(file.workspaceId).isEqualTo(workspaceId)
+                assertThat(file.contentType).isEqualTo(type)
+                assertThat(ResearchPipeline.typeOf(store.open(file.location).use { it.readBytes() })).isEqualTo(type)
+            }
+            view.path("research.images[0].fileUrl").entity(String::class.java).isEqualTo("/api/artifacts/${artifactIds[0]}")
+
+            // Every picture tried is in Gather's log, kept or passed over, and by which rule.
+            val said = runLogs.findByExecutionIdOrderBySequenceAsc(requireNotNull(done.executionId)).groupBy({ it.nodeKey }, { it.message })
+            assertThat(said.getValue("gather"))
+                .contains("Searched images for \"Why are there tides?\": 8 results")
+                .anyMatch { it.startsWith("Kept image 1 ($PICTURES/moon.png) as ") && it.endsWith("200 x 150 pixels, 1 KB, \"The moon over the bay\"") }
+                .contains("Skipped image $PICTURES/page.html: it was served as text/html, not an image")
+                .contains("Skipped image $PICTURES/fake.png: it was served as image/png, and its bytes are not a PNG, JPEG or GIF")
+                .contains("Skipped image $PICTURES/huge.jpg: it is 1.5 MB, larger than the 1 MB an image may be")
+                .contains("Skipped image $PICTURES/icon.png: it is 16 x 16 pixels, smaller than 120 on its shorter side")
+                .contains("Skipped image https://tabloid.example/whale.png: tabloid.example is among the websites to avoid")
+                .contains("Warning: Could not fetch image $PICTURES/gone.png: the address answered 404")
+                .anyMatch { it.startsWith("Kept image 3 ($PICTURES/chart.gif) as ") }
+                .contains("Stopped looking for images at 3, the most a research keeps")
+            assertThat(said.getValue("save")).contains("1 of 3 kept images are placed in the report")
+
+            // The writer is told of the three by number, and of nothing else.
+            val write = asked(WRITE).single()
+            assertThat(write).contains("[image 1] The moon over the bay - from https://bay.example.org/moon")
+                .contains("[image 3] A tide chart").contains("(image:1)").doesNotContain("[image 4]")
+
+            // The PDF lays out the one picture placed - from the bytes kept, not from an address - and the made-up and the remote ones as words.
+            val pdf = store.open(saved.findByIdOrNull(requireNotNull(done.artifactId))!!.location).use { it.readBytes() }
+            assertThat(picturesIn(pdf)).isEqualTo(1)
+            val text = org.apache.pdfbox.Loader.loadPDF(pdf).use { org.apache.pdfbox.text.PDFTextStripper().getText(it) }
+            assertThat(text).contains("Image 1: The moon over the bay").contains("Made up").contains("Remote")
+
+            // The report the page reads links the picture placed to the one kept, and nothing else.
+            val report = requireNotNull(done.result)
+            assertThat(report).contains("![The moon over the bay](/api/artifacts/${artifactIds[0]})")
+                .doesNotContain("image:9").doesNotContain("evil.example")
+        } finally {
+            tunables.set(Tunable.RESEARCH_IMAGES_MOST, null, "alice")
+            tunables.set(Tunable.RESEARCH_IMAGE_MB, null, "alice")
+        }
+    }
+
+    @Test
+    fun `without web search a research asked for images takes them only from the pages and documents it read, and a document places them as links`() {
+        val atlas = pdfDocument("atlas.pdf", "The harbour floods twice a day.")
+        val modelId = model(serve())
+        val id = start(
+            """{ workspaceId: $workspaceId, question: "How often does the harbour flood?", modeId: ${modeId("SHALLOW")}, modelId: $modelId,
+                 language: FORMAL, outputFormat: DOCUMENT, useWebSearch: false, includeImages: true, documentsInclude: [$atlas],
+                 websitesInclude: ["harbour.example.org/tides"] }""",
+        )
+        val done = settled(id)
+        assertThat(done.status).describedAs(done.error).isEqualTo(ResearchStatus.COMPLETED)
+
+        // No picture search; the picture inside the document, then those on the page read.
+        assertThat(web.searchedImages).isEmpty()
+        val images = graphQlTester.document("""query { research(id: $id) { images { caption url artifactId } } }""").execute()
+        images.path("research.images[*].caption").entityList(String::class.java)
+            .containsExactly("atlas.pdf, page 1", "A tide chart", "Another picture")
+        images.path("research.images[0].url").entity(String::class.java).isEqualTo("/api/artifacts/$atlas#page=1")
+
+        // The document places the picture as a link to the one kept, with its caption and where it came from.
+        val first = images.path("research.images[0].artifactId").entity(Long::class.java).get()
+        val file = saved.findByIdOrNull(requireNotNull(done.artifactId))!!
+        val markdown = store.open(file.location).use { String(it.readBytes(), Charsets.UTF_8) }
+        assertThat(markdown).contains("![atlas\\.pdf, page 1](/api/artifacts/$first)\\\n*Image 1: atlas\\.pdf, page 1*")
+            .doesNotContain("image:9").doesNotContain("evil.example")
+    }
+
+    @Test
+    fun `include images round-trips through the orknux tools`() {
+        val modelId = model(serve())
+        val scope = io.mszymanski.orknux.server.mcp.OrknuxScope(workspaceId = workspaceId, mayWrite = true)
+        val started = mapper.readTree(
+            orknux.run(
+                scope, "orknux_start_research",
+                """{"question":"Tides","model":"$modelId","sitesInclude":["harbour.example.org/tides"],"webSearch":false,"includeImages":true}""",
+            ),
+        )
+        assertThat(started.path("error").isMissingNode).describedAs(started.toString()).isTrue()
+        val done = settled(started.path("started").asLong())
+        assertThat(done.status).describedAs(done.error).isEqualTo(ResearchStatus.COMPLETED)
+        assertThat(done.includeImages).isTrue()
+
+        val read = mapper.readTree(orknux.run(scope, "orknux_research", """{"id":${done.id}}"""))
+        assertThat(read.path("includeImages").booleanValue()).isTrue()
+        assertThat(read.path("images").values().map { it.path("caption").stringValue() }).containsExactly("A tide chart", "Another picture")
+        assertThat(read.path("images").first().path("file").stringValue()).startsWith("http").contains("/api/artifacts/")
+
+        // Left out, it is off.
+        val plain = mapper.readTree(
+            orknux.run(scope, "orknux_start_research", """{"question":"Tides","sitesInclude":["harbour.example.org/tides"],"webSearch":false}"""),
+        )
+        assertThat(settled(plain.path("started").asLong()).includeImages).isFalse()
+    }
+
+    @Test
+    fun `a seeded mode drawn before Gather read includeImages is given it, and still counts as seeded`() {
+        val shallow = modeWorkflow("SHALLOW")
+        val gather = nodes.findByWorkflowId(shallow).single { it.nodeKey == "gather" }
+        gather.mappings.removeIf { it.name == ResearchCapability.INCLUDE_IMAGES }
+        nodes.save(gather)
+        // And no retry policy, which is given back only to a mode that still counts as seeded.
+        nodes.saveAll(nodes.findByWorkflowId(shallow).onEach { it.retryAttempts = null; it.retryBackoffSeconds = null })
+
+        researchModes.ensure(workspaceId)
+
+        val drawn = nodes.findByWorkflowId(shallow).sortedBy { it.positionX }
+        val given = drawn.single { it.nodeKey == "gather" }.mappings.single { it.name == ResearchCapability.INCLUDE_IMAGES }
+        assertThat(given.mode).isEqualTo(MappingMode.REFERENCE)
+        assertThat(given.expression).isEqualTo("trigger.includeImages")
+        assertCurrentShape(drawn)
+        assertThat(drawn.map { it.retryAttempts }).allMatch { it != null }
+    }
+
     @Test
     fun `the list is newest first and a research can be taken off it`() {
         val modelId = model(serve())
@@ -1221,6 +1391,28 @@ class ResearchTest(
         return requireNotNull((saving as SavedArtifacts.Saving.Saved).artifact.id)
     }
 
+    /** A PDF on the Artifacts page with a line of text and a picture of 200 by 160 on its one page. */
+    private fun pdfDocument(name: String, text: String): Long {
+        val bytes = org.apache.pdfbox.pdmodel.PDDocument().use { pdf ->
+            val page = org.apache.pdfbox.pdmodel.PDPage()
+            pdf.addPage(page)
+            val image = org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory.createFromImage(
+                pdf, javax.imageio.ImageIO.read(java.io.ByteArrayInputStream(picture("png", 200, 160))),
+            )
+            org.apache.pdfbox.pdmodel.PDPageContentStream(pdf, page).use { drawn ->
+                drawn.beginText()
+                drawn.setFont(org.apache.pdfbox.pdmodel.font.PDType1Font(org.apache.pdfbox.pdmodel.font.Standard14Fonts.FontName.HELVETICA), 12f)
+                drawn.newLineAtOffset(72f, 720f)
+                drawn.showText(text)
+                drawn.endText()
+                drawn.drawImage(image, 72f, 480f)
+            }
+            java.io.ByteArrayOutputStream().also { pdf.save(it) }.toByteArray()
+        }
+        val saving = savedArtifacts.save(workspaceId, "Tester", name, "An atlas", java.util.Base64.getEncoder().encodeToString(bytes), base64 = true)
+        return requireNotNull((saving as SavedArtifacts.Saving.Saved).artifact.id)
+    }
+
     private fun model(endpoint: String, named: String? = null): Long {
         val suffix = named?.let { "-$it" }.orEmpty()
         val providerId = graphQlTester.document(
@@ -1246,6 +1438,10 @@ class ResearchTest(
                 body.contains(opening(PLAN)) -> """["tide causes", "tide timing", "tide records"]"""
                 body.contains(opening(FOLLOW_UP)) -> """["moon distance and tides"]"""
                 body.contains(opening(NOTES)) -> "The moon's gravity raises tides."
+                // Told of pictures, a writer places the first - and one it made up, and one from the web, which must not be laid out.
+                body.contains("(image:1)") ->
+                    "# Tides\n\nThe moon pulls the sea [1].\n\n![The moon](image:1)\n\n![Made up](image:9)\n\n" +
+                        "![Remote](https://evil.example/x.png)\n\n## Conclusion\n\nThe moon."
                 else -> "# Tides\n\nThe moon pulls the sea [1].\n\n## Conclusion\n\nThe moon."
             }
             val content = answer.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
@@ -1289,7 +1485,50 @@ class ResearchTest(
 
         override fun read(workspaceId: Long, url: String): PageRead {
             read += url
-            return PageRead.Read(null, "The moon pulls the sea at $url.")
+            // Every page shows a tide chart and one more picture, as a page's figures do.
+            return PageRead.Read(
+                null, "The moon pulls the sea at $url.",
+                listOf(ImageHit("$PICTURES/chart.gif", "A tide chart", url), ImageHit("$PICTURES/extra.png", "Another picture", url)),
+            )
+        }
+
+        val searchedImages = CopyOnWriteArrayList<String>()
+        val fetchedImages = CopyOnWriteArrayList<String>()
+
+        /**
+         * The picture search: one picture worth keeping, then one of each
+         * kind a research must pass over, then another worth keeping.
+         */
+        override fun searchImages(workspaceId: Long, query: String, limit: Int): Result<List<ImageHit>> {
+            searchedImages += query
+            return Result.success(
+                listOf(
+                    ImageHit("$PICTURES/moon.png", "The moon over the bay", "https://bay.example.org/moon"),
+                    ImageHit("$PICTURES/page.html", "A page, not a picture", null),
+                    ImageHit("$PICTURES/fake.png", "Text calling itself a PNG", null),
+                    ImageHit("$PICTURES/huge.jpg", "A very large photograph", null),
+                    ImageHit("$PICTURES/icon.png", "An icon", null),
+                    ImageHit("https://tabloid.example/whale.png", "A whale", "https://tabloid.example/whales"),
+                    ImageHit("$PICTURES/gone.png", "Not there any more", null),
+                    ImageHit("$PICTURES/diver.jpg", "A diver at low tide", null),
+                ),
+            )
+        }
+
+        override fun image(workspaceId: Long, url: String): ImageFetched {
+            fetchedImages += url
+            return when (url.substringAfterLast('/')) {
+                "moon.png" -> ImageFetched.Fetched(picture("png", 200, 150), "image/png")
+                "diver.jpg" -> ImageFetched.Fetched(picture("jpg", 400, 300), "image/jpeg; charset=binary")
+                "chart.gif" -> ImageFetched.Fetched(picture("gif", 300, 200), "image/gif")
+                "extra.png" -> ImageFetched.Fetched(picture("png", 300, 300), "image/png")
+                "page.html" -> ImageFetched.Fetched("<html>hello</html>".toByteArray(), "text/html")
+                "fake.png" -> ImageFetched.Fetched("<html>not a picture</html>".toByteArray(), "image/png")
+                // A JPEG's first bytes, and a megabyte and a half after them.
+                "huge.jpg" -> ImageFetched.Fetched(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte()) + ByteArray(1_572_861), "image/jpeg")
+                "icon.png" -> ImageFetched.Fetched(picture("png", 16, 16), "image/png")
+                else -> ImageFetched.Unfetched("the address answered 404")
+            }
         }
     }
 
@@ -1324,5 +1563,25 @@ class ResearchTest(
         const val NOTES = ResearchPipeline.NOTES
         const val FOLLOW_UP = ResearchPipeline.FOLLOW_UP
         const val WRITE = ResearchPipeline.WRITE
+        const val PICTURES = "https://pictures.example.org"
+
+        /** A picture of [width] by [height] in one colour, as [format] writes it. */
+        fun picture(format: String, width: Int, height: Int): ByteArray {
+            val drawn = java.awt.image.BufferedImage(width, height, java.awt.image.BufferedImage.TYPE_INT_RGB)
+            drawn.createGraphics().apply { color = java.awt.Color(30, 90, 160); fillRect(0, 0, width, height); dispose() }
+            return java.io.ByteArrayOutputStream().also { javax.imageio.ImageIO.write(drawn, format, it) }.toByteArray()
+        }
+
+        /** The pictures a PDF lays out, counted wherever on its pages they sit. */
+        fun picturesIn(pdf: ByteArray): Int = org.apache.pdfbox.Loader.loadPDF(pdf).use { document ->
+            fun count(resources: org.apache.pdfbox.pdmodel.PDResources?): Int = resources?.xObjectNames?.sumOf { name ->
+                when (val drawn = resources.getXObject(name)) {
+                    is org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject -> 1
+                    is org.apache.pdfbox.pdmodel.graphics.form.PDFormXObject -> count(drawn.resources)
+                    else -> 0
+                }
+            } ?: 0
+            document.pages.sumOf { count(it.resources) }
+        }
     }
 }

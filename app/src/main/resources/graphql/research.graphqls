@@ -96,6 +96,10 @@ type Research {
     documentsExclude: [String!]!
     "Whether it searches the web; off, it read only the documents and the websites to keep to."
     useWebSearch: Boolean!
+    "Whether it looks for images to place in the report and keep beside it."
+    includeImages: Boolean!
+    "The images it kept, numbered as the report places them; each is an artifact of its own."
+    images: [ResearchImage!]!
     status: ResearchStatus!
     "The run doing it; null for the moment before it starts."
     executionId: ID
@@ -145,6 +149,28 @@ type ResearchSource {
     notes: String!
 }
 
+"A picture a research kept: fetched once, saved on the Artifacts page, and laid out in the report from there."
+type ResearchImage {
+    "As the report places it."
+    number: Int!
+    "Its alt text, its figure's caption, or what the picture search said of it."
+    caption: String!
+    "Where its bytes were fetched from: an address, or the Artifacts page's link to the document it was in."
+    url: String!
+    "The page it was found on or for, where that is known."
+    page: String
+    contentType: String!
+    sizeBytes: Float!
+    width: Int!
+    height: Int!
+    "The artifact it was saved as."
+    artifactId: ID!
+    "Where its bytes are downloaded, on this server."
+    fileUrl: String!
+    "Where it is shown rather than downloaded."
+    previewUrl: String!
+}
+
 type ResearchPage {
     content: [Research!]!
     page: Int!
@@ -171,6 +197,8 @@ input StartResearchInput {
     documentsExclude: [ID!]
     "Whether to search the web; off reads only the documents and the websites to keep to. On when absent."
     useWebSearch: Boolean
+    "Whether to look for images, place them in the report and keep each as an artifact. Off when absent."
+    includeImages: Boolean
 }
 
 input CreateResearchModeInput {

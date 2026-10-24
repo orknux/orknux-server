@@ -6,12 +6,17 @@ import io.mszymanski.orknux.connector.model.ModelChatClient
 import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.server.tuning.Tuning
 import io.mszymanski.orknux.server.workflow.SavedArtifactRepository
+import io.mszymanski.orknux.server.workflow.SavedArtifacts
 import org.slf4j.LoggerFactory
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
+import java.io.ByteArrayInputStream
 import java.net.URI
+import java.util.Base64
+import java.util.Locale
+import javax.imageio.ImageIO
 
 /**
  * How far a research digs: the knobs of its steps, which a mode's workflow
@@ -61,6 +66,29 @@ data class ResearchAsked(
     val documentsExclude: List<Long> = emptyList(),
     /** Whether to search the web; off, only the documents and the websites to keep to are read. */
     val webSearch: Boolean = true,
+    /** Whether Gather looks for images the report may place; off unless asked for. */
+    val includeImages: Boolean = false,
+)
+
+/**
+ * One picture a research kept, numbered as the report places it: what it is
+ * said to be, where it was fetched from and the page it was found on or for,
+ * and the artifact its bytes were saved as - which is where the PDF reads them
+ * from and the research page shows them from. Never fetched again: what was
+ * kept is what is laid out.
+ */
+data class ResearchImage(
+    val number: Int,
+    val caption: String,
+    /** Where the bytes came from: an address, or the Artifacts page's link to the document they were in. */
+    val url: String,
+    /** The page it was found on or for, where that is known. */
+    val page: String?,
+    val contentType: String,
+    val sizeBytes: Long,
+    val width: Int,
+    val height: Int,
+    val artifactId: Long,
 )
 
 /** One source the report may cite, numbered as it cites it. */
@@ -99,6 +127,8 @@ data class ResearchGathered(
      * search told it.
      */
     val refused: List<String> = emptyList(),
+    /** The pictures Gather kept, for Write to be told of and Save to lay out. */
+    val images: List<ResearchImage> = emptyList(),
 )
 
 /** Which of a mode workflow's steps a research is in. */
@@ -214,6 +244,7 @@ class ResearchPipeline(
     private val web: ResearchWeb,
     private val documents: ResearchDocuments,
     private val saved: SavedArtifactRepository,
+    private val savedArtifacts: SavedArtifacts,
     private val researches: ResearchRepository,
     private val tuning: Tuning,
     private val mapper: ObjectMapper,
@@ -288,11 +319,15 @@ class ResearchPipeline(
             reading.sources += ResearchSource(reading.sources.size + 1, document.name, "/api/artifacts/${document.id}", "DOCUMENT", notes)
             said.info("Read document ${document.name} (${pages.size} ${if (pages.size == 1) "page" else "pages"}) as source ${reading.sources.size}")
             tracker.read(reading.sources)
+            if (asked.includeImages) {
+                reading.pictures += documents.pictures(document, tuning[Tunable.RESEARCH_IMAGES_MOST]).map { Picture(it.hit, it.bytes, fromDocument = true) }
+            }
         }
 
         if (!asked.webSearch) {
             said.info("Web search is off: reading only the documents and the websites to keep to")
             visit(asked, reading, tracker)
+            if (asked.includeImages) reading.images += pictures(asked, reading, tracker)
             return reading.gathered(emptyList(), level = 1)
         }
         val distinct = queries.distinct()
@@ -310,7 +345,143 @@ class ResearchPipeline(
                     "to ${if (distinct.size == 1) "the query" else "all ${distinct.size} queries"}.",
             )
         }
+        if (asked.includeImages) reading.images += pictures(asked, reading, tracker)
         return reading.gathered(findings, level = 1)
+    }
+
+    /**
+     * The pictures a research keeps, where it was asked to look for them: the
+     * picture search's answers for the question where the web is searched,
+     * then the pictures on the pages and documents it read as sources. Each is
+     * fetched once and kept only where it is a PNG, JPEG or GIF - by its bytes,
+     * not only by what it was served as - no larger than [Tunable.RESEARCH_IMAGE_MB]
+     * and no smaller than [Tunable.RESEARCH_IMAGE_PIXELS] on its shorter side,
+     * until there are [Tunable.RESEARCH_IMAGES_MOST]. A kept picture is saved
+     * on the Artifacts page there and then, which is where its bytes are held
+     * from here on: the report lays out what was kept and fetches nothing.
+     * Every picture tried is said in the step's log, kept or skipped and by
+     * which rule.
+     */
+    private fun pictures(asked: ResearchAsked, reading: Reading, tracker: Tracker): List<ResearchImage> {
+        val said = reading.said
+        val most = tuning[Tunable.RESEARCH_IMAGES_MOST]
+        val mostMb = tuning[Tunable.RESEARCH_IMAGE_MB]
+        val smallest = tuning[Tunable.RESEARCH_IMAGE_PIXELS]
+        // A research that read nothing writes no report, and keeping pictures for it would be files for nothing.
+        if (reading.sources.isEmpty()) {
+            said.info("Looked for no images: no source was read")
+            return emptyList()
+        }
+        tracker.step("Looking for images")
+
+        val tried = mutableListOf<Picture>()
+        if (asked.webSearch) {
+            val query = scoped(asked.question.trim().lineSequence().first().take(MOST_IMAGE_QUERY), asked.websitesInclude)
+            web.searchImages(asked.workspaceId, query, most * 2)
+                .onSuccess { found ->
+                    said.info("Searched images for \"$query\": ${found.size} ${if (found.size == 1) "result" else "results"}")
+                    tried += found.map { Picture(it) }
+                }
+                .onFailure { said.warn("Searched images for \"$query\": the search answered \"${it.message?.trim().orEmpty()}\"") }
+        } else {
+            said.info("Web search is off: looking for images only on the pages and documents read")
+        }
+        tried += reading.pictures
+
+        val kept = mutableListOf<ResearchImage>()
+        val seen = mutableSetOf<String>()
+        for (picture in tried) {
+            if (kept.size >= most) {
+                said.info("Stopped looking for images at ${kept.size}, the most a research keeps")
+                break
+            }
+            val url = picture.hit.url
+            if (!seen.add(url)) continue
+            fun skip(why: String) = said.info("Skipped image $url: $why")
+
+            if (!picture.fromDocument) {
+                val hosts = listOfNotNull(hostOf(url), picture.hit.page?.let(::hostOf))
+                hosts.firstOrNull { !allowed(it, emptyList(), asked.websitesExclude) }?.let {
+                    skip("$it is among the websites to avoid")
+                    continue
+                }
+                val judged = picture.hit.page?.let(::hostOf) ?: hostOf(url)
+                if (judged == null) {
+                    skip("it is not an address")
+                    continue
+                }
+                if (!allowed(judged, asked.websitesInclude, emptyList())) {
+                    skip("$judged is not among the websites to keep to")
+                    continue
+                }
+            }
+
+            tracker.step("Fetching an image")
+            val fetched = picture.bytes?.let { ImageFetched.Fetched(it, PNG) } ?: web.image(asked.workspaceId, url)
+            val (bytes, served) = when (fetched) {
+                is ImageFetched.Fetched -> fetched.bytes to fetched.contentType?.substringBefore(';')?.trim()?.lowercase()?.ifEmpty { null }
+                is ImageFetched.Unfetched -> {
+                    said.warn("Could not fetch image $url: ${fetched.reason}")
+                    continue
+                }
+            }
+            if (served == null || !served.startsWith("image/")) {
+                skip("it was served as ${served ?: "nothing it named"}, not an image")
+                continue
+            }
+            val type = typeOf(bytes)
+            if (type == null) {
+                skip("it was served as $served, and its bytes are not a PNG, JPEG or GIF")
+                continue
+            }
+            if (bytes.size > mostMb * 1024L * 1024L) {
+                skip("it is ${megabytes(bytes.size.toLong())} MB, larger than the $mostMb MB an image may be")
+                continue
+            }
+            val size = sizeOf(bytes)
+            if (size == null) {
+                skip("its bytes could not be read as a picture")
+                continue
+            }
+            val (width, height) = size
+            if (minOf(width, height) < smallest) {
+                skip("it is $width x $height pixels, smaller than $smallest on its shorter side")
+                continue
+            }
+
+            val caption = WorkspaceResearchWeb.captionOf(picture.hit.caption) ?: "Image from ${picture.hit.page?.let(::hostOf) ?: hostOf(url) ?: "a document"}"
+            val number = kept.size + 1
+            val saving = savedArtifacts.save(
+                asked.workspaceId, ResearchDelivery.SAVED_BY,
+                ResearchDelivery.fileName(caption, EXTENSIONS.getValue(type)),
+                "Research image: $caption",
+                Base64.getEncoder().encodeToString(bytes), base64 = true,
+            )
+            val artifact = when (saving) {
+                is SavedArtifacts.Saving.Saved -> saving.artifact
+                is SavedArtifacts.Saving.Refused -> {
+                    said.warn("Could not keep image $url: ${saving.reason}")
+                    continue
+                }
+            }
+            kept += ResearchImage(
+                number = number,
+                caption = caption,
+                url = url,
+                page = picture.hit.page,
+                contentType = type,
+                sizeBytes = bytes.size.toLong(),
+                width = width,
+                height = height,
+                artifactId = requireNotNull(artifact.id),
+            )
+            said.info("Kept image $number ($url) as ${artifact.name}, artifact ${artifact.id}: $width x $height pixels, ${kilobytes(bytes.size.toLong())} KB, \"$caption\"")
+            tracker.pictured(kept)
+        }
+        if (kept.isEmpty()) {
+            said.info(if (seen.isEmpty()) "Kept no image: none was found" else "Kept no image: none of the ${seen.size} tried was one to keep")
+        }
+        return kept
     }
 
     /**
@@ -352,6 +523,7 @@ class ResearchPipeline(
             reading.sources += ResearchSource(reading.sources.size + 1, title, url, "WEB", notes)
             said.info("Read $title ($url) as source ${reading.sources.size}")
             tracker.read(reading.sources)
+            if (asked.includeImages) reading.pictures += read.images.map { Picture(it) }
         }
     }
 
@@ -430,7 +602,7 @@ class ResearchPipeline(
             appendLine()
             appendLine("Sources, by number:")
             appendLine()
-            append(notesOf(sources))
+            append(writerNotes(gathered))
         })
         val report = withSources(written.trim(), sources)
         said.info("Wrote the report from ${sources.size} ${if (sources.size == 1) "source" else "sources"}: ${report.length} characters")
@@ -456,6 +628,36 @@ class ResearchPipeline(
      */
     fun notesOf(sources: List<ResearchSource>): String = sources.joinToString("\n\n") { source ->
         "[${source.number}] ${source.title} - ${source.url}\n${source.notes}"
+    }
+
+    /**
+     * What the writing reads: the sources' notes, and after them the pictures
+     * kept, where there are any. Said in the notes rather than in the writer
+     * agent's instructions, so a writer seeded before there were pictures is
+     * told of them too - and told only of these, by number, so a picture it
+     * places is one that was kept and never one it made up.
+     */
+    fun writerNotes(gathered: ResearchGathered): String {
+        val notes = notesOf(gathered.sources)
+        if (gathered.images.isEmpty()) return notes
+        return notes + "\n\n" + imageNotes(gathered.images)
+    }
+
+    /** The pictures kept, as the writing is told of them. */
+    fun imageNotes(images: List<ResearchImage>): String = buildString {
+        appendLine("Images you may place in the report, by number:")
+        appendLine()
+        images.forEach { image ->
+            append("[image ").append(image.number).append("] ").append(image.caption)
+            image.page?.let { append(" - from ").append(it) }
+            appendLine()
+        }
+        appendLine()
+        append(
+            "Place an image only where it helps the reader, on a line of its own, as ![its caption]($IMAGE_SCHEME:n) " +
+                "with its number - ![${images.first().caption.replace("]", ")")}]($IMAGE_SCHEME:${images.first().number}) for the first. " +
+                "Use no number that is not listed here, and no other picture or address: the report lays out these and nothing else.",
+        )
     }
 
     /**
@@ -506,7 +708,8 @@ class ResearchPipeline(
                 if (!taken(reading, hit.url, host, asked.websitesInclude, asked.websitesExclude)) continue
 
                 tracker.step("Reading ${hit.title}")
-                val page = when (val read = web.read(asked.workspaceId, hit.url)) {
+                val read = web.read(asked.workspaceId, hit.url)
+                val page = when (read) {
                     is PageRead.Read -> read.text
                     // A page that cannot be fetched still has what the search said of it.
                     is PageRead.Unread -> {
@@ -528,6 +731,7 @@ class ResearchPipeline(
                 learnt += source.number
                 told.info("Read ${hit.title} (${hit.url}) as source ${source.number}")
                 tracker.read(reading.sources)
+                if (asked.includeImages && read is PageRead.Read) reading.pictures += read.images.map { Picture(it) }
             }
             if (learnt.isNotEmpty()) findings += ResearchFinding(query, learnt)
         }
@@ -566,6 +770,12 @@ class ResearchPipeline(
         val pages = mutableMapOf<String, Int>()
         val refused = mutableListOf<String>()
 
+        /** Pictures on what was read, to be tried once the reading is done; only where pictures were asked for. */
+        val pictures = mutableListOf<Picture>()
+
+        /** The pictures kept. */
+        val images = mutableListOf<ResearchImage>()
+
         /** Searches this step asked that answered a refusal rather than results. */
         var refusals = 0
 
@@ -575,6 +785,7 @@ class ResearchPipeline(
             seen += gathered.seen
             pages += gathered.pages
             refused += gathered.refused
+            images += gathered.images
         }
 
         val full get() = sources.size >= limits.maxSources
@@ -591,8 +802,11 @@ class ResearchPipeline(
         }
 
         fun gathered(findings: List<ResearchFinding>, level: Int) =
-            ResearchGathered(sources.toList(), findings, searched.toList(), seen.toList(), pages.toMap(), level, limits, refused.toList())
+            ResearchGathered(sources.toList(), findings, searched.toList(), seen.toList(), pages.toMap(), level, limits, refused.toList(), images.toList())
     }
+
+    /** A picture to try: where it is and what it is said to be, and its bytes already where a document held them. */
+    private class Picture(val hit: ImageHit, val bytes: ByteArray? = null, val fromDocument: Boolean = false)
 
     /** The model's notes on one source, or null where it found nothing that bears on the question. */
     private fun noted(asked: ResearchAsked, query: String, title: String, text: String): String? {
@@ -676,6 +890,13 @@ class ResearchPipeline(
             write(now.copy(sourcesRead = found.size))
         }
 
+        /** The pictures kept so far, on the research as they are kept, so the page shows them while it runs. */
+        fun pictured(kept: List<ResearchImage>) {
+            val id = researchId ?: return
+            runCatching { researches.noteImages(id, mapper.writeValueAsString(kept)) }
+                .onFailure { log.warn("Could not note the images of research {}", id, it) }
+        }
+
         private fun write(next: ResearchProgress) {
             now = next
             val id = researchId ?: return
@@ -704,6 +925,10 @@ class ResearchPipeline(
         )
     }
 
+    /** The pictures a research row holds; none where it holds none, or something an older server wrote. */
+    fun imagesFrom(held: String?): List<ResearchImage> =
+        held?.let { runCatching { mapper.readTree(it) }.getOrNull() }?.takeIf { it.isArray }?.let(::imagesOf).orEmpty()
+
     private fun sourcesFrom(held: String?): List<ResearchSource> =
         held?.let { runCatching { mapper.readTree(it) }.getOrNull() }?.takeIf { it.isArray }?.let(::sourcesOf).orEmpty()
 
@@ -731,6 +956,7 @@ class ResearchPipeline(
                 maxPagesPerSource = number(limits, "maxPagesPerSource", 1).coerceAtLeast(1),
             ),
             refused = texts("refused"),
+            images = imagesOf(node.path("images")),
         )
     }
 
@@ -766,7 +992,63 @@ class ResearchPipeline(
         const val WRITE = "You write research reports in Markdown. Use only the numbered sources given, and cite " +
             "them inline as [n] after each claim they support. Open with a # title, then a short summary, then the " +
             "findings under ## headings, then a ## Conclusion. Where the sources disagree or are thin, say so. Do not " +
-            "write a sources list; it is added after you."
+            "write a sources list; it is added after you. Where images are listed, place only those, as they say; " +
+            "where none are, place none."
+
+        /** What a report names a kept picture by, `![caption](image:2)`, until Save puts the picture there. */
+        const val IMAGE_SCHEME = "image"
+
+        /** How much of the question the picture search is asked: its first line, as a search engine takes a query. */
+        private const val MOST_IMAGE_QUERY = 300
+
+        private const val PNG = "image/png"
+
+        /** The pictures a research keeps, which are what a PDF can lay out, and the extension each is saved under. */
+        val EXTENSIONS = mapOf(PNG to "png", "image/jpeg" to "jpg", "image/gif" to "gif")
+
+        /** What the bytes are, by their first few: a PNG, a JPEG or a GIF, or null for anything else. */
+        fun typeOf(bytes: ByteArray): String? {
+            fun at(i: Int) = if (bytes.size > i) bytes[i].toInt() and 0xFF else -1
+            return when {
+                at(0) == 0x89 && at(1) == 'P'.code && at(2) == 'N'.code && at(3) == 'G'.code -> PNG
+                at(0) == 0xFF && at(1) == 0xD8 && at(2) == 0xFF -> "image/jpeg"
+                at(0) == 'G'.code && at(1) == 'I'.code && at(2) == 'F'.code && at(3) == '8'.code -> "image/gif"
+                else -> null
+            }
+        }
+
+        /** A picture's width and height, read from its header without drawing it; null where it cannot be read. */
+        fun sizeOf(bytes: ByteArray): Pair<Int, Int>? = runCatching {
+            ImageIO.createImageInputStream(ByteArrayInputStream(bytes)).use { stream ->
+                val reader = ImageIO.getImageReaders(stream).asSequence().firstOrNull() ?: return@use null
+                try {
+                    reader.input = stream
+                    reader.getWidth(0) to reader.getHeight(0)
+                } finally {
+                    reader.dispose()
+                }
+            }
+        }.getOrNull()
+
+        private fun megabytes(bytes: Long) = String.format(Locale.ROOT, "%.1f", bytes / (1024.0 * 1024.0))
+        private fun kilobytes(bytes: Long) = maxOf(1L, (bytes + 512) / 1024)
+
+        /** The pictures a research kept, as a step handed them on or the research row holds them. */
+        fun imagesOf(list: JsonNode): List<ResearchImage> = list.mapNotNull { one ->
+            fun text(key: String) = one.path(key).takeIf { it.isTextual }?.stringValue()
+            fun number(key: String) = one.path(key).takeIf { it.isNumber }
+            ResearchImage(
+                number = number("number")?.intValue() ?: return@mapNotNull null,
+                caption = text("caption") ?: return@mapNotNull null,
+                url = text("url") ?: return@mapNotNull null,
+                page = text("page"),
+                contentType = text("contentType") ?: return@mapNotNull null,
+                sizeBytes = number("sizeBytes")?.longValue() ?: 0,
+                width = number("width")?.intValue() ?: 0,
+                height = number("height")?.intValue() ?: 0,
+                artifactId = number("artifactId")?.longValue() ?: return@mapNotNull null,
+            )
+        }
 
         fun register(language: ResearchLanguage): String = when (language) {
             ResearchLanguage.ACADEMIC ->

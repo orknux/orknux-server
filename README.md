@@ -504,6 +504,9 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_RESEARCH_PAGE_CHARACTERS` | How much of one page a research reads, in characters. | `20000` |
 | `ORKNUX_TUNING_RESEARCH_STEP_RETRIES` | How many times a research mode's step is tried again, in times. | `2` |
 | `ORKNUX_TUNING_RESEARCH_STEP_RETRY_SECONDS` | How long a research mode's step waits before trying again, in seconds. | `10` |
+| `ORKNUX_TUNING_RESEARCH_IMAGES_MOST` | The most images one research keeps, in items. | `6` |
+| `ORKNUX_TUNING_RESEARCH_IMAGE_MB` | The largest image a research keeps, in MB. | `2` |
+| `ORKNUX_TUNING_RESEARCH_IMAGE_PIXELS` | The shortest side an image a research keeps may have, in pixels. | `120` |
 | `ORKNUX_TUNING_PLUGIN_HTTP_BODY_MB` | The largest text answer a plugin's request may read, in MB. | `2` |
 | `ORKNUX_TUNING_PLUGIN_DOWNLOAD_MB` | The largest binary answer a plugin's request may read, in MB. | `5` |
 | `ORKNUX_TUNING_PLUGIN_UPLOAD_MB` | The largest file a plugin may upload, in MB. | `10` |

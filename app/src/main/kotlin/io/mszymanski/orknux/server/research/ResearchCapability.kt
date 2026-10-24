@@ -69,6 +69,8 @@ class ResearchCapability(
             params = listOf(
                 P_RESEARCH, P_QUESTION, P_MODEL, P_WEBSITES_INCLUDE, P_WEBSITES_EXCLUDE, P_DOCUMENTS_INCLUDE,
                 P_QUERIES, P_RESULTS_PER_QUERY, P_MAX_SOURCES, P_MAX_PAGES_PER_SOURCE, P_WEB_SEARCH,
+                // Last, so a node drawn before it was a parameter reads every other one where it always did.
+                P_INCLUDE_IMAGES,
             ),
         ),
         EmbeddedFunction(
@@ -141,6 +143,9 @@ class ResearchCapability(
             documentsInclude = given.texts(DOCUMENTS_INCLUDE).mapNotNull { it.toLongOrNull() },
             documentsExclude = given.texts(DOCUMENTS_EXCLUDE).mapNotNull { it.toLongOrNull() },
             webSearch = given.flag(WEB_SEARCH),
+            includeImages = given.given(INCLUDE_IMAGES)
+                ?: researchId?.let { researches.findByIdOrNull(it)?.includeImages }
+                ?: false,
         )
 
         return try {
@@ -213,20 +218,34 @@ class ResearchCapability(
          * in the pipeline's words, so it is always there and always right
          * whoever wrote the prose.
          */
-        val cited = pipeline.gatheredFrom(given.node(GATHERED))?.sources
+        val gathered = pipeline.gatheredFrom(given.node(GATHERED))
+        val cited = gathered?.sources
         val report = if (cited == null) written else pipeline.withSources(written.trim(), cited)
         if (cited != null) pipeline.note(researchId, ResearchStage.WRITE, "Report written")
         said.info(
             "Report of ${report.length} characters" +
                 (cited?.let { ", with ${it.size} ${if (it.size == 1) "source" else "sources"} listed after it" } ?: ", saved as it was handed"),
         )
-        val found = linkedMapOf<String, Any?>(ResearchModes.REPORT to report)
+        /*
+         * The pictures Gather kept, as Follow up handed them on - or as the
+         * research holds them, for a Save drawn without what was gathered.
+         */
+        val images = gathered?.images?.ifEmpty { null }
+            ?: researchId?.let { researches.findByIdOrNull(it) }?.let { pipeline.imagesFrom(it.foundImages) }
+            ?: emptyList()
+        // The report as the page and the tools read it: each picture it places a link to the one kept.
+        val found = linkedMapOf<String, Any?>(ResearchModes.REPORT to ResearchDelivery.placed(report, images, ResearchDelivery::linkOf))
         cited?.let { found["sources"] = it.map { source -> mapOf("number" to source.number, "title" to source.title, "url" to source.url) } }
         val format = given.text(OUTPUT_FORMAT)?.let { runCatching { ResearchOutputFormat.valueOf(it.uppercase()) }.getOrNull() }
             ?: researchId?.let { researches.findByIdOrNull(it)?.outputFormat }
             ?: ResearchOutputFormat.DOCUMENT
         pipeline.note(researchId, ResearchStage.SAVE, if (format == ResearchOutputFormat.PDF) "Saving the report as a PDF" else "Saving the report")
-        return when (val delivered = delivery.deliver(workspaceId, question, format, report)) {
+        if (images.isNotEmpty()) {
+            val placed = ResearchDelivery.numbersIn(report).count { number -> images.any { it.number == number } }
+            said.info("$placed of ${images.size} kept ${if (images.size == 1) "image is" else "images are"} placed in the report")
+            found["images"] = images.map { mapOf("number" to it.number, "caption" to it.caption, "artifact" to it.artifactId) }
+        }
+        return when (val delivered = delivery.deliver(workspaceId, question, format, report, images)) {
             is ResearchDelivery.Delivered.Saved -> {
                 researchId?.let { researches.noteDelivered(it, delivered.artifactId, null) }
                 said.info("Saved ${delivered.fileName} on the Artifacts page as artifact ${delivered.artifactId}")
@@ -259,7 +278,7 @@ class ResearchCapability(
      * writing reads them, under `notes`, for a writer agent node's prompt.
      */
     private fun shapeOf(gathered: ResearchGathered) = linkedMapOf(
-        NOTES to pipeline.notesOf(gathered.sources),
+        NOTES to pipeline.writerNotes(gathered),
         "sources" to gathered.sources.map {
             linkedMapOf("number" to it.number, "title" to it.title, "url" to it.url, "kind" to it.kind, "notes" to it.notes)
         },
@@ -269,6 +288,7 @@ class ResearchCapability(
         "pages" to gathered.pages,
         "level" to gathered.level,
         "refused" to gathered.refused,
+        "images" to gathered.images,
         "limits" to linkedMapOf(
             RESULTS_PER_QUERY to gathered.limits.resultsPerQuery,
             MAX_SOURCES to gathered.limits.maxSources,
@@ -287,6 +307,11 @@ class ResearchCapability(
         fun texts(key: String) = by[key]?.takeIf { it.isArray }?.mapNotNull { one ->
             one.takeIf { it.isTextual || it.isNumber }?.asString()?.trim()?.ifEmpty { null }
         }.orEmpty()
+
+        /** A switch, where the call was given one at all. */
+        fun given(key: String): Boolean? = by[key]?.let {
+            if (it.isBoolean) it.booleanValue() else if (it.isTextual) it.stringValue().trim().lowercase().toBooleanStrictOrNull() else null
+        }
 
         /** A switch, or the default the function declares for it; on where it declares none. */
         fun flag(key: String): Boolean = by[key]?.let {
@@ -331,6 +356,7 @@ class ResearchCapability(
         const val MAX_SOURCES = "maxSources"
         const val MAX_PAGES_PER_SOURCE = "maxPagesPerSource"
         const val WEB_SEARCH = "webSearch"
+        const val INCLUDE_IMAGES = "includeImages"
 
         /** What one step hands the next. */
         const val QUERIES = "queries"
@@ -342,7 +368,7 @@ class ResearchCapability(
 
         /** The request's own fields, read off what started the run; every one of them is in the run's payload. */
         val REQUEST = listOf(
-            RESEARCH, QUESTION, LANGUAGE, MODEL, OUTPUT_FORMAT, WEB_SEARCH,
+            RESEARCH, QUESTION, LANGUAGE, MODEL, OUTPUT_FORMAT, WEB_SEARCH, INCLUDE_IMAGES,
             WEBSITES_INCLUDE, WEBSITES_EXCLUDE, DOCUMENTS_INCLUDE, DOCUMENTS_EXCLUDE,
         )
 
@@ -362,6 +388,10 @@ class ResearchCapability(
         private val P_MAX_SOURCES = EmbeddedParam(MAX_SOURCES, ValueType.NUMBER, "The most sources read in all.", defaultJson = "10")
         private val P_MAX_PAGES_PER_SOURCE = EmbeddedParam(MAX_PAGES_PER_SOURCE, ValueType.NUMBER, "Pages read of one website or one document.", defaultJson = "1")
         private val P_WEB_SEARCH = EmbeddedParam(WEB_SEARCH, ValueType.BOOLEAN, "Whether to search the web; off reads only the documents and the websites to keep to.", defaultJson = "true")
+        private val P_INCLUDE_IMAGES = EmbeddedParam(
+            INCLUDE_IMAGES, ValueType.BOOLEAN,
+            "Whether to look for images the report may place, kept on the Artifacts page; left out, what the research asked for.",
+        )
         private val P_QUERIES = EmbeddedParam(QUERIES, ValueType.ARRAY, "The search queries Plan wrote.", required = true)
         private val P_GATHERED = EmbeddedParam(GATHERED, ValueType.MAP, "What Gather, or Follow up, answered.", required = true)
         private val P_REPORT = EmbeddedParam(REPORT, ValueType.STRING, "The report Write answered, in Markdown.", required = true)

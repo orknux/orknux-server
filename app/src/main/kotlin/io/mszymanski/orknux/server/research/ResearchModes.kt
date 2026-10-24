@@ -160,6 +160,9 @@ class ResearchModes(
                 val depth = SEEDED.firstOrNull { it.kind == mode.kind } ?: return@mapNotNull null
                 val workflowId = mode.workflowId ?: return@mapNotNull null
                 if (!assignments.existsByWorkspaceIdAndWorkflowId(workspaceId, workflowId)) return@mapNotNull null
+                if (imaged(workspaceId, workflowId, depth)) {
+                    log.info("Research mode {} of workspace {} given Gather's includeImages", depth.modeName, workspaceId)
+                }
                 if (renamed(workspaceId, workflowId, depth)) {
                     log.info("Research mode {} of workspace {} given its steps' current names", depth.modeName, workspaceId)
                 }
@@ -205,7 +208,7 @@ class ResearchModes(
      * made with, and only to a name nothing else in the workspace has.
      */
     private fun renamed(workspaceId: Long, workflowId: Long, depth: Depth): Boolean {
-        if (!untouchedCurrent(workspaceId, workflowId, depth) { FORMER.getValue(it.key) }) return false
+        if (!untouchedCurrent(workspaceId, workflowId, depth, named = { FORMER.getValue(it.key) })) return false
         val held = nodes.findByWorkflowId(workflowId).associateBy { it.nodeKey }
         STEPS.forEach { step ->
             val node = held.getValue(step.key)
@@ -216,6 +219,30 @@ class ResearchModes(
             val action = node.actionId?.let { actions.findByIdOrNull(it) } ?: return@forEach
             if (action.name == former || action.name == "$former$FALLBACK") adopted(workspaceId, action, requireNotNull(step.actionName))
         }
+        return true
+    }
+
+    /**
+     * Gives a mode drawn in the current shape before Gather was asked about
+     * pictures - under the steps' current names or their former ones - the
+     * `includeImages` it reads off the run now, and nothing else. Without it
+     * Gather reads the switch off the research row, so a mode somebody edited
+     * still looks for pictures when asked to; this only keeps an untouched one
+     * untouched, so it goes on being recognised as seeded.
+     */
+    private fun imaged(workspaceId: Long, workflowId: Long, depth: Depth): Boolean {
+        val asSeeded = untouchedCurrent(workspaceId, workflowId, depth, imagesMapped = false) ||
+            untouchedCurrent(workspaceId, workflowId, depth, { FORMER.getValue(it.key) }, imagesMapped = false)
+        if (!asSeeded) return false
+        val gather = nodes.findByWorkflowId(workflowId).firstOrNull { it.nodeKey == GATHER } ?: return false
+        gather.mappings.add(
+            NodeMapping(
+                name = ResearchCapability.INCLUDE_IMAGES,
+                expression = "${NodeExpressions.TRIGGER}.${ResearchCapability.INCLUDE_IMAGES}",
+                mode = MappingMode.REFERENCE,
+            ),
+        )
+        nodes.save(gather)
         return true
     }
 
@@ -282,6 +309,8 @@ class ResearchModes(
         workflowId: Long,
         depth: Depth,
         named: (Step) -> Named = { Named(it.nodeName, it.description) },
+        /** Off, the shape as it was before Gather read `includeImages`: what [imaged] looks for. */
+        imagesMapped: Boolean = true,
     ): Boolean {
         val drawn = edges.findByWorkflowId(workflowId)
         val wantedLines = STEPS.zipWithNext().map { (from, to) -> from.key to to.key }.toSet()
@@ -304,7 +333,9 @@ class ResearchModes(
                 node.description == named(step).description &&
                 node.enabled &&
                 node.outputName == step.outputName &&
-                signature(node.mappings) == signature(mappingsOf(step, STEPS, depth.knobs))
+                signature(node.mappings) == signature(
+                    mappingsOf(step, STEPS, depth.knobs).filter { imagesMapped || it.name != ResearchCapability.INCLUDE_IMAGES },
+                )
         }
     }
 
@@ -646,7 +677,7 @@ class ResearchModes(
             request = listOf(
                 ResearchCapability.RESEARCH, ResearchCapability.QUESTION, ResearchCapability.MODEL,
                 ResearchCapability.WEBSITES_INCLUDE, ResearchCapability.WEBSITES_EXCLUDE, ResearchCapability.DOCUMENTS_INCLUDE,
-                ResearchCapability.WEB_SEARCH,
+                ResearchCapability.WEB_SEARCH, ResearchCapability.INCLUDE_IMAGES,
             ),
             // The planner's answer, as it wrote it: a JSON array of queries, which Gather reads.
             reads = listOf(ResearchCapability.QUERIES to PLAN),
@@ -737,7 +768,8 @@ class ResearchModes(
             Step(
                 GATHER, "Gather", "Reads the documents, then searches every query and notes what it reads.", GATHER_STEP.outputName,
                 function = ResearchCapability.GATHER,
-                request = GATHER_STEP.request,
+                // As it was then: Gather was not asked about pictures before the steps were agents.
+                request = GATHER_STEP.request - ResearchCapability.INCLUDE_IMAGES,
                 reads = listOf(ResearchCapability.QUERIES to "plan.${ResearchCapability.QUERIES}"),
                 knobs = GATHER_STEP.knobs,
             ),

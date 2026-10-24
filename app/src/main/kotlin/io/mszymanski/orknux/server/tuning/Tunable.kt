@@ -443,6 +443,21 @@ enum class Tunable(
         "How long a research mode's step waits before trying again",
         "Written on the research modes' steps with the number of tries, as the wait before each one.",
     ),
+    RESEARCH_IMAGES_MOST(
+        "research.images.most", 6, 1, 50, TuningSection.WORKFLOWS, TuningUnit.ITEMS,
+        "The most images one research keeps",
+        "Only for a research started with Include images; it stops looking once it has this many, and each one is kept on the Artifacts page.",
+    ),
+    RESEARCH_IMAGE_MB(
+        "research.image.mb", 2, 1, 20, TuningSection.WORKFLOWS, TuningUnit.MB,
+        "The largest image a research keeps",
+        "An image larger than this is skipped rather than kept or laid out in the report; never more than the largest file a tool may download.",
+    ),
+    RESEARCH_IMAGE_PIXELS(
+        "research.image.pixels", 120, 0, 4_000, TuningSection.WORKFLOWS, TuningUnit.PIXELS,
+        "The shortest side an image a research keeps may have",
+        "Icons, logos and spacers are smaller than a picture worth placing in a report; 0 keeps images of any size.",
+    ),
 
     /* ---- Plugins and libraries ---- */
 

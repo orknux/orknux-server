@@ -176,8 +176,16 @@ class ResearchRuns(
                     research.error = "The workflow finished without writing a report."
                 } else {
                     research.status = ResearchStatus.COMPLETED
-                    research.result = report
-                    deliver(research, report)
+                    val images = pipeline.imagesFrom(research.foundImages)
+                    /*
+                     * As the page reads it: a picture placed is a link to the
+                     * one kept, and a picture made up is its words. A Save step
+                     * that ran answered it so already, and placing it twice
+                     * would take the links it put in for words.
+                     */
+                    val saved = research.artifactId != null || research.error != null
+                    research.result = if (saved) report else ResearchDelivery.placed(report, images, ResearchDelivery::linkOf)
+                    deliver(research, report, images)
                 }
             }
             ExecutionStatus.FAILED -> {
@@ -235,9 +243,9 @@ class ResearchRuns(
      * unless the workflow's own Save step has, or has tried and said why not:
      * a research is saved once, however its workflow was drawn.
      */
-    private fun deliver(research: Research, report: String) {
+    private fun deliver(research: Research, report: String, images: List<ResearchImage>) {
         if (research.artifactId != null || research.error != null) return
-        when (val delivered = delivery.deliver(research.workspaceId, research.question, research.outputFormat, report)) {
+        when (val delivered = delivery.deliver(research.workspaceId, research.question, research.outputFormat, report, images)) {
             is ResearchDelivery.Delivered.Saved -> research.artifactId = delivered.artifactId
             is ResearchDelivery.Delivered.Refused -> research.error = delivered.reason
         }

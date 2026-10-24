@@ -144,6 +144,13 @@ class Research(
     @Column(name = "use_web_search", nullable = false)
     val useWebSearch: Boolean = true,
 
+    /**
+     * Whether the research looks for images to place in its report and keep
+     * beside it. Off unless asked for.
+     */
+    @Column(name = "include_images", nullable = false)
+    val includeImages: Boolean = false,
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     var status: ResearchStatus = ResearchStatus.RUNNING,
@@ -163,6 +170,10 @@ class Research(
     /** The sources it read, numbered as the report cites them, as a JSON list of [ResearchSource]. */
     @Column(name = "found_sources", columnDefinition = "text")
     var foundSources: String? = null,
+
+    /** The images it kept, numbered as the report places them, as a JSON list of [ResearchImage]. */
+    @Column(name = "found_images", columnDefinition = "text")
+    var foundImages: String? = null,
 
     /** The file the report was saved as, on the Artifacts page; null where it could not be. */
     @Column(name = "artifact_id")
@@ -216,6 +227,12 @@ interface ResearchRepository : JpaRepository<Research, Long> {
     @Transactional
     @Query("UPDATE Research r SET r.progress = :progress, r.foundSources = :sources WHERE r.id = :id")
     fun noteProgress(@Param("id") id: Long, @Param("progress") progress: String, @Param("sources") sources: String): Int
+
+    /** The images a research has kept, written by Gather as it keeps them, for the reason [attachRun] gives. */
+    @Modifying
+    @Transactional
+    @Query("UPDATE Research r SET r.foundImages = :images WHERE r.id = :id")
+    fun noteImages(@Param("id") id: Long, @Param("images") images: String): Int
 
     /**
      * The file a research's Save step made, or why it could not make one -

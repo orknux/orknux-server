@@ -150,6 +150,7 @@ class ResearchAPI(
         if (model == null) throw ResearchModelMissingException()
         val useWebSearch = input.useWebSearch ?: true
         if (!useWebSearch && included.isEmpty() && websitesInclude.isEmpty()) throw ResearchNothingToReadException()
+        val includeImages = input.includeImages ?: false
 
         val research = researches.save(
             Research(
@@ -165,6 +166,7 @@ class ResearchAPI(
                 outputFormat = input.outputFormat,
                 sources = mapper.writeValueAsString(sources),
                 useWebSearch = useWebSearch,
+                includeImages = includeImages,
                 startedBy = SecurityContextHolder.getContext().authentication?.name ?: "system",
             ),
         )
@@ -195,7 +197,8 @@ class ResearchAPI(
                 // By name as well, for the writer agent's prompt: an id says nothing to a model.
                 ResearchModes.DOCUMENTS_EXCLUDE_NAMES to (excluded.joinToString(", ") { it.name }.ifEmpty { "none" }),
                 ResearchCapability.WEB_SEARCH to useWebSearch,
-                ResearchModes.BRIEF to briefs.of(question, input.language, input.outputFormat, sources, included, excluded, useWebSearch),
+                ResearchCapability.INCLUDE_IMAGES to includeImages,
+                ResearchModes.BRIEF to briefs.of(question, input.language, input.outputFormat, sources, included, excluded, useWebSearch, includeImages),
             ),
         )
         /*
@@ -333,6 +336,8 @@ class ResearchAPI(
             documentsInclude = documents("documentsInclude"),
             documentsExclude = documents("documentsExclude"),
             useWebSearch = research.useWebSearch,
+            includeImages = research.includeImages,
+            images = imagesOf(research.foundImages),
             status = research.status,
             executionId = research.executionId,
             result = research.result,
@@ -367,6 +372,26 @@ class ResearchAPI(
                 ?.let { runCatching { ResearchStage.valueOf(it.stringValue()) }.getOrNull() },
         )
     }
+
+    /** The pictures kept, each with the links the page shows it from and opens it at. */
+    private fun imagesOf(held: String?): List<ResearchImageView> =
+        held?.let { runCatching { mapper.readTree(it) }.getOrNull() }?.takeIf { it.isArray }
+            ?.let(ResearchPipeline::imagesOf).orEmpty()
+            .map { image ->
+                ResearchImageView(
+                    number = image.number,
+                    caption = image.caption,
+                    url = image.url,
+                    page = image.page,
+                    contentType = image.contentType,
+                    sizeBytes = image.sizeBytes,
+                    width = image.width,
+                    height = image.height,
+                    artifactId = image.artifactId,
+                    fileUrl = ResearchDelivery.linkOf(image),
+                    previewUrl = ResearchDelivery.linkOf(image) + "/preview",
+                )
+            }
 
     private fun sourcesOf(held: String?): List<ResearchSourceView> =
         held?.let { runCatching { mapper.readTree(it) }.getOrNull() }?.takeIf { it.isArray }?.mapNotNull { one ->
@@ -406,6 +431,8 @@ data class StartResearchInput(
     val documentsExclude: List<Long>? = null,
     /** Absent is on: a research searches the web unless told not to. */
     val useWebSearch: Boolean? = null,
+    /** Absent is off: a research looks for images only when asked to. */
+    val includeImages: Boolean? = null,
 )
 
 data class CreateResearchModeInput(
@@ -452,6 +479,9 @@ data class ResearchView(
     val documentsInclude: List<String>,
     val documentsExclude: List<String>,
     val useWebSearch: Boolean,
+    val includeImages: Boolean = false,
+    /** The pictures it kept, numbered as the report places them. */
+    val images: List<ResearchImageView> = emptyList(),
     val status: ResearchStatus,
     val executionId: Long?,
     val result: String?,
@@ -484,6 +514,20 @@ data class ResearchSourceView(
     val url: String,
     val kind: String,
     val notes: String,
+)
+
+data class ResearchImageView(
+    val number: Int,
+    val caption: String,
+    val url: String,
+    val page: String?,
+    val contentType: String,
+    val sizeBytes: Long,
+    val width: Int,
+    val height: Int,
+    val artifactId: Long,
+    val fileUrl: String,
+    val previewUrl: String,
 )
 
 data class ResearchPage(
