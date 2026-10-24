@@ -115,7 +115,7 @@ class DesignDrawQueue(
                 harmonized(id, job, modelId, original, strength)
             } else if (original != null && scale != null) {
                 log.info("Design image {} upscaling {} {}x by {} with {}", id, job.sourceId, scale, job.upscaler ?: "its own algorithm", job.modelName)
-                upscaling.upscale(modelId, original, job.upscaler, scale)
+                cleanedUp(upscaling.upscale(modelId, original, job.upscaler, scale), original, scale)
             } else if (original != null && mask != null) {
                 log.info("Design image {} editing {} with {}", id, job.sourceId, job.modelName)
                 drawing.edit(modelId, job.prompt, original, mask, job.negativePrompt)
@@ -186,6 +186,20 @@ class DesignDrawQueue(
             drawingNow.decrementAndGet()
             dispatch()
         }
+    }
+
+    /**
+     * An upscale at 1x is a Clean up - a restoration model run over the picture
+     * at its own size - and a WebUI answers one at its width and height rounded
+     * down to a multiple of 8. So it is fitted back to the picture's own size: a
+     * version is the size of what it is a version of. Issue #640.
+     */
+    private fun cleanedUp(answer: Picture, original: ByteArray, scale: Double): Picture {
+        if (scale != 1.0 || answer !is Picture.Drawn) return answer
+        val image = PictureScaling.read(original) ?: return answer
+        val cleaned = PictureScaling.read(answer.image) ?: return answer
+        if (cleaned.width == image.width && cleaned.height == image.height) return answer
+        return Picture.Drawn(PictureScaling.png(PictureScaling.fitted(cleaned, image.width, image.height)), "image/png", answer.millis)
     }
 
     /**

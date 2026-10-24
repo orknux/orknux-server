@@ -114,7 +114,8 @@ class DesignImageAPITest(
         // A Stable Diffusion WebUI: its algorithms, and a picture made larger - four pixels for every one.
         server.createContext("/sdapi/v1/upscalers") { exchange ->
             authorised += exchange.requestHeaders.getFirst("Authorization").orEmpty()
-            val bytes = """[{"name":"None"},{"name":"Lanczos"},{"name":"R-ESRGAN 4x+"}]""".toByteArray(StandardCharsets.UTF_8)
+            val bytes = """[{"name":"None"},{"name":"Lanczos"},{"name":"R-ESRGAN 4x+"},{"name":"ScuNET GAN"},{"name":"1x_JPEGDestroyer"}]"""
+                .toByteArray(StandardCharsets.UTF_8)
             exchange.responseHeaders.add("Content-Type", "application/json")
             exchange.sendResponseHeaders(200, bytes.size.toLong())
             exchange.responseBody.use { it.write(bytes) }
@@ -708,9 +709,12 @@ class DesignImageAPITest(
 
         val upscaler = model("Enlarger", "UPSCALE", type = "STABLE_DIFFUSION_WEBUI", keyed = false, modelId = "Lanczos")
         // The server's own list, the model's own first, and "None" - no upscaling at all - left out.
-        graphQlTester.document("""query { designUpscaleAlgorithms(workspaceId: $workspaceId, modelId: $upscaler) { names preferred reason } }""")
+        graphQlTester.document("""query { designUpscaleAlgorithms(workspaceId: $workspaceId, modelId: $upscaler) { names preferred reason restorers } }""")
             .execute()
-            .path("designUpscaleAlgorithms.names").entityList(String::class.java).containsExactly("Lanczos", "R-ESRGAN 4x+")
+            .path("designUpscaleAlgorithms.names").entityList(String::class.java)
+            .containsExactly("Lanczos", "R-ESRGAN 4x+", "ScuNET GAN", "1x_JPEGDestroyer")
+            // The restoration models among them, what Clean up offers: not an upscaler that only enlarges.
+            .path("designUpscaleAlgorithms.restorers").entityList(String::class.java).containsExactly("ScuNET GAN", "1x_JPEGDestroyer")
             .path("designUpscaleAlgorithms.preferred").entity(String::class.java).isEqualTo("Lanczos")
             .path("designUpscaleAlgorithms.reason").valueIsNull()
 
@@ -737,6 +741,26 @@ class DesignImageAPITest(
         assertThat(kept.versionOf).isEqualTo("DESIGN-${source.id}")
         assertThat(kept.name).isEqualTo("White")
         assertThat(javax.imageio.ImageIO.read(store.open(kept.location)).width).isEqualTo(4)
+    }
+
+    @Test
+    fun `cleaning up runs a restoration model at 1x and keeps the draft at the picture's own size`() {
+        val upscaler = model("Enlarger", "UPSCALE", type = "STABLE_DIFFUSION_WEBUI", keyed = false, modelId = "Lanczos")
+        val source = whiteSource()
+        val version = drawnPicture(
+            graphQlTester.document(
+                """mutation { queueDesignImageUpscale(input: {
+                     workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", modelId: $upscaler, algorithm: "ScuNET GAN", scale: 1
+                   }) { id } }""",
+            ).execute().path("queueDesignImageUpscale.id").entity(String::class.java).get(),
+        )
+        assertThat(upscaled.single()).contains("\"upscaler_1\":\"ScuNET GAN\"", "\"upscaling_resize\":1.0")
+        // The WebUI answered four by four; the draft is the picture's own two by two, restored.
+        val kept = requireNotNull(images.findByIdOrNull(version.removePrefix("DESIGN-").toLong()))
+        val read = javax.imageio.ImageIO.read(store.open(kept.location))
+        assertThat(read.width to read.height).isEqualTo(2 to 2)
+        assertThat(read.getRGB(0, 0)).isEqualTo(RED)
+        assertThat(kept.versionOf).isEqualTo("DESIGN-${source.id}")
     }
 
     @Test

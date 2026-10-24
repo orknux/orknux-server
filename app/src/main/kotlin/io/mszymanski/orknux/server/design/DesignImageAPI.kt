@@ -224,7 +224,11 @@ class DesignImageAPI(
         auditRecorder.record(
             workspaceId,
             WorkspaceAuditCategory.WORKFLOW,
-            "${source.view.name ?: source.view.filename} queued to be made ${input.scale}x larger in Design with ${model.name}",
+            if (input.scale == 1.0) {
+                "${source.view.name ?: source.view.filename} queued to be cleaned up in Design with ${model.name}"
+            } else {
+                "${source.view.name ?: source.view.filename} queued to be made ${input.scale}x larger in Design with ${model.name}"
+            },
         )
         queue.queued(job)
         return view(job)
@@ -323,8 +327,9 @@ class DesignImageAPI(
         val model = models.model(modelId)?.takeIf { it.workspaceId == workspaceId }
             ?: throw ModelNotFoundForWorkspaceException(modelId)
         return when (val offered = upscaling.algorithms(modelId)) {
-            is ModelUpscaleClient.Algorithms.Offered -> UpscaleAlgorithmsView(offered.names, offered.preferred, null)
-            is ModelUpscaleClient.Algorithms.Failed -> UpscaleAlgorithmsView(emptyList(), model.modelId, offered.reason)
+            is ModelUpscaleClient.Algorithms.Offered ->
+                UpscaleAlgorithmsView(offered.names, offered.preferred, null, offered.names.filter { RESTORING.containsMatchIn(it) })
+            is ModelUpscaleClient.Algorithms.Failed -> UpscaleAlgorithmsView(emptyList(), model.modelId, offered.reason, emptyList())
         }
     }
 
@@ -749,6 +754,14 @@ class DesignImageAPI(
         /** What an imported picture says it was drawn with: nothing here drew it. */
         const val IMPORTED = "Imported"
 
+        /**
+         * A WebUI's restoration models by name: what Clean up offers first. SCUNet
+         * and SwinIR come with AUTOMATIC1111 and Forge; FBCNN and 1x models such
+         * as 1x_JPEGDestroyer are added to its models folder. A name, because the
+         * WebUI's list says nothing else about what a model does. Issue #640.
+         */
+        val RESTORING = Regex("scunet|swinir|fbcnn|jpeg|(^|[^0-9])1x", RegexOption.IGNORE_CASE)
+
         /** What a change the editor made itself says it was made with: no model made it. */
         const val IMAGE_EDITOR = "Image editor"
 
@@ -829,7 +842,13 @@ data class KeepDesignImageChangeInput(
     val change: String,
 )
 
-data class UpscaleAlgorithmsView(val names: List<String>, val preferred: String?, val reason: String?)
+data class UpscaleAlgorithmsView(
+    val names: List<String>,
+    val preferred: String?,
+    val reason: String?,
+    /** Of [names], the restoration models Clean up offers: SCUNet, SwinIR, FBCNN and 1x models, by name. */
+    val restorers: List<String>,
+)
 
 data class HarmonizeDesignImageInput(
     val workspaceId: String,

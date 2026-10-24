@@ -8601,7 +8601,7 @@ input UpscaleDesignImageInput {
     modelId: ID!
     "One of designUpscaleAlgorithms; null is the model's own."
     algorithm: String
-    "How many times larger, 1 to 8."
+    "How many times larger, 1 to 8. At 1 it is a Clean up: a restoration model run over the picture, which keeps its size."
     scale: Float!
 }
 
@@ -8693,6 +8693,8 @@ type UpscaleAlgorithms {
     preferred: String
     "Why the server could not be asked; names is then empty."
     reason: String
+    "Of names, the restoration models Clean up offers - SCUNet, SwinIR, FBCNN, 1x models - by name."
+    restorers: [String!]!
 }
 
 """ The whole picture redrawn lightly, by one model, so the seams between redrawn parts blend. """
