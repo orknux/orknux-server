@@ -19,6 +19,7 @@ have failed.
 
 ### ✨ Added
 
+- **Copy on every code block.** A fenced block in a chat answer, an issue or the manual has a bar with its language and a Copy that takes exactly the block's text.
 - **Videos in Design.** A Videos page lists the workspace's videos with their poster, prompt, model, length and state, and its editor makes one from a prompt with a model of the new kind Video - through stable-diffusion.cpp's server (Wan and the other video models it loads) or an OpenAI-shaped `/videos` - offering only the settings that model takes: frames, fps, size and seed, or length and size, and a picture to start from. A video is queued, followed with its progress, kept with the attachments and played in the page, and survives a reload or a restart of the server; Convert to video on a picture opens the editor with it as the first frame. How many are made at once, how often each is asked about, how long one may take and the largest kept are under Limits.
 - **An agent can ask for a box.** `tools_ungranted` lists the box labels it does not hold and `tools_request` asks for one in the chat; accepted, the label is added to the agent as on its page.
 - **`svg_read`** answers the markup of an SVG kept under a key - a drawing or an attached .svg - so an agent can read and change it.
