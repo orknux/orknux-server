@@ -460,6 +460,8 @@ type Query {
     model's own first - asked of the server, since they differ between servers.
     """
     designUpscaleAlgorithms(workspaceId: ID!, modelId: ID!): UpscaleAlgorithms!
+    "Where the image editor's own tools start and how far each may go: the installation's numbers."
+    designImageEditorSettings(workspaceId: ID!): ImageEditorSettings!
     "What Harmonize can be asked with one model: its strength and, for a WebUI, its checkpoints."
     designHarmonizeOptions(workspaceId: ID!, modelId: ID!): HarmonizeOptions!
     "One picture asked for in Design, in whatever state it is; null for one not here."
@@ -8599,6 +8601,14 @@ input UpscaleDesignImageInput {
     algorithm: String
     "How many times larger, 1 to 8."
     scale: Float!
+}
+
+"Where the image editor's own tools start, and how far each may go, in the picture's own pixels."
+type ImageEditorSettings {
+    "How wide the brush starts."
+    brush: Int!
+    "The widest the brush may be made."
+    brushMost: Int!
 }
 
 """ A change the image editor made itself, to keep as a version of the picture. """

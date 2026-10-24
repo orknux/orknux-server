@@ -478,6 +478,7 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_VIDEO_POLL_SECONDS` | How often a video being made is asked about, in seconds. | `5` |
 | `ORKNUX_TUNING_VIDEO_LONGEST_MINUTES` | How long one video may take, in minutes. | `120` |
 | `ORKNUX_TUNING_VIDEO_MAX_MB` | The largest video kept, in MB. | `200` |
+| `ORKNUX_TUNING_IMAGES_BRUSH_PIXELS` | How wide the image editor's brush starts, in pixels. | `12` |
 | `ORKNUX_TUNING_WIREFRAME_ELEMENTS_MOST` | How many elements one wireframe may hold, in items. | `2000` |
 | `ORKNUX_TUNING_WIREFRAME_HTML_INLINE_CHARACTERS` | How long a wireframe's HTML may be and still be handed to a model, in characters. | `100000` |
 | `ORKNUX_TUNING_ACTION_RETRY_SECONDS` | How often a waiting action asks again, in seconds. | `30` |

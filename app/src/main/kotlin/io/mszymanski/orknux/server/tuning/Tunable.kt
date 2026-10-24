@@ -26,6 +26,7 @@ enum class TuningUnit(val said: String) {
     CHARACTERS("characters"),
     LINES("lines"),
     MB("MB"),
+    PIXELS("pixels"),
 }
 
 /**
@@ -288,6 +289,16 @@ enum class Tunable(
         "video.max.mb", 200, 1, 4096, TuningSection.MEDIA, TuningUnit.MB,
         "The largest video kept",
         "A video larger than this is not collected from its server, and is said to have failed.",
+    ),
+
+    /*
+     * Where the image editor's brush starts, in the picture's own pixels -
+     * somebody painting chooses their own, from 1 to the most here. Issue #637.
+     */
+    IMAGE_BRUSH_PIXELS(
+        "images.brush.pixels", 12, 1, 500, TuningSection.MEDIA, TuningUnit.PIXELS,
+        "How wide the image editor's brush starts",
+        "In the picture's own pixels, so zooming does not change it. Whoever paints can choose another width, up to the most this may be set to.",
     ),
 
     /* ---- Workflows and triggers ---- */

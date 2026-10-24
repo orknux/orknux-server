@@ -409,6 +409,20 @@ class DesignImageAPITest(
     }
 
     @Test
+    fun `the image editor's tools start where Admin Settings says`() {
+        fun settings() = graphQlTester.document("""query { designImageEditorSettings(workspaceId: $workspaceId) { brush brushMost } }""").execute()
+        settings()
+            .path("designImageEditorSettings.brush").entity(Int::class.java).isEqualTo(12)
+            .path("designImageEditorSettings.brushMost").entity(Int::class.java).isEqualTo(500)
+        try {
+            graphQlTester.document("""mutation { setTunable(key: "images.brush.pixels", value: 40) { value } }""").execute()
+            settings().path("designImageEditorSettings.brush").entity(Int::class.java).isEqualTo(40)
+        } finally {
+            graphQlTester.document("""mutation { setTunable(key: "images.brush.pixels", value: null) { value } }""").execute()
+        }
+    }
+
+    @Test
     fun `a change the editor made is refused when it is not a picture, or the picture is gone`() {
         val source = whiteSource()
         val text = Base64.getEncoder().encodeToString("not a picture".toByteArray())

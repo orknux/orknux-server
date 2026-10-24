@@ -58,7 +58,19 @@ class DesignImageAPI(
     private val artifacts: WorkspaceArtifactAPI,
     private val upscaling: ModelUpscaleClient,
     private val mapper: tools.jackson.databind.ObjectMapper,
+    private val tuning: io.mszymanski.orknux.server.tuning.Tuning,
 ) {
+
+    /**
+     * Where the image editor's own tools start, and how far each may go - the
+     * installation's numbers on Admin -> Settings, so a page holds none of its own.
+     */
+    @QueryMapping
+    fun designImageEditorSettings(@Argument workspaceId: Long): ImageEditorSettingsView {
+        access.requireVisible(workspaceId)
+        val brush = io.mszymanski.orknux.server.tuning.Tunable.IMAGE_BRUSH_PIXELS
+        return ImageEditorSettingsView(brush = tuning[brush], brushMost = brush.most)
+    }
 
     /** Refused here, before it waits, for anything that could never be drawn. */
     @MutationMapping
@@ -772,6 +784,13 @@ data class ImportDesignImageInput(
     val archive: String? = null,
     val name: String? = null,
     val prompt: String? = null,
+)
+
+data class ImageEditorSettingsView(
+    /** How wide the brush starts, in the picture's own pixels. */
+    val brush: Int,
+    /** The widest it may be made. */
+    val brushMost: Int,
 )
 
 data class KeepDesignImageChangeInput(
