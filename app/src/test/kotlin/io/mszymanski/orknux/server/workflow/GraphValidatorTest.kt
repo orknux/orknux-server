@@ -102,6 +102,51 @@ class GraphValidatorTest(
      * on save - sent, it would be its own braces, which is how `{{llmResult}}`
      * once reached Slack.
      */
+    /**
+     * With no trigger node, what starts the run hands it whatever it hands it,
+     * so `{{trigger.x}}` is given the benefit of the doubt `trigger.x` as a
+     * reference always had - and a bare name nothing produces is still refused,
+     * without pointing at a trigger there is not.
+     */
+    @Test
+    fun `without a trigger node a value may read the run's start, and a name nothing produces is still refused`() {
+        val functionId = function("summarize")
+        val action = functionAction(functionId, "Summarize", emptyMap())
+        fun nodes(value: String) = """
+            { key: "sum", kind: ACTION, name: "Summarize", actionId: $action, x: 0, y: 0,
+              mappings: [{ name: "order", expression: "$value", mode: VALUE }] }
+        """
+        assertThat(save(nodes("Order {{trigger.order.id}}"), "").filter { it.startsWith("ERROR") }).isEmpty()
+        graphQlTester.document(
+            """mutation { saveWorkflowGraph(workspaceId: $workspaceId, workflowId: $workflowId, input: {
+                 nodes: [${nodes("Order {{nowhere}}")}], edges: [] }) { workflowId } }""",
+        ).execute().errors().satisfy {
+            assertThat(it.single().message).contains("{{nowhere}}", "nothing in this workflow produces").doesNotContain("the trigger's")
+        }
+    }
+
+    /**
+     * An agent's named answer is merged into what the run carries, as every
+     * step's is, so what reached the agent still reaches the node after it -
+     * and is not warned about as produced by nothing.
+     */
+    @Test
+    fun `what reached a named agent still reaches the node after it`() {
+        val functionId = function("summarize")
+        val first = functionAction(functionId, "Summarize", emptyMap())
+        val second = functionAction(functionId, "Report", emptyMap())
+        val problems = save(
+            """
+            { key: "sum", kind: ACTION, name: "Summarize", actionId: $first, outputName: "summary", x: 0, y: 0 },
+            { key: "think", kind: AGENT, name: "Responder", outputName: "reply", x: 200, y: 0 },
+            { key: "rep", kind: ACTION, name: "Report", actionId: $second, x: 400, y: 0,
+              mappings: [{ name: "order", expression: "summary", mode: REFERENCE }, { name: "said", expression: "reply", mode: REFERENCE }] }
+            """,
+            """{ source: "sum", target: "think" }, { source: "think", target: "rep" }""",
+        )
+        assertThat(problems).noneMatch { it.contains("which nothing before it produces") }
+    }
+
     @Test
     fun `a value's placeholders are saved when the graph answers them, and refused when nothing does`() {
         val functionId = function("summarize")

@@ -160,7 +160,10 @@ class ResearchNothingReadException(reason: String) : RuntimeException(reason)
  *    right.
  *
  * Each step is a function of its own - see [ResearchCapability] - and hands the
- * next what it found through the run, the way any node hands on its output.
+ * next what it found through the run, the way any node hands on its output. A
+ * mode's workflow plans and writes with agent nodes instead, told [PLAN] and
+ * [WRITE] as their instructions; this keeps the gathering, the notes on each
+ * source, and the numbered list the report ends with.
  * [run] is the four in one call, which is what `research_run` still is. Every
  * step is written to the research as it is taken, which is what the page
  * shows while it runs and what a finished research keeps.
@@ -200,6 +203,25 @@ class ResearchPipeline(
         ).take(subQuestions).ifEmpty { listOf(asked.question) }
         tracker.planned(plan)
         return plan
+    }
+
+    /**
+     * The queries a plan came to, written on the research: what Plan says when
+     * it is an agent node, which has no research to write on. Said by Gather,
+     * the step that reads them.
+     */
+    fun planned(researchId: Long?, queries: List<String>) {
+        Tracker(researchId, ResearchStage.PLAN).planned(queries)
+    }
+
+    /**
+     * Refuses to go on to the writing where nothing was read: a report from no
+     * sources is the model's own belief written up as research. Asked by
+     * Follow up, the last step before the writing, because where the writing is
+     * an agent node nothing on its way stops it.
+     */
+    fun requireRead(gathered: ResearchGathered) {
+        if (gathered.sources.isEmpty()) throw ResearchNothingReadException(nothingRead(gathered))
     }
 
     /** Gather: the documents asked for, then every query searched and what it found read - the first level. */
@@ -320,11 +342,8 @@ class ResearchPipeline(
             if (excludedDocuments.isNotEmpty()) appendLine("Do not use: ${excludedDocuments.joinToString(", ")}.")
             appendLine()
             appendLine("Sources, by number:")
-            sources.forEach { source ->
-                appendLine()
-                appendLine("[${source.number}] ${source.title} - ${source.url}")
-                appendLine(source.notes)
-            }
+            appendLine()
+            append(notesOf(sources))
         })
         val report = withSources(written.trim(), sources)
         tracker.step("Report written")
@@ -340,6 +359,15 @@ class ResearchPipeline(
         if (gathered.refused.isNotEmpty()) {
             append(" The search answered: ").append(gathered.refused.joinToString("; ") { "\"$it\"" }).append('.')
         }
+    }
+
+    /**
+     * The sources as the writing reads them: each under its number, title and
+     * address, with the notes taken from it. What Write is handed, whether it
+     * is this pipeline or an agent node reading Follow up's `notes`.
+     */
+    fun notesOf(sources: List<ResearchSource>): String = sources.joinToString("\n\n") { source ->
+        "[${source.number}] ${source.title} - ${source.url}\n${source.notes}"
     }
 
     /** Says a step on the research where there is one: what [ResearchDelivery] writes while it saves. */
@@ -448,7 +476,7 @@ class ResearchPipeline(
      * A list the model was asked for as JSON, or as lines where it wrote them
      * as lines anyway: a research is not worth stopping over a missing bracket.
      */
-    private fun listFrom(said: String): List<String> {
+    fun listFrom(said: String): List<String> {
         val start = said.indexOf('[')
         val end = said.lastIndexOf(']')
         if (start >= 0 && end > start) {
@@ -469,7 +497,7 @@ class ResearchPipeline(
         if (include.isEmpty()) query else query + " " + include.mapNotNull(::hostOfEntry).joinToString(" OR ") { "site:$it" }
 
     /** A report always ends with the numbered list it cites, in the pipeline's words rather than the model's. */
-    private fun withSources(report: String, sources: List<ResearchSource>): String {
+    fun withSources(report: String, sources: List<ResearchSource>): String {
         if (sources.isEmpty()) return report
         val kept = report.substringBefore("\n## Sources").trimEnd()
         return buildString {

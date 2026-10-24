@@ -45,8 +45,11 @@ import java.util.concurrent.CopyOnWriteArrayList
  *
  * A workspace arrives with three research modes, each a hidden workflow of
  * five steps - Plan, Gather, Follow up, Write, Save - whose nodes hold the
- * knobs that make the mode; one still drawn as the single `research_run` node
- * it once was is redrawn, and one somebody edited is left alone. A research
+ * knobs that make the mode. Plan and Write are agent nodes, the workspace's
+ * Research planner and Research writer, each naming the model the research
+ * was started with; the other three are actions. One still drawn as the single
+ * `research_run` node, or as the five actions, it once was is redrawn, and one
+ * somebody edited is left alone. A research
  * plans sub-questions, searches each through the workspace's search with the
  * websites to keep to and avoid applied, reads what it found and notes it,
  * goes deeper with follow-up questions to the mode's depth, and writes a report
@@ -82,6 +85,7 @@ class ResearchTest(
     @Autowired val researchModes: ResearchModes,
     @Autowired val functions: WorkflowFunctionRepository,
     @Autowired val runSteps: ExecutionStepRepository,
+    @Autowired val agents: io.mszymanski.orknux.server.agent.AgentRepository,
 ) {
 
     private var workspaceId: Long = 0
@@ -119,32 +123,14 @@ class ResearchTest(
         val knobs = ids.map { id ->
             val drawn = nodes.findByWorkflowId(id).sortedBy { it.positionX }
             assertThat(drawn.map { it.name }).containsExactly("Plan", "Gather", "Follow up", "Write", "Save")
-            assertThat(drawn).allMatch { it.kind == NodeKind.ACTION }
-            // Each step calls its own action, which calls its own function.
-            drawn.forEach { node ->
-                val action = actions.findByIdOrNull(requireNotNull(node.actionId))!!
-                assertThat(action.name).isEqualTo("Research: ${node.name}")
-            }
+            assertCurrentShape(drawn)
             // A chain, left to right.
             assertThat(edges.findByWorkflowId(id).map { it.sourceKey to it.targetKey }).containsExactlyInAnyOrder(
                 "plan" to "gather", "gather" to "followUp", "followUp" to "write", "write" to "save",
             )
-            // The request is read off what started the run; what a step before found, off the run.
-            drawn.forEach { node ->
-                node.mappings.filter { it.name in ResearchCapability.REQUEST }.forEach {
-                    assertThat(it.mode).isEqualTo(MappingMode.REFERENCE)
-                    assertThat(it.expression).isEqualTo("trigger.${it.name}")
-                }
-            }
-            assertThat(drawn[1].mappings.single { it.name == "queries" }.expression).isEqualTo("plan.queries")
-            assertThat(drawn[4].mappings.single { it.name == "report" }.expression).isEqualTo("research.report")
             // And it is a graph that holds together, with nothing to warn about.
             assertThat(validator.problems(drawn, edges.findByWorkflowId(id), workspaceId = workspaceId)).isEmpty()
-
-            // Every knob on the step it is about, and nowhere else.
-            drawn.associate { node ->
-                node.name to node.mappings.filter { it.mode == MappingMode.VALUE }.associate { it.name to it.expression.toInt() }
-            }
+            knobsOf(drawn)
         }
         assertThat(knobs.map { it.mapValues { (_, values) -> values.keys } }).allMatch {
             it == mapOf(
@@ -164,6 +150,25 @@ class ResearchTest(
             ).map { all.getValue(it) }
         }
         assertThat(numbers).containsExactly(listOf(3, 0, 1, 3, 8, 1), listOf(5, 2, 2, 4, 20, 2), listOf(6, 4, 3, 5, 50, 3))
+
+        // Two agents, ordinary ones on the Agents page, offered nothing that runs anything and with no model of their own.
+        val planner = requireNotNull(agents.findByWorkspaceIdAndName(workspaceId, "Research planner"))
+        val writer = requireNotNull(agents.findByWorkspaceIdAndName(workspaceId, "Research writer"))
+        assertThat(planner.systemPrompt).isEqualTo(PLAN)
+        assertThat(writer.systemPrompt).startsWith(WRITE).contains("COLLOQUIAL")
+        listOf(planner, writer).forEach { agent ->
+            assertThat(agent.modelId).isNull()
+            assertThat(io.mszymanski.orknux.server.chat.BuiltInTools.grantedTo(agent)).isEmpty()
+            assertThat(agent.skillCatalogs + agent.memoryCatalogs + agent.mcpServers).isEmpty()
+            assertThat(agent.orknuxAccess).isFalse()
+            assertThat(agent.mayAskForTools).isFalse()
+        }
+        graphQlTester.document("""query { workspaceAgents(workspaceId: $workspaceId, size: 50) { content { name } } }""").execute()
+            .path("workspaceAgents.content[*].name").entityList(String::class.java).contains("Research planner", "Research writer")
+        // Nor handed a memory catalog made later, as every other agent is by default.
+        graphQlTester.document("""mutation { createMemoryCatalog(workspaceId: $workspaceId, name: "Customers") { id } }""")
+            .execute().errors().verify()
+        assertThat(listOf(planner, writer).map { agents.findByIdOrNull(requireNotNull(it.id))!!.memoryCatalogs }).allMatch { it.isEmpty() }
     }
 
     /* ------------------------------------------------------------ upgrade --- */
@@ -177,10 +182,9 @@ class ResearchTest(
 
         val drawn = nodes.findByWorkflowId(medium).sortedBy { it.positionX }
         assertThat(drawn.map { it.name }).containsExactly("Plan", "Gather", "Follow up", "Write", "Save")
-        assertThat(drawn.flatMap { it.mappings }.filter { it.mode == MappingMode.VALUE }.associate { it.name to it.expression })
-            .containsExactlyInAnyOrderEntriesOf(
-                mapOf(SUB to "5", BREADTH to "2", DEPTH to "2", RESULTS to "4", SOURCES to "20", PAGES to "2"),
-            )
+        assertCurrentShape(drawn)
+        assertThat(knobsOf(drawn).values.fold(emptyMap<String, Int>()) { one, other -> one + other })
+            .containsExactlyInAnyOrderEntriesOf(mapOf(SUB to 5, BREADTH to 2, DEPTH to 2, RESULTS to 4, SOURCES to 20, PAGES to 2))
         assertThat(edges.findByWorkflowId(medium)).hasSize(4)
 
         // And it runs as the steps.
@@ -229,6 +233,58 @@ class ResearchTest(
     }
 
     @Test
+    fun `a mode workflow still the five actions it was seeded as is redrawn with agent nodes, and runs through them`() {
+        val deep = modeWorkflow("DEEP")
+        actionShape(deep, mapOf(SUB to 6, BREADTH to 4, DEPTH to 3, RESULTS to 5, SOURCES to 50, PAGES to 3))
+        // Moved on the canvas, which changes nothing it does.
+        nodes.findByWorkflowId(deep).forEach { it.positionY = 40.0; nodes.save(it) }
+
+        researchModes.ensure(workspaceId)
+
+        val drawn = nodes.findByWorkflowId(deep).sortedBy { it.positionX }
+        assertCurrentShape(drawn)
+        assertThat(knobsOf(drawn).values.fold(emptyMap<String, Int>()) { one, other -> one + other })
+            .containsExactlyInAnyOrderEntriesOf(mapOf(SUB to 6, BREADTH to 4, DEPTH to 3, RESULTS to 5, SOURCES to 50, PAGES to 3))
+        assertThat(edges.findByWorkflowId(deep).map { it.sourceKey to it.targetKey }).containsExactlyInAnyOrder(
+            "plan" to "gather", "gather" to "followUp", "followUp" to "write", "write" to "save",
+        )
+        assertThat(validator.problems(drawn, edges.findByWorkflowId(deep), workspaceId = workspaceId)).isEmpty()
+
+        val modelId = model(serve())
+        val done = settled(
+            start("""{ workspaceId: $workspaceId, question: "Why are there tides?", modeId: ${modeId("DEEP")}, modelId: $modelId, language: FORMAL, outputFormat: DOCUMENT }"""),
+        )
+        assertThat(done.status).describedAs(done.error).isEqualTo(ResearchStatus.COMPLETED)
+        assertThat(stepsOf(done)).containsExactly("plan", "gather", "followUp", "write", "save")
+        assertThat(asked(PLAN).single()).contains("exactly 6 search queries")
+    }
+
+    @Test
+    fun `a five-action mode workflow somebody edited is left as it is, and still runs its functions`() {
+        val shallow = modeWorkflow("SHALLOW")
+        // Shallow's numbers, but one source rather than eight: somebody's own.
+        actionShape(shallow, mapOf(SUB to 3, BREADTH to 0, DEPTH to 1, RESULTS to 3, SOURCES to 1, PAGES to 1))
+
+        researchModes.ensure(workspaceId)
+
+        val kept = nodes.findByWorkflowId(shallow)
+        assertThat(kept).allMatch { it.kind == NodeKind.ACTION }
+        assertThat(kept.single { it.nodeKey == "gather" }.mappings.single { it.name == SOURCES }.expression).isEqualTo("1")
+
+        val modelId = model(serve())
+        val done = settled(
+            start("""{ workspaceId: $workspaceId, question: "Why are there tides?", modeId: ${modeId("SHALLOW")}, modelId: $modelId, language: COLLOQUIAL, outputFormat: DOCUMENT }"""),
+        )
+        assertThat(done.status).describedAs(done.error).isEqualTo(ResearchStatus.COMPLETED)
+        assertThat(web.read).hasSize(1)
+        assertThat(stepsOf(done)).containsExactly("plan", "gather", "followUp", "write", "save")
+        // research_write wrote it, in the register asked for, with the sources after it.
+        assertThat(asked(WRITE).single()).contains("colloquial register")
+        assertThat(done.result).contains("## Sources")
+        assertThat(saved.findByIdOrNull(requireNotNull(done.artifactId))!!.name).isEqualTo("tides.md")
+    }
+
+    @Test
     fun `the workflows list leaves the hidden ones out until it is asked for them`() {
         graphQlTester.document("""mutation { createWorkflow(input: { workspaceId: $workspaceId, name: "Mine" }) { id } }""")
             .execute().errors().verify()
@@ -261,7 +317,9 @@ class ResearchTest(
         // As a copied workspace arrives: the workflows and the action there, no modes.
         assertThat(modesOf().map { it["workflowId"]?.toString()?.toLong() }).isEqualTo(before)
         assertThat(actions.findByWorkspaceId(workspaceId).filter { it.name.startsWith(ResearchModes.ACTION_NAME) }.map { it.name })
-            .containsExactlyInAnyOrder("Research: Plan", "Research: Gather", "Research: Follow up", "Research: Write", "Research: Save")
+            .containsExactlyInAnyOrder("Research: Gather", "Research: Follow up", "Research: Save")
+        assertThat(agents.findByWorkspaceId(workspaceId, org.springframework.data.domain.Sort.unsorted()).map { it.name }.filter { it.startsWith("Research") })
+            .containsExactlyInAnyOrder("Research planner", "Research writer")
         assertThat(modesOf()).hasSize(3)
     }
 
@@ -269,7 +327,10 @@ class ResearchTest(
 
     @Test
     fun `a shallow research plans, searches each part, reads and notes what it found, and writes a cited report`() {
-        val modelId = model(serve())
+        val endpoint = serve()
+        // Two chat models, and the research picks the second: the agents have none, so what reaches the model is the research's choice.
+        model(endpoint)
+        val modelId = model(endpoint, "Chosen")
 
         val id = start(
             """{ workspaceId: $workspaceId, question: "Why are there tides?", modeId: ${modeId("SHALLOW")}, modelId: $modelId,
@@ -278,9 +339,12 @@ class ResearchTest(
         val done = settled(id)
         assertThat(done.status).describedAs(done.error).isEqualTo(ResearchStatus.COMPLETED)
 
-        // Plan: the model's three queries, which are what was searched - and only those, at depth 1.
+        // Plan: the planner agent asked, with the research's model, for three queries - which are what was searched, and only those, at depth 1.
         assertThat(asked(PLAN)).hasSize(1)
         assertThat(asked(PLAN).single()).contains("Why are there tides?").contains("exactly 3 search queries")
+        assertThat(modelOf(asked(PLAN).single())).isEqualTo("research-$stamp-Chosen")
+        // Offered nothing that runs anything.
+        assertThat(toolsOf(asked(PLAN).single())).isEmpty()
         assertThat(web.searched).containsExactly("tide causes", "tide timing", "tide records")
         assertThat(asked(FOLLOW_UP)).isEmpty()
 
@@ -289,9 +353,12 @@ class ResearchTest(
         assertThat(asked(NOTES)).hasSize(web.read.size)
         assertThat(asked(NOTES).first()).contains("Query: tide causes").contains("The moon pulls the sea at")
 
-        // Write: in the register asked for, from the numbered notes.
+        // Write: the writer agent, with the research's model, in the register asked for, from the numbered notes.
         val write = asked(WRITE).single()
-        assertThat(write).contains("formal register").contains("[1] ").contains("The moon's gravity raises tides.")
+        assertThat(write).contains("Register: FORMAL").contains("Documents not to use: none").contains("[1] ").contains("The moon's gravity raises tides.")
+        assertThat(modelOf(write)).isEqualTo("research-$stamp-Chosen")
+        assertThat(toolsOf(write)).isEmpty()
+        assertThat(asked(NOTES).map(::modelOf)).isNotEmpty().allMatch { it == "research-$stamp-Chosen" }
 
         val view = graphQlTester.document(
             """query { research(id: $id) { result progress { step subQuestions searched level sourcesRead }
@@ -330,7 +397,7 @@ class ResearchTest(
         assertThat(asked(FOLLOW_UP).first()).contains("What was learnt:").contains("exactly 2 follow-up search queries")
         assertThat(web.searched).contains("moon distance and tides")
         assertThat(researches.findByIdOrNull(requireNotNull(done.id))!!.progress).contains("\"level\":2")
-        assertThat(asked(WRITE).single()).contains("academic register")
+        assertThat(asked(WRITE).single()).contains("Register: ACADEMIC")
     }
 
     @Test
@@ -382,7 +449,7 @@ class ResearchTest(
         )
         assertThat(done.status).describedAs(done.error).isEqualTo(ResearchStatus.COMPLETED)
         assertThat(asked(NOTES).first()).contains("Source: notes.md").contains("every fortnight")
-        assertThat(asked(WRITE).single()).contains("Do not use: rumours.txt").contains("colloquial register").contains("/api/artifacts/$notes")
+        assertThat(asked(WRITE).single()).contains("Documents not to use: rumours.txt").contains("Register: COLLOQUIAL").contains("/api/artifacts/$notes")
         assertThat(asked(NOTES) + asked(WRITE)).noneMatch { it.contains("caused by whales") }
         assertThat(researches.findByIdOrNull(requireNotNull(done.id))!!.foundSources).contains("\"kind\":\"DOCUMENT\"")
     }
@@ -587,7 +654,8 @@ class ResearchTest(
             start("""{ workspaceId: $workspaceId, question: "GPU prices in 2027", modeId: ${modeId("SHALLOW")}, modelId: $modelId, language: FORMAL, outputFormat: PDF }"""),
         )
         assertThat(done.status).isEqualTo(ResearchStatus.FAILED)
-        assertThat(done.error).contains("research_write has no source to write a report from: nothing was read in 3 searches.")
+        // Stopped before the writer, which would otherwise write a report from what it already believed.
+        assertThat(done.error).contains("research_followUp has no source to write a report from: nothing was read in 3 searches.")
         assertThat(asked(WRITE)).isEmpty()
         assertThat(done.artifactId).isNull()
     }
@@ -699,6 +767,122 @@ class ResearchTest(
 
     private fun modeWorkflow(kind: String): Long = (modesOf().first { it["kind"] == kind }["workflowId"] as String).toLong()
 
+    /** The model a request to the stub named. */
+    private fun modelOf(body: String): String = mapper.readTree(body).path("model").stringValue()
+
+    /** The tools a request to the stub offered, by name. */
+    private fun toolsOf(body: String): List<String> =
+        mapper.readTree(body).path("tools").values().map { it.path("function").path("name").stringValue() }
+
+    /**
+     * The current shape: Plan and Write the two agents, each naming the
+     * research's model and asking its own prompt; Gather, Follow up and Save
+     * actions, reading the request off the run and the step before off the run.
+     */
+    private fun assertCurrentShape(drawn: List<WorkflowNode>) {
+        assertThat(drawn.map { it.kind }).containsExactly(NodeKind.AGENT, NodeKind.ACTION, NodeKind.ACTION, NodeKind.AGENT, NodeKind.ACTION)
+        val byKey = drawn.associateBy { it.nodeKey }
+        listOf("plan" to "Research planner", "write" to "Research writer").forEach { (key, agent) ->
+            val node = byKey.getValue(key)
+            assertThat(agents.findByIdOrNull(requireNotNull(node.agentId))!!.name).isEqualTo(agent)
+            val model = node.mappings.single { it.name == "model" }
+            assertThat(model.mode).isEqualTo(MappingMode.REFERENCE)
+            assertThat(model.expression).isEqualTo("trigger.model")
+            assertThat(node.mappings.single { it.name == "prompt" }.expression).contains("{{trigger.question}}")
+            assertThat(node.streamOutput).isFalse()
+        }
+        assertThat(byKey.getValue("write").mappings.single { it.name == "prompt" }.expression)
+            .contains("{{trigger.language}}", "{{trigger.documentsExcludeNames}}", "{{deepened.notes}}")
+        listOf("gather", "followUp", "save").forEach { key ->
+            val node = byKey.getValue(key)
+            assertThat(actions.findByIdOrNull(requireNotNull(node.actionId))!!.name).isEqualTo("Research: ${node.name}")
+            node.mappings.filter { it.name in ResearchCapability.REQUEST }.forEach {
+                assertThat(it.mode).isEqualTo(MappingMode.REFERENCE)
+                assertThat(it.expression).isEqualTo("trigger.${it.name}")
+            }
+        }
+        // The planner's answer is Gather's queries; the writer's draft and what was gathered are Save's.
+        assertThat(byKey.getValue("gather").mappings.single { it.name == "queries" }.expression).isEqualTo("plan")
+        assertThat(byKey.getValue("save").mappings.single { it.name == "report" }.expression).isEqualTo("draft")
+        assertThat(byKey.getValue("save").mappings.single { it.name == "gathered" }.expression).isEqualTo("deepened")
+        assertThat(byKey.getValue("save").outputName).isEqualTo("research")
+        // Laid out so no two cards overlap: a description short enough to keep a card near its least
+        // width, and room between cards for the line's label.
+        assertThat(drawn.map { it.description.orEmpty().length }).allMatch { it in 1..50 }
+        assertThat(drawn.zipWithNext().map { (one, next) -> next.positionX - one.positionX }).allMatch { it >= 640.0 }
+        assertThat(drawn.map { it.positionY }.distinct()).hasSize(1)
+    }
+
+    /** Each step's knobs by name: its written numbers, and on Plan the number its prompt asks for. */
+    private fun knobsOf(drawn: List<WorkflowNode>): Map<String, Map<String, Int>> = drawn.associate { node ->
+        val numbers = node.mappings.filter { it.mode == MappingMode.VALUE && it.name != "prompt" }.associate { it.name to it.expression.toInt() }
+        val asked = node.mappings.singleOrNull { it.name == "prompt" && node.nodeKey == "plan" }
+            ?.let { Regex("exactly (\\d+) search queries").find(it.expression)!!.groupValues[1].toInt() }
+        node.name to (numbers + listOfNotNull(asked?.let { SUB to it }))
+    }
+
+    /** A mode's workflow as it was seeded before Plan and Write were agents: five actions, each calling its step's function. */
+    private fun actionShape(workflowId: Long, knobs: Map<String, Int>) {
+        edges.deleteAll(edges.findByWorkflowId(workflowId))
+        nodes.deleteAll(nodes.findByWorkflowId(workflowId))
+        fun action(step: String, name: String): Long {
+            val function = requireNotNull(functions.findByScopeAndName(FunctionScope.EMBEDDED, ResearchCapability.functionName(step)))
+            return requireNotNull(
+                (actions.findByWorkspaceIdAndName(workspaceId, "Research: $name") ?: actions.save(
+                    WorkflowAction(
+                        workspaceId = workspaceId, name = "Research: $name", type = ActionType.EXECUTE,
+                        subtype = ActionSubtype.FUNCTION, functionId = function.id,
+                    ),
+                )).id,
+            )
+        }
+        fun trigger(vararg names: String) = names.map { NodeMapping(name = it, expression = "trigger.$it", mode = MappingMode.REFERENCE) }
+        fun read(name: String, field: String, from: String) = NodeMapping(name = name, expression = field, mode = MappingMode.REFERENCE, sourceNodeKey = from)
+        fun knob(vararg names: String) = names.map { NodeMapping(name = it, expression = knobs.getValue(it).toString(), mode = MappingMode.VALUE) }
+        val steps = listOf(
+            WorkflowNode(
+                workflowId = workflowId, nodeKey = "plan", kind = NodeKind.ACTION, name = "Plan",
+                description = "Breaks the question into search queries.", actionId = action("plan", "Plan"), outputName = "plan",
+                positionX = 0.0, positionY = 0.0,
+                mappings = (trigger("research", "question", "model") + knob(SUB)).toMutableList(),
+            ),
+            WorkflowNode(
+                workflowId = workflowId, nodeKey = "gather", kind = NodeKind.ACTION, name = "Gather",
+                description = "Reads the documents, then searches every query and notes what it reads.", actionId = action("gather", "Gather"),
+                outputName = "gathered", positionX = 320.0, positionY = 0.0,
+                mappings = (
+                    trigger("research", "question", "model", "websitesInclude", "websitesExclude", "documentsInclude", "webSearch") +
+                        read("queries", "plan.queries", "plan") + knob(RESULTS, SOURCES, PAGES)
+                    ).toMutableList(),
+            ),
+            WorkflowNode(
+                workflowId = workflowId, nodeKey = "followUp", kind = NodeKind.ACTION, name = "Follow up",
+                description = "Asks follow-up questions from what was learnt and searches those, to the depth set.",
+                actionId = action("followUp", "Follow up"), outputName = "deepened", positionX = 640.0, positionY = 0.0,
+                mappings = (
+                    trigger("research", "question", "model", "websitesInclude", "websitesExclude", "webSearch") +
+                        read("gathered", "gathered", "gather") + knob(BREADTH, DEPTH)
+                    ).toMutableList(),
+            ),
+            WorkflowNode(
+                workflowId = workflowId, nodeKey = "write", kind = NodeKind.ACTION, name = "Write",
+                description = "Writes the report from the notes, citing numbered sources, in the register asked for.",
+                actionId = action("write", "Write"), outputName = "research", positionX = 960.0, positionY = 0.0,
+                mappings = (trigger("research", "question", "model", "language", "documentsExclude") + read("gathered", "deepened", "followUp")).toMutableList(),
+            ),
+            WorkflowNode(
+                workflowId = workflowId, nodeKey = "save", kind = NodeKind.ACTION, name = "Save",
+                description = "Saves the report on the Artifacts page as the PDF or document asked for.",
+                actionId = action("save", "Save"), outputName = "saved", positionX = 1280.0, positionY = 0.0,
+                mappings = (trigger("research", "question", "outputFormat") + read("report", "research.report", "write")).toMutableList(),
+            ),
+        )
+        steps.forEach { nodes.save(it) }
+        steps.zipWithNext().forEach { (from, to) ->
+            edges.save(io.mszymanski.orknux.server.workflow.WorkflowEdge(workflowId = workflowId, sourceKey = from.nodeKey, targetKey = to.nodeKey))
+        }
+    }
+
     /** The nodes a research's run went through, in order. */
     private fun stepsOf(research: Research): List<String> =
         runSteps.findByExecutionIdOrderByOrderAsc(requireNotNull(research.executionId)).map { it.nodeKey }
@@ -762,14 +946,15 @@ class ResearchTest(
         return requireNotNull((saving as SavedArtifacts.Saving.Saved).artifact.id)
     }
 
-    private fun model(endpoint: String): Long {
+    private fun model(endpoint: String, named: String? = null): Long {
+        val suffix = named?.let { "-$it" }.orEmpty()
         val providerId = graphQlTester.document(
             """mutation { createModelProvider(input: {
-                 workspaceId: $workspaceId, name: "Stub $stamp", endpoint: "$endpoint", secret: "sk-test"
+                 workspaceId: $workspaceId, name: "Stub $stamp$suffix", endpoint: "$endpoint", secret: "sk-test"
                }) { id } }""",
         ).execute().path("createModelProvider.id").entity(Long::class.java).get()
         return graphQlTester.document(
-            """mutation { createModel(input: { providerId: $providerId, name: "Researcher model", modelId: "research-$stamp", kind: CHAT })
+            """mutation { createModel(input: { providerId: $providerId, name: "${named ?: "Researcher model"}", modelId: "research-$stamp$suffix", kind: CHAT })
                { id } }""",
         ).execute().path("createModel.id").entity(Long::class.java).get()
     }

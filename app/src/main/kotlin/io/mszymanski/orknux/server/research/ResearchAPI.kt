@@ -192,10 +192,20 @@ class ResearchAPI(
                 ResearchCapability.WEBSITES_EXCLUDE to websitesExclude,
                 ResearchCapability.DOCUMENTS_INCLUDE to included.map { requireNotNull(it.id).toString() },
                 ResearchCapability.DOCUMENTS_EXCLUDE to excluded.map { requireNotNull(it.id).toString() },
+                // By name as well, for the writer agent's prompt: an id says nothing to a model.
+                ResearchModes.DOCUMENTS_EXCLUDE_NAMES to (excluded.joinToString(", ") { it.name }.ifEmpty { "none" }),
                 ResearchCapability.WEB_SEARCH to useWebSearch,
                 ResearchModes.BRIEF to briefs.of(question, input.language, input.outputFormat, sources, included, excluded, useWebSearch),
             ),
         )
+        /*
+         * Where Plan is an agent node, nothing writes on the research until
+         * Gather does: the agent has no research to write on. So the page is
+         * told here what the first step is doing.
+         */
+        if (seeding.plansWithAnAgent(research.workflowId)) {
+            following.planning(requireNotNull(research.id))
+        }
         following.launch(research, payload)
         return describe(research)
     }

@@ -69,6 +69,15 @@ class ResearchRuns(
         starting.shutdownNow()
     }
 
+    /** Says on the research that its plan is being made, as the Plan step would where it is a function. */
+    fun planning(researchId: Long) {
+        researches.noteProgress(
+            researchId,
+            mapper.writeValueAsString(ResearchProgress(step = "Planning the research", stage = ResearchStage.PLAN)),
+            "[]",
+        )
+    }
+
     /** Starts the research's workflow on a thread of its own; a refusal to start ends the research. */
     fun launch(research: Research, payload: String) {
         val id = requireNotNull(research.id)

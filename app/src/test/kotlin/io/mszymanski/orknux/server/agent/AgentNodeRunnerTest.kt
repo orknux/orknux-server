@@ -174,6 +174,44 @@ class AgentNodeRunnerTest(
     }
 
     /**
+     * A node may name the model its agent thinks with, written or read off the
+     * run - how a research hands its planner and writer the model it was
+     * started with. One the workspace cannot talk to fails the step rather than
+     * quietly falling back to another.
+     */
+    @Test
+    fun `a node naming a model thinks with it rather than the agent's own, and one it cannot use fails the step`() {
+        val own = model(serveAnswer())
+        val providerId = requireNotNull(models.findById(own).get().providerId)
+        val chosen = graphQlTester.document(
+            """mutation { createModel(input: { providerId: $providerId, name: "Chosen", modelId: "chosen", kind: CHAT }) { id } }""",
+        ).execute().path("createModel.id").entity(Long::class.java).get()
+        // No model of its own: the node's is the only one there is.
+        val agentId = agent("Reviewer", modelId = null)
+        graphQlTester.document(
+            """
+            mutation {
+              saveWorkflowGraph(workspaceId: $workspaceId, workflowId: $workflowId, input: {
+                nodes: [{ key: "think", kind: AGENT, name: "Reviewer", agentId: $agentId, x: 0, y: 0,
+                          mappings: [{ name: "model", expression: "trigger.model", mode: REFERENCE }] }],
+                edges: []
+              }) { nodes { key } }
+            }
+            """,
+        ).execute().errors().verify()
+
+        val ran = start(input = """{"summary":"the database fell over","model":"$chosen"}""")
+        assertThat(steps.findAll().single { it.executionId == ran }.status).isEqualTo(StepStatus.COMPLETED)
+        assertThat(mapper.readTree(received.single()).path("model").stringValue()).isEqualTo("chosen")
+
+        val refused = start(expectFailure = true, input = """{"summary":"the database fell over","model":"999999999"}""")
+        val failed = steps.findAll().single { it.executionId == refused }
+        assertThat(failed.status).isEqualTo(StepStatus.FAILED)
+        assertThat(failed.error).contains("names the model \"999999999\", which is no chat model this workspace can use")
+        assertThat(received).hasSize(1)
+    }
+
+    /**
      * A node pointing at no agent is unfinished, not broken.
      *
      * A graph is drawn before it is finished, so the run says what it found and
