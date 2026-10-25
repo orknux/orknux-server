@@ -126,14 +126,14 @@ class ProviderOfferAllToolsTest(
     }
 
     @Test
-    fun `left unset, Ollama and OpenAI offer every tool up front and the rest do not`() {
+    fun `left unset, no provider offers every tool up front`() {
         val ollama = provider(type = "OLLAMA")
-        // OpenAI's type is also every OpenAI-compatible local server, llama.cpp among them.
+        // OpenAI's type is also every OpenAI-compatible local server.
         val openai = provider(type = "OPENAI")
+        val llama = provider(type = "LLAMA_CPP")
         val anthropic = provider(type = "ANTHROPIC")
-        assertThat(resolved(ollama)).isTrue()
-        assertThat(resolved(openai)).isTrue()
-        assertThat(resolved(anthropic)).isFalse()
+        // The frozen tool array made it pointless, and it switched off the agent's ceiling and Offer marks.
+        assertThat(listOf(ollama, openai, llama, anthropic).map(::resolved)).containsOnly(false)
         // An OpenAI-compatible server carries 200; OpenAI's own API still refuses past 128.
         assertThat(cap(openai)).isEqualTo(200)
         val openAiItself = graphQlTester.document(

@@ -573,9 +573,18 @@ class ModelProvider(
         return base.trimEnd('/')
     }
 
-    /** Whether every tool goes out from the first round: as set, or on for Ollama and OpenAI and off for the rest. */
-    fun offersAllTools(): Boolean =
-        offerAllTools ?: (type == ProviderType.OLLAMA || type == ProviderType.OPENAI || type == ProviderType.LLAMA_CPP)
+    /**
+     * Whether every tool goes out from the first round: as set, and off where
+     * nobody set it.
+     *
+     * It was on by default for the local servers, because a tool loaded
+     * mid-conversation used to change the tool array and llama.cpp then read the
+     * whole prompt again. The array is frozen per session now and a found tool
+     * runs through `tool_run`, so carrying everything bought nothing - and it
+     * switched off the agent's own ceiling and every Offer mark: an agent with a
+     * ceiling of 75 sent 59k tokens of tools on its first request.
+     */
+    fun offersAllTools(): Boolean = offerAllTools ?: false
 
     /** The most tools one request may carry: as set, or what the type takes. */
     fun toolCap(): Int = maxTools ?: if (isOpenAiItself()) OPENAI_API_TOOL_LIMIT else type.toolLimit
