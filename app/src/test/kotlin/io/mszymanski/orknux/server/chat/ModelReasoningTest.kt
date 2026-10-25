@@ -315,7 +315,9 @@ class ModelReasoningTest(
         server.createContext(path) { exchange ->
             exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
             val bytes = body.toByteArray(StandardCharsets.UTF_8)
-            exchange.responseHeaders.add("Content-Type", "application/json")
+            // Labelled as what it is, as a provider labels it: since 5f4e1d5a the
+            // client reads a body that is not an event stream as one whole answer.
+            exchange.responseHeaders.add("Content-Type", if (body.startsWith("data:")) "text/event-stream" else "application/json")
             exchange.sendResponseHeaders(200, bytes.size.toLong())
             exchange.responseBody.use { it.write(bytes) }
             exchange.close()

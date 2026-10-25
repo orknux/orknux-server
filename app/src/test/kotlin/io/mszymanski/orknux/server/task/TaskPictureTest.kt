@@ -446,7 +446,10 @@ class TaskPictureTest(
     }
 
     private fun reply(exchange: HttpExchange, body: ByteArray, status: Int) {
-        exchange.responseHeaders.add("Content-Type", "application/json")
+        // Labelled as what it is, as a provider labels it: since 5f4e1d5a the
+        // client reads a body that is not an event stream as one whole answer.
+        val streamed = body.size >= 5 && String(body, 0, 5, StandardCharsets.UTF_8) == "data:"
+        exchange.responseHeaders.add("Content-Type", if (streamed) "text/event-stream" else "application/json")
         exchange.sendResponseHeaders(status, body.size.toLong())
         exchange.responseBody.use { it.write(body) }
         exchange.close()
