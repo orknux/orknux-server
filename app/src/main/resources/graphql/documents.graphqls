@@ -83,6 +83,8 @@ input DocumentChatTurnInput {
     "user or assistant."
     role: String!
     content: String!
+    "Files uploaded to the attachments endpoint and sent with this turn: pictures go to the model as pictures, other files as their text."
+    attachmentIds: [ID!]
 }
 
 "A folder of documents."

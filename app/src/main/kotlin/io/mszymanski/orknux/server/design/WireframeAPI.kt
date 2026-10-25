@@ -1,8 +1,9 @@
 package io.mszymanski.orknux.server.design
 
+import io.mszymanski.orknux.server.attachment.EditorChatFiles
+import io.mszymanski.orknux.server.attachment.EditorChatTurn
 import com.fasterxml.jackson.annotation.JsonCreator
 import com.fasterxml.jackson.annotation.JsonProperty
-import io.mszymanski.orknux.connector.model.ChatTurn
 import io.mszymanski.orknux.server.security.ActingIn
 import io.mszymanski.orknux.server.security.WorkspaceAccess
 import io.mszymanski.orknux.server.tuning.Tunable
@@ -39,6 +40,8 @@ class WireframeAPI(
     mapper: ObjectMapper,
     /** Lazy: the chat reaches the orknux_* tools, which save through here. */
     @param:Lazy private val chat: WireframeChat,
+    /** What a turn's files say, for the model. */
+    private val files: EditorChatFiles,
     private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
@@ -164,9 +167,8 @@ class WireframeAPI(
         @Argument messages: List<WireframeChatTurnInput>,
     ): WireframeAnswerView {
         val held = find(id)
-        val turns = messages
-            .filter { it.content.isNotBlank() }
-            .map { ChatTurn(role = if (it.role.equals("assistant", ignoreCase = true)) "assistant" else "user", content = it.content) }
+        // What was attached goes with the turn it was sent on: pictures as pictures, the rest as text.
+        val turns = files.turns(held.workspaceId, who(), messages.map { EditorChatTurn(it.role, it.content, it.attachmentIds.orEmpty()) })
         if (turns.none { it.role == "user" }) throw WireframeAnswerFailedException("there is nothing to answer")
         val answered = chat.answer(view(held), modelId, turns, who())
         val now = find(id)
@@ -256,4 +258,6 @@ data class WireframeAnswerView(
 data class WireframeChatTurnInput @JsonCreator constructor(
     @JsonProperty("role") val role: String,
     @JsonProperty("content") val content: String,
+    /** Files uploaded through the attachments endpoint, sent with this turn. */
+    @JsonProperty("attachmentIds") val attachmentIds: List<Long>? = null,
 )
