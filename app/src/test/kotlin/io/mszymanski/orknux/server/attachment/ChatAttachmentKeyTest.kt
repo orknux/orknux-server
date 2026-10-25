@@ -93,6 +93,12 @@ class ChatAttachmentKeyTest(
         assertThat(read.path("to").intValue()).isEqualTo(2)
         assertThat(read.path("html").stringValue()).contains("Chapter 1 begins", "Chapter 2 begins").doesNotContain("Chapter 3 begins")
 
+        // A range in quotes, as Qwen on llama.cpp sends it, is a range: it was read as none, so the whole file was refused as too long.
+        val quoted = mapper.readTree(pdf.run(PdfCapability.READ, """{"contentKey":"$key","from":"3","to":"4"}""", workspaceId, session))
+        assertThat(quoted.path("from").intValue()).withFailMessage(quoted.toString()).isEqualTo(3)
+        assertThat(quoted.path("to").intValue()).isEqualTo(4)
+        assertThat(quoted.path("html").stringValue()).contains("Chapter 3 begins", "Chapter 4 begins").doesNotContain("Chapter 5 begins")
+
         // And a search, which reads every page, finds the last one.
         val found = mapper.readTree(pdf.run(PdfCapability.SEARCH, """{"contentKey":"$key","query":"Chapter $pages begins"}""", workspaceId, session))
         assertThat(found.path("count").intValue()).withFailMessage(found.toString()).isEqualTo(1)

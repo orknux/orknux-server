@@ -95,7 +95,7 @@ class SearchCapability(
         val query = asked.path(QUERY).takeIf { it.isTextual }?.stringValue()?.trim()?.takeIf { it.isNotEmpty() }
             ?: return refusal("Give the $QUERY to search for.")
         val most = tuning[Tunable.SEARCH_RESULTS_MOST]
-        val limit = asked.path(LIMIT).takeIf { it.isNumber }?.intValue()?.coerceIn(1, most) ?: minOf(SOME_RESULTS, most)
+        val limit = wholeNumber(asked.path(LIMIT))?.coerceIn(1, most) ?: minOf(SOME_RESULTS, most)
 
         val engine = settings.engineOf(workspaceId)
         // Read here, at the moment of the call, so a variable's new value is the one sent.

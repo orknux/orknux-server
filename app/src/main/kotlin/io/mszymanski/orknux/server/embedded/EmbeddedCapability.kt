@@ -148,3 +148,19 @@ fun EmbeddedTool.spec(key: String): ToolSpec = ToolSpec(
     summary = summary,
     readOnly = readOnly,
 )
+
+/**
+ * A whole number a model passed, written as a number or as one in quotes.
+ *
+ * Models served through llama.cpp send `"from": "1"` as often as `"from": 1`,
+ * and reading only the first left pdf_read with no range at all: asked for
+ * pages 1 to 5 of a 118-page file, it read the whole of it and refused it as
+ * too long, and the model concluded the range was ignored and went to extract
+ * the text in a box.
+ */
+fun wholeNumber(node: tools.jackson.databind.JsonNode): Int? = when {
+    node.isIntegralNumber -> node.intValue()
+    node.isNumber -> node.doubleValue().takeIf { it == Math.floor(it) }?.toInt()
+    node.isTextual -> node.stringValue().trim().toIntOrNull()
+    else -> null
+}

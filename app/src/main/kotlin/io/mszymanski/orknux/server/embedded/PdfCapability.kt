@@ -604,7 +604,7 @@ class PdfCapability(
     }
 
     private fun number(node: JsonNode, name: String): Int? =
-        node.path(name).takeIf { it.isNumber }?.intValue()?.takeIf { it > 0 }
+        wholeNumber(node.path(name))?.takeIf { it > 0 }
 
     /** An argument arrives as the JSON a graph wrote, so a string is quoted. */
     private fun unquoted(argument: String?): String? {

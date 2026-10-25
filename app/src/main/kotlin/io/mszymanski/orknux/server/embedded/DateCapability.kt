@@ -298,7 +298,7 @@ class DateCapability(
         node.path(name).takeIf { it.isTextual }?.stringValue()
 
     private fun number(node: JsonNode, name: String): Int? =
-        node.path(name).takeIf { it.isNumber }?.intValue()
+        wholeNumber(node.path(name))
 
     private fun unquoted(argument: String?): String? {
         val given = argument?.trim()?.takeIf { it.isNotEmpty() && it != "null" } ?: return null
