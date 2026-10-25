@@ -905,6 +905,8 @@ orknux:
     agent.wait.longest.seconds: ${ORKNUX_TUNING_AGENT_WAIT_LONGEST_SECONDS:300}
     tools.loaded.at.once: ${ORKNUX_TUNING_TOOLS_LOADED_AT_ONCE:8}
     tools.searches.at.once: ${ORKNUX_TUNING_TOOLS_SEARCHES_AT_ONCE:8}
+    tool.result.window.percent: ${ORKNUX_TUNING_TOOL_RESULT_WINDOW_PERCENT:25}
+    turn.window.reserve.percent: ${ORKNUX_TUNING_TURN_WINDOW_RESERVE_PERCENT:25}
     scratchpad.pads: ${ORKNUX_TUNING_SCRATCHPAD_PADS:50}
     sheet.rows.most: ${ORKNUX_TUNING_SHEET_ROWS_MOST:200}
     sheet.answer.characters: ${ORKNUX_TUNING_SHEET_ANSWER_CHARACTERS:60000}

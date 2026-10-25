@@ -30,6 +30,13 @@ data class Compacted(
 )
 
 /**
+ * A turn shrunk in flight: what to send now, the summary that stands in for its
+ * middle where there was one, how many steps that replaced, and how many long
+ * steps were cut to fit.
+ */
+data class Shrunk(val turns: List<ChatTurn>, val summary: String?, val replaced: Int, val trimmed: Int)
+
+/**
  * Keeps a long chat inside the window the model will accept.
  *
  * A conversation that outgrows its model fails on the next turn, and it fails
@@ -152,36 +159,172 @@ class ChatCompaction(
      * used to, because a turn that goes on being too long is better than one
      * quietly missing the half of itself that mattered.
      *
+     * **And the recent end is held to [budgetChars] too.** Chat 981 kept its
+     * newest step word for word, and the newest step was a 523,768-character
+     * SVG: two summaries of everything before it later, the request was still
+     * 452,827 tokens against a window of 262,144, and the turn failed. "Word
+     * for word" is a promise about what fits; where the recent end alone does
+     * not, its longest items are cut, largest first, each saying how long it
+     * was - which works with no middle at all, the case of a turn whose very
+     * first lookup was too big.
+     *
      * @param keep how many of the most recent turns are left untouched.
+     * @param budgetChars what the whole turn must come to, in characters; null
+     *   to summarise without measuring, as before.
      */
-    fun shrink(turns: List<ChatTurn>, modelId: Long, summaryTokens: Int, keep: Int): List<ChatTurn>? {
+    fun shrink(
+        turns: List<ChatTurn>,
+        modelId: Long,
+        summaryTokens: Int,
+        keep: Int,
+        budgetChars: Int? = null,
+    ): Shrunk? {
         /*
          * The system turn, the question, a summary, and the recent end. Anything
          * shorter than that has no middle to lose, and shedding it would be
          * throwing away the question instead of the lookups.
          */
-        if (turns.size < keep + 3) return null
         val head = turns.take(2)
-        val recent = turns.takeLast(keep)
-        val middle = turns.drop(2).dropLast(keep)
-        if (middle.isEmpty()) return null
+        val from = recentStart(turns, keep)
+        val middle = if (from > 2) turns.subList(2, from) else emptyList()
+        val recent = turns.drop(maxOf(from, head.size))
 
-        val transcript = middle.joinToString("\n\n") { "${it.role}: ${it.content}" }
-        val summary = summariseText(modelId, transcript, summaryTokens) ?: return null
+        /*
+         * A long tool answer is not summarised: 476,668 characters of a copper
+         * layer's path data have no gist, and handing them to the summariser is
+         * a second request too large for the window. It becomes a one-line
+         * record of what it was instead, kept as it is beside the summary.
+         */
+        val records = middle.filter { long(it) }.map { record(turns, it) }
+        val summary = if (middle.isEmpty()) {
+            null
+        } else {
+            val transcript = middle.joinToString("\n\n") { "${it.role}: ${if (long(it)) record(turns, it) else it.content}" }
+            summariseText(modelId, transcript, summaryTokens)?.let { said ->
+                if (records.isEmpty()) said else said + "\n\nLong answers in those steps, as they were:\n" +
+                    records.joinToString("\n") { "- $it" }
+            }
+        }
+        if (summary == null && budgetChars == null) return null
 
-        log.info("Shrank a turn in flight: {} turns became a summary, {} kept", middle.size, keep)
         /*
          * Offered as something said rather than as an instruction, the way
          * [compactIfNeeded] does it and for the same reason: a model handed a
          * summary as a system turn starts following it.
          */
-        return head + ChatTurn(
-            role = "user",
-            content = "The middle of this turn was too long to carry, so " + middle.size +
-                " of its earlier steps were replaced by this summary of them. " +
-                "What follows it is the recent end, word for word.\n\n" + summary,
-        ) + recent
+        val summarised = if (summary == null) {
+            turns
+        } else {
+            log.info("Shrank a turn in flight: {} turns became a summary, {} kept", middle.size, recent.size)
+            head + ChatTurn(
+                role = "user",
+                content = "The middle of this turn was too long to carry, so " + middle.size +
+                    " of its earlier steps were replaced by this summary of them. " +
+                    "What follows it is the recent end, word for word unless a step says it was trimmed.\n\n" + summary,
+            ) + recent
+        }
+        val (fitted, trimmed) = budgetChars?.let { fitTo(summarised, it) } ?: (summarised to 0)
+        if (summary == null && trimmed == 0) return null
+        if (trimmed > 0) log.info("Trimmed {} long steps of a turn in flight to fit {} characters", trimmed, budgetChars)
+        return Shrunk(fitted, summary, if (summary == null) 0 else middle.size, trimmed)
     }
+
+    /**
+     * Where the recent end begins: [keep] turns from the end, moved back to the
+     * call a tool answer belongs to. A request that opens on an answer whose
+     * call was summarised away is one providers refuse outright.
+     */
+    private fun recentStart(turns: List<ChatTurn>, keep: Int): Int {
+        var at = (turns.size - keep).coerceAtLeast(0)
+        while (at > 2 && turns[at].respondingTo != null) at -= 1
+        return at
+    }
+
+    /**
+     * The turns cut, longest first, until they come to [budget] characters, and
+     * how many were cut. The system turn is left whole: it is what the agent is.
+     * A tool call's arguments are counted and never cut, because cut JSON is a
+     * request the provider refuses for a different reason.
+     */
+    private fun fitTo(turns: List<ChatTurn>, budget: Int): Pair<List<ChatTurn>, Int> {
+        val out = turns.toMutableList()
+        var excess = out.sumOf { charsOf(it).toLong() } - budget
+        if (excess <= 0) return out to 0
+        var trimmed = 0
+        val newestAnswer = out.indexOfLast { it.respondingTo != null }
+        val longestFirst = out.indices.filter { out[it].role != "system" }.sortedByDescending { charsOf(out[it]) }
+        for (at in longestFirst) {
+            if (excess <= 0) break
+            val turn = out[at]
+            /*
+             * An older tool answer goes whole, to the one line saying what it
+             * was: the model has read it and moved on, and half of it is no more
+             * use than none. The newest keeps its beginning, because it is what
+             * the next round is about.
+             */
+            if (turn.respondingTo != null && at != newestAnswer && long(turn)) {
+                out[at] = turn.copy(content = record(turns, turn), reasoning = null)
+                excess -= charsOf(turn) - charsOf(out[at])
+                trimmed += 1
+                continue
+            }
+            // Thinking first: it is the model's own working, and the step it led to is still there.
+            val reasoning = turn.reasoning.orEmpty().length
+            var shorter = turn
+            if (reasoning > 0) {
+                shorter = shorter.copy(reasoning = null)
+                excess -= reasoning
+            }
+            val length = shorter.content.length
+            /*
+             * An answer cut when it arrived keeps the note it was cut with -
+             * the whole length and the way to the rest - and only loses more
+             * of its beginning.
+             */
+            val cutAt = shorter.content.indexOf(CUT_MARK)
+            val body = if (cutAt >= 0) shorter.content.substring(0, cutAt) else shorter.content
+            val note = if (cutAt >= 0) shorter.content.substring(cutAt) else trimNote(length)
+            val keep = (length - excess - note.length).coerceIn(minOf(SHORTEST_KEPT, body.length).toLong(), body.length.toLong()).toInt()
+            if (excess > 0 && keep + note.length < length) {
+                shorter = shorter.copy(content = body.take(keep) + note)
+                excess -= length - shorter.content.length
+            }
+            if (shorter != turn) {
+                out[at] = shorter
+                trimmed += 1
+            }
+        }
+        return out to trimmed
+    }
+
+    /** Whether a step is a tool answer long enough that a line saying what it was says more than its text. */
+    private fun long(turn: ChatTurn): Boolean = turn.respondingTo != null && turn.content.length > LONG_ANSWER
+
+    /**
+     * One line for a tool answer: the call, how long the answer was, and how
+     * much of it the model was shown. The length is the one a cut answer's own
+     * note gives, where it was cut when it arrived.
+     */
+    internal fun record(turns: List<ChatTurn>, answer: ChatTurn): String {
+        val call = turns.asSequence().flatMap { it.asked.asSequence() }.firstOrNull { it.id == answer.respondingTo }
+        val cutAt = answer.content.indexOf(CUT_MARK)
+        val whole = if (cutAt >= 0) {
+            CUT_LENGTH.find(answer.content, cutAt)?.groupValues?.get(1)?.toIntOrNull() ?: answer.content.length
+        } else {
+            answer.content.length
+        }
+        val shown = if (cutAt >= 0) cutAt else answer.content.length
+        val asked = call?.let { it.name + " " + it.arguments.replace(WHITESPACE, " ").take(RECORD_ARGUMENTS) } ?: "a tool"
+        return "$asked: answered $whole characters, the first $shown shown; left out of this turn to fit the " +
+            "model's window - call it again for any part you need"
+    }
+
+    private fun charsOf(turn: ChatTurn): Int =
+        turn.content.length + turn.reasoning.orEmpty().length + turn.asked.sumOf { it.arguments.length + it.name.length }
+
+    private fun trimNote(length: Int) =
+        "… (trimmed from $length characters when this turn was shrunk to fit the model's window; " +
+            "ask for a smaller part if you need more of it)"
 
     private fun summarise(modelId: Long, older: List<Message>, budget: Int): String? {
         val transcript = older.joinToString("\n\n") { "${role(it)}: ${it.text.orEmpty()}" }
@@ -228,6 +371,20 @@ class ChatCompaction(
         const val KEEP = 6
 
         const val CHARS_PER_TOKEN = 4
+
+        /** A tool answer longer than this becomes a one-line record when a turn is shrunk, rather than text to summarise. */
+        const val LONG_ANSWER = 4_000
+
+        /** How much of a call's arguments its record repeats. */
+        const val RECORD_ARGUMENTS = 200
+
+        /** How a cut answer's note begins, wherever it was cut, and the length it gives. */
+        const val CUT_MARK = "… (trimmed from "
+        val CUT_LENGTH = Regex("""… \(trimmed from (\d+) characters""")
+        val WHITESPACE = Regex("""\s+""")
+
+        /** What a step cut to fit keeps at least, so it still says what it was. */
+        const val SHORTEST_KEPT = 500
 
         /** Long enough to be worth having, short enough to be a compaction. */
         const val DEFAULT_SUMMARY_TOKENS = 500

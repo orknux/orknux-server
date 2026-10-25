@@ -37,7 +37,7 @@ class SvgCapability(
     private val installation: InstallationSettings,
 ) : EmbeddedCapability {
 
-    override val key = "svg"
+    override val key = CAPABILITY
     override val name = "SVG"
 
     override fun tools(): List<EmbeddedTool> = listOf(
@@ -227,9 +227,14 @@ class SvgCapability(
 
     private fun refusal(said: String): String = mapper.writeValueAsString(mapOf("error" to said))
 
-    internal companion object {
+    companion object {
+        const val CAPABILITY = "svg"
         const val DRAW = "draw"
         const val TO_PNG = "toPng"
+
+        /** What a model calls to have SVG markup drawn as a picture, as the tool list names it. */
+        const val RENDER_TOOL = CAPABILITY + "_" + TO_PNG
+
         const val READ = "read"
         const val SVG = "svg"
         const val KEY = "key"

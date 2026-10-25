@@ -313,6 +313,8 @@ class AgentConversation(
     private val errors: io.mszymanski.orknux.server.errors.ErrorRecorder,
     /** Which tools change nothing, for a turn held to those; see [ToolEffects]. Issue #653. */
     private val effects: ToolEffects,
+    /** The model's window, and the cut that holds a tool result to a share of it; see [TurnWindow]. */
+    private val window: TurnWindow,
 ) {
 
     /** Sessions already told that not every tool could go up front; told once each, while this server runs. */
@@ -368,7 +370,14 @@ class AgentConversation(
      * The same turn, with its middle summarised. Null where nothing can be done
      * and the caller should fail as it used to.
      */
-    private fun shrinkToFit(agent: Agent, modelId: Long, turns: List<ChatTurn>): List<ChatTurn>? {
+    private fun shrinkToFit(
+        agent: Agent,
+        modelId: Long,
+        turns: List<ChatTurn>,
+        overflow: ContextOverflow?,
+        attempt: Int,
+        harder: Boolean,
+    ): Shrunk? {
         val workspace = workspaces.findByIdOrNull(agent.workspaceId)
         /*
          * The turn's own model unless a workspace named another. A summary of
@@ -377,11 +386,32 @@ class AgentConversation(
          * somebody may want and not a default worth assuming for them.
          */
         val summariser = workspace?.sessionCompactionModelId ?: modelId
-        val keep = workspace?.sessionCompactionKeepTurns ?: settings.sessionCompactionKeepTurns()
+        val keep = if (harder) 1 else workspace?.sessionCompactionKeepTurns ?: settings.sessionCompactionKeepTurns()
         val budget = workspace?.sessionCompactionSummaryTokens ?: settings.sessionCompactionSummaryTokens()
-        return runCatching { compaction.shrink(turns, summariser, budget, keep) }
+        /*
+         * What the turn must come to, from the model's real window: the
+         * provider's own numbers where its refusal gave them, its row or a
+         * learned window otherwise. Halved each attempt after the first.
+         */
+        val sent = turns.sumOf { it.content.length + it.reasoning.orEmpty().length + it.asked.sumOf { call -> call.arguments.length } }
+        val chars = window.budget(modelId, sent, overflow, attempt)
+        return runCatching { compaction.shrink(turns, summariser, budget, keep, chars) }
             .onFailure { log.warn("A turn could not be shrunk to fit", it) }
             .getOrNull()
+    }
+
+    /**
+     * What the session says about a shrink. With the summary itself: the steps
+     * it stands in for are gone from what the model sees, so what it was told
+     * instead is the one account of them a reader can check.
+     */
+    private fun shrunkNote(shrunk: Shrunk): String {
+        val did = listOfNotNull(
+            shrunk.summary?.let { "its earlier steps were replaced by a summary" },
+            shrunk.trimmed.takeIf { it > 0 }?.let { n -> "$n of its longest " + (if (n == 1) "step was" else "steps were") + " cut to fit" },
+        ).joinToString(" and ")
+        return "The turn outgrew the model's window, so $did and it carried on." +
+            (shrunk.summary?.let { "\n\n$it" } ?: "")
     }
 
     /** How many calls one message from this agent may ask for. Issue #518. */
@@ -907,6 +937,25 @@ class AgentConversation(
              * chat — a task's loop, a workflow's agent — on the path they were
              * already on.
              */
+            /*
+             * A turn that cannot fit is shrunk before it is sent, not after the
+             * provider says so: at four characters a token - about the most a
+             * token holds of prose, and far more than of markup or numbers - more
+             * characters than that times the window is over it. Not every
+             * provider refuses; some cut the front off the prompt and answer
+             * from what is left.
+             */
+            window.tokens(modelId)?.let { tokens ->
+                val carried = conversation.sumOf { it.content.length.toLong() + it.reasoning.orEmpty().length }
+                if (carried > tokens.toLong() * MOST_CHARS_PER_TOKEN && compactions < compactionsFor(agent)) {
+                    shrinkToFit(agent, modelId, conversation, null, attempt = compactions, harder = false)?.let { smaller ->
+                        compactions += 1
+                        into?.let { session -> sessions.note(session, shrunkNote(smaller)) }
+                        conversation.clear()
+                        conversation.addAll(smaller.turns)
+                    }
+                }
+            }
             // Kept as it goes: this request is the next turn's prefix.
             kept?.sent(conversation)
             // The hangup reaches the blocking call as well as the stream: a
@@ -976,26 +1025,24 @@ class AgentConversation(
                      * summaries is not long, it is looping - and compacting a
                      * loop for ever is a way of never saying anything is wrong.
                      */
-                    if (tooLarge(answer.reason) && compactions < compactionsFor(agent)) {
-                        val smaller = shrinkToFit(agent, modelId, conversation)
+                    /*
+                     * And once more past the setting, harder: chat 981 was
+                     * shrunk twice, still 452,827 tokens against 262,144, and
+                     * failed. The last attempt keeps only the newest step and
+                     * aims at half of what the one before it aimed at.
+                     */
+                    if (tooLarge(answer.reason) && compactions <= compactionsFor(agent)) {
+                        val overflow = ContextOverflow.of(answer.reason + " " + answer.detail.orEmpty())
+                        window.learn(modelId, overflow)
+                        val smaller = shrinkToFit(
+                            agent, modelId, conversation, overflow,
+                            attempt = compactions, harder = compactions == compactionsFor(agent),
+                        )
                         if (smaller != null) {
                             compactions += 1
-                            into?.let { session ->
-                                /*
-                                 * With the summary itself: the steps it stands in for
-                                 * are gone from what the model sees, so what it was told
-                                 * instead is the one account of them a reader can check.
-                                 */
-                                val summary = smaller.getOrNull(2)?.content?.takeIf { it.isNotBlank() }
-                                sessions.note(
-                                    session,
-                                    "The turn outgrew the model's window, so its earlier steps were " +
-                                        "replaced by a summary and it carried on." +
-                                        (summary?.let { "\n\n$it" } ?: ""),
-                                )
-                            }
+                            into?.let { session -> sessions.note(session, shrunkNote(smaller)) }
                             conversation.clear()
-                            conversation.addAll(smaller)
+                            conversation.addAll(smaller.turns)
                             return@repeat
                         }
                     }
@@ -1445,7 +1492,16 @@ class AgentConversation(
                                 .getOrNull()
                         }
                         val whole = picture?.let { AgentTools.withoutPicture(got, it, placed) } ?: got
-                        val said = whole
+                        /*
+                         * Held to a share of the model's window. Chat 981: one
+                         * svg_read answer was 523,768 characters, under the
+                         * memory wall and nearly twice the model's window, and
+                         * nothing after it could be sent. The note names how to
+                         * read the rest from what this agent holds.
+                         */
+                        val said = window.longestResult(modelId)
+                            ?.let { longest -> window.fit(whole, call, offered + findable, into, longest) }
+                            ?: whole
                         picture?.let { shown.add(call.name to it) }
 
                         /*
@@ -1986,7 +2042,15 @@ class AgentConversation(
             "context length exceeded",
             "too many tokens",
             "reduce the length of the messages",
+            // OpenAI's code, where a provider puts it in the text, and Anthropic's wording.
+            "context_length_exceeded",
+            "prompt is too long",
+            "input is too long",
+            "exceeds the context window",
         )
+
+        /** The most characters one token holds of anything a turn carries; see the check before each round. */
+        const val MOST_CHARS_PER_TOKEN = 4
 
         /** A blank line, built rather than typed: an escape does not survive every editor. */
         val PARAGRAPH = 10.toChar().toString() + 10.toChar().toString()
