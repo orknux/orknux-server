@@ -44,6 +44,10 @@ class DesignExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is GrammarServerInvalidException,
             is GrammarServerUnreachableException,
             is DocumentExportFailedException,
+            is DocumentImportFormatUnknownException,
+            is DocumentImportTooLargeException,
+            is DocumentImportUnreadableException,
+            is WireframePictureRefusedException,
             -> ErrorType.BAD_REQUEST
             else -> return null
         }

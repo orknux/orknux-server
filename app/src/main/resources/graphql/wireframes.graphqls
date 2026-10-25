@@ -31,6 +31,12 @@ extend type Mutation {
     first, ending with what is asked now. Whatever it draws is saved as it goes.
     """
     askWireframe(id: ID!, modelId: ID!, messages: [WireframeChatTurnInput!]!): WireframeAnswer!
+    """
+    A picture brought onto a wireframe, for the editor to place as an image
+    element: one of the workspace's by `artifact`, or a file - `image`, base64
+    or a data URL - kept as a new Design picture. Nothing is drawn or saved.
+    """
+    importWireframePicture(id: ID!, artifact: String, image: String, name: String): WireframePicture!
 }
 
 "A wireframe and its drawing."
@@ -71,4 +77,13 @@ input WireframeChatTurnInput {
     content: String!
     "Files uploaded to the attachments endpoint and sent with this turn: pictures go to the model as pictures, other files as their text."
     attachmentIds: [ID!]
+}
+
+"A picture ready to be placed on a wireframe."
+type WireframePicture {
+    "Its artifact id, which an image element names in props.artifact."
+    artifact: String!
+    name: String!
+    "Where it is drawn from."
+    src: String!
 }

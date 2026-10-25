@@ -96,7 +96,7 @@ enum class WireframeElementType(val key: String, val box: Boolean, val said: Str
     TEXT("text", true, "words with no outline; props.size is the font size in pixels, 14 when absent, and props.weight is bold or normal"),
     BUTTON("button", true, "a button whose text is its label; props.variant primary draws it filled"),
     INPUT("input", true, "a text field whose text is its placeholder"),
-    IMAGE("image", true, "a placeholder for a picture, drawn as a box with a cross; its text, if any, is a caption"),
+    IMAGE("image", true, "a picture: props.artifact names one of the workspace's pictures, such as DESIGN-12, drawn to fit the box; without it a placeholder drawn as a box with a cross; its text, if any, is a caption"),
     LINE("line", false, "a straight line from (x, y) to (x + w, y + h)"),
     ARROW("arrow", false, "a line from (x, y) to (x + w, y + h) with an arrowhead at its end"),
     NOTE("note", true, "a sticky note: an annotation about the design rather than part of it"),

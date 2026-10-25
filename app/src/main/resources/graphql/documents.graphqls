@@ -68,6 +68,14 @@ extend type Mutation {
     first, ending with what is asked now. Whatever it writes is saved as it goes.
     """
     askDocument(id: ID!, modelId: ID!, messages: [DocumentChatTurnInput!]!): DocumentAnswer!
+    """
+    Reads a file into the document's vocabulary - PDF, Markdown (or Export's
+    zip of it), ODT, DOCX, HTML or text - for the editor to put on the page,
+    in place of what is there or at the caret. Nothing is saved: the import is
+    an unsaved change like any other. The pictures it carries are kept as
+    Design pictures of the workspace. `file` is base64 or a data URL.
+    """
+    importDocumentFile(id: ID!, filename: String!, file: String!): DocumentImport!
 }
 
 "What a model said, and the document as it stands after it."
@@ -140,4 +148,16 @@ type DocumentHit {
     document: DesignDocument!
     "The words around where it was found, on one line."
     snippet: String!
+}
+
+"A file read into a document, not yet on its page."
+type DocumentImport {
+    "ProseMirror JSON, checked as a save is."
+    content: String!
+    "What it was read as: PDF, Markdown, ODT, DOCX, HTML or Text."
+    format: String!
+    "How many pictures it brought, now Design pictures of the workspace."
+    pictures: Int!
+    "How many it carried that were not kept."
+    picturesLeftOut: Int!
 }

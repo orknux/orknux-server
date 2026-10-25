@@ -21,13 +21,20 @@ package io.mszymanski.orknux.server.design
  * of the few values that are looked for (a number, a weight, a variant), and
  * the page refuses scripts in its own Content-Security-Policy besides.
  */
-class WireframeHtml {
+class WireframeHtml(
+    /**
+     * A picture an image element names in `props.artifact`, as a `data:`
+     * address the page carries in itself, or null to draw it as a placeholder:
+     * a page taken away has no server to fetch it from.
+     */
+    private val picture: (String) -> String? = { null },
+) {
 
     /** The whole page for the wireframe called [name]. */
     fun page(name: String, elements: List<WireframeElement>): String = buildString {
         append("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n")
         append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n")
-        append("<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'\">\n")
+        append("<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; img-src data:\">\n")
         append("<title>").append(escape(name)).append("</title>\n")
         append("<style>\n").append(STYLE).append("</style>\n</head>\n<body>\n")
         append("<h1 class=\"wireframe-name\">").append(escape(name)).append("</h1>\n")
@@ -106,6 +113,12 @@ class WireframeHtml {
         append("</div>\n</section>\n")
     }
 
+    /** The picture an image element names, where there is one and it can be had. */
+    private fun pictureOf(element: WireframeElement): String? {
+        val artifact = element.props["artifact"]?.toString()?.trim()?.takeIf { DocumentContent.ARTIFACT.matches(it) } ?: return null
+        return picture(artifact)?.takeIf { it.startsWith("data:image/") }
+    }
+
     private fun StringBuilder.element(element: WireframeElement, originX: Int, originY: Int) {
         val words = element.text?.let(::escape).orEmpty()
         val id = escape(element.id)
@@ -129,7 +142,11 @@ class WireframeHtml {
             }
             WireframeElementType.INPUT -> append("<input type=\"text\" class=\"el input\" data-id=\"$id\" style=\"$place\"")
                 .append(if (words.isEmpty()) "" else " placeholder=\"$words\" aria-label=\"$words\"").append(">\n")
-            WireframeElementType.IMAGE -> append("<figure class=\"el image\" data-id=\"$id\" style=\"$place\">")
+            WireframeElementType.IMAGE -> pictureOf(element)?.let { source ->
+                append("<figure class=\"el image picture\" data-id=\"$id\" style=\"$place\">")
+                    .append("<img src=\"").append(escape(source)).append("\" alt=\"$words\">")
+                    .append(if (words.isEmpty()) "" else "<figcaption>$words</figcaption>").append("</figure>\n")
+            } ?: append("<figure class=\"el image\" data-id=\"$id\" style=\"$place\">")
                 .append("<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" aria-hidden=\"true\">")
                 .append("<line x1=\"0\" y1=\"0\" x2=\"100\" y2=\"100\" vector-effect=\"non-scaling-stroke\"/>")
                 .append("<line x1=\"100\" y1=\"0\" x2=\"0\" y2=\"100\" vector-effect=\"non-scaling-stroke\"/></svg>")
@@ -202,6 +219,8 @@ class WireframeHtml {
             |.image { display: flex; align-items: flex-end; justify-content: center; padding: 6px; background: #ececef; border: 1px solid #8a8a93; border-radius: 4px; }
             |.image svg { position: absolute; inset: 0; width: 100%; height: 100%; }
             |.image line { stroke: #8a8a93; stroke-width: 1; }
+            |.image.picture { background: transparent; border: none; padding: 0; }
+            |.image img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
             |.image figcaption { position: relative; color: #8a8a93; font-size: 12px; }
             |.note { padding: 10px; background: #fdf3c4; border: 1px solid #d9c87a; border-radius: 2px; font-size: 13px; }
             |svg.el { overflow: visible; }

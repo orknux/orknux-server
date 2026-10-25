@@ -435,6 +435,21 @@ enum class Tunable(
         "A drawing an agent hands over as SVG is kept as a picture this many pixels wide.",
     ),
     /*
+     * The editor's Import. Counted in megabytes because what arrives is a
+     * file, read whole into memory to be converted; a picture it carries is
+     * then held to the installation's attachment size as a pasted one is.
+     */
+    DOCUMENT_IMPORT_MB(
+        "document.import.mb", 25, 1, 1_024, TuningSection.MEDIA, TuningUnit.MB,
+        "How large a file a document imports",
+        "A larger file is refused by the editor's Import, which says how large it was.",
+    ),
+    DOCUMENT_IMPORT_PICTURES_MOST(
+        "document.import.pictures.most", 200, 0, 5_000, TuningSection.MEDIA, TuningUnit.ITEMS,
+        "How many pictures one import keeps",
+        "Past it the file's other pictures are left out and counted; its words still come in.",
+    ),
+    /*
      * Counted in characters because that is what the completion model reads on
      * every pause in the typing: the text before the caret, cut to this, and a
      * quarter as much after it.

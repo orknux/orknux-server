@@ -25,7 +25,7 @@ class WireframeHtmlAPI(private val api: WireframeAPI) {
 
     @GetMapping("/api/wireframes/{id}/html")
     fun download(@PathVariable id: Long): ResponseEntity<ByteArray> {
-        val page = api.html(id)
+        val page = api.html(id, pictures = true)
         return ResponseEntity.ok()
             .contentType(MediaType("text", "html", StandardCharsets.UTF_8))
             .header(
@@ -33,7 +33,7 @@ class WireframeHtmlAPI(private val api: WireframeAPI) {
                 ContentDisposition.attachment().filename(WireframeHtml.fileName(page.name, "html"), StandardCharsets.UTF_8).build().toString(),
             )
             .header("X-Content-Type-Options", "nosniff")
-            .header("Content-Security-Policy", "sandbox; default-src 'none'; style-src 'unsafe-inline'")
+            .header("Content-Security-Policy", "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:")
             .body(page.html.toByteArray(StandardCharsets.UTF_8))
     }
 }
