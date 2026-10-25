@@ -321,8 +321,16 @@ class LlmSessionRecorder(
         val line = event ?: return
         try {
             events.findByIdOrNull(line)?.let {
-                it.result =
-                    SessionValueTrim.trim(AuditRedaction.redactObvious(result), installation.longestStoredValue())
+                val redacted = AuditRedaction.redactObvious(result)
+                /*
+                 * What the tool search answers is how to call the tools it
+                 * loaded, and a later turn rebuilds the conversation from this
+                 * row. Cut at the stored-value limit, a model in session 900
+                 * read half of tool_load's answer and never learnt it had to
+                 * call scratchpad_write through tool_run. It is instructions,
+                 * not a payload, and short.
+                 */
+                it.result = if (it.actor in UNTRIMMED_ANSWERS) redacted else SessionValueTrim.trim(redacted, installation.longestStoredValue())
                 events.save(it)
                 // The line was already handed to anybody watching, with nothing
                 // on it. This is what turns a lookup that is running into one
@@ -1029,3 +1037,8 @@ data class SessionWriting(
 /** How far a server has read a prompt: [processed] of [total] tokens, [cached] of them from its cache. */
 data class SessionReading(val total: Long, val cached: Long, val processed: Long)
 
+/** The tool-search answers kept whole when recorded: how to call what was loaded, which a later turn reads back. Session 900. */
+private val UNTRIMMED_ANSWERS: Set<String> = setOf(
+    io.mszymanski.orknux.server.chat.ToolSearchTools.FIND,
+    io.mszymanski.orknux.server.chat.ToolSearchTools.DESCRIBE,
+)

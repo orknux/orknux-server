@@ -272,8 +272,16 @@ class ScratchpadTools(
          */
         private fun kept(args: JsonNode): String {
             val name = text(args, NAME) ?: return refusal("Say which scratchpad to keep.")
+            /*
+             * Says how a pad comes to be: a model in session 900 called this five
+             * times on pads it had meant to write, each told only that there was
+             * no such pad, and never wrote one.
+             */
             val held = pads.find(session, name)
-                ?: return refusal("You have no scratchpad called \"$name\".")
+                ?: return refusal(
+                    "You have no scratchpad called \"$name\". This tool only copies a pad that already exists - " +
+                        "write it first with $WRITE (and add to it with $APPEND), then call $KEEP for its key.",
+                )
             val key = text(args, KEY)?.trim()?.ifEmpty { null } ?: name
             /*
              * A JSON-encoded *string*, which is what every reader of this store

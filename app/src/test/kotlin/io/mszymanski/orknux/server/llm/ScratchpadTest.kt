@@ -101,6 +101,8 @@ class ScratchpadTest(
             io.mszymanski.orknux.connector.model.ToolCall("3", "scratchpad_keep", """{"name":"nothing"}"""),
         )
         assertThat(missed).contains("no scratchpad called")
+        // And says how one comes to be: told only that, a model in session 900 kept asking for pads it never wrote.
+        assertThat(missed).contains("write it first with scratchpad_write").contains("scratchpad_append")
     }
 
     /**

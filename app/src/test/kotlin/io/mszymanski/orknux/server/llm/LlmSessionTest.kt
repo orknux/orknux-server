@@ -375,6 +375,20 @@ class LlmSessionTest(
      * model cannot tell it is short. Told, it can go and get the rest, so the
      * marker names the tool to call.
      */
+    /** How to call a loaded tool is read back by every later turn: it is kept whole, where a payload is cut. Session 900. */
+    @Test
+    fun `the tool search's answers are kept whole, past the stored-value limit`() {
+        val session = recorder.open(workspaceId, "issue", "43")
+        val loaded = "Loaded 2 of the 2 that matched. Call them with tool_run. " + "scratchpad_write declaration. ".repeat(80)
+        assertThat(loaded.length).isGreaterThan(1_500)
+        recorder.toolReturned(recorder.toolCalled(session, io.mszymanski.orknux.server.chat.ToolSearchTools.FIND, "{}"), loaded)
+        val kept = events.findAll().filter { it.sessionId == session }.single { it.actor == io.mszymanski.orknux.server.chat.ToolSearchTools.FIND }
+        assertThat(kept.result).isEqualTo(loaded)
+        // Anything else as long is cut as before.
+        recorder.toolReturned(recorder.toolCalled(session, "orknux_issues", "{}"), loaded)
+        assertThat(events.findAll().filter { it.sessionId == session }.single { it.actor == "orknux_issues" }.result).contains("trimmed from")
+    }
+
     @Test
     fun `a result too long to keep is cut, and says asking again will not bring it back`() {
         val session = recorder.open(workspaceId, "issue", "42")
