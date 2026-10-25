@@ -25,6 +25,8 @@ import org.apache.poi.xssf.eventusermodel.XSSFReader
 import org.apache.poi.xssf.eventusermodel.XSSFSheetXMLHandler
 import org.apache.poi.xssf.usermodel.XSSFComment
 import org.springframework.stereotype.Component
+import org.xml.sax.Attributes
+import org.xml.sax.ContentHandler
 import org.xml.sax.InputSource
 import java.io.ByteArrayInputStream
 import java.io.StringReader
@@ -50,7 +52,9 @@ import java.util.zip.ZipInputStream
  * Every cell is answered as text: a number as its plain value (12.5, not the
  * "12,50 zł" a format would draw), a date as ISO 8601, a formula as the value
  * the file last saved for it, a boolean as TRUE or FALSE and an error as its
- * code. Parsing is the libraries' - Commons CSV, POI, and SODS for an .ods -
+ * code. A workbook's formulas are answered as well, by cell ("B5" to
+ * "=SUM(B2:B3)"): with the values alone, an agent asked to check a sheet's
+ * sums unpacked the .ods in a box to find them. Parsing is the libraries' - Commons CSV, POI, and SODS for an .ods -
  * and nothing here reads a byte of any of those formats by hand.
  */
 @Component
@@ -65,6 +69,8 @@ class SheetReader {
         val delimiter: Char?,
         val header: List<String>?,
         val rows: List<List<String>>,
+        /** The page's formulas by cell, "B5" to "=SUM(B2:B3)"; empty for a CSV. */
+        val formulas: Map<String, String>,
         val from: Int,
         val to: Int,
         val total: Int,
@@ -202,7 +208,7 @@ class SheetReader {
                             val window = Window(from, to, limits)
                             val rows = Rows(window)
                             val handler = XSSFSheetXMLHandler(styles, null, strings, rows, CellText(), false)
-                            XMLHelper.newXMLReader().apply { contentHandler = handler }.parse(InputSource(stream))
+                            XMLHelper.newXMLReader().apply { contentHandler = FormulaTap(handler, rows) }.parse(InputSource(stream))
                             page = window
                             read = name
                         }
@@ -219,7 +225,13 @@ class SheetReader {
     /** The streaming reader's rows, gaps in the sheet's numbering kept as empty rows. */
     private class Rows(private val window: Window) : XSSFSheetXMLHandler.SheetContentsHandler {
         private var cells = mutableListOf<String>()
+        private var formulas = mutableMapOf<Int, String>()
         private var last = 0
+
+        /** A formula [FormulaTap] read off the cell at [reference], which the streaming handler only answers the value of. */
+        fun formula(reference: String, text: String) {
+            formulas[CellReference(reference).col.toInt()] = text
+        }
 
         override fun startRow(rowNum: Int) {
             while (last < rowNum) {
@@ -227,10 +239,11 @@ class SheetReader {
                 last++
             }
             cells = mutableListOf()
+            formulas = mutableMapOf()
         }
 
         override fun endRow(rowNum: Int) {
-            window.offer(cells.dropLastWhile { it.isEmpty() })
+            window.offer(cells.dropLastWhile { it.isEmpty() }, formulas)
             last = rowNum + 1
         }
 
@@ -239,6 +252,43 @@ class SheetReader {
             while (cells.size < column) cells += ""
             cells += formattedValue.orEmpty()
         }
+    }
+
+    /**
+     * Passes a sheet's XML on to POI's handler and keeps each cell's `<f>` as
+     * it goes by: the handler answers a formula's saved value or its formula,
+     * never both, and the value is the cell. A shared formula is answered on
+     * the cell that holds its text; the cells that share it hold none.
+     */
+    private class FormulaTap(private val inner: ContentHandler, private val rows: Rows) : ContentHandler by inner {
+        private var cell: String? = null
+        private var formula: StringBuilder? = null
+
+        override fun startElement(uri: String?, localName: String?, qName: String?, atts: Attributes?) {
+            when (nameOf(localName, qName)) {
+                "c" -> cell = atts?.getValue("r")
+                "f" -> formula = StringBuilder()
+            }
+            inner.startElement(uri, localName, qName, atts)
+        }
+
+        override fun characters(ch: CharArray?, start: Int, length: Int) {
+            if (ch != null) formula?.appendRange(ch, start, start + length)
+            inner.characters(ch, start, length)
+        }
+
+        override fun endElement(uri: String?, localName: String?, qName: String?) {
+            if (nameOf(localName, qName) == "f") {
+                val text = formula?.toString()?.trim().orEmpty()
+                val at = cell
+                if (text.isNotEmpty() && at != null) rows.formula(at, "=$text")
+                formula = null
+            }
+            inner.endElement(uri, localName, qName)
+        }
+
+        private fun nameOf(localName: String?, qName: String?): String =
+            localName?.ifEmpty { null } ?: qName.orEmpty().substringAfter(':')
     }
 
     private fun xls(bytes: ByteArray, sheet: String?, from: Int, to: Int?, limits: Limits): Reading =
@@ -255,8 +305,10 @@ class SheetReader {
                     window.offer(emptyList())
                     continue
                 }
+                val formulas = mutableMapOf<Int, String>()
                 val cells = (0 until maxOf(row.lastCellNum.toInt(), 0)).map { column ->
                     row.getCell(column)?.let { cell ->
+                        if (cell.cellType == CellType.FORMULA) formulas[column] = "=" + cell.cellFormula
                         val type = if (cell.cellType == CellType.FORMULA) cell.cachedFormulaResultType else cell.cellType
                         when (type) {
                             CellType.NUMERIC -> formatter.formatRawCellContents(
@@ -269,7 +321,7 @@ class SheetReader {
                         }
                     }.orEmpty()
                 }
-                window.offer(cells.dropLastWhile { it.isEmpty() })
+                window.offer(cells.dropLastWhile { it.isEmpty() }, formulas)
             }
             Reading.Read(window.finish(sheets = names, sheet = name, delimiter = null))
         }
@@ -339,12 +391,18 @@ class SheetReader {
             }
             chosen ?: return Reading.Refused(noSheet(sheet, names))
             val window = Window(from, to, limits)
-            val values: Array<Array<Any?>> =
-                if (chosen.maxRows == 0 || chosen.maxColumns == 0) emptyArray() else chosen.dataRange.values
+            val empty = chosen.maxRows == 0 || chosen.maxColumns == 0
+            val values: Array<Array<Any?>> = if (empty) emptyArray() else chosen.dataRange.values
+            val formulas: Array<Array<String?>> = if (empty) emptyArray() else chosen.dataRange.formulas
             // Trailing empty rows are formatting a sheet carries, not rows of it - a .ods often has thousands.
             values.map { row -> row.map(::odsText).dropLastWhile { it.isEmpty() } }
                 .dropLastWhile { it.isEmpty() }
-                .forEach(window::offer)
+                .forEachIndexed { at, cells ->
+                    val held = formulas.getOrNull(at).orEmpty().withIndex()
+                        .mapNotNull { (column, said) -> odsFormula(said)?.let { column to it } }
+                        .toMap()
+                    window.offer(cells, held)
+                }
             return Reading.Read(window.finish(sheets = names, sheet = chosen.name, delimiter = null))
         } finally {
             Files.deleteIfExists(file)
@@ -377,6 +435,23 @@ class SheetReader {
         else -> value.toString()
     }
 
+    /**
+     * An .ods formula as a spreadsheet shows it: OpenFormula writes
+     * `of:=SUM([.B2:.B3])`, with a namespace and its references bracketed and
+     * dotted, which a person reads as `=SUM(B2:B3)`.
+     */
+    private fun odsFormula(said: String?): String? {
+        val text = said?.trim()?.ifEmpty { null } ?: return null
+        val bare = NAMESPACE.replaceFirst(text, "").let { if (it.startsWith("=")) it else "=$it" }
+        return REFERENCE.replace(bare) { found ->
+            found.groupValues[1].split(':').joinToString(":") { part ->
+                val sheet = part.substringBefore('.', "").removePrefix("$")
+                val cell = part.substringAfter('.')
+                if (sheet.isEmpty()) cell else "$sheet.$cell"
+            }
+        }
+    }
+
     private fun noSheet(asked: String?, names: List<String>): String =
         if (asked == null || names.isEmpty()) "That workbook has no sheets."
         else "That workbook has no sheet called \"$asked\". Its sheets are: ${names.joinToString(", ")}."
@@ -406,6 +481,7 @@ class SheetReader {
         private val first = from.coerceAtLeast(1)
         private val last = minOf((to ?: Int.MAX_VALUE).toLong(), first.toLong() + limits.rows - 1)
         private val kept = mutableListOf<List<String>>()
+        private val formulas = linkedMapOf<String, String>()
         private var characters = 0
         private var full = false
         private var header: List<String>? = null
@@ -414,16 +490,19 @@ class SheetReader {
         var seen = 0
             private set
 
-        fun offer(cells: List<String>) {
+        /** A row, and its formulas by column. */
+        fun offer(cells: List<String>, rowFormulas: Map<Int, String> = emptyMap()) {
             seen++
             if (seen == 1) header = cells
             if (full || seen < first || seen > last) return
-            val size = cells.sumOf { it.length + 3 } + 2
+            val named = rowFormulas.toSortedMap().mapKeys { (column, _) -> CellReference.convertNumToColString(column) + seen }
+            val size = cells.sumOf { it.length + 3 } + 2 + named.entries.sumOf { it.key.length + it.value.length + 6 }
             if (kept.isNotEmpty() && characters + size > limits.characters) {
                 full = true
                 return
             }
             kept += cells
+            formulas += named
             characters += size
         }
 
@@ -433,6 +512,7 @@ class SheetReader {
             delimiter = delimiter,
             header = header.takeIf { first > 1 },
             rows = kept,
+            formulas = formulas,
             from = first,
             to = first + kept.size - 1,
             total = seen,
@@ -450,6 +530,12 @@ class SheetReader {
         fun plain(value: Double): String = BigDecimal.valueOf(value).stripTrailingZeros().toPlainString()
 
         val DELIMITERS = listOf(',', ';', '\t', '|')
+
+        /** An OpenFormula reference, `[.B2]`, `[.B2:.B3]` or `[$Sheet2.A1]`. */
+        val REFERENCE = Regex("\\[([^\\]]+)]")
+
+        /** The namespace an .ods may write before a formula, `of:` - and only before it: a range has a colon too. */
+        val NAMESPACE = Regex("^[a-z]+:(?==)")
 
         /** How many opening lines decide the delimiter: enough to see a pattern, few enough to be instant. */
         const val GUESS_LINES = 20

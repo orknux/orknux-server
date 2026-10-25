@@ -42,7 +42,8 @@ class SheetCapability(
             summary = "Reads rows of a CSV, an Excel workbook or an OpenDocument spreadsheet kept under a key.",
             description = "Reads an attached CSV, .xlsx, .xls or .ods (LibreOffice, OpenOffice) kept under a $KEY in this session and answers a page " +
                 "of its rows as cells, numbered as the sheet numbers them from 1, with how many rows there are. " +
-                "Dates come as ISO 8601 and formulas as their saved values. A workbook's answer lists its sheets; " +
+                "Dates come as ISO 8601 and formulas as their saved values, and a workbook's formulas themselves come " +
+                "under formulas by cell (\"B5\": \"=SUM(B2:B3)\"). A workbook's answer lists its sheets; " +
                 "pass $SHEET to read another. Pass $FROM for the row to start at to read further - the answer says " +
                 "where the next page starts, and repeats the header row when the page starts past it.",
             params = listOf(
@@ -107,6 +108,7 @@ class SheetCapability(
         page.delimiter?.let { answer[DELIMITER] = if (it == '\t') "\\t" else it.toString() }
         page.header?.let { answer["header"] = it }
         answer["rows"] = page.rows
+        if (page.formulas.isNotEmpty()) answer["formulas"] = page.formulas
         answer[FROM] = page.from
         answer[TO] = page.to
         answer["totalRows"] = page.total

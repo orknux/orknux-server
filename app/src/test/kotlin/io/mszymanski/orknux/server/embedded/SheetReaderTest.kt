@@ -140,6 +140,8 @@ class SheetReaderTest {
             listOf("total", "1300", "", "TRUE"),
         )
         assertThat(page.total).isEqualTo(5)
+        // The formula itself as well as its value: an agent asked to check the sums had nowhere else to find it.
+        assertThat(page.formulas).containsExactlyEntriesOf(mapOf("B5" to "=SUM(B2:B3)"))
     }
 
     @Test
@@ -167,6 +169,7 @@ class SheetReaderTest {
         assertThat(page.sheets).containsExactly("Costs", "Notes")
         assertThat(page.rows[1]).containsExactly("rent", "1200.5", "2026-11-01")
         assertThat(page.rows[4]).containsExactly("total", "1300", "", "TRUE")
+        assertThat(read(reader.workbook(book(HSSFWorkbook()), null, 1, null, roomy)).formulas).containsExactlyEntriesOf(mapOf("B5" to "=SUM(B2:B3)"))
     }
 
     @Test
@@ -200,6 +203,7 @@ class SheetReaderTest {
         costs.getRange(2, 0, 1, 3).setValues("power", 99.0, LocalDateTime.of(2026, 11, 3, 14, 30))
         // Row 4 left empty on purpose: a gap the sheet's numbering keeps.
         costs.getRange(4, 0, 1, 4).setValues("total", 1299.5, null, true)
+        costs.getRange(4, 1).setFormula("of:=SUM([.B2:.B3])")
         book.appendSheet(costs)
         val notes = Sheet("Notes", 1, 1)
         notes.getRange(0, 0).setValue("paid by transfer")
@@ -223,6 +227,7 @@ class SheetReaderTest {
         )
         assertThat(page.total).isEqualTo(5)
         assertThat(page.delimiter).isNull()
+        assertThat(page.formulas).containsExactlyEntriesOf(mapOf("B5" to "=SUM(B2:B3)"))
 
         assertThat(read(reader.workbook(bytes, "notes", 1, null, roomy)).rows).containsExactly(listOf("paid by transfer"))
         val missing = reader.workbook(bytes, "Budget", 1, null, roomy)
