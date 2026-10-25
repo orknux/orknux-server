@@ -58,5 +58,16 @@ class WorkspaceArtifactUploadTest(
         assertThat(kept.name).isEqualTo("unreleased.html")
         assertThat(kept.description).isEqualTo("Unreleased since v1.1.9")
         assertThat(audit.findAll().map { it.message }).contains("Artifact unreleased.html uploaded").noneMatch { it.contains("for research") }
+
+        // From the page's Upload there is no description: the file's name stands for one, which the store asks for.
+        val bare = try {
+            MockMvcBuilders.webAppContextSetup(context).apply<DefaultMockMvcBuilder>(springSecurity()).build()
+                .perform(multipart("/api/workspaces/$workspaceId/artifacts").file(MockMultipartFile("file", "notes.txt", "text/plain", "x".toByteArray())).with(csrf()))
+                .andReturn().response
+        } finally {
+            SecurityContextHolder.getContext().authentication = signedIn
+        }
+        assertThat(bare.status).describedAs(bare.contentAsString).isEqualTo(200)
+        assertThat(saved.findAll().single { it.workspaceId == workspaceId && it.name == "notes.txt" }.description).isEqualTo("notes.txt")
     }
 }

@@ -44,7 +44,8 @@ class WorkspaceArtifactUploadAPI(
                 workspaceId = workspaceId,
                 savedBy = by,
                 name = name,
-                description = description?.trim()?.take(DESCRIPTION_MOST).orEmpty(),
+                // What a person dropped onto the page is described by its name until they say more; the store asks for one.
+                description = description?.trim()?.take(DESCRIPTION_MOST)?.ifEmpty { null } ?: name,
                 content = Base64.getEncoder().encodeToString(file.bytes),
                 base64 = true,
             )
