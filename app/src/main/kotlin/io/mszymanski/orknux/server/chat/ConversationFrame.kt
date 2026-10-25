@@ -153,6 +153,38 @@ internal object ConversationFrame {
         return (if (parts.isEmpty()) null else parts.joinToString("\n\n")) to updated
     }
 
+    /**
+     * What a grant accepted in the middle of a turn makes usable in it, as one
+     * message, or null where it brought no tool: [arrived] are the tools the
+     * agent holds now that it did not at the start of the turn and the array
+     * does not carry. Called through [ToolRun] - the array does not move
+     * inside a turn - and described whole, up to [whole] where the frame left
+     * things to be found, the rest by name with where to read how. The next
+     * turn says them again, as [changes] says any grant.
+     */
+    fun grantedNow(arrived: List<ToolSpec>, hunting: Boolean, whole: Int): String? {
+        if (arrived.isEmpty()) return null
+        val described = if (!hunting) arrived else arrived.take(whole)
+        return buildString {
+            append("Granted to you during this turn, and yours to call now, in this turn: ")
+            append(arrived.joinToString(", ") { it.name }).append(". ")
+            append("They are not in your list of tools, which stays as it was until your next turn, so call each ")
+            append("with ").append(ToolRun.NAME).append(" - as ").append(ToolRun.NAME).append(" with {\"")
+            append(ToolRun.TOOL).append("\": \"").append(arrived.first().name).append("\", \"")
+            append(ToolRun.ARGUMENTS).append("\": {...its arguments...}}.")
+            arrived.forEach { spec ->
+                append("\n\n")
+                if (spec in described) {
+                    append(ToolRun.described(spec))
+                } else {
+                    val said = spec.summary?.trim()?.ifEmpty { null } ?: spec.description.trim().substringBefore(". ")
+                    append("- ").append(spec.name).append(": ").append(said)
+                    append(" (call ").append(ToolSearchTools.FIND).append(" with its name for how it is called)")
+                }
+            }
+        }
+    }
+
     /** The lines of a system turn worth comparing: not blank, and not the list of tools. */
     private fun lines(text: String?): List<String> =
         text.orEmpty().lines().map { it.trimEnd() }.filter { it.isNotBlank() && !BuiltInTools.isListEntry(it) }

@@ -98,8 +98,15 @@ class ToolSearchTools(
         skill: (String) -> String? = { null },
         /** How a loaded tool is called from then on, and so what is said of it; the provider's. See [LoadedTools]. */
         loading: LoadedTools = LoadedTools.JOIN,
+        /**
+         * Whether a name that is no tool here was granted in this conversation
+         * all the same, so it is said to be usable from the next turn rather
+         * than not to exist. Session 910 was told "you have no tool called" of
+         * three tools a person had just granted.
+         */
+        granted: (String) -> Boolean = { false },
         forget: (Int) -> List<String> = { emptyList() },
-    ): ToolShed = Shed(searchable, found, room, forget, carried, skill, loading)
+    ): ToolShed = Shed(searchable, found, room, forget, carried, skill, loading, granted)
 
     private inner class Shed(
         private val searchable: List<ToolSpec>,
@@ -119,6 +126,7 @@ class ToolSearchTools(
         private val carried: Set<String> = emptySet(),
         private val skill: (String) -> String? = { null },
         private val loading: LoadedTools = LoadedTools.JOIN,
+        private val granted: (String) -> Boolean = { false },
     ) : ToolShed {
 
         /**
@@ -252,7 +260,7 @@ class ToolSearchTools(
                     }
                     name.lowercase() in inHand -> "$name is already loaded: its description and parameters are " +
                         "in your list of tools, so call it directly."
-                    else -> skillSaid(name) ?: "You have no tool called $name."
+                    else -> skillSaid(name) ?: grantedSaid(name) ?: "You have no tool called $name."
                 }
             }
         }
@@ -319,7 +327,7 @@ class ToolSearchTools(
                 .distinctBy { it.name }
             val unmatched = asked.filter { it.lowercase() !in inHand && it.lowercase() !in byName }
             // A skill's id is not a tool that does not exist, and is said apart from one.
-            val saidOf = unmatched.associateWith(::skillSaid)
+            val saidOf = unmatched.associateWith { skillSaid(it) ?: grantedSaid(it) }
             val skills = saidOf.values.filterNotNull().joinToString("\n")
             val missing = unmatched.filter { saidOf[it] == null }
             val none = buildString {
@@ -355,6 +363,13 @@ class ToolSearchTools(
         private fun skillSaid(name: String): String? = skill(name)?.let { id ->
             "$name is a skill, not a tool: read it with " + io.mszymanski.orknux.server.agent.SkillTool.LOAD.name +
                 ", passing " + id + "."
+        }
+
+        /** What a name granted in this conversation and not reachable in this turn is told; see [granted]. */
+        private fun grantedSaid(name: String): String? = if (granted(name)) {
+            "$name was granted to you in this conversation, and is usable from your next turn - not in this one."
+        } else {
+            null
         }
 
         private fun searchAndLoad(call: ToolCall): String {

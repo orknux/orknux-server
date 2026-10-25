@@ -652,8 +652,8 @@ class AgentConversation(
          * a chat leaves plan mode without a new one. What this turn may not run
          * is refused by what runs a call, as a name never offered always was.
          */
-        val whole = tools.offeringFor(agent, ceiling, into)
-        val holding = held(whole)
+        var whole = tools.offeringFor(agent, ceiling, into)
+        var holding = held(whole)
 
         /*
          * What the caller lent, as this agent may use it. Issue #444.
@@ -668,7 +668,7 @@ class AgentConversation(
          */
         val lendingWhole = BuiltInTools.lentTo(agent, shed)
         // What of that this turn may run; the whole goes into the array, as the agent's own does.
-        val lending = lendingWhole.let { if (readOnly) effects.readOnly(it) else it }
+        var lending = lendingWhole.let { if (readOnly) effects.readOnly(it) else it }
         val lent = lendingWhole?.specs().orEmpty()
         /*
          * What goes out from the first round and what is found, decided once,
@@ -682,7 +682,7 @@ class AgentConversation(
          */
         val start = ceilings.split(agent, modelId, whole, lent) { tools.offeringFor(agent, it, into) }
         /** Everything this turn's agent holds, its own and lent, once each. */
-        val heldNow = (lent + whole.core + whole.searchable).distinctBy { it.name }
+        var heldNow = (lent + whole.core + whole.searchable).distinctBy { it.name }
         /*
          * And what the lent tools want said about themselves, put with the
          * briefing. A shed's descriptions say what its tools do; its briefing
@@ -763,22 +763,78 @@ class AgentConversation(
          * tool_run, so it never needs room in the array and never gives up a
          * tool to make some.
          */
-        val findable = heldNow.filter { it.name !in carriedNames }
-        val finder = if (!frame.hunting) {
-            null
-        } else {
-            searching.shed(
-                findable,
-                found,
-                room = { Int.MAX_VALUE },
-                carried = carriedNames,
-                skill = { name ->
-                    if (BuiltInTools.granted(agent, io.mszymanski.orknux.server.agent.SkillTool.LOAD.name)) skills.load(agent, name)?.key else null
-                },
-                loading = loading,
-            )
+        var findable = heldNow.filter { it.name !in carriedNames }
+        /*
+         * The agent as it stands, which a grant accepted in the middle of this
+         * turn changes - see [regranted]. What runs a call reads this, so a tool
+         * granted a moment ago runs through tool_run in the same turn.
+         */
+        var current = agent
+        /**
+         * Names granted during this turn that it could still not reach - none,
+         * as things are, but said "usable from your next turn" rather than
+         * "you have no tool called" if one ever is: the grant was real.
+         */
+        val grantedLate = mutableSetOf<String>()
+        fun finderOver(findable: List<ToolSpec>) = searching.shed(
+            findable,
+            found,
+            room = { Int.MAX_VALUE },
+            carried = carriedNames,
+            skill = { name ->
+                if (BuiltInTools.granted(current, io.mszymanski.orknux.server.agent.SkillTool.LOAD.name)) skills.load(current, name)?.key else null
+            },
+            loading = loading,
+            granted = { it in grantedLate },
+        )
+        var finder = if (!frame.hunting) null else finderOver(findable)
+        var hunt = if (finder == null) lending else sheds(lending, finder)
+
+        /*
+         * A grant accepted while this turn runs, taken into it. Session 910:
+         * a person granted three tools the agent had asked for, the note said
+         * they were granted, and four seconds later tool_load answered "you
+         * have no tool called" and tool_run "there is no tool called" - every
+         * holding here was made at the start of the turn, from the agent as it
+         * stood then. The model told the person the tools had not arrived.
+         *
+         * So where what the agent is granted has moved since, everything this
+         * turn holds is made again from the agent as it is now - what runs a
+         * call, what tool_load finds - while the frame stays exactly as it was:
+         * the array does not move inside a turn. What arrived is said in a
+         * message, with how each is called through tool_run. The next turn
+         * says it again, as it says any grant, and joins what was loaded.
+         */
+        fun regranted(): String? {
+            val id = current.id ?: return null
+            val session = into ?: return null
+            val fresh = agents.findByIdOrNull(id) ?: return null
+            if (grantsOf(fresh) == grantsOf(current)) return null
+            val before = heldNow.map { it.name }.toSet()
+            current = fresh
+            whole = tools.offeringFor(fresh, ceiling, session)
+            holding = held(whole)
+            val lendingNow = BuiltInTools.lentTo(fresh, shed)
+            lending = lendingNow.let { if (readOnly) effects.readOnly(it) else it }
+            heldNow = (lendingNow?.specs().orEmpty() + whole.core + whole.searchable).distinctBy { it.name }
+            // Loaded for it by the grant itself, where it asked for that; see [GrantRequestTools.accept].
+            found += sessions.toolsFound(session)
+            findable = heldNow.filter { it.name !in carriedNames }
+            if (frame.hunting) finder = finderOver(findable)
+            hunt = if (finder == null) lending else sheds(lending, finder)
+            val holds = heldNow.map { it.name }.toSet()
+            grantedLate += newlyGranted(agent, fresh).filter { it !in holds }
+            grantedLate.removeAll(holds)
+            val arrived = heldNow.filter { it.name !in before && it.name !in carriedNames }
+            return ConversationFrame.grantedNow(arrived, frame.hunting, tuning[io.mszymanski.orknux.server.tuning.Tunable.TOOLS_LOADED_AT_ONCE])
         }
-        val hunt = if (finder == null) lending else sheds(lending, finder)
+
+        /** What has arrived at the session, and what a grant among it made usable now. */
+        fun arrivals(session: Long): List<String> {
+            val arrived = inbox.take(session)
+            if (arrived.isEmpty()) return arrived
+            return arrived + listOfNotNull(regranted())
+        }
 
         /** What every round declares: the frame's array, which does not move. */
         val offered = frame.tools
@@ -831,7 +887,7 @@ class AgentConversation(
         // What arrived while the session was not running - the answer that woke
         // it, a timer that came due - is the first thing the model reads.
         into?.let { session ->
-            inbox.take(session).forEach { arrived -> conversation += ChatTurn(role = "user", content = arrived) }
+            arrivals(session).forEach { arrived -> conversation += ChatTurn(role = "user", content = arrived) }
         }
         // Then what changed since the frame last said so: a grant just accepted is answered above, and made usable here.
         sinceTurn?.let { conversation += it }
@@ -1195,7 +1251,7 @@ class AgentConversation(
                      * for. What it wrote stands in the transcript, and it is
                      * asked again with what arrived.
                      */
-                    val arrived = into?.let { inbox.take(it) }.orEmpty()
+                    val arrived = into?.let { arrivals(it) }.orEmpty()
                     if (arrived.isNotEmpty()) {
                         // Asked again, but this round was read and written all the same: it counts.
                         spent += answer.millis
@@ -1499,8 +1555,8 @@ class AgentConversation(
                             if (call.name == ToolRun.NAME) {
                                 // One that named no tool, or itself: nothing to run.
                                 ToolRun.refusal(call)
-                            } else if (hunt != null && hunt.handles(call.name)) {
-                                hunt.run(call)
+                            } else if (hunt?.handles(call.name) == true) {
+                                requireNotNull(hunt).run(call)
                             } else if (readOnly && (holding.core + holding.searchable).none { it.name == call.name }) {
                                 /*
                                  * A tool this turn holds back, named anyway - from the
@@ -1511,8 +1567,13 @@ class AgentConversation(
                                 jackson.writeValueAsString(
                                     mapOf("error" to "${call.name} changes something, and this conversation is only looking for now: it was not run"),
                                 )
+                            } else if (call.name in grantedLate) {
+                                // Granted in this conversation and not reachable until the next turn: never "no tool called".
+                                jackson.writeValueAsString(
+                                    mapOf("error" to "${call.name} was granted to you in this conversation and is usable from your next turn, not in this one"),
+                                )
                             } else {
-                                tools.run(agent, call, into)
+                                tools.run(current, call, into)
                             }
                         } catch (halted: AgentRoundHalted) {
                             // The lent tool ended the round. What it did is
@@ -1912,7 +1973,7 @@ class AgentConversation(
                     // asked answering, a timer coming due - read at the same
                     // point and for the same reason. See [SessionInbox].
                     into?.let { session ->
-                        inbox.take(session).forEach { arrived ->
+                        arrivals(session).forEach { arrived ->
                             conversation += ChatTurn(role = "user", content = arrived)
                         }
                     }
@@ -2175,6 +2236,19 @@ class AgentConversation(
         val log = LoggerFactory.getLogger(AgentConversation::class.java)
     }
 }
+
+/**
+ * What [agent] is granted, as one value to compare: two equal are the same
+ * grants, whatever else about the agent was saved meanwhile.
+ */
+internal fun grantsOf(agent: Agent): List<Any> = listOf(
+    agent.tools.toSet(), agent.hiddenTools.toSet(), agent.requiredTools.toSet(), agent.mcpServers.toSet(),
+    agent.orknuxAccess, agent.connections.toSet(), agent.boxLabels.toSet(),
+)
+
+/** The tool names [now] grants by name that [was] did not: added to its list, or no longer hidden. */
+internal fun newlyGranted(was: Agent, now: Agent): Set<String> =
+    (now.tools.toSet() - was.tools.toSet()) + (was.hiddenTools.toSet() - now.hiddenTools.toSet())
 
 /**
  * The findable tools not yet loaded that share a family with [called] - the
