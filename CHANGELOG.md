@@ -75,6 +75,7 @@ have failed.
 
 ### 🔧 Changed
 
+- **A research looks for images unless told not to.** Include images is ticked on New research for anybody who has not left it off before, and a research started through the API or `orknux_start_research` without `includeImages` looks for them too; pass `includeImages: false` to keep the old behaviour.
 - **The research modes' workflows gain two nodes.** Review asked for? and Review report sit between Write report and Save report in every seeded mode still drawn as it was seeded, upgraded on start-up; a mode somebody edited is left as it is and is never reviewed. Without Review the question goes straight to Save and Review report is shown skipped.
 - **A condition's written value may name a field.** `{{trigger.review}}` on a condition node is that field's value, as on any other node, and a field the run does not carry is empty rather than the braces as text.
 - **An agent holding more tools than its provider takes carries as many as fit from its first message.** Past the cap it carried only its Always tools and loaded the rest one at a time, its briefing marked "(load it first)" on tools the request already carried, and on llama.cpp every load had the whole conversation read again; now only the overflow is loaded, a loaded tool goes on the end of the list, and the briefing's marks say what the request carries and stay put after a load. A load still re-reads the prompt on a hybrid model such as Qwen on llama.cpp: set the provider's Most tools per request above what the agent holds to never load at all.

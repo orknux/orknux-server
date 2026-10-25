@@ -245,7 +245,7 @@ input StartResearchInput {
     documentsExclude: [ID!]
     "Whether to search the web; off reads only the documents and the websites to keep to. On when absent."
     useWebSearch: Boolean
-    "Whether to look for images, place them in the report and keep each as an artifact. Off when absent."
+    "Whether to look for images, place them in the report and keep each as an artifact. On when absent."
     includeImages: Boolean
     "Whether a second model reviews the report before it is saved. Off when absent; on, reviewerModelId is required."
     review: Boolean

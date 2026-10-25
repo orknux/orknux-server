@@ -799,7 +799,7 @@ class OrknuxTools(
                         ToolParameterSpec("webSearch", "Whether to search the web; false reads only the documents and sitesInclude. true when left out.", required = false),
                         ToolParameterSpec(
                             "includeImages",
-                            "Whether to look for images, place them in the report and keep each on the Artifacts page. false when left out.",
+                            "Whether to look for images, place them in the report and keep each on the Artifacts page. true when left out.",
                             required = false,
                         ),
                         ToolParameterSpec(

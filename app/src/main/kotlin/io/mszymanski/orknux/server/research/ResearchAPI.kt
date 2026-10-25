@@ -158,7 +158,8 @@ class ResearchAPI(
         if (model == null) throw ResearchModelMissingException()
         val useWebSearch = input.useWebSearch ?: true
         if (!useWebSearch && included.isEmpty() && websitesInclude.isEmpty()) throw ResearchNothingToReadException()
-        val includeImages = input.includeImages ?: false
+        // On unless said otherwise: a report with its pictures is what most research is asked for.
+        val includeImages = input.includeImages ?: true
         // A review is a second model reading the report, and a review with no model to read it is no review.
         val review = input.review ?: false
         val reviewer = if (!review) {
@@ -536,7 +537,7 @@ data class StartResearchInput(
     val documentsExclude: List<Long>? = null,
     /** Absent is on: a research searches the web unless told not to. */
     val useWebSearch: Boolean? = null,
-    /** Absent is off: a research looks for images only when asked to. */
+    /** Absent is on: a research looks for images unless told not to. */
     val includeImages: Boolean? = null,
     /** Absent is off: a research is reviewed only when asked to, and then [reviewerModelId] is required. */
     val review: Boolean? = null,
