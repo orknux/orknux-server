@@ -144,6 +144,7 @@ class DiagramTools(
                     ToolParameterSpec(CATALOG, "The catalog to put it in: its name or id. The first catalog when left out.", required = false),
                     ToolParameterSpec(NODES, "The nodes. $NODE_SAID", required = false, schema = NODE_LIST),
                     ToolParameterSpec(EDGES, "The connections. $EDGE_SAID", required = false, schema = EDGE_LIST),
+                    AgentTools.SHOW_PARAM,
                 ),
             ),
         )
@@ -163,6 +164,7 @@ class DiagramTools(
                     ToolParameterSpec(ADD_EDGES, "Connections to add. $EDGE_SAID", required = false, schema = EDGE_LIST),
                     ToolParameterSpec(UPDATE_EDGES, "Connections to change, each with its id and only the fields that change.", required = false, schema = EDGE_LIST),
                     ToolParameterSpec(REMOVE_EDGES, "The ids of connections to take away.", required = false, schema = IDS),
+                    AgentTools.SHOW_PARAM,
                 ),
             ),
         )
@@ -366,7 +368,7 @@ class DiagramTools(
         val nodes = list(asked.path(NODES))?.let(api.document::nodes).orEmpty()
         val edges = list(asked.path(EDGES))?.let { api.document.edges(it, nodes) }.orEmpty()
         val made = api.create(scope.workspaceId, name, catalog?.id, api.document.checked(DiagramDrawing(nodes, edges)), text(asked.path(DESCRIPTION)))
-        return drawn(scope, made)
+        return drawn(scope, made, asked)
     }
 
     private fun change(scope: OrknuxScope, held: Diagram, asked: JsonNode): String {
@@ -416,7 +418,7 @@ class DiagramTools(
         }
         if (redrawn) api.saveDrawing(id, DiagramDrawing(changedNodes + addedNodes, changedEdges + addedEdges))
         if (describing) api.describeDiagram(id, described)
-        return drawn(scope, api.view(api.find(id)))
+        return drawn(scope, api.view(api.find(id)), asked)
     }
 
     /**
@@ -424,7 +426,7 @@ class DiagramTools(
      * it where the call came from a conversation - one per diagram per turn, its
      * latest, as a wireframe's is.
      */
-    private fun drawn(scope: OrknuxScope, view: DiagramView): String {
+    private fun drawn(scope: OrknuxScope, view: DiagramView, asked: JsonNode): String {
         val answer = read(api.find(view.id))
         scope.session ?: return answer
         val png = when (val made = export.png(api.drawing(view.id))) {
@@ -435,10 +437,16 @@ class DiagramTools(
         tree.put(AgentTools.PICTURE, Base64.getEncoder().encodeToString(png.png))
         tree.put(AgentTools.PICTURE_TYPE, "image/png")
         tree.put(AgentTools.PICTURE_KEY, "diagram:" + view.id)
+        // Kept from the person where the call said so; the round reads the same argument. See AgentTools.SHOW.
         tree.put(
             "note",
-            "A picture of the diagram goes into the conversation with this answer. In your answer give the person the " +
-                "url, which opens it in the diagram editor, and say what you changed.",
+            if (AgentTools.keptFromPerson(asked)) {
+                "The picture of the diagram is for you alone and was not put in the conversation. The person can " +
+                    "open it at the url, in the diagram editor."
+            } else {
+                "A picture of the diagram goes into the conversation with this answer. In your answer give the person the " +
+                    "url, which opens it in the diagram editor, and say what you changed."
+            },
         )
         return mapper.writeValueAsString(tree)
     }

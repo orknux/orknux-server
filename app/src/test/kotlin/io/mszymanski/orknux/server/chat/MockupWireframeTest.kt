@@ -271,6 +271,30 @@ class MockupWireframeTest(
             .contains("/design/wireframes/${made.id}").contains("inConversation")
     }
 
+    /** With show false the wireframe is still made, its picture goes to the model alone, and the model is told so. */
+    @Test
+    fun `a wireframe drawn with show false is kept from the chat`() {
+        val arguments = mapper.writeValueAsString(
+            mapOf(
+                "name" to "Checked form",
+                "add" to listOf(mapOf("type" to "frame", "x" to 0, "y" to 0, "w" to 320, "h" to 200, "text" to "Check")),
+                AgentTools.SHOW to false,
+            ),
+        )
+        val chatId = chatWithAgent(
+            serve { body ->
+                if (body.contains("onlyYouSeeIt")) null to "Checked." else WireframeTools.CREATE to arguments
+            },
+        )
+        graphQlTester.document("""mutation { sendChatMessage(id: $chatId, text: "check the form") { millis } }""")
+            .execute().path("sendChatMessage.millis").hasValue()
+
+        assertThat(wireframes.findByWorkspaceIdOrderByUpdatedAtDescIdDesc(workspaceId).single().name).isEqualTo("Checked form")
+        assertThat(attachments.findAll().filter { it.chatSessionId == chatId }).isEmpty()
+        assertThat(offered.last()).contains("onlyYouSeeIt").contains("not put in the conversation").contains("contentKey")
+            .doesNotContain("inConversation").doesNotContain("goes into the conversation with this answer")
+    }
+
     /**
      * Chat 979: created and changed in one turn, the wireframe was shown twice,
      * the first picture already out of date. One picture per wireframe per

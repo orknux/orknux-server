@@ -51,6 +51,7 @@ class DiagramCapability(
             params = listOf(
                 EmbeddedParam(SOURCE, ValueType.STRING, "The diagram source.", required = true),
                 EmbeddedParam(FORMAT, ValueType.STRING, "\"png\" (the default) or \"svg\". Either way the answer is a contentKey, not the picture."),
+                SHOW_PICTURE,
             ),
         ),
     )
@@ -150,6 +151,7 @@ class ChartCapability(
                 EmbeddedParam(VALUES, ValueType.MAP, "A label and a number each.", required = true),
                 EmbeddedParam(TITLE, ValueType.STRING, "What the chart is called."),
                 EmbeddedParam(FORMAT, ValueType.STRING, "\"png\" (the default) or \"svg\". Either way the answer is a contentKey, not the picture."),
+                SHOW_PICTURE,
             ),
         ),
     )
@@ -237,6 +239,17 @@ class ChartCapability(
         const val FORMAT = "format"
     }
 }
+
+/**
+ * Whether the person sees the picture, as every tool here that draws one into
+ * the conversation declares it. See [io.mszymanski.orknux.server.chat.AgentTools.SHOW]:
+ * the round reads the call's argument, so nothing here acts on it.
+ */
+internal val SHOW_PICTURE = EmbeddedParam(
+    io.mszymanski.orknux.server.chat.AgentTools.SHOW,
+    ValueType.BOOLEAN,
+    io.mszymanski.orknux.server.chat.AgentTools.SHOW_SAID,
+)
 
 /**
  * A drawing, answered so it can be both seen and sent. Issue #513.

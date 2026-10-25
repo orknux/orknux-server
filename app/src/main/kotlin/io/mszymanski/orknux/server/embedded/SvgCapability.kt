@@ -60,6 +60,7 @@ class SvgCapability(
                 EmbeddedParam(FORMAT, ValueType.STRING, "\"png\" (the default) or \"svg\". Either way the answer is a contentKey."),
                 EmbeddedParam(WIDTH, ValueType.NUMBER, "How wide the PNG is, in pixels; the height follows."),
                 EmbeddedParam(BACKGROUND, ValueType.STRING, "Behind the PNG: a #hex colour, or \"transparent\". White by default."),
+                SHOW_PICTURE,
             ),
         ),
         EmbeddedTool(
@@ -120,6 +121,7 @@ class SvgCapability(
                 EmbeddedParam(SVG, ValueType.STRING, "The SVG markup, where there is no key."),
                 EmbeddedParam(WIDTH, ValueType.NUMBER, "How wide the PNG is, in pixels; the height follows."),
                 EmbeddedParam(BACKGROUND, ValueType.STRING, "Behind the PNG: a #hex colour, or \"transparent\". White by default."),
+                SHOW_PICTURE,
             ),
             reads = StoredReader(setOf("image/svg+xml"), KEY),
         ),
