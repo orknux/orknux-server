@@ -330,10 +330,13 @@ class OpenAiChatTest {
      * body. Read for frames that are not there, that came back as an empty
      * answer - and empty reaches the run as "the provider answered with no
      * message", a silence this reader invented rather than one the model
-     * produced. So it is asked once more without streaming.
+     * produced. It is read as the answer it is - and asked once: asking again
+     * without streaming, as this once did, made every question to such a
+     * provider twice the work, and a research's writer on a slow local model
+     * wrote its report twice for one report.
      */
     @Test
-    fun `a provider that ignores the streaming flag is still read`() {
+    fun `a provider that ignores the streaming flag is still read, and asked once`() {
         // `streamed` stays null, so the stub answers with ordinary JSON.
         answer = words("Hello anyway.")
 
@@ -345,10 +348,9 @@ class OpenAiChatTest {
         // The watcher is told once, because that is how it arrived: one piece,
         // which is what the provider sent.
         assertThat(seen).containsExactly("Hello anyway.")
-        // Twice: the streaming attempt, then the one that was answered.
-        assertThat(bodies).hasSize(2)
-        assertThat(bodies.first()).contains("\"stream\":true")
-        assertThat(bodies.last()).doesNotContain("\"stream\":true")
+        // Once: the body that came back is the answer, not a reason to ask again.
+        assertThat(bodies).hasSize(1)
+        assertThat(bodies.single()).contains("\"stream\":true")
     }
 
     @Test
