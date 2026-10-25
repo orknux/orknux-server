@@ -2,7 +2,6 @@ package io.mszymanski.orknux.server.issue
 
 import io.mszymanski.orknux.server.attachment.AttachmentDownloads
 import io.mszymanski.orknux.server.attachment.AttachmentStore
-import io.mszymanski.orknux.server.attachment.AttachmentTooLargeException
 import io.mszymanski.orknux.server.attachment.AttachmentsDisabledException
 import io.mszymanski.orknux.server.attachment.InstallationSettings
 import io.mszymanski.orknux.server.security.WorkspaceAccess
@@ -57,12 +56,11 @@ class IssueAttachmentAPI(
         val workspace = access.requireVisible(workspaceId)
         if (!settings.attachmentsEnabled()) throw AttachmentsDisabledException()
 
-        val limit = settings.maxFileSizeMb() * 1024 * 1024
-        val kept = files.filterNot { it.isEmpty }.map { file ->
-            val name = file.originalFilename?.trim()?.ifEmpty { null } ?: "file"
-            if (file.size > limit) throw AttachmentTooLargeException(name, settings.maxFileSizeMb())
-
-            val location = store.put(workspaceId, name, file.bytes)
+        val picked = files.filterNot { it.isEmpty }.map { (it.originalFilename?.trim()?.ifEmpty { null } ?: "file") to it }
+        // All of them before any is kept, so a refusal leaves nothing half-uploaded behind it.
+        picked.forEach { (name, file) -> settings.requireUploadable(name, file.size) }
+        val kept = picked.map { (name, file) ->
+            val location = file.inputStream.use { store.putFrom(workspaceId, name, it) }
             attachments.save(
                 IssueAttachment(
                     workspaceId = workspaceId,

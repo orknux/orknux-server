@@ -14,11 +14,15 @@
 spring:
   servlet:
     multipart:
-      # A recording, not a document. The default cap is 1MB — a few seconds of
-      # speech — and the endpoint refuses anything past 25MB itself, with a
-      # sentence rather than a stack trace.
-      max-file-size: ${ORKNUX_UPLOAD_MAX_FILE_SIZE:25MB}
-      max-request-size: ${ORKNUX_UPLOAD_MAX_REQUEST_SIZE:26MB}
+      # Above the upload limit on purpose, at its highest (2048 MB). The limit
+      # itself is Admin Settings' Largest file (ORKNUX_ATTACHMENTS_MAX_FILE_SIZE_MB
+      # below), checked in code with a sentence that says it. What these refuse
+      # is refused by Tomcat before any code runs, which a browser sees as a
+      # reset connection and reports as "Failed to fetch" - so they are fixed
+      # at start-up and kept out of the way. The interface sends one file per
+      # request, so a request is a file and a little form.
+      max-file-size: ${ORKNUX_UPLOAD_MAX_FILE_SIZE:2048MB}
+      max-request-size: ${ORKNUX_UPLOAD_MAX_REQUEST_SIZE:2049MB}
   ai:
     chat:
       memory:
@@ -384,6 +388,9 @@ orknux:
     # against the working directory, which is fine on a development machine and
     # wrong in a container: name a volume that outlives the process.
     location: ${ORKNUX_ATTACHMENTS_LOCATION:data/attachments}
+    # The largest file any upload may be, in MB (1 to 2048): what a fresh
+    # installation does until an administrator sets Largest file under
+    # Attachments in Admin Settings. The desktop app passes 500.
     max-file-size-mb: ${ORKNUX_ATTACHMENTS_MAX_FILE_SIZE_MB:25}
   revision:
     # How many days of a component's history are kept.

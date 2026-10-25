@@ -1,6 +1,7 @@
 package io.mszymanski.orknux.server.research
 
 import io.mszymanski.orknux.server.attachment.AttachmentTypes
+import io.mszymanski.orknux.server.attachment.InstallationSettings
 import io.mszymanski.orknux.server.security.WorkspaceAccess
 import io.mszymanski.orknux.server.workflow.SavedArtifacts
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
@@ -13,7 +14,6 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.multipart.MultipartFile
 import java.time.format.DateTimeFormatter
-import java.util.Base64
 
 /**
  * A document uploaded from the New research dialog. Issue #659.
@@ -31,6 +31,7 @@ import java.util.Base64
 @RestController
 class ResearchUploadAPI(
     private val saved: SavedArtifacts,
+    private val settings: InstallationSettings,
     private val access: WorkspaceAccess,
     private val auditRecorder: WorkspaceAuditRecorder,
 ) {
@@ -43,19 +44,21 @@ class ResearchUploadAPI(
         access.requireVisible(workspaceId)
         val by = SecurityContextHolder.getContext().authentication?.name ?: "system"
 
-        val kept = files.filterNot { it.isEmpty }.map { file ->
-            val name = file.originalFilename?.trim()?.substringAfterLast('/')?.substringAfterLast('\\')?.ifEmpty { null } ?: "document"
+        val picked = files.filterNot { it.isEmpty }
+            .map { (it.originalFilename?.trim()?.substringAfterLast('/')?.substringAfterLast('\\')?.ifEmpty { null } ?: "document") to it }
+        // All of them before any is kept, so a refusal leaves nothing half-uploaded behind it.
+        picked.forEach { (name, file) -> settings.requireUploadable(name, file.size) }
+        val kept = picked.map { (name, file) ->
             if (!ResearchDocuments.readable(AttachmentTypes.of(name, file.contentType))) {
                 return refused("$name is not a document a research can read: upload text, Markdown, HTML, JSON or PDF.")
             }
             when (
-                val saving = saved.save(
+                val saving = saved.upload(
                     workspaceId = workspaceId,
                     savedBy = by,
                     name = name,
                     description = "Uploaded for research",
-                    content = Base64.getEncoder().encodeToString(file.bytes),
-                    base64 = true,
+                    bytes = file.bytes,
                 )
             ) {
                 is SavedArtifacts.Saving.Refused -> return refused(saving.reason)

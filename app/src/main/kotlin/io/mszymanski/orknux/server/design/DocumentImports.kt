@@ -53,6 +53,8 @@ class DocumentImports(
     @param:Lazy private val artifacts: WorkspaceArtifactAPI,
     private val audit: WorkspaceAuditRecorder,
     private val mapper: ObjectMapper,
+    /** The installation's upload limit, which a document's own import limit sits under. */
+    private val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
     private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
@@ -72,6 +74,7 @@ class DocumentImports(
         val name = filename.trim().substringAfterLast('/').substringAfterLast('\\').ifEmpty { "file" }.take(255)
         val bytes = runCatching { Base64.getDecoder().decode(file.substringAfter("base64,").trim()) }.getOrNull()
             ?: throw DocumentImportUnreadableException(name, "it is not base64")
+        settings.requireUploadable(name, bytes.size.toLong())
         val most = tuning[Tunable.DOCUMENT_IMPORT_MB]
         if (bytes.size > most.toLong() * MB) throw DocumentImportTooLargeException(name, (bytes.size + MB - 1) / MB, most)
         val format = DocumentImportFormat.of(name, bytes) ?: throw DocumentImportFormatUnknownException(name)

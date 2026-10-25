@@ -1330,6 +1330,8 @@ type Mutation {
     setChatReplySuggestionsTimeoutMillis(millis: Int!): InstallationSettings!
     "The largest video a chat message may send to a model that takes video. Between 1 and 1024 MB."
     setChatVideoMaxMb(megabytes: Int!): InstallationSettings!
+    "The largest file any upload may be - a chat's, an issue's, the Artifacts page's, a research's, a picture's. Between 1 and 2048 MB."
+    setAttachmentMaxFileSizeMb(megabytes: Int!): InstallationSettings!
     """
     The longest an agent may put itself to sleep for; 1 to 86400 seconds.
 
@@ -7155,7 +7157,10 @@ type InstallationSettings {
     attachmentStorage: String!
     "The directory they are written under, shown so it can be checked."
     attachmentLocation: String!
+    "The largest file any upload may be, in MB: what an administrator set, or else what the installation was started with."
     attachmentMaxFileSizeMb: Int!
+    "What a fresh installation does - ORKNUX_ATTACHMENTS_MAX_FILE_SIZE_MB."
+    attachmentMaxFileSizeMbConfigured: Int!
     "Whether this installation has a chat at all."
     chatEnabled: Boolean!
     "False when the configuration file has said no, and the switch is not offered."

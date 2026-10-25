@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.workflow
 
+import io.mszymanski.orknux.server.attachment.InstallationSettings
 import io.mszymanski.orknux.server.security.WorkspaceAccess
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
@@ -10,12 +11,12 @@ import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.multipart.MultipartFile
-import java.util.Base64
 
 /**
  * A file put onto a workspace's Artifacts page by somebody signed in: kept as
  * a saved artifact, as an agent's `save_artifact` keeps one, under the same
- * limits, and answered with the address the Artifacts page opens it at.
+ * limit every upload is held to, and answered with the address the Artifacts
+ * page opens it at.
  *
  * The research dialog's upload did the same for a research's sources, but
  * filed every file as "Uploaded for research"; something else putting a page
@@ -25,6 +26,7 @@ import java.util.Base64
 @RestController
 class WorkspaceArtifactUploadAPI(
     private val saved: SavedArtifacts,
+    private val settings: InstallationSettings,
     private val access: WorkspaceAccess,
     private val auditRecorder: WorkspaceAuditRecorder,
 ) {
@@ -39,15 +41,15 @@ class WorkspaceArtifactUploadAPI(
         if (file.isEmpty) return refused("The file is empty.")
         val by = SecurityContextHolder.getContext().authentication?.name ?: "system"
         val name = file.originalFilename?.trim()?.substringAfterLast('/')?.substringAfterLast('\\')?.ifEmpty { null } ?: "file"
+        settings.requireUploadable(name, file.size)
         val kept = when (
-            val saving = saved.save(
+            val saving = saved.upload(
                 workspaceId = workspaceId,
                 savedBy = by,
                 name = name,
                 // What a person dropped onto the page is described by its name until they say more; the store asks for one.
                 description = description?.trim()?.take(DESCRIPTION_MOST)?.ifEmpty { null } ?: name,
-                content = Base64.getEncoder().encodeToString(file.bytes),
-                base64 = true,
+                bytes = file.bytes,
             )
         ) {
             is SavedArtifacts.Saving.Refused -> return refused(saving.reason)

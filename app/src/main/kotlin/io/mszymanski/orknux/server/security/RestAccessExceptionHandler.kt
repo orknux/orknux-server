@@ -7,6 +7,7 @@ import io.mszymanski.orknux.server.design.DocumentImageNotFoundException
 import io.mszymanski.orknux.server.design.DocumentNotFoundException
 import io.mszymanski.orknux.server.design.WireframeNotFoundException
 import io.mszymanski.orknux.server.diagram.DiagramNotFoundException
+import io.mszymanski.orknux.server.graphql.codeOf
 import io.mszymanski.orknux.server.task.TaskPictureNotFoundException
 import io.mszymanski.orknux.server.workflow.ExecutionPictureNotFoundException
 import io.mszymanski.orknux.server.workflow.ExecutionSpeechNotFoundException
@@ -99,8 +100,29 @@ class RestAccessExceptionHandler {
         ResponseEntity.status(HttpStatus.BAD_REQUEST)
             .body(mapOf("error" to (failure.message ?: "That file cannot be played")))
 
+    /**
+     * A file past the upload limit, from any of the upload doors. `error` is
+     * what the interface's older readers show; `message`, `code` and
+     * `arguments` are the shape a GraphQL refusal's extensions have, so the
+     * page can say it in the reader's language.
+     */
     @ExceptionHandler(AttachmentTooLargeException::class)
-    fun tooLarge(failure: AttachmentTooLargeException): ResponseEntity<Map<String, String>> =
-        ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
-            .body(mapOf("error" to (failure.message ?: "That file is larger than this installation allows")))
+    fun tooLarge(failure: AttachmentTooLargeException): ResponseEntity<Map<String, Any>> {
+        val said = failure.message ?: "That file is larger than this installation allows"
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(
+            mapOf("error" to said, "message" to said, "code" to codeOf(failure), "arguments" to failure.arguments),
+        )
+    }
+
+    /**
+     * A request past Spring's own multipart caps (ORKNUX_UPLOAD_MAX_*), which
+     * sit above the largest the upload limit can be. Answered in a sentence
+     * where Tomcat still lets an answer through, rather than as a 500.
+     */
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException::class)
+    fun pastMultipartCap(failure: RuntimeException): ResponseEntity<Map<String, Any>> {
+        val said = "That upload is larger than this server reads in one request - an administrator sets it with ORKNUX_UPLOAD_MAX_FILE_SIZE"
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+            .body(mapOf("error" to said, "message" to said, "code" to "UploadPastMultipartCap"))
+    }
 }

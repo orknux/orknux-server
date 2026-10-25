@@ -81,6 +81,7 @@ object SettingNames {
     const val CHAT_REPLY_SUGGESTIONS_MAX_TOKENS = "chat.reply.suggestions.max.tokens"
     const val CHAT_REPLY_SUGGESTIONS_TIMEOUT_MILLIS = "chat.reply.suggestions.timeout.millis"
     const val CHAT_VIDEO_MAX_MB = "chat.video.max.mb"
+    const val UPLOAD_MAX_MB = "attachments.max.file.size.mb"
     const val OBJECT_MAX_DEPTH = "objects.max.depth"
     const val IMAGE_MAX_PROMPT = "images.max.prompt"
     const val IMAGE_DRAWS_AT_ONCE = "images.draws.at.once"
@@ -319,7 +320,41 @@ class InstallationSettings(
 
     fun location(): String = properties.location
 
-    fun maxFileSizeMb(): Long = properties.maxFileSizeMb
+    /**
+     * The largest file an upload may be, in megabytes, whichever door it comes
+     * through: a chat, an issue, the Artifacts page, a research, a picture
+     * imported into Design. One number, because a file one page takes and the
+     * next refuses is a limit nobody can predict.
+     *
+     * Spring's multipart caps are fixed at start-up and sit above this on
+     * purpose (ORKNUX_UPLOAD_MAX_FILE_SIZE): a request they refuse is a reset
+     * connection the browser reports as "Failed to fetch", while one this
+     * refuses is answered in a sentence that says the limit.
+     */
+    fun maxFileSizeMb(): Long = (heldInt(SettingNames.UPLOAD_MAX_MB, UPLOAD_MAX_MB) ?: maxFileSizeMbConfigured()).toLong()
+
+    /** What a fresh installation does - ORKNUX_ATTACHMENTS_MAX_FILE_SIZE_MB, which the desktop app sets to 500. */
+    fun maxFileSizeMbConfigured(): Int =
+        properties.maxFileSizeMb.coerceIn(UPLOAD_MAX_MB.first.toLong(), UPLOAD_MAX_MB.last.toLong()).toInt()
+
+    @Transactional
+    fun setMaxFileSizeMb(megabytes: Int, by: String) {
+        if (megabytes !in UPLOAD_MAX_MB) throw UploadMaxOutOfRangeException(megabytes)
+        holdInt(SettingNames.UPLOAD_MAX_MB, megabytes, by)
+    }
+
+    /**
+     * Refuses a file of [sizeBytes] past [maxFileSizeMb], by name and in
+     * megabytes: the one check every upload asks before anything is kept.
+     * Rounded up, so a file a little over the limit is never said to be the
+     * limit's own size.
+     */
+    fun requireUploadable(name: String, sizeBytes: Long) {
+        val limit = maxFileSizeMb()
+        if (sizeBytes > limit * MEGABYTE) {
+            throw AttachmentTooLargeException(name, (sizeBytes + MEGABYTE - 1) / MEGABYTE, limit)
+        }
+    }
 
     @Transactional
     fun setAttachmentsEnabled(enabled: Boolean, by: String) = hold(SettingNames.ATTACHMENTS_ENABLED, enabled, by)
@@ -2383,6 +2418,23 @@ class CompletionPauseOutOfRangeException(val millis: Int) : RuntimeException(
  * no server in front of a model is configured to read.
  */
 val VIDEO_MAX_MB = 1..1024
+
+/*
+ * What the upload limit may be, in megabytes. One at the bottom because nought
+ * is what turning attachments off already says; two gigabytes at the top
+ * because that is where Spring's multipart caps sit (application.yml), and a
+ * limit above them would be refused by a reset connection instead of a
+ * sentence.
+ */
+val UPLOAD_MAX_MB = 1..2048
+
+private const val MEGABYTE = 1024L * 1024L
+
+class UploadMaxOutOfRangeException(val megabytes: Int) : RuntimeException(
+    "Uploads cannot be limited to $megabytes MB. Choose between ${UPLOAD_MAX_MB.first} and ${UPLOAD_MAX_MB.last}.",
+), io.mszymanski.orknux.server.graphql.Refusal {
+    override val arguments get() = mapOf("megabytes" to megabytes)
+}
 
 class VideoMaxOutOfRangeException(val megabytes: Int) : RuntimeException(
     "A video sent to a model cannot be limited to $megabytes MB. Choose between ${VIDEO_MAX_MB.first} and ${VIDEO_MAX_MB.last}.",

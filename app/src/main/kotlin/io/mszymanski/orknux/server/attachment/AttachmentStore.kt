@@ -21,6 +21,13 @@ interface AttachmentStore {
     /** @return where it went, in whatever form this storage understands. */
     fun put(workspaceId: Long, filename: String, bytes: ByteArray): String
 
+    /**
+     * The same, from a stream: an upload may be hundreds of megabytes where the
+     * desktop app allows it, and reading one into an array to write it out again
+     * is that much heap for nothing. A storage that cannot stream reads it whole.
+     */
+    fun putFrom(workspaceId: Long, filename: String, input: InputStream): String = put(workspaceId, filename, input.readAllBytes())
+
     fun open(location: String): InputStream
 
     /**
@@ -62,13 +69,16 @@ interface AttachmentStore {
 @Component
 class FilesystemAttachmentStore(private val settings: InstallationSettings) : AttachmentStore {
 
-    override fun put(workspaceId: Long, filename: String, bytes: ByteArray): String {
+    override fun put(workspaceId: Long, filename: String, bytes: ByteArray): String =
+        putFrom(workspaceId, filename, bytes.inputStream())
+
+    override fun putFrom(workspaceId: Long, filename: String, input: InputStream): String {
         val folder = root().resolve(workspaceId.toString())
         Files.createDirectories(folder)
 
         val stored = "${UUID.randomUUID()}${extensionOf(filename)}"
         val target = folder.resolve(stored)
-        bytes.inputStream().use { Files.copy(it, target, StandardCopyOption.REPLACE_EXISTING) }
+        input.use { Files.copy(it, target, StandardCopyOption.REPLACE_EXISTING) }
 
         log.debug("Attachment {} written for workspace {}", stored, workspaceId)
         // Relative to the configured root, so moving the root is a change to
