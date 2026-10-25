@@ -88,6 +88,20 @@ class ChatTitles(
         return (workspace.companionModelId ?: session.modelId) != null
     }
 
+    /**
+     * Whether a new chat can be named from its first message while the answer
+     * is still being written: only where the workspace has a companion model
+     * that is not the chat's own, so naming does not queue behind the answer on
+     * the same model - on a local server it would wait for the whole turn.
+     */
+    fun namesEarly(sessionId: Long): Boolean {
+        if (sessionId in naming) return false
+        val session = sessions.findByIdOrNull(sessionId) ?: return false
+        if (session.title != DEFAULT_TITLE) return false
+        val companion = workspaces.findByIdOrNull(session.workspaceId)?.companionModelId ?: return false
+        return companion != session.modelId
+    }
+
     /** A title a model gave, and the exchange finishing now is the one that names it again. */
     private fun dueAgain(session: ChatSession): Boolean {
         val every = settings.chatRetitleEvery()
@@ -211,7 +225,11 @@ class ChatTitles(
                 content = "You name conversations. Reply with a title of at most six words for the exchange " +
                     "that follows. No quotation marks, no punctuation at the end, no preamble — the title only.",
             ),
-            ChatTurn(role = "user", content = "Message: $question\n\nReply: ${answer.take(ANSWER_SAMPLE)}"),
+            // Named before the answer exists, from the message alone: an empty Reply line would read as an empty reply.
+            ChatTurn(
+                role = "user",
+                content = if (answer.isBlank()) "Message: $question" else "Message: $question\n\nReply: ${answer.take(ANSWER_SAMPLE)}",
+            ),
         )
 
         // Given up on after the time limit, rather than after the model's whole answer time limit.

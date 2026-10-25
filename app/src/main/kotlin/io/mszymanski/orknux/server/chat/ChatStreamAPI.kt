@@ -326,6 +326,21 @@ class ChatStreamAPI(
                     // turn, and the page's link to it waited for the turn to end, or for a reload.
                     recordedIn = start.llmSessionId
                     start.llmSessionId?.let { send("session", mapOf("id" to it.toString())) }
+                    /*
+                     * A new chat named from its first message at once, beside the
+                     * answer, where a companion model other than the chat's own can
+                     * do it: the list said New chat for as long as a long turn ran.
+                     * The turn's end finds it named, or being named, and leaves it.
+                     */
+                    if (said != null && runCatching { titles.namesEarly(id) }.getOrDefault(false)) {
+                        Thread.ofVirtual().name("chat-$id-title").start {
+                            runCatching {
+                                send("titling", mapOf<String, Any>())
+                                titles.nameFrom(id, said, "")?.let { why -> send("titleFailed", mapOf("reason" to why)) }
+                                titles.titleOf(id)?.let { send("titled", mapOf("title" to it)) }
+                            }.onFailure { log.warn("Could not name chat {}", id, it) }
+                        }
+                    }
                     start.compacted?.let { held ->
                         send(
                             "compacted",

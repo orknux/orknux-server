@@ -849,6 +849,34 @@ class ChatInSessionTest(
     }
 
     /**
+     * A chat named from its first message before the answer exists - only where
+     * a companion model that is not the chat's own can do it, so the naming
+     * does not queue behind the answer on one local server - and the model is
+     * handed the message alone, with no empty Reply to read as an empty reply.
+     */
+    @Test
+    fun `a companion model other than the chat's names it from the first message alone`() {
+        val asked = java.util.concurrent.atomic.AtomicReference<String>()
+        val chatId = bareChat(llmSessionId = null, endpoint = serveAnswer("Twenty."))
+        chats.save(requireNotNull(chats.findByIdOrNull(chatId)).apply { title = "New chat" })
+        assertThat(titles.namesEarly(chatId)).describedAs("no companion: named at the turn's end").isFalse()
+
+        val chatModel = requireNotNull(chats.findByIdOrNull(chatId)).modelId
+        val workspace = requireNotNull(workspaces.findByIdOrNull(workspaceId))
+        workspaces.save(workspace.apply { companionModelId = chatModel })
+        assertThat(titles.namesEarly(chatId)).describedAs("the companion is the chat's own model").isFalse()
+
+        val companion = model(serve { body -> asked.set(body); """{"choices":[{"message":{"role":"assistant","content":"Pool sizing"}}]}""" }, name = "Companion")
+        workspaces.save(requireNotNull(workspaces.findByIdOrNull(workspaceId)).apply { companionModelId = companion })
+        assertThat(titles.namesEarly(chatId)).isTrue()
+
+        titles.nameFrom(chatId, "How big should the pool be?", "")
+        assertThat(chats.findByIdOrNull(chatId)?.title).isEqualTo("Pool sizing")
+        assertThat(asked.get()).contains("Message: How big should the pool be?").doesNotContain("Reply:")
+        assertThat(titles.namesEarly(chatId)).describedAs("a named chat is not named early again").isFalse()
+    }
+
+    /**
      * One naming of a chat at a time. A slow model naming it while the next
      * turn finished was asked again by that turn - "Naming this chat…" came
      * back on every short voice turn - and the last answer won.
