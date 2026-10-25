@@ -73,7 +73,10 @@ class DiagramBriefingTest(
         listOf(DiagramTools.SEARCH, DiagramTools.NODE, DiagramTools.CHANGE, DiagramTools.LIST).forEach { assertThat(offered).contains(it) }
         // The same on the next round, and the next: nothing in it moves with the conversation.
         assertThat(told(id)).isEqualTo(said)
-        assertThat(briefing.grants(requireNotNull(agents.findByIdOrNull(id)), session = 12345L)).isEqualTo(said)
+        // Within one conversation too. Not compared with no session at all: ask_person is offered only in a chat.
+        val inSession = briefing.grants(requireNotNull(agents.findByIdOrNull(id)), session = 12345L)
+        assertThat(inSession).contains(PARAGRAPH)
+        assertThat(briefing.grants(requireNotNull(agents.findByIdOrNull(id)), session = 12345L)).isEqualTo(inSession)
     }
 
     @Test
