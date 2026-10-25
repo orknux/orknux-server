@@ -955,6 +955,11 @@ orknux:
     video.max.mb: ${ORKNUX_TUNING_VIDEO_MAX_MB:200}
     video.upscale.batch.frames: ${ORKNUX_TUNING_VIDEO_UPSCALE_BATCH_FRAMES:8}
     video.upscale.max.pixels: ${ORKNUX_TUNING_VIDEO_UPSCALE_MAX_PIXELS:3840}
+    video.export.gif.fps: ${ORKNUX_TUNING_VIDEO_EXPORT_GIF_FPS:15}
+    video.export.gif.width: ${ORKNUX_TUNING_VIDEO_EXPORT_GIF_WIDTH:480}
+    video.export.max.mb: ${ORKNUX_TUNING_VIDEO_EXPORT_MAX_MB:200}
+    video.export.seconds: ${ORKNUX_TUNING_VIDEO_EXPORT_SECONDS:300}
+    video.export.kept: ${ORKNUX_TUNING_VIDEO_EXPORT_KEPT:8}
     images.brush.pixels: ${ORKNUX_TUNING_IMAGES_BRUSH_PIXELS:12}
     images.brush.opacity.percent: ${ORKNUX_TUNING_IMAGES_BRUSH_OPACITY_PERCENT:100}
     images.brush.hardness.percent: ${ORKNUX_TUNING_IMAGES_BRUSH_HARDNESS_PERCENT:50}

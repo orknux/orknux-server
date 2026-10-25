@@ -525,6 +525,39 @@ enum class Tunable(
     ),
 
     /*
+     * A video exported as a GIF, an MP4 or an MKV from the video editor: the
+     * conversion runs while the person waits, so it has a time limit and a
+     * size limit, and a GIF - a picture per frame, 256 colours each - has a
+     * rate and a width of its own, because at a video's it is tens of
+     * megabytes for a few seconds.
+     */
+    VIDEO_EXPORT_GIF_FPS(
+        "video.export.gif.fps", 15, 1, 50, TuningSection.MEDIA, TuningUnit.ITEMS,
+        "Most frames a second in a GIF export",
+        "A video at a faster rate is exported as a GIF at this one; a slower one keeps its own.",
+    ),
+    VIDEO_EXPORT_GIF_WIDTH(
+        "video.export.gif.width", 480, 16, 3840, TuningSection.MEDIA, TuningUnit.PIXELS,
+        "The widest a GIF export is",
+        "A wider video is made this wide as a GIF, at the same shape; a narrower one keeps its own size.",
+    ),
+    VIDEO_EXPORT_MAX_MB(
+        "video.export.max.mb", 200, 1, 4096, TuningSection.MEDIA, TuningUnit.MB,
+        "The largest video export",
+        "An export that comes to more than this is stopped and refused.",
+    ),
+    VIDEO_EXPORT_SECONDS(
+        "video.export.seconds", 300, 5, 3600, TuningSection.MEDIA, TuningUnit.SECONDS,
+        "How long one video export may take",
+        "An export still converting after this is stopped and refused.",
+    ),
+    VIDEO_EXPORT_KEPT(
+        "video.export.kept", 8, 0, 100, TuningSection.MEDIA, TuningUnit.ITEMS,
+        "How many video exports are kept to hand out again",
+        "The newest exports are kept in the server's temporary directory, so the same video asked for again in the same format is not converted twice. Zero keeps none.",
+    ),
+
+    /*
      * Where the image editor's brush starts, in the picture's own pixels -
      * somebody painting chooses their own, from 1 to the most here. Issue #637.
      */

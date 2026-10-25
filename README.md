@@ -498,6 +498,11 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_VIDEO_MAX_MB` | The largest video kept, in MB. | `200` |
 | `ORKNUX_TUNING_VIDEO_UPSCALE_BATCH_FRAMES` | Most frames sent in one upscale call, in items. | `8` |
 | `ORKNUX_TUNING_VIDEO_UPSCALE_MAX_PIXELS` | The longest side of an upscaled video, in pixels. | `3840` |
+| `ORKNUX_TUNING_VIDEO_EXPORT_GIF_FPS` | Most frames a second in a GIF export, in items. | `15` |
+| `ORKNUX_TUNING_VIDEO_EXPORT_GIF_WIDTH` | The widest a GIF export is, in pixels. | `480` |
+| `ORKNUX_TUNING_VIDEO_EXPORT_MAX_MB` | The largest video export, in MB. | `200` |
+| `ORKNUX_TUNING_VIDEO_EXPORT_SECONDS` | How long one video export may take, in seconds. | `300` |
+| `ORKNUX_TUNING_VIDEO_EXPORT_KEPT` | How many video exports are kept to hand out again, in items. | `8` |
 | `ORKNUX_TUNING_IMAGES_BRUSH_PIXELS` | How wide the image editor's brush starts, in pixels. | `12` |
 | `ORKNUX_TUNING_IMAGES_BRUSH_OPACITY_PERCENT` | How opaque the image editor's brush starts, in percent. | `100` |
 | `ORKNUX_TUNING_IMAGES_BRUSH_HARDNESS_PERCENT` | How hard the soft brush's and the eraser's edge starts, in percent. | `50` |

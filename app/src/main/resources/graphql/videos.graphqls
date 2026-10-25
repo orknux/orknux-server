@@ -34,6 +34,13 @@ extend type Mutation {
     stopDesignVideo(workspaceId: ID!, id: ID!): DesignVideo!
     "Takes a video off the page, its file with it. Refused for one being made."
     removeDesignVideo(workspaceId: ID!, id: ID!): Boolean!
+    """
+    Converts a finished video to another format - a GIF without its sound, an
+    MP4 or an MKV with it - and answers where to download it. Converted now,
+    while the caller waits; refused for a video not finished, or an export
+    over the installation's time or size limit.
+    """
+    exportDesignVideo(workspaceId: ID!, id: ID!, format: DesignVideoExportFormat!): DesignVideoExport!
 }
 
 "How a video setting is asked for."
@@ -160,4 +167,24 @@ input UpscaleDesignVideoInput {
     algorithm: String
     "How many times larger, 1 to 8."
     scale: Float!
+}
+
+"What a finished video may be exported as."
+enum DesignVideoExportFormat {
+    "An animated GIF, without sound, in a palette made for the video."
+    GIF
+    "H.264 and AAC in an MP4."
+    MP4
+    "H.264 and AAC in a Matroska file."
+    MKV
+}
+
+"A video converted for download."
+type DesignVideoExport {
+    "Where the file is downloaded from, as an attachment named after the video."
+    url: String!
+    filename: String!
+    contentType: String!
+    "In bytes; a Float, since an Int stops at 2 GB."
+    sizeBytes: Float!
 }
