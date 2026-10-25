@@ -93,8 +93,11 @@ interface LlmSessionFrameRepository : JpaRepository<LlmSessionFrame, Long>
  * - see [ConversationFrame.joined][io.mszymanski.orknux.server.chat.ConversationFrame.joined].
  * On llama.cpp a model can call by name only what the array declares, and
  * session 900's model, calling a loaded scratchpad_write by name, got
- * scratchpad_keep five times. The cost, accepted for it, is one whole prompt
- * read again on the turn after a load; within a turn the array never moves.
+ * scratchpad_keep five times. The cost is one whole prompt read again on the
+ * turn after a load, so it is the provider's setting - off by default on
+ * llama.cpp, where that read is longest, and there the model is told tool_run
+ * is the only way; see [LoadedTools][io.mszymanski.orknux.server.chat.LoadedTools].
+ * Within a turn the array never moves.
  *
  * **When it is made again**: for a new session; for another agent or another
  * model taking a turn in it; for an agent edited since, other than by a grant

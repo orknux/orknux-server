@@ -5817,12 +5817,26 @@ type ModelProvider {
     captured, stored and shown.
     """
     sendsReasoning: Boolean!
-    "Always null: the setting it answered is gone."
-    offerAllTools: Boolean @deprecated(reason: "Ignored since 1.2.0: every provider carries the agent's own tools, its Offer marks and the provider's cap")
+    """
+    Whether every tool an agent holds goes out from its first request, its
+    Offer marks and own limit set aside, up to the provider's cap - so nothing
+    needs tool_load. As set; null is off.
+    """
+    offerAllTools: Boolean
     "How a picture edit's mask is drawn for this provider's server. Null is its type's: WHITE for STABLE_DIFFUSION_CPP, TRANSPARENT for the rest."
     editMask: EditMask
-    "Always false: no provider hands over every tool up front."
-    offersAllTools: Boolean! @deprecated(reason: "Ignored since 1.2.0: every provider carries the agent's own tools, its Offer marks and the provider's cap")
+    "Whether it does."
+    offersAllTools: Boolean!
+    """
+    Whether a tool an agent loads with tool_load joins the conversation's tool
+    list at its next turn, to be called by its own name; otherwise it is called
+    through tool_run until the list is made again. As set; null is the type's
+    default: off for LLAMA_CPP, whose next turn would read the whole
+    conversation again, and on for the rest.
+    """
+    joinLoadedTools: Boolean
+    "Whether it does, the default resolved."
+    joinsLoadedTools: Boolean!
     "Whether its models draw with a negative prompt: stable-diffusion.cpp's server and a Stable Diffusion WebUI do, the OpenAI shape does not. Issue #657."
     takesNegativePrompt: Boolean!
     "The most tools one request carries, as set. Null is what the type takes."
@@ -6050,8 +6064,10 @@ input CreateModelProviderInput {
     chatApi: ChatApi
     "Whether the model's earlier thinking is sent back. Null is false."
     sendsReasoning: Boolean
-    "Accepted and ignored."
-    offerAllTools: Boolean @deprecated(reason: "Ignored since 1.2.0: every provider carries the agent's own tools, its Offer marks and the provider's cap")
+    "Every tool up front from an agent's first request, up to the cap. Null is false."
+    offerAllTools: Boolean
+    "Whether a loaded tool joins the tool list at the next turn. Null is the type's default: off for LLAMA_CPP, on for the rest."
+    joinLoadedTools: Boolean
     "How a picture edit's mask is drawn. Null is its type's."
     editMask: EditMask
     "The most tools one request carries, 8 to 1024. Null is what the type takes."
@@ -6093,8 +6109,10 @@ input UpdateModelProviderInput {
     chatApi: ChatApi
     "Whether the model's earlier thinking is sent back. Null leaves it as it is."
     sendsReasoning: Boolean
-    "Accepted and ignored."
-    offerAllTools: Boolean @deprecated(reason: "Ignored since 1.2.0: every provider carries the agent's own tools, its Offer marks and the provider's cap")
+    "Every tool up front from an agent's first request, up to the cap. Null leaves it as it is."
+    offerAllTools: Boolean
+    "Whether a loaded tool joins the tool list at the next turn. Null leaves it as it is."
+    joinLoadedTools: Boolean
     "How a picture edit's mask is drawn. Set as given: null is its type's."
     editMask: EditMask
     "The most tools one request carries, 8 to 1024. Set as given: null is what the type takes."

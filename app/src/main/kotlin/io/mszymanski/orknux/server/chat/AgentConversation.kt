@@ -373,19 +373,27 @@ class AgentConversation(
         briefedTurns: List<ChatTurn>,
         found: Set<String>,
         heldNow: List<ToolSpec>,
+        loading: LoadedTools,
     ): io.mszymanski.orknux.server.llm.SessionFrames.Frame {
         val up = start.core + start.lent
-        val room = (start.limit - up.size - ToolSearchTools.OFFERED - ToolRun.SLOTS).coerceAtLeast(0)
+        /*
+         * What was loaded goes in up to the provider's cap, not the agent's
+         * ceiling: it is what a join would have given it (see
+         * [ConversationFrame.joined]), and a frame made again - a compaction -
+         * is where a provider that does not join loaded tools puts them in.
+         */
+        val cap = ceilings.cap(modelId) ?: Int.MAX_VALUE
+        val room = (cap - up.size - ToolSearchTools.OFFERED - ToolRun.SLOTS).coerceAtLeast(0)
         val folded = if (start.hunting) {
             found.mapNotNull { name -> start.findable.firstOrNull { it.name == name } }.take(room)
         } else {
             emptyList()
         }
         val left = start.findable.filterNot { spec -> folded.any { it.name == spec.name } }
-        val finding = if (start.hunting) searching.shed(left, mutableSetOf(), room = { 0 }).specs() else emptyList()
+        val finding = if (start.hunting) searching.shed(left, mutableSetOf(), room = { 0 }, loading = loading).specs() else emptyList()
         val array = if (up.isEmpty() && !start.hunting) emptyList() else up + finding + folded + ToolRun.SPEC
         val carried = array.map { it.name }.toSet()
-        val system = BuiltInTools.listed(ConversationFrame.systemOf(briefedTurns), lent, carried, start.hunting)
+        val system = BuiltInTools.listed(ConversationFrame.systemOf(briefedTurns), lent, carried, start.hunting, loading)
         return io.mszymanski.orknux.server.llm.SessionFrames.Frame(
             // An agent never saved answers only outside a session, where the frame is not kept.
             agentId = agent.id ?: -1L,
@@ -619,11 +627,18 @@ class AgentConversation(
         readOnly: Boolean,
     ): ChatCompletion {
         /*
-         * The agent's own ceiling, on every provider - see [ToolCeilings]. Read
-         * once, here, so the list this turn sends is decided once and is the
-         * same in every round.
+         * The agent's own ceiling, or none where the provider is handed every
+         * tool up front - see [ToolCeilings]. Read once, here, so the list this
+         * turn sends is decided once and is the same in every round.
          */
-        val ceiling = ceilings.of(agent)
+        val ceiling = ceilings.of(agent, modelId)
+        /*
+         * And how a tool loaded in this conversation is called from then on -
+         * joined to the array at the next turn, or through tool_run - which is
+         * the provider's setting, read at every turn so a change holds from the
+         * next one. See [LoadedTools].
+         */
+        val loading = ceilings.loading(modelId)
         /*
          * Less everything that changes something, where this turn may only look:
          * what it may run, and what a call to anything else is refused by.
@@ -706,14 +721,16 @@ class AgentConversation(
         val stamp = io.mszymanski.orknux.server.llm.SessionFrames.stampOf(agent.lastModifiedAt)
         val kept0 = into?.let { frames.read(it) }
             ?.takeIf { it.agentId == (agent.id ?: -1L) && it.modelId == modelId && it.agentStamp == stamp }
-        var frame = kept0 ?: framed(agent, modelId, stamp, start, lent, briefedTurns, found, heldNow)
+        var frame = kept0 ?: framed(agent, modelId, stamp, start, lent, briefedTurns, found, heldNow, loading)
             .also { made -> into?.let { frames.write(it, made) } }
         /*
          * What was loaded in earlier turns joins the array now, at the start of
          * this one and never inside it - see [ConversationFrame.joined], and
          * for its cost. Up to the provider's cap; the rest stays with tool_run.
+         * Only where the provider joins them: otherwise the array stays as it
+         * was and tool_run reaches them until the frame is made again.
          */
-        if (kept0 != null) {
+        if (kept0 != null && loading == LoadedTools.JOIN) {
             val joined = ConversationFrame.joined(frame, found, heldNow, ceilings.cap(modelId))
             if (joined != frame) {
                 frame = joined
@@ -729,7 +746,7 @@ class AgentConversation(
         val since = if (kept0 == null) {
             null
         } else {
-            val fresh = BuiltInTools.listed(ConversationFrame.systemOf(briefedTurns), lent, carriedNames, frame.hunting)
+            val fresh = BuiltInTools.listed(ConversationFrame.systemOf(briefedTurns), lent, carriedNames, frame.hunting, loading)
             val (note, updated) = ConversationFrame.changes(frame, fresh, heldNow, found, tuning[io.mszymanski.orknux.server.tuning.Tunable.TOOLS_LOADED_AT_ONCE])
             if (updated != frame) {
                 frame = updated
@@ -758,6 +775,7 @@ class AgentConversation(
                 skill = { name ->
                     if (BuiltInTools.granted(agent, io.mszymanski.orknux.server.agent.SkillTool.LOAD.name)) skills.load(agent, name)?.key else null
                 },
+                loading = loading,
             )
         }
         val hunt = if (finder == null) lending else sheds(lending, finder)

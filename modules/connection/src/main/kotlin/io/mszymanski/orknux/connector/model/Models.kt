@@ -195,6 +195,20 @@ enum class ProviderType {
         get() = this == STABLE_DIFFUSION_CPP || this == STABLE_DIFFUSION_WEBUI
 
     /**
+     * Whether a tool loaded mid-conversation joins the tool array at the next
+     * turn where the provider has not said - see [ModelProvider.joinLoadedTools].
+     *
+     * Off for llama.cpp alone. Its tool-call grammar admits only the names the
+     * array declares, which is the reason to join; but its chat templates write
+     * the tools at the head of the prompt, so the turn after every load reads
+     * the whole conversation again, and that is the larger cost there. A hosted
+     * provider pays a cache miss in money rather than minutes, and Ollama and
+     * an OpenAI-compatible server are left as they were.
+     */
+    val joinsLoadedTools: Boolean
+        get() = this != LLAMA_CPP
+
+    /**
      * The most tools this provider will accept on one request.
      *
      * Asked of the provider rather than written at the call site, because the
@@ -440,20 +454,36 @@ class ModelProvider(
     var sendsReasoning: Boolean = false,
 
     /**
-     * Unused since 1.2.0, and nothing reads it; the column can go in a later
-     * minor release, where a drop is allowed (see `rollback-floor`).
+     * Whether an agent on this provider carries every tool it holds from its
+     * first request - its Offer marks and its own ceiling set aside, up to the
+     * provider's cap ([toolCap]) - so nothing needs `tool_load`. Null is off;
+     * see [offersAllTools].
      *
-     * It handed an agent every tool it held from the first round, switching off
-     * the agent's own ceiling and its Offer marks, because a tool loaded
-     * mid-turn used to change the tool array and llama.cpp then read the whole
-     * prompt again. The array is frozen per session now and a found tool runs
-     * through `tool_run`, so it saved nothing - and an agent with a ceiling of
-     * 75 sent 59k tokens of tools on its first request. Still carried by a
-     * workspace copy and a workspace file, which is harmless for a dead field
-     * and keeps an older file importing.
+     * The price is a larger first prompt: an agent with a ceiling of 75 sent
+     * 59k tokens of tools on its first request, which is why 1.2.0 took it
+     * away and why it came back off. What it buys is a tool array that never
+     * has to grow, on a server where growing it re-reads the whole
+     * conversation - see [joinLoadedTools]. Rows made before it came back were
+     * set to false by V605, whatever they held, so no provider starts carrying
+     * everything on an upgrade.
      */
     @Column(name = "offer_all_tools")
     var offerAllTools: Boolean? = null,
+
+    /**
+     * Whether a tool the agent loads with `tool_load` joins the conversation's
+     * tool array at its next turn, to be called by its own name from then on.
+     * Null is the type's default, [ProviderType.joinsLoadedTools]: off for
+     * llama.cpp, on for the rest; see [joinsLoadedTools].
+     *
+     * Off, a loaded tool is called through `tool_run` until the array is made
+     * again anyway - a new session, a compaction. On, the turn after a load
+     * sends a different array, and a local server whose chat template writes
+     * the tools at the top of the prompt reads the whole conversation again:
+     * a minute and more on llama.cpp at 60k tokens.
+     */
+    @Column(name = "join_loaded_tools")
+    var joinLoadedTools: Boolean? = null,
 
     /**
      * How the mask of a picture edit is drawn for this provider's server; null
@@ -570,6 +600,12 @@ class ModelProvider(
         if (base.endsWith(SYSTEM_ONE_VERSION)) base = base.removeSuffix(SYSTEM_ONE_VERSION)
         return base.trimEnd('/')
     }
+
+    /** Whether every tool goes out from the first request: as set, and off where nobody set it. */
+    fun offersAllTools(): Boolean = offerAllTools ?: false
+
+    /** Whether a loaded tool joins the tool array at the next turn: as set, or the type's default. */
+    fun joinsLoadedTools(): Boolean = joinLoadedTools ?: type.joinsLoadedTools
 
     /** The most tools one request may carry: as set, or what the type takes. */
     fun toolCap(): Int = maxTools ?: if (isOpenAiItself()) OPENAI_API_TOOL_LIMIT else type.toolLimit

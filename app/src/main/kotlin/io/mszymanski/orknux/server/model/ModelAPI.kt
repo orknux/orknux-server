@@ -179,7 +179,15 @@ class ModelAPI(
             val now = if (updated.sendsReasoning) "sends thinking back" else "no longer sends thinking back"
             auditRecorder.record(provider.workspaceId, WorkspaceAuditCategory.MODEL, "Model provider ${updated.name} $now")
         }
-        // And how many tools one request carries.
+        // And what an agent on it is handed: every tool up front, loaded tools joining, and how many one request carries.
+        if (provider.offersAllTools != updated.offersAllTools) {
+            val now = if (updated.offersAllTools) "offers every tool up front" else "no longer offers every tool up front"
+            auditRecorder.record(provider.workspaceId, WorkspaceAuditCategory.MODEL, "Model provider ${updated.name} $now")
+        }
+        if (provider.joinsLoadedTools != updated.joinsLoadedTools) {
+            val now = if (updated.joinsLoadedTools) "adds loaded tools to the tool list" else "no longer adds loaded tools to the tool list"
+            auditRecorder.record(provider.workspaceId, WorkspaceAuditCategory.MODEL, "Model provider ${updated.name} $now")
+        }
         if (provider.toolCap != updated.toolCap) {
             auditRecorder.record(
                 provider.workspaceId,

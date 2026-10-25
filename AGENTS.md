@@ -324,13 +324,27 @@ every start it is in effect. Never set them in a deployment.
   both once per session and sends them unchanged until the agent, its model or
   the session changes, or the conversation is compacted. What changes inside a
   session - a grant given, plan mode left - is said in an appended message. The
-  one thing that grows the array is `tool_load`: a tool loaded is run through
-  `tool_run` for the rest of that turn and joins the array at the start of the
-  next (`ConversationFrame.joined`), appended at its end up to the provider's
-  cap, its mark in the system turn changed to loaded - llama.cpp's tool-call
-  grammar lets a model name only what the array declares, and session 900's
-  model got `scratchpad_keep` each time it called a loaded `scratchpad_write`.
-  That is one whole prompt re-read on the turn after a load; never move the
+  one thing that may grow the array is `tool_load`, and whether it does is a
+  per-provider setting (`ModelProvider.joinLoadedTools`, read at every turn
+  through `ToolCeilings.loading`). On, a tool loaded is run through `tool_run`
+  for the rest of that turn and joins the array at the start of the next
+  (`ConversationFrame.joined`), appended at its end up to the provider's cap,
+  its mark in the system turn changed to loaded - llama.cpp's tool-call grammar
+  lets a model name only what the array declares, and session 900's model got
+  `scratchpad_keep` each time it called a loaded `scratchpad_write`. That is one
+  whole prompt re-read on the turn after a load, which on llama.cpp - its chat
+  template writes the tools at the top - is a minute and more at 60k tokens, so
+  the setting is **off by default for llama.cpp** and on for every other type.
+  Off, the tool is reached through `tool_run` until the frame is made again
+  anyway (a compaction, a new session), which puts what was loaded in the
+  array; and on llama.cpp the model is told so as a rule (`LoadedTools.RUN_ONLY`)
+  - in the system turn and in what `tool_find`, `tool_describe` and `tool_load`
+  answer, with the call's exact shape - that `tool_run` is the only way to call
+  a tool marked to load, never its own name, because its belief is what the
+  grammar turns into the wrong tool. A second provider setting, **All tools up
+  front** (`offerAllTools`, off for every type), sets the agent's ceiling and
+  Offer marks aside and carries every tool from the first request up to the
+  cap, so nothing is loaded and the rule is not said. Never move the
   array inside a turn, where every round would pay it. So the array may name a
   tool this turn may not run: plan mode keeps
   the writing tools in it and `ToolEffects` refuses them when called, saying

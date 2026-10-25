@@ -96,8 +96,10 @@ class ToolSearchTools(
          * [forget], which callers pass as the trailing lambda.
          */
         skill: (String) -> String? = { null },
+        /** How a loaded tool is called from then on, and so what is said of it; the provider's. See [LoadedTools]. */
+        loading: LoadedTools = LoadedTools.JOIN,
         forget: (Int) -> List<String> = { emptyList() },
-    ): ToolShed = Shed(searchable, found, room, forget, carried, skill)
+    ): ToolShed = Shed(searchable, found, room, forget, carried, skill, loading)
 
     private inner class Shed(
         private val searchable: List<ToolSpec>,
@@ -116,6 +118,7 @@ class ToolSearchTools(
         private val forget: (Int) -> List<String>,
         private val carried: Set<String> = emptySet(),
         private val skill: (String) -> String? = { null },
+        private val loading: LoadedTools = LoadedTools.JOIN,
     ) : ToolShed {
 
         /**
@@ -154,9 +157,8 @@ class ToolSearchTools(
             ToolSpec(
                 name = FIND,
                 readOnly = true,
-                description = "Loads tools by their exact names: it answers with how each is called. Call " +
-                    "it with " + ToolRun.NAME + " in this turn; from your next turn it is in your list of tools " +
-                    "and called by its own name. A name you cannot load is said to be one, " +
+                description = "Loads tools by their exact names: it answers with how each is called. " +
+                    loading.described + " A name you cannot load is said to be one, " +
                     "with the nearest real names - it is never swapped for another tool. Load everything the " +
                     "job needs in one call.",
                 parameters = listOf(
@@ -245,6 +247,8 @@ class ToolSearchTools(
                         }
                         // Not in the request's array, which does not move inside a turn; see [ToolRun].
                         append("\nCall it with ").append(ToolRun.NAME).append(", giving its name and its arguments.")
+                        // And on llama.cpp with nothing joining, that this is the only way. See [LoadedTools.RUN_ONLY].
+                        loading.listing(spec.name)?.let { append("\n").append(it) }
                     }
                     name.lowercase() in inHand -> "$name is already loaded: its description and parameters are " +
                         "in your list of tools, so call it directly."
@@ -278,6 +282,8 @@ class ToolSearchTools(
                 if (matches.size > tuning[Tunable.TOOLS_LOADED_AT_ONCE]) {
                     append("\n\n").append(matches.size - tuning[Tunable.TOOLS_LOADED_AT_ONCE]).append(" more matched; narrower words find them.")
                 }
+                // Said before the load as well as after it: the belief is formed where the tool is first met.
+                loading.listing(matches.first().name)?.let { append("\n\n").append(it) }
             }
         }
 
@@ -439,11 +445,11 @@ class ToolSearchTools(
                  * then too, and a model reading "(load it first)" there beside
                  * a tool it has just loaded needs telling which to believe.
                  * Past the provider's cap a tool does not join, and tool_run
-                 * goes on reaching it.
+                 * goes on reaching it - and where the provider does not join
+                 * loaded tools at all, tool_run is the way for the rest of the
+                 * conversation; on llama.cpp said as a rule. See [LoadedTools].
                  */
-                append("In this turn call them with ").append(ToolRun.NAME).append(", giving the name and the ")
-                append("arguments, whatever your list of tools still marks them. From your next turn they are in ")
-                append("your list of tools, and you call them by their own names:\n")
+                append(loading.loaded(taken.first().name))
                 taken.forEach { append("\n").append(ToolRun.described(it)).append("\n") }
                 /*
                  * Said rather than done quietly. A tool the agent called two

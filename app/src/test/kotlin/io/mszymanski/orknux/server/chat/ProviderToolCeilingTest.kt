@@ -26,13 +26,14 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * Every provider carries the agent's own ceiling and its Offer marks, with the
- * provider's own cap on a request on top.
+ * A provider carries the agent's own ceiling and its Offer marks, with the
+ * provider's own cap on a request on top - unless it is set to offer every
+ * tool up front, which sets the ceiling and the marks aside up to the cap.
  *
- * A provider could once hand an agent every tool from its first round, which
- * switched the ceiling and the marks off: an agent with a ceiling of 75 sent
- * 59k tokens of tools on its first request. The switch went in 1.2.0; a client
- * that still sends `offerAllTools` is answered, and ignored.
+ * That setting went in 1.2.0 and came back off by default: on, an agent with a
+ * ceiling of 75 sent 59k tokens of tools on its first request. And whether a
+ * loaded tool joins the array at the next turn, which is off by default on
+ * llama.cpp alone.
  */
 @SpringBootTest
 @AutoConfigureGraphQlTester
@@ -74,11 +75,8 @@ class ProviderToolCeilingTest(
     }
 
     @Test
-    fun `the agent's own ceiling holds on a provider that was set to offer every tool`() {
-        val provider = provider(offerAllTools = "true")
-        // As a provider saved before 1.2.0 would hold it: the column set, and nothing reading it.
-        providers.findByIdOrNull(provider)!!.let { it.offerAllTools = true; providers.save(it) }
-        val chat = chatWith(provider, agentCeiling = 5)
+    fun `the agent's own ceiling holds on a provider that does not offer every tool`() {
+        val chat = chatWith(provider(), agentCeiling = 5)
         script += called("call_1")
         script += answered("Done.")
 
@@ -95,7 +93,20 @@ class ProviderToolCeilingTest(
     }
 
     @Test
-    fun `past the provider's own cap the rest are found, whatever the provider was set to`() {
+    fun `a provider set to offer every tool carries them all from the first request, past the agent's ceiling`() {
+        val chat = chatWith(provider(offerAllTools = "true"), agentCeiling = 5)
+        script += answered("Hello.")
+
+        send(chat, "What can you do?")
+
+        val first = tools(received.single())
+        assertThat(first.size).isGreaterThan(5)
+        assertThat(first).doesNotContain(ToolSearchTools.SEARCH, ToolSearchTools.FIND)
+        assertThat(system(received.single())).doesNotContain("(load it first)").contains(AgentBriefing.ALL_IN_HAND)
+    }
+
+    @Test
+    fun `past the provider's own cap the rest are found, even with every tool up front`() {
         val chat = chatWith(provider(offerAllTools = "true", maxTools = 8), agentCeiling = null)
         script += called("call_1")
         script += answered("Done.")
@@ -112,14 +123,55 @@ class ProviderToolCeilingTest(
     }
 
     @Test
-    fun `offerAllTools is accepted and ignored, and no provider offers every tool up front`() {
-        val ollama = provider(type = "OLLAMA", offerAllTools = "true")
-        // OpenAI's type is also every OpenAI-compatible local server.
-        val openai = provider(type = "OPENAI", offerAllTools = "true")
-        val llama = provider(type = "LLAMA_CPP")
-        val anthropic = provider(type = "ANTHROPIC")
-        assertThat(listOf(ollama, openai, llama, anthropic).map(::resolved)).containsOnly(false)
-        assertThat(providers.findByIdOrNull(ollama)?.offerAllTools).isNull()
+    fun `every tool up front is off by default on every kind, and the join is off on llama_cpp alone`() {
+        val kinds = listOf("OPENAI", "ANTHROPIC", "AZURE_OPENAI", "OLLAMA", "LLAMA_CPP")
+        val made = kinds.associateWith { provider(type = it) }
+        made.forEach { (kind, id) ->
+            assertThat(resolved(id)).describedAs(kind).isFalse()
+            assertThat(joins(id)).describedAs(kind).isEqualTo(kind != "LLAMA_CPP")
+        }
+        // Left unset, so a provider follows its type's default.
+        assertThat(providers.findByIdOrNull(made.getValue("LLAMA_CPP"))?.joinLoadedTools).isNull()
+        // And the type's own defaults agree with what is answered.
+        io.mszymanski.orknux.connector.model.ProviderType.entries.forEach {
+            assertThat(it.joinsLoadedTools).describedAs(it.name).isEqualTo(it != io.mszymanski.orknux.connector.model.ProviderType.LLAMA_CPP)
+        }
+    }
+
+    @Test
+    fun `both settings go in and come back out, and a save that does not send them leaves them`() {
+        val llama = provider(type = "LLAMA_CPP", offerAllTools = "true", extra = "joinLoadedTools: true")
+        graphQlTester.document("""{ modelProvider(id: $llama) { offerAllTools offersAllTools joinLoadedTools joinsLoadedTools } }""")
+            .execute()
+            .path("modelProvider.offerAllTools").entity(Boolean::class.java).isEqualTo(true)
+            .path("modelProvider.offersAllTools").entity(Boolean::class.java).isEqualTo(true)
+            .path("modelProvider.joinLoadedTools").entity(Boolean::class.java).isEqualTo(true)
+            .path("modelProvider.joinsLoadedTools").entity(Boolean::class.java).isEqualTo(true)
+
+        // A save that does not name them - an older client - changes neither.
+        graphQlTester.document(
+            """mutation { updateModelProvider(id: $llama, input: { name: "renamed", endpoint: "http://x.invalid" })
+                 { offersAllTools joinsLoadedTools } }""",
+        ).execute()
+            .path("updateModelProvider.offersAllTools").entity(Boolean::class.java).isEqualTo(true)
+            .path("updateModelProvider.joinsLoadedTools").entity(Boolean::class.java).isEqualTo(true)
+
+        graphQlTester.document(
+            """mutation { updateModelProvider(id: $llama, input: { name: "renamed", endpoint: "http://x.invalid",
+                 offerAllTools: false, joinLoadedTools: false }) { offerAllTools offersAllTools joinLoadedTools joinsLoadedTools } }""",
+        ).execute()
+            .path("updateModelProvider.offerAllTools").entity(Boolean::class.java).isEqualTo(false)
+            .path("updateModelProvider.offersAllTools").entity(Boolean::class.java).isEqualTo(false)
+            .path("updateModelProvider.joinLoadedTools").entity(Boolean::class.java).isEqualTo(false)
+            .path("updateModelProvider.joinsLoadedTools").entity(Boolean::class.java).isEqualTo(false)
+        assertThat(providers.findByIdOrNull(llama)?.offerAllTools).isFalse()
+        assertThat(providers.findByIdOrNull(llama)?.joinLoadedTools).isFalse()
+    }
+
+    @Test
+    fun `the tool cap is the type's, and refused outside its range`() {
+        val ollama = provider(type = "OLLAMA")
+        val openai = provider(type = "OPENAI")
         // An OpenAI-compatible server carries 200; OpenAI's own API still refuses past 128.
         assertThat(cap(openai)).isEqualTo(200)
         val openAiItself = graphQlTester.document(
@@ -130,12 +182,9 @@ class ProviderToolCeilingTest(
 
         graphQlTester.document(
             """mutation { updateModelProvider(id: $ollama, input: { name: "renamed", endpoint: "http://x.invalid",
-                 offerAllTools: true, maxTools: 40 }) { offerAllTools offersAllTools maxTools toolCap } }""",
+                 maxTools: 40 }) { maxTools toolCap } }""",
         ).execute()
-            .path("updateModelProvider.offerAllTools").valueIsNull()
-            .path("updateModelProvider.offersAllTools").entity(Boolean::class.java).isEqualTo(false)
             .path("updateModelProvider.toolCap").entity(Int::class.java).isEqualTo(40)
-        assertThat(providers.findByIdOrNull(ollama)?.offerAllTools).isNull()
         graphQlTester.document(
             """mutation { updateModelProvider(id: $ollama, input: { name: "renamed", endpoint: "http://x.invalid",
                  maxTools: 3 }) { id } }""",
@@ -147,6 +196,10 @@ class ProviderToolCeilingTest(
     private fun resolved(provider: Long): Boolean =
         graphQlTester.document("""{ modelProvider(id: $provider) { offersAllTools } }""")
             .execute().path("modelProvider.offersAllTools").entity(Boolean::class.java).get()
+
+    private fun joins(provider: Long): Boolean =
+        graphQlTester.document("""{ modelProvider(id: $provider) { joinsLoadedTools } }""")
+            .execute().path("modelProvider.joinsLoadedTools").entity(Boolean::class.java).get()
 
     private fun cap(provider: Long): Int =
         graphQlTester.document("""{ modelProvider(id: $provider) { toolCap } }""")
@@ -194,11 +247,11 @@ class ProviderToolCeilingTest(
         return "http://${running.address.hostString}:${running.address.port}"
     }
 
-    private fun provider(offerAllTools: String = "null", maxTools: Int? = null, type: String = "OPENAI"): Long =
+    private fun provider(offerAllTools: String = "null", maxTools: Int? = null, type: String = "OPENAI", extra: String = ""): Long =
         graphQlTester.document(
             """mutation { createModelProvider(input: {
                  workspaceId: $workspaceId, name: "p-$type-${System.nanoTime()}", type: $type, endpoint: "${endpoint()}",
-                 secret: "sk-test", offerAllTools: $offerAllTools, maxTools: ${maxTools ?: "null"}
+                 secret: "sk-test", offerAllTools: $offerAllTools, maxTools: ${maxTools ?: "null"} $extra
                }) { id } }""",
         ).execute().path("createModelProvider.id").entity(Long::class.java).get()
 
