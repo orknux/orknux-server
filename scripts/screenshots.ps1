@@ -85,9 +85,14 @@
     Where the interface is served, inside the container and out - they have to be
     the same number, because it is the origin the server is told to allow.
 
+.PARAMETER PictureEndpoint
+    A stable-diffusion.cpp server that draws the demo's pictures for real, e.g.
+    http://192.168.0.22:8085. Empty, the stand-in draws them.
+
 .PARAMETER DrawPort
     Where the stand-in drawing model listens, as the server on this machine
-    reaches it. See screens-draw.mjs: the manual's chapters about drawing are
+    reaches it. With -PictureEndpoint it only scripts the writer.
+    See screens-draw.mjs: the manual's chapters about drawing are
     photographed off pictures the product really drew, with this as its model.
 #>
 #Requires -Version 5.1
@@ -105,7 +110,10 @@ param(
     # into a log file nobody was reading.
     [int] $ServerPort = 8181,
     [int] $UiPort = 5199,
-    [int] $DrawPort = 8299
+    [int] $DrawPort = 8299,
+    # A stable-diffusion.cpp server to draw the manual's pictures with, as the
+    # server on this machine reaches it; empty keeps the stand-in's drawings.
+    [string] $PictureEndpoint = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -253,6 +261,7 @@ try {
         docker compose -f $compose exec -T `
             -e "ORKNUX_DEMO_ENDPOINT=$Endpoint" -e "ORKNUX_DEMO_MODEL=$Model" `
             -e "ORKNUX_DEMO_IMAGE_ENDPOINT=http://localhost:$DrawPort" `
+            -e "ORKNUX_DEMO_PICTURE_ENDPOINT=$PictureEndpoint" `
             ui node scripts/seed-demo.mjs
     }
 
