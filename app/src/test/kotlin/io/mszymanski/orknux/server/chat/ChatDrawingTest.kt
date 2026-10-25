@@ -118,7 +118,10 @@ class ChatDrawingTest(
     }
 
     @AfterEach
-    fun stop() = server.stop(0)
+    fun stop() {
+        // A test that reads declarations only starts no stub.
+        if (::server.isInitialized) server.stop(0)
+    }
 
     /**
      * The whole of it, on the blocking path: called, drawn, filed, and in the
@@ -214,6 +217,66 @@ class ChatDrawingTest(
         assertThat(offered.last()).describedAs("the model is told the picture is in the conversation").contains("inConversation")
         // Nothing was drawn by an image model, so nothing is counted as one.
         assertThat(asked).doesNotContain("/images/generations")
+    }
+
+    /** svg_toPng with show left out puts its picture in the chat, as every drawing tool did before show existed. */
+    @Test
+    fun `svg_toPng puts its picture in the chat when show is left out`() {
+        val chatId = chatWithAgent(
+            serve { body ->
+                if (body.contains("inConversation")) saying("There it is.") else Round(tool = RENDER_TOOL, arguments = """{"svg":"$SQUARE"}""")
+            },
+        )
+
+        stream(chatId, "Draw a red square")
+
+        val filed = attachments.findAll().single()
+        assertThat(filed.chatSessionId).isEqualTo(chatId)
+        assertThat(thread(chatId)).containsExactly(
+            "user:Draw a red square",
+            "assistant:![](/api/attachments/${filed.id})",
+            "assistant:There it is.",
+        )
+        assertThat(offered.last()).contains("inConversation").doesNotContain("onlyYouSeeIt")
+    }
+
+    /**
+     * With show false the picture is the agent's alone. Session 907: an agent
+     * drew a PCB layer to check its own work, and the person got the render in
+     * their chat. The key is still answered, and the model is told the person
+     * has not seen it, so it does not speak as if they had.
+     */
+    @Test
+    fun `svg_toPng with show false keeps the picture from the chat, answers its key, and says it was not shown`() {
+        val chatId = chatWithAgent(
+            serve { body ->
+                if (body.contains("onlyYouSeeIt")) saying("The layer looks right.")
+                else Round(tool = RENDER_TOOL, arguments = """{"svg":"$SQUARE","$SHOW":false}""")
+            },
+        )
+
+        stream(chatId, "Check the layer")
+
+        assertThat(attachments.findAll()).isEmpty()
+        assertThat(thread(chatId)).noneMatch { it.contains("/api/attachments/") }
+        assertThat(thread(chatId).last()).isEqualTo("assistant:The layer looks right.")
+
+        val next = offered.last()
+        // Still shown to the model, as an image part, with the key it can pass on.
+        assertThat(next).contains("data:image/png;base64,").contains("contentKey").contains("picture.")
+        assertThat(next).contains("onlyYouSeeIt").contains("the person has not seen it").contains("The person has not seen it")
+        assertThat(next).doesNotContain("inConversation")
+    }
+
+    /** The parameter is declared by the tool, under the one name and description the round reads. */
+    @Test
+    fun `the drawing tools declare show with the shared description`() {
+        val specs = capabilities.toolSpecs().associateBy { it.name }
+        listOf(RENDER_TOOL, "svg_draw", "diagram_render", "charts_render").forEach { tool ->
+            val show = requireNotNull(specs[tool]) { tool }.parameters.single { it.name == SHOW }
+            assertThat(show.description).describedAs(tool).isEqualTo(AgentTools.SHOW_SAID)
+            assertThat(show.required).isFalse()
+        }
     }
 
     /**
@@ -932,6 +995,15 @@ class ChatDrawingTest(
          * edit loses without anybody noticing.
          */
         const val BLANK = "\n\n"
+
+        /** svg_toPng, as the capability names it. */
+        const val RENDER_TOOL = io.mszymanski.orknux.server.embedded.SvgCapability.RENDER_TOOL
+
+        /** The argument that keeps a picture from the person, as the tools declare it. */
+        const val SHOW = AgentTools.SHOW
+
+        /** A red square in SVG, quoted with single quotes so it sits inside a JSON string. */
+        const val SQUARE = "<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><rect width='20' height='20' fill='red'/></svg>"
 
         /** A one-pixel PNG, base64, which is a real picture and eight bytes of one. */
         const val PIXEL =

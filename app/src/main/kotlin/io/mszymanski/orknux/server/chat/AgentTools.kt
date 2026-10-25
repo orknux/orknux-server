@@ -992,6 +992,42 @@ class AgentTools(
         const val SEEN_ONLY_BY_YOU = "Only you see this picture: it was not put in the conversation, and the person " +
             "has not seen it. Do not speak of it as something they can see; say in words what matters in it."
 
+        /**
+         * The argument a tool that draws into the conversation takes to keep
+         * one picture from the person: `false`, and it goes to the model alone,
+         * as a [PICTURE_FOR_MODEL] picture does, its key still answered.
+         *
+         * Session 907: an agent drew a PCB layer as a PNG only to check its own
+         * work, and the person was handed the render in their chat. Left out it
+         * is `true`, which is how every such tool behaved before. One name, one
+         * description and one reading ([keptFromPerson], applied by the loop in
+         * [pictureIn]) for every tool that declares it, so no two of them can
+         * come to mean different things by it.
+         */
+        const val SHOW = "show"
+
+        /** What [SHOW] is told to be for, in the one line a parameter gets. */
+        const val SHOW_SAID = "false when the picture is only for you to check your own work: the person is not shown " +
+            "it, and its key is still answered. Left out, it goes into the conversation."
+
+        /** [SHOW] as a tool declares it. */
+        val SHOW_PARAM = ToolParameterSpec(SHOW, SHOW_SAID, required = false)
+
+        /**
+         * Whether a call asked for its picture to be kept from the person:
+         * [SHOW] false, as a boolean or as its text, since every parameter
+         * reaches a model typed as a string (#537). Anything else - left out,
+         * true, unreadable - is the default, which is to show it.
+         */
+        fun keptFromPerson(arguments: String?): Boolean = runCatching {
+            keptFromPerson(jackson.readTree(arguments?.ifBlank { null } ?: return false))
+        }.getOrDefault(false)
+
+        /** [keptFromPerson] for arguments already read. */
+        fun keptFromPerson(asked: tools.jackson.databind.JsonNode): Boolean = asked.path(SHOW).let { said ->
+            (said.isBoolean && !said.booleanValue()) || (said.isTextual && said.stringValue().trim().equals("false", ignoreCase = true))
+        }
+
         /** What a picture is hung on where the tool named no type. */
         const val PICTURE_DEFAULT_TYPE = "image/png"
 
@@ -1013,8 +1049,11 @@ class AgentTools(
          * reads two named fields and refuses anything else, so a tool that
          * happens to return a large string does not become an image by
          * accident.
+         *
+         * [arguments] are the call's: one that passed [SHOW] false has its
+         * picture kept for the model, whatever the tool's answer said.
          */
-        fun pictureIn(result: String): Picture? = runCatching {
+        fun pictureIn(result: String, arguments: String? = null): Picture? = runCatching {
             val node = jackson.readTree(result)
             if (!node.isObject) return null
             val base64 = node.path(PICTURE).asString("")
@@ -1022,7 +1061,7 @@ class AgentTools(
             val type = node.path(PICTURE_TYPE).asString("").ifEmpty { PICTURE_DEFAULT_TYPE }
             if (!type.startsWith("image/")) return null
             val key = node.path(PICTURE_KEY).asString("").trim().ifEmpty { null }
-            val forModel = node.path(PICTURE_FOR_MODEL).let { it.isBoolean && it.booleanValue() }
+            val forModel = node.path(PICTURE_FOR_MODEL).let { it.isBoolean && it.booleanValue() } || keptFromPerson(arguments)
             Picture(dataUrl = "data:$type;base64,$base64", type = type, chars = base64.length, key = key, forModel = forModel)
         }.getOrNull()
 

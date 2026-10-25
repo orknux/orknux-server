@@ -89,6 +89,22 @@ class ToolPictureTest {
         assertThat(AgentTools.pictureIn("""{"picture":"$PNG","pictureType":"text/plain"}""")).isNull()
     }
 
+    /** A call that passed show false keeps its picture for the model; left out, true or unreadable, it is shown. */
+    @Test
+    fun `show false in the call keeps the picture for the model, and nothing else does`() {
+        val answer = """{"picture":"$PNG","contentKey":"picture.1"}"""
+        assertThat(AgentTools.pictureIn(answer, """{"svg":"x","show":false}""")?.forModel).isTrue()
+        assertThat(AgentTools.pictureIn(answer, """{"show":"false"}""")?.forModel).describedAs("sent as text").isTrue()
+        assertThat(AgentTools.pictureIn(answer, """{"show":true}""")?.forModel).isFalse()
+        assertThat(AgentTools.pictureIn(answer, """{"svg":"x"}""")?.forModel).isFalse()
+        assertThat(AgentTools.pictureIn(answer, "not json")?.forModel).isFalse()
+        assertThat(AgentTools.pictureIn(answer)?.forModel).isFalse()
+
+        val said = AgentTools.withoutPicture(answer, requireNotNull(AgentTools.pictureIn(answer, """{"show":false}""")), "in the chat")
+        assertThat(said).contains("onlyYouSeeIt").contains("the person has not seen it").contains("\"contentKey\":\"picture.1\"")
+            .doesNotContain("inConversation")
+    }
+
     /** No type named is a PNG, which is what every drawing here comes back as. */
     @Test
     fun `a picture with no type named is taken as a png`() {

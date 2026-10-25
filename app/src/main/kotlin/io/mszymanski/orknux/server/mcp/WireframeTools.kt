@@ -98,6 +98,7 @@ class WireframeTools(
                 parameters = listOf(
                     ToolParameterSpec("name", "What it is called.", required = true),
                     ToolParameterSpec(ADD, "The elements to start it with. $ELEMENT_SAID", required = false, schema = ELEMENT_LIST),
+                    AgentTools.SHOW_PARAM,
                 ),
             ),
         )
@@ -122,6 +123,7 @@ class WireframeTools(
                         required = false,
                         schema = mapOf("type" to "array", "items" to mapOf("type" to "string")),
                     ),
+                    AgentTools.SHOW_PARAM,
                 ),
             ),
         )
@@ -134,6 +136,7 @@ class WireframeTools(
                 parameters = listOf(
                     ToolParameterSpec(WIREFRAME, "The wireframe's name, or its id.", required = true),
                     ToolParameterSpec(ELEMENTS, "Every element the wireframe should hold. $ELEMENT_SAID", required = true, schema = ELEMENT_LIST),
+                    AgentTools.SHOW_PARAM,
                 ),
             ),
         )
@@ -154,7 +157,7 @@ class WireframeTools(
                     CHANGE -> withWireframe(scope, asked) { change(scope, it, asked) }
                     DRAW -> withWireframe(scope, asked) { held ->
                         val elements = list(asked.path(ELEMENTS)) ?: return@withWireframe refuse("Give $ELEMENTS, as a list.")
-                        drawn(scope, api.saveElements(held.id, document.elements(elements)))
+                        drawn(scope, api.saveElements(held.id, document.elements(elements)), asked)
                     }
                     else -> refuse("There is no tool called $name")
                 }
@@ -177,7 +180,7 @@ class WireframeTools(
         val name = text(asked.path("name")) ?: return refuse("What is it called? Give it a name.")
         val elements = list(asked.path(ADD))?.let(document::elements).orEmpty()
         val made = api.createWireframe(scope.workspaceId, name, document.write(elements))
-        return drawn(scope, made)
+        return drawn(scope, made, asked)
     }
 
     private fun change(scope: OrknuxScope, held: WireframeView, asked: JsonNode): String {
@@ -208,7 +211,7 @@ class WireframeTools(
             }
         }.orEmpty()
         if (gone.isEmpty() && byId.isEmpty() && added.isEmpty()) return refuse("Nothing to change: give $ADD, $UPDATE or $REMOVE")
-        return drawn(scope, api.saveElements(held.id, changed + added))
+        return drawn(scope, api.saveElements(held.id, changed + added), asked)
     }
 
     /**
@@ -261,7 +264,7 @@ class WireframeTools(
      * chat there is no conversation to put it in, and the editor is already
      * showing it, so the answer is as it was.
      */
-    private fun drawn(scope: OrknuxScope, view: WireframeView): String {
+    private fun drawn(scope: OrknuxScope, view: WireframeView, asked: JsonNode): String {
         val answer = shown(scope, view)
         val session = scope.session ?: return answer
         val svg = runCatching { pictures.drawing(document.stored(view.document)) }.getOrNull() ?: return answer
@@ -283,11 +286,18 @@ class WireframeTools(
         // One picture per wireframe per turn, its latest: a create and a change in one turn are one mockup. Chat 979.
         tree.put(AgentTools.PICTURE_KEY, "wireframe:" + view.id)
         tree.put("contentKey", key)
+        // Kept from the person where the call said so; the round reads the same argument. See AgentTools.SHOW.
         tree.put(
             "note",
-            "A picture of the wireframe goes into the conversation with this answer. In your answer give the " +
-                "person the url, which opens it in the wireframe editor; contentKey holds the picture as SVG, " +
-                "for whatever sends or saves a file.",
+            if (AgentTools.keptFromPerson(asked)) {
+                "The picture of the wireframe is for you alone and was not put in the conversation. The person can " +
+                    "open it at the url, in the wireframe editor; contentKey holds the picture as SVG, for whatever " +
+                    "sends or saves a file."
+            } else {
+                "A picture of the wireframe goes into the conversation with this answer. In your answer give the " +
+                    "person the url, which opens it in the wireframe editor; contentKey holds the picture as SVG, " +
+                    "for whatever sends or saves a file."
+            },
         )
         return mapper.writeValueAsString(tree)
     }

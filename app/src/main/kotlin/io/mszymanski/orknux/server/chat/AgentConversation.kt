@@ -1594,7 +1594,7 @@ class AgentConversation(
                          * tool ever made, twice.
                          */
 
-                        val picture = AgentTools.pictureIn(got)
+                        val picture = AgentTools.pictureIn(got, call.arguments)
                         // Put where the reader is, where the round has somewhere to put it; the model is told so.
                         // Not one made for the model to look at: that one is shown to the model and nobody else.
                         val placed = picture?.takeUnless { it.forModel }?.let { made ->
