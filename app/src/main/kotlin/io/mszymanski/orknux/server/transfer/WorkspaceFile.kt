@@ -167,6 +167,8 @@ internal val WORKSPACE_SETTINGS: List<FileField<Workspace, *>> = listOf(
     FileField("repeatedToolCallWarnings", { it.repeatedToolCallWarnings }, { w, v -> w.repeatedToolCallWarnings = v }, WHOLE_OR_NULL),
     FileField("unsafeBuiltInTools", { it.unsafeBuiltInTools }, { w, v -> w.unsafeBuiltInTools = v }, YES_NO),
     FileField("commandMarker", { it.commandMarker }, { w, v -> w.commandMarker = v }, TEXT_OR_NULL),
+    // How the workspace wants its documents set up, not a document: carried as a setting.
+    FileField("documentPageSize", { it.documentPageSize }, { w, v -> w.documentPageSize = v }, TEXT_OR_NULL),
     FileField("functionTimeoutSeconds", { it.functionTimeoutSeconds }, { w, v -> w.functionTimeoutSeconds = v }, WHOLE_OR_NULL),
     FileField("toolTimeoutSeconds", { it.toolTimeoutSeconds }, { w, v -> w.toolTimeoutSeconds = v }, WHOLE_OR_NULL),
     FileField("voicePauseEndsTurnMs", { it.voicePauseEndsTurnMs }, { w, v -> w.voicePauseEndsTurnMs = v }, WHOLE_OR_NULL),

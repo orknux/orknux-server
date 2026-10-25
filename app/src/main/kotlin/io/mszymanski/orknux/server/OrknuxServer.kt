@@ -20,5 +20,6 @@ class OrknuxServer
 const val MODULES = "io.mszymanski.orknux"
 
 fun main(args: Array<String>) {
+    io.mszymanski.orknux.server.design.JdkXmlParsers.prefer()
     runApplication<OrknuxServer>(*args)
 }

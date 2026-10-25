@@ -22,6 +22,7 @@
 
     <properties>
         <start-class>io.mszymanski.orknux.server.OrknuxServerKt</start-class>
+        <languagetool.version>6.8</languagetool.version>
         <!-- Where -Pwith-ui takes the built interface from; the submodule's own build output.
              The parent's directory rather than `${project.basedir}/..`: on Linux the
              enforcer's requireFilesExist reports a path with `..` in it missing while
@@ -385,6 +386,131 @@
         <dependency>
             <groupId>org.commonmark</groupId>
             <artifactId>commonmark-ext-gfm-tables</artifactId>
+            <version>0.29.0</version>
+        </dependency>
+        <!--
+          A document written out as OpenDocument text (.odt), which LibreOffice,
+          Word and Google Docs open. The ODF Toolkit's own DOM, Apache 2.0, from
+          The Document Foundation; it builds the package, the manifest and the
+          styles a word processor checks, which is a format nobody should write
+          by hand. It brings Xerces, whose DOM it is built on.
+
+          Taken whole. Leaving out Jena, java-rdfa and Bouncy Castle - RDF
+          metadata and encryption, neither of which a document written here
+          has - was tried, and saving a package reached both java-rdfa and Bouncy
+          Castle anyway; DocumentExportTest drives the export end to end, so a
+          class one of them is needed for is a failing test, not a failing
+          download.
+        -->
+        <dependency>
+            <groupId>org.odftoolkit</groupId>
+            <artifactId>odfdom-java</artifactId>
+            <version>0.13.0</version>
+        </dependency>
+        <!--
+          The colours of a code block in a document's PDF and ODT. The editor
+          highlights with highlight.js; the server has no browser, so the same
+          languages are tokenised by RSyntaxTextArea's token makers, which need
+          no display and nothing else on the classpath. BSD-3-Clause.
+        -->
+        <dependency>
+            <groupId>com.fifesoft</groupId>
+            <artifactId>rsyntaxtextarea</artifactId>
+            <version>4.0.1</version>
+        </dependency>
+        <!--
+          Grammar and spelling in a document, in the languages the interface is
+          read in: LanguageTool, LGPL-2.1, as a library. A language is loaded the
+          first time a document in it is checked - a few seconds and some
+          hundreds of megabytes of rules the first time, nothing before - and an
+          installation may point at a LanguageTool server instead, through its
+          own HTTP client.
+
+          Left out: gRPC and the Prometheus client it uses for its server's remote
+          rules and metrics, neither of which the library reaches here; and the
+          metrics bindings Spring Boot already brings its own of.
+        -->
+        <!--
+          Guava as LanguageTool builds against it. The test class path also
+          meets the Android flavour through Temporal's test kit, which is nearer
+          and so won - and whose Supplier is not the JDK's, which LanguageTool's
+          suggestions are read through. Named here so the JRE one is the one.
+        -->
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+            <version>33.5.0-jre</version>
+        </dependency>
+        <dependency>
+            <groupId>org.languagetool</groupId>
+            <artifactId>language-en</artifactId>
+            <version>${languagetool.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>io.grpc</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.prometheus</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.micrometer</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.languagetool</groupId>
+            <artifactId>language-pl</artifactId>
+            <version>${languagetool.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>io.grpc</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.prometheus</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.micrometer</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.languagetool</groupId>
+            <artifactId>languagetool-http-client</artifactId>
+            <version>${languagetool.version}</version>
+            <exclusions>
+                <!-- The server itself and every language it serves: the client is all that talks to one. -->
+                <exclusion>
+                    <groupId>org.languagetool</groupId>
+                    <artifactId>languagetool-server</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.grpc</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.prometheus</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.micrometer</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!--
+          Struck-through words, for the Markdown a model writes into a document:
+          the editor has a strike mark, and core commonmark reads ~~ as two
+          tildes. The same project and licence again.
+        -->
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark-ext-gfm-strikethrough</artifactId>
             <version>0.29.0</version>
         </dependency>
 

@@ -30,6 +30,7 @@ enum class TuningUnit(val said: String) {
     PERCENT("percent"),
     HERTZ("Hz"),
     KILOBITS_PER_SECOND("kbit/s"),
+    MILLISECONDS("ms"),
 }
 
 /**
@@ -401,6 +402,71 @@ enum class Tunable(
         "diagram.picture.pixels", 1600, 200, 4096, TuningSection.MEDIA, TuningUnit.PIXELS,
         "How wide the picture of a diagram may be",
         "The picture put in a chat beside the diagram's link, and the PNG and PDF an agent exports; a wider drawing is scaled down to this.",
+    ),
+
+    /*
+     * Design's Documents page. Counted in the characters of the stored content
+     * because that is what is sent whole on every save and read whole by every
+     * export: a document past this is one the editor and a PDF take too long over.
+     */
+    DOCUMENT_CHARACTERS_MOST(
+        "document.characters.most", 2_000_000, 10_000, 50_000_000, TuningSection.MEDIA, TuningUnit.CHARACTERS,
+        "How long one document's stored content may be",
+        "A save, from the editor or from a model writing in it, that would make it longer is refused and says how long it was.",
+    ),
+    /*
+     * Counted in characters because that is what a model pays for: the
+     * Markdown orknux_document hands back is read in full. Past this the
+     * answer carries the first part and says the rest is there.
+     */
+    DOCUMENT_MARKDOWN_INLINE_CHARACTERS(
+        "document.markdown.inline.characters", 100_000, 1_000, 5_000_000, TuningSection.MEDIA, TuningUnit.CHARACTERS,
+        "How much of a document's Markdown is handed to a model",
+        "A longer document is handed over cut at this length, with a note saying how long it is.",
+    ),
+    /*
+     * Counted in pixels because a drawing in SVG has no size of its own worth
+     * keeping: it is laid out as pixels this wide to be a picture in a page.
+     */
+    DOCUMENT_SVG_PIXELS(
+        "document.svg.pixels", 1600, 200, 4096, TuningSection.MEDIA, TuningUnit.PIXELS,
+        "How wide an SVG put in a document is drawn",
+        "A drawing an agent hands over as SVG is kept as a picture this many pixels wide.",
+    ),
+    /*
+     * Counted in characters because that is what the completion model reads on
+     * every pause in the typing: the text before the caret, cut to this, and a
+     * quarter as much after it.
+     */
+    DOCUMENT_COMPLETION_CONTEXT_CHARACTERS(
+        "document.completion.context.characters", 2_000, 100, 50_000, TuningSection.MEDIA, TuningUnit.CHARACTERS,
+        "How much of a document the inline suggestion reads",
+        "The text before the caret is cut to this many characters, and the text after it to a quarter as many.",
+    ),
+    /*
+     * The document editor's grammar check. Asked of the paragraphs changed
+     * once the typing has paused this long, and never of more text than the
+     * second at once: LanguageTool's time grows with the text.
+     */
+    GRAMMAR_PAUSE_MILLIS(
+        "grammar.pause.millis", 800, 100, 10_000, TuningSection.MEDIA, TuningUnit.MILLISECONDS,
+        "How long the typing pauses before grammar is checked",
+        "Only the paragraphs changed since the last check are sent.",
+    ),
+    GRAMMAR_TEXT_MOST(
+        "grammar.text.most", 20_000, 1_000, 200_000, TuningSection.MEDIA, TuningUnit.CHARACTERS,
+        "How much text one grammar check takes",
+        "A longer paragraph is not checked; the editor sends paragraphs one request each.",
+    ),
+    DOCUMENT_SEARCH_RESULTS(
+        "document.search.results", 20, 1, 200, TuningSection.MEDIA, TuningUnit.ITEMS,
+        "How many documents a search answers",
+        "Quick actions and orknux_search_documents list at most this many, names that match first.",
+    ),
+    DOCUMENT_SNIPPET_CHARACTERS(
+        "document.snippet.characters", 160, 40, 1_000, TuningSection.MEDIA, TuningUnit.CHARACTERS,
+        "How much of a document a search shows around a match",
+        "Also how much of a document's start the Documents list shows under its name.",
     ),
 
     /*

@@ -211,6 +211,8 @@ class OrknuxTools(
     private val manualTools: ManualTools,
     /** Reading and drawing wireframes; see [WireframeTools]. Issue #655. */
     private val wireframeTools: WireframeTools,
+    /** Reading, writing, searching and exporting documents; see [DocumentTools]. */
+    private val documentTools: DocumentTools,
     /** Searching, reading, drawing and exporting diagrams; see [DiagramTools]. */
     private val diagramTools: DiagramTools,
     private val access: io.mszymanski.orknux.server.security.WorkspaceAccess,
@@ -289,7 +291,7 @@ class OrknuxTools(
 
     /** What to offer, which depends on whether this caller may start anything. */
     fun specs(scope: OrknuxScope): List<ToolSpec> =
-        ownSpecs(scope) + buildTools.specs(scope) + wireframeTools.specs(scope) + diagramTools.specs(scope) + manualTools.specs()
+        ownSpecs(scope) + buildTools.specs(scope) + wireframeTools.specs(scope) + diagramTools.specs(scope) + documentTools.specs(scope) + manualTools.specs()
 
     /**
      * The orknux_* tools an agent starts with hidden, which its owner turns on
@@ -1008,6 +1010,8 @@ class OrknuxTools(
                 access.actingIn(scope.workspaceId, scope.actor) { buildTools.run(scope, name, arguments) }
             } else if (wireframeTools.handles(name)) {
                 access.actingIn(scope.workspaceId, scope.actor) { wireframeTools.run(scope, name, arguments) }
+            } else if (documentTools.handles(name)) {
+                access.actingIn(scope.workspaceId, scope.actor) { documentTools.run(scope, name, arguments) }
             } else if (diagramTools.handles(name)) {
                 access.actingIn(scope.workspaceId, scope.actor) { diagramTools.run(scope, name, arguments) }
             } else {

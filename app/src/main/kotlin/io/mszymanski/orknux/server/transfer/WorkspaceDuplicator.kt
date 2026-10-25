@@ -61,7 +61,9 @@ import java.time.format.DateTimeFormatter
  *
  * **What was drawn in Design**, pictures - with their layers - and wireframes
  * alike, for the same reason: it is work done in the workspace, not how the
- * workspace is set up. Explore's diagrams and their catalogs likewise.
+ * workspace is set up. Explore's diagrams and their catalogs likewise, and
+ * Design's documents and theirs: a document is written work, and the pictures
+ * it shows would not come with it either.
  *
  * **Secrets.** A variable marked secret comes with its value, re-encrypted
  * into the copy. It used to arrive empty and be listed, on the grounds that a
