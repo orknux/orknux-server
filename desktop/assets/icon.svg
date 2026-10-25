@@ -6,9 +6,9 @@
     tab strip whichever theme the app is in.
   -->
   <defs>
-    <linearGradient id="moss" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#668A6B"/>
-      <stop offset="100%" stop-color="#4A6B52"/>
+    <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#5D89C9"/>
+      <stop offset="100%" stop-color="#3E6399"/>
     </linearGradient>
     <mask id="void">
       <rect width="200" height="200" fill="#fff"/>
@@ -19,6 +19,6 @@
   <rect width="200" height="200" rx="44" fill="#09090b"/>
   <g transform="translate(12 14) scale(.88)">
     <path d="M42 29 L67 50 L133 50 L158 29 L154 64 L181 113 L151 167 L49 167 L19 113 L46 64 Z"
-          fill="url(#moss)" mask="url(#void)"/>
+          fill="url(#mark)" mask="url(#void)"/>
   </g>
 </svg>
