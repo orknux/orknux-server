@@ -94,7 +94,7 @@ class TurnWindow(
 
     /** The most characters one tool result may hand this model, or null where its window is not known. */
     fun longestResult(modelId: Long): Int? = tokens(modelId)?.let { window ->
-        (window.toLong() * tuning[Tunable.TOOL_RESULT_WINDOW_PERCENT] / 100 * DENSE_CHARS_PER_TOKEN)
+        (window.toLong() * tuning[Tunable.TOOL_RESULT_WINDOW_PERCENT] / 100 * tuning[Tunable.TURN_WINDOW_CHARS_PER_TOKEN])
             .coerceIn(SHORTEST_CUT.toLong(), Int.MAX_VALUE.toLong()).toInt()
     }
 
@@ -114,7 +114,7 @@ class TurnWindow(
         val whole = when {
             requested != null && window != null && requested > window ->
                 sentChars.toLong() * window / requested * room / 100
-            window != null -> window.toLong() * DENSE_CHARS_PER_TOKEN * room / 100
+            window != null -> window.toLong() * tuning[Tunable.TURN_WINDOW_CHARS_PER_TOKEN] * room / 100
             else -> sentChars.toLong() / 2
         }
         return (whole shr attempt.coerceIn(0, 20)).coerceIn(SHORTEST_CUT.toLong(), Int.MAX_VALUE.toLong()).toInt()
@@ -244,18 +244,6 @@ class TurnWindow(
     }
 
     companion object {
-        /**
-         * Two characters to a token, for sizing against a window.
-         *
-         * Not the four [io.mszymanski.orknux.server.llm.CHARS_PER_TOKEN] uses
-         * for prose: what overflows a window is markup and numbers, and chat
-         * 981's SVG came to 1.1 characters a token on Qwen's tokeniser. Two
-         * keeps a result at its share of the window for anything but the
-         * densest data, and the refusal path catches that one with the
-         * provider's own count.
-         */
-        const val DENSE_CHARS_PER_TOKEN = 2
-
         /** Where a cut never goes below, so a small window still leaves a result something to say. */
         const val SHORTEST_CUT = 2_000
 

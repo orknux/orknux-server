@@ -134,7 +134,12 @@ enum class Tunable(
     TOOL_RESULT_WINDOW_PERCENT(
         "tool.result.window.percent", 10, 1, 90, TuningSection.AGENTS, TuningUnit.PERCENT,
         "How much of the model's window one tool result may take",
-        "A longer answer is cut to this share of the model's context window, counted at two characters a token, and the model is told how long it was and how to read the rest. Applies to models whose window is known.",
+        "A longer answer is cut to this share of the model's context window, counted at the characters a token below, and the model is told how long it was and how to read the rest. Applies to models whose window is known.",
+    ),
+    TURN_WINDOW_CHARS_PER_TOKEN(
+        "turn.window.chars.per.token", 1, 1, 8, TuningSection.AGENTS, TuningUnit.CHARACTERS,
+        "How many characters a token is counted as against the window",
+        "What turns a share of the model's window into a length to cut at. One never lets a result past its share; markup and numbers come to barely more than one a token, prose to about four.",
     ),
     TURN_WINDOW_RESERVE_PERCENT(
         "turn.window.reserve.percent", 25, 5, 75, TuningSection.AGENTS, TuningUnit.PERCENT,

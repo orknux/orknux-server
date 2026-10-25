@@ -98,9 +98,9 @@ class ContextOverflowTest(
         val said = conversation.answer(requireNotNull(agent.modelId), agent, asked(), session)
 
         assertThat(said).isInstanceOf(ChatCompletion.Answered::class.java)
-        // 10% of 262,144 tokens, at two characters a token.
+        // 10% of 262,144 tokens, at one character a token.
         val tool = toolAnswers(requests[1]).single()
-        assertThat(tool.length).isLessThanOrEqualTo(52_429)
+        assertThat(tool.length).isLessThanOrEqualTo(26_215)
         assertThat(tool).contains("trimmed from ")
     }
 
