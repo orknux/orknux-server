@@ -181,6 +181,11 @@ class DocumentHtml {
         append(".page-break { page-break-after: always; height: 0; margin: 0; }")
         // A page cannot scroll sideways as the editor does, so a line too long for it wraps; its own breaks stay.
         append("pre.code { font-family: monospace; font-size: 9pt; background: #f6f8fa; border: 0.5pt solid #d0d7de; white-space: pre-wrap; }")
+        // A table ruled and headed as the editor draws it: unruled, it printed as words floating in columns, and read back as paragraphs.
+        append("table { width: 100%; border-collapse: collapse; margin: 0 0 10pt; }")
+        append("td, th { border: 0.75pt solid #c8c8c8; padding: 3pt 6pt; vertical-align: top; text-align: left; }")
+        append("th { background: #f2f2f2; font-weight: bold; }")
+        append("td > p, th > p { margin: 0; }")
         append("</style></head><body>")
         blocks(doc.path("content"), this)
         append("</body></html>")

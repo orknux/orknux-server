@@ -450,6 +450,37 @@ enum class Tunable(
         "Past it the file's other pictures are left out and counted; its words still come in.",
     ),
     /*
+     * A table in a PDF is a guess: ruling lines or words lined up in columns.
+     * These say how sure the guess has to be before the words become a table
+     * rather than the paragraphs they were before, and the safe side is the
+     * paragraphs - a table invented out of prose is worse than one missed.
+     */
+    DOCUMENT_IMPORT_TABLE_ROWS_LEAST(
+        "document.import.table.rows.least", 2, 2, 50, TuningSection.MEDIA, TuningUnit.ITEMS,
+        "How many rows a table read from a PDF has at least",
+        "Fewer, and its words come in as paragraphs.",
+    ),
+    DOCUMENT_IMPORT_TABLE_COLUMNS_LEAST(
+        "document.import.table.columns.least", 2, 2, 20, TuningSection.MEDIA, TuningUnit.ITEMS,
+        "How many columns a table read from a PDF has at least",
+        "Fewer, and its words come in as paragraphs.",
+    ),
+    DOCUMENT_IMPORT_TABLE_COLUMN_GAP_PERCENT(
+        "document.import.table.column.gap.percent", 150, 50, 1_000, TuningSection.MEDIA, TuningUnit.PERCENT,
+        "How wide a gap between words in a PDF, against their type size, starts a column",
+        "Only for a table with no ruling lines; a narrower gap is a space between words.",
+    ),
+    DOCUMENT_IMPORT_TABLE_ROWS_FULL_PERCENT(
+        "document.import.table.rows.full.percent", 75, 1, 100, TuningSection.MEDIA, TuningUnit.PERCENT,
+        "How many rows of an unruled table in a PDF have a word in every column",
+        "Fewer, and the lines come in as paragraphs.",
+    ),
+    DOCUMENT_IMPORT_TABLE_CELL_CHARACTERS(
+        "document.import.table.cell.characters", 30, 1, 1_000, TuningSection.MEDIA, TuningUnit.CHARACTERS,
+        "How long the cells of an unruled table in a PDF are on average, at most",
+        "Longer, and the lines are read as columns of prose, not as a table.",
+    ),
+    /*
      * Counted in characters because that is what the completion model reads on
      * every pause in the typing: the text before the caret, cut to this, and a
      * quarter as much after it.

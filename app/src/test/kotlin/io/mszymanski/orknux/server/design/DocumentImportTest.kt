@@ -5,6 +5,12 @@ import io.mszymanski.orknux.server.tuning.Tunables
 import io.mszymanski.orknux.server.workspace.Workspace
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRepository
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
+import org.apache.pdfbox.pdmodel.PDDocument
+import org.apache.pdfbox.pdmodel.PDPage
+import org.apache.pdfbox.pdmodel.PDPageContentStream
+import org.apache.pdfbox.pdmodel.common.PDRectangle
+import org.apache.pdfbox.pdmodel.font.PDType1Font
+import org.apache.pdfbox.pdmodel.font.Standard14Fonts
 import org.apache.poi.util.Units
 import org.apache.poi.xwpf.usermodel.Document
 import org.apache.poi.xwpf.usermodel.XWPFAbstractNum
@@ -168,7 +174,7 @@ class DocumentImportTest(
     }
 
     @Test
-    fun `Export's PDF comes back as its heading, its paragraphs and its picture`() {
+    fun `Export's PDF comes back as its heading, its paragraphs, its table and its picture`() {
         val back = imported("Plan.pdf", exported("pdf"))
         assertThat(back.format).isEqualTo("PDF")
         assertThat(back.text()).contains("Plan for the quarter", "Ship the editor and check it.", "After the break")
@@ -176,8 +182,74 @@ class DocumentImportTest(
         assertThat(back.all("heading").map { it.path("content").get(0).path("text").asText() }).contains("Plan for the quarter")
         assertThat(back.all("paragraph").map { it.path("content").get(0)?.path("text")?.asText().orEmpty() })
             .anyMatch { it.startsWith("Ship the editor") }
+        // Export rules its tables as the editor draws them, so one comes back a table, its bold first row the header.
+        assertThat(back.types).containsSubsequence("heading", "paragraph", "table", "image")
+        assertThat(cells(back.all("table").single())).containsExactly(listOf("H:When", "H:What"), listOf("May", "Pages"))
+        assertThat(paragraphs(back)).noneMatch { it.contains("When") || it.contains("Pages") }
         assertThat(back.all("image")).hasSize(1)
         assertThat(back.pictures).isEqualTo(1)
+    }
+
+    @Test
+    fun `a table a PDF draws with ruling lines comes back a table, in its place among the paragraphs`() {
+        val pdf = drawn {
+            words("Fruit in stock", 72f, 760f, 18f, bold = true)
+            words("The counts below were taken on Monday morning.", 72f, 730f)
+            val columns = listOf(72f, 222f, 372f, 522f)
+            val rows = listOf(700f, 680f, 660f, 640f)
+            rows.forEach { y -> line(columns.first(), y, columns.last(), y) }
+            columns.forEach { x -> line(x, rows.first(), x, rows.last()) }
+            listOf(listOf("Name", "Count", "Shelf"), listOf("Apples", "3", "North"), listOf("Pears", "5", "South")).forEachIndexed { at, row ->
+                row.forEachIndexed { column, text -> words(text, columns[column] + 6f, rows[at] - 14f, bold = at == 0) }
+            }
+            words("Nothing else was counted that day.", 72f, 610f)
+        }
+        val back = imported("Stock.pdf", pdf)
+        assertThat(back.types).containsExactly("heading", "paragraph", "table", "paragraph")
+        assertThat(back.all("heading").single().path("content").get(0).path("text").asText()).isEqualTo("Fruit in stock")
+        assertThat(cells(back.all("table").single())).containsExactly(
+            listOf("H:Name", "H:Count", "H:Shelf"), listOf("Apples", "3", "North"), listOf("Pears", "5", "South"),
+        )
+        assertThat(paragraphs(back)).containsExactly("The counts below were taken on Monday morning.", "Nothing else was counted that day.")
+    }
+
+    @Test
+    fun `words a PDF lines up in two columns with no lines come back a table`() {
+        val pdf = drawn {
+            words("Opening hours are kept as follows, and change only at holidays.", 72f, 760f)
+            listOf("Day" to "Hours", "Monday" to "9 to 5", "Tuesday" to "9 to 5", "Saturday" to "10 to 2").forEachIndexed { at, (day, hours) ->
+                words(day, 72f, 730f - at * 16f, bold = at == 0)
+                words(hours, 300f, 730f - at * 16f, bold = at == 0)
+            }
+            words("The shop is shut on Sundays.", 72f, 650f)
+        }
+        val back = imported("Hours.pdf", pdf)
+        assertThat(back.types).containsExactly("paragraph", "table", "paragraph")
+        assertThat(cells(back.all("table").single())).containsExactly(
+            listOf("H:Day", "H:Hours"), listOf("Monday", "9 to 5"), listOf("Tuesday", "9 to 5"), listOf("Saturday", "10 to 2"),
+        )
+        assertThat(paragraphs(back)).containsExactly(
+            "Opening hours are kept as follows, and change only at holidays.", "The shop is shut on Sundays.",
+        )
+    }
+
+    @Test
+    fun `prose with a wide gap in its lines stays paragraphs`() {
+        val pdf = drawn {
+            words("Minutes", 72f, 760f, 18f, bold = true)
+            // Two lines running on with a wide gap in each, not lined up: a sentence, not a table.
+            words("The committee met on Tuesday and", 72f, 730f)
+            words("agreed to defer the vote until", 330f, 730f)
+            words("the spring, when the budget for", 72f, 716f)
+            words("the following year would be known.", 280f, 716f)
+            // And one line with a tab in it, alone.
+            words("Chair:", 72f, 690f)
+            words("Ms Example, who opened the meeting at ten.", 160f, 690f)
+        }
+        val back = imported("Minutes.pdf", pdf)
+        assertThat(back.all("table")).isEmpty()
+        assertThat(back.types.first()).isEqualTo("heading")
+        assertThat(back.text()).contains("The committee met on Tuesday and agreed to defer the vote until", "Chair: Ms Example")
     }
 
     @Test
@@ -302,6 +374,49 @@ println(x)</code></pre>
             SecurityContextHolder.getContext().authentication = signedIn
         }
         assertThat(audit.findAll().map { it.message }).noneMatch { it.contains("imported from") }
+    }
+
+    /** A table's rows as the words in each cell, a header cell marked `H:`. */
+    private fun cells(table: JsonNode): List<List<String>> = (0 until table.path("content").size()).map { row ->
+        val list = table.path("content").get(row).path("content")
+        (0 until list.size()).map { at ->
+            val cell = list.get(at)
+            val words = cell.path("content").get(0).path("content").let { inline -> (0 until inline.size()).joinToString("") { inline.get(it).path("text").asText() } }
+            if (cell.path("type").asText() == "tableHeader") "H:$words" else words
+        }
+    }
+
+    /** The words of the paragraphs at the top of the document, outside any table. */
+    private fun paragraphs(back: Imported): List<String> = (0 until back.doc.path("content").size()).map { back.doc.path("content").get(it) }
+        .filter { it.path("type").asText() == "paragraph" }
+        .map { node -> node.path("content").let { inline -> (0 until inline.size()).joinToString("") { inline.get(it).path("text").asText() } } }
+
+    /** A one-page PDF drawn with PDFBox, in Helvetica, its origin at the page's bottom left. */
+    private fun drawn(draw: Drawing.() -> Unit): ByteArray = PDDocument().use { pdf ->
+        val page = PDPage(PDRectangle.A4)
+        pdf.addPage(page)
+        PDPageContentStream(pdf, page).use { Drawing(it).draw() }
+        ByteArrayOutputStream().also { pdf.save(it) }.toByteArray()
+    }
+
+    class Drawing(private val stream: PDPageContentStream) {
+        private val regular = PDType1Font(Standard14Fonts.FontName.HELVETICA)
+        private val bold = PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD)
+
+        fun words(text: String, x: Float, y: Float, size: Float = 11f, bold: Boolean = false) {
+            stream.beginText()
+            stream.setFont(if (bold) this.bold else regular, size)
+            stream.newLineAtOffset(x, y)
+            stream.showText(text)
+            stream.endText()
+        }
+
+        fun line(x1: Float, y1: Float, x2: Float, y2: Float) {
+            stream.setLineWidth(0.75f)
+            stream.moveTo(x1, y1)
+            stream.lineTo(x2, y2)
+            stream.stroke()
+        }
     }
 
     private companion object {

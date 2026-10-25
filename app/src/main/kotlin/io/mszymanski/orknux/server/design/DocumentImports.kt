@@ -94,7 +94,7 @@ class DocumentImports(
 
     /** The file as a document, before it is checked. */
     fun read(format: DocumentImportFormat, bytes: ByteArray, keep: Keeper): ObjectNode = when (format) {
-        DocumentImportFormat.PDF -> DocumentPdfReader(mapper).read(bytes, keep::picture)
+        DocumentImportFormat.PDF -> DocumentPdfReader(mapper, tuning).read(bytes, keep::picture)
         DocumentImportFormat.MARKDOWN -> DocumentMarkdown(mapper).document(text(bytes))
         DocumentImportFormat.MARKDOWN_ZIP -> markdownZip(bytes, keep)
         DocumentImportFormat.ODT -> DocumentOdtReader(mapper).read(bytes, keep::picture)
