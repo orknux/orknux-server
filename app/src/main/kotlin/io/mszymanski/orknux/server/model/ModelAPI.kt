@@ -133,10 +133,7 @@ class ModelAPI(
      * falling back to the last thirty days would be a chart quietly answering a
      * different question.
      */
-    private fun day(said: String?, which: String): LocalDate? {
-        val trimmed = said?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-        return runCatching { LocalDate.parse(trimmed) }.getOrElse { throw UsageRangeInvalidException(which, trimmed) }
-    }
+    private fun day(said: String?, which: String): LocalDate? = usageDay(said, which)
 
     @MutationMapping
     fun createModelProvider(@Argument input: CreateProviderInput): ModelProviderView {
@@ -505,6 +502,12 @@ class ModelNotFoundException(val id: Long) : RuntimeException("No model with id 
     override val arguments get() = mapOf("id" to id)
 }
 
+
+/** One end of a usage range as typed, read the way `modelUsage` reads it; the speed chart takes the same. */
+fun usageDay(said: String?, which: String): LocalDate? {
+    val trimmed = said?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    return runCatching { LocalDate.parse(trimmed) }.getOrElse { throw UsageRangeInvalidException(which, trimmed) }
+}
 
 /**
  * One end of a usage range that is not a date.
