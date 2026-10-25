@@ -476,19 +476,31 @@ class BuiltInTools(
                     ?: spec.description.trim().substringBefore(". ").take(LENT_SUMMARY_CHARS)
                 "- " + spec.name + " (loaded)" + (if (said.isEmpty()) "" else ": " + said)
             }
+            /*
+             * And a third mark, for a tool the session's array does not carry
+             * though nothing is left to be found: one that arrived after the
+             * array was made, which is fixed for the session and reached
+             * through tool_run. See [io.mszymanski.orknux.server.llm.SessionFrames].
+             */
             fun marked(line: String): String {
                 val entry = ENTRY.find(line) ?: return line
                 val name = entry.groupValues[1]
-                val mark = if (hunting && name !in carried) "load it first" else "loaded"
+                val mark = when {
+                    name in carried -> LOADED
+                    hunting -> TO_LOAD
+                    else -> THROUGH_RUN
+                }
                 return "- " + name + " (" + mark + ")" + line.substring(entry.range.last + 1)
             }
             val merged = (lines.subList(first, last + 1) + added).map(::marked)
                 .sortedBy { ENTRY.find(it)?.groupValues?.get(1) ?: it }
+            val late = merged.any { ENTRY.find(it)?.groupValues?.get(2) == THROUGH_RUN }
             val head = lines.subList(0, first).toMutableList()
-            val said = head.indexOfLast { it == AgentBriefing.ALL_IN_HAND || it.startsWith(AgentBriefing.BEHIND_SEARCH_START) }
+            val said = head.indexOfLast { it.startsWith(AgentBriefing.ALL_IN_HAND) || it.startsWith(AgentBriefing.BEHIND_SEARCH_START) }
             if (said >= 0) {
                 val example = present.minOrNull() ?: "its_name"
                 head[said] = when {
+                    !hunting && late -> AgentBriefing.ALL_IN_HAND + " " + AgentBriefing.ARRIVED_LATE
                     !hunting -> AgentBriefing.ALL_IN_HAND
                     head[said].startsWith(AgentBriefing.BEHIND_SEARCH_START) -> head[said]
                     else -> AgentBriefing.behindSearch(example)
@@ -497,8 +509,16 @@ class BuiltInTools(
             return (head + merged + lines.subList(last + 1, lines.size)).joinToString(NL)
         }
 
+        /** The marks a line of the briefing's list of tools carries. */
+        const val LOADED = "loaded"
+        const val TO_LOAD = "load it first"
+        val THROUGH_RUN = "call it with " + ToolRun.NAME
+
+        /** Whether [line] is one tool's line in the briefing's list of tools. */
+        fun isListEntry(line: String): Boolean = ENTRY.containsMatchIn(line)
+
         /** A line of the briefing's list of tools: "- name (loaded): what it does". */
-        private val ENTRY = Regex("^- ([A-Za-z0-9_.:-]+) [(](loaded|load it first)[)]")
+        private val ENTRY = Regex("^- ([A-Za-z0-9_.:-]+) [(](" + LOADED + "|" + TO_LOAD + "|" + Regex.escape(THROUGH_RUN) + ")[)]")
 
         private val NL = 10.toChar().toString()
 

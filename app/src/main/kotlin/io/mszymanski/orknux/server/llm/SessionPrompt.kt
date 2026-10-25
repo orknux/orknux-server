@@ -128,6 +128,12 @@ class SessionPrompt(
     private val recorder: LlmSessionRecorder,
     private val svgs: io.mszymanski.orknux.server.plugin.SvgRenderer,
     transactions: PlatformTransactionManager,
+    /**
+     * The system turn and tool array in front of these messages, dropped with
+     * them: a prompt read again from the start may as well start from a new
+     * frame. See [SessionFrames].
+     */
+    private val frames: SessionFrames,
 ) {
 
     private val writing = TransactionTemplate(transactions)
@@ -168,6 +174,7 @@ class SessionPrompt(
     fun reset(session: Long) {
         runCatching { writing.executeWithoutResult { lines.deleteBySessionId(session) } }
             .onFailure { log.warn("What session {} was sent could not be dropped", session, it) }
+        frames.drop(session)
     }
 
     /**

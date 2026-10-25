@@ -930,6 +930,8 @@ class ChatInSessionTest(
     fun `an agent's chat follows the agent to its new model`() {
         val before = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
         before.createContext("/chat/completions") { exchange ->
+            // Read before answering: a request left unread past the socket's buffer is reset on Windows, not answered.
+            exchange.requestBody.use { it.readAllBytes() }
             val bytes = """{"choices":[{"message":{"role":"assistant","content":"From the old model."}}],"usage":{"prompt_tokens":5,"completion_tokens":3}}"""
                 .toByteArray(StandardCharsets.UTF_8)
             exchange.responseHeaders.add("Content-Type", "application/json")

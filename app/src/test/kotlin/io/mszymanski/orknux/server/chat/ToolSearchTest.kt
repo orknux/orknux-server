@@ -30,9 +30,8 @@ import org.springframework.boot.test.context.SpringBootTest
  * the session so the next turn does not search again, and that the ceiling is
  * the provider's own number rather than one written at a call site.
  *
- * That the round loop declares what was found is `AgentConversation`'s own
- * arrangement - it rebuilds the request every round, which is the only reason
- * any of this can work.
+ * What was found is called through tool_run, which `AgentConversation` puts in
+ * every session's array from the start; see `FrozenToolArrayTest`.
  */
 @SpringBootTest
 @org.springframework.boot.graphql.test.autoconfigure.tester.AutoConfigureGraphQlTester
@@ -78,10 +77,9 @@ class ToolSearchTest(
 
         assertThat(found).contains("slack_postMessage")
         assertThat(said).contains("slack_postMessage")
-        // And they are declared from the next round, which is the only thing a
-        // model can do with them - it cannot call what this request did not
-        // declare.
-        assertThat(said).contains("from your next message onwards")
+        // And how each is called, through tool_run: the request's array is the
+        // session's and does not grow, so the schema comes in the answer.
+        assertThat(said).contains(ToolRun.NAME).contains("Arguments:")
     }
 
     /**
@@ -159,7 +157,7 @@ class ToolSearchTest(
         val said = shed.run(call("send a message in slack; file a jira issue"))
 
         assertThat(found).contains("slack_postMessage", "jira_createIssue")
-        assertThat(said).contains("from your next message onwards")
+        assertThat(said).contains(ToolRun.NAME).contains("Arguments:")
 
         // A new line does the same, and a search that matched nothing is named.
         val second = mutableSetOf<String>()
@@ -269,7 +267,9 @@ class ToolSearchTest(
             ToolCall("1", ToolSearchTools.FIND, """{"names":["save_artifact","slack_postMessage"]}"""),
         )
 
-        assertThat(said).contains("Already loaded, so call them directly: save_artifact, slack_postMessage")
+        // Carried is in the array and called directly; loaded before is answered again with how it is called.
+        assertThat(said).contains("Already loaded, so call it directly: save_artifact")
+        assertThat(said).contains("Loaded 1").contains("slack_postMessage").contains(ToolRun.NAME)
         assertThat(said).doesNotContain("You have no tool called").doesNotContain("Nothing")
         assertThat(found).containsExactly("slack_postMessage")
     }

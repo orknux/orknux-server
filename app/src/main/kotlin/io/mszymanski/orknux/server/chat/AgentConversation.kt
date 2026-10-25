@@ -342,7 +342,60 @@ class AgentConversation(
     private val effects: ToolEffects,
     /** The model's window, and the cut that holds a tool result to a share of it; see [TurnWindow]. */
     private val window: TurnWindow,
+    /**
+     * The system turn and tool array a session sends in front of its messages,
+     * the same in every request; see [io.mszymanski.orknux.server.llm.SessionFrames].
+     */
+    private val frames: io.mszymanski.orknux.server.llm.SessionFrames,
+    /** How many tools that arrived late are described whole past the provider's cap: as many as one tool_load loads. */
+    private val tuning: io.mszymanski.orknux.server.tuning.Tuning = io.mszymanski.orknux.server.tuning.Tuning.DEFAULTS,
 ) {
+
+    /**
+     * A new frame: the system turn and tool array this turn would send if the
+     * session had never sent one.
+     *
+     * What [ToolCeilings.split] carries up front, the finder where it left
+     * anything to be found, what was already loaded where it still fits - a
+     * frame made again after a compaction takes the tools that arrived late
+     * into its array, since the prompt is read again from the start anyway -
+     * and [ToolRun] last, for whatever arrives after. Nothing at all for an
+     * agent holding nothing, which answers in one call.
+     */
+    private fun framed(
+        agent: Agent,
+        modelId: Long,
+        stamp: Long,
+        start: Carrying,
+        lent: List<ToolSpec>,
+        briefedTurns: List<ChatTurn>,
+        found: Set<String>,
+        heldNow: List<ToolSpec>,
+    ): io.mszymanski.orknux.server.llm.SessionFrames.Frame {
+        val up = start.core + start.lent
+        val room = (start.limit - up.size - ToolSearchTools.OFFERED - ToolRun.SLOTS).coerceAtLeast(0)
+        val folded = if (start.hunting) {
+            found.mapNotNull { name -> start.findable.firstOrNull { it.name == name } }.take(room)
+        } else {
+            emptyList()
+        }
+        val left = start.findable.filterNot { spec -> folded.any { it.name == spec.name } }
+        val finding = if (start.hunting) searching.shed(left, mutableSetOf(), room = { 0 }).specs() else emptyList()
+        val array = if (up.isEmpty() && !start.hunting) emptyList() else up + finding + folded + ToolRun.SPEC
+        val carried = array.map { it.name }.toSet()
+        val system = BuiltInTools.listed(ConversationFrame.systemOf(briefedTurns), lent, carried, start.hunting)
+        return io.mszymanski.orknux.server.llm.SessionFrames.Frame(
+            // An agent never saved answers only outside a session, where the frame is not kept.
+            agentId = agent.id ?: -1L,
+            modelId = modelId,
+            agentStamp = stamp,
+            system = system,
+            tools = array,
+            hunting = start.hunting,
+            seenSystem = system,
+            seenTools = heldNow.associate { it.name to io.mszymanski.orknux.server.llm.SessionFrames.shapeOf(it) },
+        )
+    }
 
     /** Sessions already told that not every tool could go up front; told once each, while this server runs. */
     private val overCap: MutableSet<Long> = java.util.concurrent.ConcurrentHashMap.newKeySet()
@@ -573,12 +626,20 @@ class AgentConversation(
         val offersAll = ceilings.offersAll(modelId)
         val ceiling = if (offersAll) null else agent.maxTools
         /*
-         * Less everything that changes something, where this turn may only look.
-         * Filtered here, before any split or search, so a tool held back is
-         * neither declared, nor findable, nor listed as lent. Issue #653.
+         * Less everything that changes something, where this turn may only look:
+         * what it may run, and what a call to anything else is refused by.
+         * Issue #653.
          */
         fun held(offering: Offering) = if (readOnly) effects.readOnly(offering) else offering
-        val holding = held(tools.offeringFor(agent, ceiling, into))
+        /*
+         * Everything it holds, and the part of that this turn may run. The tool
+         * array is made from the whole: it is the session's, sent the same in
+         * every turn (see [io.mszymanski.orknux.server.llm.SessionFrames]), and
+         * a chat leaves plan mode without a new one. What this turn may not run
+         * is refused by what runs a call, as a name never offered always was.
+         */
+        val whole = tools.offeringFor(agent, ceiling, into)
+        val holding = held(whole)
 
         /*
          * What the caller lent, as this agent may use it. Issue #444.
@@ -591,7 +652,10 @@ class AgentConversation(
          * left at Offer and found. A shed's own names - `task_done`, the chat's
          * drawing - are not the list's to switch and are carried as they were.
          */
-        val lending = BuiltInTools.lentTo(agent, shed).let { if (readOnly) effects.readOnly(it) else it }
+        val lendingWhole = BuiltInTools.lentTo(agent, shed)
+        // What of that this turn may run; the whole goes into the array, as the agent's own does.
+        val lending = lendingWhole.let { if (readOnly) effects.readOnly(it) else it }
+        val lent = lendingWhole?.specs().orEmpty()
         /*
          * What goes out from the first round and what is found, decided once,
          * before anything is loaded and by the rule the briefing and the
@@ -602,12 +666,10 @@ class AgentConversation(
          * the turn changes, which is most installations, and the reason the
          * search is not simply always on - finding costs a round.
          */
-        val start = ceilings.split(agent, modelId, holding, lending?.specs().orEmpty()) { held(tools.offeringFor(agent, it, into)) }
+        val start = ceilings.split(agent, modelId, whole, lent) { tools.offeringFor(agent, it, into) }
         val limit = start.limit
-        val hunting = start.hunting
-        val core = start.core
-        val carriedLent = start.lent
-        val findable = start.findable
+        /** Everything this turn's agent holds, its own and lent, once each. */
+        val heldNow = (lent + whole.core + whole.searchable).distinctBy { it.name }
         /*
          * And what the lent tools want said about themselves, put with the
          * briefing. A shed's descriptions say what its tools do; its briefing
@@ -620,13 +682,7 @@ class AgentConversation(
          * it was: a provider caching the prompt by its prefix reads all of it
          * again for one changed byte.
          */
-        val told = briefed(turns, lending?.briefing()).map { turn ->
-            if (turn.role == "system") {
-                turn.copy(content = BuiltInTools.listed(turn.content, lending?.specs().orEmpty(), start.carried, hunting) ?: turn.content)
-            } else {
-                turn
-            }
-        }
+        val briefedTurns = briefed(turns, lendingWhole?.briefing())
 
         /*
          * Every tool was meant to go up front and the provider's cap will not
@@ -634,8 +690,8 @@ class AgentConversation(
          * session says so once, because the reason it re-reads its prompt after
          * a tool_load is otherwise invisible.
          */
-        if (offersAll && hunting && into != null && overCap.add(into)) {
-            val holds = core.size + carriedLent.size + findable.size
+        if (offersAll && start.hunting && into != null && overCap.add(into)) {
+            val holds = start.core.size + start.lent.size + start.findable.size
             sessions.note(
                 into,
                 "This agent holds $holds tools and its provider takes $limit in one request, so not every tool " +
@@ -644,70 +700,66 @@ class AgentConversation(
         }
 
         /*
-         * What this agent has already found, and where it is kept.
+         * What this agent has already loaded, and where it is kept.
          *
-         * A tool searched for in one turn stays declared for the rest of the
+         * A tool searched for in one turn stays loaded for the rest of the
          * session rather than being searched for again: an agent asked a
          * follow-up would otherwise spend a round rediscovering the tool it
          * used a minute ago, and the second search is not guaranteed to return
-         * what the first did.
+         * what the first did. Kept whatever the frame, since a frame made again
+         * puts what was loaded into its array.
          */
-        val found = if (hunting) sessions.toolsFound(into).toMutableSet() else mutableSetOf()
+        val found = sessions.toolsFound(into).toMutableSet()
 
         /*
-         * And the tool that does the finding, lent beside whatever the caller
-         * lent. `room` is read when a search runs rather than now, because by
-         * then this round may already have found some.
+         * The frame: the system turn and the tool array, sent byte for byte the
+         * same in every round and every turn of the session. See
+         * [io.mszymanski.orknux.server.llm.SessionFrames] for why and for when
+         * it is made again. Kept as it was where it is this agent's, on this
+         * model, with the agent unedited since - a grant accepted in this
+         * conversation counts as unedited, and is said instead.
          */
-        val finder = if (!hunting) {
+        val stamp = io.mszymanski.orknux.server.llm.SessionFrames.stampOf(agent.lastModifiedAt)
+        val kept0 = into?.let { frames.read(it) }
+            ?.takeIf { it.agentId == (agent.id ?: -1L) && it.modelId == modelId && it.agentStamp == stamp }
+        var frame = kept0 ?: framed(agent, modelId, stamp, start, lent, briefedTurns, found, heldNow)
+            .also { made -> into?.let { frames.write(it, made) } }
+        val carriedNames = frame.tools.map { it.name }.toSet()
+        /*
+         * What changed since the frame last said so - tools granted, gone, and
+         * what the agent would be told now - as a message after the rest. Not
+         * for a frame just made: it already says all of it.
+         */
+        val since = if (kept0 == null) {
             null
         } else {
-            searching.shed(
-                findable,
-                found,
-                /*
-                 * What is left of the array once the core, what was lent and
-                 * find_tools itself have taken their places. Negative where the
-                 * core alone fills it, which the search reads as no room at all.
-                 */
-                room = { limit - core.size - carriedLent.size - ToolSearchTools.OFFERED - found.size },
-                carried = (core + carriedLent).map { it.name }.toSet(),
-                /*
-                 * And what to give up to make room. Issue #372: an agent that
-                 * has filled its budget and needs something else should lose the
-                 * tool it looked up longest ago rather than be told it is full -
-                 * "you cannot have any more" is a dead end for a model, where
-                 * forgetting is what a person does without noticing.
-                 *
-                 * The oldest first, which is what insertion order gives: `found`
-                 * is a LinkedHashSet, so the first name in it is the one looked
-                 * up furthest back. What the agent is using now was found most
-                 * recently and is the last thing to go.
-                 */
-                forget = { wanted ->
-                    val going = found.take(wanted)
-                    found.removeAll(going.toSet())
-                    going
-                },
-            )
+            val fresh = BuiltInTools.listed(ConversationFrame.systemOf(briefedTurns), lent, carriedNames, frame.hunting)
+            val (note, updated) = ConversationFrame.changes(frame, fresh, heldNow, found, tuning[io.mszymanski.orknux.server.tuning.Tunable.TOOLS_LOADED_AT_ONCE])
+            if (updated != frame) {
+                frame = updated
+                into?.let { frames.write(it, updated) }
+            }
+            note
+        }
+        val told = ConversationFrame.withSystem(briefedTurns, frame.system)
+
+        /*
+         * The tool that does the finding, lent beside whatever the caller lent,
+         * where the frame left things to be found. It reaches everything held
+         * that the array does not carry; what it loads is called through
+         * tool_run, so it never needs room in the array and never gives up a
+         * tool to make some.
+         */
+        val findable = heldNow.filter { it.name !in carriedNames }
+        val finder = if (!frame.hunting) {
+            null
+        } else {
+            searching.shed(findable, found, room = { Int.MAX_VALUE }, carried = carriedNames)
         }
         val hunt = if (finder == null) lending else sheds(lending, finder)
 
-        /** What one round declares: everything, or the core and what has been found. */
-        fun offering(): List<ToolSpec> = if (finder == null) {
-            core + carriedLent
-        } else {
-            /*
-             * What was loaded goes on the end, in the order it was loaded, so
-             * a load adds to the array rather than reshuffling it: a server
-             * that reuses a prompt up to its first difference keeps the tools
-             * before it. (A hybrid model on llama.cpp keeps nothing past a
-             * difference anywhere; see [ToolCeilings.split].)
-             */
-            core + carriedLent + finder.specs() + found.mapNotNull { name -> findable.firstOrNull { it.name == name } }
-        }
-
-        var offered = offering()
+        /** What every round declares: the frame's array, which does not move. */
+        val offered = frame.tools
         /*
          * This turn's record of what it sends, for a turn kept in a session.
          * Every request below is written to it just before it goes, and the
@@ -717,6 +769,8 @@ class AgentConversation(
         val kept = into?.let { prompt.turn(it) }
         /** How many finds were last written down; see the loop. */
         var recorded = found.size
+        /** What changed since the frame last said so, as the turn it is read in. */
+        val sinceTurn = since?.let { ChatTurn(role = "user", content = it) }
         if (offered.isEmpty()) {
             /*
              * An agent granted nothing answers in one call, and it streams for
@@ -725,6 +779,7 @@ class AgentConversation(
              * Told at the end only where it was not streamed, or the thinking
              * would be drawn twice.
              */
+            val told = told + listOfNotNull(sinceTurn)
             kept?.sent(told)
             val once = if (watch == null) {
                 models.complete(modelId, told, hangup = hangup, reasoningEffort = reasoningEffort).also { told(watch, it) }
@@ -756,6 +811,8 @@ class AgentConversation(
         into?.let { session ->
             inbox.take(session).forEach { arrived -> conversation += ChatTurn(role = "user", content = arrived) }
         }
+        // Then what changed since the frame last said so: a grant just accepted is answered above, and made usable here.
+        sinceTurn?.let { conversation += it }
         var spent = 0L
         /*
          * And what the rounds cost, added up the same way the time is.
@@ -917,14 +974,6 @@ class AgentConversation(
                 ).also { record(into, agent, it) }
             }
             /*
-             * Rebuilt every round, because a search changes what the next one
-             * declares. That is the whole of how discovery works: a model can
-             * only call what was in the request it is answering, so a tool
-             * found in this round has to appear in the next request or it was
-             * never found at all. Under the ceiling this is the same list every
-             * time and the work is a list concatenation.
-             */
-            /*
              * The walls again, every round: the heap may have filled since the
              * turn began, and the results gathered so far are held to what one
              * turn may keep before they are sent once more. Issue #616.
@@ -938,7 +987,6 @@ class AgentConversation(
                     sessions.note(session, "Older tool results in this turn were cut to keep it within its memory.")
                 }
             }
-            offered = offering()
             // What this round found, written down before the next turn asks.
             // Only where it moved: most rounds find nothing, and a session row
             // saved every round for no change is a write per round.
@@ -1249,7 +1297,15 @@ class AgentConversation(
                      */
                     val firstOf = LinkedHashMap<String, ToolCall>()
                     val echoes = mutableListOf<Pair<ToolCall, ToolCall>>()
-                    answer.calls.filterNot { it.id in cut }.forEach { call ->
+                    /*
+                     * A tool_run call is the call it stands for from here on,
+                     * under the same id: the grant, the approval, the guards,
+                     * the session's line and the watcher all see the real tool.
+                     * See [ToolRun]. What the model wrote stays in the
+                     * conversation as it wrote it, which is what the next
+                     * request has to repeat.
+                     */
+                    answer.calls.filterNot { it.id in cut }.map(ToolRun::unwrap).forEach { call ->
                         val same = call.name + 0.toChar() + call.arguments
                         val first = firstOf[same]
                         if (first == null) firstOf[same] = call else echoes += call to first
@@ -1418,7 +1474,10 @@ class AgentConversation(
                         val got = if (readBefore != null) {
                             alreadyRead(call, readBefore)
                         } else try {
-                            if (hunt != null && hunt.handles(call.name)) {
+                            if (call.name == ToolRun.NAME) {
+                                // One that named no tool, or itself: nothing to run.
+                                ToolRun.refusal(call)
+                            } else if (hunt != null && hunt.handles(call.name)) {
                                 hunt.run(call)
                             } else if (readOnly && (holding.core + holding.searchable).none { it.name == call.name }) {
                                 /*
@@ -1589,7 +1648,7 @@ class AgentConversation(
                          * the first repeat the not-yet-loaded tools of the same
                          * family are named, with the way to load them.
                          */
-                        val meant = if (hunting && repeats.size >= 2) unloadedBeside(call.name, findable, found) else null
+                        val meant = if (frame.hunting && repeats.size >= 2) unloadedBeside(call.name, findable, found) else null
 
                         /*
                          * And stopped, with the reason put where the model
@@ -2108,5 +2167,5 @@ internal fun unloadedBeside(called: String, findable: List<ToolSpec>, found: Set
     return "You called " + called + " again with the same arguments and got the same answer. If you " +
         "meant a different tool, it may be one that is not loaded yet - a tool that is not loaded cannot " +
         "be called, and the call comes out as one that is. Not loaded yet: " + near.joinToString(", ") +
-        ". Call " + ToolSearchTools.FIND + " with the name you need, then call it in your next message."
+        ". Call " + ToolSearchTools.FIND + " with the name you need, then call it with " + ToolRun.NAME + "."
 }
