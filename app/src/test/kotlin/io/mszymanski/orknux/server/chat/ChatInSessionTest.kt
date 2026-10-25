@@ -370,6 +370,31 @@ class ChatInSessionTest(
             .path("chatMessages[4].thinking").valueIsNull()
     }
 
+    /**
+     * And the open chat is told when each round's thinking ends and how long
+     * it took, before what the round went on to do. Its own clock read "0.0
+     * seconds" for reasoning that arrived at once, and nothing for a round it
+     * never saw go live.
+     */
+    @Test
+    fun `each round's thinking is closed with its duration, before the round's call`() {
+        val catalogId = catalog("Reviews")
+        skill("codeReview", catalogId, "Read the diff twice before commenting.")
+        val agentId = agent("Reviewer", model(serveThinkingToolThenThinkingAnswer()), granted = "Reviews")
+        val chatId = startChat(llmSessionId = null, agentId = agentId)
+
+        val response = org.springframework.mock.web.MockHttpServletResponse()
+        streaming.stream(chatId, ChatStreamRequest("What does the review skill say?"), response)
+            .writeTo(response.outputStream)
+        val frames = response.contentAsString.replace(" ", "")
+
+        val first = frames.indexOf("event:thought\ndata:{\"text\":\"Whichskillholdsit?\",\"millis\":")
+        val second = frames.indexOf("event:thought\ndata:{\"text\":\"Theskillsaystwice.\",\"millis\":")
+        assertThat(first).isNotNegative()
+        assertThat(second).isGreaterThan(first)
+        assertThat(frames.indexOf("event:call")).isGreaterThan(first).isLessThan(second)
+    }
+
     /** A model that thinks once and looks nothing up keeps its thinking on its answer, as it always has. */
     @Test
     fun `thinking with no call to put it among stays on the answer`() {

@@ -609,6 +609,8 @@ class ChatStreamAPI(
 internal fun ChatGeneration.watch(): RoundWatch = object : RoundWatch {
     override fun thinking(text: String) = post("thinking", mapOf("text" to text))
 
+    override fun thought(text: String, millis: Long) = post("thought", mapOf("text" to text, "millis" to millis))
+
     override fun drew(markdown: String) = post("drew", mapOf("markdown" to markdown))
 
     override fun filed(id: Long, filename: String, contentType: String, sizeBytes: Long) =

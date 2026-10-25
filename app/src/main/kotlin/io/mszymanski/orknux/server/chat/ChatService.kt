@@ -1109,6 +1109,11 @@ class ChatService(
             second.said(text)
         }
 
+        /* The page's alone: the session measures and writes its own line for the round. */
+        override fun thought(text: String, millis: Long) {
+            first?.thought(text, millis)
+        }
+
         override fun writing(tool: String?, chars: Int) {
             first?.writing(tool, chars)
             second.writing(tool, chars)
