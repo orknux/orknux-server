@@ -28,6 +28,41 @@ internal object ConversationFrame {
     }
 
     /**
+     * [frame] with the tools loaded in earlier turns joined to its array: the
+     * array as it was, then each tool in [found] that it does not carry and the
+     * agent still holds, in the order they were loaded, and the system turn's
+     * marks for them changed to loaded. [frame] itself where there is none.
+     *
+     * Asked at the start of a turn and never inside one, so every round of a
+     * turn sends the array it started with and keeps the prompt's cache. The
+     * array grows only at the end and only by what was loaded since, so a turn
+     * that loaded nothing sends the bytes the one before it did.
+     *
+     * The cost is one: the turn after a load re-reads the whole prompt, as any
+     * change to the array makes a local server do. It is paid because a tool
+     * left out of the array cannot be called by its own name on llama.cpp,
+     * whose tool-call grammar admits only the names the request declares - a
+     * model calling a loaded tool by name got its nearest neighbour instead,
+     * scratchpad_keep for scratchpad_write, five times in session 900. Once a
+     * tool and not once per round, and only for a tool the model went looking for.
+     *
+     * @param found what was loaded with tool_load in this conversation, in the order it was.
+     * @param held everything the agent holds now: a tool loaded and since taken away is not added.
+     * @param cap the most tools one request to the provider takes, or null for no limit. What
+     *   does not fit stays outside the array and is called through [ToolRun], as before.
+     */
+    fun joined(frame: SessionFrames.Frame, found: Collection<String>, held: List<ToolSpec>, cap: Int?): SessionFrames.Frame {
+        val carried = frame.tools.map { it.name }.toSet()
+        val byName = held.associateBy { it.name }
+        val room = ((cap ?: Int.MAX_VALUE) - frame.tools.size).coerceAtLeast(0)
+        val joining = found.distinct().filter { it !in carried }.mapNotNull { byName[it] }.take(room)
+        if (joining.isEmpty()) return frame
+        val tools = frame.tools + joining
+        val system = BuiltInTools.listed(frame.system, emptyList(), tools.map { it.name }.toSet(), frame.hunting)
+        return frame.copy(tools = tools, system = system)
+    }
+
+    /**
      * What has changed since [frame] last said so, as one message for the
      * model, and the frame with that said. Null where nothing has.
      *

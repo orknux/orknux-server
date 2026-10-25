@@ -677,8 +677,9 @@ class AgentConversation(
          * The lent tools go into the briefing's list (issue #546), and every
          * line of it is marked by what this turn starts out carrying - not by
          * what has been loaded since, so a tool_load leaves the system turn as
-         * it was: a provider caching the prompt by its prefix reads all of it
-         * again for one changed byte.
+         * it was for the rest of the turn: a provider caching the prompt by its
+         * prefix reads all of it again for one changed byte. The next turn
+         * marks it loaded, as it joins the array; see [ConversationFrame.joined].
          */
         val briefedTurns = briefed(turns, lendingWhole?.briefing())
 
@@ -707,6 +708,18 @@ class AgentConversation(
             ?.takeIf { it.agentId == (agent.id ?: -1L) && it.modelId == modelId && it.agentStamp == stamp }
         var frame = kept0 ?: framed(agent, modelId, stamp, start, lent, briefedTurns, found, heldNow)
             .also { made -> into?.let { frames.write(it, made) } }
+        /*
+         * What was loaded in earlier turns joins the array now, at the start of
+         * this one and never inside it - see [ConversationFrame.joined], and
+         * for its cost. Up to the provider's cap; the rest stays with tool_run.
+         */
+        if (kept0 != null) {
+            val joined = ConversationFrame.joined(frame, found, heldNow, ceilings.cap(modelId))
+            if (joined != frame) {
+                frame = joined
+                into?.let { frames.write(it, joined) }
+            }
+        }
         val carriedNames = frame.tools.map { it.name }.toSet()
         /*
          * What changed since the frame last said so - tools granted, gone, and

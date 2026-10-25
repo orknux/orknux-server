@@ -87,6 +87,15 @@ interface LlmSessionFrameRepository : JpaRepository<LlmSessionFrame, Long>
  * longer holds, which are refused if called. See
  * [AgentConversation][io.mszymanski.orknux.server.chat.AgentConversation].
  *
+ * **One exception: what the agent loaded with `tool_load`** joins the array at
+ * the start of the next turn, appended at its end up to the provider's cap, with
+ * its mark in the system turn changed to loaded, and the frame is written again
+ * - see [ConversationFrame.joined][io.mszymanski.orknux.server.chat.ConversationFrame.joined].
+ * On llama.cpp a model can call by name only what the array declares, and
+ * session 900's model, calling a loaded scratchpad_write by name, got
+ * scratchpad_keep five times. The cost, accepted for it, is one whole prompt
+ * read again on the turn after a load; within a turn the array never moves.
+ *
  * **When it is made again**: for a new session; for another agent or another
  * model taking a turn in it; for an agent edited since, other than by a grant
  * made in this conversation; and when the messages are rewritten anyway - a

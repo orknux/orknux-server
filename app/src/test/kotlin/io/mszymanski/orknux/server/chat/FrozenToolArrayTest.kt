@@ -39,6 +39,9 @@ import java.util.concurrent.CopyOnWriteArrayList
  * happens between rounds and turns: a grant accepted in the chat, a tool loaded
  * past the provider's cap, a skill read. What arrives late travels as messages
  * and is called through tool_run - or by its own name - and runs as itself.
+ * A tool loaded joins the array at the next turn where the provider's cap leaves
+ * room (see StablePromptOnLoadTest); here the array is filled to the cap, so it
+ * does not, and the frame holds.
  *
  * Measured on llama.cpp with a hybrid model: one tool added to the array, or
  * one line to the system turn, and the whole prompt was read again - 167,792
@@ -133,6 +136,8 @@ class FrozenToolArrayTest(
         assertThat(received.map { text(it, "tools") }.distinct()).hasSize(1)
         assertThat(received.map { system(it) }.distinct()).hasSize(1)
         assertThat(tools(received.first())).contains(RUN).doesNotContain(NOW)
+        // The tool loaded in turn two had no room to join turn three's array: it is at the provider's cap.
+        assertThat(tools(received.last())).hasSizeLessThanOrEqualTo(16).doesNotContain(behind)
 
         // The grant arrived as a message, with how the clock is called.
         val woken = received[2]

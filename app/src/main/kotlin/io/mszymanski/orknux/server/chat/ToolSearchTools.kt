@@ -24,11 +24,12 @@ import tools.jackson.databind.ObjectMapper
  * So above the ceiling an agent is handed the tools it uses constantly, and
  * `find_tools`. It searches what the agent was granted and answers with what
  * matches. Loading a tool used to put it in the array for the next round; the
- * array is now fixed for the session (see
+ * array does not move inside a turn (see
  * [io.mszymanski.orknux.server.llm.SessionFrames]), because a provider caching
  * the prompt by its prefix read all of it again for one tool added. So
- * `tool_load` answers with how each tool is called, and the model calls it
- * through [ToolRun], which is in the array from the start.
+ * `tool_load` answers with how each tool is called, the model calls it through
+ * [ToolRun] for the rest of that turn, and from the next the tool is in the
+ * array under its own name - see [ConversationFrame.joined].
  *
  * ### What it is not
  *
@@ -153,8 +154,9 @@ class ToolSearchTools(
             ToolSpec(
                 name = FIND,
                 readOnly = true,
-                description = "Loads tools by their exact names: it answers with how each is called, and you " +
-                    "call it with " + ToolRun.NAME + " from then on. A name you cannot load is said to be one, " +
+                description = "Loads tools by their exact names: it answers with how each is called. Call " +
+                    "it with " + ToolRun.NAME + " in this turn; from your next turn it is in your list of tools " +
+                    "and called by its own name. A name you cannot load is said to be one, " +
                     "with the nearest real names - it is never swapped for another tool. Load everything the " +
                     "job needs in one call.",
                 parameters = listOf(
@@ -241,7 +243,7 @@ class ToolSearchTools(
                                 param.description.trim().takeIf { it.isNotEmpty() }?.let { append(": ").append(it) }
                             }
                         }
-                        // Not in the request's array, which is fixed for the session; see [ToolRun].
+                        // Not in the request's array, which does not move inside a turn; see [ToolRun].
                         append("\nCall it with ").append(ToolRun.NAME).append(", giving its name and its arguments.")
                     }
                     name.lowercase() in inHand -> "$name is already loaded: its description and parameters are " +
@@ -299,10 +301,11 @@ class ToolSearchTools(
              * way round a tool it had all along.
              */
             /*
-             * Carried is in the array, and is called directly. Loaded before
-             * is not, and is answered again with how it is called: the array
-             * is fixed for the session, so a tool loaded is reached through
-             * tool_run, and a model asking twice has lost track of how.
+             * Carried is in the array, and is called directly - a tool loaded
+             * in an earlier turn is carried, having joined the array at the
+             * start of this one. Loaded in this turn is not, and is answered
+             * again with how it is called: the array does not move inside a
+             * turn, so it is reached through tool_run until the next.
              */
             val inHand = carried.map { it.lowercase() }.toSet()
             val already = asked.filter { it.lowercase() in inHand }
@@ -427,17 +430,20 @@ class ToolSearchTools(
                 // "Loaded", matching the name: the tools are now the agent's to call. Issue #535.
                 append("Loaded ${taken.size} of the ${matches.size} that matched. ")
                 /*
-                 * And how they are called, whole: the request's tool array is
-                 * fixed for the session - one tool added to it and a provider
+                 * And how they are called, whole: the request's tool array does
+                 * not move inside a turn - one tool added to it and a provider
                  * caching the prompt by its prefix reads all of it again - so a
-                 * loaded tool is not added there. Its schema is here, and it is
-                 * called through tool_run. The list in the briefing keeps the
-                 * mark it started with, for the same reason, and a model reading
-                 * "(load it first)" there beside a tool it has just loaded needs
-                 * telling which of the two to believe.
+                 * loaded tool joins it at the next turn (see
+                 * [ConversationFrame.joined]) and is called through tool_run
+                 * until then. The list in the briefing keeps its marks until
+                 * then too, and a model reading "(load it first)" there beside
+                 * a tool it has just loaded needs telling which to believe.
+                 * Past the provider's cap a tool does not join, and tool_run
+                 * goes on reaching it.
                  */
-                append("Call them with ").append(ToolRun.NAME).append(", giving the name and the arguments, for the ")
-                append("rest of this conversation, whatever your list of tools still marks them:\n")
+                append("In this turn call them with ").append(ToolRun.NAME).append(", giving the name and the ")
+                append("arguments, whatever your list of tools still marks them. From your next turn they are in ")
+                append("your list of tools, and you call them by their own names:\n")
                 taken.forEach { append("\n").append(ToolRun.described(it)).append("\n") }
                 /*
                  * Said rather than done quietly. A tool the agent called two

@@ -25,8 +25,11 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * Loading a tool changes nothing the next request declares: it answers with how
- * the tool is called, and the tool is called through tool_run.
+ * Loading a tool changes nothing the next request of the same turn declares: it
+ * answers with how the tool is called, and the tool is called through tool_run.
+ * At the next turn it joins the tool array, once, and is called by its own name
+ * - llama.cpp lets a model name only what the array declares - up to the
+ * provider's cap, past which tool_run goes on reaching it.
  *
  * llama.cpp reuses a prompt only where it is the same from its first byte, and
  * measured against a Qwen hybrid model it reuses nothing at all past a
@@ -52,6 +55,7 @@ class StablePromptOnLoadTest(
 ) {
 
     private var workspaceId: Long = 0
+    private var providerId: Long = 0
     private var server: HttpServer? = null
     private val received = CopyOnWriteArrayList<String>()
     private val script = ConcurrentLinkedQueue<(String) -> String>()
@@ -77,35 +81,83 @@ class StablePromptOnLoadTest(
     }
 
     @Test
-    fun `the system turn and the tools are the same before and after a tool_load, across rounds and turns`() {
-        val chat = chatWith(cap = 16)
+    fun `a tool_load leaves the array as it was for the rest of its turn, and the tool joins it at the next`() {
+        val chat = chatWith(cap = null, ceiling = CEILING)
         var picked = ""
-        // Round one: load a tool the request does not carry, chosen off what was sent.
+        // Turn one, round one: load a tool the request does not carry, chosen off what was sent.
         script += { body ->
             picked = behind(body).let { if (DateTools.NOW in it) DateTools.NOW else it.first() }
             called("call_1", ToolSearchTools.FIND, """{"names":["$picked"]}""")
         }
-        // Round two: call it, through tool_run.
+        // Round two: call it, through tool_run, the array being as it was.
         script += { _ -> called("call_2", ToolRun.NAME, """{"name":"$picked","arguments":{}}""") }
         script += { _ -> answered("Done.") }
-        // A second turn in the same conversation.
+        // Turn two: call it by its own name.
+        script += { _ -> called("call_3", picked, "{}") }
         script += { _ -> answered("Again.") }
+        // Turn three: nothing loaded.
+        script += { _ -> answered("Still.") }
 
         send(chat, "What time is it?")
         send(chat, "And now?")
+        send(chat, "Once more?")
 
-        assertThat(received).hasSize(4)
-        // Byte for byte the same system turn in every request: the load moved nothing in it.
-        assertThat(received.map { system(it) }.distinct()).hasSize(1)
-        // Nor the array: a loaded tool is not added to it, in this turn or the next.
-        assertThat(received.map { text(it, "tools") }.distinct()).hasSize(1)
+        assertThat(received).hasSize(6)
+        val turnOne = received.subList(0, 3)
+        // Within the turn that loaded it, byte for byte the same system turn and array in every round.
+        assertThat(turnOne.map { system(it) }.distinct()).hasSize(1)
+        assertThat(turnOne.map { text(it, "tools") }.distinct()).hasSize(1)
         assertThat(tools(received[0])).doesNotContain(picked).contains(ToolSearchTools.FIND, ToolRun.NAME)
+        // Callable through tool_run: answered by the tool, not refused as one the agent lacks.
+        assertThat(toolResult(received[2], "call_2")).doesNotContain("no tool called").doesNotContain("not offered")
+        // And the load said how it is called in this turn, and how from the next.
+        assertThat(toolResult(received[1], "call_1")).contains("Loaded").contains(picked).contains(ToolRun.NAME)
+            .contains("Arguments:").contains("next turn")
 
-        // Callable: the call was answered by the tool, not refused as one the agent lacks.
-        val answeredCall = toolResult(received[2], "call_2")
-        assertThat(answeredCall).doesNotContain("no tool called").doesNotContain("not offered")
-        // And the load said how it is called, and through what.
-        assertThat(toolResult(received[1], "call_1")).contains("Loaded").contains(picked).contains(ToolRun.NAME).contains("Arguments:")
+        // Turn two: the array is turn one's with the loaded tool appended, and the briefing marks it loaded.
+        val before = tools(received[0])
+        assertThat(tools(received[3])).isEqualTo(before + picked)
+        assertThat(marks(received[0])[picked]).isEqualTo("load it first")
+        assertThat(marks(received[3])[picked]).isEqualTo("loaded")
+        // Called by its own name, it ran.
+        assertThat(toolResult(received[4], "call_3")).doesNotContain("no tool called").doesNotContain("not offered")
+        // Every round of turn two sent the same.
+        assertThat(text(received[4], "tools")).isEqualTo(text(received[3], "tools"))
+        assertThat(system(received[4])).isEqualTo(system(received[3]))
+
+        // Turn three loaded nothing, and sends turn two's array and system turn unchanged.
+        assertThat(text(received[5], "tools")).isEqualTo(text(received[3], "tools"))
+        assertThat(system(received[5])).isEqualTo(system(received[3]))
+    }
+
+    @Test
+    fun `what was loaded joins only up to the provider's cap, and the rest is still reached through tool_run`() {
+        val chat = chatWith(cap = null, ceiling = CEILING)
+        var pair = emptyList<String>()
+        script += { body ->
+            pair = behind(body).sorted().take(2)
+            called("call_1", ToolSearchTools.FIND, mapper.writeValueAsString(mapOf("names" to pair)))
+        }
+        script += { _ -> answered("Loaded.") }
+        send(chat, "Load two.")
+        assertThat(pair).hasSize(2)
+
+        // The provider now takes one tool more than the turn sent: room for one of the two.
+        val carried = tools(received[0])
+        val provider = providers.findById(providerId).orElseThrow()
+        provider.maxTools = carried.size + 1
+        providers.save(provider)
+
+        script += { _ -> called("call_2", ToolRun.NAME, """{"name":"${pair[1]}","arguments":{}}""") }
+        script += { _ -> answered("Done.") }
+        send(chat, "Use them.")
+
+        val next = tools(received[2])
+        assertThat(next).hasSize(carried.size + 1).isEqualTo(carried + pair[0])
+        assertThat(marks(received[2])[pair[0]]).isEqualTo("loaded")
+        assertThat(marks(received[2])[pair[1]]).isEqualTo("load it first")
+        // The one left out is still the agent's, through tool_run.
+        assertThat(toolResult(received[3], "call_2")).doesNotContain("no tool called").doesNotContain("not offered")
     }
 
     @Test
@@ -193,9 +245,14 @@ class StablePromptOnLoadTest(
         return "http://${running.address.hostString}:${running.address.port}"
     }
 
-    /** An OpenAI-compatible provider, as llama.cpp's is, capped at [cap]; the agent has no ceiling of its own, so only the cap puts a tool behind the search. */
-    private fun chatWith(cap: Int?): Long {
-        val providerId = graphQlTester.document(
+    /**
+     * An OpenAI-compatible provider, as llama.cpp's is, capped at [cap]; the
+     * agent has [ceiling] of its own or none, so only the cap puts a tool
+     * behind the search. With a ceiling the array is short of the provider's
+     * cap, and what is loaded has room to join it.
+     */
+    private fun chatWith(cap: Int?, ceiling: Int? = null): Long {
+        providerId = graphQlTester.document(
             """mutation { createModelProvider(input: {
                  workspaceId: $workspaceId, name: "local-${System.nanoTime()}", type: OPENAI, endpoint: "${endpoint()}",
                  secret: "sk-test", maxTools: ${cap ?: "null"}
@@ -211,10 +268,17 @@ class StablePromptOnLoadTest(
         graphQlTester.document(
             """mutation { updateAgent(id: $agentId, input: { name: "Worker", modelId: $modelId }) { id } }""",
         ).execute()
+        if (ceiling != null) {
+            val agent = agents.findById(agentId).orElseThrow()
+            agent.maxTools = ceiling
+            agents.save(agent)
+        }
         return requireNotNull(chats.start(workspaceId, "alice", "Tools", agentId).id)
     }
 
     private companion object {
+        /** The agent's own ceiling: short of the provider's cap, so a loaded tool has somewhere to go. */
+        const val CEILING = 10
         val ENTRY = Regex("^- ([A-Za-z0-9_.:-]+) [(](loaded|load it first|call it with tool_run)[)]")
     }
 }
