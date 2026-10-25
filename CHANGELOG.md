@@ -79,6 +79,8 @@ have failed.
 - **Each diagram says what agents may do with it: Read only, or Read and change.** On the list and in the editor; a new diagram is Read and change, so agents keep it right as they learn. On a read-only one `orknux_change_diagram` and `orknux_delete_diagram` are refused, and the list and read tools say which it is before an agent tries. The editor's own chat changes the diagram open in it either way, because a person is there asking.
 - **Agents are sent to the diagrams.** Where a workspace has a diagram and an agent holds `orknux_diagram_search`, its briefing says to search the diagrams before answering how the workspace's systems, processes or architecture fit together, to read a node that looks relevant, and - with `orknux_change_diagram` - to update a diagram when it learns what one lacks or has wrong, on diagrams open to it, and say what it changed. The built-in Memory skill says the same.
 - **Quick actions finds a diagram by its name and a node by its label**, and opens the editor on the node.
+- **A diagram has a description** of what it is for, typed in the editor's panel and shown on the list on one line. Agents read it in `orknux_diagrams` and `orknux_diagram`, set it with `orknux_create_diagram` and `orknux_change_diagram`, and `orknux_diagram_search` matches it; the editor's chat is told it, and the briefing says it is how to pick the right diagram. Its length is a Limit, `ORKNUX_TUNING_DIAGRAM_DESCRIPTION_CHARACTERS`, 2000 by default.
+- **A diagram's labels are typed over where they are drawn.** Double-click a node's words or a connection, or press Enter or F2 on the one selected; Enter puts the label down, Escape puts the old one back, and it is one step undo goes back over.
 
 ### 🔧 Changed
 

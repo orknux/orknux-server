@@ -146,11 +146,12 @@ class DiagramAPI(
         @Argument name: String,
         @Argument catalogId: Long?,
         @Argument document: String?,
-    ): DiagramView = create(workspaceId, name, catalogId, this.document.read(document))
+        @Argument description: String?,
+    ): DiagramView = create(workspaceId, name, catalogId, this.document.read(document), description)
 
     /** The same create, from the tools, which hold a drawing rather than text. */
     @Transactional
-    fun create(workspaceId: Long, name: String, catalogId: Long?, drawing: DiagramDrawing): DiagramView {
+    fun create(workspaceId: Long, name: String, catalogId: Long?, drawing: DiagramDrawing, description: String? = null): DiagramView {
         access.requireVisible(workspaceId)
         val catalog = catalogFor(workspaceId, catalogId)
         held(drawing)
@@ -160,6 +161,7 @@ class DiagramAPI(
                 workspaceId = workspaceId,
                 catalogId = requireNotNull(catalog.id),
                 name = cleanName(name),
+                description = cleanDescription(description),
                 createdBy = who,
                 updatedBy = who,
             ),
@@ -179,6 +181,19 @@ class DiagramAPI(
         held.name = called
         touch(held)
         audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Diagram $was renamed to $called")
+        return view(diagrams.save(held))
+    }
+
+    /** What the diagram is for; blank takes it away. From the editor and from the tools alike. */
+    @MutationMapping
+    @Transactional
+    fun describeDiagram(@Argument id: Long, @Argument description: String?): DiagramView {
+        val held = find(id)
+        val said = cleanDescription(description)
+        if (said == held.description) return view(held)
+        held.description = said
+        touch(held)
+        audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Diagram ${held.name} description changed")
         return view(diagrams.save(held))
     }
 
@@ -300,6 +315,8 @@ class DiagramAPI(
             catalogId = diagram.catalogId,
             catalogName = catalogName ?: catalogNameOf(diagram.catalogId).orEmpty(),
             name = diagram.name,
+            description = diagram.description,
+            descriptionCharactersMost = tuning[Tunable.DIAGRAM_DESCRIPTION_CHARACTERS],
             agentAccess = diagram.agentAccess,
             document = drawn?.let(document::write) ?: "",
             nodeCount = drawn?.nodes?.size ?: nodes.countByDiagramId(id).toInt(),
@@ -402,6 +419,14 @@ class DiagramAPI(
     private fun cleanName(name: String): String =
         name.trim().takeIf { it.isNotEmpty() && it.length <= Diagrams.NAME_LENGTH } ?: throw DiagramNameInvalidException()
 
+    /** Trimmed, blank as none, and held to the Tunable. */
+    private fun cleanDescription(description: String?): String? {
+        val said = description?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val most = tuning[Tunable.DIAGRAM_DESCRIPTION_CHARACTERS]
+        if (said.length > most) throw DiagramDescriptionTooLongException(said.length, most)
+        return said
+    }
+
     private fun catalogName(name: String): String =
         name.trim().takeIf { it.isNotEmpty() && it.length <= Diagrams.CATALOG_NAME_LENGTH } ?: throw DiagramCatalogNameInvalidException()
 
@@ -422,6 +447,10 @@ data class DiagramView(
     val catalogId: Long,
     val catalogName: String,
     val name: String,
+    /** What it is for; null where nobody has said. */
+    val description: String?,
+    /** How long a description may be on this installation. */
+    val descriptionCharactersMost: Int,
     val agentAccess: DiagramAgentAccess,
     val document: String,
     val nodeCount: Int,

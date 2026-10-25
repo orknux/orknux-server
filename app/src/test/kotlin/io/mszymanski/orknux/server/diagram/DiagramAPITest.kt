@@ -202,6 +202,32 @@ class DiagramAPITest(
     }
 
     @Test
+    fun `a description is made with the diagram, changed, cleared, listed and held to its Tunable`() {
+        val id = graphQlTester.document(
+            """mutation { createDiagram(workspaceId: $workspaceId, name: "Described", description: "  How orders reach the ledger.  ") { id description descriptionCharactersMost } }""",
+        ).execute()
+            .path("createDiagram.description").entity(String::class.java).isEqualTo("How orders reach the ledger.")
+            .path("createDiagram.descriptionCharactersMost").entity(Int::class.java).isEqualTo(Tunable.DIAGRAM_DESCRIPTION_CHARACTERS.fallback)
+            .path("createDiagram.id").entity(Long::class.java).get()
+        graphQlTester.document("""mutation { describeDiagram(id: $id, description: "Who pays whom.") { description } }""").execute()
+            .path("describeDiagram.description").entity(String::class.java).isEqualTo("Who pays whom.")
+        graphQlTester.document("""{ diagrams(workspaceId: $workspaceId) { description } }""").execute()
+            .path("diagrams[0].description").entity(String::class.java).isEqualTo("Who pays whom.")
+        assertThat(diagrams.findById(id).get().description).isEqualTo("Who pays whom.")
+
+        tunables.set(Tunable.DIAGRAM_DESCRIPTION_CHARACTERS, 100, "alice")
+        try {
+            graphQlTester.document("""mutation { describeDiagram(id: $id, description: "${"d".repeat(101)}") { id } }""").execute()
+                .errors().expect { it.extensions?.get("code") == "DiagramDescriptionTooLong" }.verify()
+        } finally {
+            tunables.set(Tunable.DIAGRAM_DESCRIPTION_CHARACTERS, null, "alice")
+        }
+        graphQlTester.document("""mutation { describeDiagram(id: $id, description: "   ") { description } }""").execute()
+            .path("describeDiagram.description").valueIsNull()
+        assertThat(messages()).contains("Diagram Described description changed")
+    }
+
+    @Test
     fun `the agents setting round-trips and is audited`() {
         val id = create("Locked")
         graphQlTester.document("""mutation { setDiagramAgentAccess(id: $id, access: READ) { agentAccess } }""").execute()
