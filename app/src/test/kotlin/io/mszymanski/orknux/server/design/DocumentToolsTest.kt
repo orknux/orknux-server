@@ -160,7 +160,7 @@ class DocumentToolsTest(
             .containsExactly("Writer")
     }
 
-    /** The briefing names every tool it mentions off what is offered, and the chat is offered writing alone. */
+    /** The briefing names every tool it mentions off what is offered, the chat is offered writing alone, and it is told not to link the document the person has open. */
     @Test
     fun `the chat names only the tools it is offered`() {
         val view = DesignDocumentView(1, workspaceId, 1, "General", "Brief", "{}", "A4", 1, 0, "", emptyList(), "alice", "", "alice", "")
@@ -168,6 +168,7 @@ class DocumentToolsTest(
         assertThat(offered.map { it.name }).containsExactlyInAnyOrderElementsOf(DocumentTools.EDITING)
         val briefing = chat.briefing(view, offered)
         DocumentTools.EDITING.forEach { assertThat(briefing).contains("`$it`") }
+        assertThat(briefing).contains("never link to it")
     }
 
     /** A model asked in the editor appends a section; it is in the stored document, and the answer says it changed. */

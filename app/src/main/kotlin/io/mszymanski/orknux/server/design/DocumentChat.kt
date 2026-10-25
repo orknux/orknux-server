@@ -124,7 +124,13 @@ class DocumentChat(
                     "person writes in. Start a new page with a line holding only <!-- pagebreak --> where a section " +
                     "should begin on one. ",
             )
-            append("When you have written, say in one or two sentences what you did. Do not repeat the text.")
+            append("When you have written, say in one or two sentences what you did. Do not repeat the text. ")
+            // The tools answer each document's url, which is right for an agent elsewhere and was pasted into this chat
+            // as "You can see it here: ..." under the document the person was looking at.
+            append(
+                "The person already has this document open beside you, so never link to it or give its address, " +
+                    "even though the tools answer one.",
+            )
         }
     }
 
