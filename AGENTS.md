@@ -318,6 +318,17 @@ every start it is in effect. Never set them in a deployment.
   place that knows every built-in, and what it offers depends on the agent's
   grants. A tool declared but not implemented is a model told it can do something
   it cannot, and it will believe you.
+- **A conversation's tool array is frozen, and a refusal is how a tool is
+  withheld.** A local server re-reads the whole prompt when the tool array or the
+  system turn changes by a byte, so `SessionFrames` (`llm_session_frame`) makes
+  both once per session and sends them unchanged until the agent, its model or
+  the session changes, or the conversation is compacted. What changes inside a
+  session - a grant given, plan mode left - is said in an appended message, and
+  a tool loaded mid-conversation is run through `tool_run` rather than added to
+  the array. So the array may name a tool this turn may not run: plan mode keeps
+  the writing tools in it and `ToolEffects` refuses them when called, saying
+  nothing ran. "Offered" here means the tool runs or is refused in words - never
+  that it is declared and silently does nothing.
 - **What a listener cannot deliver is not offered.** `DeliverableActions` names
   the events something actually publishes — Slack mentions, and nothing else yet.
   The enum holds the vocabulary the product intends; the picker offers what is
