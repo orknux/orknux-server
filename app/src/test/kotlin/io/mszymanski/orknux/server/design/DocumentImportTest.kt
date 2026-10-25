@@ -93,11 +93,11 @@ class DocumentImportTest(
     }
 
     /** Downloaded as the editor does; a request through the security filters leaves this thread signed out, so alice is put back. */
-    private fun exported(format: String): ByteArray {
+    private fun exported(format: String, id: Long = documentId): ByteArray {
         val signedIn = SecurityContextHolder.getContext().authentication
         try {
             return MockMvcBuilders.webAppContextSetup(context).apply<DefaultMockMvcBuilder>(springSecurity()).build()
-                .perform(get("/api/documents/$documentId/export/$format")).andReturn().response.contentAsByteArray
+                .perform(get("/api/documents/$id/export/$format")).andReturn().response.contentAsByteArray
         } finally {
             SecurityContextHolder.getContext().authentication = signedIn
         }
@@ -188,6 +188,111 @@ class DocumentImportTest(
         assertThat(paragraphs(back)).noneMatch { it.contains("When") || it.contains("Pages") }
         assertThat(back.all("image")).hasSize(1)
         assertThat(back.pictures).isEqualTo(1)
+        // Its list too: export paints the bullets as dots, and "One" and "Two" ran into the paragraph above them.
+        assertThat(back.types).containsSubsequence("paragraph", "bulletList", "table")
+        assertThat(items(back.all("bulletList").single())).containsExactly("One", "Two")
+        assertThat(paragraphs(back)).noneMatch { it.contains("One") }
+    }
+
+    @Test
+    fun `Export's PDF of merged cells, a nested list and a list counted from three comes back the same shape`() {
+        val shaped = graphQlTester.document(
+            """mutation(${'$'}w: ID!, ${'$'}d: String) { createDocument(workspaceId: ${'$'}w, name: "Shaped", content: ${'$'}d) { id } }""",
+        ).variable("w", workspaceId).variable("d", SHAPED).execute().path("createDocument.id").entity(Long::class.java).get()
+        val back = imported("Shaped.pdf", exported("pdf", shaped))
+        assertThat(back.types).containsExactly("paragraph", "bulletList", "orderedList", "table", "paragraph")
+        val bullets = back.all("bulletList")
+        assertThat(bullets).hasSize(2)
+        assertThat(items(bullets.first())).containsExactly("One", "Two")
+        assertThat(items(bullets.last())).containsExactly("Deeper")
+        val numbered = back.all("orderedList").single()
+        assertThat(numbered.path("attrs").path("start").asInt()).isEqualTo(3)
+        assertThat(items(numbered)).containsExactly("Third", "Fourth")
+        assertThat(spans(back.all("table").single())).containsExactly(
+            listOf("H:Both/2x1", "H:Third"), listOf("Tall/1x2", "b1", "c1"), listOf("b2", "c2"),
+        )
+    }
+
+    @Test
+    fun `a ruled table with merged cells comes back with the cells spanning what they span`() {
+        val pdf = drawn {
+            words("Sales by quarter", 72f, 760f, 18f, bold = true)
+            val columns = listOf(72f, 222f, 372f, 522f)
+            val rows = listOf(700f, 680f, 660f, 640f)
+            // The first row's two left cells are one, and so are the left cells of the last two rows.
+            line(72f, 700f, 522f, 700f)
+            line(72f, 680f, 522f, 680f)
+            line(222f, 660f, 522f, 660f)
+            line(72f, 640f, 522f, 640f)
+            line(72f, 700f, 72f, 640f)
+            line(222f, 680f, 222f, 640f)
+            line(372f, 700f, 372f, 640f)
+            line(522f, 700f, 522f, 640f)
+            words("Quarter", columns[0] + 6f, rows[0] - 14f, bold = true)
+            words("Total", columns[2] + 6f, rows[0] - 14f, bold = true)
+            words("North", columns[0] + 6f, rows[1] - 14f)
+            words("3", columns[1] + 6f, rows[1] - 14f)
+            words("5", columns[2] + 6f, rows[1] - 14f)
+            words("7", columns[1] + 6f, rows[2] - 14f)
+            words("9", columns[2] + 6f, rows[2] - 14f)
+        }
+        val back = imported("Sales.pdf", pdf)
+        assertThat(back.types).containsExactly("heading", "table")
+        assertThat(spans(back.all("table").single())).containsExactly(
+            listOf("H:Quarter/2x1", "H:Total"), listOf("North/1x2", "3", "5"), listOf("7", "9"),
+        )
+    }
+
+    @Test
+    fun `lines a PDF opens with bullets and numbers come back lists, nested by their indent, and prose opening with a dash does not`() {
+        val pdf = drawn {
+            words("Prices rose sharply in the year to March, by", 72f, 760f)
+            words("- as the bank put it - four percent.", 72f, 746f)
+            words("The market keeps these:", 72f, 716f)
+            words("•", 72f, 700f)
+            words("Apples, which", 84f, 700f)
+            words("keep well", 84f, 686f)
+            words("–", 84f, 672f)
+            words("Bramley", 96f, 672f)
+            words("•", 72f, 658f)
+            words("Pears", 84f, 658f)
+            words("3.", 72f, 628f)
+            words("Third step", 86f, 628f)
+            words("4.", 72f, 614f)
+            words("Fourth step", 86f, 614f)
+            words("And that was all.", 72f, 584f)
+            // A paragraph opening with a number, wrapped back to the margin rather than hung at its words.
+            words("2. The second reason was that the vote", 72f, 554f)
+            words("was close, and nobody wanted it.", 72f, 540f)
+        }
+        val back = imported("Market.pdf", pdf)
+        assertThat(back.types).containsExactly("paragraph", "paragraph", "bulletList", "orderedList", "paragraph", "paragraph")
+        assertThat(paragraphs(back)).containsExactly(
+            "Prices rose sharply in the year to March, by - as the bank put it - four percent.", "The market keeps these:", "And that was all.",
+            "2. The second reason was that the vote was close, and nobody wanted it.",
+        )
+        val bullets = back.doc.path("content").get(2)
+        assertThat(items(bullets)).containsExactly("Apples, which keep well", "Pears")
+        assertThat(items(bullets.path("content").get(0).path("content").get(1))).containsExactly("Bramley")
+        val numbered = back.all("orderedList").single()
+        assertThat(numbered.path("attrs").path("start").asInt()).isEqualTo(3)
+        assertThat(items(numbered)).containsExactly("Third step", "Fourth step")
+    }
+
+    @Test
+    fun `words lined up in three columns with no lines come back a table though one cell is empty`() {
+        val pdf = drawn {
+            words("The shelves were counted again on Friday.", 72f, 760f)
+            listOf(listOf("Name", "Count", "Shelf"), listOf("Apples", "3", "North"), listOf("Pears", "", "South")).forEachIndexed { at, row ->
+                row.forEachIndexed { column, text -> if (text.isNotEmpty()) words(text, 72f + column * 150f, 730f - at * 16f, bold = at == 0) }
+            }
+            words("Nothing else was counted that day.", 72f, 670f)
+        }
+        val back = imported("Shelves.pdf", pdf)
+        assertThat(back.types).containsExactly("paragraph", "table", "paragraph")
+        assertThat(cells(back.all("table").single())).containsExactly(
+            listOf("H:Name", "H:Count", "H:Shelf"), listOf("Apples", "3", "North"), listOf("Pears", "", "South"),
+        )
     }
 
     @Test
@@ -386,6 +491,22 @@ println(x)</code></pre>
         }
     }
 
+    /** A table's rows as [cells] says them, a cell spanning more than one place followed by `/columns x rows`. */
+    private fun spans(table: JsonNode): List<List<String>> = cells(table).mapIndexed { row, words ->
+        words.mapIndexed { at, said ->
+            val attrs = table.path("content").get(row).path("content").get(at).path("attrs")
+            val columns = attrs.path("colspan").asInt(1)
+            val rows = attrs.path("rowspan").asInt(1)
+            if (columns > 1 || rows > 1) "$said/${columns}x$rows" else said
+        }
+    }
+
+    /** The words of a list's own items, each item's first paragraph; a list inside one is left out. */
+    private fun items(list: JsonNode): List<String> = (0 until list.path("content").size()).map { at ->
+        val inline = list.path("content").get(at).path("content").get(0).path("content")
+        (0 until inline.size()).joinToString("") { inline.get(it).path("text").asText() }
+    }
+
     /** The words of the paragraphs at the top of the document, outside any table. */
     private fun paragraphs(back: Imported): List<String> = (0 until back.doc.path("content").size()).map { back.doc.path("content").get(it) }
         .filter { it.path("type").asText() == "paragraph" }
@@ -437,6 +558,30 @@ println(x)</code></pre>
             {"type":"image","attrs":{"artifact":"PICTURE","alt":"A red field","caption":"The red field","width":50}},
             {"type":"pageBreak"},
             {"type":"paragraph","content":[{"type":"text","text":"After the break"}]}
+        ]}"""
+
+        /** A document whose shapes a PDF has to carry in its lines: a nested list, a list counted from three, and merged cells. */
+        val SHAPED = """{"type":"doc","content":[
+            {"type":"paragraph","content":[{"type":"text","text":"Before the lists."}]},
+            {"type":"bulletList","content":[
+              {"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"One"}]},
+                {"type":"bulletList","content":[{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"Deeper"}]}]}]}]},
+              {"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"Two"}]}]}]},
+            {"type":"orderedList","attrs":{"start":3},"content":[
+              {"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"Third"}]}]},
+              {"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"Fourth"}]}]}]},
+            {"type":"table","content":[
+              {"type":"tableRow","content":[
+                {"type":"tableHeader","attrs":{"colspan":2},"content":[{"type":"paragraph","content":[{"type":"text","text":"Both"}]}]},
+                {"type":"tableHeader","content":[{"type":"paragraph","content":[{"type":"text","text":"Third"}]}]}]},
+              {"type":"tableRow","content":[
+                {"type":"tableCell","attrs":{"rowspan":2},"content":[{"type":"paragraph","content":[{"type":"text","text":"Tall"}]}]},
+                {"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"b1"}]}]},
+                {"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"c1"}]}]}]},
+              {"type":"tableRow","content":[
+                {"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"b2"}]}]},
+                {"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"c2"}]}]}]}]},
+            {"type":"paragraph","content":[{"type":"text","text":"After."}]}
         ]}"""
     }
 }
