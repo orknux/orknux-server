@@ -5,8 +5,6 @@ import io.mszymanski.orknux.connector.model.ChatCompletion
 import io.mszymanski.orknux.connector.model.LlmModelRepository
 import io.mszymanski.orknux.connector.model.ModelProviderRepository
 import io.mszymanski.orknux.server.agent.AgentRepository
-import io.mszymanski.orknux.server.llm.LlmSessionEventKind
-import io.mszymanski.orknux.server.llm.LlmSessionEventRepository
 import io.mszymanski.orknux.server.workspace.Workspace
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import org.assertj.core.api.Assertions.assertThat
@@ -28,17 +26,18 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * A provider that offers every tool up front hands an agent all of them from
- * its first round, with nothing to find or load, and the same list every round.
+ * Every provider carries the agent's own ceiling and its Offer marks, with the
+ * provider's own cap on a request on top.
  *
- * Session 635: an agent with a ceiling of 75 on llama.cpp kept loading tools
- * and dropping others to make room, and each load changed the tool list at the
- * top of the prompt - so the server read the whole session again every time.
+ * A provider could once hand an agent every tool from its first round, which
+ * switched the ceiling and the marks off: an agent with a ceiling of 75 sent
+ * 59k tokens of tools on its first request. The switch went in 1.2.0; a client
+ * that still sends `offerAllTools` is answered, and ignored.
  */
 @SpringBootTest
 @AutoConfigureGraphQlTester
 @WithMockUser(username = "alice", roles = ["ADMINS"])
-class ProviderOfferAllToolsTest(
+class ProviderToolCeilingTest(
     @Autowired val graphQlTester: ExecutionGraphQlServiceTester,
     @Autowired val chats: ChatService,
     @Autowired val chatSessions: ChatSessionRepository,
@@ -47,7 +46,6 @@ class ProviderOfferAllToolsTest(
     @Autowired val models: LlmModelRepository,
     @Autowired val providers: ModelProviderRepository,
     @Autowired val workspaces: WorkspaceRepository,
-    @Autowired val events: LlmSessionEventRepository,
 ) {
 
     private var workspaceId: Long = 0
@@ -76,8 +74,11 @@ class ProviderOfferAllToolsTest(
     }
 
     @Test
-    fun `every tool goes out from the first round, with no search, and the same in the next round`() {
-        val chat = chatWith(provider(offerAllTools = "true"), agentCeiling = 5)
+    fun `the agent's own ceiling holds on a provider that was set to offer every tool`() {
+        val provider = provider(offerAllTools = "true")
+        // As a provider saved before 1.2.0 would hold it: the column set, and nothing reading it.
+        providers.findByIdOrNull(provider)!!.let { it.offerAllTools = true; providers.save(it) }
+        val chat = chatWith(provider, agentCeiling = 5)
         script += called("call_1")
         script += answered("Done.")
 
@@ -85,26 +86,16 @@ class ProviderOfferAllToolsTest(
 
         assertThat(received).hasSize(2)
         val first = tools(received[0])
-        assertThat(first).doesNotContain(ToolSearchTools.SEARCH, ToolSearchTools.FIND)
-        // Past the agent's own ceiling of five: the provider's switch overrides it.
-        assertThat(first.size).isGreaterThan(5)
+        // The rest behind a search, and no more than the ceiling in the array.
+        assertThat(first).contains(ToolSearchTools.SEARCH, ToolSearchTools.FIND)
+        assertThat(first.size).isLessThanOrEqualTo(5)
+        // The same array in the next round: it is the session's.
         assertThat(text(received[1], "tools")).isEqualTo(text(received[0], "tools"))
-        // And the briefing does not send the model looking for tools it holds.
-        assertThat(system(received[0])).doesNotContain("(load it first)").contains("every one is in front of you")
+        assertThat(system(received[0])).contains("(load it first)").doesNotContain(AgentBriefing.ALL_IN_HAND)
     }
 
     @Test
-    fun `without it the agent's own ceiling still puts the rest behind a search`() {
-        val chat = chatWith(provider(offerAllTools = "false"), agentCeiling = 5)
-        script += answered("Done.")
-
-        send(chat, "What can you do?")
-
-        assertThat(tools(received[0])).contains(ToolSearchTools.SEARCH)
-    }
-
-    @Test
-    fun `past the provider's own cap the rest are found, and the session says why, once`() {
+    fun `past the provider's own cap the rest are found, whatever the provider was set to`() {
         val chat = chatWith(provider(offerAllTools = "true", maxTools = 8), agentCeiling = null)
         script += called("call_1")
         script += answered("Done.")
@@ -118,22 +109,17 @@ class ProviderOfferAllToolsTest(
             assertThat(tools(body).size).isLessThanOrEqualTo(8)
             assertThat(tools(body)).contains(ToolSearchTools.SEARCH)
         }
-        val session = requireNotNull(chatSessions.findByIdOrNull(chat)?.llmSessionId)
-        val notes = events.findAll().filter { it.sessionId == session && it.kind == LlmSessionEventKind.SYSTEM }
-            .mapNotNull { it.content }.filter { it.contains("not every tool goes up front") }
-        assertThat(notes).hasSize(1)
-        assertThat(notes.single()).contains("takes 8 in one request")
     }
 
     @Test
-    fun `left unset, no provider offers every tool up front`() {
-        val ollama = provider(type = "OLLAMA")
+    fun `offerAllTools is accepted and ignored, and no provider offers every tool up front`() {
+        val ollama = provider(type = "OLLAMA", offerAllTools = "true")
         // OpenAI's type is also every OpenAI-compatible local server.
-        val openai = provider(type = "OPENAI")
+        val openai = provider(type = "OPENAI", offerAllTools = "true")
         val llama = provider(type = "LLAMA_CPP")
         val anthropic = provider(type = "ANTHROPIC")
-        // The frozen tool array made it pointless, and it switched off the agent's ceiling and Offer marks.
         assertThat(listOf(ollama, openai, llama, anthropic).map(::resolved)).containsOnly(false)
+        assertThat(providers.findByIdOrNull(ollama)?.offerAllTools).isNull()
         // An OpenAI-compatible server carries 200; OpenAI's own API still refuses past 128.
         assertThat(cap(openai)).isEqualTo(200)
         val openAiItself = graphQlTester.document(
@@ -144,10 +130,12 @@ class ProviderOfferAllToolsTest(
 
         graphQlTester.document(
             """mutation { updateModelProvider(id: $ollama, input: { name: "renamed", endpoint: "http://x.invalid",
-                 offerAllTools: false, maxTools: 40 }) { offerAllTools offersAllTools maxTools toolCap } }""",
+                 offerAllTools: true, maxTools: 40 }) { offerAllTools offersAllTools maxTools toolCap } }""",
         ).execute()
+            .path("updateModelProvider.offerAllTools").valueIsNull()
             .path("updateModelProvider.offersAllTools").entity(Boolean::class.java).isEqualTo(false)
             .path("updateModelProvider.toolCap").entity(Int::class.java).isEqualTo(40)
+        assertThat(providers.findByIdOrNull(ollama)?.offerAllTools).isNull()
         graphQlTester.document(
             """mutation { updateModelProvider(id: $ollama, input: { name: "renamed", endpoint: "http://x.invalid",
                  maxTools: 3 }) { id } }""",

@@ -141,7 +141,6 @@ class ModelService(
         provider.throttleRequestsPerSecond = input.throttleRequestsPerSecond
         input.acceptRetryAfter?.let { provider.acceptRetryAfter = it }
         provider.sendsReasoning = input.sendsReasoning ?: false
-        provider.offerAllTools = input.offerAllTools
         provider.editMask = input.editMask
         provider.maxTools = toolCapOf(input.maxTools)
         provider.chatApi = chatApiFor(provider.type, input.chatApi, null)
@@ -254,8 +253,6 @@ class ModelService(
         provider.throttleRequestsPerSecond = input.throttleRequestsPerSecond
         input.acceptRetryAfter?.let { provider.acceptRetryAfter = it }
         input.sendsReasoning?.let { provider.sendsReasoning = it }
-        // Set as given, like the throttle: the form sends both, and null is the type's default.
-        provider.offerAllTools = input.offerAllTools
         provider.editMask = input.editMask
         provider.maxTools = toolCapOf(input.maxTools)
         provider.chatApi = chatApiFor(provider.type, input.chatApi, provider.chatApi)
@@ -868,7 +865,7 @@ data class CreateProviderInput(
     val chatApi: ChatApi? = null,
     /** Whether the model's earlier thinking is sent back; null is off. See [ModelProvider.sendsReasoning]. */
     val sendsReasoning: Boolean? = null,
-    /** Every tool from the first round; null is the type's default. See [ModelProvider.offerAllTools]. */
+    /** Accepted and ignored since 1.2.0, so an older client's form still saves. See [ModelProvider.offerAllTools]. */
     val offerAllTools: Boolean? = null,
     /** How a picture edit's mask is drawn; null is its type's. See [EditMask]. */
     val editMask: EditMask? = null,
@@ -912,7 +909,7 @@ data class UpdateProviderInput(
     val chatApi: ChatApi? = null,
     /** Whether the model's earlier thinking is sent back; null leaves it as it is. */
     val sendsReasoning: Boolean? = null,
-    /** Set as given: null is the type's default. See [ModelProvider.offerAllTools]. */
+    /** Accepted and ignored since 1.2.0, so an older client's form still saves. See [ModelProvider.offerAllTools]. */
     val offerAllTools: Boolean? = null,
     /** Set as given: null is its type's. See [EditMask]. */
     val editMask: EditMask? = null,
@@ -1058,12 +1055,8 @@ data class ModelProviderView(
     val chatApi: ChatApi?,
     /** Whether the model's earlier thinking is sent back to this provider. */
     val sendsReasoning: Boolean,
-    /** Every tool from the first round, as set; null is the type's default, which [offersAllTools] resolves. */
-    val offerAllTools: Boolean?,
     /** How a picture edit's mask is drawn; null is its type's. */
     val editMask: EditMask?,
-    /** Whether it does, the default resolved. */
-    val offersAllTools: Boolean,
     /** Whether its models draw with a negative prompt; see [ProviderType.takesNegativePrompt]. */
     val takesNegativePrompt: Boolean,
     /** The most tools one request carries, as set; null is the type's, which [toolCap] resolves. */
@@ -1111,9 +1104,7 @@ data class ModelProviderView(
         acceptRetryAfter = provider.acceptRetryAfter,
         chatApi = if (provider.type == ProviderType.AZURE_OPENAI) provider.chatApi ?: ChatApi.RESPONSES else null,
         sendsReasoning = provider.sendsReasoning,
-        offerAllTools = provider.offerAllTools,
         editMask = provider.editMask,
-        offersAllTools = provider.offersAllTools(),
         takesNegativePrompt = provider.type.takesNegativePrompt,
         maxTools = provider.maxTools,
         toolCap = provider.toolCap(),
@@ -1126,6 +1117,15 @@ data class ModelProviderView(
         secretVariableCatalog = held?.catalog,
         secretVariableMissing = provider.secretVariableId != null && held == null,
     )
+
+    /**
+     * Gone since 1.2.0 and answered so that an older client's query still runs:
+     * null, as if never set, and false. See [ModelProvider.offerAllTools].
+     */
+    val offerAllTools: Boolean? get() = null
+
+    /** See [offerAllTools]: no provider hands over every tool up front. */
+    val offersAllTools: Boolean get() = false
 }
 
 data class LlmModelView(

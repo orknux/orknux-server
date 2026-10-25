@@ -313,7 +313,7 @@ class AgentConversation(
     private val models: ModelChatClient,
     private val spend: io.mszymanski.orknux.server.llm.SessionSpend,
     private val tools: AgentTools,
-    /** Whether the provider hands over every tool up front; see [ToolCeilings]. */
+    /** What a turn carries and what it leaves to be found; see [ToolCeilings]. */
     private val ceilings: ToolCeilings,
     /** What lets an agent find a tool rather than carry it; see [ToolSearchTools]. */
     private val searching: ToolSearchTools,
@@ -397,8 +397,6 @@ class AgentConversation(
         )
     }
 
-    /** Sessions already told that not every tool could go up front; told once each, while this server runs. */
-    private val overCap: MutableSet<Long> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     /**
      * How many rounds this agent gets: its own number, its workspace's, or the installation's.
@@ -619,12 +617,11 @@ class AgentConversation(
         readOnly: Boolean,
     ): ChatCompletion {
         /*
-         * The agent's own ceiling, or none where the provider is handed every
-         * tool up front - see [ToolCeilings]. Read once, here, so the list this
-         * turn sends is decided once and is the same in every round.
+         * The agent's own ceiling, on every provider - see [ToolCeilings]. Read
+         * once, here, so the list this turn sends is decided once and is the
+         * same in every round.
          */
-        val offersAll = ceilings.offersAll(modelId)
-        val ceiling = if (offersAll) null else agent.maxTools
+        val ceiling = ceilings.of(agent)
         /*
          * Less everything that changes something, where this turn may only look:
          * what it may run, and what a call to anything else is refused by.
@@ -667,7 +664,6 @@ class AgentConversation(
          * search is not simply always on - finding costs a round.
          */
         val start = ceilings.split(agent, modelId, whole, lent) { tools.offeringFor(agent, it, into) }
-        val limit = start.limit
         /** Everything this turn's agent holds, its own and lent, once each. */
         val heldNow = (lent + whole.core + whole.searchable).distinctBy { it.name }
         /*
@@ -683,21 +679,6 @@ class AgentConversation(
          * again for one changed byte.
          */
         val briefedTurns = briefed(turns, lendingWhole?.briefing())
-
-        /*
-         * Every tool was meant to go up front and the provider's cap will not
-         * take them: the rest are found as they would be anywhere else, and the
-         * session says so once, because the reason it re-reads its prompt after
-         * a tool_load is otherwise invisible.
-         */
-        if (offersAll && start.hunting && into != null && overCap.add(into)) {
-            val holds = start.core.size + start.lent.size + start.findable.size
-            sessions.note(
-                into,
-                "This agent holds $holds tools and its provider takes $limit in one request, so not every tool " +
-                    "goes up front: the rest are found with ${ToolSearchTools.SEARCH} and loaded with ${ToolSearchTools.FIND}.",
-            )
-        }
 
         /*
          * What this agent has already loaded, and where it is kept.

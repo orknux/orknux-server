@@ -193,12 +193,12 @@ class StablePromptOnLoadTest(
         return "http://${running.address.hostString}:${running.address.port}"
     }
 
-    /** An OpenAI-compatible provider that offers every tool up front, as llama.cpp's does, capped at [cap]. */
+    /** An OpenAI-compatible provider, as llama.cpp's is, capped at [cap]; the agent has no ceiling of its own, so only the cap puts a tool behind the search. */
     private fun chatWith(cap: Int?): Long {
         val providerId = graphQlTester.document(
             """mutation { createModelProvider(input: {
                  workspaceId: $workspaceId, name: "local-${System.nanoTime()}", type: OPENAI, endpoint: "${endpoint()}",
-                 secret: "sk-test", offerAllTools: true, maxTools: ${cap ?: "null"}
+                 secret: "sk-test", maxTools: ${cap ?: "null"}
                }) { id } }""",
         ).execute().path("createModelProvider.id").entity(Long::class.java).get()
         val modelId = graphQlTester.document(
@@ -208,9 +208,8 @@ class StablePromptOnLoadTest(
         val agentId = graphQlTester.document(
             """mutation { createAgent(input: { workspaceId: $workspaceId, name: "Worker", type: LLM }) { id } }""",
         ).execute().path("createAgent.id").entity(Long::class.java).get()
-        // A ceiling of its own, as the agent behind this had: the provider's switch overrides it.
         graphQlTester.document(
-            """mutation { updateAgent(id: $agentId, input: { name: "Worker", modelId: $modelId, maxTools: 5 }) { id } }""",
+            """mutation { updateAgent(id: $agentId, input: { name: "Worker", modelId: $modelId }) { id } }""",
         ).execute()
         return requireNotNull(chats.start(workspaceId, "alice", "Tools", agentId).id)
     }

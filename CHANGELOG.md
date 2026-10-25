@@ -107,6 +107,7 @@ have failed.
 
 ### 🔧 Changed
 
+- **All tools up front is gone.** On every provider an agent carries its Always tools up to its own **Tools carried at once** limit and finds the rest, and the provider's **Most tools per request** still caps a request on top. The switch existed so a loaded tool would not change the tool list and make llama.cpp read the prompt again; the list is fixed for a conversation now, so it saved nothing, and it switched off the agent's limit and its Offer marks. The API still accepts `offerAllTools` and ignores it, and `offersAllTools` answers false. Nothing to do on upgrade, unless a workflow relied on every tool being in the first request: raise that agent's limit, or mark the tools it needs Always.
 - **Blue is the default accent.** Anybody who never chose one on Preferences sees blue rather than moss, the logo included; a choice already made is kept, and Moss is still offered.
 - **Every agent with Orknux access is given the diagram tools at Always, and `orknux_delete_diagram` is hidden on every agent.** A migration marks the seven that read, search, export and draw; nothing to do on upgrade. A diagram is not copied with a workspace, as a wireframe is not.
 - **A research looks for images unless told not to.** Include images is ticked on New research for anybody who has not left it off before, and a research started through the API or `orknux_start_research` without `includeImages` looks for them too; pass `includeImages: false` to keep the old behaviour.

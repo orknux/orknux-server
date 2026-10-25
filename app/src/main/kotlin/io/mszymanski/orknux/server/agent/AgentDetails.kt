@@ -88,7 +88,7 @@ class AgentDetails(
         val connectionNames = agent.connections
             .mapNotNull { connections.workspaceConnection(it)?.takeIf { held -> held.workspaceId == agent.workspaceId }?.name }
 
-        val ceiling = ceilings.of(agent, modelId)
+        val ceiling = ceilings.of(agent)
         // As this conversation is offered them: a task, for one, is not offered tools_request.
         val offering = tools.offeringFor(agent, ceiling, session)
         val lentSpecs = BuiltInTools.lentTo(agent, lent)?.specs().orEmpty()
