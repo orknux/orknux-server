@@ -105,6 +105,8 @@ class DiagramChat(
                     "diagram \"${diagram.name}\" (id ${diagram.id}). The person sees it beside this conversation, and " +
                     "every change you save appears on it as soon as you answer, where they can go on editing it by hand. ",
             )
+            // What it is for, which is what decides what belongs on it.
+            diagram.description?.let { append("It is described as: \"").append(it).append("\". ") }
             append(
                 "Read it with ${tool(DiagramTools.READ)} before changing it, and a node's whole notes with " +
                     "${tool(DiagramTools.NODE)}. Add, move, relabel, recolour, connect or remove things with " +

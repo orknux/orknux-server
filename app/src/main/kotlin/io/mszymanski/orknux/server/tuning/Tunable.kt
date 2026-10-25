@@ -332,6 +332,11 @@ enum class Tunable(
         "How long a diagram node's notes may be",
         "A save, from the editor or from an agent, with longer notes on a node is refused and names the node.",
     ),
+    DIAGRAM_DESCRIPTION_CHARACTERS(
+        "diagram.description.characters", 2_000, 100, 20_000, TuningSection.MEDIA, TuningUnit.CHARACTERS,
+        "How long a diagram's description may be",
+        "A longer one is refused, from the editor and from an agent alike.",
+    ),
     DIAGRAM_ITEMS_MOST(
         "diagram.items.most", 2_000, 10, 100_000, TuningSection.MEDIA, TuningUnit.ITEMS,
         "How many nodes and connections one diagram may hold",

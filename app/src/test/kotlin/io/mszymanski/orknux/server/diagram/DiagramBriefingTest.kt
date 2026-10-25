@@ -65,6 +65,7 @@ class DiagramBriefingTest(
         diagram()
         val said = told(id)
         assertThat(said).contains(PARAGRAPH).contains("Search them with " + DiagramTools.SEARCH).contains(DiagramTools.NODE)
+            .contains("each with a " + DiagramTools.DESCRIPTION + " saying what it is for")
             .contains("update it with " + DiagramTools.CHANGE).contains("say in your answer what you changed")
             .contains(DiagramTools.AGENTS + " is " + DiagramTools.CHANGES).contains(DiagramTools.LIST)
         // Every name it says is one the agent is offered.

@@ -21,8 +21,10 @@ extend type Mutation {
     "Refused while the catalog holds diagrams."
     deleteDiagramCatalog(id: ID!): Boolean!
     "Makes a diagram, empty or holding `document`; without catalogId, in the workspace's first catalog, made where there is none."
-    createDiagram(workspaceId: ID!, name: String!, catalogId: ID, document: String): Diagram!
+    createDiagram(workspaceId: ID!, name: String!, catalogId: ID, document: String, description: String): Diagram!
     renameDiagram(id: ID!, name: String!): Diagram!
+    "What the diagram is for; blank or null takes it away."
+    describeDiagram(id: ID!, description: String): Diagram!
     moveDiagram(id: ID!, catalogId: ID!): Diagram!
     "Whether agents may change the diagram through the orknux_* tools, or only read it."
     setDiagramAgentAccess(id: ID!, access: DiagramAgentAccess!): Diagram!
@@ -60,6 +62,10 @@ type Diagram {
     catalogId: ID!
     catalogName: String!
     name: String!
+    "What it is for, in a sentence or two; null where nobody has said."
+    description: String
+    "How long a description may be on this installation."
+    descriptionCharactersMost: Int!
     agentAccess: DiagramAgentAccess!
     """
     The drawing, as JSON: {"nodes": [{id, kind, label, x, y, w, h, color, notes,
@@ -95,7 +101,7 @@ type DiagramHit {
     diagramId: ID!
     diagramName: String!
     catalogName: String!
-    "label, notes, edge or name."
+    "label, notes, edge, name or description."
     field: String!
     nodeId: String
     nodeLabel: String

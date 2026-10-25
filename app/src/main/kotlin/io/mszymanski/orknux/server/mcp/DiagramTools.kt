@@ -72,8 +72,8 @@ class DiagramTools(
             ToolSpec(
                 name = LIST,
                 description = "The diagrams in this workspace - architecture, systems, processes and how they connect - by " +
-                    "catalog: id, name, how many nodes and connections each holds, whether agents may change it " +
-                    "($AGENTS_SAID), and where it opens.",
+                    "catalog: id, name, $DESCRIPTION - what each is for, to pick the right one by - how many nodes and " +
+                    "connections each holds, whether agents may change it ($AGENTS_SAID), and where it opens.",
                 parameters = listOf(ToolParameterSpec(CATALOG, "Only this catalog: its name or id.", required = false)),
                 summary = "Lists the workspace's diagrams by catalog",
             ),
@@ -82,7 +82,7 @@ class DiagramTools(
             ToolSpec(
                 name = SEARCH,
                 description = "Searches the diagrams for words: node labels, node notes, connection labels and diagram " +
-                    "names, best match first. Across every diagram, or within one. Answers the diagram, the node and the " +
+                    "names and descriptions, best match first. Across every diagram, or within one. Answers the diagram, the node and the " +
                     "words around the match; read a node that looks relevant with $NODE.",
                 parameters = listOf(
                     ToolParameterSpec(QUERY, "The words to look for.", required = true),
@@ -94,7 +94,7 @@ class DiagramTools(
         add(
             ToolSpec(
                 name = READ,
-                description = "One diagram in full: every node with its id, kind, label, position, size, colour, group and " +
+                description = "One diagram in full: its $DESCRIPTION, every node with its id, kind, label, position, size, colour, group and " +
                     "the start of its notes, and every connection with its ends, label and kind. Read it before changing it.",
                 parameters = listOf(ToolParameterSpec(DIAGRAM, "The diagram's name, or its id.", required = true)),
                 summary = "Reads one diagram",
@@ -140,6 +140,7 @@ class DiagramTools(
                 summary = "Draws a new diagram",
                 parameters = listOf(
                     ToolParameterSpec("name", "What it is called.", required = true),
+                    ToolParameterSpec(DESCRIPTION, "What it is for, in a sentence or two, so the next reader picks the right diagram.", required = false),
                     ToolParameterSpec(CATALOG, "The catalog to put it in: its name or id. The first catalog when left out.", required = false),
                     ToolParameterSpec(NODES, "The nodes. $NODE_SAID", required = false, schema = NODE_LIST),
                     ToolParameterSpec(EDGES, "The connections. $EDGE_SAID", required = false, schema = EDGE_LIST),
@@ -155,6 +156,7 @@ class DiagramTools(
                 summary = "Changes part of a diagram",
                 parameters = listOf(
                     ToolParameterSpec(DIAGRAM, "The diagram's name, or its id.", required = true),
+                    ToolParameterSpec(DESCRIPTION, "A new description of what the diagram is for; empty takes it away.", required = false),
                     ToolParameterSpec(ADD_NODES, "Nodes to add. $NODE_SAID", required = false, schema = NODE_LIST),
                     ToolParameterSpec(UPDATE_NODES, "Nodes to change, each with its id and only the fields that change; a null clears notes, colour or parent.", required = false, schema = NODE_LIST),
                     ToolParameterSpec(REMOVE_NODES, "The ids of nodes to take away.", required = false, schema = IDS),
@@ -228,6 +230,7 @@ class DiagramTools(
                             mapOf(
                                 "id" to view.id,
                                 "name" to view.name,
+                                DESCRIPTION to view.description,
                                 "nodes" to view.nodeCount,
                                 "edges" to view.edgeCount,
                                 AGENTS to said(view.agentAccess),
@@ -271,6 +274,7 @@ class DiagramTools(
             mapOf(
                 "id" to view.id,
                 "name" to view.name,
+                DESCRIPTION to view.description,
                 "catalog" to view.catalogName,
                 AGENTS to said(view.agentAccess),
                 "revision" to view.revision,
@@ -361,7 +365,7 @@ class DiagramTools(
         }
         val nodes = list(asked.path(NODES))?.let(api.document::nodes).orEmpty()
         val edges = list(asked.path(EDGES))?.let { api.document.edges(it, nodes) }.orEmpty()
-        val made = api.create(scope.workspaceId, name, catalog?.id, api.document.checked(DiagramDrawing(nodes, edges)))
+        val made = api.create(scope.workspaceId, name, catalog?.id, api.document.checked(DiagramDrawing(nodes, edges)), text(asked.path(DESCRIPTION)))
         return drawn(scope, made)
     }
 
@@ -398,10 +402,21 @@ class DiagramTools(
             (0 until more.size()).map { at -> api.document.edge(more.get(at), changedEdges.size + at, taken).also { taken += it.id } }
         }.orEmpty()
 
-        if (goneNodes.isEmpty() && goneEdges.isEmpty() && nodeChanges.isEmpty() && edgeChanges.isEmpty() && addedNodes.isEmpty() && addedEdges.isEmpty()) {
-            return refuse("Nothing to change: give $ADD_NODES, $UPDATE_NODES, $REMOVE_NODES, $ADD_EDGES, $UPDATE_EDGES or $REMOVE_EDGES")
+        val redrawn = !(goneNodes.isEmpty() && goneEdges.isEmpty() && nodeChanges.isEmpty() && edgeChanges.isEmpty() && addedNodes.isEmpty() && addedEdges.isEmpty())
+        // Present and null, or empty, takes the description away; absent leaves it.
+        val describing = asked.has(DESCRIPTION)
+        if (!redrawn && !describing) {
+            return refuse("Nothing to change: give $DESCRIPTION, $ADD_NODES, $UPDATE_NODES, $REMOVE_NODES, $ADD_EDGES, $UPDATE_EDGES or $REMOVE_EDGES")
         }
-        return drawn(scope, api.saveDrawing(id, DiagramDrawing(changedNodes + addedNodes, changedEdges + addedEdges)))
+        val described = text(asked.path(DESCRIPTION))
+        // Said before anything is written, so a description too long cannot leave the drawing saved without it.
+        val most = tuning[Tunable.DIAGRAM_DESCRIPTION_CHARACTERS]
+        if (described != null && described.length > most) {
+            return refuse("A diagram's description may be $most characters at most, and this one is ${described.length}")
+        }
+        if (redrawn) api.saveDrawing(id, DiagramDrawing(changedNodes + addedNodes, changedEdges + addedEdges))
+        if (describing) api.describeDiagram(id, described)
+        return drawn(scope, api.view(api.find(id)))
     }
 
     /**
@@ -510,6 +525,7 @@ class DiagramTools(
         const val QUERY = "query"
         const val CATALOG = "catalog"
         const val FORMAT = "format"
+        const val DESCRIPTION = "description"
         const val NODES = "nodes"
         const val EDGES = "edges"
         const val ADD_NODES = "addNodes"

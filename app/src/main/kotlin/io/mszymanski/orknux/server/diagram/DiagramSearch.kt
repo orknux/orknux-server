@@ -11,7 +11,7 @@ data class DiagramHit(
     val diagramId: Long,
     val diagramName: String,
     val catalogName: String,
-    /** label, notes, edge or name. */
+    /** label, notes, edge, name or description. */
     val field: String,
     val nodeId: String?,
     val nodeLabel: String?,
@@ -89,6 +89,13 @@ class DiagramSearch(
             val name = diagram.name.lowercase()
             if (name.contains(phrase) || words.all { name.contains(it) }) {
                 hit(if (name.contains(phrase)) 1.5 else 3.5, requireNotNull(diagram.id), "name", diagram.name)
+            }
+            // What a diagram is for, above what one node's notes say: it is how the right diagram is picked.
+            val described = diagram.description?.lowercase() ?: return@forEach
+            when {
+                described.contains(phrase) -> hit(3.2, requireNotNull(diagram.id), "description", around(diagram.description.orEmpty(), phrase))
+                words.all { described.contains(it) || name.contains(it) } ->
+                    hit(4.8, requireNotNull(diagram.id), "description", around(diagram.description.orEmpty(), words.first { described.contains(it) }))
             }
         }
         return ranked.sortedBy { it.first }.take(most.coerceAtLeast(1)).map { it.second }

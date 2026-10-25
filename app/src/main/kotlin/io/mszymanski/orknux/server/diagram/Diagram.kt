@@ -80,6 +80,10 @@ class Diagram(
     @Column(nullable = false, length = Diagrams.NAME_LENGTH)
     var name: String,
 
+    /** What it is for, in a sentence or two - what an agent picks a diagram by. Held to a Tunable. */
+    @Column(columnDefinition = "text")
+    var description: String? = null,
+
     /**
      * Change, for a new one: the reason diagrams are offered to agents at all is
      * that they keep them right as they learn, and a diagram somebody wants
@@ -299,6 +303,11 @@ class DiagramCatalogNotEmptyException(val name: String, val count: Long) :
 class DiagramDocumentInvalidException(val why: String) :
     RuntimeException("The diagram cannot be saved: $why"), Refusal {
     override val arguments get() = mapOf("why" to why)
+}
+
+class DiagramDescriptionTooLongException(val length: Int, val most: Int) :
+    RuntimeException("A diagram's description may be $most characters at most, and this one is $length"), Refusal {
+    override val arguments get() = mapOf("length" to length, "most" to most)
 }
 
 class DiagramNotesTooLongException(val node: String, val length: Int, val most: Int) :

@@ -955,6 +955,7 @@ orknux:
     wireframe.html.inline.characters: ${ORKNUX_TUNING_WIREFRAME_HTML_INLINE_CHARACTERS:100000}
     wireframe.picture.pixels: ${ORKNUX_TUNING_WIREFRAME_PICTURE_PIXELS:1600}
     diagram.note.characters: ${ORKNUX_TUNING_DIAGRAM_NOTE_CHARACTERS:5000}
+    diagram.description.characters: ${ORKNUX_TUNING_DIAGRAM_DESCRIPTION_CHARACTERS:2000}
     diagram.items.most: ${ORKNUX_TUNING_DIAGRAM_ITEMS_MOST:2000}
     diagram.search.hits: ${ORKNUX_TUNING_DIAGRAM_SEARCH_HITS:20}
     diagram.notes.shown.characters: ${ORKNUX_TUNING_DIAGRAM_NOTES_SHOWN_CHARACTERS:200}

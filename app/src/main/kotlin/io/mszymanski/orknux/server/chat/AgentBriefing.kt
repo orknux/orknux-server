@@ -592,7 +592,12 @@ class AgentBriefing(
         val change = io.mszymanski.orknux.server.mcp.DiagramTools.CHANGE
         val list = io.mszymanski.orknux.server.mcp.DiagramTools.LIST
         return buildString {
-            append("This workspace keeps diagrams of how its systems, processes and architecture fit together. ")
+            append("This workspace keeps diagrams of how its systems, processes and architecture fit together")
+            if (held(list)) {
+                append(", each with a ").append(io.mszymanski.orknux.server.mcp.DiagramTools.DESCRIPTION)
+                append(" saying what it is for - ").append(list).append(" lists them, so pick the one that fits")
+            }
+            append(". ")
             append("Search them with ").append(search).append(" before answering anything about how its parts connect, ")
             append("what calls what, or where something lives")
             if (held(node)) {

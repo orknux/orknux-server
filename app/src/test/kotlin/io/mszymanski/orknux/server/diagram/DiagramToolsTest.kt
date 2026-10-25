@@ -192,6 +192,35 @@ class DiagramToolsTest(
     }
 
     @Test
+    fun `the tools take a description, give it back, change it alone, and find it`() {
+        val made = call(DiagramTools.CREATE, """{"name":"Payments","${DiagramTools.DESCRIPTION}":"How a card payment is settled."}""")
+        assertThat(made.path(DiagramTools.DESCRIPTION).stringValue()).describedAs(made.toString()).isEqualTo("How a card payment is settled.")
+        val id = made.path("id").asLong()
+        val listed = call(DiagramTools.LIST, "{}").path("catalogs").get(0).path("diagrams").get(0)
+        assertThat(listed.path(DiagramTools.DESCRIPTION).stringValue()).isEqualTo("How a card payment is settled.")
+
+        val changed = call(DiagramTools.CHANGE, """{"diagram":"$id","${DiagramTools.DESCRIPTION}":"How a refund is settled."}""")
+        assertThat(changed.has("error")).describedAs(changed.toString()).isFalse()
+        assertThat(call(DiagramTools.READ, """{"diagram":"$id"}""").path(DiagramTools.DESCRIPTION).stringValue()).isEqualTo("How a refund is settled.")
+        assertThat(diagrams.findById(id).get().revision).describedAs("the drawing was not written for a description alone").isEqualTo(1)
+
+        val hits = call(DiagramTools.SEARCH, """{"query":"refund"}""").path("hits")
+        assertThat(hits.get(0).path("found").stringValue()).isEqualTo("description")
+        assertThat(hits.get(0).path("diagram").path("id").asLong()).isEqualTo(id)
+
+        tunables.set(Tunable.DIAGRAM_DESCRIPTION_CHARACTERS, 100, "alice")
+        try {
+            assertThat(call(DiagramTools.CHANGE, """{"diagram":"$id","${DiagramTools.DESCRIPTION}":"${"x".repeat(101)}","addNodes":[{"label":"A"}]}""").path("error").stringValue())
+                .contains("100")
+            assertThat(call(DiagramTools.READ, """{"diagram":"$id"}""").path("nodes").size()).describedAs("nothing written").isEqualTo(0)
+        } finally {
+            tunables.set(Tunable.DIAGRAM_DESCRIPTION_CHARACTERS, null, "alice")
+        }
+        call(DiagramTools.CHANGE, """{"diagram":"$id","${DiagramTools.DESCRIPTION}":null}""")
+        assertThat(call(DiagramTools.READ, """{"diagram":"$id"}""").path(DiagramTools.DESCRIPTION).isNull).isTrue()
+    }
+
+    @Test
     fun `a diagram read only for agents is said so, and its change and delete are refused`() {
         val id = landscape()
         graphQlTester.document("""mutation { setDiagramAgentAccess(id: $id, access: READ) { id } }""").execute()

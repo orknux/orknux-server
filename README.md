@@ -502,6 +502,7 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_WIREFRAME_HTML_INLINE_CHARACTERS` | How long a wireframe's HTML may be and still be handed to a model, in characters. | `100000` |
 | `ORKNUX_TUNING_WIREFRAME_PICTURE_PIXELS` | How wide the picture of a wireframe an agent drew may be, in pixels. | `1600` |
 | `ORKNUX_TUNING_DIAGRAM_NOTE_CHARACTERS` | How long a diagram node's notes may be, in characters. | `5000` |
+| `ORKNUX_TUNING_DIAGRAM_DESCRIPTION_CHARACTERS` | How long a diagram's description may be, in characters. | `2000` |
 | `ORKNUX_TUNING_DIAGRAM_ITEMS_MOST` | How many nodes and connections one diagram may hold, in items. | `2000` |
 | `ORKNUX_TUNING_DIAGRAM_SEARCH_HITS` | How many hits a diagram search answers with, in items. | `20` |
 | `ORKNUX_TUNING_DIAGRAM_NOTES_SHOWN_CHARACTERS` | How much of each node's notes a whole diagram read shows, in characters. | `200` |

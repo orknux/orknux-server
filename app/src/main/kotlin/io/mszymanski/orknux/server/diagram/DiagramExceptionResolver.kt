@@ -21,6 +21,7 @@ class DiagramExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is DiagramCatalogNotEmptyException,
             is DiagramDocumentInvalidException,
             is DiagramNotesTooLongException,
+            is DiagramDescriptionTooLongException,
             is DiagramTooLargeException,
             is DiagramChangedException,
             is DiagramReadOnlyException,
