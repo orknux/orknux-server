@@ -96,9 +96,10 @@ class ToolCeilings(private val models: ModelChatClient) {
          * case of a tool past the cap.
          *
          * Filled to the brim, less the finder and tool_run. It was kept short
-         * of the cap so a load had somewhere to go; a loaded tool no longer
-         * goes into the array, which is fixed for the session, but is called
-         * through tool_run - see [io.mszymanski.orknux.server.llm.SessionFrames].
+         * of the cap so a load had somewhere to go; a loaded tool joins the
+         * array at the next turn only where the cap leaves room (see
+         * [ConversationFrame.joined]), and past it is called through tool_run
+         * - see [io.mszymanski.orknux.server.llm.SessionFrames].
          */
         val split = capped(limit)
         val (splitLent, splitLentFindable) = lending.partition { BuiltInTools.carried(agent, it.name, limit) }

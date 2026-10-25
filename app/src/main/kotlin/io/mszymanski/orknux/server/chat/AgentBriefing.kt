@@ -631,18 +631,20 @@ class AgentBriefing(
          * the name below" and never said with what, and no runaway session ever
          * called find_tools.
          *
-         * And that a load holds while the marks do not move. The marks are what
-         * the conversation started out carrying, so the system turn is the same
-         * after a load as before it; a model that read "(load it first)" beside
-         * a tool it had just loaded would otherwise load it again.
+         * And that a load holds while the marks do not move. The marks change
+         * only at the next turn, when what was loaded joins the tool array (see
+         * [ConversationFrame.joined]), so the system turn is the same for the
+         * rest of the turn that loaded it; a model that read "(load it first)"
+         * beside a tool it had just loaded would otherwise load it again.
          */
         fun behindSearch(example: String): String =
             BEHIND_SEARCH_START + " this turn. Where one you need is marked (load it first), call " +
                 ToolSearchTools.FIND + " with its name from the list below - " + ToolSearchTools.FIND +
                 " with names [\"" + example + "\"], say - and it answers with how the tool is called. Then call it " +
                 "with " + ToolRun.NAME + ", giving its name and its arguments. Once " + ToolSearchTools.FIND +
-                " says one is loaded it stays yours for the rest of this conversation, still marked here as it " +
-                "was: call it with " + ToolRun.NAME + " rather than loading it again. If you do not know which " +
+                " says one is loaded it stays yours for the rest of this conversation: in this turn call it with " +
+                ToolRun.NAME + " rather than loading it again, and from the next it is marked (" + BuiltInTools.LOADED +
+                ") here and called by its own name. If you do not know which " +
                 "tool a job needs, " + ToolSearchTools.SEARCH + " finds them by words about it, and " +
                 ToolSearchTools.DESCRIBE + " shows one in full before you load it. A tool that is not in this " +
                 "list is not one you have: say so rather than claiming you can do what it would do."

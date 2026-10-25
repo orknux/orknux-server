@@ -77,8 +77,8 @@ class ToolSearchTest(
 
         assertThat(found).contains("slack_postMessage")
         assertThat(said).contains("slack_postMessage")
-        // And how each is called, through tool_run: the request's array is the
-        // session's and does not grow, so the schema comes in the answer.
+        // And how each is called, through tool_run: the request's array does not
+        // grow inside a turn, so the schema comes in the answer.
         assertThat(said).contains(ToolRun.NAME).contains("Arguments:")
     }
 

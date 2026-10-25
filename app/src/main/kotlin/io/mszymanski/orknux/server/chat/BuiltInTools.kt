@@ -549,9 +549,11 @@ class BuiltInTools(
          * The briefing marks its own tools by the same rule, but it is written
          * without the lent ones, and they count towards the provider's cap - so
          * the marks are settled here, where the whole of what is sent is known.
-         * Never by what has been loaded since: the system turn stays as it was
-         * after a tool_load, because a provider caching the prompt by its
-         * prefix reads all of it again for one changed byte.
+         * Never by what has been loaded within the turn: the system turn stays
+         * as it was after a tool_load, because a provider caching the prompt by
+         * its prefix reads all of it again for one changed byte. At the next
+         * turn the loaded tool is carried, and this marks it so - see
+         * [ConversationFrame.joined], which calls this on a list already marked.
          */
         fun listed(system: String?, lent: List<ToolSpec>, carried: Set<String>, hunting: Boolean): String? {
             if (system == null) return null

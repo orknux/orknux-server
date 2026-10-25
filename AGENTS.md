@@ -323,9 +323,16 @@ every start it is in effect. Never set them in a deployment.
   system turn changes by a byte, so `SessionFrames` (`llm_session_frame`) makes
   both once per session and sends them unchanged until the agent, its model or
   the session changes, or the conversation is compacted. What changes inside a
-  session - a grant given, plan mode left - is said in an appended message, and
-  a tool loaded mid-conversation is run through `tool_run` rather than added to
-  the array. So the array may name a tool this turn may not run: plan mode keeps
+  session - a grant given, plan mode left - is said in an appended message. The
+  one thing that grows the array is `tool_load`: a tool loaded is run through
+  `tool_run` for the rest of that turn and joins the array at the start of the
+  next (`ConversationFrame.joined`), appended at its end up to the provider's
+  cap, its mark in the system turn changed to loaded - llama.cpp's tool-call
+  grammar lets a model name only what the array declares, and session 900's
+  model got `scratchpad_keep` each time it called a loaded `scratchpad_write`.
+  That is one whole prompt re-read on the turn after a load; never move the
+  array inside a turn, where every round would pay it. So the array may name a
+  tool this turn may not run: plan mode keeps
   the writing tools in it and `ToolEffects` refuses them when called, saying
   nothing ran. "Offered" here means the tool runs or is refused in words - never
   that it is declared and silently does nothing.
