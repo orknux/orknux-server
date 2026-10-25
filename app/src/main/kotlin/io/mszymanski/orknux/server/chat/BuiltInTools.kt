@@ -75,7 +75,8 @@ enum class BuiltInGovernance {
     /**
      * Offered while the agent holds any box label. The box tools are one
      * family - opening a session is pointless without the tools that use it -
-     * so the label grant switches them, and the rows are read-only.
+     * so the label grant switches them, and none can be hidden on its own.
+     * Each is Offer or Always while a label is held, which is the agent's mark.
      */
     BOX_ACCESS,
 
@@ -131,6 +132,9 @@ class BuiltInTools(
 
     /** The orknux_* tools a new agent starts with hidden, for its owner to turn on; see [OrknuxTools.startsHidden]. */
     fun orknuxStartsHidden(): Set<String> = orknux.startsHidden()
+
+    /** The box tools' names, for the marks an agent holding a label may carry. */
+    fun boxNames(): List<String> = boxes.specs().map { it.name }
 
     /** Every built-in, the grant-governed first and in the order the form lists them. */
     fun all(): List<BuiltInTool> = buildList {
@@ -318,6 +322,63 @@ class BuiltInTools(
         private val REACHING_SET = REACHING.toSet()
 
         /**
+         * The built-ins in [GRANTED] a new agent starts with at Offer rather
+         * than Always: held, and found through the tool search once a tool
+         * limit is set, rather than carried on every turn. Asked for: an agent
+         * under a limit carried sixty tools it rarely used in front of the model.
+         *
+         * Rating a conversation, the picture tools, the MIDI tools and the
+         * format readers past the two basic ones. `pdf_read` and `sheet_read`
+         * stay Always, because they are what the note on an attached PDF or
+         * spreadsheet tells the model to call, and those are the files people
+         * attach most; an SVG, an XML file or a MIDI file is rarer, and its
+         * reader is found when one arrives.
+         *
+         * Only where an agent starts: one that exists keeps the marks it has.
+         * The orknux_* and orkbox_* tools start at Offer too; see [startsOffered].
+         */
+        val STARTS_OFFERED: Set<String> = setOf(
+            io.mszymanski.orknux.server.rating.RatingTools.RATE,
+            io.mszymanski.orknux.server.rating.RatingTools.REMOVE,
+            // Pictures: looking at one, drawing one, linking one, and turning a format into one.
+            AgentTools.VIEW,
+            StepPictureTools.DRAW,
+            StepPictureTools.LINK,
+            "svg_draw",
+            "svg_toPng",
+            "pdf_toPng",
+            "pdf_preview",
+            "charts_render",
+            "diagram_render",
+            "midi_read",
+            "midi_write",
+            "midi_render",
+            // The readers that answer about a file rather than read it whole, and the rarer formats'.
+            "svg_read",
+            io.mszymanski.orknux.server.embedded.SvgCapability.MEASURE_TOOL,
+            io.mszymanski.orknux.server.embedded.XmlCapability.QUERY_TOOL,
+            io.mszymanski.orknux.server.embedded.PdfCapability.SEARCH_TOOL,
+            AgentTools.VALIDATE,
+        )
+
+        /** The box tools, which follow Offer and Always like the orknux_* tools while the agent holds a box label. */
+        private val BOX_NAMES: Set<String> = io.mszymanski.orknux.server.box.BoxTools.SPECS.map { it.name }.toSet()
+
+        /** Whether this is one of the box tools, carried or found by its mark while the agent holds a label. */
+        fun box(name: String): Boolean = name in BOX_NAMES
+
+        /**
+         * Whether a new agent, or one given the grant afresh - Orknux access, a
+         * box label - starts with this tool at Offer rather than Always. The one
+         * place that says so: [STARTS_OFFERED], every orknux_* tool, and every
+         * orkbox_* tool. A tool that starts hidden is hidden whatever this says.
+         */
+        fun startsOffered(name: String): Boolean = name in STARTS_OFFERED || orknux(name) || box(name)
+
+        /** The built-ins in [GRANTED] a new agent carries Always: the rest start at Offer. */
+        fun startingAlways(): List<String> = GRANTED.filterNot(::startsOffered)
+
+        /**
          * The built-ins in [GRANTED] that may be hidden without the workspace's
          * unsafe switch. The switch guards what an agent is built on - a
          * scratchpad, a clock, a way to say it has finished - and sending a
@@ -397,8 +458,9 @@ class BuiltInTools(
          * The rule [AgentTools.offeringFor] keeps for every other tool, applied
          * to the built-ins: only an agent carrying a ceiling of its own drops
          * anything, and under one what is marked Always is carried and the rest
-         * is looked for, and the orknux_* tools likewise. A name that is neither
-         * is always carried here, because whether *it* is found is somebody else's decision.
+         * is looked for, and the orknux_* and orkbox_* tools likewise. A name
+         * that is none of these is always carried here, because whether *it* is
+         * found is somebody else's decision.
          */
         fun carried(agent: Agent, name: String, ceiling: Int? = agent.maxTools): Boolean =
             /*
@@ -409,7 +471,7 @@ class BuiltInTools(
              * seen instead, and never looked.
              */
             if (name == HTTP_ALLOW_LIST) HTTP.any { it in agent.tools } else
-            (name !in GRANTED_SET && name !in REACHING_SET && !orknux(name)) ||
+            (name !in GRANTED_SET && name !in REACHING_SET && !orknux(name) && !box(name)) ||
                 ceiling == null ||
                 name in agent.requiredTools
 

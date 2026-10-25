@@ -243,29 +243,54 @@ class BuiltInToolsTest(
     /* ------------------------------------------------------ a fresh agent -- */
 
     /**
-     * On and Always for every one of them, so an agent made today is offered
-     * exactly what one made yesterday was - and the three switches that were
-     * columns read as they always did.
+     * On for every one of them, so an agent made today is offered exactly what
+     * one made yesterday was, and Always for all but the ones that start at
+     * Offer - which a tool limit leaves to be found. The three switches that
+     * were columns read as they always did.
      */
     @Test
-    fun `a fresh agent starts with every built-in on and Always`() {
+    fun `a fresh agent starts with every built-in on, Always but the ones that start at Offer`() {
         val id = created("Fresh")
 
         graphQlTester.document("{ agent(id: $id) { tools requiredTools artifactAccess finishAccess pictureLinkAccess } }")
             .execute()
             .path("agent.tools").entityList(String::class.java).containsExactly(*BuiltInTools.GRANTED.toTypedArray())
-            .path("agent.requiredTools").entityList(String::class.java).containsExactly(*BuiltInTools.GRANTED.toTypedArray())
+            .path("agent.requiredTools").entityList(String::class.java).containsExactly(*BuiltInTools.startingAlways().toTypedArray())
             .path("agent.artifactAccess").entity(Boolean::class.java).isEqualTo(true)
             .path("agent.finishAccess").entity(Boolean::class.java).isEqualTo(true)
             .path("agent.pictureLinkAccess").entity(Boolean::class.java).isEqualTo(true)
     }
 
     /**
-     * The tools that answer a question about a large file without reading it
-     * whole - chat 981 - reach a new agent marked Always and are offered to it.
+     * Which start at Offer, as asked for: rating, pictures, MIDI and the format
+     * readers past the basic two, which stay Always because the note on an
+     * attached PDF or spreadsheet names them. Every name is a real built-in.
      */
     @Test
-    fun `a fresh agent is offered the questions about a file, Always`() {
+    fun `the ones that start at Offer are the rating, picture, midi and less basic reading tools`() {
+        assertThat(BuiltInTools.GRANTED).containsAll(BuiltInTools.STARTS_OFFERED)
+        assertThat(BuiltInTools.STARTS_OFFERED).contains(
+            "rate_session", "remove_session_rating", "picture_view", "svg_draw", "svg_toPng", "pdf_toPng",
+            "midi_read", "midi_write", "midi_render", "svg_read", "svg_measure", "xml_query", "pdf_search",
+        )
+        assertThat(BuiltInTools.startingAlways()).contains("pdf_read", "sheet_read", "finish_answer", "note_to_self", "save_artifact")
+        assertThat(BuiltInTools.STARTS_OFFERED).doesNotContain("pdf_read", "sheet_read", "finish_answer")
+        // And every orknux_* and orkbox_* tool, by family rather than by list.
+        assertThat(builtIns.orknuxNames()).allMatch(BuiltInTools::startsOffered)
+        assertThat(io.mszymanski.orknux.server.box.BoxTools.SPECS.map { it.name }).allMatch(BuiltInTools::startsOffered)
+        graphQlTester.document("{ builtInTools { name startsOffered } }").execute()
+            .path("builtInTools[?(@.startsOffered == true)].name").entityList(String::class.java)
+            .contains("rate_session", "orknux_news", "orkbox_exec")
+            .doesNotContain("pdf_read", "note_to_self")
+    }
+
+    /**
+     * The tools that answer a question about a large file without reading it
+     * whole - chat 981 - reach a new agent, at Offer: found under a tool limit,
+     * and carried without one.
+     */
+    @Test
+    fun `a fresh agent is offered the questions about a file, at Offer`() {
         val asking = listOf(
             io.mszymanski.orknux.server.embedded.XmlCapability.QUERY_TOOL,
             io.mszymanski.orknux.server.embedded.SvgCapability.MEASURE_TOOL,
@@ -275,12 +300,14 @@ class BuiltInToolsTest(
 
         graphQlTester.document("{ agent(id: $id) { tools requiredTools } }")
             .execute()
-            .path("agent.requiredTools").entityList(String::class.java).contains(*asking.toTypedArray())
+            .path("agent.tools").entityList(String::class.java).contains(*asking.toTypedArray())
+            .path("agent.requiredTools").entityList(String::class.java).doesNotContain(*asking.toTypedArray())
 
         val agent = requireNotNull(agents.findByIdOrNull(id))
         assertThat(tools.offeringFor(agent).core.map { it.name }).containsAll(asking)
-        val capped = agent(tools = BuiltInTools.GRANTED, ceiling = 10)
-        assertThat(tools.offeringFor(capped).core.map { it.name }).containsAll(asking)
+        val capped = requireNotNull(agents.findByIdOrNull(id)).also { it.maxTools = 10 }
+        assertThat(tools.offeringFor(capped).searchable.map { it.name }).containsAll(asking)
+        assertThat(tools.offeringFor(capped).core.map { it.name }).doesNotContainAnyElementsOf(asking).contains("pdf_read")
     }
 
     /**

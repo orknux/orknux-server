@@ -610,13 +610,13 @@ class AgentAPI(
         }
         /*
          * Orknux access given on a save that sent no marks - the MCP, a script -
-         * brings its tools in at Always, as a new agent's start: what granting
-         * it meant before each orknux_* tool had an Offer of its own. The form
-         * sends the marks it drew, which is the same unless somebody changed one.
+         * brings its tools in as a new agent's start has them: at Offer, unless
+         * [BuiltInTools.startsOffered] says one starts at Always. The form sends
+         * the marks it drew, which is the same unless somebody changed one.
          */
         if (agent.orknuxAccess && !previousOrknux && input.requiredTools == null) {
             builtIns.orknuxNames()
-                .filter { it !in agent.hiddenTools && it !in agent.requiredTools }
+                .filter { it !in agent.hiddenTools && it !in agent.requiredTools && !BuiltInTools.startsOffered(it) }
                 .forEach { agent.requiredTools.add(it) }
         }
         // And the same rule where the marks were not sent: a grant taken away
@@ -940,15 +940,20 @@ class AgentAPI(
      */
     private fun held(agent: Agent): Set<String> = agent.tools.toSet() + BuiltInTools.grantedTo(agent) +
         // And the orknux_* tools it has not hidden, while the grant is on: each may be marked Always.
-        (if (agent.orknuxAccess) builtIns.orknuxNames().filter { it !in agent.hiddenTools } else emptyList())
+        (if (agent.orknuxAccess) builtIns.orknuxNames().filter { it !in agent.hiddenTools } else emptyList()) +
+        // And the box tools, while it holds a label: each may be marked Always, none hidden on its own.
+        (if (agent.boxLabels.isNotEmpty()) builtIns.boxNames() else emptyList())
 
     /**
-     * What a new agent carries on every turn: every built-in, and the orknux_*
-     * tools where it starts with the grant - which is what an agent carried
-     * before those had an Offer of their own.
+     * What a new agent carries on every turn: the built-ins that do not start
+     * at Offer, and the orknux_* tools among them where it starts with the
+     * grant. [BuiltInTools.startsOffered] is what says which start at Offer -
+     * every orknux_* tool, today - so this is read off it rather than listed.
      */
     private fun startingAlways(orknuxAccess: Boolean): MutableList<String> =
-        (BuiltInTools.GRANTED + (if (orknuxAccess) builtIns.orknuxNames() - builtIns.orknuxStartsHidden() else emptyList())).toMutableList()
+        (BuiltInTools.startingAlways() +
+            (if (orknuxAccess) builtIns.orknuxNames() - builtIns.orknuxStartsHidden() else emptyList())
+                .filterNot(BuiltInTools::startsOffered)).toMutableList()
 
     /** Whoever is asking, for the stamp a revision of this state will carry. */
     private fun currentUser(): String =

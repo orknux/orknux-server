@@ -208,23 +208,22 @@ class GrantRequestToolsTest(
     }
 
     /**
-     * Orknux access granted in a chat brings its tools in at Always, as a new
-     * agent starts with them, and loaded where the agent asked. The orknux_*
-     * tools have an Offer of their own since 1.2.0; an agent under a tool limit
-     * given them this way still carries every one.
+     * Orknux access granted in a chat brings its tools in as a new agent starts
+     * with them - at Offer, found under a tool limit - and loaded where the
+     * agent asked, so the conversation that asked has them in hand.
      */
     @Test
-    fun `accepting Orknux access marks its tools Always and loads them where asked`() {
+    fun `accepting Orknux access brings its tools in at Offer and loads them where asked`() {
         agents.save(agents.findByIdOrNull(agent.id!!)!!.apply { maxTools = 100 })
         call(GrantRequestTools.ASK, mapOf("tools" to listOf(GrantRequestTools.ORKNUX), "why" to "to read the runs", "load" to true))
         answer(GrantRequestTools.ACCEPT_AND_LOAD)
             .path("answerRequest.outcome").entity(String::class.java).isEqualTo("Granted - ${GrantRequestTools.ORKNUX}")
 
         val after = agents.findByIdOrNull(agent.id!!)!!
-        val names = builtIns.orknuxNames()
+        val names = builtIns.orknuxNames() - builtIns.orknuxStartsHidden()
         assertThat(after.orknuxAccess).isTrue()
-        assertThat(after.requiredTools).containsAll(names)
-        assertThat(tools.offeringFor(after).core.map { it.name }).containsAll(names)
+        assertThat(after.requiredTools).noneMatch { it.startsWith("orknux_") }
+        assertThat(tools.offeringFor(after).searchable.map { it.name }).containsAll(names)
         assertThat(recorder.toolsFound(conversation)).containsAll(names)
     }
 

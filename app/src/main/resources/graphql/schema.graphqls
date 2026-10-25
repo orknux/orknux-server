@@ -6926,6 +6926,8 @@ type BuiltInTool {
     unavailable: String
     "Whether an agent starts with it hidden, for its owner to turn on: orknux_delete_diagram."
     startsHidden: Boolean!
+    "Whether an agent, or a grant given afresh, starts with it at Offer rather than Always: found once a tool limit is set."
+    startsOffered: Boolean!
 }
 
 "What decides whether an agent is offered a built-in tool."
