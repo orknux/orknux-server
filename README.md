@@ -530,6 +530,7 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_DOCUMENT_IMPORT_TABLE_COLUMN_GAP_PERCENT` | How wide a gap between words in a PDF starts a column of a table with no ruling lines, in percent of their type size. | `150` |
 | `ORKNUX_TUNING_DOCUMENT_IMPORT_TABLE_ROWS_FULL_PERCENT` | How many rows of an unruled table in a PDF must have a word in every column, in percent. | `75` |
 | `ORKNUX_TUNING_DOCUMENT_IMPORT_TABLE_CELL_CHARACTERS` | How long the cells of an unruled table in a PDF may be on average, in characters; longer reads as columns of prose. | `30` |
+| `ORKNUX_TUNING_DOCUMENT_IMPORT_LIST_ITEMS_LEAST` | How many items in a row a list read from a PDF has at least, in items; fewer, and a line opening with a dash or a number stays in its paragraph, unless its lines hang at its words or its bullet is drawn. | `2` |
 | `ORKNUX_TUNING_DOCUMENT_COMPLETION_CONTEXT_CHARACTERS` | How much of a document the inline suggestion reads, in characters. | `2000` |
 | `ORKNUX_TUNING_EDITOR_CHAT_FILE_CHARACTERS` | How much of the files on one editor chat message a model reads, in characters. | `100000` |
 | `ORKNUX_TUNING_DOCUMENT_SELECTION_CHARACTERS` | How much selected text the document editor's Translate sends a model, in characters; a longer selection is refused. | `8000` |

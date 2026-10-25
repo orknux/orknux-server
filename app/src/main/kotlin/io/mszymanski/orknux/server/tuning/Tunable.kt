@@ -496,6 +496,17 @@ enum class Tunable(
         "Longer, and the lines are read as columns of prose, not as a table.",
     ),
     /*
+     * A list in a PDF is lines opening with a bullet or a number, and a line
+     * of prose may open with either; one such line is a list only when its
+     * lines hang at its words or its bullet is drawn, and otherwise when
+     * there are this many in a row.
+     */
+    DOCUMENT_IMPORT_LIST_ITEMS_LEAST(
+        "document.import.list.items.least", 2, 1, 20, TuningSection.MEDIA, TuningUnit.ITEMS,
+        "How many items in a row a list read from a PDF has at least",
+        "Fewer, and a line opening with a dash or a number stays in its paragraph.",
+    ),
+    /*
      * Counted in characters because that is what the completion model reads on
      * every pause in the typing: the text before the caret, cut to this, and a
      * quarter as much after it.
