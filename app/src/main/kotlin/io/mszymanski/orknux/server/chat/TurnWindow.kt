@@ -167,8 +167,39 @@ class TurnWindow(
                 else -> "ask ${call.name} for a smaller part to read the rest"
             }
         }
-        if (drawing(said)) seeIt(call, held)?.let { parts += it }
+        if (drawing(said)) {
+            seeIt(call, held)?.let { parts += it }
+            askIt(call, held)?.let { parts += it }
+        }
+        if (call.name == io.mszymanski.orknux.server.embedded.PdfCapability.READ_TOOL) {
+            held.firstOrNull { it.name == io.mszymanski.orknux.server.embedded.PdfCapability.SEARCH_TOOL }?.let {
+                parts += "to find a passage rather than read it all, search the document with ${it.name}"
+            }
+        }
         return parts.joinToString("; ")
+    }
+
+    /**
+     * The tools that answer questions about a large SVG without reading it,
+     * named from their declarations and only where held. Chat 981: the agent
+     * that read a copper layer whole wanted counts and spacings, which these
+     * answer in a few lines each.
+     */
+    private fun askIt(call: ToolCall, held: List<ToolSpec>): String? {
+        val query = held.firstOrNull { it.name == io.mszymanski.orknux.server.embedded.XmlCapability.QUERY_TOOL }
+        val measure = held.firstOrNull { it.name == io.mszymanski.orknux.server.embedded.SvgCapability.MEASURE_TOOL }
+        if (query == null && measure == null) return null
+        val keyParam = (query ?: measure)!!.parameters.firstOrNull { it.name == io.mszymanski.orknux.server.embedded.XmlCapability.KEY }?.name
+        val given = keyParam?.let { name ->
+            runCatching { MAPPER.readTree(call.arguments).path(name) }.getOrNull()?.takeIf { it.isString }?.stringValue()
+        }
+        val asks = listOfNotNull(
+            query?.let { "${it.name} counts and lists its elements with XPath" },
+            measure?.let { "${it.name} measures its shapes' sizes, spacing and groups" },
+        ).joinToString(" and ")
+        return "to answer a question about it, ask rather than read: $asks" +
+            (if (keyParam != null && given != null) ", with $keyParam \"$given\"" else "") +
+            ", and only the answer comes back"
     }
 
     /** Whether the answer is SVG markup, which is drawn to be looked at rather than read. */

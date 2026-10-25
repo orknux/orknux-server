@@ -120,7 +120,10 @@ class ContextOverflowTest(
         assertThat(svg.substringAfter("… ")).isEqualTo(
             "(trimmed from 476668 characters; the whole answer is kept under the key \"result.call_1\" for any " +
                 "tool that takes a key; it is an SVG, which is better looked at than read: svg_toPng with key " +
-                "\"pcb.svg\" draws it as a picture, and picture_view shows you a picture by its key)",
+                "\"pcb.svg\" draws it as a picture, and picture_view shows you a picture by its key; to answer a " +
+                "question about it, ask rather than read: xml_query counts and lists its elements with XPath and " +
+                "svg_measure measures its shapes' sizes, spacing and groups, with key \"pcb.svg\", and only the " +
+                "answer comes back)",
         )
         assertThat(store.get(session, "result.call_1")).isNotNull()
     }

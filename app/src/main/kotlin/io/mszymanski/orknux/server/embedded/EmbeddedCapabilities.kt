@@ -357,6 +357,20 @@ class EmbeddedCapabilities(
         }
     }
 
+    /**
+     * The tools that answer questions about a stored file of [contentType]
+     * without reading it whole, as an agent calls them, each with the
+     * parameter its key goes in. Read off [EmbeddedTool.asks].
+     */
+    fun askersOf(contentType: String): List<Pair<String, String>> {
+        val type = contentType.substringBefore(';').trim().lowercase()
+        return native.flatMap { one ->
+            one.tools().mapNotNull { tool ->
+                tool.asks?.takeIf { type in it.contentTypes }?.let { "${one.key}_${tool.name}" to it.keyParam }
+            }
+        }
+    }
+
     fun handles(name: String): Boolean =
         nativeFor(name) != null || held.any { one -> one.read.tools.any { one.key + "_" + it.name == name } }
 

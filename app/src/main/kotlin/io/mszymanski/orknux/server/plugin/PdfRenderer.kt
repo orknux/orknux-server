@@ -174,6 +174,7 @@ class PdfRenderer {
 
                 val written = StringBuilder()
                 var characters = 0
+                var textless = true
                 for (page in first..last) {
                     val stripper = PDFTextStripper().apply {
                         startPage = page
@@ -186,10 +187,12 @@ class PdfRenderer {
                     }
                     val said = stripper.getText(document)
                     characters += said.length
+                    if (said.isNotBlank()) textless = false
                     if (characters > MOST_CHARACTERS) {
                         return Reading.Refused(
                             "that pdf holds more than ${MOST_CHARACTERS / 1000}k characters of text, which is more " +
                                 "than this reads at once; ask for a range of pages",
+                            tooLong = true,
                         )
                     }
 
@@ -211,7 +214,7 @@ class PdfRenderer {
                     written.append("</section>\n")
                 }
 
-                Reading.Read(written.toString(), pages = pages, from = first, to = last, characters = characters)
+                Reading.Read(written.toString(), pages = pages, from = first, to = last, characters = characters, textless = textless)
             }
         } catch (failure: java.io.IOException) {
             log.warn("a pdf could not be read", failure)
@@ -249,9 +252,12 @@ class PdfRenderer {
             val from: Int,
             val to: Int,
             val characters: Int,
+            /** Whether no page read carries any text: pictures only, as a scan's are. */
+            val textless: Boolean = false,
         ) : Reading
 
-        data class Refused(val reason: String) : Reading
+        /** [tooLong] where the text was refused for its length, which a narrower read or a search answers. */
+        data class Refused(val reason: String, val tooLong: Boolean = false) : Reading
     }
 
     sealed interface Drawing {

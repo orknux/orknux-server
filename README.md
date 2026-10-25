@@ -466,6 +466,13 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_SHEET_ROWS_MOST` | How many rows one read of a CSV or a workbook answers, in items. | `200` |
 | `ORKNUX_TUNING_SHEET_ANSWER_CHARACTERS` | How much of a sheet one read hands a model, in characters. | `60000` |
 | `ORKNUX_TUNING_SHEET_UNPACKED_MB` | The most one part of a workbook may unpack to, in MB. | `100` |
+| `ORKNUX_TUNING_XML_MATCHES_MOST` | How many matches one XML or SVG question lists, in items. | `50` |
+| `ORKNUX_TUNING_XML_FILE_MB` | The largest XML or SVG file an agent may query or measure, in MB. | `20` |
+| `ORKNUX_TUNING_XML_ATTRIBUTE_CHARACTERS` | How much of a long attribute or text an XML query shows, in characters. | `200` |
+| `ORKNUX_TUNING_SVG_GROUP_GAP_PERCENT` | How close SVG shapes must be to be grouped, when the agent gives no gap, in percent. | `100` |
+| `ORKNUX_TUNING_PDF_SNIPPET_CHARACTERS` | How much text around each PDF search match is shown, in characters. | `200` |
+| `ORKNUX_TUNING_PDF_MATCHES_MOST` | How many matches one PDF search lists, in items. | `20` |
+| `ORKNUX_TUNING_PDF_TEXT_DOCUMENTS` | How many PDFs' text is kept for searching again, in items. | `16` |
 | `ORKNUX_TUNING_REGEX_MATCH_SECONDS` | How long one regular expression somebody wrote may take to match, in seconds. | `2` |
 | `ORKNUX_TUNING_WATCHER_MATCH_CHARACTERS` | The longest result a watcher's regular expression is held against, in characters. | `1000000` |
 | `ORKNUX_TUNING_WATCHER_RESULT_CHARACTERS` | How much of a watcher's result is kept and shown to its agent, in characters. | `10000` |

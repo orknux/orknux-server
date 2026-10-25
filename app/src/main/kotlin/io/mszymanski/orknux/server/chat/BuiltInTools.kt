@@ -239,6 +239,8 @@ class BuiltInTools(
             "pdf_fromHtml",
             "pdf_fromHtmlZip",
             "pdf_read",
+            // Finding a passage without reading the document whole; V490 marks it Always.
+            io.mszymanski.orknux.server.embedded.PdfCapability.SEARCH_TOOL,
             "pdf_preview",
             "pdf_toPng",
             "charts_render",
@@ -246,6 +248,13 @@ class BuiltInTools(
             "svg_draw",
             "svg_toPng",
             "svg_read",
+            /*
+             * Questions about a large SVG or XML file, answered without the
+             * file entering the turn - chat 981, a KiCad copper layer read
+             * whole. V490 marks them Always.
+             */
+            io.mszymanski.orknux.server.embedded.SvgCapability.MEASURE_TOOL,
+            io.mszymanski.orknux.server.embedded.XmlCapability.QUERY_TOOL,
             "sheet_read",
             "midi_read",
             "midi_write",
