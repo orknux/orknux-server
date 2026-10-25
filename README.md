@@ -519,6 +519,7 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_WIREFRAME_PICTURE_PIXELS` | How wide the picture of a wireframe an agent drew may be, in pixels. | `1600` |
 | `ORKNUX_TUNING_DOCUMENT_CHARACTERS_MOST` | How long one document's stored content may be, in characters. | `2000000` |
 | `ORKNUX_TUNING_DOCUMENT_MARKDOWN_INLINE_CHARACTERS` | How much of a document's Markdown is handed to a model, in characters. | `100000` |
+| `ORKNUX_TUNING_DOCUMENT_MARKS_CARRY_CHARACTERS` | How much rewritten text keeps its colours and highlights, in characters. | `20000` |
 | `ORKNUX_TUNING_DOCUMENT_SVG_PIXELS` | How wide an SVG put in a document is drawn, in pixels. | `1600` |
 | `ORKNUX_TUNING_DOCUMENT_IMPORT_MB` | How large a file a document imports, in MB. | `25` |
 | `ORKNUX_TUNING_DOCUMENT_IMPORT_PICTURES_MOST` | How many pictures one import keeps, in items. | `200` |

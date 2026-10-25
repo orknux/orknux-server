@@ -160,6 +160,82 @@ class DocumentToolsTest(
             .containsExactly("Writer")
     }
 
+    /**
+     * Colours and highlights reach a model as the editor's tags, come back as marks when it writes them, survive a
+     * rewrite on the words it left alone when it does not, and a highlight that could not survive is named.
+     */
+    @Test
+    fun `a model reads colours and highlights, writes them back, and a rewrite keeps them on unchanged words`() {
+        val marked = """{"type":"doc","content":[
+          {"type":"paragraph","content":[{"type":"text","text":"Intro"}]},
+          {"type":"paragraph","content":[
+            {"type":"text","text":"The "},
+            {"type":"text","text":"red words","marks":[{"type":"textStyle","attrs":{"color":"#c0392b"}}]},
+            {"type":"text","text":" stay, and "},
+            {"type":"text","text":"this note","marks":[{"type":"note","attrs":{"note":"Check this","id":"nkeep1"}}]},
+            {"type":"text","text":" too."}
+          ]},
+          {"type":"paragraph","content":[
+            {"type":"text","text":"Old "},
+            {"type":"text","text":"gone words","marks":[{"type":"note","attrs":{"note":"Lost","id":"ngone1"}}]},
+            {"type":"text","text":" here."}
+          ]}
+        ]}"""
+        val id = graphQlTester.document(
+            """mutation(${'$'}w: ID!, ${'$'}d: String) { createDocument(workspaceId: ${'$'}w, name: "Marked", content: ${'$'}d) { id } }""",
+        ).variable("w", workspaceId).variable("d", marked).execute().path("createDocument.id").entity(Long::class.java).get()
+        SecurityContextHolder.clearContext()
+        val scope = OrknuxScope(workspaceId = workspaceId, mayWrite = true, actor = "Writer")
+        fun call(name: String, arguments: Map<String, Any>): JsonNode = mapper.readTree(tools.run(scope, name, mapper.writeValueAsString(arguments))).also {
+            assertThat(it.has("error")).describedAs("$name: $it").isFalse()
+        }
+        fun marks(): List<String> {
+            val blocks = mapper.readTree(documents.findById(id).get().content).path("content")
+            return (0 until blocks.size()).flatMap { b ->
+                val inner = blocks.get(b).path("content")
+                (0 until inner.size()).map { inner.get(it) }.filter { it.has("marks") }.map { node ->
+                    val mark = node.path("marks").get(0)
+                    "$b:" + node.path("text").asText() + "=" + mark.path("attrs").path("color").asText(mark.path("attrs").path("id").asText())
+                }
+            }
+        }
+
+        val read = call(DocumentTools.READ, mapOf("document" to id.toString()))
+        assertThat(read.path("markdown").stringValue()).contains(
+            "The <span style=\"color:#c0392b\">red words</span> stay, and <mark data-note=\"Check this\" data-note-id=\"nkeep1\">this note</mark> too.",
+        )
+        assertThat(read.path("blocks").get(1).path("text").stringValue()).isEqualTo("The red words stay, and this note too.")
+        assertThat(tools.specs(scope).first { it.name == DocumentTools.WRITE }.description).contains(DocumentMarkdown.MARKS_SAID)
+
+        // Written with the tags: they are the marks.
+        call(
+            DocumentTools.INSERT,
+            mapOf("document" to id.toString(), "at" to 3, "markdown" to "Now <span style=\"color:#2e86c1\">blue</span> and <mark data-note=\"New one\">fresh</mark>."),
+        )
+        assertThat(marks()).contains("3:blue=#2e86c1")
+        assertThat(marks().first { it.startsWith("3:fresh=") }.substringAfter('=')).matches(DocumentContent.NOTE_ID.pattern)
+
+        // Rewritten without them: what stayed keeps its marks, and the highlight whose words went is named.
+        val answer = call(
+            DocumentTools.WRITE,
+            mapOf("document" to id.toString(), "from" to 1, "to" to 2, "markdown" to "The red words stay, and this note too, now longer.\n\nCompletely different text."),
+        )
+        assertThat(marks()).contains("1:red words=#c0392b", "1:this note=nkeep1", "3:blue=#2e86c1").noneMatch { it.endsWith("=ngone1") }
+        assertThat((0 until answer.path("dropped").size()).map { answer.path("dropped").get(it).stringValue() }).containsExactly("highlight 'gone words' was removed with its words")
+        assertThat(answer.path("note").stringValue()).contains("highlight 'gone words' was removed with its words")
+
+        // A hostile tag leaves nothing that runs.
+        call(
+            DocumentTools.WRITE,
+            mapOf("document" to id.toString(), "from" to 2, "markdown" to "<span style=\"color:#fff;background:url(javascript:x)\" onclick=\"x()\">a</span> <script>x()</script> <mark data-note=\"${"y".repeat(5000)}\">b</mark>"),
+        )
+        val stored = documents.findById(id).get().content
+        assertThat(stored).doesNotContain("onclick", "javascript").contains("<script>")
+        assertThat(marks()).contains("2:a=#ffffff")
+        val note = mapper.readTree(stored).path("content").get(2).path("content").last().path("marks").get(0).path("attrs").path("note").stringValue()
+        assertThat(note).hasSize(Documents.NOTE_LENGTH)
+    }
+
     /** The briefing names every tool it mentions off what is offered, the chat is offered writing alone, and it is told not to link the document the person has open. */
     @Test
     fun `the chat names only the tools it is offered`() {
@@ -168,7 +244,7 @@ class DocumentToolsTest(
         assertThat(offered.map { it.name }).containsExactlyInAnyOrderElementsOf(DocumentTools.EDITING)
         val briefing = chat.briefing(view, offered)
         DocumentTools.EDITING.forEach { assertThat(briefing).contains("`$it`") }
-        assertThat(briefing).contains("never link to it")
+        assertThat(briefing).contains("never link to it", DocumentMarkdown.MARKS_SAID)
     }
 
     /** A model asked in the editor appends a section; it is in the stored document, and the answer says it changed. */

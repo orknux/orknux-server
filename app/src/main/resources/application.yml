@@ -976,6 +976,7 @@ orknux:
     wireframe.picture.pixels: ${ORKNUX_TUNING_WIREFRAME_PICTURE_PIXELS:1600}
     document.characters.most: ${ORKNUX_TUNING_DOCUMENT_CHARACTERS_MOST:2000000}
     document.markdown.inline.characters: ${ORKNUX_TUNING_DOCUMENT_MARKDOWN_INLINE_CHARACTERS:100000}
+    document.marks.carry.characters: ${ORKNUX_TUNING_DOCUMENT_MARKS_CARRY_CHARACTERS:20000}
     document.svg.pixels: ${ORKNUX_TUNING_DOCUMENT_SVG_PIXELS:1600}
     document.import.mb: ${ORKNUX_TUNING_DOCUMENT_IMPORT_MB:25}
     document.import.pictures.most: ${ORKNUX_TUNING_DOCUMENT_IMPORT_PICTURES_MOST:200}

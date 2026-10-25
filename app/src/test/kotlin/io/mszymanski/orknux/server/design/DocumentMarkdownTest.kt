@@ -97,6 +97,78 @@ class DocumentMarkdownTest {
         assertThat(content.checked(markdown.document(again), 1)).isEqualTo(doc)
     }
 
+    /** The text runs of the first block, each with its marks as type=value. */
+    private fun runs(doc: tools.jackson.databind.JsonNode, block: Int = 0): List<Pair<String, Map<String, String>>> {
+        val inner = doc.path("content").get(block).path("content")
+        return (0 until inner.size()).map { inner.get(it) }.map { node ->
+            val marks = node.path("marks")
+            node.path("text").asText() to (0 until marks.size()).map { marks.get(it) }.associate { mark ->
+                val attrs = mark.path("attrs")
+                mark.path("type").asText() to when (mark.path("type").asText()) {
+                    "textStyle" -> attrs.path("color").asText()
+                    "note" -> attrs.path("note").asText() + "#" + attrs.path("id").asText()
+                    else -> ""
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `a colour and a highlight read as the editor's tags and are read back as its marks`() {
+        val doc = content.checked(
+            mapper.readTree(
+                """{"type":"doc","content":[{"type":"paragraph","content":[
+                  {"type":"text","text":"Plain "},
+                  {"type":"text","text":"red","marks":[{"type":"bold"},{"type":"textStyle","attrs":{"color":"#c0392b"}}]},
+                  {"type":"text","text":" and "},
+                  {"type":"text","text":"noted words","marks":[{"type":"note","attrs":{"note":"Say \"why\" | <here>\nplease","id":"nabc12"}}]},
+                  {"type":"text","text":"."}
+                ]},{"type":"table","content":[{"type":"tableRow","content":[{"type":"tableHeader","content":[{"type":"paragraph","content":[
+                  {"type":"text","text":"cell","marks":[{"type":"note","attrs":{"note":"a | b","id":"ncell1"}}]}
+                ]}]}]}]}]}""",
+            ),
+            1,
+        )
+        // An export and a version's history are words; the tags are for the Markdown a model is handed.
+        assertThat(markdown.write(doc)).startsWith("Plain **red** and noted words.")
+        val written = DocumentMarkdown(mapper, tags = true).write(doc)
+        assertThat(written).contains(
+            "<span style=\"color:#c0392b\">**red**</span>",
+            "<mark data-note=\"Say &quot;why&quot; &#124; &lt;here&gt;&#10;please\" data-note-id=\"nabc12\">noted words</mark>",
+            "<mark data-note=\"a &#124; b\" data-note-id=\"ncell1\">cell</mark>",
+        )
+        val again = content.checked(markdown.document(written), 1)
+        assertThat(runs(again)).isEqualTo(runs(doc))
+        assertThat(runs(again)[3].second).isEqualTo(mapOf("note" to "Say \"why\" | <here>\nplease#nabc12"))
+        val cell = again.path("content").get(1).path("content").get(0).path("content").get(0)
+        assertThat(runs(cell)).isEqualTo(listOf("cell" to mapOf("note" to "a | b#ncell1")))
+    }
+
+    @Test
+    fun `a tag a model writes is held to what the editor keeps, and any other stays words`() {
+        val long = "x".repeat(Documents.NOTE_LENGTH + 500)
+        val doc = content.checked(
+            markdown.document(
+                "<span style=\"color: rgb(0, 128, 0); background:url(javascript:alert(1))\" onclick=\"alert(1)\">green</span> " +
+                    "<span style=\"color:expression(alert(1))\">plain</span> " +
+                    "<mark data-note=\"$long\" data-note-id=\"bad id!\" onmouseover=\"alert(1)\">long</mark> " +
+                    "<script>alert(1)</script> <span style=\"color:red\">named</span> <img src=x onerror=alert(1)>",
+            ),
+            1,
+        )
+        val runs = runs(doc)
+        assertThat(runs.first { it.first == "green" }.second).isEqualTo(mapOf("textStyle" to "#008000"))
+        assertThat(runs.first { it.first.contains("plain") }.second).isEmpty()
+        assertThat(runs.first { it.first.contains("named") }.second).isEmpty()
+        val note = runs.first { it.first == "long" }.second.getValue("note")
+        assertThat(note.substringBefore('#')).hasSize(Documents.NOTE_LENGTH)
+        assertThat(note.substringAfter('#')).matches(DocumentContent.NOTE_ID.pattern).isNotEqualTo("bad id!")
+        // What is not one of the editor's tags is kept as the words it was, never as markup the editor runs.
+        val words = runs.joinToString("") { it.first }
+        assertThat(words).contains("<script>", "<img src=x onerror=alert(1)>")
+        assertThat(mapper.writeValueAsString(doc)).doesNotContain("onclick", "onmouseover", "javascript")
+    }
+
     @Test
     fun `a picture at a web address is not fetched, and stays a link to it`() {
         val doc = content.checked(markdown.document("![logo](https://example.invalid/logo.png)"), 1)

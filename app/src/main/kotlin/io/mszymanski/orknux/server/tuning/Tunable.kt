@@ -426,6 +426,16 @@ enum class Tunable(
         "A longer document is handed over cut at this length, with a note saying how long it is.",
     ),
     /*
+     * Counted in characters because that is what the diff compares, word by
+     * word, on every rewrite of blocks holding a colour or a highlight: the
+     * text replaced, and the text replacing it, each held to this.
+     */
+    DOCUMENT_MARKS_CARRY_CHARACTERS(
+        "document.marks.carry.characters", 20_000, 0, 1_000_000, TuningSection.MEDIA, TuningUnit.CHARACTERS,
+        "How much rewritten text keeps its colours and highlights",
+        "When a model rewrites more than this, colours and highlights it did not write back are not carried over, and the highlights lost are named in its answer.",
+    ),
+    /*
      * Counted in pixels because a drawing in SVG has no size of its own worth
      * keeping: it is laid out as pixels this wide to be a picture in a page.
      */
