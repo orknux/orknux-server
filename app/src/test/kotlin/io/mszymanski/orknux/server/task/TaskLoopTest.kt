@@ -839,8 +839,11 @@ class TaskLoopTest(
         server.createContext("/chat/completions") { exchange ->
             val body = exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
             received += body
-            val bytes = answer(body).toByteArray(StandardCharsets.UTF_8)
-            exchange.responseHeaders.add("Content-Type", "application/json")
+            val said = answer(body)
+            val bytes = said.toByteArray(StandardCharsets.UTF_8)
+            // Labelled as what it is, as a provider labels it: since 5f4e1d5a the
+            // client reads a body that is not an event stream as one whole answer.
+            exchange.responseHeaders.add("Content-Type", if (said.startsWith("data:")) "text/event-stream" else "application/json")
             exchange.sendResponseHeaders(200, bytes.size.toLong())
             exchange.responseBody.use { it.write(bytes) }
             exchange.close()
