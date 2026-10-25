@@ -202,8 +202,11 @@ class ResearchReviewTest(
         // Nor is a review asked of a mode whose workflow has no Review step: it would say it was reviewed and not be.
         val mine = graphQlTester.document("""mutation { createWorkflow(input: { workspaceId: $workspaceId, name: "My research" }) { workflowId } }""")
             .execute().path("createWorkflow.workflowId").entity(String::class.java).get()
-        val patents = graphQlTester.document("""mutation { createResearchMode(input: { workspaceId: $workspaceId, name: "Patents", workflowId: $mine }) { id } }""")
-            .execute().path("createResearchMode.id").entity(String::class.java).get()
+        val created = graphQlTester.document("""mutation { createResearchMode(input: { workspaceId: $workspaceId, name: "Patents", workflowId: $mine }) { id reviewable } }""")
+            .execute()
+        // And says so beforehand, so the dialog can say it rather than the start.
+        created.path("createResearchMode.reviewable").entity(Boolean::class.java).isEqualTo(false)
+        val patents = created.path("createResearchMode.id").entity(String::class.java).get()
         graphQlTester.document(
             """mutation { startResearch(input: { workspaceId: $workspaceId, question: "Tides", modeId: $patents, modelId: $writer,
                  language: FORMAL, outputFormat: DOCUMENT, review: true, reviewerModelId: $writer }) { id } }""",

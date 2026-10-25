@@ -71,6 +71,8 @@ type ResearchMode {
     "Null where the workflow it named is no longer in the workspace."
     workflowId: ID
     workflowName: String
+    "Whether its workflow has a Review step: a research started in a mode without one cannot be reviewed."
+    reviewable: Boolean!
 }
 
 type ResearchDocument {

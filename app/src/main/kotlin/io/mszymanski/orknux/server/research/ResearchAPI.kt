@@ -457,6 +457,7 @@ class ResearchAPI(
             name = mode.name,
             workflowId = assignment?.workflow?.id,
             workflowName = assignment?.workflow?.name,
+            reviewable = assignment?.workflow?.id?.let { seeding.reviews(it) } ?: false,
         )
     }
 
@@ -629,6 +630,8 @@ data class ResearchModeView(
     /** Null where the workflow it named is no longer in the workspace. */
     val workflowId: Long?,
     val workflowName: String?,
+    /** Whether its workflow has a Review step, so a research in it may be asked to be reviewed. */
+    val reviewable: Boolean,
 )
 
 data class ResearchDocumentView(
