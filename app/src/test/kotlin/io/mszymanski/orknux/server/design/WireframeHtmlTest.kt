@@ -154,6 +154,12 @@ class WireframeHtmlTest {
         assertThat(html).contains(
             "class=\"canvas framed\" style=\"width:400px;height:300px;background:#0f0f12;border:1px solid #2e2e33;border-radius:12px\"",
         )
+        // And the page is that page: drawn in its colour, dark, with no export chrome over one screen.
+        assertThat(html).contains("<style>body { background: #0f0f12; color-scheme: dark; }</style>")
+            .doesNotContain("class=\"wireframe-name\"").doesNotContain("class=\"screen-title\"")
+            .contains("<title>Dark</title>")
+        assertThat(page("Light", """{"elements":[{"id":"p","type":"frame","x":0,"y":0,"w":100,"h":100,"props":{"fill":"#ffffff"}}]}"""))
+            .contains("<style>body { background: #ffffff; color-scheme: light; }</style>")
     }
 
     @Test

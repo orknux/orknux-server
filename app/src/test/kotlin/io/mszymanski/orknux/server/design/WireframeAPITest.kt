@@ -288,7 +288,7 @@ class WireframeAPITest(
         ).variable("id", id).variable("d", document).execute()
 
         val stored = export(null).path("exportWireframeHtml").entity(String::class.java).get()
-        assertThat(stored).startsWith("<!doctype html>").contains("<h2 class=\"screen-title\">Sign up</h2>").doesNotContain("<button")
+        assertThat(stored).startsWith("<!doctype html>").contains("aria-label=\"Sign up\"").doesNotContain("class=\"screen-title\"").doesNotContain("<button")
 
         val held = export(
             """{"elements":[{"id":"f","type":"frame","x":0,"y":0,"w":390,"h":844,"text":"Sign up"},

@@ -38,15 +38,28 @@ class WireframeHtml(
         append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n")
         append("<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; img-src data:\">\n")
         append("<title>").append(escape(name)).append("</title>\n")
-        append("<style>\n").append(STYLE).append("</style>\n</head>\n<body>\n")
-        append("<h1 class=\"wireframe-name\">").append(escape(name)).append("</h1>\n")
+        append("<style>\n").append(STYLE).append("</style>\n")
+        val shown = screens(elements)
+        /*
+         * The page in the screen's own colour, as the page it is a picture of
+         * would be: a frame filled dark sat on a grey sheet, under the name of
+         * the wireframe, and read as an export rather than a page.
+         */
+        backdropOf(shown)?.let { colour ->
+            append("<style>body { background: ").append(colour).append("; color-scheme: ")
+                .append(if (dark(colour)) "dark" else "light").append("; }</style>\n")
+        }
+        append("</head>\n<body>\n")
+        // The name is the tab's; on the page only an empty drawing says it, as there is nothing else to show.
+        if (shown.isEmpty()) append("<h1 class=\"wireframe-name\">").append(escape(name)).append("</h1>\n")
         // One marker for every arrow on the page; a reference by id reaches across the svgs.
         append(
             "<svg class=\"defs\" aria-hidden=\"true\" width=\"0\" height=\"0\"><defs>" +
                 "<marker id=\"wf-arrowhead\" viewBox=\"0 0 10 10\" refX=\"9\" refY=\"5\" markerWidth=\"8\" markerHeight=\"8\" orient=\"auto-start-reverse\">" +
                 "<path d=\"M 0 0 L 10 5 L 0 10 z\" fill=\"#3f3f46\"/></marker></defs></svg>\n",
         )
-        screens(elements).forEach { screen(it) }
+        // A caption only where there are screens to tell apart.
+        shown.forEach { screen(it, titled = shown.size > 1) }
         append("</body>\n</html>\n")
     }
 
@@ -104,12 +117,23 @@ class WireframeHtml(
     private fun holds(outer: WireframeElement, inner: WireframeElement) =
         inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.w <= outer.x + outer.w && inner.y + inner.h <= outer.y + outer.h
 
-    private fun StringBuilder.screen(screen: Screen) {
+    /** The first screen's frame fill, where it is one plain colour: the colour the whole page is drawn in. */
+    private fun backdropOf(screens: List<Screen>): String? =
+        screens.firstOrNull()?.frame?.let { (WireframeStyle.look(it.props).fill as? WireframeStyle.Fill.Solid)?.colour }
+
+    /** Whether a #rrggbb colour is dark enough that the page around it should be drawn dark too. */
+    private fun dark(colour: String): Boolean {
+        val hex = colour.removePrefix("#").take(6).takeIf { it.length == 6 } ?: return false
+        val (r, g, b) = (0 until 3).map { hex.substring(it * 2, it * 2 + 2).toInt(16) / 255.0 }
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.45
+    }
+
+    private fun StringBuilder.screen(screen: Screen, titled: Boolean = true) {
         append("<section class=\"screen\"")
         screen.id?.let { append(" data-id=\"").append(escape(it)).append('"') }
         screen.title?.let { append(" aria-label=\"").append(escape(it)).append('"') }
         append(">\n")
-        screen.title?.let { append("<h2 class=\"screen-title\">").append(escape(it)).append("</h2>\n") }
+        screen.title?.takeIf { titled }?.let { append("<h2 class=\"screen-title\">").append(escape(it)).append("</h2>\n") }
         append("<div class=\"canvas")
         if (screen.framed) append(" framed")
         // The frame's own style over the stylesheet's white outline: a screen dropped it, so a dark frame exported white.
@@ -282,10 +306,11 @@ class WireframeHtml(
         /** Pencil on paper, as the editor draws it - the values of the interface's --wireframe-* tokens. */
         private val STYLE = """
             |*, *::before, *::after { box-sizing: border-box; }
-            |body { margin: 0; padding: 32px; background: #e7e7ea; color: #3f3f46; font: 14px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-            |.wireframe-name { margin: 0 0 24px; font-size: 20px; font-weight: 600; }
+            |body { display: flex; flex-direction: column; align-items: center; gap: 48px; min-height: 100vh; margin: 0; padding: 48px 16px; background: #e7e7ea; color: #3f3f46; font: 14px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+            |@media (prefers-color-scheme: dark) { body { background: #18181b; } .screen-title { color: #a1a1aa; } }
+            |.wireframe-name { margin: 0; font-size: 20px; font-weight: 600; }
             |.defs { position: absolute; width: 0; height: 0; overflow: hidden; }
-            |.screen { margin: 0 0 48px; }
+            |.screen { max-width: 100%; margin: 0; overflow-x: auto; }
             |.screen-title { margin: 0 0 8px; color: #8a8a93; font-size: 12px; font-weight: 400; }
             |.canvas { position: relative; }
             |.canvas.framed { background: #ffffff; border: 1.5px solid #3f3f46; border-radius: 10px; }
