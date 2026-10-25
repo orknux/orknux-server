@@ -234,6 +234,16 @@ class DocumentToolsTest(
         assertThat(marks()).contains("2:a=#ffffff")
         val note = mapper.readTree(stored).path("content").get(2).path("content").last().path("marks").get(0).path("attrs").path("note").stringValue()
         assertThat(note).hasSize(Documents.NOTE_LENGTH)
+
+        // A colour whose words went in a sentence rewritten round them is named beside the highlights.
+        val recoloured = call(
+            DocumentTools.WRITE,
+            mapOf("document" to id.toString(), "from" to 1, "markdown" to "The scarlet text stays, and this note too, now longer."),
+        )
+        assertThat(marks()).contains("1:this note=nkeep1").noneMatch { it.startsWith("1:") && it.endsWith("=#c0392b") }
+        assertThat((0 until recoloured.path("dropped").size()).map { recoloured.path("dropped").get(it).stringValue() })
+            .containsExactly("colour #c0392b on 'red words' was removed with its words")
+        assertThat(recoloured.path("note").stringValue()).contains("colour #c0392b on 'red words' was removed with its words")
     }
 
     /** The briefing names every tool it mentions off what is offered, the chat is offered writing alone, and it is told not to link the document the person has open. */

@@ -10,9 +10,10 @@ import tools.jackson.databind.node.ObjectNode
  * A document's colours and highlights, carried across a model's rewrite that left their tags out.
  *
  * Pinned: marks on words that came back unchanged are put back on exactly those words; a tag the model
- * wrote itself wins; a highlight whose words were all rewritten moves onto the replacement only when one
- * rewrite replaced exactly its words, and is otherwise dropped and named; past the Tunable nothing is
- * carried and what was lost is still said; a space that happens to survive carries nothing.
+ * wrote itself wins; a colour or highlight whose words were all rewritten moves onto the replacement only
+ * when one rewrite replaced exactly its words and no other mark's of its kind, and is otherwise dropped and
+ * named; past the Tunable nothing is carried and what was lost is still said; a space that happens to
+ * survive carries nothing.
  */
 class DocumentMarkCarryTest {
 
@@ -105,11 +106,69 @@ class DocumentMarkCarryTest {
     }
 
     @Test
-    fun `past the Tunable nothing is carried, and the lost highlights are still named`() {
+    fun `past the Tunable nothing is carried, and what was lost is still named`() {
         val small = DocumentMarkCarry(mapper, 10)
         val carried = small.carry(before.subList(0, 1), written("The red words stay, and this note too."))
         assertThat(runs(carried.blocks)).containsExactly("The red words stay, and this note too.")
-        assertThat(carried.dropped).containsExactly("highlight 'this note' was removed with its words")
+        assertThat(carried.dropped).containsExactly(
+            "colour #c0392b on 'red words' was removed with its words",
+            "highlight 'this note' was removed with its words",
+        )
+
+        val tagged = small.carry(before.subList(0, 1), written("The <span style=\"color:#c0392b\">red words</span> stay, and this note too."))
+        assertThat(tagged.dropped).containsExactly("highlight 'this note' was removed with its words")
+    }
+
+    @Test
+    fun `a coloured phrase rewritten whole keeps its colour`() {
+        val carried = carry.carry(before.subList(0, 1), written("The crimson phrase stay, and this note too."))
+        assertThat(runs(carried.blocks)).containsExactly("The ", "crimson phrase[#c0392b]", " stay, and ", "this note[nkeep1]", " too.")
+        assertThat(carried.dropped).isEmpty()
+    }
+
+    @Test
+    fun `a coloured word in a sentence rewritten round it is dropped and named, as a highlight is`() {
+        val coloured = blocks(
+            """[{"type":"paragraph","content":[
+              {"type":"text","text":"Please check "},
+              {"type":"text","text":"this","marks":[{"type":"textStyle","attrs":{"color":"#c0392b"}}]},
+              {"type":"text","text":" sentence."}
+            ]}]""",
+        )
+        val carried = carry.carry(coloured, written("Please verify that claim."))
+        assertThat(runs(carried.blocks)).containsExactly("Please verify that claim.")
+        assertThat(carried.dropped).containsExactly("colour #c0392b on 'this' was removed with its words")
+    }
+
+    @Test
+    fun `two colours rewritten together are not merged into one, and both are named`() {
+        val two = blocks(
+            """[{"type":"paragraph","content":[
+              {"type":"text","text":"A "},
+              {"type":"text","text":"red","marks":[{"type":"textStyle","attrs":{"color":"#c0392b"}}]},
+              {"type":"text","text":" "},
+              {"type":"text","text":"blue","marks":[{"type":"textStyle","attrs":{"color":"#2e86c1"}}]},
+              {"type":"text","text":" end."}
+            ]}]""",
+        )
+        val carried = carry.carry(two, written("A purple violet end."))
+        assertThat(runs(carried.blocks)).containsExactly("A purple violet end.")
+        assertThat(carried.dropped).containsExactly(
+            "colour #c0392b on 'red' was removed with its words",
+            "colour #2e86c1 on 'blue' was removed with its words",
+        )
+
+        // One of the two rewritten alone moves, and the other stays where it was.
+        val one = carry.carry(two, written("A crimson blue end."))
+        assertThat(runs(one.blocks)).containsExactly("A ", "crimson[#c0392b]", " ", "blue[#2e86c1]", " end.")
+        assertThat(one.dropped).isEmpty()
+    }
+
+    @Test
+    fun `a colour the model wrote on the rewritten words wins, and the one it replaced is not reported`() {
+        val carried = carry.carry(before.subList(0, 1), written("The <span style=\"color:#2e86c1\">crimson phrase</span> stay, and this note too."))
+        assertThat(runs(carried.blocks)).contains("crimson phrase[#2e86c1]").noneMatch { it.contains("#c0392b") }
+        assertThat(carried.dropped).isEmpty()
     }
 
     @Test
