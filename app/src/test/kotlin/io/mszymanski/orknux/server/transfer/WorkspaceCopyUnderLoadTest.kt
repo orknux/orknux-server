@@ -184,9 +184,9 @@ class WorkspaceCopyUnderLoadTest(
         }
 
         assertThat(copied.problems).isEmpty()
-        // Each with the three research workflows a workspace is made with, and the planner and writer they think with. Issue #659.
+        // Each with the three research workflows a workspace is made with, and the planner, writer and reviewer they think with. Issue #659.
         assertThat(copied.counts).containsEntry("connection", sourceConnections.size)
-            .containsEntry("mcp server", 3).containsEntry("model provider", 2).containsEntry("agent", 6 + 2)
+            .containsEntry("mcp server", 3).containsEntry("model provider", 2).containsEntry("agent", 6 + 3)
             .containsEntry("workflow", 4 + 3)
         assertThat(polls.get()).isPositive()
         assertThat(failures.map { it.toString() }).describedAs("what the busy threads met").isEmpty()

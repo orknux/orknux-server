@@ -430,7 +430,8 @@ class IssueCommentRemovalTest(
         // Deleting a whole issue is a tool since #478 - an agent tidying up a
         // duplicate it filed - and takes its comments with it. Taking one comment
         // off an issue is still a person's to do.
-        assertThat(offered.filter { (it.contains("remove") || it.contains("delete")) && it != "orknux_delete_issue" })
+        // Other things an agent may delete - a diagram, hidden by default - are not comments; what is checked is the comment.
+        assertThat(offered.filter { (it.contains("remove") || it.contains("delete")) && it.contains("comment") })
             .isEmpty()
         assertThat(offered).doesNotContain("orknux_remove_issue_comment")
 
