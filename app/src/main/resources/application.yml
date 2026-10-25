@@ -972,6 +972,8 @@ orknux:
     document.characters.most: ${ORKNUX_TUNING_DOCUMENT_CHARACTERS_MOST:2000000}
     document.markdown.inline.characters: ${ORKNUX_TUNING_DOCUMENT_MARKDOWN_INLINE_CHARACTERS:100000}
     document.svg.pixels: ${ORKNUX_TUNING_DOCUMENT_SVG_PIXELS:1600}
+    document.import.mb: ${ORKNUX_TUNING_DOCUMENT_IMPORT_MB:25}
+    document.import.pictures.most: ${ORKNUX_TUNING_DOCUMENT_IMPORT_PICTURES_MOST:200}
     document.completion.context.characters: ${ORKNUX_TUNING_DOCUMENT_COMPLETION_CONTEXT_CHARACTERS:2000}
     editor.chat.file.characters: ${ORKNUX_TUNING_EDITOR_CHAT_FILE_CHARACTERS:100000}
     grammar.pause.millis: ${ORKNUX_TUNING_GRAMMAR_PAUSE_MILLIS:800}

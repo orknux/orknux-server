@@ -42,6 +42,8 @@ class WireframeAPI(
     @param:Lazy private val chat: WireframeChat,
     /** What a turn's files say, for the model. */
     private val files: EditorChatFiles,
+    /** Lazy: the pictures an exported page carries in itself are read as a document's export reads them. */
+    @param:Lazy private val exports: DocumentExports,
     private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
@@ -136,18 +138,32 @@ class WireframeAPI(
     @MutationMapping
     fun exportWireframeHtml(@Argument id: Long, @Argument document: String?): String {
         val held = find(id)
-        return html(held, if (document == null) this.document.read(held.document) else checked(document))
+        return html(held, if (document == null) this.document.read(held.document) else checked(document), pictures = true)
     }
 
-    /** The stored drawing as a page, from the download link and the orknux_* tool. */
-    fun html(id: Long): WireframeHtmlPage {
+    /**
+     * The stored drawing as a page, from the download link and the orknux_* tool.
+     *
+     * @param pictures whether the pictures its image elements name are carried
+     *   in the page: yes for a file somebody keeps, no for the page a model
+     *   reads, which would pay for every picture's bytes as text.
+     */
+    fun html(id: Long, pictures: Boolean = false): WireframeHtmlPage {
         val held = find(id)
-        return WireframeHtmlPage(held.name, html(held, document.read(held.document)))
+        return WireframeHtmlPage(held.name, html(held, document.read(held.document), pictures))
     }
 
     /** Written out, and said in the audit log: a page leaving the server is a copy somebody now holds. */
-    private fun html(held: Wireframe, elements: List<WireframeElement>): String {
-        val page = WireframeHtml().page(held.name, elements)
+    private fun html(held: Wireframe, elements: List<WireframeElement>, pictures: Boolean): String {
+        val carried: (String) -> String? = if (!pictures) {
+            { null }
+        } else {
+            { artifact ->
+                exports.pictureOf(held.workspaceId, artifact)
+                    ?.let { "data:${it.contentType};base64," + java.util.Base64.getEncoder().encodeToString(it.bytes) }
+            }
+        }
+        val page = WireframeHtml(carried).page(held.name, elements)
         audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Wireframe ${held.name} exported as HTML")
         return page
     }

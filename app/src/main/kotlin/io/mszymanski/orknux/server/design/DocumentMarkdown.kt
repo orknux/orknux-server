@@ -49,8 +49,14 @@ import tools.jackson.databind.node.ObjectNode
  * page break is `<!-- pagebreak -->` on a line of its own, and underlined words
  * are `<u>...</u>`. A picture is `![alt](artifact:DESIGN-12 "caption")`; a
  * picture at a web address is not fetched, so it is kept as a link to it.
+ *
+ * @param pictureOf the artifact id a picture's address names, or null for one
+ *   kept as a link; an import of Export's zip answers for the files beside it.
  */
-class DocumentMarkdown(private val mapper: ObjectMapper) {
+class DocumentMarkdown(
+    private val mapper: ObjectMapper,
+    private val pictureOf: (String?) -> String? = { artifactOf(it) },
+) {
 
     private val parser: Parser = Parser.builder()
         .extensions(listOf(TablesExtension.create(), StrikethroughExtension.create()))
@@ -344,7 +350,7 @@ class DocumentMarkdown(private val mapper: ObjectMapper) {
                 }
                 is Image -> {
                     val alt = plain(child)
-                    val artifact = artifactOf(child.destination)
+                    val artifact = pictureOf(child.destination)
                     if (artifact == null) {
                         // Not fetched: a picture elsewhere stays a link to it.
                         into.add(textNode(alt.ifEmpty { child.destination }, active + listOf(mark("link").also { it.putObject("attrs").put("href", child.destination) })))
