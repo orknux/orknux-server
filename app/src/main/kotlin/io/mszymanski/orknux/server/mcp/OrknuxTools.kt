@@ -304,7 +304,7 @@ class OrknuxTools(
     /**
      * The orknux_* tools an agent starts with hidden, which its owner turns on
      * one agent at a time: the ones that take away what people made. Everything
-     * else starts at Always. Read by every place that gives an agent its marks -
+     * else starts at Offer (BuiltInTools.startsOffered). Read by every place that gives an agent its marks -
      * a new agent, the grant given afresh - and by the migration's test.
      */
     fun startsHidden(): Set<String> = DiagramTools.STARTS_HIDDEN
@@ -313,7 +313,7 @@ class OrknuxTools(
         add(
             ToolSpec(
                 name = "orknux_workflows",
-                description = "The workflows in this workspace, whether each is enabled, and where it last got to.",
+                description = "Lists the workflows in this workspace: whether each is enabled, and where it last got to.",
                 parameters = emptyList(),
             ),
         )

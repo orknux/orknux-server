@@ -83,35 +83,39 @@ class OrknuxToolStatesTest(
     }
 
     @Test
-    fun `a new agent starts with every orknux tool at Always, and one can be set to Offer`() {
+    fun `a new agent starts with every orknux tool at Offer, and one can be set to Always`() {
         val id = created("Offers news", orknuxAccess = true)
         val names = builtIns.orknuxNames() - builtIns.orknuxStartsHidden()
-        assertThat(requireNotNull(agents.findByIdOrNull(id)).requiredTools).containsAll(names)
+        val made = requireNotNull(agents.findByIdOrNull(id))
+        assertThat(made.requiredTools).describedAs("none of them Always").noneMatch { it.startsWith("orknux_") }
+        assertThat(made.hiddenTools).describedAs("and none hidden but the ones that start so").doesNotContainAnyElementsOf(names)
 
         val granted = (BuiltInTools.GRANTED + names).joinToString(",") { "\"$it\"" }
-        val always = (BuiltInTools.GRANTED + names - NEWS).joinToString(",") { "\"$it\"" }
+        val always = (BuiltInTools.startingAlways() + NEWS).joinToString(",") { "\"$it\"" }
         val back = graphQlTester.document(
             """mutation { updateAgent(id: $id, input: { name: "Offers news", orknuxAccess: true, maxTools: 100,
                tools: [$granted], requiredTools: [$always] }) { requiredTools } }""",
         ).execute().path("updateAgent.requiredTools").entityList(String::class.java).get()
-        assertThat(back).describedAs("the marks on the orknux_* tools are kept").contains(WORKFLOWS).doesNotContain(NEWS)
+        assertThat(back).describedAs("the marks on the orknux_* tools are kept").contains(NEWS).doesNotContain(WORKFLOWS)
 
         val agent = requireNotNull(agents.findByIdOrNull(id))
         val held = tools(agent)
-        assertThat(held.first).contains(WORKFLOWS).doesNotContain(NEWS)
-        assertThat(held.second).contains(NEWS)
+        assertThat(held.first).contains(NEWS).doesNotContain(WORKFLOWS)
+        assertThat(held.second).contains(WORKFLOWS)
     }
 
     @Test
-    fun `Orknux access given afresh brings its tools in at Always`() {
+    fun `Orknux access given afresh brings its tools in at Offer`() {
         val id = created("Granted later", orknuxAccess = false)
         graphQlTester.document(
             """mutation { updateAgent(id: $id, input: { name: "Granted later", orknuxAccess: true, maxTools: 100 }) { id } }""",
         ).execute()
         val agent = requireNotNull(agents.findByIdOrNull(id))
-        val always = builtIns.orknuxNames() - builtIns.orknuxStartsHidden()
-        assertThat(agent.requiredTools).containsAll(always)
-        assertThat(tools(agent).first).containsAll(always)
+        val offered = builtIns.orknuxNames() - builtIns.orknuxStartsHidden()
+        assertThat(agent.requiredTools).noneMatch { it.startsWith("orknux_") }
+        val (carried, found) = tools(agent)
+        assertThat(found).containsAll(offered)
+        assertThat(carried).doesNotContainAnyElementsOf(offered)
     }
 
     /**

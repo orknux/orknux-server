@@ -297,9 +297,9 @@ class GrantRequestTools(
                     Kind.MCP_SERVER -> agent.mcpServers.add(one.name)
                     Kind.ORKNUX -> {
                         agent.orknuxAccess = true
-                        // At Always, as a new agent starts with them: each may be set to Offer on its page.
+                        // Marked as a new agent starts with them - at Offer, see BuiltInTools.startsOffered - each switched on its page.
                         builtIns.orknuxNames()
-                            .filter { it !in agent.hiddenTools && it !in agent.requiredTools }
+                            .filter { it !in agent.hiddenTools && it !in agent.requiredTools && !BuiltInTools.startsOffered(it) }
                             .forEach { agent.requiredTools.add(it) }
                     }
                     Kind.CONNECTION -> one.connectionId?.let { agent.connections.add(it) }

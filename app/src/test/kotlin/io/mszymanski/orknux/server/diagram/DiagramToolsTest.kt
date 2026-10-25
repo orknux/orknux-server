@@ -246,7 +246,8 @@ class DiagramToolsTest(
         ).execute().path("createAgent.id").entity(Long::class.java).get()
         val agent = requireNotNull(agents.findByIdOrNull(agentId))
         assertThat(agent.hiddenTools).contains(DiagramTools.DELETE)
-        assertThat(agent.requiredTools).contains(DiagramTools.SEARCH, DiagramTools.CHANGE, DiagramTools.EXPORT).doesNotContain(DiagramTools.DELETE)
+        // The rest start at Offer, as every orknux_* tool does: found under a tool limit, carried without one.
+        assertThat(agent.requiredTools).doesNotContain(DiagramTools.SEARCH, DiagramTools.CHANGE, DiagramTools.EXPORT, DiagramTools.DELETE)
         fun offered(of: io.mszymanski.orknux.server.agent.Agent) = agentTools.offeringFor(of).let { it.core + it.searchable }.map { it.name }
         assertThat(offered(agent)).contains(DiagramTools.SEARCH).doesNotContain(DiagramTools.DELETE)
 

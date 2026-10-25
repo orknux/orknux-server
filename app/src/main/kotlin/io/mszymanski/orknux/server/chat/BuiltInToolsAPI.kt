@@ -37,6 +37,10 @@ class BuiltInToolsAPI(
     @SchemaMapping(typeName = "BuiltInTool")
     fun startsHidden(tool: BuiltInTool): Boolean = tool.name in builtIns.orknuxStartsHidden()
 
+    /** Whether a new agent, or one given the grant afresh, starts with it at Offer; see BuiltInTools.startsOffered. */
+    @SchemaMapping(typeName = "BuiltInTool")
+    fun startsOffered(tool: BuiltInTool): Boolean = BuiltInTools.startsOffered(tool.name)
+
     @SchemaMapping(typeName = "BuiltInTool")
     fun unavailable(tool: BuiltInTool): String? =
         if (http.offers(tool.name)) null else "Switched off for this installation in Admin Settings -> HTTP tools."
