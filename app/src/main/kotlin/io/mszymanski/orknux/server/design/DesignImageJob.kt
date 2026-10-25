@@ -8,6 +8,7 @@ import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.Table
+import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
@@ -125,6 +126,14 @@ class DesignImageJob(
      */
     @Column
     val feather: Int? = null,
+
+    /**
+     * When it was drawn; null until then, and on anything drawn before this
+     * was kept. With [startedAt], how long its model took - what
+     * [DesignImageEstimates] measures a time left from.
+     */
+    @Column(name = "finished_at")
+    var finishedAt: OffsetDateTime? = null,
 )
 
 interface DesignImageJobRepository : JpaRepository<DesignImageJob, Long> {
@@ -141,6 +150,40 @@ interface DesignImageJobRepository : JpaRepository<DesignImageJob, Long> {
     fun findByWorkspaceIdAndSourceIdInOrderByRequestedAtDescIdDesc(workspaceId: Long, sourceIds: Collection<String>): List<DesignImageJob>
 
     fun countByStatus(status: DesignImageJobStatus): Long
+
+    /** How many pictures one model is drawing now: a WebUI's progress is its own, not one request's. */
+    fun countByModelIdAndStatus(modelId: Long, status: DesignImageJobStatus): Long
+
+    /*
+     * A model's newest drawn pictures of one kind, timed: what an estimate is
+     * measured from. One query a kind, because a Harmonize and a Magic edit by
+     * the same model take nothing like the same time.
+     */
+
+    fun findByModelIdAndStatusAndStrengthIsNotNullAndFinishedAtIsNotNullAndStartedAtIsNotNullOrderByFinishedAtDesc(
+        modelId: Long,
+        status: DesignImageJobStatus,
+        page: Pageable,
+    ): List<DesignImageJob>
+
+    fun findByModelIdAndStatusAndScaleAndFinishedAtIsNotNullAndStartedAtIsNotNullOrderByFinishedAtDesc(
+        modelId: Long,
+        status: DesignImageJobStatus,
+        scale: Double,
+        page: Pageable,
+    ): List<DesignImageJob>
+
+    fun findByModelIdAndStatusAndMaskLocationIsNotNullAndScaleIsNullAndStrengthIsNullAndFinishedAtIsNotNullAndStartedAtIsNotNullOrderByFinishedAtDesc(
+        modelId: Long,
+        status: DesignImageJobStatus,
+        page: Pageable,
+    ): List<DesignImageJob>
+
+    fun findByModelIdAndStatusAndSourceIdIsNullAndFinishedAtIsNotNullAndStartedAtIsNotNullOrderByFinishedAtDesc(
+        modelId: Long,
+        status: DesignImageJobStatus,
+        page: Pageable,
+    ): List<DesignImageJob>
 
     /**
      * Takes one queued picture for drawing, or reports that somebody else did.
@@ -174,10 +217,10 @@ interface DesignImageJobRepository : JpaRepository<DesignImageJob, Long> {
     @Modifying(clearAutomatically = true)
     @Transactional
     @Query(
-        "UPDATE DesignImageJob j SET j.status = io.mszymanski.orknux.server.design.DesignImageJobStatus.DRAWN, j.imageId = :imageId " +
-            "WHERE j.id = :id AND j.status = io.mszymanski.orknux.server.design.DesignImageJobStatus.DRAWING",
+        "UPDATE DesignImageJob j SET j.status = io.mszymanski.orknux.server.design.DesignImageJobStatus.DRAWN, j.imageId = :imageId, " +
+            "j.finishedAt = :at WHERE j.id = :id AND j.status = io.mszymanski.orknux.server.design.DesignImageJobStatus.DRAWING",
     )
-    fun drawn(@Param("id") id: Long, @Param("imageId") imageId: Long): Int
+    fun drawn(@Param("id") id: Long, @Param("imageId") imageId: Long, @Param("at") at: OffsetDateTime): Int
 
     /** Says why one was not drawn - unless it was stopped, which is no failure. */
     @Modifying(clearAutomatically = true)

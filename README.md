@@ -506,6 +506,9 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_IMAGES_BLUR_FALLOFF_PIXELS` | How far the image editor's blur fades out inside its selection's edge, in pixels; 0 is a hard edge. | `0` |
 | `ORKNUX_TUNING_IMAGES_FEATHER_PIXELS` | How far a Magic edit's edge is feathered, in pixels. | `8` |
 | `ORKNUX_TUNING_IMAGES_LAYERS_MOST` | How many layers a picture may keep in the image editor, in items. | `32` |
+| `ORKNUX_TUNING_IMAGES_PROGRESS_POLL_SECONDS` | How often a picture being drawn is asked about by a Stable Diffusion WebUI's progress, in seconds. | `2` |
+| `ORKNUX_TUNING_IMAGES_ESTIMATE_JOBS` | How many of a model's newest pictures a time left looks at, in items. | `10` |
+| `ORKNUX_TUNING_IMAGES_ESTIMATE_LEAST` | How many timed pictures of the same kind a time left needs before one is said, in items. | `3` |
 | `ORKNUX_TUNING_WIREFRAME_ELEMENTS_MOST` | How many elements one wireframe may hold, in items. | `2000` |
 | `ORKNUX_TUNING_WIREFRAME_HTML_INLINE_CHARACTERS` | How long a wireframe's HTML may be and still be handed to a model, in characters. | `100000` |
 | `ORKNUX_TUNING_WIREFRAME_PICTURE_PIXELS` | How wide the picture of a wireframe an agent drew may be, in pixels. | `1600` |

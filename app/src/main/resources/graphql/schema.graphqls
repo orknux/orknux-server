@@ -8688,6 +8688,14 @@ type DesignImageJob {
     feather: Int
     "The picture, once DRAWN."
     image: Artifact
+    "How far its Stable Diffusion WebUI says it is, 0 to 100, while DRAWING; null where its server reports nothing."
+    progress: Int
+    "How many seconds its WebUI reckons are left, as of asOf; null where it says nothing."
+    secondsLeft: Int
+    "The median of how long the same model's newest pictures of the same kind took, in seconds, while DRAWING; null with too few of them."
+    typicalSeconds: Int
+    "The server's clock when this was read, to count from startedAt on the same clock."
+    asOf: String
 }
 
 """ A picture made larger, by one upscale model. """

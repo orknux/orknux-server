@@ -963,6 +963,9 @@ orknux:
     images.blur.falloff.pixels: ${ORKNUX_TUNING_IMAGES_BLUR_FALLOFF_PIXELS:0}
     images.feather.pixels: ${ORKNUX_TUNING_IMAGES_FEATHER_PIXELS:8}
     images.layers.most: ${ORKNUX_TUNING_IMAGES_LAYERS_MOST:32}
+    images.progress.poll.seconds: ${ORKNUX_TUNING_IMAGES_PROGRESS_POLL_SECONDS:2}
+    images.estimate.jobs: ${ORKNUX_TUNING_IMAGES_ESTIMATE_JOBS:10}
+    images.estimate.least: ${ORKNUX_TUNING_IMAGES_ESTIMATE_LEAST:3}
     wireframe.elements.most: ${ORKNUX_TUNING_WIREFRAME_ELEMENTS_MOST:2000}
     wireframe.html.inline.characters: ${ORKNUX_TUNING_WIREFRAME_HTML_INLINE_CHARACTERS:100000}
     wireframe.picture.pixels: ${ORKNUX_TUNING_WIREFRAME_PICTURE_PIXELS:1600}
