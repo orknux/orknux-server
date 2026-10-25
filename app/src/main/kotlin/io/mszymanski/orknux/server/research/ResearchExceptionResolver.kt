@@ -15,6 +15,7 @@ class ResearchExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ResearchModeNotFoundException,
             is ResearchDocumentNotFoundException,
             is ResearchModeWorkflowNotFoundException,
+            is ResearchNotFoundException,
             -> ErrorType.NOT_FOUND
 
             is ResearchQuestionMissingException,
@@ -29,6 +30,11 @@ class ResearchExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ResearchModeNameTakenException,
             is ResearchModeWorkflowNotChosenException,
             is ResearchModeSeededException,
+            is ResearchStillRunningException,
+            is ResearchNeverRanException,
+            is ResearchStageNotInRunException,
+            is ResearchNothingToRestartException,
+            is ResearchRestartRefusedException,
             -> ErrorType.BAD_REQUEST
 
             else -> return null

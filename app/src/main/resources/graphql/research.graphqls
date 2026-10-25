@@ -17,6 +17,8 @@ extend type Mutation {
     startResearch(input: StartResearchInput!): Research!
     "Takes a research off the list. Its run and its file are kept."
     deleteResearch(id: ID!): Boolean!
+    "Runs a finished, failed or stopped research again from one of its steps, the steps before it carried over from its run; the same research, running again. Without a stage, from the step that failed or was cut short."
+    restartResearch(id: ID!, fromStage: ResearchStage): Research!
     "A mode of the workspace's own: a name and a workflow, picked or copied from another mode's."
     createResearchMode(input: CreateResearchModeInput!): ResearchMode!
     "Removes a mode somebody added; the three every workspace has are refused."
@@ -122,6 +124,12 @@ type Research {
     "ISO-8601."
     startedAt: String!
     finishedAt: String
+    "The runs it was on before executionId, oldest first: a restart moves a research onto a new run."
+    earlierExecutionIds: [ID!]!
+    "While its writer is writing, the report so far, in markdown; null otherwise. The finished report is result."
+    draft: String
+    "About how many seconds it has left, measured from the workspace's finished research in the same mode; null when it is not running, there are too few of those, or the list is being read."
+    estimatedSecondsLeft: Int
 }
 
 type ResearchProgress {
@@ -136,6 +144,17 @@ type ResearchProgress {
     sourcesRead: Int!
     "The step doing it; null on a research that ran before the steps were nodes, or in one step of its own."
     stage: ResearchStage
+    "The page or document being read this moment, before it is a source; null between reads."
+    reading: ResearchReading
+}
+
+"A page or document on its way to being a source: one the model notes nothing in never becomes one."
+type ResearchReading {
+    title: String!
+    "An address, or the Artifacts page's link to a document."
+    url: String!
+    "WEB or DOCUMENT."
+    kind: String!
 }
 
 type ResearchSource {

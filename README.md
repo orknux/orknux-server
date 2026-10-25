@@ -512,6 +512,9 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_RESEARCH_STEP_RETRY_SECONDS` | How long a research mode's step waits before trying again, in seconds. | `10` |
 | `ORKNUX_TUNING_RESEARCH_IMAGES_MOST` | The most images one research keeps, in items. | `6` |
 | `ORKNUX_TUNING_RESEARCH_IMAGE_MB` | The largest image a research keeps, in MB. | `2` |
+| `ORKNUX_TUNING_RESEARCH_RESUME_AFTER_RESTART` | How many times a research step a restart cut short is run again, in times. | `2` |
+| `ORKNUX_TUNING_RESEARCH_ESTIMATE_RUNS` | How many finished research a time left is measured from, in items. | `3` |
+| `ORKNUX_TUNING_RESEARCH_ESTIMATE_LOOKBACK` | How many of the newest finished research a time left looks at, in items. | `20` |
 | `ORKNUX_TUNING_RESEARCH_IMAGE_PIXELS` | The shortest side an image a research keeps may have, in pixels. | `120` |
 | `ORKNUX_TUNING_PLUGIN_HTTP_BODY_MB` | The largest text answer a plugin's request may read, in MB. | `2` |
 | `ORKNUX_TUNING_PLUGIN_DOWNLOAD_MB` | The largest binary answer a plugin's request may read, in MB. | `5` |

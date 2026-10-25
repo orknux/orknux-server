@@ -94,6 +94,31 @@ class ActionNodeRunner(
 
     override fun supports(kind: NodeKind): Boolean = kind == NodeKind.ACTION
 
+    /**
+     * A research's own step, cut short by a restart, is run again.
+     *
+     * The rule is #448's: a function's step that died is failed, because
+     * nothing says how far it got. A research step is the exception that rule
+     * leaves room for - Plan, Gather, Follow up and Write read and ask a model
+     * and write on the research, nothing outside it, so running one again
+     * costs the model's time and repeats nothing anybody would see twice.
+     * Failing it left a research stopped at "interrupted by a restart" every
+     * time the server was restarted under one. Save is not among them: it
+     * files the report on the Artifacts page, and a second go files a second.
+     *
+     * Only the release's own functions, unedited - an edited copy is the
+     * workspace's code, which this knows nothing about - and only as many
+     * times as [Tunable.RESEARCH_RESUME_AFTER_RESTART] says, the dead
+     * attempt counted, so a step that is itself what kills the server is not
+     * run for ever.
+     */
+    override fun asksAgainAfterRestart(step: ExecutionStep): Boolean {
+        if (step.attempts > tuning[Tunable.RESEARCH_RESUME_AFTER_RESTART]) return false
+        val action = step.actionId?.let { actions.findByIdOrNull(it) }?.takeIf { it.subtype == ActionSubtype.FUNCTION } ?: return false
+        val function = action.functionId?.let { functions.findByIdOrNull(it) } ?: return false
+        return function.scope == FunctionScope.EMBEDDED && function.editedAt == null && function.name in RESEARCH_RESUMABLE
+    }
+
     /** Which run a line belongs to: the execution, and the workflow it is of. */
     private fun originOf(step: ExecutionStep) = ScriptOrigin(
         workflowId = executions.findByIdOrNull(step.executionId)?.workflowId,
@@ -765,6 +790,15 @@ class ActionNodeRunner(
     }
 
     private companion object {
+        /** The research functions a restart may run again; see [asksAgainAfterRestart]. */
+        val RESEARCH_RESUMABLE = listOf(
+            io.mszymanski.orknux.server.research.ResearchCapability.PLAN,
+            io.mszymanski.orknux.server.research.ResearchCapability.GATHER,
+            io.mszymanski.orknux.server.research.ResearchCapability.FOLLOW_UP,
+            io.mszymanski.orknux.server.research.ResearchCapability.WRITE,
+            io.mszymanski.orknux.server.research.ResearchCapability.RUN,
+        ).map { io.mszymanski.orknux.server.research.ResearchCapability.functionName(it) }.toSet()
+
         /**
          * What an unnamed action's result is called on its way out.
          *

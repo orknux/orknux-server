@@ -495,6 +495,21 @@ enum class Tunable(
         "The largest image a research keeps",
         "An image larger than this is skipped rather than kept or laid out in the report; never more than the largest file a tool may download.",
     ),
+    RESEARCH_RESUME_AFTER_RESTART(
+        "research.resume.after.restart", 2, 0, 9, TuningSection.WORKFLOWS, TuningUnit.TIMES,
+        "How many times a research step a restart cut short is run again",
+        "Plan, Gather, Deepen and Write change nothing outside the research, so one a server restart cut short is run again when the server is back; 0 fails it, to be restarted from its page. Save is never run again.",
+    ),
+    RESEARCH_ESTIMATE_RUNS(
+        "research.estimate.runs", 3, 1, 50, TuningSection.WORKFLOWS, TuningUnit.ITEMS,
+        "How many finished research a time left is measured from",
+        "A running research says about how long it has left once the workspace has finished this many in the same mode; fewer, and it says nothing.",
+    ),
+    RESEARCH_ESTIMATE_LOOKBACK(
+        "research.estimate.lookback", 20, 1, 500, TuningSection.WORKFLOWS, TuningUnit.ITEMS,
+        "How many of the newest finished research a time left looks at",
+        "The newest in the same mode; older ones ran on whatever the models and the workflow were then.",
+    ),
     RESEARCH_IMAGE_PIXELS(
         "research.image.pixels", 120, 0, 4_000, TuningSection.WORKFLOWS, TuningUnit.PIXELS,
         "The shortest side an image a research keeps may have",

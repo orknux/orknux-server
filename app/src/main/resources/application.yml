@@ -964,6 +964,9 @@ orknux:
     research.step.retry.seconds: ${ORKNUX_TUNING_RESEARCH_STEP_RETRY_SECONDS:10}
     research.images.most: ${ORKNUX_TUNING_RESEARCH_IMAGES_MOST:6}
     research.image.mb: ${ORKNUX_TUNING_RESEARCH_IMAGE_MB:2}
+    research.resume.after.restart: ${ORKNUX_TUNING_RESEARCH_RESUME_AFTER_RESTART:2}
+    research.estimate.runs: ${ORKNUX_TUNING_RESEARCH_ESTIMATE_RUNS:3}
+    research.estimate.lookback: ${ORKNUX_TUNING_RESEARCH_ESTIMATE_LOOKBACK:20}
     research.image.pixels: ${ORKNUX_TUNING_RESEARCH_IMAGE_PIXELS:120}
     plugin.http.body.mb: ${ORKNUX_TUNING_PLUGIN_HTTP_BODY_MB:2}
     plugin.download.mb: ${ORKNUX_TUNING_PLUGIN_DOWNLOAD_MB:5}
