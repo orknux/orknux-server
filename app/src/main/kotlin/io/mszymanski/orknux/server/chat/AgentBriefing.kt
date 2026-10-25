@@ -77,6 +77,8 @@ class AgentBriefing(
     private val installation: io.mszymanski.orknux.server.attachment.InstallationSettings,
     /** Whether the provider hands over every tool up front; see [ToolCeilings]. */
     private val ceilings: org.springframework.beans.factory.ObjectProvider<ToolCeilings>,
+    /** Whether the workspace has any diagrams, for the paragraph that sends an agent to them. */
+    private val diagrams: io.mszymanski.orknux.server.diagram.DiagramRepository,
 ) {
 
     /**
@@ -367,6 +369,8 @@ class AgentBriefing(
             }
         }
 
+        diagramsParagraph(agent)?.let { parts += it }
+
         /*
          * The connections this agent may name, and the rule for naming one.
          *
@@ -563,6 +567,48 @@ class AgentBriefing(
         }
 
         return parts.takeIf { it.isNotEmpty() }?.joinToString("\n\n")
+    }
+
+
+    /**
+     * That the workspace keeps diagrams, and when to look in them - said beside
+     * memory, for the reason memory is said: agents searched memory because they
+     * were told when to, and a diagram of how the systems fit together that
+     * nothing sends them to is a diagram nobody's agent reads.
+     *
+     * Only where there is something to find and the agent holds the search -
+     * in hand or behind the tool search, which is a question of its marks and
+     * not of this turn - so it is the same on every round of a conversation and
+     * the prompt's cached prefix holds. The invitation to change a diagram goes
+     * with the change tool, and says which diagrams take it rather than naming
+     * them: which ones are read only is a setting that moves, and the list tool
+     * says it at the moment it matters. Every tool is named off its declaration.
+     */
+    internal fun diagramsParagraph(agent: Agent): String? {
+        val held = { name: String -> agent.orknuxAccess && name !in agent.hiddenTools }
+        val search = io.mszymanski.orknux.server.mcp.DiagramTools.SEARCH
+        if (!held(search) || !diagrams.existsByWorkspaceId(agent.workspaceId)) return null
+        val node = io.mszymanski.orknux.server.mcp.DiagramTools.NODE
+        val change = io.mszymanski.orknux.server.mcp.DiagramTools.CHANGE
+        val list = io.mszymanski.orknux.server.mcp.DiagramTools.LIST
+        return buildString {
+            append("This workspace keeps diagrams of how its systems, processes and architecture fit together. ")
+            append("Search them with ").append(search).append(" before answering anything about how its parts connect, ")
+            append("what calls what, or where something lives")
+            if (held(node)) {
+                append(", and read a node with ").append(node).append(" when a hit looks relevant - its notes say what the box cannot")
+            }
+            append(".")
+            if (held(change)) {
+                append(" When you learn something a diagram lacks or has wrong, update it with ").append(change)
+                append(" - add a node or a connection, fix a label, write in a node's notes - where that would help the ")
+                append("next reader, and say in your answer what you changed. Only a diagram whose ")
+                append(io.mszymanski.orknux.server.mcp.DiagramTools.AGENTS).append(" is ")
+                append(io.mszymanski.orknux.server.mcp.DiagramTools.CHANGES).append(" takes changes")
+                if (held(list)) append("; ").append(list).append(" says which")
+                append(".")
+            }
+        }
     }
 
     companion object {

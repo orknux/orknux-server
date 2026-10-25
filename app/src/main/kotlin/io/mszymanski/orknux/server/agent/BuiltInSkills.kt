@@ -98,7 +98,8 @@ class BuiltInSkills(
      * page. So a page names an embedded tool as `{{tool:midi.write}}` - its
      * capability's key and its own name, as the capability declares both - and
      * any other built-in as `{{tool:save_artifact}}`, which is resolved only
-     * where [io.mszymanski.orknux.server.chat.BuiltInTools.GRANTED] holds it.
+     * where [io.mszymanski.orknux.server.chat.BuiltInTools.GRANTED] holds it,
+     * or an orknux_* diagram tool where [io.mszymanski.orknux.server.mcp.DiagramTools] declares it.
      * A parameter is `{{param:midi.write.append}}`, resolved where that tool
      * declares it.
      * What does not resolve is left as written, so a test reading the page
@@ -117,7 +118,8 @@ class BuiltInSkills(
         return REFERENCE.replace(content) { match ->
             val said = match.groupValues[2].trim()
             when (match.groupValues[1]) {
-                "tool" -> declared[said] ?: said.takeIf { it in granted }
+                // And the diagram tools, which the memory page sends an agent to as well.
+                "tool" -> declared[said] ?: said.takeIf { it in granted || it in io.mszymanski.orknux.server.mcp.DiagramTools.NAMES }
                 else -> parameters[said]
             } ?: match.value
         }
