@@ -428,8 +428,8 @@ class ToolSearchTest(
     fun `the ceiling is the provider's own number`() {
         assertThat(ProviderType.AZURE_OPENAI.toolLimit).isEqualTo(128)
         // The local servers refuse no number, and a tool loaded mid-conversation makes them read the whole prompt again.
-        assertThat(ProviderType.LLAMA_CPP.toolLimit).isEqualTo(200)
-        assertThat(ProviderType.OLLAMA.toolLimit).isEqualTo(200)
+        assertThat(ProviderType.LLAMA_CPP.toolLimit).isEqualTo(300)
+        assertThat(ProviderType.OLLAMA.toolLimit).isEqualTo(300)
         assertThat(ProviderType.OPENAI.toolLimit).isEqualTo(200)
         // Anthropic bounds a request by its size rather than by a count, so this
         // is a ceiling the product keeps rather than one it is given - a model

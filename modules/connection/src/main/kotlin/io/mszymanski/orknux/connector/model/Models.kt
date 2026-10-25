@@ -222,7 +222,8 @@ enum class ProviderType {
              * up front. OpenAI's type is also every OpenAI-compatible server;
              * OpenAI's own API is held to its 128 by [ModelProvider.toolCap].
              */
-            OPENAI, OLLAMA, LLAMA_CPP -> 200
+            OPENAI -> 200
+            OLLAMA, LLAMA_CPP -> 300
             ANTHROPIC -> 256
             // Takes no tools at all; nothing offers it any. An image server is not a chat.
             SYSTEM_ONE, STABLE_DIFFUSION_CPP, STABLE_DIFFUSION_WEBUI -> 0
