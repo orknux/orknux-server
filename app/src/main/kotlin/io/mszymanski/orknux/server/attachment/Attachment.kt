@@ -69,6 +69,14 @@ class ChatAttachment(
      */
     @Column(name = "message_index")
     var messageIndex: Int? = null,
+
+    /**
+     * Where a MIDI file is kept rendered as sound, once somebody has pressed
+     * Play on it: a browser plays no MIDI, so the chat asks for this instead,
+     * and it is made once. Null until then, and for every file that is not MIDI.
+     */
+    @Column(name = "audio_location", length = 1000)
+    var audioLocation: String? = null,
 )
 
 interface ChatAttachmentRepository : JpaRepository<ChatAttachment, Long> {

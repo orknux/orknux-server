@@ -1087,6 +1087,11 @@ class ChatService(
             second.filed(id, filename, contentType, sizeBytes)
         }
 
+        override fun played(url: String, filename: String, contentType: String) {
+            first?.played(url, filename, contentType)
+            second.played(url, filename, contentType)
+        }
+
         override fun widgets(widgets: List<io.mszymanski.orknux.server.widget.WidgetView>) {
             first?.widgets(widgets)
             second.widgets(widgets)
@@ -1453,6 +1458,17 @@ class ChatService(
      * name a drawing is signed with - a transcript that stops at the picture
      * cannot explain the conversation around it.
      */
+    /**
+     * Where the answer being written will sit in the thread: after everything
+     * in it now. A file an agent attaches during its turn is filed there, so a
+     * reload draws it under the answer it came with, as the open chat did.
+     */
+    @Transactional(readOnly = true)
+    fun answerPlace(id: Long): Int {
+        val session = sessions.findByIdOrNull(id) ?: throw ChatSessionNotFoundException(id)
+        return history.findByConversationId(session.conversationId).size
+    }
+
     @Transactional
     /** @return the picture's place in the thread, which the file it shows is filed under. */
     fun recordPicture(id: Long, said: String): Int {

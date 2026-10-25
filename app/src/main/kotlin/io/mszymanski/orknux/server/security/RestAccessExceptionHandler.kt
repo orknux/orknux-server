@@ -87,6 +87,12 @@ class RestAccessExceptionHandler {
         ResponseEntity.status(HttpStatus.BAD_REQUEST)
             .body(mapOf("error" to (failure.message ?: "Attachments are turned off for this installation")))
 
+    /** A file Play cannot make sound of - not MIDI, or a server that cannot render - which is an answer, not a fault. */
+    @ExceptionHandler(io.mszymanski.orknux.server.attachment.AttachmentNotPlayableException::class)
+    fun notPlayable(failure: RuntimeException): ResponseEntity<Map<String, String>> =
+        ResponseEntity.status(HttpStatus.BAD_REQUEST)
+            .body(mapOf("error" to (failure.message ?: "That file cannot be played")))
+
     @ExceptionHandler(AttachmentTooLargeException::class)
     fun tooLarge(failure: AttachmentTooLargeException): ResponseEntity<Map<String, String>> =
         ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)

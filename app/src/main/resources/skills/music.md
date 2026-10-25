@@ -91,9 +91,13 @@ more notes onto it.
   sending, `flac` where quality matters. The answer says how long it is and
   which instruments' sounds played it - say that plainly if the installation
   has no SoundFont set, rather than apologising for the sound.
-- Pass the audio's key to `{{tool:save_artifact}}` with a name like
-  `sunrise.mp3` for a link, or to a tool that uploads or sends a file where you
-  have one. Save the `.mid` as well when somebody may want to edit it.
+- In a chat, attach the audio's key to your answer with the tool you have for
+  attaching a file, where you have one: it gets a player there. In a voice
+  conversation, play it with the tool you have for playing a sound to the
+  person, then say what it was.
+- Otherwise pass the key to `{{tool:save_artifact}}` with a name like
+  `sunrise.mp3` for a link, or to a tool that uploads or sends a file. Hand over
+  the `.mid` as well when somebody may want to edit it.
 - Answer with the link and a sentence on what you wrote: key, tempo, form and
   instruments.
 
