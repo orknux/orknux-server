@@ -35,11 +35,13 @@ class PdfCapability(
     private val scratch: LlmSessionStore,
     private val pictures: SessionPictures,
     private val mapper: ObjectMapper,
+    private val texts: PdfText,
+    private val tuning: io.mszymanski.orknux.server.tuning.Tuning,
 ) : EmbeddedCapability {
 
     private val log = LoggerFactory.getLogger(javaClass)
 
-    override val key = "pdf"
+    override val key = CAPABILITY
     override val name = "PDF"
 
     override fun tools(): List<EmbeddedTool> = listOf(
@@ -107,13 +109,34 @@ class PdfCapability(
             description = "Reads a PDF and answers its text - to find a total, quote a clause, or decide " +
                 "whether a report is worth passing on. Takes a $KEY: the one fromHtml answered, or the one " +
                 "an attachment reader gave you. There is deliberately no base64 argument, because a " +
-                "document does not survive being written out through you.",
+                "document does not survive being written out through you. To find something in a long document, " +
+                "search it with $SEARCH_TOOL first and read only the pages it names, with $FROM and $TO.",
             params = listOf(
                 EmbeddedParam(KEY, ValueType.STRING, "The key the document is kept under.", required = true),
                 EmbeddedParam(FROM, ValueType.NUMBER, "First page, counting from 1. Left out, the start."),
                 EmbeddedParam(TO, ValueType.NUMBER, "Last page. Left out, the end."),
             ),
             reads = StoredReader(setOf("application/pdf"), KEY),
+        ),
+        EmbeddedTool(
+            name = SEARCH,
+            readOnly = true,
+            summary = "Finds words in a PDF and answers the pages they are on, without reading it whole.",
+            description = "Searches a PDF kept under a $KEY for words, a phrase or a regular expression, without " +
+                "the document entering the conversation: only the matches do. Use it instead of reading a long " +
+                "document whole with $READ_TOOL. Answers how many matches there are in all and on which pages, and " +
+                "for each listed one its page and the text around it with the match between « and ». Plain text and " +
+                "case-insensitive unless told otherwise; a phrase matches across line breaks. Then read just those " +
+                "pages with $READ_TOOL's $FROM and $TO. A scanned document has no text to search, and says so.",
+            params = listOf(
+                EmbeddedParam(KEY, ValueType.STRING, "The key the document is kept under.", required = true),
+                EmbeddedParam(QUERY, ValueType.STRING, "What to find.", required = true),
+                EmbeddedParam(REGEX, ValueType.BOOLEAN, "true to read $QUERY as a regular expression."),
+                EmbeddedParam(WHOLE_WORD, ValueType.BOOLEAN, "true to match only whole words: \"net\" then does not match \"network\"."),
+                EmbeddedParam(CASE_SENSITIVE, ValueType.BOOLEAN, "true to tell capitals from small letters."),
+                EmbeddedParam(LIMIT, ValueType.NUMBER, "How many matches to list. The total is counted either way."),
+            ),
+            asks = StoredReader(setOf("application/pdf"), KEY),
         ),
         EmbeddedTool(
             name = PREVIEW,
@@ -167,6 +190,7 @@ class PdfCapability(
             FROM_HTML_ZIP -> fromHtmlZip(asked, sessionId)
             TO_PNG -> toPng(asked, sessionId)
             READ -> read(asked, sessionId)
+            SEARCH -> search(asked, sessionId)
             PREVIEW -> preview(asked, sessionId)
             else -> refusal("There is no tool called $key" + "_" + name + ".")
         }
@@ -334,7 +358,10 @@ class PdfCapability(
     private fun read(asked: JsonNode, sessionId: Long?): String {
         val pdf = bytesFor(text(asked, KEY), sessionId) ?: return refusal(keyRefusal(text(asked, KEY)))
         return when (val said = renderer.html(pdf, number(asked, FROM), number(asked, TO))) {
-            is PdfRenderer.Reading.Refused -> refusal(said.reason)
+            is PdfRenderer.Reading.Refused -> refusal(
+                // Too much text at once: the pages worth reading are the ones a search names.
+                said.reason + if (said.tooLong) ", or find the pages that matter with $SEARCH_TOOL" else "",
+            )
             is PdfRenderer.Reading.Read -> mapper.writeValueAsString(
                 linkedMapOf(
                     "html" to said.html,
@@ -342,9 +369,59 @@ class PdfCapability(
                     FROM to said.from,
                     TO to said.to,
                     "characters" to said.characters,
+                ).apply {
+                    // A scan reads as nothing; say so rather than answer empty pages as if they were blank paper.
+                    if (said.textless) put("note", "$NO_TEXT_LAYER Look at a page with $PREVIEW_TOOL.")
+                },
+            )
+        }
+    }
+
+    /**
+     * Finding things in a long document without reading it into the turn.
+     * The text is [PdfText]'s, kept per session so the next search is free.
+     */
+    private fun search(asked: JsonNode, sessionId: Long?): String {
+        val query = text(asked, QUERY)?.takeIf { it.isNotBlank() } ?: return refusal("Give the $QUERY to find.")
+        val pdf = bytesFor(text(asked, KEY), sessionId) ?: return refusal(keyRefusal(text(asked, KEY)))
+        val pages = when (val read = texts.pages(pdf, sessionId)) {
+            is PdfText.Pages.Refused -> return refusal(read.reason)
+            is PdfText.Pages.Read -> read
+        }
+        if (pages.textless) {
+            return mapper.writeValueAsString(
+                linkedMapOf(
+                    "count" to 0,
+                    "pages" to pages.pages.size,
+                    "textLayer" to false,
+                    "note" to "$NO_TEXT_LAYER There is nothing to search. Look at a page with $PREVIEW_TOOL.",
                 ),
             )
         }
+        val most = tuning[io.mszymanski.orknux.server.tuning.Tunable.PDF_MATCHES_MOST]
+        val limit = (number(asked, LIMIT) ?: most).coerceIn(1, most)
+        val found = texts.search(
+            pages.pages, query,
+            regex = flag(asked, REGEX), wholeWord = flag(asked, WHOLE_WORD), caseSensitive = flag(asked, CASE_SENSITIVE),
+            most = limit,
+        ).getOrElse { return refusal(it.message ?: "that could not be searched") }
+        val blank = pages.pages.count { it.isBlank() }
+        return mapper.writeValueAsString(
+            linkedMapOf<String, Any?>(
+                "count" to found.total,
+                "pages" to pages.pages.size,
+                "onPages" to found.perPage.map { (page, count) -> listOf(page, count) },
+                "matches" to found.listed.map { linkedMapOf("page" to it.page, "text" to it.snippet) },
+            ).apply {
+                if (found.total > found.listed.size) put("more", "${found.total - found.listed.size} more matches not listed; onPages counts them all")
+                if (blank > 0) put("pagesWithoutText", blank)
+                if (found.total > 0) put("next", "read a page with $READ_TOOL's $FROM and $TO")
+            },
+        )
+    }
+
+    private fun flag(node: JsonNode, name: String): Boolean = node.path(name).let { said ->
+        (said.isBoolean && said.booleanValue()) || (said.isTextual && said.stringValue().trim().equals("true", ignoreCase = true))
     }
 
     private fun preview(asked: JsonNode, sessionId: Long?): String {
@@ -520,7 +597,27 @@ class PdfCapability(
 
     private fun refusal(said: String): String = mapper.writeValueAsString(mapOf("error" to said))
 
-    private companion object {
+    companion object {
+        const val CAPABILITY = "pdf"
+        const val SEARCH = "search"
+
+        /** What a model calls to find words in a PDF, as the tool list names it. */
+        const val SEARCH_TOOL = CAPABILITY + "_" + SEARCH
+
+        /** What a model calls to read a PDF's text, as the tool list names it. */
+        const val READ_TOOL = CAPABILITY + "_read"
+
+        /** What a model calls to look at a page, as the tool list names it. */
+        const val PREVIEW_TOOL = CAPABILITY + "_preview"
+
+        const val QUERY = "query"
+        const val REGEX = "regex"
+        const val WHOLE_WORD = "whole_word"
+        const val CASE_SENSITIVE = "case_sensitive"
+        const val LIMIT = "limit"
+
+        const val NO_TEXT_LAYER = "This PDF has no text layer: its pages are pictures, as a scan's are, so no text can be read from them."
+
         const val FROM_HTML = "fromHtml"
         const val FROM_HTML_ZIP = "fromHtmlZip"
         const val FILE = "file"

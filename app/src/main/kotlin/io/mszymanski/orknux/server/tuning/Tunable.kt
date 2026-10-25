@@ -167,6 +167,46 @@ enum class Tunable(
         "An .xlsx or an .ods is a zip, and a small one can unpack to gigabytes. A workbook with a part larger than this is refused rather than read.",
     ),
     /*
+     * xml_query and svg_measure: questions about a large XML or SVG file whose
+     * answers go into the turn instead of the file. Chat 981, a KiCad copper
+     * layer read whole. See XmlCapability and SvgGeometry.
+     */
+    XML_MATCHES_MOST(
+        "xml.matches.most", 50, 1, 5_000, TuningSection.AGENTS, TuningUnit.ITEMS,
+        "How many matches one XML or SVG question lists",
+        "An agent querying an XML file or measuring an SVG is handed this many nodes or rows at a time, with the total counted, and pages through the rest.",
+    ),
+    XML_FILE_MB(
+        "xml.file.mb", 20, 1, 500, TuningSection.AGENTS, TuningUnit.MB,
+        "The largest XML or SVG file an agent may query or measure",
+        "A larger file is refused rather than parsed. Parsing holds the whole document in memory, several times its size.",
+    ),
+    XML_ATTRIBUTE_CHARACTERS(
+        "xml.attribute.characters", 200, 20, 100_000, TuningSection.AGENTS, TuningUnit.CHARACTERS,
+        "How much of a long attribute or text an XML query shows",
+        "A longer value, such as an SVG path's d, is cut to this with its length said, unless the agent asks for it in full.",
+    ),
+    SVG_GROUP_GAP_PERCENT(
+        "svg.group.gap.percent", 100, 1, 10_000, TuningSection.AGENTS, TuningUnit.PERCENT,
+        "How close SVG shapes must be to be grouped, when the agent gives no gap",
+        "Grouping shapes by proximity, such as pads into footprints, joins two whose edges are within this share of the shapes' median nearest-neighbour pitch.",
+    ),
+    PDF_SNIPPET_CHARACTERS(
+        "pdf.snippet.characters", 200, 20, 5_000, TuningSection.AGENTS, TuningUnit.CHARACTERS,
+        "How much text around each PDF search match is shown",
+        "A search of a PDF answers the page of each match and this much of the text around it.",
+    ),
+    PDF_MATCHES_MOST(
+        "pdf.matches.most", 20, 1, 1_000, TuningSection.AGENTS, TuningUnit.ITEMS,
+        "How many matches one PDF search lists",
+        "The total is always counted; past this the agent is told how many more there are.",
+    ),
+    PDF_TEXT_DOCUMENTS(
+        "pdf.text.documents", 16, 0, 1_000, TuningSection.AGENTS, TuningUnit.ITEMS,
+        "How many PDFs' text is kept for searching again",
+        "The text of a searched PDF is kept in memory by its content, per session, so a second search does not read the file again. The least recently searched goes first; 0 keeps none.",
+    ),
+    /*
      * A time and not a length, because the patterns that never finish are
      * short: (a|a?){60}b is eleven characters. See AuthoredRegex.
      */

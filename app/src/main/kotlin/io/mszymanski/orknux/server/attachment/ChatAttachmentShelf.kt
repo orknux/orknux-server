@@ -73,8 +73,22 @@ class ChatAttachmentShelf(
         val type = contentType.substringBefore(';').trim().lowercase()
         val reader = readers.ifAvailable?.readerOf(type)
             ?: (ZipTools.ZIP_EXTRACT to ZipTools.KEY).takeIf { type in ZIP_TYPES }
-            ?: return ""
-        return " - read it with ${reader.first} {\"${reader.second}\": \"$key\"}"
+        /*
+         * And the tools that answer a question about it without reading it
+         * whole. Chat 981: told only "read it with svg_read", an agent read a
+         * 465 KB copper layer into every round after; a count of its pads was
+         * one xml_query away.
+         */
+        val askers = readers.ifAvailable?.askersOf(type).orEmpty().filter { it.first != reader?.first }
+        val asking = askers.joinToString(", ") { "${it.first} {\"${it.second}\": \"$key\", …}" }
+        return when {
+            reader != null && askers.isNotEmpty() ->
+                " - read it with ${reader.first} {\"${reader.second}\": \"$key\"}, or, rather than reading a large one " +
+                    "whole, ask about it with $asking"
+            reader != null -> " - read it with ${reader.first} {\"${reader.second}\": \"$key\"}"
+            askers.isNotEmpty() -> " - ask about it with $asking"
+            else -> ""
+        }
     }
 
     private fun kilobytes(size: Long): String = if (size < 1024) "$size B" else "${size / 1024} KB"

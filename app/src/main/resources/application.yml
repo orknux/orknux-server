@@ -919,6 +919,14 @@ orknux:
     sheet.rows.most: ${ORKNUX_TUNING_SHEET_ROWS_MOST:200}
     sheet.answer.characters: ${ORKNUX_TUNING_SHEET_ANSWER_CHARACTERS:60000}
     sheet.unpacked.mb: ${ORKNUX_TUNING_SHEET_UNPACKED_MB:100}
+    # xml_query, svg_measure and pdf_search: answers about a large file instead of the file.
+    xml.matches.most: ${ORKNUX_TUNING_XML_MATCHES_MOST:50}
+    xml.file.mb: ${ORKNUX_TUNING_XML_FILE_MB:20}
+    xml.attribute.characters: ${ORKNUX_TUNING_XML_ATTRIBUTE_CHARACTERS:200}
+    svg.group.gap.percent: ${ORKNUX_TUNING_SVG_GROUP_GAP_PERCENT:100}
+    pdf.snippet.characters: ${ORKNUX_TUNING_PDF_SNIPPET_CHARACTERS:200}
+    pdf.matches.most: ${ORKNUX_TUNING_PDF_MATCHES_MOST:20}
+    pdf.text.documents: ${ORKNUX_TUNING_PDF_TEXT_DOCUMENTS:16}
     regex.match.seconds: ${ORKNUX_TUNING_REGEX_MATCH_SECONDS:2}
     watcher.match.characters: ${ORKNUX_TUNING_WATCHER_MATCH_CHARACTERS:1000000}
     watcher.result.characters: ${ORKNUX_TUNING_WATCHER_RESULT_CHARACTERS:10000}

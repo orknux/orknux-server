@@ -261,6 +261,29 @@ class BuiltInToolsTest(
     }
 
     /**
+     * The tools that answer a question about a large file without reading it
+     * whole - chat 981 - reach a new agent marked Always and are offered to it.
+     */
+    @Test
+    fun `a fresh agent is offered the questions about a file, Always`() {
+        val asking = listOf(
+            io.mszymanski.orknux.server.embedded.XmlCapability.QUERY_TOOL,
+            io.mszymanski.orknux.server.embedded.SvgCapability.MEASURE_TOOL,
+            io.mszymanski.orknux.server.embedded.PdfCapability.SEARCH_TOOL,
+        )
+        val id = created("Asking")
+
+        graphQlTester.document("{ agent(id: $id) { tools requiredTools } }")
+            .execute()
+            .path("agent.requiredTools").entityList(String::class.java).contains(*asking.toTypedArray())
+
+        val agent = requireNotNull(agents.findByIdOrNull(id))
+        assertThat(tools.offeringFor(agent).core.map { it.name }).containsAll(asking)
+        val capped = agent(tools = BuiltInTools.GRANTED, ceiling = 10)
+        assertThat(tools.offeringFor(capped).core.map { it.name }).containsAll(asking)
+    }
+
+    /**
      * The booleans still work as switches on the list, for a caller written
      * against them: off takes the name out, and reads back as off.
      */
