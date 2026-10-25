@@ -191,6 +191,44 @@
             <artifactId>pdfbox</artifactId>
             <version>3.0.5</version>
         </dependency>
+        <!--
+            Tabula, for the tables in a PDF a document is imported from: lattice
+            mode reads a table off its ruling lines, stream mode off the columns
+            its words line up in. MIT. The tabulapdf release (1.0.5, 2021) is
+            built on PDFBox 2, which shares this one's package names and would
+            be replaced by it at run time; fr.neolegal's is the maintained fork
+            of the same code, on PDFBox 3. What it brings for its command line
+            and its writers - JSON, CSV, the encryption providers, the image
+            codecs - is left out: only the extractors are used, and PDFBox here
+            already reads what the server reads.
+        -->
+        <dependency>
+            <groupId>fr.neolegal</groupId>
+            <artifactId>tabula</artifactId>
+            <version>1.2.0</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.bouncycastle</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.google.code.gson</groupId>
+                    <artifactId>gson</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.commons</groupId>
+                    <artifactId>commons-csv</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.github.jai-imageio</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.pdfbox</groupId>
+                    <artifactId>jbig2-imageio</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
         <dependency>
             <groupId>org.apache.xmlgraphics</groupId>
             <artifactId>batik-codec</artifactId>

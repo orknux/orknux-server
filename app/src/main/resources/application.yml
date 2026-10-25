@@ -979,6 +979,12 @@ orknux:
     document.svg.pixels: ${ORKNUX_TUNING_DOCUMENT_SVG_PIXELS:1600}
     document.import.mb: ${ORKNUX_TUNING_DOCUMENT_IMPORT_MB:25}
     document.import.pictures.most: ${ORKNUX_TUNING_DOCUMENT_IMPORT_PICTURES_MOST:200}
+    # How sure a table read from a PDF has to be before its words stop being paragraphs.
+    document.import.table.rows.least: ${ORKNUX_TUNING_DOCUMENT_IMPORT_TABLE_ROWS_LEAST:2}
+    document.import.table.columns.least: ${ORKNUX_TUNING_DOCUMENT_IMPORT_TABLE_COLUMNS_LEAST:2}
+    document.import.table.column.gap.percent: ${ORKNUX_TUNING_DOCUMENT_IMPORT_TABLE_COLUMN_GAP_PERCENT:150}
+    document.import.table.rows.full.percent: ${ORKNUX_TUNING_DOCUMENT_IMPORT_TABLE_ROWS_FULL_PERCENT:75}
+    document.import.table.cell.characters: ${ORKNUX_TUNING_DOCUMENT_IMPORT_TABLE_CELL_CHARACTERS:30}
     document.completion.context.characters: ${ORKNUX_TUNING_DOCUMENT_COMPLETION_CONTEXT_CHARACTERS:2000}
     editor.chat.file.characters: ${ORKNUX_TUNING_EDITOR_CHAT_FILE_CHARACTERS:100000}
     grammar.pause.millis: ${ORKNUX_TUNING_GRAMMAR_PAUSE_MILLIS:800}
