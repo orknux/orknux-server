@@ -13,11 +13,13 @@ import org.springframework.stereotype.Service
  * The provider's own cap on a request ([ModelChatClient.toolLimit]) applies on
  * top of it, and the lower of the two wins.
  *
- * A provider could once switch the agent's ceiling off and hand over every tool
- * up front, because a tool loaded mid-turn changed the tool array and llama.cpp
- * read the whole session again. The array is frozen per session now
- * ([io.mszymanski.orknux.server.llm.SessionFrames]) and a found tool runs through
- * `tool_run`, so the switch saved nothing and went in 1.2.0.
+ * A provider set to offer every tool up front
+ * ([io.mszymanski.orknux.connector.model.ModelProvider.offerAllTools]) switches
+ * the agent's ceiling off, so its Offer marks are set aside and every tool goes
+ * out from the first request, up to the provider's cap. Off by default: it
+ * makes the first prompt as large as the agent's whole toolset. What it buys
+ * is an array that never grows, on a server where a tool loaded and joined at
+ * the next turn re-reads the whole conversation - see [loading].
  *
  * Asked by everything that decides what is carried - the round, the briefing's
  * list and the setup a session records - so the three cannot disagree. [split]
@@ -28,8 +30,12 @@ import org.springframework.stereotype.Service
 @Service
 class ToolCeilings(private val models: ModelChatClient) {
 
-    /** The ceiling for [agent]: its own, on every provider. */
-    fun of(agent: Agent): Int? = agent.maxTools
+    /** The ceiling for [agent] on [modelId]: its own, or null where the provider offers every tool up front. */
+    fun of(agent: Agent, modelId: Long? = agent.modelId): Int? =
+        if (models.toolLoading(modelId).offersAll) null else agent.maxTools
+
+    /** How a tool loaded on [modelId] is called from then on, and what the model is told of it. See [LoadedTools]. */
+    fun loading(modelId: Long?): LoadedTools = LoadedTools.of(models.toolLoading(modelId))
 
     /** The most tools one request to [modelId] may carry. */
     fun cap(modelId: Long?): Int? = modelId?.let(models::toolLimit)
@@ -51,7 +57,7 @@ class ToolCeilings(private val models: ModelChatClient) {
         lending: List<ToolSpec>,
         capped: (Int) -> Offering,
     ): Carrying {
-        val ceiling = of(agent)
+        val ceiling = of(agent, modelId)
         val (lent, lentFindable) = lending.partition { BuiltInTools.carried(agent, it.name, ceiling) }
         /*
          * The agent's own ceiling where it carries one, and the provider's

@@ -141,6 +141,8 @@ class ModelService(
         provider.throttleRequestsPerSecond = input.throttleRequestsPerSecond
         input.acceptRetryAfter?.let { provider.acceptRetryAfter = it }
         provider.sendsReasoning = input.sendsReasoning ?: false
+        provider.offerAllTools = input.offerAllTools ?: false
+        provider.joinLoadedTools = input.joinLoadedTools
         provider.editMask = input.editMask
         provider.maxTools = toolCapOf(input.maxTools)
         provider.chatApi = chatApiFor(provider.type, input.chatApi, null)
@@ -253,6 +255,10 @@ class ModelService(
         provider.throttleRequestsPerSecond = input.throttleRequestsPerSecond
         input.acceptRetryAfter?.let { provider.acceptRetryAfter = it }
         input.sendsReasoning?.let { provider.sendsReasoning = it }
+        // Null leaves both alone, like the switch above: a caller written before
+        // they came back would otherwise reset somebody's choice on every save.
+        input.offerAllTools?.let { provider.offerAllTools = it }
+        input.joinLoadedTools?.let { provider.joinLoadedTools = it }
         provider.editMask = input.editMask
         provider.maxTools = toolCapOf(input.maxTools)
         provider.chatApi = chatApiFor(provider.type, input.chatApi, provider.chatApi)
@@ -865,8 +871,10 @@ data class CreateProviderInput(
     val chatApi: ChatApi? = null,
     /** Whether the model's earlier thinking is sent back; null is off. See [ModelProvider.sendsReasoning]. */
     val sendsReasoning: Boolean? = null,
-    /** Accepted and ignored since 1.2.0, so an older client's form still saves. See [ModelProvider.offerAllTools]. */
+    /** Every tool from the first request, up to the cap; null is off. See [ModelProvider.offerAllTools]. */
     val offerAllTools: Boolean? = null,
+    /** Whether a loaded tool joins the array at the next turn; null is the type's default. See [ModelProvider.joinLoadedTools]. */
+    val joinLoadedTools: Boolean? = null,
     /** How a picture edit's mask is drawn; null is its type's. See [EditMask]. */
     val editMask: EditMask? = null,
     /** The most tools one request carries; null is the type's. See [ModelProvider.maxTools]. */
@@ -909,8 +917,10 @@ data class UpdateProviderInput(
     val chatApi: ChatApi? = null,
     /** Whether the model's earlier thinking is sent back; null leaves it as it is. */
     val sendsReasoning: Boolean? = null,
-    /** Accepted and ignored since 1.2.0, so an older client's form still saves. See [ModelProvider.offerAllTools]. */
+    /** Every tool from the first request; null leaves it as it is. See [ModelProvider.offerAllTools]. */
     val offerAllTools: Boolean? = null,
+    /** Whether a loaded tool joins the array at the next turn; null leaves it as it is. See [ModelProvider.joinLoadedTools]. */
+    val joinLoadedTools: Boolean? = null,
     /** Set as given: null is its type's. See [EditMask]. */
     val editMask: EditMask? = null,
     /** Set as given: null is the type's cap. See [ModelProvider.maxTools]. */
@@ -1057,6 +1067,14 @@ data class ModelProviderView(
     val sendsReasoning: Boolean,
     /** How a picture edit's mask is drawn; null is its type's. */
     val editMask: EditMask?,
+    /** Every tool from the first request, as set; null is off, which [offersAllTools] resolves. */
+    val offerAllTools: Boolean?,
+    /** Whether it does. */
+    val offersAllTools: Boolean,
+    /** Whether a loaded tool joins the array at the next turn, as set; null is the type's default. */
+    val joinLoadedTools: Boolean?,
+    /** Whether it does, the default resolved. */
+    val joinsLoadedTools: Boolean,
     /** Whether its models draw with a negative prompt; see [ProviderType.takesNegativePrompt]. */
     val takesNegativePrompt: Boolean,
     /** The most tools one request carries, as set; null is the type's, which [toolCap] resolves. */
@@ -1105,6 +1123,10 @@ data class ModelProviderView(
         chatApi = if (provider.type == ProviderType.AZURE_OPENAI) provider.chatApi ?: ChatApi.RESPONSES else null,
         sendsReasoning = provider.sendsReasoning,
         editMask = provider.editMask,
+        offerAllTools = provider.offerAllTools,
+        offersAllTools = provider.offersAllTools(),
+        joinLoadedTools = provider.joinLoadedTools,
+        joinsLoadedTools = provider.joinsLoadedTools(),
         takesNegativePrompt = provider.type.takesNegativePrompt,
         maxTools = provider.maxTools,
         toolCap = provider.toolCap(),
@@ -1117,15 +1139,6 @@ data class ModelProviderView(
         secretVariableCatalog = held?.catalog,
         secretVariableMissing = provider.secretVariableId != null && held == null,
     )
-
-    /**
-     * Gone since 1.2.0 and answered so that an older client's query still runs:
-     * null, as if never set, and false. See [ModelProvider.offerAllTools].
-     */
-    val offerAllTools: Boolean? get() = null
-
-    /** See [offerAllTools]: no provider hands over every tool up front. */
-    val offersAllTools: Boolean get() = false
 }
 
 data class LlmModelView(

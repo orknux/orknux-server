@@ -555,7 +555,13 @@ class BuiltInTools(
          * turn the loaded tool is carried, and this marks it so - see
          * [ConversationFrame.joined], which calls this on a list already marked.
          */
-        fun listed(system: String?, lent: List<ToolSpec>, carried: Set<String>, hunting: Boolean): String? {
+        /*
+         * The paragraph over a list with things to load is written again with
+         * it, by [loading] - what a load holds is the provider's to say, and a
+         * setting changed since the briefing was written is said from the turn
+         * it changed.
+         */
+        fun listed(system: String?, lent: List<ToolSpec>, carried: Set<String>, hunting: Boolean, loading: LoadedTools = LoadedTools.JOIN): String? {
             if (system == null) return null
             val lines = system.split(NL)
             val listed = lines.indices.filter { ENTRY.containsMatchIn(lines[it]) }
@@ -590,12 +596,12 @@ class BuiltInTools(
             val head = lines.subList(0, first).toMutableList()
             val said = head.indexOfLast { it.startsWith(AgentBriefing.ALL_IN_HAND) || it.startsWith(AgentBriefing.BEHIND_SEARCH_START) }
             if (said >= 0) {
-                val example = present.minOrNull() ?: "its_name"
+                // The first of the list as it is sent, so the paragraph's example is a line the model can see.
+                val example = merged.firstNotNullOfOrNull { ENTRY.find(it)?.groupValues?.get(1) } ?: "its_name"
                 head[said] = when {
                     !hunting && late -> AgentBriefing.ALL_IN_HAND + " " + AgentBriefing.ARRIVED_LATE
                     !hunting -> AgentBriefing.ALL_IN_HAND
-                    head[said].startsWith(AgentBriefing.BEHIND_SEARCH_START) -> head[said]
-                    else -> AgentBriefing.behindSearch(example)
+                    else -> AgentBriefing.behindSearch(example, loading)
                 }
             }
             return (head + merged + lines.subList(last + 1, lines.size)).joinToString(NL)

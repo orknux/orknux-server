@@ -416,6 +416,34 @@ class ToolSearchTest(
         }
     }
 
+    /**
+     * On llama.cpp with nothing joining the array, a loaded tool can be called
+     * only through tool_run, and every answer that names a tool to load says
+     * so - the model forms the belief where it first meets the tool. Nowhere
+     * else, where the wording it had is right.
+     */
+    @Test
+    fun `where nothing joins on llama_cpp, finding, describing and loading all say tool_run is the only way`() {
+        val rule = "can only ever be called through " + ToolRun.NAME
+        fun said(loading: LoadedTools): List<String> {
+            val shed = searching.shed(granted, mutableSetOf(), room = { 10 }, loading = loading)
+            return listOf(
+                shed.run(ToolCall("1", ToolSearchTools.SEARCH, """{"${ToolSearchTools.QUERIES}":["jira"]}""")),
+                shed.run(ToolCall("2", ToolSearchTools.DESCRIBE, """{"${ToolSearchTools.NAMES}":["jira_createIssue"]}""")),
+                shed.run(ToolCall("3", ToolSearchTools.FIND, """{"${ToolSearchTools.NAMES}":["jira_createIssue"]}""")),
+                shed.specs().single { it.name == ToolSearchTools.FIND }.description,
+            )
+        }
+        val strict = said(LoadedTools.RUN_ONLY)
+        strict.take(3).forEach { assertThat(it).contains(rule).contains(LoadedTools.rule("jira_createIssue")) }
+        assertThat(strict[3]).contains(ToolRun.NAME).contains("never by its own name")
+        listOf(LoadedTools.JOIN, LoadedTools.RUN).forEach { loading ->
+            said(loading).forEach { assertThat(it).describedAs(loading.name).doesNotContain(rule) }
+        }
+        // The call's shape names the parameters tool_run really takes.
+        assertThat(ToolRun.SPEC.parameters.map { it.name }).containsExactly(ToolRun.TOOL, ToolRun.ARGUMENTS)
+    }
+
     /* ----------------------------------------------- what is found stays found */
 
     /**

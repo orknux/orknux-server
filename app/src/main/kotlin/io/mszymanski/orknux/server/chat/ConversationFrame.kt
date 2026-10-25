@@ -33,6 +33,10 @@ internal object ConversationFrame {
      * agent still holds, in the order they were loaded, and the system turn's
      * marks for them changed to loaded. [frame] itself where there is none.
      *
+     * Only where the provider joins loaded tools ([LoadedTools.JOIN]); where
+     * it does not, a loaded tool is called through [ToolRun] until the frame
+     * is made again anyway, which puts it in the array.
+     *
      * Asked at the start of a turn and never inside one, so every round of a
      * turn sends the array it started with and keeps the prompt's cache. The
      * array grows only at the end and only by what was loaded since, so a turn
@@ -58,7 +62,7 @@ internal object ConversationFrame {
         val joining = found.distinct().filter { it !in carried }.mapNotNull { byName[it] }.take(room)
         if (joining.isEmpty()) return frame
         val tools = frame.tools + joining
-        val system = BuiltInTools.listed(frame.system, emptyList(), tools.map { it.name }.toSet(), frame.hunting)
+        val system = BuiltInTools.listed(frame.system, emptyList(), tools.map { it.name }.toSet(), frame.hunting, LoadedTools.JOIN)
         return frame.copy(tools = tools, system = system)
     }
 

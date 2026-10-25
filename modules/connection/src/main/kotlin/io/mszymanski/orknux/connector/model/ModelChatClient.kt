@@ -1119,6 +1119,22 @@ class ModelChatClient(
     }
 
     /**
+     * How an agent on this model reaches the tools it does not carry from the
+     * start: its provider's type, whether every tool goes out up front, and
+     * whether a loaded tool joins the array at the next turn. See
+     * [ModelProvider.offerAllTools] and [ModelProvider.joinLoadedTools]. Read
+     * at every turn, so a change on the provider's page holds from the next.
+     *
+     * A model or provider that has gone answers with no type, nothing up front
+     * and the join on - the call is about to fail for a better reason.
+     */
+    fun toolLoading(modelId: Long?): ToolLoading {
+        val provider = modelId?.let { models.findByIdOrNull(it) }?.let { providers.findByIdOrNull(it.providerId) }
+            ?: return ToolLoading(null, offersAll = false, joinsLoaded = true)
+        return ToolLoading(provider.type, provider.offersAllTools(), provider.joinsLoadedTools())
+    }
+
+    /**
      * A call through the SDK, answered in this application's own words.
      *
      * The address is still vetted here. [OpenAiChat] is handed a provider rather
@@ -2030,3 +2046,12 @@ class ModelChatClient(
         const val HUNG_UP = "Nobody was left to read the answer"
     }
 }
+
+/**
+ * How a model's provider has an agent reach its tools. See [ModelChatClient.toolLoading].
+ *
+ * @property type the provider's type, or null where the model or provider has gone.
+ * @property offersAll whether every tool the agent holds goes out from its first request.
+ * @property joinsLoaded whether a tool loaded with `tool_load` joins the array at the next turn.
+ */
+data class ToolLoading(val type: ProviderType?, val offersAll: Boolean, val joinsLoaded: Boolean)

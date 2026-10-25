@@ -16,9 +16,11 @@ import tools.jackson.databind.ObjectMapper
  * tool_load past the provider's cap, brought by an MCP server or a plugin - is
  * not added to the array. Its schema reaches the model as a message, and the
  * model calls it through this, by name. One found with tool_load is the
- * exception from the next turn on: it joins the array then, where the
- * provider's cap leaves room (see [ConversationFrame.joined]), and this reaches
- * it only in the turn that loaded it.
+ * exception from the next turn on, where the provider joins loaded tools: it
+ * joins the array then, where the provider's cap leaves room (see
+ * [ConversationFrame.joined]), and this reaches it only in the turn that loaded
+ * it. Where the provider does not, this reaches it for the rest of the
+ * conversation - see [LoadedTools].
  *
  * Not a tool of its own: [unwrap] turns the call into the one it stands for
  * before anything looks at it, so the grant, the approval, the loop guard, the

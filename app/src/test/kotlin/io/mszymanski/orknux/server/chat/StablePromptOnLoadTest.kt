@@ -29,7 +29,10 @@ import java.util.concurrent.CopyOnWriteArrayList
  * answers with how the tool is called, and the tool is called through tool_run.
  * At the next turn it joins the tool array, once, and is called by its own name
  * - llama.cpp lets a model name only what the array declares - up to the
- * provider's cap, past which tool_run goes on reaching it.
+ * provider's cap, past which tool_run goes on reaching it. That join is the
+ * provider's setting: off by default on llama.cpp, where the turn after a load
+ * re-reads the whole conversation, and there the model is told tool_run is the
+ * only way - in the system turn, and in what tool_find and tool_load answer.
  *
  * llama.cpp reuses a prompt only where it is the same from its first byte, and
  * measured against a Qwen hybrid model it reuses nothing at all past a
@@ -193,6 +196,128 @@ class StablePromptOnLoadTest(
         assertThat(system(body)).doesNotContain(ToolSearchTools.FIND)
     }
 
+    @Test
+    fun `with the join switched off a loaded tool never joins, and is called through tool_run in every later turn`() {
+        val chat = chatWith(cap = null, ceiling = CEILING, settings = "joinLoadedTools: false")
+        var picked = ""
+        script += { body ->
+            picked = behind(body).first()
+            called("call_1", ToolSearchTools.FIND, """{"names":["$picked"]}""")
+        }
+        script += { _ -> answered("Loaded.") }
+        script += { _ -> called("call_2", ToolRun.NAME, """{"name":"$picked","arguments":{}}""") }
+        script += { _ -> answered("Done.") }
+
+        send(chat, "Load it.")
+        send(chat, "Use it.")
+
+        assertThat(received).hasSize(4)
+        // One array and one system turn across both turns: nothing joined.
+        assertThat(received.map { text(it, "tools") }.distinct()).hasSize(1)
+        assertThat(received.map { system(it) }.distinct()).hasSize(1)
+        assertThat(tools(received[2])).doesNotContain(picked)
+        assertThat(marks(received[2])[picked]).isEqualTo("load it first")
+        assertThat(toolResult(received[3], "call_2")).doesNotContain("no tool called").doesNotContain("not offered")
+        // Told tool_run for the rest of the conversation - and, not being llama.cpp, without the rule.
+        assertThat(toolResult(received[1], "call_1")).contains(ToolRun.NAME).contains("rest of this conversation")
+            .doesNotContain("next turn").doesNotContain(RULE)
+        assertThat(system(received[0])).doesNotContain(RULE)
+    }
+
+    @Test
+    fun `on llama_cpp by default nothing joins, and the system turn, tool_find and tool_load say tool_run is the only way`() {
+        val chat = chatWith(cap = null, ceiling = CEILING, type = "LLAMA_CPP")
+        var picked = ""
+        script += { body ->
+            picked = behind(body).first()
+            called("call_0", ToolSearchTools.SEARCH, mapper.writeValueAsString(mapOf("queries" to listOf(picked))))
+        }
+        script += { _ -> called("call_1", ToolSearchTools.FIND, """{"names":["$picked"]}""") }
+        script += { _ -> answered("Loaded.") }
+        script += { _ -> called("call_2", ToolRun.NAME, """{"name":"$picked","arguments":{}}""") }
+        script += { _ -> answered("Done.") }
+
+        send(chat, "Find and load it.")
+        send(chat, "Use it.")
+
+        assertThat(received).hasSize(5)
+        assertThat(received.map { text(it, "tools") }.distinct()).hasSize(1)
+        assertThat(tools(received[3])).doesNotContain(picked)
+        // The system turn states the rule, with the call's shape, its names read off the declarations.
+        val example = marks(received[0]).keys.min()
+        assertThat(system(received[0])).contains(LoadedTools.rule(example))
+            .contains("\"" + ToolRun.TOOL + "\": \"" + example + "\"").contains("\"" + ToolRun.ARGUMENTS + "\"")
+        // And so do the answers that list a tool to load and that load it.
+        assertThat(toolResult(received[1], "call_0")).contains(RULE)
+        assertThat(toolResult(received[2], "call_1")).contains(RULE).contains("\"" + ToolRun.TOOL + "\": \"" + picked + "\"")
+            .doesNotContain("next turn")
+        // tool_load's own description says so too.
+        assertThat(description(received[0], ToolSearchTools.FIND)).contains("never by its own name")
+        assertThat(toolResult(received[4], "call_2")).doesNotContain("no tool called").doesNotContain("not offered")
+    }
+
+    @Test
+    fun `on llama_cpp with the join switched on the tool joins at the next turn and the rule is not said`() {
+        val chat = chatWith(cap = null, ceiling = CEILING, type = "LLAMA_CPP", settings = "joinLoadedTools: true")
+        var picked = ""
+        script += { body ->
+            picked = behind(body).first()
+            called("call_1", ToolSearchTools.FIND, """{"names":["$picked"]}""")
+        }
+        script += { _ -> answered("Loaded.") }
+        script += { _ -> answered("Again.") }
+
+        send(chat, "Load it.")
+        send(chat, "And now?")
+
+        assertThat(system(received[0])).doesNotContain(RULE)
+        assertThat(toolResult(received[1], "call_1")).contains("next turn").doesNotContain(RULE)
+        assertThat(tools(received[2])).isEqualTo(tools(received[0]) + picked)
+    }
+
+    @Test
+    fun `with every tool up front nothing is marked to load and the rule is not said, on llama_cpp too`() {
+        val chat = chatWith(cap = null, ceiling = CEILING, type = "LLAMA_CPP", settings = "offerAllTools: true")
+        script += { _ -> answered("Hello.") }
+
+        send(chat, "Hi")
+
+        val body = received.single()
+        // Past the agent's own ceiling: its Offer marks are set aside.
+        assertThat(tools(body).size).isGreaterThan(CEILING)
+        assertThat(tools(body)).doesNotContain(ToolSearchTools.FIND)
+        assertThat(marks(body).values).doesNotContain("load it first")
+        assertThat(system(body)).doesNotContain(RULE).contains(AgentBriefing.ALL_IN_HAND)
+    }
+
+    @Test
+    fun `switching the join on holds from the session's next turn`() {
+        val chat = chatWith(cap = null, ceiling = CEILING, type = "LLAMA_CPP")
+        var picked = ""
+        script += { body ->
+            picked = behind(body).first()
+            called("call_1", ToolSearchTools.FIND, """{"names":["$picked"]}""")
+        }
+        script += { _ -> answered("Loaded.") }
+        send(chat, "Load it.")
+
+        graphQlTester.document(
+            """mutation { updateModelProvider(id: $providerId, input: { name: "renamed", endpoint: "${endpoint()}",
+                 joinLoadedTools: true }) { joinsLoadedTools } }""",
+        ).execute().path("updateModelProvider.joinsLoadedTools").entity(Boolean::class.java).isEqualTo(true)
+        script += { _ -> answered("Again.") }
+        send(chat, "And now?")
+
+        assertThat(tools(received[2])).isEqualTo(tools(received[0]) + picked)
+        assertThat(marks(received[2])[picked]).isEqualTo("loaded")
+        // The rule it was given is withdrawn in so many words.
+        assertThat(system(received[2])).doesNotContain(RULE)
+    }
+
+    private fun description(body: String, name: String): String =
+        mapper.readTree(body).path("tools").values().first { it.path("function").path("name").asString() == name }
+            .path("function").path("description").asString()
+
     private fun behind(body: String): List<String> = marks(body).filterValues { it == "load it first" }.keys.toList()
 
     private fun marks(body: String): Map<String, String> =
@@ -251,11 +376,11 @@ class StablePromptOnLoadTest(
      * behind the search. With a ceiling the array is short of the provider's
      * cap, and what is loaded has room to join it.
      */
-    private fun chatWith(cap: Int?, ceiling: Int? = null): Long {
+    private fun chatWith(cap: Int?, ceiling: Int? = null, type: String = "OPENAI", settings: String = ""): Long {
         providerId = graphQlTester.document(
             """mutation { createModelProvider(input: {
-                 workspaceId: $workspaceId, name: "local-${System.nanoTime()}", type: OPENAI, endpoint: "${endpoint()}",
-                 secret: "sk-test", maxTools: ${cap ?: "null"}
+                 workspaceId: $workspaceId, name: "local-${System.nanoTime()}", type: $type, endpoint: "${endpoint()}",
+                 secret: "sk-test", maxTools: ${cap ?: "null"} $settings
                }) { id } }""",
         ).execute().path("createModelProvider.id").entity(Long::class.java).get()
         val modelId = graphQlTester.document(
@@ -279,6 +404,9 @@ class StablePromptOnLoadTest(
     private companion object {
         /** The agent's own ceiling: short of the provider's cap, so a loaded tool has somewhere to go. */
         const val CEILING = 10
+
+        /** What every statement of the rule says, whichever tool it names. See [LoadedTools.rule]. */
+        val RULE = "can only ever be called through " + ToolRun.NAME
         val ENTRY = Regex("^- ([A-Za-z0-9_.:-]+) [(](loaded|load it first|call it with tool_run)[)]")
     }
 }

@@ -40,8 +40,9 @@ import java.util.concurrent.CopyOnWriteArrayList
  * past the provider's cap, a skill read. What arrives late travels as messages
  * and is called through tool_run - or by its own name - and runs as itself.
  * A tool loaded joins the array at the next turn where the provider's cap leaves
- * room (see StablePromptOnLoadTest); here the array is filled to the cap, so it
- * does not, and the frame holds.
+ * room and the provider joins loaded tools (see StablePromptOnLoadTest); here
+ * the array is filled to the cap, or the provider is llama.cpp, which does not
+ * join them by default, so it does not, and the frame holds.
  *
  * Measured on llama.cpp with a hybrid model: one tool added to the array, or
  * one line to the system turn, and the whole prompt was read again - 167,792
@@ -189,6 +190,37 @@ class FrozenToolArrayTest(
         assertThat(system(received[4])).isNotEqualTo(system(received[0]))
     }
 
+    @Test
+    fun `on llama_cpp a loaded tool stays out of the array in every later turn, and a compaction puts it in`() {
+        val chat = chatWith(cap = null, type = "LLAMA_CPP", ceiling = 10)
+        var behind = ""
+        script += { body ->
+            behind = marks(system(body)).filterValues { it == "load it first" }.keys.first()
+            called("call_load", "tool_load", mapOf("names" to listOf(behind)))
+        }
+        script += { _ -> answered("Loaded.") }
+        send(chat, "Load it.")
+        script += { _ -> called("call_run", RUN, mapOf("name" to behind, "arguments" to emptyMap<String, Any>())) }
+        script += { _ -> answered("Used.") }
+        send(chat, "Use it.")
+        script += { _ -> answered("Still.") }
+        send(chat, "And now?")
+
+        assertThat(received).hasSize(5)
+        // The same array and system turn in every turn after the load, the tool not in it.
+        assertThat(received.map { text(it, "tools") }.distinct()).hasSize(1)
+        assertThat(received.map { system(it) }.distinct()).hasSize(1)
+        assertThat(tools(received.last())).doesNotContain(behind)
+        assertThat(toolResult(received[3], "call_run")).doesNotContain("no tool called").doesNotContain("not offered")
+
+        // A compaction makes the frame again, and what was loaded is in its array then.
+        prompt.reset(requireNotNull(chatSessions.findById(chat).orElseThrow().llmSessionId))
+        script += { _ -> answered("Compacted.") }
+        send(chat, "Still there?")
+        assertThat(tools(received.last())).contains(behind)
+        assertThat(marks(system(received.last()))[behind]).isEqualTo("loaded")
+    }
+
     private fun assistantSaid(conversation: String): List<String> =
         history.findByConversationId(conversation).filter { it.messageType == MessageType.ASSISTANT }.map { it.text.orEmpty() }
 
@@ -248,11 +280,14 @@ class FrozenToolArrayTest(
         return "http://${running.address.hostString}:${running.address.port}"
     }
 
-    /** An OpenAI-compatible provider, as llama.cpp's is, capped at [cap]; the agent has no ceiling of its own and the clock switched off. */
-    private fun chatWith(cap: Int?): Long {
+    /**
+     * An OpenAI-compatible provider, as llama.cpp's is, capped at [cap]; the
+     * agent has [ceiling] of its own, none by default, and the clock switched off.
+     */
+    private fun chatWith(cap: Int?, type: String = "OPENAI", ceiling: Int? = null): Long {
         val providerId = graphQlTester.document(
             """mutation { createModelProvider(input: {
-                 workspaceId: $workspaceId, name: "local-${System.nanoTime()}", type: OPENAI, endpoint: "${endpoint()}",
+                 workspaceId: $workspaceId, name: "local-${System.nanoTime()}", type: $type, endpoint: "${endpoint()}",
                  secret: "sk-test", maxTools: ${cap ?: "null"}
                }) { id } }""",
         ).execute().path("createModelProvider.id").entity(Long::class.java).get()
@@ -268,6 +303,7 @@ class FrozenToolArrayTest(
         ).execute()
         agents.findByIdOrNull(agentId)!!.let { agent ->
             agent.hiddenTools = (agent.hiddenTools + NOW).toMutableList()
+            agent.maxTools = ceiling
             agents.save(agent)
         }
         return requireNotNull(chats.start(workspaceId, "alice", "Tools", agentId).id)

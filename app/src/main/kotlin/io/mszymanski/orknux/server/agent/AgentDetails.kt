@@ -88,7 +88,7 @@ class AgentDetails(
         val connectionNames = agent.connections
             .mapNotNull { connections.workspaceConnection(it)?.takeIf { held -> held.workspaceId == agent.workspaceId }?.name }
 
-        val ceiling = ceilings.of(agent)
+        val ceiling = ceilings.of(agent, modelId)
         // As this conversation is offered them: a task, for one, is not offered tools_request.
         val offering = tools.offeringFor(agent, ceiling, session)
         val lentSpecs = BuiltInTools.lentTo(agent, lent)?.specs().orEmpty()
@@ -120,7 +120,7 @@ class AgentDetails(
                 "model" to modelName,
                 // With what it lends in the list of tools, as the round sends it. Issue #546.
                 "systemPrompt" to briefedWith(
-                    BuiltInTools.listed(prompt, lentSpecs, start.carried, start.hunting),
+                    BuiltInTools.listed(prompt, lentSpecs, start.carried, start.hunting, ceilings.loading(modelId)),
                     lent?.briefing(),
                 ),
                 "tools" to held.sorted(),
