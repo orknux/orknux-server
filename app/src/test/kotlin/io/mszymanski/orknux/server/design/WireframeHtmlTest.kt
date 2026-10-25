@@ -141,6 +141,21 @@ class WireframeHtmlTest {
             .contains("style=\"stroke:#ff0000;stroke-width:3;stroke-dasharray:3 3;\"")
     }
 
+    /** A screen is drawn in its frame's style: a frame's fill was dropped, and a dark frame exported white. */
+    @Test
+    fun `a frame's fill, border and radius are its screen's`() {
+        val html = page(
+            "Dark",
+            """{"elements":[
+              {"id":"page","type":"frame","x":0,"y":0,"w":400,"h":300,"text":"Report","props":{"fill":"#0f0f12","borderColor":"#2e2e33","borderWidth":1,"radius":12}},
+              {"id":"t","type":"text","x":20,"y":20,"w":200,"h":20,"text":"Inside"}
+            ]}""",
+        )
+        assertThat(html).contains(
+            "class=\"canvas framed\" style=\"width:400px;height:300px;background:#0f0f12;border:1px solid #2e2e33;border-radius:12px\"",
+        )
+    }
+
     @Test
     fun `a colour or a gradient that is not one is refused, and never reaches the page as it was written`() {
         val hostile = listOf(

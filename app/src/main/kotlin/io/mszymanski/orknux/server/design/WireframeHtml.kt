@@ -62,6 +62,8 @@ class WireframeHtml(
         val framed: Boolean,
         /** The frame's id, which the section carries as an element carries its own. */
         val id: String? = null,
+        /** The frame itself, whose style - a fill, a border, a radius, a shadow - the screen is drawn in. */
+        val frame: WireframeElement? = null,
     )
 
     /**
@@ -90,7 +92,7 @@ class WireframeHtml(
         }
         val framed = owned.entries
             .sortedWith(compareBy({ it.key.y }, { it.key.x }))
-            .map { (frame, inside) -> Screen(frame.text, frame.x, frame.y, frame.w, frame.h, inside, framed = true, id = frame.id) }
+            .map { (frame, inside) -> Screen(frame.text, frame.x, frame.y, frame.w, frame.h, inside, framed = true, id = frame.id, frame = frame) }
         if (loose.isEmpty()) return framed
         val left = loose.minOf { minOf(it.x, it.x + it.w) }
         val top = loose.minOf { minOf(it.y, it.y + it.h) }
@@ -110,7 +112,9 @@ class WireframeHtml(
         screen.title?.let { append("<h2 class=\"screen-title\">").append(escape(it)).append("</h2>\n") }
         append("<div class=\"canvas")
         if (screen.framed) append(" framed")
-        append("\" style=\"width:${screen.w}px;height:${screen.h}px\">\n")
+        // The frame's own style over the stylesheet's white outline: a screen dropped it, so a dark frame exported white.
+        val styled = screen.frame?.let { css(it, WireframeStyle.look(it.props)) }.orEmpty()
+        append("\" style=\"width:${screen.w}px;height:${screen.h}px$styled\">\n")
         screen.elements.forEach { element(it, screen.x, screen.y) }
         append("</div>\n</section>\n")
     }
