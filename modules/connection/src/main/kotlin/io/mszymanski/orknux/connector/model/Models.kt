@@ -440,19 +440,17 @@ class ModelProvider(
     var sendsReasoning: Boolean = false,
 
     /**
-     * Whether an agent on this provider is handed every tool it holds from its
-     * first round, rather than some of them and a search for the rest. Null is
-     * the default for the type: on for Ollama and for OpenAI, whose type also
-     * covers the OpenAI-compatible local servers - llama.cpp among them - and
-     * off for the rest; see [offersAllTools]. Real OpenAI still holds its cap
-     * of 128 a request, and past it the rest are found as before.
+     * Unused since 1.2.0, and nothing reads it; the column can go in a later
+     * minor release, where a drop is allowed (see `rollback-floor`).
      *
-     * A local server keeps the prompt it last read and reuses the part a new
-     * request begins with. The tools are near the top of that prompt, so a tool
-     * loaded or dropped part way through a turn changes the beginning and the
-     * whole session is read again - a long Qwen session on llama.cpp spent
-     * minutes re-reading after every tool_load. Offered all at once, the list
-     * never moves and the cache holds.
+     * It handed an agent every tool it held from the first round, switching off
+     * the agent's own ceiling and its Offer marks, because a tool loaded
+     * mid-turn used to change the tool array and llama.cpp then read the whole
+     * prompt again. The array is frozen per session now and a found tool runs
+     * through `tool_run`, so it saved nothing - and an agent with a ceiling of
+     * 75 sent 59k tokens of tools on its first request. Still carried by a
+     * workspace copy and a workspace file, which is harmless for a dead field
+     * and keeps an older file importing.
      */
     @Column(name = "offer_all_tools")
     var offerAllTools: Boolean? = null,
@@ -572,19 +570,6 @@ class ModelProvider(
         if (base.endsWith(SYSTEM_ONE_VERSION)) base = base.removeSuffix(SYSTEM_ONE_VERSION)
         return base.trimEnd('/')
     }
-
-    /**
-     * Whether every tool goes out from the first round: as set, and off where
-     * nobody set it.
-     *
-     * It was on by default for the local servers, because a tool loaded
-     * mid-conversation used to change the tool array and llama.cpp then read the
-     * whole prompt again. The array is frozen per session now and a found tool
-     * runs through `tool_run`, so carrying everything bought nothing - and it
-     * switched off the agent's own ceiling and every Offer mark: an agent with a
-     * ceiling of 75 sent 59k tokens of tools on its first request.
-     */
-    fun offersAllTools(): Boolean = offerAllTools ?: false
 
     /** The most tools one request may carry: as set, or what the type takes. */
     fun toolCap(): Int = maxTools ?: if (isOpenAiItself()) OPENAI_API_TOOL_LIMIT else type.toolLimit

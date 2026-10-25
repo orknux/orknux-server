@@ -238,6 +238,7 @@ internal val PROVIDER_FIELDS: List<FileField<ModelProvider, *>> = listOf(
     FileField("acceptRetryAfter", { it.acceptRetryAfter }, { p, v -> p.acceptRetryAfter = v }, YES_NO),
     FileField("chatApi", { it.chatApi }, { p, v -> p.chatApi = v }, choiceOrNull<ChatApi>()),
     FileField("sendsReasoning", { it.sendsReasoning }, { p, v -> p.sendsReasoning = v }, YES_NO),
+    // Unused since 1.2.0 and still carried, so a file written before it still reads; see [ModelProvider.offerAllTools].
     FileField("offerAllTools", { it.offerAllTools }, { p, v -> p.offerAllTools = v }, YES_NO_OR_NULL),
     FileField("editMask", { it.editMask }, { p, v -> p.editMask = v }, choiceOrNull<io.mszymanski.orknux.connector.model.EditMask>()),
     FileField("maxTools", { it.maxTools }, { p, v -> p.maxTools = v }, WHOLE_OR_NULL),

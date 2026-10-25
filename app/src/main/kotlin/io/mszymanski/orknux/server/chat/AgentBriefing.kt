@@ -75,7 +75,7 @@ class AgentBriefing(
     private val workspaces: io.mszymanski.orknux.server.workspace.WorkspaceRepository,
     /** The installation's default marker, where the workspace has none. Issue #402. */
     private val installation: io.mszymanski.orknux.server.attachment.InstallationSettings,
-    /** Whether the provider hands over every tool up front; see [ToolCeilings]. */
+    /** What a turn starts out carrying, for the marks on the list; see [ToolCeilings]. */
     private val ceilings: org.springframework.beans.factory.ObjectProvider<ToolCeilings>,
     /** Whether the workspace has any diagrams, for the paragraph that sends an agent to them. */
     private val diagrams: io.mszymanski.orknux.server.diagram.DiagramRepository,
@@ -433,10 +433,9 @@ class AgentBriefing(
          */
         /*
          * And marked by what a turn starts out carrying, by the rule the round
-         * uses - see [ToolCeilings.split]. It read the agent's own ceiling
-         * while the round read the provider's switch over it, so on llama.cpp
-         * the list said "(load it first)" of tools the request carried and the
-         * model loaded them, a round each.
+         * uses - see [ToolCeilings.split]. It once read a different ceiling
+         * from the round's, so the list said "(load it first)" of tools the
+         * request carried and the model loaded them, a round each.
          */
         val all = tools.getObject()
         val ceilingNow = ceilings.getObject().of(agent)

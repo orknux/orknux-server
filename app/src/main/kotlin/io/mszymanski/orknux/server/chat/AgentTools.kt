@@ -121,10 +121,9 @@ class AgentTools(
      * a line that landed in the wrong place.
      */
     /**
-     * @param ceiling the agent's own cap on what it carries, as this turn reads
-     *   it: null where its provider is handed every tool up front, which leaves
-     *   nothing behind a search unless the provider's own cap forces it. See
-     *   [ToolCeilings].
+     * @param ceiling the agent's own cap on what it carries: null where it has
+     *   none, which leaves nothing behind a search unless the provider's own
+     *   cap forces it. See [ToolCeilings].
      */
     fun offeringFor(agent: Agent, ceiling: Int? = agent.maxTools, session: Long? = null): Offering {
         val core = coreFor(agent, session)

@@ -243,12 +243,12 @@ class FrozenToolArrayTest(
         return "http://${running.address.hostString}:${running.address.port}"
     }
 
-    /** An OpenAI-compatible provider that offers every tool up front, as llama.cpp's does, capped at [cap]; the agent has the clock switched off. */
+    /** An OpenAI-compatible provider, as llama.cpp's is, capped at [cap]; the agent has no ceiling of its own and the clock switched off. */
     private fun chatWith(cap: Int?): Long {
         val providerId = graphQlTester.document(
             """mutation { createModelProvider(input: {
                  workspaceId: $workspaceId, name: "local-${System.nanoTime()}", type: OPENAI, endpoint: "${endpoint()}",
-                 secret: "sk-test", offerAllTools: true, maxTools: ${cap ?: "null"}
+                 secret: "sk-test", maxTools: ${cap ?: "null"}
                }) { id } }""",
         ).execute().path("createModelProvider.id").entity(Long::class.java).get()
         val modelId = graphQlTester.document(

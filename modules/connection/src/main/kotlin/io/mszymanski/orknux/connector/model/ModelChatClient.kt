@@ -1119,14 +1119,6 @@ class ModelChatClient(
     }
 
     /**
-     * Whether an agent on this model is handed every tool from its first round.
-     * See [ModelProvider.offerAllTools]; a model or provider that has gone is
-     * not, which is the behaviour every provider had before the setting.
-     */
-    fun offersAllTools(modelId: Long?): Boolean =
-        modelId?.let { models.findByIdOrNull(it) }?.let { providers.findByIdOrNull(it.providerId) }?.offersAllTools() ?: false
-
-    /**
      * A call through the SDK, answered in this application's own words.
      *
      * The address is still vetted here. [OpenAiChat] is handed a provider rather
