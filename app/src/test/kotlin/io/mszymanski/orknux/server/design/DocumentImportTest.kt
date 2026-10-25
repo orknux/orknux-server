@@ -168,10 +168,14 @@ class DocumentImportTest(
     }
 
     @Test
-    fun `Export's PDF comes back as its paragraphs and its picture`() {
+    fun `Export's PDF comes back as its heading, its paragraphs and its picture`() {
         val back = imported("Plan.pdf", exported("pdf"))
         assertThat(back.format).isEqualTo("PDF")
         assertThat(back.text()).contains("Plan for the quarter", "Ship the editor and check it.", "After the break")
+        // Read off the size it is set in: a PDF imported with no headings had an empty outline.
+        assertThat(back.all("heading").map { it.path("content").get(0).path("text").asText() }).contains("Plan for the quarter")
+        assertThat(back.all("paragraph").map { it.path("content").get(0)?.path("text")?.asText().orEmpty() })
+            .anyMatch { it.startsWith("Ship the editor") }
         assertThat(back.all("image")).hasSize(1)
         assertThat(back.pictures).isEqualTo(1)
     }

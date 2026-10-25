@@ -262,6 +262,12 @@ class DocumentToolsTest(
         translate("w".repeat(8_001), "pl").errors()
             .expect { it.message == "A selection sent to the model holds at most 8000 characters, and this one holds 8001" }.verify()
         assertThat(received).hasSize(1)
+
+        // With a companion model the workspace's companion translates, not the model chosen to write with.
+        val companion = model(serve { """{"choices":[{"message":{"role":"assistant","content":"\"edytor\""}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}""" }, "companion-stub")
+        workspaces.save(workspaces.findById(workspaceId).get().apply { companionModelId = companion })
+        translate("editor", "pl").path("translateDocumentText").entity(String::class.java).isEqualTo("edytor")
+        assertThat(mapper.readTree(received.last()).path("model").asText()).isEqualTo("companion-stub")
     }
 
     /** The editor's suggestion: the workspace's completion model, the title and the text around the caret, only the new words. */
@@ -329,14 +335,14 @@ class DocumentToolsTest(
         return "http://${started.address.hostString}:${started.address.port}"
     }
 
-    private fun model(endpoint: String): Long {
+    private fun model(endpoint: String, served: String = "stub"): Long {
         val providerId = graphQlTester.document(
             """mutation { createModelProvider(input: {
                  workspaceId: $workspaceId, name: "Stub ${System.nanoTime()}", endpoint: "$endpoint", secret: "sk-test"
                }) { id } }""",
         ).execute().path("createModelProvider.id").entity(Long::class.java).get()
         return graphQlTester.document(
-            """mutation { createModel(input: { providerId: $providerId, name: "Stub", modelId: "stub", kind: CHAT }) { id } }""",
+            """mutation { createModel(input: { providerId: $providerId, name: "Stub", modelId: "$served", kind: CHAT }) { id } }""",
         ).execute().path("createModel.id").entity(Long::class.java).get()
     }
 }

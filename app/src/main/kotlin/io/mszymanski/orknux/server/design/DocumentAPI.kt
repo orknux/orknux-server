@@ -403,7 +403,18 @@ class DocumentAPI(
         val most = tuning[Tunable.DOCUMENT_SELECTION_CHARACTERS]
         if (text.length > most) throw DocumentSelectionTooLongException(text.length, most)
         val room = tuning[Tunable.DOCUMENT_SELECTION_CONTEXT_CHARACTERS]
-        return chat.translate(view(held), modelId, text, before.orEmpty().takeLast(room), after.orEmpty().take(room), into, who())
+        val shown = view(held)
+        val context = before.orEmpty().takeLast(room) to after.orEmpty().take(room)
+        /*
+         * The workspace's companion model, where it has one: a short job with no
+         * tools, which the model a person chose to write with need not be held
+         * for. That model is what is asked where there is no companion, or where
+         * the companion fails - as a chat's title is named.
+         */
+        val companion = workspaces.findByIdOrNull(held.workspaceId)?.companionModelId?.takeIf { it != modelId }
+            ?: return chat.translate(shown, modelId, text, context.first, context.second, into, who())
+        return runCatching { chat.translate(shown, companion, text, context.first, context.second, into, who()) }
+            .getOrElse { chat.translate(shown, modelId, text, context.first, context.second, into, who()) }
     }
 
     /**
