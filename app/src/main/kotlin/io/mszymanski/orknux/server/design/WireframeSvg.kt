@@ -38,7 +38,8 @@ class WireframeSvg {
             append("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"$width\" height=\"$height\" ")
             append("viewBox=\"$left $top $width $height\" font-family=\"$FONT\">")
             append("<defs><marker id=\"wf-arrowhead\" viewBox=\"0 0 10 10\" refX=\"9\" refY=\"5\" markerWidth=\"8\" ")
-            append("markerHeight=\"8\" orient=\"auto-start-reverse\"><path d=\"M 0 0 L 10 5 L 0 10 z\" fill=\"$INK\"/></marker>")
+            // "auto", not "auto-start-reverse": the renderer that makes the chat's PNG refuses the whole picture over it. Heads are only ever at the end.
+            append("markerHeight=\"8\" orient=\"auto\"><path d=\"M 0 0 L 10 5 L 0 10 z\" fill=\"$INK\"/></marker>")
             // SVG 1.1's way to a drop shadow, which the renderer that makes the chat's PNG reads; feDropShadow it does not.
             WireframeStyle.Shadow.entries.filter { it != WireframeStyle.Shadow.NONE }.forEach { shadow ->
                 append("<filter id=\"wf-shadow-${shadow.key}\" x=\"-50%\" y=\"-50%\" width=\"200%\" height=\"200%\">")
@@ -144,7 +145,7 @@ class WireframeSvg {
                 } else {
                     // A coloured arrow has a head of its own colour.
                     val id = "wf-head-${++gradients}"
-                    append("<defs><marker id=\"$id\" viewBox=\"0 0 10 10\" refX=\"9\" refY=\"5\" markerWidth=\"8\" markerHeight=\"8\" orient=\"auto-start-reverse\">")
+                    append("<defs><marker id=\"$id\" viewBox=\"0 0 10 10\" refX=\"9\" refY=\"5\" markerWidth=\"8\" markerHeight=\"8\" orient=\"auto\">")
                     append("<path d=\"M 0 0 L 10 5 L 0 10 z\"${paint("fill", stroke.colour ?: INK)}/></marker></defs>")
                     " marker-end=\"url(#$id)\""
                 }
