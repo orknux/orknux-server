@@ -54,9 +54,15 @@ class DiagramExport(
         data class Refused(val reason: String) : Made
     }
 
-    fun export(drawing: DiagramDrawing, format: DiagramFormat): Made = when (format) {
+    /**
+     * [scale] is a person's choice of PNG from the editor's Export menu: so many
+     * pixels for each one the diagram is drawn at, up to the renderer's own
+     * ceiling and nothing lower - it is a file they asked for, not a picture
+     * dropped into a chat. Without it the PNG is [png]'s, held to the Tunable.
+     */
+    fun export(drawing: DiagramDrawing, format: DiagramFormat, scale: Int? = null): Made = when (format) {
         DiagramFormat.SVG -> Made.Written(DiagramFile(format, pictures.drawing(drawing).toByteArray()))
-        DiagramFormat.PNG -> when (val png = png(drawing)) {
+        DiagramFormat.PNG -> when (val png = if (scale == null) png(drawing) else scaled(drawing, scale)) {
             is SvgRenderer.Drawing.Drawn -> Made.Written(DiagramFile(format, png.png))
             is SvgRenderer.Drawing.Refused -> Made.Refused(png.reason)
         }
@@ -73,6 +79,14 @@ class DiagramExport(
         val svg = pictures.drawing(drawing)
         val natural = svg.substringAfter("width=\"").substringBefore('"').toIntOrNull() ?: 400
         return svgs.png(svg, minOf(natural * 2, tuning[Tunable.DIAGRAM_PICTURE_PIXELS]))
+    }
+
+    /** The picture at [scale] times its drawn size, as wide as the renderer draws at most. */
+    fun scaled(drawing: DiagramDrawing, scale: Int): SvgRenderer.Drawing {
+        require(scale in SCALES) { "a scale is one of $SCALES" }
+        val svg = pictures.drawing(drawing)
+        val natural = svg.substringAfter("width=\"").substringBefore('"').toIntOrNull() ?: 400
+        return svgs.png(svg, (natural * scale).coerceIn(1, SvgRenderer.MOST_WIDTH))
     }
 
     /** One page the size of the picture, at 96 pixels to the inch. */
@@ -139,7 +153,10 @@ class DiagramExport(
         }
     }
 
-    private companion object {
-        const val POINTS_PER_PIXEL = 72f / 96f
+    companion object {
+        private const val POINTS_PER_PIXEL = 72f / 96f
+
+        /** The scales the editor offers a PNG at: a format, not a limit on work, so not a Tunable. */
+        val SCALES = 1..3
     }
 }

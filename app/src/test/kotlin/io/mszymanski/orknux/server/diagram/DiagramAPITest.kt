@@ -272,6 +272,27 @@ class DiagramAPITest(
         assertThat(messages()).contains("Diagram Edge & core exported as SVG")
     }
 
+    /** The editor's PNG is so many pixels per drawn one, past the chat picture's Tunable; the SVG stays vector. */
+    @Test
+    fun `a PNG asked for at a scale is that many times the drawn width`() {
+        val nodes = (0 until 12).joinToString(",") { """{"id":"n$it","label":"Part $it","x":${it * 160},"y":0,"w":140,"h":60}""" }
+        val id = create("Wide", """{"nodes":[$nodes],"edges":[]}""")
+        val svg = mvc().perform(get("/api/diagrams/$id/export/svg")).andReturn().response.getContentAsString(StandardCharsets.UTF_8)
+        val drawn = Regex("<svg[^>]*?\\swidth=\"([0-9]+)\"").find(svg)!!.groupValues[1].toInt()
+        assertThat(drawn).isGreaterThan(1600 / 2)
+        assertThat(svg).doesNotContain("<image").doesNotContain("data:image")
+        fun width(query: String): Int {
+            val bytes = mvc().perform(get("/api/diagrams/$id/export/png$query")).andReturn().response.contentAsByteArray
+            return javax.imageio.ImageIO.read(java.io.ByteArrayInputStream(bytes)).width
+        }
+        assertThat(width("?scale=1")).isEqualTo(drawn)
+        assertThat(width("?scale=2")).isEqualTo(drawn * 2)
+        assertThat(width("?scale=3")).isEqualTo(minOf(drawn * 3, 4096))
+        // No scale: the link an agent hands out, held to the Tunable as before.
+        assertThat(width("")).isEqualTo(minOf(drawn * 2, 1600))
+        assertThat(mvc().perform(get("/api/diagrams/$id/export/png?scale=4")).andReturn().response.status).isEqualTo(400)
+    }
+
     @Test
     @WithMockUser(username = "mallory", roles = ["USERS"])
     fun `somebody who cannot see the workspace cannot see or change its diagrams`() {

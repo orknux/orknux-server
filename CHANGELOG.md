@@ -19,6 +19,8 @@ have failed.
 
 ### ✨ Added
 
+- **A diagram's PNG at 1×, 2× or 3×**, chosen beside PNG in the editor's Export menu, 2× by default: so many pixels for each drawn one, up to 4096 wide (`/api/diagrams/{id}/export/png?scale=`). The link an agent hands out is unchanged; the SVG was already vector.
+- **A dark page in the document editor.** A switch in the toolbar draws the sheets dark - dark paper, light ink, code, quotes, links and Find in colours of their own - remembered in the browser; the document and every export stay the white page.
 - **Import in the document editor**: a PDF, Markdown (or Export's zip of it), ODT, DOCX, HTML or text file read into the document, in place of it or at the caret, as an unsaved change Undo takes back; its pictures are kept as Design pictures. Limits `ORKNUX_TUNING_DOCUMENT_IMPORT_MB` and `ORKNUX_TUNING_DOCUMENT_IMPORT_PICTURES_MOST`.
 - **Import in the wireframe editor**: a picture from a file, from Orknux, or an SVG the editor exported, placed as an image element that draws the picture, fitted to the frame; SVG, PNG and HTML exports carry it.
 
@@ -105,6 +107,7 @@ have failed.
 
 ### 🔧 Changed
 
+- **Blue is the default accent.** Anybody who never chose one on Preferences sees blue rather than moss, the logo included; a choice already made is kept, and Moss is still offered.
 - **Every agent with Orknux access is given the diagram tools at Always, and `orknux_delete_diagram` is hidden on every agent.** A migration marks the seven that read, search, export and draw; nothing to do on upgrade. A diagram is not copied with a workspace, as a wireframe is not.
 - **A research looks for images unless told not to.** Include images is ticked on New research for anybody who has not left it off before, and a research started through the API or `orknux_start_research` without `includeImages` looks for them too; pass `includeImages: false` to keep the old behaviour.
 - **The research modes' workflows gain two nodes.** Review asked for? and Review report sit between Write report and Save report in every seeded mode still drawn as it was seeded, upgraded on start-up; a mode somebody edited is left as it is and is never reviewed. Without Review the question goes straight to Save and Review report is shown skipped.
@@ -140,6 +143,7 @@ have failed.
 
 ### 🐛 Fixed
 
+- **The row under the top bar is the same in every editor.** The back link and the name in the document, wireframe, image, video and diagram editors took the size of the page around them; both are 13px on one line now, the name medium, and a focused back link is underlined rather than boxed.
 - **A step down a condition's "no" is handed what the run carried.** The condition's "did not hold" took the place of everything the run was holding, so whatever came after the "no" read nothing it was wired to.
 - **A model server that answers a streamed request in one piece is asked once.** Where a provider ignored `stream: true` and sent the whole answer, the answer was read as an empty stream and the question asked again without streaming, so every streamed call to it - a chat turn, a research's report as it is written - cost two answers; the body it sent is now read as the answer.
 - **A PDF opens on the Artifacts page and as a research's report.** Both framed the preview, which is served sandboxed, and Chrome's PDF reader does not run in a sandboxed document, so a PDF was its broken-document icon. The pages are drawn by pdf.js now, with selectable text, page buttons and zoom; an HTML file is still read in its sandboxed frame. The reader also sits in the middle of the window again rather than low and to the right of it.

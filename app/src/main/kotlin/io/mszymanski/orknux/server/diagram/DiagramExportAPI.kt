@@ -9,6 +9,7 @@ import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import java.nio.charset.StandardCharsets
 
@@ -19,6 +20,9 @@ import java.nio.charset.StandardCharsets
  * The access check is [DiagramAPI.find]'s, so a diagram the caller may not see
  * is answered as one that is not there. Always an attachment, and an SVG with a
  * sandbox header besides: it is made of what somebody typed.
+ *
+ * `?scale=1|2|3` is the editor's: a PNG at that many pixels for each drawn one.
+ * The link an agent hands out carries none and gets the chat picture's size.
  */
 @RestController
 class DiagramExportAPI(
@@ -28,10 +32,18 @@ class DiagramExportAPI(
 ) {
 
     @GetMapping("/api/diagrams/{id}/export/{format}")
-    fun download(@PathVariable id: Long, @PathVariable format: String): ResponseEntity<ByteArray> {
+    fun download(
+        @PathVariable id: Long,
+        @PathVariable format: String,
+        @RequestParam(required = false) scale: Int?,
+    ): ResponseEntity<ByteArray> {
         val asked = DiagramFormat.byKey(format) ?: return ResponseEntity.status(HttpStatus.NOT_FOUND).build()
+        if (scale != null && scale !in DiagramExport.SCALES) {
+            return ResponseEntity.badRequest().contentType(MediaType.TEXT_PLAIN)
+                .body("A scale is one of ${DiagramExport.SCALES.joinToString(", ")}.".toByteArray())
+        }
         val held = api.find(id)
-        val file = when (val made = export.export(api.drawing(requireNotNull(held.id)), asked)) {
+        val file = when (val made = export.export(api.drawing(requireNotNull(held.id)), asked, scale)) {
             is DiagramExport.Made.Written -> made.file
             is DiagramExport.Made.Refused -> return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
                 .contentType(MediaType.TEXT_PLAIN).body(made.reason.toByteArray())
