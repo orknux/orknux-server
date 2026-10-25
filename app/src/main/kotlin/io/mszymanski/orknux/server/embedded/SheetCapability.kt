@@ -62,7 +62,7 @@ class SheetCapability(
         val asked = runCatching { mapper.readTree(arguments) }.getOrNull() ?: return refusal("That is not valid JSON.")
         val named = text(asked, KEY)?.trim()?.ifEmpty { null } ?: return refusal("Give the $KEY of a CSV or a workbook.")
         if (sessionId == null) return refusal("Nothing is kept outside a session, so there is no \"$named\" to read.")
-        val stored = scratch.get(sessionId, named) ?: return refusal("Nothing in this session is kept under \"$named\".")
+        val stored = scratch.get(sessionId, named) ?: return refusal(PictureAddresses.nothingUnder(named))
         val kind = scratch.kindOf(sessionId, named)
         val value = runCatching { mapper.readTree(stored) }.getOrNull()?.takeIf { it.isTextual }?.stringValue() ?: stored
 

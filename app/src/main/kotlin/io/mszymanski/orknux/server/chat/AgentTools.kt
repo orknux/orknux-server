@@ -68,6 +68,8 @@ class AgentTools(
     private val grantRequests: GrantRequestTools,
     /** Asking the person a question with options to choose from; see [QuestionTools]. */
     private val questions: QuestionTools,
+    /** A picture at an address, brought into the store for picture_view. */
+    private val pictureAddresses: io.mszymanski.orknux.server.embedded.PictureAddresses,
 ) {
 
     /**
@@ -489,7 +491,7 @@ class AgentTools(
                 mapOf("base64" to PluginCrypto.encoded(argument(call, "text").orEmpty().toByteArray(Charsets.UTF_8))),
             )
 
-            VIEW -> viewed(argument(call, KEY), sessionId)
+            VIEW -> viewed(agent, argument(call, KEY), argument(call, VIEW_URL), sessionId)
 
             BASE64_DECODE -> {
                 val bytes = PluginCrypto.decoded(argument(call, "base64").orEmpty().trim())
@@ -696,11 +698,29 @@ class AgentTools(
      * model the way it shows a PDF page. An SVG is drawn first, because no
      * model reads one.
      */
-    private fun viewed(key: String?, sessionId: Long?): String {
+    private fun viewed(agent: Agent, key: String?, url: String?, sessionId: Long?): String {
         fun refused(said: String) = mapper.writeValueAsString(mapOf("error" to said))
-        val named = key?.trim()?.ifEmpty { null } ?: return refused("Give the $KEY of the picture to look at.")
+        val givenKey = key?.trim()?.ifEmpty { null }
+        /*
+         * An address is taken where it is asked for and where it was put in the
+         * key: a model handed a url by a picture search passed it as the key,
+         * which is the call it will go on making whatever the parameter is called.
+         */
+        val address = url?.trim()?.ifEmpty { null }
+            ?: givenKey?.takeIf { io.mszymanski.orknux.server.embedded.PictureAddresses.isAddress(it) }
+        if (givenKey == null && address == null) return refused("Give the $KEY of the picture to look at, or its $VIEW_URL.")
         if (sessionId == null) return refused("There is no session here to keep a picture in.")
-        val held = scratch.get(sessionId, named) ?: return refused("Nothing in this session is kept under \"$named\".")
+        val named = if (address != null) {
+            val mayFetch = httpPolicy.enabled() && BuiltInTools.HTTP.any { BuiltInTools.granted(agent, it) }
+            when (val fetched = pictureAddresses.fetch(address, sessionId, mayFetch)) {
+                is io.mszymanski.orknux.server.embedded.PictureAddresses.Fetched.Refused -> return refused(fetched.why)
+                is io.mszymanski.orknux.server.embedded.PictureAddresses.Fetched.Kept -> fetched.key
+            }
+        } else {
+            requireNotNull(givenKey)
+        }
+        val held = scratch.get(sessionId, named)
+            ?: return refused(io.mszymanski.orknux.server.embedded.PictureAddresses.nothingUnder(named))
         val kind = scratch.kindOf(sessionId, named)
         val value = runCatching { mapper.readTree(held) }.getOrNull()?.takeIf { it.isTextual }?.stringValue() ?: held
         // An SVG is text, and is kept as its text where it came as a file: it is still a picture to look at.
@@ -714,7 +734,9 @@ class AgentTools(
             runCatching { java.util.Base64.getDecoder().decode(value.trim()) }.getOrNull()
                 ?: return refused("\"$named\" does not hold a picture.")
         }
-        val type = kind?.contentType?.substringBefore(';')?.trim()?.lowercase() ?: sniffed(bytes)
+        // What the writer said where it said a picture, else what the bytes are: a JPEG kept as octet-stream is a JPEG.
+        val said = kind?.contentType?.substringBefore(';')?.trim()?.lowercase()
+        val type = said?.takeIf { it.startsWith("image/") } ?: sniffed(bytes) ?: said
         val (shown, shownType) = when (type) {
             "image/png", "image/jpeg", "image/gif", "image/webp" -> bytes to type
             "image/svg+xml" -> when (val drawn = svgs.png(String(bytes, Charsets.UTF_8), null)) {
@@ -727,28 +749,23 @@ class AgentTools(
         if (base64.length > MOST_PICTURE_CHARS) return refused("\"$named\" is too large a picture to look at.")
         return mapper.writeValueAsString(
             // Looked at, not made: the picture is the person's already, or somebody's - never posted back to them.
-            mapOf(
-                PICTURE to base64,
-                PICTURE_TYPE to shownType,
-                PICTURE_FOR_MODEL to true,
-                "note" to "The picture is shown to you with this answer.",
-            ),
+            buildMap {
+                put(PICTURE, base64)
+                put(PICTURE_TYPE, shownType)
+                put(PICTURE_FOR_MODEL, true)
+                if (address != null) {
+                    // The key and never the address: the key is what attaching or uploading it takes.
+                    put(KEY, named)
+                    put("note", "The picture is shown to you with this answer, and kept under $KEY for any tool that attaches or uploads a file.")
+                } else {
+                    put("note", "The picture is shown to you with this answer.")
+                }
+            },
         )
     }
 
     /** What picture the bytes say they are, where nothing recorded it. */
-    private fun sniffed(bytes: ByteArray): String? {
-        fun at(i: Int) = if (bytes.size > i) bytes[i].toInt() and 0xFF else -1
-        val start = String(bytes, 0, minOf(bytes.size, 200), Charsets.UTF_8).trimStart()
-        return when {
-            at(0) == 0x89 && at(1) == 'P'.code && at(2) == 'N'.code -> "image/png"
-            at(0) == 0xFF && at(1) == 0xD8 -> "image/jpeg"
-            at(0) == 'G'.code && at(1) == 'I'.code && at(2) == 'F'.code -> "image/gif"
-            at(0) == 'R'.code && at(8) == 'W'.code && at(9) == 'E'.code -> "image/webp"
-            start.startsWith("<svg") || (start.startsWith("<?xml") && start.contains("<svg")) -> "image/svg+xml"
-            else -> null
-        }
-    }
+    private fun sniffed(bytes: ByteArray): String? = io.mszymanski.orknux.server.llm.StoredTypes.magic(bytes)
 
     /**
      * What `save_artifact` does, callable by a caller that offers it whatever the
@@ -776,7 +793,13 @@ class AgentTools(
                     ?.takeIf { it.isNotEmpty() && it.length <= KEY_SIZED && sessionId != null && scratch.get(sessionId, it) != null }
             val held = fromKey?.let { key -> sessionId?.let { scratch.get(it, key) } }
             if (fromKey != null && held == null) {
-                return mapper.writeValueAsString(mapOf("error" to "Nothing is kept under $fromKey in this session."))
+                return mapper.writeValueAsString(
+                    mapOf(
+                        "error" to io.mszymanski.orknux.server.embedded.PictureAddresses.nothingUnder(
+                            fromKey, "Nothing is kept under $fromKey in this session.",
+                        ),
+                    ),
+                )
             }
             val base64 = if (fromKey != null) {
                 sessionId?.let { scratch.kindOf(it, fromKey) }?.binary ?: false
@@ -845,17 +868,23 @@ class AgentTools(
         const val VIEW = "picture_view"
         private const val KEY = "contentKey"
 
+        /** What `picture_view` takes an image's address by. */
+        const val VIEW_URL = "url"
+
         val VIEW_TOOL = ToolSpec(
             name = VIEW,
             readOnly = true,
-            description = "Shows you the picture a key names, so you can look at it: an image somebody attached " +
-                "(an attachment reader answers its key), a chart or diagram you drew, a page drawn as a picture. " +
-                "Use it before answering about a screenshot or checking a drawing - you cannot see a picture " +
-                "from its key alone.",
+            description = "Shows you a picture so you can look at it: one a key names - an image somebody attached " +
+                "(an attachment reader answers its key), a chart or diagram you drew, a page drawn as a picture, " +
+                "a file taken out of a box - or one at an address a picture search answered, by its $VIEW_URL. " +
+                "A picture fetched from an address is kept under a key the answer gives, for any tool that " +
+                "attaches or uploads a file. Use it before answering about a screenshot or checking a drawing - " +
+                "you cannot see a picture from its key or its address alone.",
             parameters = listOf(
-                ToolParameterSpec(KEY, "The key the picture is kept under.", required = true),
+                ToolParameterSpec(KEY, "The key the picture is kept under."),
+                ToolParameterSpec(VIEW_URL, "Or the picture's http or https address, such as a picture search's url."),
             ),
-            summary = "Shows you the picture a key names.",
+            summary = "Shows you a picture, by its key or its address.",
         )
 
         const val SAVE_ARTIFACT = "save_artifact"

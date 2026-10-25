@@ -937,6 +937,7 @@ orknux:
     http.timeout.seconds: ${ORKNUX_TUNING_HTTP_TIMEOUT_SECONDS:30}
     http.body.characters: ${ORKNUX_TUNING_HTTP_BODY_CHARACTERS:200000}
     http.download.mb: ${ORKNUX_TUNING_HTTP_DOWNLOAD_MB:5}
+    picture.url.mb: ${ORKNUX_TUNING_PICTURE_URL_MB:5}
     search.results.most: ${ORKNUX_TUNING_SEARCH_RESULTS_MOST:20}
     search.timeout.seconds: ${ORKNUX_TUNING_SEARCH_TIMEOUT_SECONDS:20}
     script.log.lines: ${ORKNUX_TUNING_SCRIPT_LOG_LINES:500}

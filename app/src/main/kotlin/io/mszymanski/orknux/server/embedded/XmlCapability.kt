@@ -171,7 +171,7 @@ sealed interface Loaded {
 /** The file under [named], held to the size the installation parses. */
 fun xmlFile(files: StoredFiles, tuning: Tuning, named: String?, sessionId: Long?): Loaded {
     if (named.isNullOrBlank()) return Loaded.Refused("Give the key the file is kept under.")
-    val held = files.find(named, sessionId) ?: return Loaded.Refused("Nothing in this session is kept under \"$named\".")
+    val held = files.find(named, sessionId) ?: return Loaded.Refused(PictureAddresses.nothingUnder(named))
     val most = tuning[Tunable.XML_FILE_MB]
     if (held.bytes.size > most.toLong() * 1024 * 1024) {
         return Loaded.Refused("\"$named\" is ${held.bytes.size / (1024 * 1024)} MB, and $most MB is the largest file this reads.")

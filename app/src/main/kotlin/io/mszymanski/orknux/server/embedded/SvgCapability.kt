@@ -156,7 +156,7 @@ class SvgCapability(
                 val key = text(asked, KEY)?.trim()?.ifEmpty { null } ?: return refusal("Give the $KEY of an SVG.")
                 val svg = held(asked, sessionId) ?: return refusal(
                     sessionId?.let { scratch.kindOf(it, key)?.contentType }?.let { "\"$key\" holds $it, not an SVG." }
-                        ?: "Nothing in this session is kept under \"$key\" as an SVG.",
+                        ?: PictureAddresses.nothingUnder(key, "Nothing in this session is kept under \"$key\" as an SVG."),
                 )
                 mapper.writeValueAsString(linkedMapOf(SVG to svg, "characters" to svg.length))
             }
@@ -168,7 +168,7 @@ class SvgCapability(
                     ?: return refusal(
                         text(asked, KEY)?.let { key ->
                             val kind = sessionId?.let { scratch.kindOf(it, key.trim())?.contentType }
-                            if (kind == null) "Nothing in this session is kept under \"$key\"."
+                            if (kind == null) PictureAddresses.nothingUnder(key)
                             else "\"$key\" holds $kind, not an SVG."
                         } ?: "Give the $KEY of an SVG, or its markup as $SVG.",
                     )

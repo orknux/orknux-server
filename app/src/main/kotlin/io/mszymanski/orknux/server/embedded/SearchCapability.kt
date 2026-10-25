@@ -1,5 +1,6 @@
 package io.mszymanski.orknux.server.embedded
 
+import io.mszymanski.orknux.server.chat.AgentTools
 import io.mszymanski.orknux.server.tuning.Tuning
 import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.connector.proxy.ProxyRouter
@@ -36,7 +37,8 @@ import java.time.Duration
  *
  * **A picture's address goes straight to whatever uploads it.** `searchImages`
  * answers the url rather than the bytes, so a picture reaches a channel without
- * a megabyte of base64 travelling through a model on the way.
+ * a megabyte of base64 travelling through a model on the way. Looking at one is
+ * the viewer's, given the url: see [PictureAddresses].
  */
 @Component
 class SearchCapability(
@@ -45,6 +47,8 @@ class SearchCapability(
     private val mapper: ObjectMapper,
     /** The numbers this reads from Admin -> Settings. Issue #453. */
     private val tuning: Tuning = Tuning.DEFAULTS,
+    /** Where the addresses a picture search answered are recorded, so the viewer may fetch them. */
+    private val pictures: PictureAddresses? = null,
 ) : EmbeddedCapability {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -72,7 +76,8 @@ class SearchCapability(
             summary = "Searches for pictures and answers their addresses.",
             description = "Searches for pictures and answers the image url, what it is, and the page it came " +
                 "from. The url goes straight to whatever uploads a picture from an address, so the bytes " +
-                "never travel through you.",
+                "never travel through you; to look at one yourself, pass its url to " +
+                "${AgentTools.VIEW_TOOL.name} as ${AgentTools.VIEW_URL}.",
             params = listOf(
                 EmbeddedParam(QUERY, ValueType.STRING, "What to search for.", required = true),
                 EmbeddedParam(LIMIT, ValueType.NUMBER, "How many pictures, up to ${tuning[Tunable.SEARCH_RESULTS_MOST]}."),
@@ -121,8 +126,8 @@ class SearchCapability(
 
         return try {
             when (engine) {
-                SearchEngine.TAVILY -> tavily(query, limit, key, pictures, settings.of(workspaceId).composeAnswer)
-                SearchEngine.BRAVE -> brave(query, limit, key, pictures)
+                SearchEngine.TAVILY -> tavily(query, limit, key, pictures, settings.of(workspaceId).composeAnswer, sessionId)
+                SearchEngine.BRAVE -> brave(query, limit, key, pictures, sessionId)
             }
         } catch (failure: Exception) {
             log.warn("A search did not finish: {}", failure.message)
@@ -151,7 +156,7 @@ class SearchCapability(
 
     /* --------------------------------------------------------------- tavily */
 
-    private fun tavily(query: String, limit: Int, key: String, pictures: Boolean, compose: Boolean): String {
+    private fun tavily(query: String, limit: Int, key: String, pictures: Boolean, compose: Boolean, sessionId: Long?): String {
         val asked = linkedMapOf<String, Any>(
             "query" to query,
             "max_results" to limit,
@@ -172,7 +177,7 @@ class SearchCapability(
                     "source" to null,
                 )
             }
-            return mapper.writeValueAsString(mapOf("images" to images))
+            return pictureAnswer(images, sessionId)
         }
 
         val results = read.path("results").take(limit).map { one ->
@@ -190,7 +195,7 @@ class SearchCapability(
 
     /* ---------------------------------------------------------------- brave */
 
-    private fun brave(query: String, limit: Int, key: String, pictures: Boolean): String {
+    private fun brave(query: String, limit: Int, key: String, pictures: Boolean, sessionId: Long?): String {
         val where = if (pictures) "images" else "web"
         val url = "https://api.search.brave.com/res/v1/$where/search?q=" +
             java.net.URLEncoder.encode(query, Charsets.UTF_8) + "&count=" + limit
@@ -206,7 +211,7 @@ class SearchCapability(
                     "thumbnail" to one.path("thumbnail").path("src").stringValue(),
                 )
             }
-            return mapper.writeValueAsString(mapOf("images" to images))
+            return pictureAnswer(images, sessionId)
         }
 
         val results = read.path("web").path("results").take(limit).map { one ->
@@ -222,6 +227,26 @@ class SearchCapability(
     }
 
     /* ---------------------------------------------------------------- shared */
+
+    /**
+     * The pictures found, with how to look at one.
+     *
+     * An agent handed these addresses passed one to the picture viewer as a key,
+     * was told nothing was kept under it, and concluded it could not see
+     * pictures. So the answer says how, with the viewer's name and parameter
+     * read off its declaration, and the addresses are recorded as this
+     * session's - which is what lets the viewer fetch them for an agent that
+     * holds no HTTP tool. See [PictureAddresses].
+     */
+    private fun pictureAnswer(images: List<Map<String, String?>>, sessionId: Long?): String {
+        val answer = linkedMapOf<String, Any?>("images" to images)
+        if (sessionId != null && pictures != null && images.isNotEmpty()) {
+            pictures.record(sessionId, images.flatMap { listOfNotNull(it["url"], it["thumbnail"]) })
+            answer["note"] = "To look at one, pass its url to ${AgentTools.VIEW_TOOL.name} as ${AgentTools.VIEW_URL}: " +
+                "it is shown to you and kept under a key, which is what a tool that attaches or uploads a file takes."
+        }
+        return mapper.writeValueAsString(answer)
+    }
 
     private fun get(url: String, headers: Map<String, String>): String = sent(
         HttpRequest.newBuilder(URI.create(url))

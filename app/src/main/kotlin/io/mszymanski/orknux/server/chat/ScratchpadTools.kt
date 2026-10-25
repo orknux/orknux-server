@@ -464,7 +464,7 @@ class ScratchpadTools(
 
         private fun keyRefusal(key: String): String =
             if (scratch.get(session, key) == null) {
-                refusal("Nothing in this session is kept under \"$key\".")
+                refusal(io.mszymanski.orknux.server.embedded.PictureAddresses.nothingUnder(key))
             } else {
                 refusal(
                     "\"$key\" holds a picture or a file that is not text, so it cannot go into a page as text. " +

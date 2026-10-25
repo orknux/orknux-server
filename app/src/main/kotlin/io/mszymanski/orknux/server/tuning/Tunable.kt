@@ -245,6 +245,11 @@ enum class Tunable(
         "The largest file a tool may download",
         "What the download tool fetches is kept in the session's store; anything larger is refused before it is kept.",
     ),
+    PICTURE_URL_MB(
+        "picture.url.mb", 5, 1, 100, TuningSection.CODE, TuningUnit.MB,
+        "The largest picture an agent may fetch from an address to look at",
+        "picture_view given an image's address fetches it into the session's store and shows it; a larger answer is refused as it is read, and nothing of it is kept.",
+    ),
     SEARCH_RESULTS_MOST(
         "search.results.most", 20, 1, 100, TuningSection.CODE, TuningUnit.ITEMS,
         "The most results one web search may ask for",
