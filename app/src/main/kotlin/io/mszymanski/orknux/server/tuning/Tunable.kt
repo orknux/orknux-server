@@ -509,6 +509,17 @@ enum class Tunable(
         "How much of a document a search shows around a match",
         "Also how much of a document's start the Documents list shows under its name.",
     ),
+    /*
+     * A document's history. Counted in versions rather than days, because a
+     * document is saved far more often than a function and is still worth
+     * going back on long after: each version is a whole copy of its content,
+     * so this is what decides how large a document's history gets.
+     */
+    DOCUMENT_VERSIONS_KEPT(
+        "document.versions.kept", 50, 0, 10_000, TuningSection.MEDIA, TuningUnit.ITEMS,
+        "How many versions of each document are kept",
+        "The oldest go first as a save adds one; 0 keeps them all. The days component history is kept for do not apply to documents.",
+    ),
 
     /*
      * Design's Videos page. Issue #658. A video is a job its backend runs for

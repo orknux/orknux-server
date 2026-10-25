@@ -106,6 +106,14 @@ data class OrknuxScope(
      * has to name the one it wants.
      */
     val session: Long? = null,
+    /**
+     * The turn of a document editor's chat this call is made in, where it is
+     * one. What the document tools save under it is the chat's, and the saves
+     * one turn makes one after another keep one version of the document
+     * between them. Null for an agent and through the MCP endpoint, whose
+     * saves are each a version.
+     */
+    val documentTurn: String? = null,
 )
 
 /**

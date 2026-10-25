@@ -67,6 +67,17 @@ enum class ComponentRevisionKind(val release: ComponentRelease) {
 
     /** The one kind with a draft today. Publishing is what versions it. */
     WORKFLOW(ComponentRelease.PUBLISH),
+
+    /**
+     * A Design document. Not something a workflow runs, but work somebody
+     * wants to see the changes of and go back on - and the editor, the
+     * document chat, the orknux_* tools and an import all save it, which is
+     * exactly the many-doors case this recorder is for. Saved far more often
+     * than a function, so it is kept by count rather than by age:
+     * `Tunable.DOCUMENT_VERSIONS_KEPT`, and the retention in days does not
+     * apply to it.
+     */
+    DOCUMENT(ComponentRelease.SAVE),
     ;
 
     /** Whether this kind's history lives in [ComponentRevision]'s own table. */
@@ -132,6 +143,14 @@ class ComponentRevision(
     /** The whole component, as [ComponentSnapshot] writes it. */
     @Column(nullable = false, columnDefinition = "text")
     val snapshot: String,
+
+    /**
+     * Which door the state was saved through - for a document, a
+     * `DocumentDoor`. Null on the kinds that do not say, and on every revision
+     * written before this was recorded.
+     */
+    @Column(length = 16)
+    val door: String? = null,
 )
 
 interface ComponentRevisionRepository : JpaRepository<ComponentRevision, Long> {
@@ -150,7 +169,7 @@ interface ComponentRevisionRepository : JpaRepository<ComponentRevision, Long> {
     @Query(
         """
         SELECT new io.mszymanski.orknux.server.revision.RevisionSummary(
-          r.id, r.kind, r.componentId, r.name, r.savedAt, r.savedBy, r.recordedAt)
+          r.id, r.kind, r.componentId, r.name, r.savedAt, r.savedBy, r.recordedAt, r.door)
         FROM ComponentRevision r
         WHERE r.kind = :kind AND r.componentId = :componentId
         ORDER BY r.recordedAt DESC, r.id DESC
@@ -165,9 +184,29 @@ interface ComponentRevisionRepository : JpaRepository<ComponentRevision, Long> {
     /** Everything kept about a component, which is what deleting it removes. */
     fun deleteByKindAndComponentId(kind: ComponentRevisionKind, componentId: Long)
 
-    /** What the retention sweep takes: history that has been history too long. */
-    @Query("select r.id from ComponentRevision r where r.recordedAt < :before")
+    /**
+     * What the retention sweep takes: history that has been history too long.
+     * Not a document's, which is kept by count instead - see [idsNewestFirst].
+     */
+    @Query(
+        "select r.id from ComponentRevision r where r.recordedAt < :before " +
+            "and r.kind <> io.mszymanski.orknux.server.revision.ComponentRevisionKind.DOCUMENT",
+    )
     fun idsRecordedBefore(before: OffsetDateTime): List<Long>
+
+    /** One component's revision ids, newest first: what is past the count kept is pruned. */
+    @Query(
+        "select r.id from ComponentRevision r where r.kind = :kind and r.componentId = :componentId " +
+            "order by r.recordedAt desc, r.id desc",
+    )
+    fun idsNewestFirst(@Param("kind") kind: ComponentRevisionKind, @Param("componentId") componentId: Long): List<Long>
+
+    /** The components of [kind] holding more than [kept] revisions: what a lowered count leaves to prune. */
+    @Query(
+        "select r.componentId from ComponentRevision r where r.kind = :kind " +
+            "group by r.componentId having count(r.id) > :kept",
+    )
+    fun componentsHoldingMoreThan(@Param("kind") kind: ComponentRevisionKind, @Param("kept") kept: Long): List<Long>
 }
 
 class ComponentRevisionNotFoundException(val id: Long) : RuntimeException("No revision with id $id"), Refusal {
@@ -208,4 +247,5 @@ data class RevisionSummary(
     val savedAt: OffsetDateTime,
     val savedBy: String,
     val recordedAt: OffsetDateTime,
+    val door: String? = null,
 )

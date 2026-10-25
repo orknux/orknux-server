@@ -9,6 +9,8 @@ import io.mszymanski.orknux.server.agent.Agent
 import io.mszymanski.orknux.server.agent.AgentSkill
 import io.mszymanski.orknux.server.agent.AgentTool
 import io.mszymanski.orknux.server.agent.AgentToolParam
+import io.mszymanski.orknux.server.design.DesignDocument
+import io.mszymanski.orknux.server.design.DocumentMarkdown
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 
@@ -184,6 +186,23 @@ object ComponentSnapshot {
         ),
     )
 
+    /**
+     * A document: its content as the editor's tree - stored as the JSON text it
+     * is held as, so it goes back exactly - and how its pages are laid out.
+     * Its catalog is not here: where a document is filed is not a version of it.
+     */
+    fun of(document: DesignDocument, mapper: ObjectMapper): String = mapper.writeValueAsString(
+        mapOf(
+            "version" to VERSION,
+            "name" to document.name,
+            "content" to document.content,
+            "pageSize" to document.pageSize,
+            "orientation" to document.orientation,
+            "margins" to document.margins,
+            "language" to document.language,
+        ),
+    )
+
     // ------------------------------------------------------------------- read
 
     /**
@@ -216,7 +235,29 @@ object ComponentSnapshot {
             ComponentRevisionKind.AGENT -> RevisionContent(text(held, "systemPrompt"), "markdown")
             // Its versions are its publications and never reach this table.
             ComponentRevisionKind.WORKFLOW -> RevisionContent(null, "json")
+            // As Markdown, which is what a person reads and what two versions are compared in.
+            ComponentRevisionKind.DOCUMENT -> RevisionContent(documentMarkdown(snapshot, mapper), "markdown")
         }
+    }
+
+    /** A document's snapshot as Markdown: its words, headings, lists and tables, a block to a paragraph. */
+    fun documentMarkdown(snapshot: String, mapper: ObjectMapper): String {
+        val held = text(mapper.readTree(snapshot), "content") ?: return ""
+        val tree = runCatching { mapper.readTree(held) }.getOrNull() ?: return ""
+        return DocumentMarkdown(mapper).write(tree)
+    }
+
+    /** What a document's snapshot holds, read back for a restore. Absent settings read as null: left as they are. */
+    fun documentIn(snapshot: String, mapper: ObjectMapper): DocumentSnapshot {
+        val held = mapper.readTree(snapshot)
+        return DocumentSnapshot(
+            content = text(held, "content").orEmpty(),
+            pageSize = text(held, "pageSize"),
+            orientation = text(held, "orientation"),
+            margins = text(held, "margins"),
+            language = text(held, "language"),
+            languageKept = held.has("language"),
+        )
     }
 
     // --------------------------------------------------------------- restore
@@ -369,6 +410,17 @@ object ComponentSnapshot {
     private inline fun <reified E : Enum<E>> enumOf(node: JsonNode, name: String, fallback: E): E =
         text(node, name)?.let { runCatching { enumValueOf<E>(it) }.getOrNull() } ?: fallback
 }
+
+/** A document as one of its versions held it. */
+data class DocumentSnapshot(
+    val content: String,
+    val pageSize: String?,
+    val orientation: String?,
+    val margins: String?,
+    val language: String?,
+    /** Whether the version said its language at all; a null one is the reader's own. */
+    val languageKept: Boolean,
+)
 
 /** The readable half of a revision, and what it is written in. */
 data class RevisionContent(val text: String?, val language: String)
