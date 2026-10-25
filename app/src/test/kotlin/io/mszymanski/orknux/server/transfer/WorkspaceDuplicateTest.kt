@@ -50,7 +50,35 @@ class WorkspaceDuplicateTest(
     @Autowired val designImages: io.mszymanski.orknux.server.design.DesignImageRepository,
     @Autowired val layerRows: io.mszymanski.orknux.server.design.DesignImageLayerRepository,
     @Autowired val layers: io.mszymanski.orknux.server.design.DesignImageLayers,
+    @Autowired val diagramCatalogs: io.mszymanski.orknux.server.diagram.DiagramCatalogRepository,
+    @Autowired val diagrams: io.mszymanski.orknux.server.diagram.DiagramRepository,
 ) {
+
+    /**
+     * A diagram is work drawn in a workspace, as a Design picture is, and is
+     * left behind for the same reason - and so is its catalog, which would be
+     * an empty folder in the copy. Deleting the workspace takes both with it.
+     */
+    @Test
+    fun `a copy carries no diagram, and deleting the workspace takes its diagrams`() {
+        val stamp = System.nanoTime()
+        val source = requireNotNull(workspaces.save(Workspace(name = "dup-diagrams-$stamp")).id)
+        val catalog = diagramCatalogs.save(io.mszymanski.orknux.server.diagram.DiagramCatalog(workspaceId = source, name = "Systems", createdBy = "alice"))
+        val diagram = diagrams.save(
+            io.mszymanski.orknux.server.diagram.Diagram(
+                workspaceId = source, catalogId = requireNotNull(catalog.id), name = "Landscape", createdBy = "alice", updatedBy = "alice",
+            ),
+        )
+
+        val copy = duplicator.duplicate(source, "dup-diagrams-copy-$stamp", "alice").workspaceId
+
+        assertThat(diagrams.findByWorkspaceIdOrderByUpdatedAtDescIdDesc(copy)).isEmpty()
+        assertThat(diagramCatalogs.findByWorkspaceIdOrderByNameAsc(copy)).isEmpty()
+
+        graphQlTester.document("mutation { deleteWorkspace(id: $source) }").execute()
+        assertThat(diagrams.findById(requireNotNull(diagram.id))).isEmpty
+        assertThat(diagramCatalogs.findById(requireNotNull(catalog.id))).isEmpty
+    }
 
     /**
      * What was drawn in Design is work done in a workspace, not how it is set

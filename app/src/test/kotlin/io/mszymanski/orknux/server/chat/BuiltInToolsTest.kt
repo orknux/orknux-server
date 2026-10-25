@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.chat
 
+import io.mszymanski.orknux.server.mcp.DiagramTools
+
 import io.mszymanski.orknux.connector.model.ToolCall
 import io.mszymanski.orknux.server.agent.Agent
 import io.mszymanski.orknux.server.agent.AgentRepository
@@ -94,7 +96,8 @@ class BuiltInToolsTest(
 
             assertThat(requireNotNull(agents.findByIdOrNull(id)).hiddenTools)
                 .describedAs("nothing is hidden while the workspace has not allowed it, but what may be hidden anyway")
-                .containsExactlyElementsOf(BuiltInTools.OPTIONAL)
+                // And the orknux_* tools that start hidden on every agent, kept as they were.
+                .containsExactlyElementsOf(BuiltInTools.OPTIONAL + DiagramTools.STARTS_HIDDEN)
         } finally {
             workspace.unsafeBuiltInTools = true
             workspaces.save(workspace)
@@ -500,6 +503,6 @@ class BuiltInToolsTest(
             """mutation { updateAgent(id: $id, input: { name: "Stored", tools: [] }) { tools } }""",
         ).execute().path("updateAgent.tools").entityList(String::class.java).hasSize(0)
         assertThat(requireNotNull(agents.findByIdOrNull(id)).hiddenTools)
-            .containsExactlyInAnyOrderElementsOf(BuiltInTools.GRANTED)
+            .containsExactlyInAnyOrderElementsOf(BuiltInTools.GRANTED + DiagramTools.STARTS_HIDDEN)
     }
 }

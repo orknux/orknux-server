@@ -129,6 +129,9 @@ class BuiltInTools(
      */
     fun orknuxNames(): List<String> = orknux.specs(OrknuxScope(workspaceId = 0, mayWrite = true)).map { it.name }
 
+    /** The orknux_* tools a new agent starts with hidden, for its owner to turn on; see [OrknuxTools.startsHidden]. */
+    fun orknuxStartsHidden(): Set<String> = orknux.startsHidden()
+
     /** Every built-in, the grant-governed first and in the order the form lists them. */
     fun all(): List<BuiltInTool> = buildList {
         GRANTED.forEach { add(BuiltInTool(it, if (it in OPTIONAL) BuiltInGovernance.GRANT_OPTIONAL else BuiltInGovernance.GRANT)) }
