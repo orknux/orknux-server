@@ -5,8 +5,8 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; img-src data:">
 <title>Orknux</title>
 <style>
-  /* What shows while the server starts: the mark, one line, and the app's own ground so the switch to the interface does not flash. */
-  :root { --brand: #5f8467; --ground: #09090b; --text: #a1a1aa; }
+  /* What shows while the server starts: the mark, one line, and the app's own ground so the switch to the interface does not flash. Blue until the interface has said its own accent: blue is the default one. */
+  :root { --brand: #4f7fc4; --ground: #09090b; --text: #a1a1aa; }
   html, body { height: 100%; margin: 0; }
   body {
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px;
@@ -22,12 +22,12 @@
 <body>
   <svg viewBox="0 0 200 200" aria-hidden="true">
     <defs>
-      <linearGradient id="moss" x1="0" y1="0" x2="1" y2="1">
+      <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
         <stop offset="0%" style="stop-color: color-mix(in srgb, var(--brand) 92%, white)"/><stop offset="100%" style="stop-color: color-mix(in srgb, var(--brand) 78%, black)"/>
       </linearGradient>
       <mask id="void"><rect width="200" height="200" fill="#fff"/><circle cx="100" cy="109" r="50" fill="#000"/></mask>
     </defs>
-    <path d="M42 29 L67 50 L133 50 L158 29 L154 64 L181 113 L151 167 L49 167 L19 113 L46 64 Z" fill="url(#moss)" mask="url(#void)"/>
+    <path d="M42 29 L67 50 L133 50 L158 29 L154 64 L181 113 L151 167 L49 167 L19 113 L46 64 Z" fill="url(#brand)" mask="url(#void)"/>
   </svg>
   <div>Starting Orknux…</div>
 </body>

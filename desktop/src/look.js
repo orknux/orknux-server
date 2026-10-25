@@ -12,8 +12,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-/** What the splash falls back to: the brand's moss on the dark ground, as before. */
-const DEFAULT = { brand: '#5f8467', ground: '#09090b', text: '#a1a1aa' };
+/** What the splash falls back to before the interface has said its own: the default accent, blue, on the dark ground. */
+const DEFAULT = { brand: '#4f7fc4', ground: '#09090b', text: '#a1a1aa' };
 
 /** A colour as the page computes it, and nothing else: it goes into a style, so a value that is not one is refused. */
 const COLOUR = /^(#[0-9a-f]{3,8}|rgba?\([0-9.,\s%]+\))$/i;
