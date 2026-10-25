@@ -6902,6 +6902,8 @@ type BuiltInTool {
     are the case: every grant is kept, and this says why it does nothing.
     """
     unavailable: String
+    "Whether an agent starts with it hidden, for its owner to turn on: orknux_delete_diagram."
+    startsHidden: Boolean!
 }
 
 "What decides whether an agent is offered a built-in tool."

@@ -85,7 +85,7 @@ class OrknuxToolStatesTest(
     @Test
     fun `a new agent starts with every orknux tool at Always, and one can be set to Offer`() {
         val id = created("Offers news", orknuxAccess = true)
-        val names = builtIns.orknuxNames()
+        val names = builtIns.orknuxNames() - builtIns.orknuxStartsHidden()
         assertThat(requireNotNull(agents.findByIdOrNull(id)).requiredTools).containsAll(names)
 
         val granted = (BuiltInTools.GRANTED + names).joinToString(",") { "\"$it\"" }
@@ -109,8 +109,9 @@ class OrknuxToolStatesTest(
             """mutation { updateAgent(id: $id, input: { name: "Granted later", orknuxAccess: true, maxTools: 100 }) { id } }""",
         ).execute()
         val agent = requireNotNull(agents.findByIdOrNull(id))
-        assertThat(agent.requiredTools).containsAll(builtIns.orknuxNames())
-        assertThat(tools(agent).first).containsAll(builtIns.orknuxNames())
+        val always = builtIns.orknuxNames() - builtIns.orknuxStartsHidden()
+        assertThat(agent.requiredTools).containsAll(always)
+        assertThat(tools(agent).first).containsAll(always)
     }
 
     /**

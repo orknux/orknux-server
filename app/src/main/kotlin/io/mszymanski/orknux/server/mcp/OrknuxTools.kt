@@ -211,6 +211,8 @@ class OrknuxTools(
     private val manualTools: ManualTools,
     /** Reading and drawing wireframes; see [WireframeTools]. Issue #655. */
     private val wireframeTools: WireframeTools,
+    /** Searching, reading, drawing and exporting diagrams; see [DiagramTools]. */
+    private val diagramTools: DiagramTools,
     private val access: io.mszymanski.orknux.server.security.WorkspaceAccess,
     private val newsTools: NewsTools,
     private val web: WebProperties,
@@ -287,7 +289,15 @@ class OrknuxTools(
 
     /** What to offer, which depends on whether this caller may start anything. */
     fun specs(scope: OrknuxScope): List<ToolSpec> =
-        ownSpecs(scope) + buildTools.specs(scope) + wireframeTools.specs(scope) + manualTools.specs()
+        ownSpecs(scope) + buildTools.specs(scope) + wireframeTools.specs(scope) + diagramTools.specs(scope) + manualTools.specs()
+
+    /**
+     * The orknux_* tools an agent starts with hidden, which its owner turns on
+     * one agent at a time: the ones that take away what people made. Everything
+     * else starts at Always. Read by every place that gives an agent its marks -
+     * a new agent, the grant given afresh - and by the migration's test.
+     */
+    fun startsHidden(): Set<String> = DiagramTools.STARTS_HIDDEN
 
     private fun ownSpecs(scope: OrknuxScope): List<ToolSpec> = buildList {
         add(
@@ -992,6 +1002,8 @@ class OrknuxTools(
                 access.actingIn(scope.workspaceId, scope.actor) { buildTools.run(scope, name, arguments) }
             } else if (wireframeTools.handles(name)) {
                 access.actingIn(scope.workspaceId, scope.actor) { wireframeTools.run(scope, name, arguments) }
+            } else if (diagramTools.handles(name)) {
+                access.actingIn(scope.workspaceId, scope.actor) { diagramTools.run(scope, name, arguments) }
             } else {
                 refuse("There is no tool called $name")
             }

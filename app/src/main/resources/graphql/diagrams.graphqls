@@ -1,0 +1,119 @@
+# Diagrams, in Explore beside Research: boxes, the lines between them and notes
+# on each box, filed in catalogs, drawn by hand in the editor and by a model
+# through the orknux_* diagram tools. Anybody who can see the workspace.
+
+extend type Query {
+    "A workspace's diagram catalogs, by name."
+    diagramCatalogs(workspaceId: ID!): [DiagramCatalog!]!
+    "A workspace's diagrams, the one worked on last first, without their drawings; with catalogId, that catalog's."
+    diagrams(workspaceId: ID!, catalogId: ID): [Diagram!]!
+    "One diagram with its drawing; null where there is none."
+    diagram(id: ID!): Diagram
+    "Every labelled node of every diagram, for finding one by name."
+    diagramNodeIndex(workspaceId: ID!): [DiagramIndexEntry!]!
+    "Node labels, notes, edge labels and diagram names that hold the words, best match first; with diagramId, in that diagram only."
+    searchDiagrams(workspaceId: ID!, query: String!, diagramId: ID): [DiagramHit!]!
+}
+
+extend type Mutation {
+    createDiagramCatalog(workspaceId: ID!, name: String!): DiagramCatalog!
+    renameDiagramCatalog(id: ID!, name: String!): DiagramCatalog!
+    "Refused while the catalog holds diagrams."
+    deleteDiagramCatalog(id: ID!): Boolean!
+    "Makes a diagram, empty or holding `document`; without catalogId, in the workspace's first catalog, made where there is none."
+    createDiagram(workspaceId: ID!, name: String!, catalogId: ID, document: String): Diagram!
+    renameDiagram(id: ID!, name: String!): Diagram!
+    moveDiagram(id: ID!, catalogId: ID!): Diagram!
+    "Whether agents may change the diagram through the orknux_* tools, or only read it."
+    setDiagramAgentAccess(id: ID!, access: DiagramAgentAccess!): Diagram!
+    """
+    Writes a whole drawing over the one held. With `revision`, refused when the
+    diagram has been saved since that revision - by somebody else or by a model.
+    """
+    saveDiagram(id: ID!, document: String!, revision: Int): Diagram!
+    deleteDiagram(id: ID!): Boolean!
+    """
+    Asks a chat model to work on the diagram: the conversation so far, oldest
+    first, ending with what is asked now. Whatever it changes is saved as it goes.
+    """
+    askDiagram(id: ID!, modelId: ID!, messages: [DiagramChatTurnInput!]!): DiagramAnswer!
+}
+
+"What an agent may do with a diagram through the orknux_* tools."
+enum DiagramAgentAccess {
+    READ
+    CHANGE
+}
+
+"A folder of diagrams."
+type DiagramCatalog {
+    id: ID!
+    workspaceId: ID!
+    name: String!
+    diagramCount: Int!
+}
+
+"A diagram, and its drawing where one was asked for."
+type Diagram {
+    id: ID!
+    workspaceId: ID!
+    catalogId: ID!
+    catalogName: String!
+    name: String!
+    agentAccess: DiagramAgentAccess!
+    """
+    The drawing, as JSON: {"nodes": [{id, kind, label, x, y, w, h, color, notes,
+    parent}], "edges": [{id, from, to, label, kind}]}, whole pixels from the top
+    left, absolute. Node kinds are box, rounded, ellipse, diamond, note and group;
+    edge kinds are arrow, line, dashed and both. Empty on the list.
+    """
+    document: String!
+    nodeCount: Int!
+    edgeCount: Int!
+    "Counts the saves; what saveDiagram is checked against."
+    revision: Int!
+    "How long a node's notes may be on this installation."
+    noteCharactersMost: Int!
+    createdBy: String!
+    "ISO-8601."
+    createdAt: String!
+    updatedBy: String!
+    "ISO-8601."
+    updatedAt: String!
+}
+
+"A node, by its label, and the diagram it is on."
+type DiagramIndexEntry {
+    diagramId: ID!
+    diagramName: String!
+    nodeId: String!
+    label: String!
+}
+
+"Where a diagram search found its words."
+type DiagramHit {
+    diagramId: ID!
+    diagramName: String!
+    catalogName: String!
+    "label, notes, edge or name."
+    field: String!
+    nodeId: String
+    nodeLabel: String
+    edgeId: String
+    snippet: String!
+}
+
+"What a model said, and the diagram as it stands after it."
+type DiagramAnswer {
+    answer: String!
+    "Whether it saved anything."
+    changed: Boolean!
+    diagram: Diagram!
+}
+
+"One turn of the editor's conversation."
+input DiagramChatTurnInput {
+    "user or assistant."
+    role: String!
+    content: String!
+}

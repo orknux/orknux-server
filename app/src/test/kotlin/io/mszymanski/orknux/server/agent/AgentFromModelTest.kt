@@ -95,7 +95,7 @@ class AgentFromModelTest(
         // Nothing granted and nothing hidden, which since #455 is how "every
         // built-in, and none of the workspace's tools" is stored.
         assertThat(made.tools).isEmpty()
-        assertThat(made.hiddenTools).isEmpty()
+        assertThat(made.hiddenTools).describedAs("only what starts hidden on every agent").containsExactlyElementsOf(io.mszymanski.orknux.server.mcp.DiagramTools.STARTS_HIDDEN)
         assertThat(io.mszymanski.orknux.server.chat.BuiltInTools.grantedTo(made))
             .containsExactlyElementsOf(io.mszymanski.orknux.server.chat.BuiltInTools.GRANTED)
         // Nothing named: the server's own skill catalog is every agent's

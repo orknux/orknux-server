@@ -321,6 +321,42 @@ enum class Tunable(
         "How wide the picture of a wireframe an agent drew may be",
         "The picture put in a chat beside the wireframe's link; a wider drawing is scaled down to this.",
     ),
+    /*
+     * Diagrams, in Explore. The notes are where a diagram keeps what its boxes
+     * cannot say, and are what an agent reads a node for - long enough for a
+     * paragraph or two by default, held to a number so one node cannot hold a
+     * manual. Checked on every save, from the editor and the tools alike.
+     */
+    DIAGRAM_NOTE_CHARACTERS(
+        "diagram.note.characters", 5_000, 100, 100_000, TuningSection.MEDIA, TuningUnit.CHARACTERS,
+        "How long a diagram node's notes may be",
+        "A save, from the editor or from an agent, with longer notes on a node is refused and names the node.",
+    ),
+    DIAGRAM_ITEMS_MOST(
+        "diagram.items.most", 2_000, 10, 100_000, TuningSection.MEDIA, TuningUnit.ITEMS,
+        "How many nodes and connections one diagram may hold",
+        "A save that would leave more is refused and says how many there were.",
+    ),
+    DIAGRAM_SEARCH_HITS(
+        "diagram.search.hits", 20, 1, 500, TuningSection.MEDIA, TuningUnit.ITEMS,
+        "How many hits a diagram search answers with",
+        "The best matches first; an agent searching for more narrows its words.",
+    ),
+    /*
+     * What orknux_diagram shows of each node's notes. The whole diagram is read
+     * at once, and a hundred nodes with full notes is a book; the node tool
+     * gives one node's notes whole.
+     */
+    DIAGRAM_NOTES_SHOWN_CHARACTERS(
+        "diagram.notes.shown.characters", 200, 0, 100_000, TuningSection.MEDIA, TuningUnit.CHARACTERS,
+        "How much of each node's notes a whole diagram read shows",
+        "Notes past this are cut and marked; reading one node gives its notes whole.",
+    ),
+    DIAGRAM_PICTURE_PIXELS(
+        "diagram.picture.pixels", 1600, 200, 4096, TuningSection.MEDIA, TuningUnit.PIXELS,
+        "How wide the picture of a diagram may be",
+        "The picture put in a chat beside the diagram's link, and the PNG and PDF an agent exports; a wider drawing is scaled down to this.",
+    ),
 
     /*
      * Design's Videos page. Issue #658. A video is a job its backend runs for
