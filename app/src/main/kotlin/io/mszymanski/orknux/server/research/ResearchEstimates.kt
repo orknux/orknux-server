@@ -64,12 +64,14 @@ class ResearchEstimates(
         basis.forEach { one ->
             steps.findByExecutionIdOrderByOrderAsc(requireNotNull(one.executionId)).forEach { step ->
                 val at = ResearchRuns.STAGES[step.nodeKey] ?: return@forEach
+                if (at == ResearchStage.REVIEW && !one.review) return@forEach
                 val began = step.startedAt ?: return@forEach
                 val ended = step.finishedAt ?: return@forEach
                 if (step.status == StepStatus.COMPLETED) taken.getOrPut(at) { mutableListOf() } += seconds(began, ended)
             }
         }
-        val ahead = ResearchStage.entries.dropWhile { it != stage }
+        // Review is a step only of a research that asked for it; one that did not goes past it in no time.
+        val ahead = ResearchStage.entries.dropWhile { it != stage }.filter { it != ResearchStage.REVIEW || research.review }
         if (ahead.any { (taken[it]?.size ?: 0) < least }) return null
 
         val node = ResearchRuns.NODES[stage]

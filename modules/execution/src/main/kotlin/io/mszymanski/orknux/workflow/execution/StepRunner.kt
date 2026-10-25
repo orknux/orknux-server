@@ -418,7 +418,13 @@ class StepRunner(
         // What the run carries from here on. Written once, where it is read
         // from, so both engines carry the same thing and neither has to hand it
         // to the other.
-        if (result.status == StepStatus.COMPLETED) carry(executionId, result.output)
+        //
+        // Not a condition's "no": that is a direction, and what it says - "X
+        // did not hold." - is a sentence for the log. Carried, it took the place
+        // of everything the run was holding, so a step down the "no" path was
+        // handed that sentence and nothing it reads.
+        val directionOnly = result.halt && result.branch != null
+        if (result.status == StepStatus.COMPLETED && !directionOnly) carry(executionId, result.output)
 
         log.write(
             executionId,

@@ -35,6 +35,10 @@ class ResearchExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ResearchStageNotInRunException,
             is ResearchNothingToRestartException,
             is ResearchRestartRefusedException,
+            is ResearchReviewerMissingException,
+            is ResearchReviewerUnusableException,
+            is ResearchModeNotReviewedException,
+            is ResearchReviewRoundsOutOfRangeException,
             -> ErrorType.BAD_REQUEST
 
             else -> return null

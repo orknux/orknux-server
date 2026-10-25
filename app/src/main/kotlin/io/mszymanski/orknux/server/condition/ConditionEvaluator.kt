@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 import io.mszymanski.orknux.server.workflow.MappingMode
+import io.mszymanski.orknux.server.workflow.Placeholders
 import io.mszymanski.orknux.server.regex.AuthoredRegex
 import io.mszymanski.orknux.server.regex.AuthoredRegex.MAX_PATTERN
 import io.mszymanski.orknux.server.regex.RegexTooSlowException
@@ -155,7 +156,23 @@ class ConditionEvaluator(
      * message that has none should decide rather than fail.
      */
     private fun jsonFor(binding: NodeBinding, input: String?, trigger: String?): String {
-        if (!binding.reference) return mapper.writeValueAsString(binding.expression)
+        /*
+         * A written value with a field in it - `{{trigger.review}}` - is that
+         * value with the field filled in, as a node's own written parameters
+         * are: a field the run does not carry is empty text, so the condition
+         * decides rather than failing to be answered.
+         */
+        if (!binding.reference) {
+            val written = Placeholders.filled(binding.expression) { field ->
+                val found = runCatching { mapper.readTree(jsonFor(NodeBinding(expression = field, reference = true), input, trigger)) }.getOrNull()
+                when {
+                    found == null || found.isNull || found.isMissingNode -> ""
+                    found.isTextual -> found.stringValue()
+                    else -> found.toString()
+                }
+            }
+            return mapper.writeValueAsString(written)
+        }
 
         val steps = binding.expression.trim().split('.').filter { it.isNotEmpty() }
         val fromTrigger = steps.firstOrNull() == TRIGGER

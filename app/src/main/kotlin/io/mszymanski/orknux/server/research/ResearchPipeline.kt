@@ -137,6 +137,8 @@ enum class ResearchStage {
     GATHER,
     FOLLOW_UP,
     WRITE,
+    /** A second model reads the report and the writer revises it; only where the research asked for it. */
+    REVIEW,
     SAVE,
 }
 
@@ -163,6 +165,33 @@ data class ResearchReading(val title: String, val url: String, val kind: String)
 
 /** What a research came to. */
 data class ResearchFound(val report: String, val sources: List<ResearchSource>)
+
+/** One thing a reviewer found wrong with a report, and what to do about it. */
+data class ResearchReviewIssue(
+    /** UNSUPPORTED, MISSING, CITATION, CONTRADICTION, FORMATTING or OTHER. */
+    val kind: String,
+    val issue: String,
+    val fix: String,
+)
+
+/**
+ * One round of review: what the reviewer made of the report, and whether the
+ * writer revised it - with how long it was before and after, which is what
+ * the page says changed.
+ */
+data class ResearchReviewRound(
+    val round: Int,
+    /** ACCEPT or REVISE. */
+    val verdict: String,
+    val summary: String,
+    val issues: List<ResearchReviewIssue>,
+    val revised: Boolean = false,
+    val charactersBefore: Int = 0,
+    val charactersAfter: Int? = null,
+)
+
+/** What the Review step hands Save: the report as the review left it, and every round. */
+data class ResearchReviewed(val report: String, val rounds: List<ResearchReviewRound>)
 
 /**
  * What one research step says it did, for the run's log under the step's own
@@ -258,6 +287,10 @@ class ResearchPipeline(
     private val researches: ResearchRepository,
     private val tuning: Tuning,
     private val mapper: ObjectMapper,
+    /** The reviewer's and the writer's own instructions, as their pages have them; see [review]. */
+    private val agents: io.mszymanski.orknux.server.agent.AgentRepository,
+    /** Where the writer's revision is shown while it is written. */
+    private val drafts: ResearchDrafts,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -624,6 +657,174 @@ class ResearchPipeline(
         tracker.step("Report written")
         return ResearchFound(report, sources)
     }
+
+    /**
+     * Review: a second model reads the report against what it was written
+     * from, and where it asks for changes the writer makes them - at most
+     * [rounds] times, then the report goes on as it stands.
+     *
+     * The reviewer is the workspace's Research reviewer and the writer its
+     * Research writer, by their instructions on the Agents page; the reviewer
+     * thinks with the model the research was started with for reviewing, the
+     * writer with the research's own. The writer is handed the conversation it
+     * wrote the report in - the same request, the report as its answer - with
+     * the reviewer's findings after it, so it revises its own work rather than
+     * writing a new report from nothing. Its revision is shown on the page as
+     * it is written, in place of the draft.
+     */
+    fun review(
+        asked: ResearchAsked,
+        reviewerModelId: Long,
+        plan: List<String>,
+        gathered: ResearchGathered,
+        draft: String,
+        excluded: String,
+        rounds: Int,
+        said: ResearchLog = ResearchLog.NONE,
+    ): ResearchReviewed {
+        val tracker = Tracker(asked.researchId, ResearchStage.REVIEW)
+        val reviewer = instructionsOf(asked.workspaceId, ResearchModes.REVIEWER)
+        val writer = instructionsOf(asked.workspaceId, ResearchModes.WRITER)
+        val request = writerRequest(asked, excluded, gathered)
+        var report = draft.trim()
+        val held = mutableListOf<ResearchReviewRound>()
+        for (round in 1..rounds.coerceAtLeast(1)) {
+            tracker.step(if (rounds > 1) "Reviewing the report, round $round of $rounds" else "Reviewing the report")
+            val answer = when (
+                val reviewed = models.complete(
+                    reviewerModelId,
+                    listOf(ChatTurn("system", reviewer), ChatTurn("user", reviewMaterial(asked.question, plan, gathered, report))),
+                )
+            ) {
+                is ChatCompletion.Answered -> reviewed.content
+                is ChatCompletion.Failed -> throw ResearchModelFailedException("The reviewer did not answer: ${reviewed.reason}")
+                else -> throw ResearchModelFailedException("The reviewer answered with something other than text")
+            }
+            val verdict = verdictFrom(round, answer, report.length)
+                ?: throw ResearchModelFailedException("The reviewer did not answer with a verdict: ${answer.take(200)}")
+            said.info(
+                "Review round $round: ${verdict.verdict.lowercase()}, ${verdict.issues.size} " +
+                    (if (verdict.issues.size == 1) "issue" else "issues") +
+                    verdict.summary.takeIf { it.isNotBlank() }?.let { " - $it" }.orEmpty(),
+            )
+            if (verdict.verdict == ACCEPTED || verdict.issues.isEmpty()) {
+                held += verdict
+                noteReview(asked.researchId, held)
+                break
+            }
+
+            tracker.step(if (rounds > 1) "Revising the report, round $round of $rounds" else "Revising the report")
+            noteReview(asked.researchId, held + verdict)
+            val showing = drafts.revising(asked.researchId)
+            val turns = listOf(
+                ChatTurn("system", writer),
+                ChatTurn("user", request),
+                ChatTurn("assistant", report),
+                ChatTurn("user", revisionAsked(verdict)),
+            )
+            val revised = when (val written = models.stream(asked.modelId, turns) { showing(it) }) {
+                is ChatCompletion.Answered -> written.content.trim()
+                is ChatCompletion.Failed -> throw ResearchModelFailedException("The writer did not revise the report: ${written.reason}")
+                else -> throw ResearchModelFailedException("The writer answered with something other than text")
+            }
+            if (revised.isEmpty()) throw ResearchModelFailedException("The writer answered the review with nothing")
+            said.info("Revised the report: ${report.length} characters before, ${revised.length} after")
+            held += verdict.copy(revised = true, charactersAfter = revised.length)
+            report = revised
+            noteReview(asked.researchId, held)
+        }
+        tracker.step("Report reviewed")
+        return ResearchReviewed(report, held)
+    }
+
+    /** The same request the writer node is given, so a revision is asked in the conversation the report was written in. */
+    private fun writerRequest(asked: ResearchAsked, excluded: String, gathered: ResearchGathered): String = buildString {
+        appendLine("Question: ${asked.question}")
+        appendLine()
+        appendLine("Register: ${asked.language.name}")
+        appendLine("Documents not to use: ${excluded.ifBlank { "none" }}")
+        appendLine()
+        appendLine("Sources, by number:")
+        appendLine()
+        append(writerNotes(gathered))
+    }
+
+    /** What the reviewer is shown: the question, the plan it was broken into, every source and its notes, and the report. */
+    private fun reviewMaterial(question: String, plan: List<String>, gathered: ResearchGathered, report: String): String = buildString {
+        appendLine("Question: $question")
+        appendLine()
+        appendLine("Plan, the parts the question was broken into:")
+        (plan.ifEmpty { listOf(question) }).forEach { appendLine("- $it") }
+        appendLine()
+        appendLine("Sources, by number, with the notes taken on each:")
+        appendLine()
+        appendLine(notesOf(gathered.sources))
+        appendLine()
+        appendLine("Report:")
+        appendLine()
+        append(report)
+    }
+
+    /** What the writer is told the reviewer found: each issue on a line of its own, with what to do about it. */
+    private fun revisionAsked(verdict: ResearchReviewRound): String = buildString {
+        appendLine(REVISE)
+        appendLine()
+        verdict.summary.takeIf { it.isNotBlank() }?.let { appendLine(it).appendLine() }
+        verdict.issues.forEachIndexed { at, one ->
+            append(at + 1).append(". [").append(one.kind.lowercase()).append("] ").append(one.issue)
+            if (one.fix.isNotBlank()) append(" Fix: ").append(one.fix)
+            appendLine()
+        }
+    }
+
+    /**
+     * The reviewer's answer as a round: the JSON it was asked for, found where
+     * it is in what it said, read field by field. Null where there is no
+     * verdict in it to read.
+     */
+    fun verdictFrom(round: Int, said: String, length: Int): ResearchReviewRound? {
+        val start = said.indexOf('{')
+        val end = said.lastIndexOf('}')
+        if (start < 0 || end <= start) return null
+        val read = runCatching { mapper.readTree(said.substring(start, end + 1)) }.getOrNull()?.takeIf { it.isObject } ?: return null
+        fun text(node: tools.jackson.databind.JsonNode, vararg keys: String) =
+            keys.firstNotNullOfOrNull { key -> node.path(key).takeIf { it.isTextual }?.stringValue()?.trim() }.orEmpty()
+        val verdict = text(read, "verdict").uppercase().takeIf { it == ACCEPTED || it == REVISED } ?: return null
+        val issues = read.path("issues").takeIf { it.isArray }?.mapNotNull { one ->
+            val issue = text(one, "issue", "text", "problem").ifEmpty { return@mapNotNull null }
+            val kind = text(one, "kind", "type").uppercase().takeIf { it in ISSUE_KINDS } ?: "OTHER"
+            ResearchReviewIssue(kind, issue, text(one, "fix", "suggestion"))
+        }.orEmpty()
+        return ResearchReviewRound(round, verdict, text(read, "summary"), issues, charactersBefore = length)
+    }
+
+    private fun noteReview(researchId: Long?, rounds: List<ResearchReviewRound>) {
+        val id = researchId ?: return
+        runCatching { researches.noteReview(id, mapper.writeValueAsString(rounds)) }
+            .onFailure { log.warn("Could not note the review of research {}", id, it) }
+    }
+
+    /** An agent's instructions as its page has them, or as it was seeded where the workspace has no such agent. */
+    private fun instructionsOf(workspaceId: Long, seeded: ResearchModes.SeededAgent): String =
+        agents.findByWorkspaceIdAndName(workspaceId, seeded.name)?.systemPrompt?.takeIf { it.isNotBlank() } ?: seeded.instructions
+
+    /** The rounds a research's Review step has said so far, as a row holds them. */
+    fun reviewRoundsFrom(held: String?): List<ResearchReviewRound> =
+        held?.let { runCatching { mapper.readTree(it) }.getOrNull() }?.takeIf { it.isArray }?.mapNotNull { one ->
+            val verdict = one.path("verdict").takeIf { it.isTextual }?.stringValue() ?: return@mapNotNull null
+            fun text(at: tools.jackson.databind.JsonNode, key: String) = at.path(key).takeIf { it.isTextual }?.stringValue().orEmpty()
+            ResearchReviewRound(
+                round = one.path("round").takeIf { it.isNumber }?.intValue() ?: 0,
+                verdict = verdict,
+                summary = text(one, "summary"),
+                issues = one.path("issues").takeIf { it.isArray }?.toList()?.map { issue ->
+                    ResearchReviewIssue(text(issue, "kind"), text(issue, "issue"), text(issue, "fix"))
+                } ?: emptyList(),
+                revised = one.path("revised").takeIf { it.isBoolean }?.booleanValue() ?: false,
+                charactersBefore = one.path("charactersBefore").takeIf { it.isNumber }?.intValue() ?: 0,
+                charactersAfter = one.path("charactersAfter").takeIf { it.isNumber }?.intValue(),
+            )
+        }.orEmpty()
 
     /** Why Write has nothing to go on, in what was done rather than a guess at why it came to nothing. */
     private fun nothingRead(gathered: ResearchGathered): String = buildString {
@@ -1043,6 +1244,24 @@ class ResearchPipeline(
         /** What a model writes for a source with nothing on the question. */
         const val NOTHING = "NOTHING RELEVANT"
 
+        const val ACCEPTED = "ACCEPT"
+        const val REVISED = "REVISE"
+        val ISSUE_KINDS = setOf("UNSUPPORTED", "MISSING", "CITATION", "CONTRADICTION", "FORMATTING", "OTHER")
+
+        /** What the reviewer is told; the Research reviewer agent is seeded with it. */
+        const val REVIEW = "You review research reports before they are published. You are given the question, the " +
+            "plan it was broken into, the sources by number with the notes taken on each, and the report, which cites " +
+            "them as [n]. Check that every claim is supported by the notes of the source it cites, that every part " +
+            "of the plan is answered, that each citation points at a source that says what is claimed, that nothing " +
+            "contradicts the sources, and that the report is well-formed Markdown with a # title and ## headings. " +
+            "Answer with JSON and nothing else: {\"verdict\": \"accept\" or \"revise\", \"summary\": one sentence, " +
+            "\"issues\": [{\"kind\": \"unsupported\", \"missing\", \"citation\", \"contradiction\" or \"formatting\", " +
+            "\"issue\": what is wrong, quoting the passage, \"fix\": what to change}]}. Accept when nothing is worth " +
+            "changing; ask to revise only for issues you can name."
+
+        /** What the writer is told above the reviewer's findings. */
+        const val REVISE = "A reviewer read your report and asks for these changes. Write the whole report again " +
+            "with them made, in the same register and citing the same numbered sources. Answer with the report only."
         /** What a restarted research says it is doing until its first step says otherwise. */
         const val RESTARTING = "Restarting"
 

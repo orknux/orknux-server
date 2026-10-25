@@ -49,6 +49,7 @@ class ResearchCapability(
     private val chatModels: WorkspaceChatModels,
     private val tuning: Tuning,
     private val mapper: ObjectMapper,
+    private val reviewRounds: ResearchReviewRounds,
 ) : EmbeddedCapability {
 
     override val key = KEY
@@ -88,12 +89,21 @@ class ResearchCapability(
             params = listOf(P_RESEARCH, P_QUESTION, P_MODEL, P_LANGUAGE, P_DOCUMENTS_EXCLUDE, P_GATHERED),
         ),
         EmbeddedFunction(
+            name = REVIEW,
+            description = "A research's review: a second model reads the report against the plan and the notes on " +
+                "its sources, and the writer revises it where asked, for as many rounds as the workspace allows. " +
+                "Answers the report as the review left it and what each round said.",
+            params = listOf(
+                P_RESEARCH, P_QUESTION, P_MODEL, P_REVIEWER_MODEL, P_LANGUAGE, P_EXCLUDED_NAMES, P_PLAN, P_GATHERED, P_REPORT,
+            ),
+        ),
+        EmbeddedFunction(
             name = SAVE,
             description = "A research's last step: saves the report on the Artifacts page as a PDF or a document, " +
                 "with the numbered list of the sources it cites after it where it is handed what was gathered. " +
                 "Answers the report, its sources and the file's id and name, or why it could not be saved.",
-            // What was gathered last, so a Save drawn before it was a parameter reads every other one where it did.
-            params = listOf(P_RESEARCH, P_QUESTION, P_REPORT, P_OUTPUT_FORMAT, P_CITED),
+            // What was gathered, then what the review left, last: a Save drawn before either was a parameter reads every other one where it did.
+            params = listOf(P_RESEARCH, P_QUESTION, P_REPORT, P_OUTPUT_FORMAT, P_CITED, P_REVIEWED),
         ),
         EmbeddedFunction(
             name = RUN,
@@ -181,6 +191,19 @@ class ResearchCapability(
                         ?: return failed("needs what was gathered: point its gathered at that step's output.")
                     answered(reportOf(pipeline.write(asked, gathered, said)))
                 }
+                REVIEW -> {
+                    val gathered = pipeline.gatheredFrom(given.node(GATHERED))
+                        ?: return failed("needs what was gathered: point its gathered at Follow up's output.")
+                    val draft = given.text(REPORT)?.takeIf { it.isNotBlank() }
+                        ?: return failed("needs the report to review: point its report at Write's draft.")
+                    val reviewer = given.text(REVIEWER_MODEL)?.toLongOrNull()?.let { chatModels.usable(workspaceId, it)?.id }
+                        ?: return failed("needs a chat model this workspace can use to review with: the research names the one it was started with.")
+                    val plan = given.texts(QUERIES).ifEmpty { given.text(QUERIES)?.let(pipeline::listFrom).orEmpty() }
+                    val reviewed = pipeline.review(
+                        asked, reviewer, plan, gathered, draft, given.text(EXCLUDED_NAMES).orEmpty(), reviewRounds.of(workspaceId), said,
+                    )
+                    answered(linkedMapOf(REPORT to reviewed.report, "rounds" to reviewed.rounds, "revised" to reviewed.rounds.any { it.revised }))
+                }
                 else -> {
                     val knobs = ResearchKnobs(
                         subQuestions = given.number(SUB_QUESTIONS).coerceAtLeast(1),
@@ -209,7 +232,8 @@ class ResearchCapability(
      * was: the report is written and kept, and only the file is missing.
      */
     private fun save(given: Given, workspaceId: Long, researchId: Long?, question: String, said: ResearchLog): Map<String, Any?> {
-        val written = given.text(REPORT) ?: return mapOf("error" to "There is no report to save.").also {
+        // The report as the review left it, where there was one; Write's draft otherwise.
+        val written = given.text(REVIEWED)?.takeIf { it.isNotBlank() } ?: given.text(REPORT) ?: return mapOf("error" to "There is no report to save.").also {
             said.warn("There is no report to save")
         }
         /*
@@ -334,6 +358,7 @@ class ResearchCapability(
         const val FOLLOW_UP = "followUp"
         const val WRITE = "write"
         const val SAVE = "save"
+        const val REVIEW = "review"
         const val RUN = "run"
 
         /** As a graph names them. */
@@ -357,6 +382,16 @@ class ResearchCapability(
         const val MAX_PAGES_PER_SOURCE = "maxPagesPerSource"
         const val WEB_SEARCH = "webSearch"
         const val INCLUDE_IMAGES = "includeImages"
+
+        /** Whether the research is reviewed, and the model that reviews it, as the run carries them. */
+        const val REVIEW_ASKED = "review"
+        const val REVIEWER_MODEL = "reviewerModel"
+
+        /** The documents not to use, by name, as the run carries them for the writer. */
+        const val EXCLUDED_NAMES = "documentsExcludeNames"
+
+        /** The report as the review left it, which Save prefers to the draft. */
+        const val REVIEWED = "reviewed"
 
         /** What one step hands the next. */
         const val QUERIES = "queries"
@@ -393,6 +428,15 @@ class ResearchCapability(
             "Whether to look for images the report may place, kept on the Artifacts page; left out, what the research asked for.",
         )
         private val P_QUERIES = EmbeddedParam(QUERIES, ValueType.ARRAY, "The search queries Plan wrote.", required = true)
+        private val P_PLAN = EmbeddedParam(QUERIES, ValueType.ARRAY, "The search queries Plan wrote, for the reviewer to check the report answers.")
+        private val P_REVIEWER_MODEL = EmbeddedParam(
+            REVIEWER_MODEL, ValueType.STRING, "The id of the chat model that reviews the report.", required = true,
+        )
+        private val P_EXCLUDED_NAMES = EmbeddedParam(EXCLUDED_NAMES, ValueType.STRING, "The documents not to use, by name, as the writer was told.")
+        private val P_REVIEWED = EmbeddedParam(
+            REVIEWED, ValueType.STRING,
+            "The report as Review left it; where given, it is saved in place of report.",
+        )
         private val P_GATHERED = EmbeddedParam(GATHERED, ValueType.MAP, "What Gather, or Follow up, answered.", required = true)
         private val P_REPORT = EmbeddedParam(REPORT, ValueType.STRING, "The report Write answered, in Markdown.", required = true)
         private val P_CITED = EmbeddedParam(

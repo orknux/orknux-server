@@ -526,6 +526,7 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_RESEARCH_IMAGES_MOST` | The most images one research keeps, in items. | `6` |
 | `ORKNUX_TUNING_RESEARCH_IMAGE_MB` | The largest image a research keeps, in MB. | `2` |
 | `ORKNUX_TUNING_RESEARCH_RESUME_AFTER_RESTART` | How many times a research step a restart cut short is run again, in times. | `2` |
+| `ORKNUX_TUNING_RESEARCH_REVIEW_ROUNDS` | How many rounds of review a research gets, in times; a workspace may set its own. | `1` |
 | `ORKNUX_TUNING_RESEARCH_ESTIMATE_RUNS` | How many finished research a time left is measured from, in items. | `3` |
 | `ORKNUX_TUNING_RESEARCH_ESTIMATE_LOOKBACK` | How many of the newest finished research a time left looks at, in items. | `20` |
 | `ORKNUX_TUNING_RESEARCH_IMAGE_PIXELS` | The shortest side an image a research keeps may have, in pixels. | `120` |

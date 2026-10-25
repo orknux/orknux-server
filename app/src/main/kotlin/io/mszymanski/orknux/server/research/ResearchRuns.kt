@@ -234,12 +234,15 @@ class ResearchRuns(
         }
 
         // Where the new run starts, as a stage: the whole of it where it starts at the beginning.
-        val stage = event.resumedAt?.let { STAGES[it] } ?: if (event.resumedAt == null) ResearchStage.PLAN else null
+        val stage = event.resumedAt?.let { STAGES[it] ?: if (it == ResearchModes.REVIEWING) ResearchStage.REVIEW else null }
+            ?: if (event.resumedAt == null) ResearchStage.PLAN else null
         val gathered = stage?.let { handedOn(from, it) }
         val (progress, sources, images) = pipeline.restarted(research, stage, gathered)
         val runs = (earlier + listOfNotNull(current)).distinct()
         researches.restarted(
             id, requireNotNull(run.id), ResearchStatus.RUNNING, progress, sources, images, mapper.writeValueAsString(runs),
+            // What the review said stands only where the restart is after it.
+            research.reviewRounds.takeIf { stage == ResearchStage.SAVE },
         )
         drafts.forget(id)
         log.info("Research {} restarted on run {} from {}", id, run.id, event.resumedAt ?: "the beginning")
@@ -269,7 +272,7 @@ class ResearchRuns(
     private fun handedOn(executionId: Long, stage: ResearchStage): ResearchGathered? {
         val from = when (stage) {
             ResearchStage.FOLLOW_UP -> listOf(ResearchModes.GATHER)
-            ResearchStage.WRITE, ResearchStage.SAVE -> listOf(ResearchModes.FOLLOW_UP, ResearchModes.GATHER)
+            ResearchStage.WRITE, ResearchStage.REVIEW, ResearchStage.SAVE -> listOf(ResearchModes.FOLLOW_UP, ResearchModes.GATHER)
             else -> return null
         }
         val outputs = steps.findByExecutionIdOrderByOrderAsc(executionId)
@@ -425,8 +428,13 @@ class ResearchRuns(
             ?.takeIf { it.isNumber || it.isTextual }
             ?.asString()?.toLongOrNull()
 
-        /** The node a seeded mode's workflow takes each stage in. */
-        val NODES: Map<ResearchStage, String> get() = STAGES.entries.associate { (key, stage) -> stage to key }
+        /**
+         * The node a seeded mode's workflow takes each stage in, as a restart
+         * begins it: Review at the question whether to review, so a research
+         * that was not reviewed restarted there goes on to Save as it did.
+         */
+        val NODES: Map<ResearchStage, String> get() =
+            STAGES.entries.associate { (key, stage) -> stage to key } + (ResearchStage.REVIEW to ResearchModes.REVIEWING)
 
         /** The stage each of a seeded mode's steps is, by its node's key. */
         val STAGES = mapOf(
@@ -434,6 +442,7 @@ class ResearchRuns(
             ResearchModes.GATHER to ResearchStage.GATHER,
             ResearchModes.FOLLOW_UP to ResearchStage.FOLLOW_UP,
             ResearchModes.WRITE to ResearchStage.WRITE,
+            ResearchModes.REVIEW to ResearchStage.REVIEW,
             ResearchModes.SAVE to ResearchStage.SAVE,
         )
     }

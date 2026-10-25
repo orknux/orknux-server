@@ -796,6 +796,7 @@ class ActionNodeRunner(
             io.mszymanski.orknux.server.research.ResearchCapability.GATHER,
             io.mszymanski.orknux.server.research.ResearchCapability.FOLLOW_UP,
             io.mszymanski.orknux.server.research.ResearchCapability.WRITE,
+            io.mszymanski.orknux.server.research.ResearchCapability.REVIEW,
             io.mszymanski.orknux.server.research.ResearchCapability.RUN,
         ).map { io.mszymanski.orknux.server.research.ResearchCapability.functionName(it) }.toSet()
 

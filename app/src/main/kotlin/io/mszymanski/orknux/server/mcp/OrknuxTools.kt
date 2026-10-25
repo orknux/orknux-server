@@ -812,6 +812,12 @@ class OrknuxTools(
                             "Whether to look for images, place them in the report and keep each on the Artifacts page. false when left out.",
                             required = false,
                         ),
+                        ToolParameterSpec(
+                            "review",
+                            "Whether a second model reviews the report before it is saved and the writer revises it where asked. false when left out.",
+                            required = false,
+                        ),
+                        ToolParameterSpec("reviewerModel", "The chat model that reviews: its name or id. Required when review is true.", required = false),
                         ToolParameterSpec("sitesInclude", "Websites to keep to, as a list of hosts.", required = false, LIST),
                         ToolParameterSpec("sitesExclude", "Websites never to read, as a list of hosts.", required = false, LIST),
                         ToolParameterSpec("documentsInclude", "Ids of the workspace's documents to read.", required = false, LIST),
@@ -2005,6 +2011,12 @@ class OrknuxTools(
                 ?: return refuse("There is no model called $named here")
         } ?: held.firstOrNull { it.kind == io.mszymanski.orknux.connector.model.ModelKind.CHAT }
             ?: return refuse("There is no chat model in this workspace to research with")
+        val review = flag(arguments, "review") ?: false
+        val reviewer = text(arguments, "reviewerModel")?.trim()?.takeIf { it.isNotEmpty() }?.let { named ->
+            (named.toLongOrNull()?.let { id -> held.firstOrNull { it.id == id } } ?: held.firstOrNull { it.name.equals(named, ignoreCase = true) })
+                ?: return refuse("There is no model called $named here")
+        }
+        if (review && reviewer == null) return refuse("A reviewed research needs a reviewerModel: the chat model that reviews it")
         val register = text(arguments, "register")?.trim()?.uppercase()?.let { said ->
             ResearchLanguage.entries.firstOrNull { it.name == said } ?: return refuse("The register is ACADEMIC, COLLOQUIAL or FORMAL")
         } ?: ResearchLanguage.FORMAL
@@ -2032,6 +2044,8 @@ class OrknuxTools(
                     documentsExclude = documents.getValue("documentsExclude"),
                     useWebSearch = flag(arguments, "webSearch"),
                     includeImages = flag(arguments, "includeImages"),
+                    review = review,
+                    reviewerModelId = reviewer?.id?.takeIf { review },
                 ),
             )
         }
@@ -2088,6 +2102,17 @@ class OrknuxTools(
                 "model" to held.modelName,
                 "webSearch" to held.useWebSearch,
                 "includeImages" to held.includeImages,
+                "reviewed" to held.review,
+                "reviewerModel" to held.reviewerModelName,
+                "review" to held.reviewRounds.map { round ->
+                    mapOf(
+                        "round" to round.round,
+                        "verdict" to round.verdict,
+                        "summary" to round.summary,
+                        "issues" to round.issues.map { mapOf("kind" to it.kind, "issue" to it.issue, "fix" to it.fix) },
+                        "revised" to round.revised,
+                    )
+                },
                 "status" to held.status,
                 "step" to held.progress?.step,
                 "subQuestions" to held.progress?.subQuestions.orEmpty(),

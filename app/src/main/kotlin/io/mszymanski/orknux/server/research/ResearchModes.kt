@@ -13,9 +13,15 @@ import io.mszymanski.orknux.server.agent.AgentType
 import io.mszymanski.orknux.server.agent.Chattiness
 import io.mszymanski.orknux.server.agent.GrantExemptions
 import io.mszymanski.orknux.server.chat.BuiltInTools
+import io.mszymanski.orknux.server.condition.ConditionCheck
+import io.mszymanski.orknux.server.condition.ConditionType
+import io.mszymanski.orknux.server.condition.VALUE_SUBJECT
+import io.mszymanski.orknux.server.condition.WorkflowCondition
+import io.mszymanski.orknux.server.condition.WorkflowConditionRepository
 import io.mszymanski.orknux.server.embedded.EmbeddedCapabilities
 import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.server.tuning.Tuning
+import io.mszymanski.orknux.server.workflow.EdgeBranch
 import io.mszymanski.orknux.server.workflow.MappingMode
 import io.mszymanski.orknux.server.workflow.NodeExpressions
 import io.mszymanski.orknux.server.workflow.NodeKind
@@ -86,6 +92,15 @@ import org.springframework.transaction.annotation.Transactional
  * a workflow still as it was drawn but with no retry setting on any step - one
  * made before there were any - is given it.
  *
+ * **Reviewed where asked.** Between Write and Save sits a condition, Review
+ * asked for?, reading the `review` the research was started with: yes leads
+ * to Review report, which has the Research reviewer read the draft with the
+ * model chosen for it and the Research writer revise it where asked, and on to
+ * Save; no leads straight to Save, and Review report is skipped. Save saves
+ * what the review left where there was a review and Write's draft where there
+ * was not. A mode still drawn as the five steps it was before, untouched, is
+ * given the two nodes the same way the shapes before it were upgraded.
+ *
  * **Adopted by name.** A copied or imported workspace arrives with the
  * workflows, the actions and the agents already in it, under the names written
  * here, and a second set beside them would be a name refused or a duplicate
@@ -101,6 +116,8 @@ class ResearchModes(
     private val nodes: WorkflowNodeRepository,
     private val edges: WorkflowEdgeRepository,
     private val agents: AgentRepository,
+    /** The question whether to review, which each mode's workflow owns. */
+    private val conditions: WorkflowConditionRepository,
     /** Only to write the research functions' rows where start-up has not yet; see [functionId]. */
     private val embedded: ObjectProvider<EmbeddedCapabilities>,
     private val tuning: Tuning,
@@ -119,7 +136,9 @@ class ResearchModes(
             .flatMap { nodes.findByWorkflowId(it) }
             .filter { it.kind == NodeKind.AGENT && (it.nodeKey == PLAN || it.nodeKey == WRITE) }
             .mapNotNull { it.agentId }
-            .toSet()
+            .toSet() +
+            // And the reviewer, whom no node names: the Review step reads its instructions.
+            setOfNotNull(agents.findByWorkspaceIdAndName(workspaceId, REVIEWER.name)?.id)
 
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -141,6 +160,10 @@ class ResearchModes(
             modes.save(ResearchMode(workspaceId = workspaceId, kind = depth.kind, name = name, workflowId = workflowId, position = at))
         }
     }
+
+    /** Whether a research's workflow has a Review step to review with: a mode somebody drew their own way may not. */
+    fun reviews(workflowId: Long): Boolean =
+        nodes.findByWorkflowId(workflowId).any { it.nodeKey == REVIEW && it.kind == NodeKind.ACTION && it.enabled }
 
     /** Whether a research's workflow plans with an agent node, which writes nothing on the research itself. */
     fun plansWithAnAgent(workflowId: Long): Boolean =
@@ -166,6 +189,9 @@ class ResearchModes(
                 if (renamed(workspaceId, workflowId, depth)) {
                     log.info("Research mode {} of workspace {} given its steps' current names", depth.modeName, workspaceId)
                 }
+                if (reviewable(workspaceId, workflowId, depth)) {
+                    log.info("Research mode {} of workspace {} given its review", depth.modeName, workspaceId)
+                }
                 if (relaid(workspaceId, workflowId, depth)) {
                     log.info("Research mode {} of workspace {} laid out again", depth.modeName, workspaceId)
                 }
@@ -184,7 +210,7 @@ class ResearchModes(
             nodes.deleteAll(nodes.findByWorkflowId(workflowId))
             edges.flush()
             nodes.flush()
-            lay(workflowId, parts, depth)
+            lay(workspaceId, workflowId, parts, depth)
             log.info("Research mode {} of workspace {} redrawn with its planner and writer as agent nodes", depth.modeName, workspaceId)
         }
     }
@@ -195,8 +221,89 @@ class ResearchModes(
      * Write card with its label on top of it; dropped a row, the line passes
      * under Write and its label sits clear of every card.
      */
-    private fun xOf(at: Int) = at * SPACING
-    private fun yOf(step: Step) = if (step.key == SAVE) DROP else 0.0
+    private fun xOf(key: String) = LAYOUT.indexOf(key) * SPACING
+    private fun yOf(key: String) = if (key == SAVE) DROP else 0.0
+
+    /**
+     * Gives a mode still drawn as the five steps, untouched, its review: the
+     * question whether to review and the Review step between Write and Save,
+     * and Save reading what the review left. Where the five carry a retry
+     * policy the two new steps are drawn with it; where none of them does,
+     * neither do the new ones, and [retried] gives all seven theirs.
+     */
+    private fun reviewable(workspaceId: Long, workflowId: Long, depth: Depth): Boolean {
+        if (!untouchedCurrent(workspaceId, workflowId, depth, reviewed = false)) return false
+        val parts = parts(workspaceId)
+        val held = nodes.findByWorkflowId(workflowId)
+        val withRetries = held.any(::hasRetrySettings)
+        edges.deleteAll(edges.findByWorkflowId(workflowId).filter { it.sourceKey == WRITE && it.targetKey == SAVE })
+        edges.flush()
+        held.first { it.nodeKey == SAVE }.let { save ->
+            save.mappings.clear()
+            save.mappings.addAll(mappingsOf(SAVE_STEP, CURRENT, depth.knobs))
+            save.positionX = xOf(SAVE)
+            save.positionY = yOf(SAVE)
+            nodes.save(save)
+        }
+        nodes.save(gateNode(workspaceId, workflowId).also { if (withRetries) retrying(it) })
+        nodes.save(stepNode(workflowId, REVIEW_STEP, parts, depth).also { if (!withRetries) clearRetries(it) })
+        val drawn = edges.findByWorkflowId(workflowId).map { Triple(it.sourceKey, it.targetKey, it.branch) }.toSet()
+        REVIEW_LINES.filter { it !in drawn }.forEach { (from, to, branch) ->
+            edges.save(WorkflowEdge(workflowId = workflowId, sourceKey = from, targetKey = to, branch = branch))
+        }
+        return true
+    }
+
+    private fun clearRetries(node: WorkflowNode) {
+        node.retryAttempts = null
+        node.retryBackoffSeconds = null
+    }
+
+    /**
+     * The question whether to review, as a node: a condition this workflow
+     * owns, asking whether the run's `review` is true. Read as a written value
+     * with the field in it rather than as a reference, so a run that carries no
+     * `review` - one started before there was a review - answers no rather
+     * than failing to be answered.
+     */
+    private fun gateNode(workspaceId: Long, workflowId: Long): WorkflowNode {
+        val condition = conditions.save(
+            WorkflowCondition(
+                workspaceId = workspaceId,
+                workflowId = workflowId,
+                name = GATE_CONDITION,
+                type = ConditionType.VALUE,
+                check = ConditionCheck.IN_LIST,
+                values = mutableListOf("true"),
+            ),
+        )
+        return WorkflowNode(
+            workflowId = workflowId,
+            nodeKey = REVIEWING,
+            kind = NodeKind.CONDITION,
+            name = GATE_NAME,
+            description = GATE_DESCRIPTION,
+            conditionId = condition.id,
+            positionX = xOf(REVIEWING),
+            positionY = yOf(REVIEWING),
+            mappings = GATE_MAPPINGS().toMutableList(),
+        )
+    }
+
+    /** Whether the question whether to review is still as it was drawn. */
+    private fun untouchedGate(workspaceId: Long, node: WorkflowNode): Boolean {
+        val condition = node.conditionId?.let { conditions.findByIdOrNull(it) } ?: return false
+        return node.kind == NodeKind.CONDITION &&
+            node.name == GATE_NAME &&
+            node.description == GATE_DESCRIPTION &&
+            node.enabled &&
+            condition.workspaceId == workspaceId &&
+            condition.type == ConditionType.VALUE &&
+            condition.check == ConditionCheck.IN_LIST &&
+            !condition.negate &&
+            condition.values.toList() == listOf("true") &&
+            signature(node.mappings) == signature(GATE_MAPPINGS())
+    }
 
     /**
      * Gives a mode drawn in the current shape under the steps' former names -
@@ -208,7 +315,7 @@ class ResearchModes(
      * made with, and only to a name nothing else in the workspace has.
      */
     private fun renamed(workspaceId: Long, workflowId: Long, depth: Depth): Boolean {
-        if (!untouchedCurrent(workspaceId, workflowId, depth, named = { FORMER.getValue(it.key) })) return false
+        if (!untouchedCurrent(workspaceId, workflowId, depth, named = { FORMER.getValue(it.key) }, reviewed = false)) return false
         val held = nodes.findByWorkflowId(workflowId).associateBy { it.nodeKey }
         STEPS.forEach { step ->
             val node = held.getValue(step.key)
@@ -231,8 +338,8 @@ class ResearchModes(
      * untouched, so it goes on being recognised as seeded.
      */
     private fun imaged(workspaceId: Long, workflowId: Long, depth: Depth): Boolean {
-        val asSeeded = untouchedCurrent(workspaceId, workflowId, depth, imagesMapped = false) ||
-            untouchedCurrent(workspaceId, workflowId, depth, { FORMER.getValue(it.key) }, imagesMapped = false)
+        val asSeeded = untouchedCurrent(workspaceId, workflowId, depth, imagesMapped = false, reviewed = false) ||
+            untouchedCurrent(workspaceId, workflowId, depth, { FORMER.getValue(it.key) }, imagesMapped = false, reviewed = false)
         if (!asSeeded) return false
         val gather = nodes.findByWorkflowId(workflowId).firstOrNull { it.nodeKey == GATHER } ?: return false
         gather.mappings.add(
@@ -251,11 +358,11 @@ class ResearchModes(
         if (!untouchedCurrent(workspaceId, workflowId, depth)) return false
         val held = nodes.findByWorkflowId(workflowId).associateBy { it.nodeKey }
         var moved = false
-        STEPS.forEachIndexed { at, step ->
-            val node = held.getValue(step.key)
-            if (node.positionX != xOf(at) || node.positionY != yOf(step)) {
-                node.positionX = xOf(at)
-                node.positionY = yOf(step)
+        LAYOUT.forEach { key ->
+            val node = held.getValue(key)
+            if (node.positionX != xOf(key) || node.positionY != yOf(key)) {
+                node.positionX = xOf(key)
+                node.positionY = yOf(key)
                 nodes.save(node)
                 moved = true
             }
@@ -311,15 +418,19 @@ class ResearchModes(
         named: (Step) -> Named = { Named(it.nodeName, it.description) },
         /** Off, the shape as it was before Gather read `includeImages`: what [imaged] looks for. */
         imagesMapped: Boolean = true,
+        /** Off, the five steps as they were before there was a review: what [reviewable] looks for. */
+        reviewed: Boolean = true,
     ): Boolean {
+        val steps = if (reviewed) CURRENT else STEPS
         val drawn = edges.findByWorkflowId(workflowId)
-        val wantedLines = STEPS.zipWithNext().map { (from, to) -> from.key to to.key }.toSet()
-        if (drawn.size != wantedLines.size || drawn.any { it.branch != null } || drawn.map { it.sourceKey to it.targetKey }.toSet() != wantedLines) {
+        val wantedLines = if (reviewed) REVIEW_LINES.toSet() else STEPS.zipWithNext().map { (from, to) -> Triple(from.key, to.key, null) }.toSet()
+        if (drawn.size != wantedLines.size || drawn.map { Triple(it.sourceKey, it.targetKey, it.branch) }.toSet() != wantedLines) {
             return false
         }
         val held = nodes.findByWorkflowId(workflowId).associateBy { it.nodeKey }
-        if (held.keys != STEPS.map { it.key }.toSet()) return false
-        return STEPS.all { step ->
+        if (held.keys != steps.map { it.key }.toSet() + listOfNotNull(REVIEWING.takeIf { reviewed })) return false
+        if (reviewed && !untouchedGate(workspaceId, held.getValue(REVIEWING))) return false
+        return steps.all { step ->
             val node = held.getValue(step.key)
             val kindAndPart = if (step.agent != null) {
                 node.kind == NodeKind.AGENT && node.agentId?.let { agents.findByIdOrNull(it) }?.let { it.workspaceId == workspaceId && it.name == step.agent.name } == true
@@ -334,7 +445,7 @@ class ResearchModes(
                 node.enabled &&
                 node.outputName == step.outputName &&
                 signature(node.mappings) == signature(
-                    mappingsOf(step, STEPS, depth.knobs).filter { imagesMapped || it.name != ResearchCapability.INCLUDE_IMAGES },
+                    mappingsOf(step, steps, depth.knobs).filter { imagesMapped || it.name != ResearchCapability.INCLUDE_IMAGES },
                 )
         }
     }
@@ -396,15 +507,18 @@ class ResearchModes(
 
     /** What the workspace's modes are drawn with: the step actions and the two agents, found by name or made. */
     private fun parts(workspaceId: Long): Parts = Parts(
-        actions = STEPS.mapNotNull { step ->
+        actions = CURRENT.mapNotNull { step ->
             step.function?.let {
                 step.key to requireNotNull(
-                    action(workspaceId, requireNotNull(step.actionName), FORMER.getValue(step.key).actionName, functionId(it)).id,
+                    action(workspaceId, requireNotNull(step.actionName), FORMER[step.key]?.actionName, functionId(it)).id,
                 )
             }
         }.toMap(),
-        agents = STEPS.mapNotNull { step -> step.agent?.let { step.key to requireNotNull(agent(workspaceId, it).id) } }.toMap(),
-    )
+        agents = CURRENT.mapNotNull { step -> step.agent?.let { step.key to requireNotNull(agent(workspaceId, it).id) } }.toMap(),
+    ).also {
+        // The reviewer no node names, whose instructions the Review step reads.
+        agent(workspaceId, REVIEWER)
+    }
 
     /**
      * An action calling one research function, found by name or made.
@@ -490,36 +604,35 @@ class ResearchModes(
         val workflow = workflows.save(Workflow(name = depth.workflowName, description = depth.description, hidden = true))
         val workflowId = requireNotNull(workflow.id)
         assignments.save(WorkspaceWorkflow(workspaceId = workspaceId, workflow = workflow, enabled = true))
-        lay(workflowId, parts, depth)
+        lay(workspaceId, workflowId, parts, depth)
         return workflowId
     }
 
-    /** The five steps, left to right, each wired to the next. */
-    private fun lay(workflowId: Long, parts: Parts, depth: Depth) {
-        STEPS.forEachIndexed { at, step ->
-            nodes.save(
-                WorkflowNode(
-                    workflowId = workflowId,
-                    nodeKey = step.key,
-                    kind = if (step.agent != null) NodeKind.AGENT else NodeKind.ACTION,
-                    name = step.nodeName,
-                    description = step.description,
-                    actionId = parts.actions[step.key],
-                    agentId = parts.agents[step.key],
-                    outputName = step.outputName,
-                    positionX = xOf(at),
-                    positionY = yOf(step),
-                    mappings = mappingsOf(step, STEPS, depth.knobs).toMutableList(),
-                ).also {
-                    // Its answer goes on whole, when it is done: a draft handed on in pieces is a report saved in pieces.
-                    if (step.agent != null) it.streamOutput = false
-                    retrying(it)
-                },
-            )
+    /** The steps, left to right: the five in a line, with the question whether to review and Review between Write and Save. */
+    private fun lay(workspaceId: Long, workflowId: Long, parts: Parts, depth: Depth) {
+        CURRENT.forEach { step -> nodes.save(stepNode(workflowId, step, parts, depth)) }
+        nodes.save(gateNode(workspaceId, workflowId).also { retrying(it) })
+        REVIEW_LINES.forEach { (from, to, branch) ->
+            edges.save(WorkflowEdge(workflowId = workflowId, sourceKey = from, targetKey = to, branch = branch))
         }
-        STEPS.zipWithNext().forEach { (from, to) ->
-            edges.save(WorkflowEdge(workflowId = workflowId, sourceKey = from.key, targetKey = to.key))
-        }
+    }
+
+    private fun stepNode(workflowId: Long, step: Step, parts: Parts, depth: Depth) = WorkflowNode(
+        workflowId = workflowId,
+        nodeKey = step.key,
+        kind = if (step.agent != null) NodeKind.AGENT else NodeKind.ACTION,
+        name = step.nodeName,
+        description = step.description,
+        actionId = parts.actions[step.key],
+        agentId = parts.agents[step.key],
+        outputName = step.outputName,
+        positionX = xOf(step.key),
+        positionY = yOf(step.key),
+        mappings = mappingsOf(step, CURRENT, depth.knobs).toMutableList(),
+    ).also {
+        // Its answer goes on whole, when it is done: a draft handed on in pieces is a report saved in pieces.
+        if (step.agent != null) it.streamOutput = false
+        retrying(it)
     }
 
     /** What a step's node passes: the request, what the step before found, its prompt, and its knobs. */
@@ -620,10 +733,45 @@ class ResearchModes(
         const val GATHER = "gather"
         const val FOLLOW_UP = "followUp"
         const val WRITE = "write"
+        /** The question whether to review, and the review. */
+        const val REVIEWING = "reviewing"
+        const val REVIEW = "review"
         const val SAVE = "save"
+
+        /** Left to right, as [lay] draws them. */
+        private val LAYOUT = listOf(PLAN, GATHER, FOLLOW_UP, WRITE, REVIEWING, REVIEW, SAVE)
+
+        private const val GATE_NAME = "Review asked for?"
+        private const val GATE_DESCRIPTION = "Goes to Review where it was asked for"
+        private const val GATE_CONDITION = "Research: review asked for"
+
+        /** What the question reads: the run's `review`, as text, so one that carries none answers no. */
+        private val GATE_MAPPINGS = {
+            listOf(
+                NodeMapping(
+                    name = VALUE_SUBJECT,
+                    expression = "{{${NodeExpressions.TRIGGER}.${ResearchCapability.REVIEW_ASKED}}}",
+                    mode = MappingMode.VALUE,
+                ),
+            )
+        }
+
+        /** The lines of the current shape: the five in a line, with Review asked for? between Write and Save. */
+        private val REVIEW_LINES: List<Triple<String, String, EdgeBranch?>> = listOf(
+            Triple(PLAN, GATHER, null),
+            Triple(GATHER, FOLLOW_UP, null),
+            Triple(FOLLOW_UP, WRITE, null),
+            Triple(WRITE, REVIEWING, null),
+            Triple(REVIEWING, REVIEW, EdgeBranch.YES),
+            Triple(REVIEWING, SAVE, EdgeBranch.NO),
+            Triple(REVIEW, SAVE, null),
+        )
 
         /** What the writer agent's answer is carried under, for Save to put the sources after. */
         const val DRAFT = "draft"
+
+        /** What Review report's answer is carried under, for Save to save in place of the draft. */
+        const val REVIEWED_OUTPUT = "reviewed"
 
         /** The one node a mode's workflow was, and what it read off the run, before the steps were nodes. */
         private const val LEGACY_NODE_KEY = "research"
@@ -654,6 +802,13 @@ class ResearchModes(
             name = "Research planner",
             description = "Plans a research: breaks its question into search queries. Thinks with the model each research is started with.",
             instructions = ResearchPipeline.PLAN,
+        )
+
+        val REVIEWER = SeededAgent(
+            name = "Research reviewer",
+            description = "Reviews a research's report against its plan and the notes on its sources before it is saved. " +
+                "Thinks with the model each research is started with for reviewing.",
+            instructions = ResearchPipeline.REVIEW,
         )
 
         val WRITER = SeededAgent(
@@ -711,16 +866,16 @@ class ResearchModes(
          * the research's model. Save puts the numbered sources after the
          * writer's draft and is where the report is carried from.
          */
-        private val STEPS = listOf(
+        private val PLAN_STEP =
             Step(
                 PLAN, "Plan research", "Research planner drafts the search queries",
                 PLAN,
                 agent = PLANNER,
                 request = listOf(MODEL_OF_THE_RESEARCH),
                 prompt = { "Question: {{${NodeExpressions.TRIGGER}.${ResearchCapability.QUESTION}}}\nWrite exactly ${it.sub} search queries." },
-            ),
-            GATHER_STEP,
-            FOLLOW_UP_STEP,
+            )
+
+        private val WRITE_STEP =
             Step(
                 WRITE, "Write report", "Research writer drafts the cited report",
                 DRAFT,
@@ -733,16 +888,55 @@ class ResearchModes(
                         "Documents not to use: {{$trigger.$DOCUMENTS_EXCLUDE_NAMES}}\n\n" +
                         "Sources, by number:\n\n{{deepened.${ResearchCapability.NOTES}}}"
                 },
+            )
+
+        /** Save as it was before there was a review: the draft and the sources. */
+        private val UNREVIEWED_SAVE_STEP = Step(
+            SAVE, "Save report", "Appends the sources and saves the report",
+            OUTPUT,
+            function = ResearchCapability.SAVE,
+            actionName = "$ACTION_NAME: Save report",
+            request = listOf(ResearchCapability.RESEARCH, ResearchCapability.QUESTION, ResearchCapability.OUTPUT_FORMAT),
+            reads = listOf(ResearchCapability.REPORT to DRAFT, ResearchCapability.GATHERED to "deepened"),
+        )
+
+        /** And now: what the review left as well, which it saves in place of the draft where there was a review. */
+        private val SAVE_STEP = Step(
+            SAVE, UNREVIEWED_SAVE_STEP.nodeName, UNREVIEWED_SAVE_STEP.description,
+            OUTPUT,
+            function = ResearchCapability.SAVE,
+            actionName = UNREVIEWED_SAVE_STEP.actionName,
+            request = UNREVIEWED_SAVE_STEP.request,
+            reads = UNREVIEWED_SAVE_STEP.reads + (ResearchCapability.REVIEWED to "$REVIEWED_OUTPUT.${ResearchCapability.REPORT}"),
+        )
+
+        /**
+         * Review report: the Research reviewer reads the draft against the
+         * plan and the notes, with the model chosen for reviewing, and the
+         * Research writer revises it where asked - a function rather than two
+         * agent nodes, because the rounds are a loop and a graph has none.
+         */
+        private val REVIEW_STEP = Step(
+            REVIEW, "Review report", "Reviewer checks the draft; writer revises",
+            REVIEWED_OUTPUT,
+            function = ResearchCapability.REVIEW,
+            actionName = "$ACTION_NAME: Review report",
+            request = listOf(
+                ResearchCapability.RESEARCH, ResearchCapability.QUESTION, ResearchCapability.MODEL,
+                ResearchCapability.REVIEWER_MODEL, ResearchCapability.LANGUAGE, ResearchCapability.EXCLUDED_NAMES,
             ),
-            Step(
-                SAVE, "Save report", "Appends the sources and saves the report",
-                OUTPUT,
-                function = ResearchCapability.SAVE,
-                actionName = "$ACTION_NAME: Save report",
-                request = listOf(ResearchCapability.RESEARCH, ResearchCapability.QUESTION, ResearchCapability.OUTPUT_FORMAT),
-                reads = listOf(ResearchCapability.REPORT to DRAFT, ResearchCapability.GATHERED to "deepened"),
+            reads = listOf(
+                ResearchCapability.QUERIES to PLAN,
+                ResearchCapability.GATHERED to "deepened",
+                ResearchCapability.REPORT to DRAFT,
             ),
         )
+
+        /** The five as they were drawn before there was a review: what [reviewable] recognises to upgrade. */
+        private val STEPS = listOf(PLAN_STEP, GATHER_STEP, FOLLOW_UP_STEP, WRITE_STEP, UNREVIEWED_SAVE_STEP)
+
+        /** The shape a mode is drawn as now, less the question whether to review, which is a condition. */
+        private val CURRENT = listOf(PLAN_STEP, GATHER_STEP, FOLLOW_UP_STEP, WRITE_STEP, REVIEW_STEP, SAVE_STEP)
 
         /**
          * What the current shape's steps were called before they had the names

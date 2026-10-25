@@ -57,6 +57,8 @@ enum ResearchStage {
     GATHER
     FOLLOW_UP
     WRITE
+    "Only where the research asked for a review."
+    REVIEW
     SAVE
 }
 
@@ -130,6 +132,33 @@ type Research {
     draft: String
     "About how many seconds it has left, measured from the workspace's finished research in the same mode; null when it is not running, there are too few of those, or the list is being read."
     estimatedSecondsLeft: Int
+    "Whether a second model reviews the report before it is saved."
+    review: Boolean!
+    reviewerModelId: ID
+    "As the reviewer's model was called when it started."
+    reviewerModelName: String
+    "What each round of review said, in order; empty where it is not reviewed, or not yet."
+    reviewRounds: [ResearchReviewRound!]!
+}
+
+"One round of review: the reviewer's verdict and what it found, and whether the writer revised the report for it."
+type ResearchReviewRound {
+    round: Int!
+    "ACCEPT or REVISE."
+    verdict: String!
+    summary: String!
+    issues: [ResearchReviewIssue!]!
+    revised: Boolean!
+    "How long the report was before the round, and after it where it was revised."
+    charactersBefore: Int!
+    charactersAfter: Int
+}
+
+type ResearchReviewIssue {
+    "UNSUPPORTED, MISSING, CITATION, CONTRADICTION, FORMATTING or OTHER."
+    kind: String!
+    issue: String!
+    fix: String!
 }
 
 type ResearchProgress {
@@ -218,6 +247,9 @@ input StartResearchInput {
     useWebSearch: Boolean
     "Whether to look for images, place them in the report and keep each as an artifact. Off when absent."
     includeImages: Boolean
+    "Whether a second model reviews the report before it is saved. Off when absent; on, reviewerModelId is required."
+    review: Boolean
+    reviewerModelId: ID
 }
 
 input CreateResearchModeInput {

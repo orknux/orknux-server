@@ -74,6 +74,8 @@ class WorkspaceAPI(
     private val installation: io.mszymanski.orknux.server.attachment.InstallationSettings,
     /** Where a new workspace's research modes are made; see `createWorkspace`. Issue #659. */
     private val researchModes: io.mszymanski.orknux.server.research.ResearchModes,
+    /** The installation's numbers a workspace's own settings fall back to. */
+    private val tuning: io.mszymanski.orknux.server.tuning.Tuning,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -488,6 +490,11 @@ class WorkspaceAPI(
     @BatchMapping(typeName = "Workspace")
     fun chatMaxRoundsDefault(workspaces: List<Workspace>): List<Int> =
         installation.chatMaxRounds().let { value -> workspaces.map { value } }
+
+    /** How many review rounds a research here gets when the workspace has said nothing: Admin -> Settings. */
+    @BatchMapping(typeName = "Workspace")
+    fun researchReviewRoundsDefault(workspaces: List<Workspace>): List<Int> =
+        tuning[io.mszymanski.orknux.server.tuning.Tunable.RESEARCH_REVIEW_ROUNDS].let { value -> workspaces.map { value } }
 
     /** What an agent here may ask when the workspace has said nothing: Admin -> Settings. Issue #380. */
     @BatchMapping(typeName = "Workspace")
@@ -1008,6 +1015,29 @@ class WorkspaceAPI(
             WorkspaceAuditCategory.WORKSPACE,
             count?.let { "An agent here gets $it rounds of tool calls unless it has its own number" }
                 ?: "Tool rounds in this workspace are the installation's again",
+        )
+        return workspace
+    }
+
+    /**
+     * The workspace's own number of review rounds for its research, or null to
+     * go back to the installation's. Bounded as the installation's is.
+     */
+    @MutationMapping
+    @Transactional
+    fun setWorkspaceResearchReviewRounds(@Argument workspaceId: Long, @Argument count: Int?): Workspace {
+        val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
+        access.requireAdministers(workspace)
+        val tunable = io.mszymanski.orknux.server.tuning.Tunable.RESEARCH_REVIEW_ROUNDS
+        if (count != null && count !in tunable.least..tunable.most) {
+            throw io.mszymanski.orknux.server.research.ResearchReviewRoundsOutOfRangeException(count, tunable.least, tunable.most)
+        }
+        workspace.researchReviewRounds = count
+        auditRecorder.record(
+            workspaceId,
+            WorkspaceAuditCategory.WORKSPACE,
+            count?.let { "A reviewed research here gets $it ${if (it == 1) "round" else "rounds"} of review" }
+                ?: "Review rounds in this workspace are the installation's again",
         )
         return workspace
     }
