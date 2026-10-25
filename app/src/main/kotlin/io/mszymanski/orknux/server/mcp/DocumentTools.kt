@@ -8,6 +8,7 @@ import io.mszymanski.orknux.server.design.DesignImageAPI
 import io.mszymanski.orknux.server.design.DocumentAPI
 import io.mszymanski.orknux.server.design.DocumentCatalogRepository
 import io.mszymanski.orknux.server.design.DocumentContentInvalidException
+import io.mszymanski.orknux.server.design.DocumentMarkCarry
 import io.mszymanski.orknux.server.design.DocumentMarkdown
 import io.mszymanski.orknux.server.design.DocumentDoor
 import io.mszymanski.orknux.server.design.DocumentPageSize
@@ -60,7 +61,7 @@ class DocumentTools(
     private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
-    private val markdown = DocumentMarkdown(mapper)
+    private val markdown = DocumentMarkdown(mapper, tags = true)
 
     fun specs(scope: OrknuxScope): List<ToolSpec> = buildList {
         add(
@@ -370,17 +371,22 @@ class DocumentTools(
     private fun write(scope: OrknuxScope, document: DesignDocument, asked: JsonNode): String {
         val text = text(asked.path(MARKDOWN)) ?: return refuse("Give the $MARKDOWN to write.")
         val from = int(asked.path(FROM))
-        val tree = if (from == null) {
-            markdown.document(text)
+        val blocks = blocksOf(document)
+        val carry = DocumentMarkCarry(mapper, tuning[Tunable.DOCUMENT_MARKS_CARRY_CHARACTERS])
+        // The colours and highlights on words the model handed back unchanged are kept, whether or not it wrote their tags.
+        val (tree, dropped) = if (from == null) {
+            val written = markdown.document(text).path("content")
+            val carried = carry.carry(blocks, (0 until written.size()).map { written.get(it) as ObjectNode })
+            withBlocks(carried.blocks) to carried.dropped
         } else {
-            val blocks = blocksOf(document)
             val to = int(asked.path(TO)) ?: from
             if (from < 0 || to < from || to >= blocks.size) {
                 return refuse("${document.name} has blocks 0 to ${blocks.size - 1}; $FROM and $TO have to be among them, $FROM first")
             }
-            withBlocks(blocks.subList(0, from) + markdown.read(text) + blocks.subList(to + 1, blocks.size))
+            val carried = carry.carry(blocks.subList(from, to + 1), markdown.read(text))
+            withBlocks(blocks.subList(0, from) + carried.blocks + blocks.subList(to + 1, blocks.size)) to carried.dropped
         }
-        return saved(scope, document, tree)
+        return saved(scope, document, tree, dropped)
     }
 
     private fun insert(scope: OrknuxScope, document: DesignDocument, asked: JsonNode): String {
@@ -461,21 +467,34 @@ class DocumentTools(
     }
 
     /** Saved through the document's one door, saying which turn of the document chat it is, where it is one. */
-    private fun saved(scope: OrknuxScope, document: DesignDocument, doc: ObjectNode): String {
+    private fun saved(scope: OrknuxScope, document: DesignDocument, doc: ObjectNode, dropped: List<String> = emptyList()): String {
         api.saveContent(requireNotNull(document.id), doc, scope.documentTurn)
-        return written(api.find(requireNotNull(document.id)))
+        return written(api.find(requireNotNull(document.id)), dropped)
     }
 
-    /** What a writing tool answers: where the document opens, and its outline as it now stands. */
-    private fun written(document: DesignDocument): String = mapper.writeValueAsString(
-        mapOf(
-            "id" to document.id,
-            "name" to document.name,
-            "revision" to document.revision,
-            "url" to link(document),
-            "blocks" to outline(api.tree(document)),
-            "note" to "Saved. Give the person the url, which opens it in the document editor.",
-        ),
+    /**
+     * What a writing tool answers: where the document opens, and its outline as it now stands - and the
+     * highlights a rewrite lost, which the person wrote and has to be told of.
+     */
+    private fun written(document: DesignDocument, dropped: List<String> = emptyList()): String = mapper.writeValueAsString(
+        buildMap {
+            put("id", document.id)
+            put("name", document.name)
+            put("revision", document.revision)
+            put("url", link(document))
+            put("blocks", outline(api.tree(document)))
+            if (dropped.isEmpty()) {
+                put("note", "Saved. Give the person the url, which opens it in the document editor.")
+            } else {
+                put("dropped", dropped)
+                put(
+                    "note",
+                    "Saved, but " + dropped.joinToString("; ") + ". Tell the person which highlights went; " +
+                        "if one should stay, write it back as a mark tag on the words it belongs to. " +
+                        "Give the person the url, which opens it in the document editor.",
+                )
+            }
+        },
     )
 
     // -- Helpers -------------------------------------------------------------
@@ -484,7 +503,7 @@ class DocumentTools(
         val written = markdown.blocksOf(tree)
         return written.mapIndexed { at, block ->
             val type = tree.path("content").get(at).path("type").asText("")
-            mapOf("at" to at, "type" to type, "text" to block.replace(Regex("\\s+"), " ").trim().take(OUTLINE_WORDS))
+            mapOf("at" to at, "type" to type, "text" to block.replace(MARK_TAGS, "").replace(Regex("\\s+"), " ").trim().take(OUTLINE_WORDS))
         }
     }
 
@@ -579,10 +598,15 @@ class DocumentTools(
         /** How many characters of each block the outline shows. A format, not a behaviour: the outline is a list of places. */
         private const val OUTLINE_WORDS = 80
 
+        /** The colour and highlight tags, left out of the outline: it shows a block's first words, not its markup. */
+        private val MARK_TAGS = Regex("</?(span|mark)(\\s[^<>]*)?>", RegexOption.IGNORE_CASE)
+
         private const val MARKDOWN_SAID =
             "Markdown as usual - headings, lists, tables, **bold**, *italic*, ~~struck~~, <u>underlined</u>, `code`, links " +
-                "and fenced code; a line holding only <!-- pagebreak --> starts a new page; a picture already in the document is " +
-                "![alt](artifact:DESIGN-12 \"caption\"), and a new one goes in through $ADD_IMAGE."
+                "and fenced code; ${DocumentMarkdown.MARKS_SAID}; a line holding only <!-- pagebreak --> starts a new page; " +
+                "a picture already in the document is ![alt](artifact:DESIGN-12 \"caption\"), and a new one goes in through " +
+                "$ADD_IMAGE. Rewriting words keeps the colours and highlights on the words that stay the same; a highlight whose " +
+                "words all go is named in the answer."
 
         private const val ANSWERED =
             "Answers the document's url - where it opens in the editor, to give the person - and its outline as it now stands."

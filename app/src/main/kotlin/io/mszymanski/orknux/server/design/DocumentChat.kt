@@ -213,6 +213,7 @@ class DocumentChat(
                     "person writes in. Start a new page with a line holding only <!-- pagebreak --> where a section " +
                     "should begin on one. ",
             )
+            append("In the Markdown you read and write, ${DocumentMarkdown.MARKS_SAID}. ")
             append("When you have written, say in one or two sentences what you did. Do not repeat the text. ")
             // The tools answer each document's url, which is right for an agent elsewhere and was pasted into this chat
             // as "You can see it here: ..." under the document the person was looking at.

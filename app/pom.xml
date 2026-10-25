@@ -416,6 +416,16 @@
             <version>0.29.0</version>
         </dependency>
         <!--
+          What a document's colours and highlights are carried across a model's
+          rewrite by: the words that survive are found with Myers' diff, which is
+          a library's to get right rather than ours to hand-roll. Apache 2.0.
+        -->
+        <dependency>
+            <groupId>io.github.java-diff-utils</groupId>
+            <artifactId>java-diff-utils</artifactId>
+            <version>4.12</version>
+        </dependency>
+        <!--
           Tables, for a research report laid out as a PDF: a model writes a
           comparison as a GFM table, and core commonmark renders one as a
           paragraph of pipes. The same project and licence as the parser above.

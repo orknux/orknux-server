@@ -218,7 +218,7 @@ class DocumentContent(private val mapper: ObjectMapper) {
         val MARKS = listOf("bold", "italic", "underline", "strike", "code", "link", "textStyle", "note")
 
         /** What a highlight is told apart by: the editor makes one, short and plain. */
-        private val NOTE_ID = Regex("^[A-Za-z0-9_-]{1,40}$")
+        val NOTE_ID = Regex("^[A-Za-z0-9_-]{1,40}$")
 
         private val HEX = Regex("^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
         private val RGB = Regex("""^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(,\s*[0-9.]+%?\s*)?\)$""")

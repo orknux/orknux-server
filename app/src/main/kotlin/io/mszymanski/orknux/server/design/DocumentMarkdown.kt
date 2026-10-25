@@ -27,10 +27,13 @@ import org.commonmark.node.StrongEmphasis
 import org.commonmark.node.Text
 import org.commonmark.node.ThematicBreak
 import org.commonmark.parser.Parser
+import org.jsoup.Jsoup
+import org.jsoup.nodes.Element
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 import tools.jackson.databind.node.ArrayNode
 import tools.jackson.databind.node.ObjectNode
+import java.util.concurrent.ThreadLocalRandom
 
 /**
  * A document as Markdown, and Markdown as a document.
@@ -46,16 +49,26 @@ import tools.jackson.databind.node.ObjectNode
  * Read with commonmark-java and its GFM table and strikethrough extensions, the
  * parser the server already reads reports with, rather than by hand. What
  * Markdown has no word for is written as the one HTML a reader can ignore: a
- * page break is `<!-- pagebreak -->` on a line of its own, and underlined words
- * are `<u>...</u>`. A picture is `![alt](artifact:DESIGN-12 "caption")`; a
+ * page break is `<!-- pagebreak -->` on a line of its own, underlined words
+ * are `<u>...</u>`, coloured words `<span style="color:#c0392b">...</span>`
+ * and a highlight with its note `<mark data-note="..." data-note-id="...">...</mark>`
+ * - the editor's own HTML for its two marks, so a model that reads them can
+ * write them back. Reading them back keeps only what the editor would: a
+ * colour [DocumentContent.colour] accepts, a note cut to [Documents.NOTE_LENGTH],
+ * an id of the editor's shape; anything else a tag carries is dropped, and a
+ * tag of any other name stays as the words it was written as. A picture is `![alt](artifact:DESIGN-12 "caption")`; a
  * picture at a web address is not fetched, so it is kept as a link to it.
  *
  * @param pictureOf the artifact id a picture's address names, or null for one
  *   kept as a link; an import of Export's zip answers for the files beside it.
+ * @param tags whether colours and highlights are written as their tags: for
+ *   the Markdown a model reads and writes back, and not for an export or a
+ *   version's history, which a person reads as words.
  */
 class DocumentMarkdown(
     private val mapper: ObjectMapper,
     private val pictureOf: (String?) -> String? = { artifactOf(it) },
+    private val tags: Boolean = false,
 ) {
 
     private val parser: Parser = Parser.builder()
@@ -176,6 +189,15 @@ class DocumentMarkdown(
         if ("strike" in has) text = "~~$text~~"
         if ("underline" in has) text = "<u>$text</u>"
         has["link"]?.let { text = "[$text](" + it.path("attrs").path("href").asText("") + ")" }
+        if (!tags) return lead + text + tail
+        has["textStyle"]?.let { DocumentContent.colour(it.path("attrs").path("color").asText("")) }?.let {
+            text = "<span style=\"color:$it\">$text</span>"
+        }
+        has["note"]?.path("attrs")?.let { attrs ->
+            val id = attrs.path("id").asText("").takeIf { DocumentContent.NOTE_ID.matches(it) }
+            text = "<mark data-note=\"" + attribute(attrs.path("note").asText("")) + "\"" +
+                (if (id == null) "" else " data-note-id=\"$id\"") + ">$text</mark>"
+        }
         return lead + text + tail
     }
 
@@ -329,10 +351,15 @@ class DocumentMarkdown(
      */
     private fun walkInline(parent: Node, marks: List<ObjectNode>, start: ArrayNode, onPicture: (ObjectNode) -> ArrayNode): ArrayNode {
         var into = start
-        var underline = false
+        // The tags open at this level, innermost last: <u>, and the editor's <span> and <mark>, each with the
+        // mark it stands for - or none, for a span whose colour was not one, which still has to be closed.
+        val opened = mutableListOf<Pair<String, ObjectNode?>>()
         var child = parent.firstChild
         while (child != null) {
-            val active = if (underline) marks + listOf(mark("underline")) else marks
+            val active = opened.fold(marks) { held, open ->
+                val mark: ObjectNode = open.second ?: return@fold held
+                held.filterNot { type(it) == type(mark) } + listOf(mark)
+            }
             when (child) {
                 is Text -> into.add(textNode(child.literal, active))
                 is Code -> into.add(textNode(child.literal, active + listOf(mark("code"))))
@@ -342,11 +369,18 @@ class DocumentMarkdown(
                 is Link -> into = walkInline(child, active + listOf(mark("link").also { it.putObject("attrs").put("href", child.destination) }), into, onPicture)
                 is SoftLineBreak -> into.add(textNode(" ", active))
                 is HardLineBreak -> into.add(mapper.createObjectNode().put("type", "hardBreak"))
-                is HtmlInline -> when (child.literal.trim().lowercase()) {
-                    "<u>" -> underline = true
-                    "</u>" -> underline = false
-                    "<br>", "<br/>", "<br />" -> into.add(mapper.createObjectNode().put("type", "hardBreak"))
-                    else -> into.add(textNode(child.literal, active))
+                is HtmlInline -> {
+                    val tag = child.literal.trim()
+                    val open = OPEN_TAG.matchEntire(tag)?.groupValues?.get(1)?.lowercase()
+                    val close = CLOSE_TAG.matchEntire(tag)?.groupValues?.get(1)?.lowercase()
+                    when {
+                        open == "u" -> opened += "u" to mark("underline")
+                        open == "span" -> opened += "span" to colourOf(tag)
+                        open == "mark" -> opened += "mark" to noteOf(tag)
+                        close != null -> opened.indexOfLast { it.first == close }.takeIf { it >= 0 }?.let { opened.removeAt(it) }
+                        tag.lowercase() in BREAKS -> into.add(mapper.createObjectNode().put("type", "hardBreak"))
+                        else -> into.add(textNode(child.literal, active))
+                    }
                 }
                 is Image -> {
                     val alt = plain(child)
@@ -397,6 +431,32 @@ class DocumentMarkdown(
 
     private fun mark(type: String): ObjectNode = mapper.createObjectNode().put("type", type)
 
+    /** The colour a `<span>` gives its words, read as the editor reads one; null when it gives none. */
+    private fun colourOf(tag: String): ObjectNode? {
+        val style = attributesOf(tag, "span")?.attr("style") ?: return null
+        val colour = style.split(';')
+            .map { it.substringBefore(':').trim().lowercase() to it.substringAfter(':', "") }
+            .lastOrNull { it.first == "color" }?.second
+            ?.let { DocumentContent.colour(it) } ?: return null
+        return mark("textStyle").also { it.putObject("attrs").put("color", colour) }
+    }
+
+    /** The highlight a `<mark>` is: its note, cut to what a note may be, and its id, or a new one. */
+    private fun noteOf(tag: String): ObjectNode {
+        val element = attributesOf(tag, "mark")
+        val note = element?.attr("data-note")?.trim().orEmpty().take(Documents.NOTE_LENGTH)
+        val id = element?.attr("data-note-id")?.trim()?.takeIf { DocumentContent.NOTE_ID.matches(it) } ?: newNoteId()
+        return mark("note").also { it.putObject("attrs").put("note", note).put("id", id) }
+    }
+
+    /** One opening tag's attributes, entities decoded, read by the HTML parser rather than by a pattern. */
+    private fun attributesOf(tag: String, name: String): Element? = Jsoup.parseBodyFragment(tag).body().selectFirst(name)
+
+    /** A value written into a tag's attribute: whatever would end it, or a table cell, as an entity. */
+    private fun attribute(value: String): String = value
+        .replace("&", "&amp;").replace("\"", "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+        .replace("|", "&#124;").replace("\r", "").replace("\n", "&#10;")
+
     private fun type(node: JsonNode): String = node.path("type").asText("")
 
     private fun text(node: JsonNode): String {
@@ -416,6 +476,24 @@ class DocumentMarkdown(
         private val PAGE_BREAK_HTML = Regex("<!--\\s*page[ -]?break\\s*-->", RegexOption.IGNORE_CASE)
 
         private val MARKUP = Regex("[\\\\`*_\\[\\]<>]")
+
+        /** The tags that stand for a mark: the editor's own, and no others. */
+        private val OPEN_TAG = Regex("^<(u|span|mark)(\\s[^<>]*)?>$", RegexOption.IGNORE_CASE)
+
+        private val CLOSE_TAG = Regex("^</(u|span|mark)\\s*>$", RegexOption.IGNORE_CASE)
+
+        private val BREAKS = setOf("<br>", "<br/>", "<br />")
+
+        /** A highlight's id in the shape the editor makes one (`newNoteId`), for a highlight a model wrote without one. */
+        fun newNoteId(): String =
+            "n" + java.lang.Long.toString(System.currentTimeMillis(), 36) +
+                java.lang.Long.toString(ThreadLocalRandom.current().nextLong(36L * 36 * 36 * 36), 36).padStart(4, '0')
+
+        /** How a colour and a highlight read in the Markdown a model is handed, and are written back: for a tool's description. */
+        const val MARKS_SAID =
+            "coloured words are <span style=\"color:#c0392b\">words</span> (a #rrggbb colour), and highlighted words with " +
+                "a note on them are <mark data-note=\"the note\" data-note-id=\"n1\">words</mark> - keep a highlight's " +
+                "data-note-id as you read it, and leave it out on a new one"
 
         /** The artifact id an image's address names: artifact:DESIGN-12, orknux:DESIGN-12, or the id alone. */
         fun artifactOf(destination: String?): String? {
