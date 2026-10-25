@@ -513,6 +513,7 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_DOCUMENT_MARKDOWN_INLINE_CHARACTERS` | How much of a document's Markdown is handed to a model, in characters. | `100000` |
 | `ORKNUX_TUNING_DOCUMENT_SVG_PIXELS` | How wide an SVG put in a document is drawn, in pixels. | `1600` |
 | `ORKNUX_TUNING_DOCUMENT_COMPLETION_CONTEXT_CHARACTERS` | How much of a document the inline suggestion reads, in characters. | `2000` |
+| `ORKNUX_TUNING_EDITOR_CHAT_FILE_CHARACTERS` | How much of the files on one editor chat message a model reads, in characters. | `100000` |
 | `ORKNUX_TUNING_GRAMMAR_PAUSE_MILLIS` | How long the typing pauses before grammar is checked, in ms. | `800` |
 | `ORKNUX_TUNING_GRAMMAR_TEXT_MOST` | How much text one grammar check takes, in characters. | `20000` |
 | `ORKNUX_TUNING_DOCUMENT_SEARCH_RESULTS` | How many documents a search answers, in items. | `20` |

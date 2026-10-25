@@ -445,6 +445,16 @@ enum class Tunable(
         "The text before the caret is cut to this many characters, and the text after it to a quarter as many.",
     ),
     /*
+     * The chats down the right of the document, wireframe and diagram
+     * editors take files as well as words: a text file, a PDF or a sheet is
+     * handed to the model as its text, which is counted against this.
+     */
+    EDITOR_CHAT_FILE_CHARACTERS(
+        "editor.chat.file.characters", 100_000, 1_000, 2_000_000, TuningSection.MEDIA, TuningUnit.CHARACTERS,
+        "How much of the files on one editor chat message a model reads",
+        "Counted across every file sent with one message in the document, wireframe or diagram chat; the text past it is left out and the model is told so.",
+    ),
+    /*
      * The document editor's grammar check. Asked of the paragraphs changed
      * once the typing has paused this long, and never of more text than the
      * second at once: LanguageTool's time grows with the text.
