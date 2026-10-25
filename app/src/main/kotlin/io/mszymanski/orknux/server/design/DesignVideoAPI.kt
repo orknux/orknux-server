@@ -19,11 +19,16 @@ import io.mszymanski.orknux.server.workflow.WorkspaceArtifactAPI
 import io.mszymanski.orknux.server.workspace.ModelNotFoundForWorkspaceException
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
+import org.springframework.core.io.ByteArrayResource
 import org.springframework.core.io.InputStreamResource
+import org.springframework.core.io.Resource
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.graphql.data.method.annotation.Argument
 import org.springframework.graphql.data.method.annotation.MutationMapping
 import org.springframework.graphql.data.method.annotation.QueryMapping
+import org.springframework.http.ContentDisposition
+import org.springframework.http.HttpHeaders
+import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.security.authentication.AnonymousAuthenticationToken
 import org.springframework.security.core.context.SecurityContextHolder
@@ -58,6 +63,7 @@ class DesignVideoAPI(
     private val artifacts: WorkspaceArtifactAPI,
     private val upscaler: DesignVideoUpscaler,
     private val tuning: Tuning,
+    private val exports: DesignVideoExports,
 ) {
 
     /** What one video model takes beyond a prompt, asked of its backend now. */
@@ -268,10 +274,62 @@ class DesignVideoAPI(
             throw DesignVideoRefusedException("This video is being made; stop it before removing it.")
         }
         videos.delete(video)
+        exports.forget(id)
         video.location?.let { runCatching { store.remove(it) } }
         video.posterLocation?.let { runCatching { store.remove(it) } }
         auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Video ${video.filename ?: video.name} removed from Design")
         return true
+    }
+
+    /**
+     * A finished video converted to [format] - a GIF without its sound, an MP4
+     * or an MKV with it - and kept to be downloaded from the address answered.
+     * Converted here, while the person waits, so a refusal is said where they
+     * asked rather than as a broken download.
+     */
+    @MutationMapping
+    fun exportDesignVideo(@Argument workspaceId: Long, @Argument id: Long, @Argument format: DesignVideoExportFormat): DesignVideoExportView {
+        access.requireVisible(workspaceId)
+        val video = videos.findByIdOrNull(id)?.takeIf { it.workspaceId == workspaceId }
+            ?: throw DesignVideoRefusedException("That video is not here any more.")
+        if (video.status != DesignVideoStatus.DONE || video.location?.let(store::exists) != true) throw DesignVideoExportUnfinishedException()
+        VideoFrames.unavailable()?.let { throw DesignVideoRefusedException(it) }
+        val exported = exports.export(video, format)
+        auditRecorder.record(workspaceId, WorkspaceAuditCategory.WORKFLOW, "Video ${video.name} exported as ${format.name} from Design")
+        return DesignVideoExportView(
+            url = "/api/design-videos/$id/export/${format.extension}",
+            filename = exported.filename,
+            contentType = exported.contentType,
+            sizeBytes = exported.sizeBytes.toDouble(),
+        )
+    }
+
+    /**
+     * An export's file, as a download named after the video. Kept from
+     * [exportDesignVideo]; converted again where it is not - another server,
+     * or one let go since.
+     */
+    @GetMapping("/api/design-videos/{id}/export/{extension}")
+    @ResponseBody
+    fun exported(@PathVariable id: Long, @PathVariable extension: String): ResponseEntity<Resource> {
+        val format = DesignVideoExportFormat.entries.firstOrNull { it.extension == extension.lowercase() }
+            ?: return ResponseEntity.notFound().build()
+        val video = videos.findByIdOrNull(id)?.takeIf { access.canSee(it.workspaceId) }
+            ?.takeIf { it.status == DesignVideoStatus.DONE && it.location?.let(store::exists) == true }
+            ?: return ResponseEntity.notFound().build()
+        if (VideoFrames.unavailable() != null) return ResponseEntity.notFound().build()
+        val exported = try {
+            exports.export(video, format)
+        } catch (refused: RuntimeException) {
+            return ResponseEntity.status(UNPROCESSABLE).contentType(MediaType.TEXT_PLAIN)
+                .body(ByteArrayResource((refused.message ?: "").toByteArray(Charsets.UTF_8)))
+        }
+        return ResponseEntity.ok()
+            .contentType(MediaType.parseMediaType(exported.contentType))
+            .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(exported.filename, Charsets.UTF_8).build().toString())
+            .header(HttpHeaders.CONTENT_LENGTH, exported.sizeBytes.toString())
+            .header("X-Content-Type-Options", "nosniff")
+            .body(InputStreamResource(Files.newInputStream(exported.file)))
     }
 
     /** The file, to anybody who can see the workspace; answered as missing otherwise. */
@@ -375,6 +433,9 @@ class DesignVideoAPI(
     private companion object {
         /** The column's own width: a name is a title, not a description. */
         const val NAME_LENGTH = 255
+
+        /** What a download that could not be made answers: the request was understood, and refused. */
+        const val UNPROCESSABLE = 422
     }
 }
 
@@ -454,6 +515,15 @@ data class DesignVideoView(
     /** How many of an upscale's frames are done, of [framesTotal]; null until it has counted them. */
     val framesDone: Int? = null,
     val framesTotal: Int? = null,
+)
+
+/** Where an export is downloaded from, and what it is. */
+data class DesignVideoExportView(
+    val url: String,
+    val filename: String,
+    val contentType: String,
+    /** A Float rather than an Int: a GraphQL Int stops at 2 GB. */
+    val sizeBytes: Double,
 )
 
 data class UpscaleDesignVideoInput(

@@ -16,6 +16,11 @@ class DesignExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is DesignVideoRefusedException -> ErrorType.BAD_REQUEST
             is DesignVideoSettingNotTakenException -> ErrorType.BAD_REQUEST
             is DesignVideoTooLargeException -> ErrorType.BAD_REQUEST
+            is DesignVideoExportUnfinishedException,
+            is DesignVideoExportTooLargeException,
+            is DesignVideoExportTimedOutException,
+            is DesignVideoExportFailedException,
+            -> ErrorType.BAD_REQUEST
             is WireframeNotFoundException -> ErrorType.NOT_FOUND
             is WireframeNameInvalidException,
             is WireframeDocumentInvalidException,

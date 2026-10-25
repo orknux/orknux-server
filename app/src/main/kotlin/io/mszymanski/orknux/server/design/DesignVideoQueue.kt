@@ -284,6 +284,8 @@ class DesignVideoQueue(
                 "image/webp" -> "webp"
                 "video/x-msvideo" -> "avi"
                 "video/ogg" -> "ogv"
+                "video/x-matroska" -> "mkv"
+                "image/gif" -> "gif"
                 else -> "bin"
             }
             return "$stem.$extension"
