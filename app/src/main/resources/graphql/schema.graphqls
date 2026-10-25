@@ -2036,6 +2036,8 @@ type Mutation {
     setWorkspaceAgentMaxSubagents(workspaceId: ID!, count: Int): Workspace!
     "Tool rounds an agent here gets when it has no number of its own; 2 to 10000, null takes the installation's."
     setWorkspaceChatMaxRounds(workspaceId: ID!, count: Int): Workspace!
+    "Rounds of review a reviewed research here gets; within research.review.rounds' bounds, null takes the installation's."
+    setWorkspaceResearchReviewRounds(workspaceId: ID!, count: Int): Workspace!
     "How many tool calls one message here may ask for; null takes the installation's. Issue #518."
     setWorkspaceMaxToolCallsAtOnce(workspaceId: ID!, count: Int): Workspace!
     "How a turn here is compacted when it outgrows its model; null on any takes the installation's. Issue #522."
@@ -2575,6 +2577,10 @@ type Workspace {
     chatMaxRounds: Int
     "What an agent here gets when neither it nor `chatMaxRounds` says: the installation's number."
     chatMaxRoundsDefault: Int!
+    "Rounds of review a reviewed research here gets; null is the installation's research.review.rounds."
+    researchReviewRounds: Int
+    "What a reviewed research here gets when `researchReviewRounds` is null: the installation's number."
+    researchReviewRoundsDefault: Int!
     """
     How many tool calls one message from an agent here may ask for at once.
 
@@ -6902,6 +6908,8 @@ type BuiltInTool {
     are the case: every grant is kept, and this says why it does nothing.
     """
     unavailable: String
+    "Whether an agent starts with it hidden, for its owner to turn on: orknux_delete_diagram."
+    startsHidden: Boolean!
 }
 
 "What decides whether an agent is offered a built-in tool."

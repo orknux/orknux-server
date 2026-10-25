@@ -460,12 +460,20 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_AGENT_WAIT_LONGEST_SECONDS` | The longest agent_wait may wait, in seconds. | `300` |
 | `ORKNUX_TUNING_TOOLS_LOADED_AT_ONCE` | How many findable tools one search loads, in items. | `8` |
 | `ORKNUX_TUNING_TOOLS_SEARCHES_AT_ONCE` | How many names or searches one tool_find call may carry, in items. | `8` |
-| `ORKNUX_TUNING_TOOL_RESULT_WINDOW_PERCENT` | How much of the model's window one tool result may take, in percent. | `25` |
+| `ORKNUX_TUNING_TOOL_RESULT_WINDOW_PERCENT` | How much of the model's window one tool result may take, in percent. | `10` |
+| `ORKNUX_TUNING_TURN_WINDOW_CHARS_PER_TOKEN` | How many characters a token is counted as against the window, in characters. | `1` |
 | `ORKNUX_TUNING_TURN_WINDOW_RESERVE_PERCENT` | How much of the model's window a shrunk turn leaves free, in percent. | `25` |
 | `ORKNUX_TUNING_SCRATCHPAD_PADS` | How many scratchpads one session may open, in items. | `50` |
 | `ORKNUX_TUNING_SHEET_ROWS_MOST` | How many rows one read of a CSV or a workbook answers, in items. | `200` |
 | `ORKNUX_TUNING_SHEET_ANSWER_CHARACTERS` | How much of a sheet one read hands a model, in characters. | `60000` |
 | `ORKNUX_TUNING_SHEET_UNPACKED_MB` | The most one part of a workbook may unpack to, in MB. | `100` |
+| `ORKNUX_TUNING_XML_MATCHES_MOST` | How many matches one XML or SVG question lists, in items. | `50` |
+| `ORKNUX_TUNING_XML_FILE_MB` | The largest XML or SVG file an agent may query or measure, in MB. | `20` |
+| `ORKNUX_TUNING_XML_ATTRIBUTE_CHARACTERS` | How much of a long attribute or text an XML query shows, in characters. | `200` |
+| `ORKNUX_TUNING_SVG_GROUP_GAP_PERCENT` | How close SVG shapes must be to be grouped, when the agent gives no gap, in percent. | `100` |
+| `ORKNUX_TUNING_PDF_SNIPPET_CHARACTERS` | How much text around each PDF search match is shown, in characters. | `200` |
+| `ORKNUX_TUNING_PDF_MATCHES_MOST` | How many matches one PDF search lists, in items. | `20` |
+| `ORKNUX_TUNING_PDF_TEXT_DOCUMENTS` | How many PDFs' text is kept for searching again, in items. | `16` |
 | `ORKNUX_TUNING_REGEX_MATCH_SECONDS` | How long one regular expression somebody wrote may take to match, in seconds. | `2` |
 | `ORKNUX_TUNING_WATCHER_MATCH_CHARACTERS` | The longest result a watcher's regular expression is held against, in characters. | `1000000` |
 | `ORKNUX_TUNING_WATCHER_RESULT_CHARACTERS` | How much of a watcher's result is kept and shown to its agent, in characters. | `10000` |
@@ -509,6 +517,11 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_GRAMMAR_TEXT_MOST` | How much text one grammar check takes, in characters. | `20000` |
 | `ORKNUX_TUNING_DOCUMENT_SEARCH_RESULTS` | How many documents a search answers, in items. | `20` |
 | `ORKNUX_TUNING_DOCUMENT_SNIPPET_CHARACTERS` | How much of a document a search shows around a match, in characters. | `160` |
+| `ORKNUX_TUNING_DIAGRAM_NOTE_CHARACTERS` | How long a diagram node's notes may be, in characters. | `5000` |
+| `ORKNUX_TUNING_DIAGRAM_ITEMS_MOST` | How many nodes and connections one diagram may hold, in items. | `2000` |
+| `ORKNUX_TUNING_DIAGRAM_SEARCH_HITS` | How many hits a diagram search answers with, in items. | `20` |
+| `ORKNUX_TUNING_DIAGRAM_NOTES_SHOWN_CHARACTERS` | How much of each node's notes a whole diagram read shows, in characters. | `200` |
+| `ORKNUX_TUNING_DIAGRAM_PICTURE_PIXELS` | How wide the picture of a diagram may be, in pixels. | `1600` |
 | `ORKNUX_TUNING_ACTION_RETRY_SECONDS` | How often a waiting action asks again, in seconds. | `30` |
 | `ORKNUX_TUNING_ACTION_WAIT_SECONDS` | How long a waiting action waits when it does not say, in seconds. | `3600` |
 | `ORKNUX_TUNING_TRIGGER_REMEMBER_MINUTES` | How long a trigger remembers an event it ran on, in minutes. | `10` |
@@ -521,6 +534,10 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_RESEARCH_STEP_RETRY_SECONDS` | How long a research mode's step waits before trying again, in seconds. | `10` |
 | `ORKNUX_TUNING_RESEARCH_IMAGES_MOST` | The most images one research keeps, in items. | `6` |
 | `ORKNUX_TUNING_RESEARCH_IMAGE_MB` | The largest image a research keeps, in MB. | `2` |
+| `ORKNUX_TUNING_RESEARCH_RESUME_AFTER_RESTART` | How many times a research step a restart cut short is run again, in times. | `2` |
+| `ORKNUX_TUNING_RESEARCH_REVIEW_ROUNDS` | How many rounds of review a research gets, in times; a workspace may set its own. | `1` |
+| `ORKNUX_TUNING_RESEARCH_ESTIMATE_RUNS` | How many finished research a time left is measured from, in items. | `3` |
+| `ORKNUX_TUNING_RESEARCH_ESTIMATE_LOOKBACK` | How many of the newest finished research a time left looks at, in items. | `20` |
 | `ORKNUX_TUNING_RESEARCH_IMAGE_PIXELS` | The shortest side an image a research keeps may have, in pixels. | `120` |
 | `ORKNUX_TUNING_PLUGIN_HTTP_BODY_MB` | The largest text answer a plugin's request may read, in MB. | `2` |
 | `ORKNUX_TUNING_PLUGIN_DOWNLOAD_MB` | The largest binary answer a plugin's request may read, in MB. | `5` |

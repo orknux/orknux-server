@@ -1,6 +1,8 @@
 package io.mszymanski.orknux.connector.model
 
 import com.openai.core.JsonValue
+import com.openai.core.jsonMapper
+import com.openai.models.chat.completions.ChatCompletion
 import com.openai.models.FunctionDefinition
 import com.openai.models.FunctionParameters
 import com.openai.models.chat.completions.ChatCompletionAssistantMessageParam
@@ -85,7 +87,11 @@ class OpenAiChat(
         val answer = awaited(clients, hangup) { client.async().chat().completions().create(params) }
             ?: return Outcome.Failed(HUNG_UP)
         if (hangup?.hungUp == true) return Outcome.Failed(HUNG_UP)
+        return answered(answer)
+    }
 
+    /** One whole completion, as what the caller is handed: what was said, the calls asked for, and what it cost. */
+    private fun answered(answer: ChatCompletion): Outcome {
         val said = answer.choices().firstOrNull()?.message()
         val calls = said?.toolCalls()?.orElse(null).orEmpty()
             .filter { it.isFunction() }
@@ -221,13 +227,38 @@ class OpenAiChat(
          * repeat; one closed halfway through has already put words on somebody's
          * screen, and asking again would write them twice.
          */
-        val stream = if (whole.isEmpty() && thinking.isEmpty()) {
-            clients.again { client.chat().completions().createStreaming(params) }
+        val raw = if (whole.isEmpty() && thinking.isEmpty()) {
+            clients.again { client.chat().completions().withRawResponse().createStreaming(params) }
         } else {
-            client.chat().completions().createStreaming(params)
+            client.chat().completions().withRawResponse().createStreaming(params)
         }
 
-        stream.use { response ->
+        /*
+         * A provider that ignored `stream: true` and sent the whole completion
+         * as one ordinary body: read as the answer it is, by the SDK's own
+         * model of one.
+         *
+         * Read for frames, it has none, and what used to follow was the empty
+         * stream below asking the same question again without streaming - so a
+         * provider that does not stream was asked everything twice, and a
+         * research's writer on a slow local model wrote its report twice for
+         * one report. The body is already here; it is the answer.
+         */
+        val kind = raw.headers().values("content-type").firstOrNull().orEmpty()
+        if (!kind.contains("event-stream", ignoreCase = true)) {
+            hangup?.holding { raw.close() }
+            val answer = raw.use { held -> jsonMapper().readValue(held.body(), ChatCompletion::class.java) }
+            hangup?.letGo()
+            if (hangup?.hungUp == true) return Outcome.Failed(HUNG_UP)
+            return answered(answer).also { outcome ->
+                if (outcome is Outcome.Answered) {
+                    if (outcome.thought.isNotEmpty()) onThinking(outcome.thought)
+                    if (outcome.said.isNotEmpty()) onChunk(outcome.said)
+                }
+            }
+        }
+
+        raw.parse().use { response ->
             /*
              * The one thing that ends this call early, handed over the moment
              * there is one to hand over.

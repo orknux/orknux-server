@@ -133,9 +133,14 @@ enum class Tunable(
      * answer of 523,768 characters against a 262,144-token window. TurnWindow.
      */
     TOOL_RESULT_WINDOW_PERCENT(
-        "tool.result.window.percent", 25, 1, 90, TuningSection.AGENTS, TuningUnit.PERCENT,
+        "tool.result.window.percent", 10, 1, 90, TuningSection.AGENTS, TuningUnit.PERCENT,
         "How much of the model's window one tool result may take",
-        "A longer answer is cut to this share of the model's context window, counted at two characters a token, and the model is told how long it was and how to read the rest. Applies to models whose window is known.",
+        "A longer answer is cut to this share of the model's context window, counted at the characters a token below, and the model is told how long it was and how to read the rest. Applies to models whose window is known.",
+    ),
+    TURN_WINDOW_CHARS_PER_TOKEN(
+        "turn.window.chars.per.token", 1, 1, 8, TuningSection.AGENTS, TuningUnit.CHARACTERS,
+        "How many characters a token is counted as against the window",
+        "What turns a share of the model's window into a length to cut at. One never lets a result past its share; markup and numbers come to barely more than one a token, prose to about four.",
     ),
     TURN_WINDOW_RESERVE_PERCENT(
         "turn.window.reserve.percent", 25, 5, 75, TuningSection.AGENTS, TuningUnit.PERCENT,
@@ -161,6 +166,46 @@ enum class Tunable(
         "sheet.unpacked.mb", 100, 1, 2_000, TuningSection.AGENTS, TuningUnit.MB,
         "The most one part of a workbook may unpack to",
         "An .xlsx or an .ods is a zip, and a small one can unpack to gigabytes. A workbook with a part larger than this is refused rather than read.",
+    ),
+    /*
+     * xml_query and svg_measure: questions about a large XML or SVG file whose
+     * answers go into the turn instead of the file. Chat 981, a KiCad copper
+     * layer read whole. See XmlCapability and SvgGeometry.
+     */
+    XML_MATCHES_MOST(
+        "xml.matches.most", 50, 1, 5_000, TuningSection.AGENTS, TuningUnit.ITEMS,
+        "How many matches one XML or SVG question lists",
+        "An agent querying an XML file or measuring an SVG is handed this many nodes or rows at a time, with the total counted, and pages through the rest.",
+    ),
+    XML_FILE_MB(
+        "xml.file.mb", 20, 1, 500, TuningSection.AGENTS, TuningUnit.MB,
+        "The largest XML or SVG file an agent may query or measure",
+        "A larger file is refused rather than parsed. Parsing holds the whole document in memory, several times its size.",
+    ),
+    XML_ATTRIBUTE_CHARACTERS(
+        "xml.attribute.characters", 200, 20, 100_000, TuningSection.AGENTS, TuningUnit.CHARACTERS,
+        "How much of a long attribute or text an XML query shows",
+        "A longer value, such as an SVG path's d, is cut to this with its length said, unless the agent asks for it in full.",
+    ),
+    SVG_GROUP_GAP_PERCENT(
+        "svg.group.gap.percent", 100, 1, 10_000, TuningSection.AGENTS, TuningUnit.PERCENT,
+        "How close SVG shapes must be to be grouped, when the agent gives no gap",
+        "Grouping shapes by proximity, such as pads into footprints, joins two whose edges are within this share of the shapes' median nearest-neighbour pitch.",
+    ),
+    PDF_SNIPPET_CHARACTERS(
+        "pdf.snippet.characters", 200, 20, 5_000, TuningSection.AGENTS, TuningUnit.CHARACTERS,
+        "How much text around each PDF search match is shown",
+        "A search of a PDF answers the page of each match and this much of the text around it.",
+    ),
+    PDF_MATCHES_MOST(
+        "pdf.matches.most", 20, 1, 1_000, TuningSection.AGENTS, TuningUnit.ITEMS,
+        "How many matches one PDF search lists",
+        "The total is always counted; past this the agent is told how many more there are.",
+    ),
+    PDF_TEXT_DOCUMENTS(
+        "pdf.text.documents", 16, 0, 1_000, TuningSection.AGENTS, TuningUnit.ITEMS,
+        "How many PDFs' text is kept for searching again",
+        "The text of a searched PDF is kept in memory by its content, per session, so a second search does not read the file again. The least recently searched goes first; 0 keeps none.",
     ),
     /*
      * A time and not a length, because the patterns that never finish are
@@ -316,6 +361,42 @@ enum class Tunable(
         "wireframe.picture.pixels", 1600, 200, 4096, TuningSection.MEDIA, TuningUnit.PIXELS,
         "How wide the picture of a wireframe an agent drew may be",
         "The picture put in a chat beside the wireframe's link; a wider drawing is scaled down to this.",
+    ),
+    /*
+     * Diagrams, in Explore. The notes are where a diagram keeps what its boxes
+     * cannot say, and are what an agent reads a node for - long enough for a
+     * paragraph or two by default, held to a number so one node cannot hold a
+     * manual. Checked on every save, from the editor and the tools alike.
+     */
+    DIAGRAM_NOTE_CHARACTERS(
+        "diagram.note.characters", 5_000, 100, 100_000, TuningSection.MEDIA, TuningUnit.CHARACTERS,
+        "How long a diagram node's notes may be",
+        "A save, from the editor or from an agent, with longer notes on a node is refused and names the node.",
+    ),
+    DIAGRAM_ITEMS_MOST(
+        "diagram.items.most", 2_000, 10, 100_000, TuningSection.MEDIA, TuningUnit.ITEMS,
+        "How many nodes and connections one diagram may hold",
+        "A save that would leave more is refused and says how many there were.",
+    ),
+    DIAGRAM_SEARCH_HITS(
+        "diagram.search.hits", 20, 1, 500, TuningSection.MEDIA, TuningUnit.ITEMS,
+        "How many hits a diagram search answers with",
+        "The best matches first; an agent searching for more narrows its words.",
+    ),
+    /*
+     * What orknux_diagram shows of each node's notes. The whole diagram is read
+     * at once, and a hundred nodes with full notes is a book; the node tool
+     * gives one node's notes whole.
+     */
+    DIAGRAM_NOTES_SHOWN_CHARACTERS(
+        "diagram.notes.shown.characters", 200, 0, 100_000, TuningSection.MEDIA, TuningUnit.CHARACTERS,
+        "How much of each node's notes a whole diagram read shows",
+        "Notes past this are cut and marked; reading one node gives its notes whole.",
+    ),
+    DIAGRAM_PICTURE_PIXELS(
+        "diagram.picture.pixels", 1600, 200, 4096, TuningSection.MEDIA, TuningUnit.PIXELS,
+        "How wide the picture of a diagram may be",
+        "The picture put in a chat beside the diagram's link, and the PNG and PDF an agent exports; a wider drawing is scaled down to this.",
     ),
 
     /*
@@ -560,6 +641,26 @@ enum class Tunable(
         "research.image.mb", 2, 1, 20, TuningSection.WORKFLOWS, TuningUnit.MB,
         "The largest image a research keeps",
         "An image larger than this is skipped rather than kept or laid out in the report; never more than the largest file a tool may download.",
+    ),
+    RESEARCH_RESUME_AFTER_RESTART(
+        "research.resume.after.restart", 2, 0, 9, TuningSection.WORKFLOWS, TuningUnit.TIMES,
+        "How many times a research step a restart cut short is run again",
+        "Plan, Gather, Deepen and Write change nothing outside the research, so one a server restart cut short is run again when the server is back; 0 fails it, to be restarted from its page. Save is never run again.",
+    ),
+    RESEARCH_REVIEW_ROUNDS(
+        "research.review.rounds", 1, 1, 10, TuningSection.WORKFLOWS, TuningUnit.TIMES,
+        "How many rounds of review a research gets",
+        "For a research started with Review: the reviewer reads the report and the writer revises it where asked, at most this many times, before it is saved. A workspace may set its own number.",
+    ),
+    RESEARCH_ESTIMATE_RUNS(
+        "research.estimate.runs", 3, 1, 50, TuningSection.WORKFLOWS, TuningUnit.ITEMS,
+        "How many finished research a time left is measured from",
+        "A running research says about how long it has left once the workspace has finished this many in the same mode; fewer, and it says nothing.",
+    ),
+    RESEARCH_ESTIMATE_LOOKBACK(
+        "research.estimate.lookback", 20, 1, 500, TuningSection.WORKFLOWS, TuningUnit.ITEMS,
+        "How many of the newest finished research a time left looks at",
+        "The newest in the same mode; older ones ran on whatever the models and the workflow were then.",
     ),
     RESEARCH_IMAGE_PIXELS(
         "research.image.pixels", 120, 0, 4_000, TuningSection.WORKFLOWS, TuningUnit.PIXELS,

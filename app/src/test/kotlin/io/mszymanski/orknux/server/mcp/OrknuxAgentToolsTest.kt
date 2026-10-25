@@ -168,7 +168,7 @@ class OrknuxAgentToolsTest(
         val agent = requireNotNull(agents.findByWorkspaceIdAndName(workspaceId, "PR searcher"))
         assertThat(agent.modelId).isEqualTo(chat)
         assertThat(agent.tools).containsExactly("searchPullRequests")
-        assertThat(agent.hiddenTools).describedAs("no built-in or orknux_ tool hidden").isEmpty()
+        assertThat(agent.hiddenTools).describedAs("no built-in or orknux_ tool hidden but what starts hidden").containsExactlyElementsOf(DiagramTools.STARTS_HIDDEN)
         assertThat(agent.orknuxAccess).isTrue()
         assertThat(agent.description).isEqualTo("Searches pull requests.")
         assertThat(messages()).contains(
@@ -237,7 +237,7 @@ class OrknuxAgentToolsTest(
         assertThat(agent.description).describedAs("not sent, so not cleared").isEqualTo("Searches pull requests.")
         assertThat(agent.modelId).describedAs("not sent, so not cleared").isEqualTo(chat)
         assertThat(agent.tools).containsExactly("searchIssues")
-        assertThat(agent.hiddenTools).isEmpty()
+        assertThat(agent.hiddenTools).containsExactlyElementsOf(DiagramTools.STARTS_HIDDEN)
         assertThat(messages()).containsExactlyInAnyOrder(
             "Agent PR searcher system prompt updated",
             "Agent PR searcher given tool searchIssues",

@@ -137,6 +137,8 @@ enum class ResearchStage {
     GATHER,
     FOLLOW_UP,
     WRITE,
+    /** A second model reads the report and the writer revises it; only where the research asked for it. */
+    REVIEW,
     SAVE,
 }
 
@@ -149,10 +151,47 @@ data class ResearchProgress(
     val sourcesRead: Int = 0,
     /** The step doing it; null on a progress written before the steps were nodes. */
     val stage: ResearchStage? = null,
+    /**
+     * The page or document being read this moment, before the model has noted
+     * it: what the page draws as the row on its way, so a source a slow model
+     * spends a minute on is on the screen for that minute rather than after it.
+     * Not a source yet - one the model notes nothing in never becomes one.
+     */
+    val reading: ResearchReading? = null,
 )
+
+/** A page or document on its way to being a source; see [ResearchProgress.reading]. */
+data class ResearchReading(val title: String, val url: String, val kind: String)
 
 /** What a research came to. */
 data class ResearchFound(val report: String, val sources: List<ResearchSource>)
+
+/** One thing a reviewer found wrong with a report, and what to do about it. */
+data class ResearchReviewIssue(
+    /** UNSUPPORTED, MISSING, CITATION, CONTRADICTION, FORMATTING or OTHER. */
+    val kind: String,
+    val issue: String,
+    val fix: String,
+)
+
+/**
+ * One round of review: what the reviewer made of the report, and whether the
+ * writer revised it - with how long it was before and after, which is what
+ * the page says changed.
+ */
+data class ResearchReviewRound(
+    val round: Int,
+    /** ACCEPT or REVISE. */
+    val verdict: String,
+    val summary: String,
+    val issues: List<ResearchReviewIssue>,
+    val revised: Boolean = false,
+    val charactersBefore: Int = 0,
+    val charactersAfter: Int? = null,
+)
+
+/** What the Review step hands Save: the report as the review left it, and every round. */
+data class ResearchReviewed(val report: String, val rounds: List<ResearchReviewRound>)
 
 /**
  * What one research step says it did, for the run's log under the step's own
@@ -248,6 +287,10 @@ class ResearchPipeline(
     private val researches: ResearchRepository,
     private val tuning: Tuning,
     private val mapper: ObjectMapper,
+    /** The reviewer's and the writer's own instructions, as their pages have them; see [review]. */
+    private val agents: io.mszymanski.orknux.server.agent.AgentRepository,
+    /** Where the writer's revision is shown while it is written. */
+    private val drafts: ResearchDrafts,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -304,7 +347,7 @@ class ResearchPipeline(
         val held = saved.findAllById(asked.documentsInclude).filter { it.workspaceId == asked.workspaceId }
         for (document in held) {
             if (reading.stopped()) break
-            tracker.step("Reading ${document.name}")
+            tracker.reading(document.name, "/api/artifacts/${document.id}", "DOCUMENT")
             val text = documents.text(document)?.trim().orEmpty()
             if (text.isEmpty()) {
                 said.info("Skipped document ${document.name}: it has no text to read")
@@ -313,6 +356,7 @@ class ResearchPipeline(
             val pages = text.chunked(tuning[Tunable.RESEARCH_PAGE_CHARACTERS]).take(limits.maxPagesPerSource)
             val notes = noted(asked, asked.question, document.name, pages.joinToString("\n\n"))
             if (notes == null) {
+                tracker.notReading()
                 said.info("Skipped document ${document.name}: the model noted nothing in it on the question")
                 continue
             }
@@ -501,22 +545,26 @@ class ResearchPipeline(
             }
             if (!taken(reading, url, host, emptyList(), asked.websitesExclude)) continue
 
-            tracker.step("Reading $url")
+            tracker.reading(host, url, "WEB")
             val read = when (val answered = web.read(asked.workspaceId, url)) {
                 is PageRead.Read -> answered
                 is PageRead.Unread -> {
+                    tracker.notReading()
                     said.warn("Could not read $url: ${answered.reason}")
                     continue
                 }
             }
             val page = read.text.take(tuning[Tunable.RESEARCH_PAGE_CHARACTERS])
             if (page.isBlank()) {
+                tracker.notReading()
                 said.info("Skipped $url: the page has no text")
                 continue
             }
             val title = read.title?.trim()?.ifEmpty { null } ?: host
+            tracker.reading(title, url, "WEB")
             val notes = noted(asked, asked.question, title, page)
             if (notes == null) {
+                tracker.notReading()
                 said.info("Skipped $url: the model noted nothing in it on the question")
                 continue
             }
@@ -609,6 +657,174 @@ class ResearchPipeline(
         tracker.step("Report written")
         return ResearchFound(report, sources)
     }
+
+    /**
+     * Review: a second model reads the report against what it was written
+     * from, and where it asks for changes the writer makes them - at most
+     * [rounds] times, then the report goes on as it stands.
+     *
+     * The reviewer is the workspace's Research reviewer and the writer its
+     * Research writer, by their instructions on the Agents page; the reviewer
+     * thinks with the model the research was started with for reviewing, the
+     * writer with the research's own. The writer is handed the conversation it
+     * wrote the report in - the same request, the report as its answer - with
+     * the reviewer's findings after it, so it revises its own work rather than
+     * writing a new report from nothing. Its revision is shown on the page as
+     * it is written, in place of the draft.
+     */
+    fun review(
+        asked: ResearchAsked,
+        reviewerModelId: Long,
+        plan: List<String>,
+        gathered: ResearchGathered,
+        draft: String,
+        excluded: String,
+        rounds: Int,
+        said: ResearchLog = ResearchLog.NONE,
+    ): ResearchReviewed {
+        val tracker = Tracker(asked.researchId, ResearchStage.REVIEW)
+        val reviewer = instructionsOf(asked.workspaceId, ResearchModes.REVIEWER)
+        val writer = instructionsOf(asked.workspaceId, ResearchModes.WRITER)
+        val request = writerRequest(asked, excluded, gathered)
+        var report = draft.trim()
+        val held = mutableListOf<ResearchReviewRound>()
+        for (round in 1..rounds.coerceAtLeast(1)) {
+            tracker.step(if (rounds > 1) "Reviewing the report, round $round of $rounds" else "Reviewing the report")
+            val answer = when (
+                val reviewed = models.complete(
+                    reviewerModelId,
+                    listOf(ChatTurn("system", reviewer), ChatTurn("user", reviewMaterial(asked.question, plan, gathered, report))),
+                )
+            ) {
+                is ChatCompletion.Answered -> reviewed.content
+                is ChatCompletion.Failed -> throw ResearchModelFailedException("The reviewer did not answer: ${reviewed.reason}")
+                else -> throw ResearchModelFailedException("The reviewer answered with something other than text")
+            }
+            val verdict = verdictFrom(round, answer, report.length)
+                ?: throw ResearchModelFailedException("The reviewer did not answer with a verdict: ${answer.take(200)}")
+            said.info(
+                "Review round $round: ${verdict.verdict.lowercase()}, ${verdict.issues.size} " +
+                    (if (verdict.issues.size == 1) "issue" else "issues") +
+                    verdict.summary.takeIf { it.isNotBlank() }?.let { " - $it" }.orEmpty(),
+            )
+            if (verdict.verdict == ACCEPTED || verdict.issues.isEmpty()) {
+                held += verdict
+                noteReview(asked.researchId, held)
+                break
+            }
+
+            tracker.step(if (rounds > 1) "Revising the report, round $round of $rounds" else "Revising the report")
+            noteReview(asked.researchId, held + verdict)
+            val showing = drafts.revising(asked.researchId)
+            val turns = listOf(
+                ChatTurn("system", writer),
+                ChatTurn("user", request),
+                ChatTurn("assistant", report),
+                ChatTurn("user", revisionAsked(verdict)),
+            )
+            val revised = when (val written = models.stream(asked.modelId, turns) { showing(it) }) {
+                is ChatCompletion.Answered -> written.content.trim()
+                is ChatCompletion.Failed -> throw ResearchModelFailedException("The writer did not revise the report: ${written.reason}")
+                else -> throw ResearchModelFailedException("The writer answered with something other than text")
+            }
+            if (revised.isEmpty()) throw ResearchModelFailedException("The writer answered the review with nothing")
+            said.info("Revised the report: ${report.length} characters before, ${revised.length} after")
+            held += verdict.copy(revised = true, charactersAfter = revised.length)
+            report = revised
+            noteReview(asked.researchId, held)
+        }
+        tracker.step("Report reviewed")
+        return ResearchReviewed(report, held)
+    }
+
+    /** The same request the writer node is given, so a revision is asked in the conversation the report was written in. */
+    private fun writerRequest(asked: ResearchAsked, excluded: String, gathered: ResearchGathered): String = buildString {
+        appendLine("Question: ${asked.question}")
+        appendLine()
+        appendLine("Register: ${asked.language.name}")
+        appendLine("Documents not to use: ${excluded.ifBlank { "none" }}")
+        appendLine()
+        appendLine("Sources, by number:")
+        appendLine()
+        append(writerNotes(gathered))
+    }
+
+    /** What the reviewer is shown: the question, the plan it was broken into, every source and its notes, and the report. */
+    private fun reviewMaterial(question: String, plan: List<String>, gathered: ResearchGathered, report: String): String = buildString {
+        appendLine("Question: $question")
+        appendLine()
+        appendLine("Plan, the parts the question was broken into:")
+        (plan.ifEmpty { listOf(question) }).forEach { appendLine("- $it") }
+        appendLine()
+        appendLine("Sources, by number, with the notes taken on each:")
+        appendLine()
+        appendLine(notesOf(gathered.sources))
+        appendLine()
+        appendLine("Report:")
+        appendLine()
+        append(report)
+    }
+
+    /** What the writer is told the reviewer found: each issue on a line of its own, with what to do about it. */
+    private fun revisionAsked(verdict: ResearchReviewRound): String = buildString {
+        appendLine(REVISE)
+        appendLine()
+        verdict.summary.takeIf { it.isNotBlank() }?.let { appendLine(it).appendLine() }
+        verdict.issues.forEachIndexed { at, one ->
+            append(at + 1).append(". [").append(one.kind.lowercase()).append("] ").append(one.issue)
+            if (one.fix.isNotBlank()) append(" Fix: ").append(one.fix)
+            appendLine()
+        }
+    }
+
+    /**
+     * The reviewer's answer as a round: the JSON it was asked for, found where
+     * it is in what it said, read field by field. Null where there is no
+     * verdict in it to read.
+     */
+    fun verdictFrom(round: Int, said: String, length: Int): ResearchReviewRound? {
+        val start = said.indexOf('{')
+        val end = said.lastIndexOf('}')
+        if (start < 0 || end <= start) return null
+        val read = runCatching { mapper.readTree(said.substring(start, end + 1)) }.getOrNull()?.takeIf { it.isObject } ?: return null
+        fun text(node: tools.jackson.databind.JsonNode, vararg keys: String) =
+            keys.firstNotNullOfOrNull { key -> node.path(key).takeIf { it.isTextual }?.stringValue()?.trim() }.orEmpty()
+        val verdict = text(read, "verdict").uppercase().takeIf { it == ACCEPTED || it == REVISED } ?: return null
+        val issues = read.path("issues").takeIf { it.isArray }?.mapNotNull { one ->
+            val issue = text(one, "issue", "text", "problem").ifEmpty { return@mapNotNull null }
+            val kind = text(one, "kind", "type").uppercase().takeIf { it in ISSUE_KINDS } ?: "OTHER"
+            ResearchReviewIssue(kind, issue, text(one, "fix", "suggestion"))
+        }.orEmpty()
+        return ResearchReviewRound(round, verdict, text(read, "summary"), issues, charactersBefore = length)
+    }
+
+    private fun noteReview(researchId: Long?, rounds: List<ResearchReviewRound>) {
+        val id = researchId ?: return
+        runCatching { researches.noteReview(id, mapper.writeValueAsString(rounds)) }
+            .onFailure { log.warn("Could not note the review of research {}", id, it) }
+    }
+
+    /** An agent's instructions as its page has them, or as it was seeded where the workspace has no such agent. */
+    private fun instructionsOf(workspaceId: Long, seeded: ResearchModes.SeededAgent): String =
+        agents.findByWorkspaceIdAndName(workspaceId, seeded.name)?.systemPrompt?.takeIf { it.isNotBlank() } ?: seeded.instructions
+
+    /** The rounds a research's Review step has said so far, as a row holds them. */
+    fun reviewRoundsFrom(held: String?): List<ResearchReviewRound> =
+        held?.let { runCatching { mapper.readTree(it) }.getOrNull() }?.takeIf { it.isArray }?.mapNotNull { one ->
+            val verdict = one.path("verdict").takeIf { it.isTextual }?.stringValue() ?: return@mapNotNull null
+            fun text(at: tools.jackson.databind.JsonNode, key: String) = at.path(key).takeIf { it.isTextual }?.stringValue().orEmpty()
+            ResearchReviewRound(
+                round = one.path("round").takeIf { it.isNumber }?.intValue() ?: 0,
+                verdict = verdict,
+                summary = text(one, "summary"),
+                issues = one.path("issues").takeIf { it.isArray }?.toList()?.map { issue ->
+                    ResearchReviewIssue(text(issue, "kind"), text(issue, "issue"), text(issue, "fix"))
+                } ?: emptyList(),
+                revised = one.path("revised").takeIf { it.isBoolean }?.booleanValue() ?: false,
+                charactersBefore = one.path("charactersBefore").takeIf { it.isNumber }?.intValue() ?: 0,
+                charactersAfter = one.path("charactersAfter").takeIf { it.isNumber }?.intValue(),
+            )
+        }.orEmpty()
 
     /** Why Write has nothing to go on, in what was done rather than a guess at why it came to nothing. */
     private fun nothingRead(gathered: ResearchGathered): String = buildString {
@@ -707,7 +923,7 @@ class ResearchPipeline(
                 }
                 if (!taken(reading, hit.url, host, asked.websitesInclude, asked.websitesExclude)) continue
 
-                tracker.step("Reading ${hit.title}")
+                tracker.reading(hit.title, hit.url, "WEB")
                 val read = web.read(asked.workspaceId, hit.url)
                 val page = when (read) {
                     is PageRead.Read -> read.text
@@ -718,11 +934,13 @@ class ResearchPipeline(
                     }
                 }.take(tuning[Tunable.RESEARCH_PAGE_CHARACTERS])
                 if (page.isBlank()) {
+                    tracker.notReading()
                     told.info("Skipped ${hit.url}: there is no text to read")
                     continue
                 }
                 val notes = noted(asked, query, hit.title, page)
                 if (notes == null) {
+                    tracker.notReading()
                     told.info("Skipped ${hit.url}: the model noted nothing in it on the question")
                     continue
                 }
@@ -881,13 +1099,22 @@ class ResearchPipeline(
             }
         }
 
-        fun step(said: String) = write(now.copy(step = said))
+        fun step(said: String) = write(now.copy(step = said, reading = null))
+
+        /** A page or document being read, on the page as a row on its way before the model has noted it. */
+        fun reading(title: String, url: String, kind: String) =
+            write(now.copy(step = "Reading $title", reading = ResearchReading(title, url, kind)))
+
+        /** What was being read came to nothing: the model noted nothing in it, or there was nothing to note. */
+        fun notReading() {
+            if (now.reading != null) write(now.copy(reading = null))
+        }
         fun planned(plan: List<String>) = write(now.copy(step = "Planned ${plan.size} questions", subQuestions = plan))
         fun searching(searched: List<String>, level: Int) =
             write(now.copy(step = "Searching: ${searched.last()}", searched = searched.toList(), level = level))
         fun read(found: List<ResearchSource>) {
             sources = found.toList()
-            write(now.copy(sourcesRead = found.size))
+            write(now.copy(sourcesRead = found.size, reading = null))
         }
 
         /** The pictures kept so far, on the research as they are kept, so the page shows them while it runs. */
@@ -923,6 +1150,48 @@ class ResearchPipeline(
             stage = read.path("stage").takeIf { it.isTextual }?.stringValue()
                 ?.let { held -> ResearchStage.entries.firstOrNull { it.name == held } },
         )
+    }
+
+    /**
+     * What a research row says once a run restarts it at [stage], as JSON for
+     * [ResearchRepository.restarted]: what the steps before [stage] found is
+     * kept, and what [stage] and the steps after it found is let go, because
+     * they are about to find it again.
+     *
+     * Planning restarted keeps nothing. Gather keeps the plan's sub-questions
+     * and starts its sources over. A later step keeps what [gathered] - the
+     * earlier run's answer from the step before it - holds: the sources, the
+     * searches and the images it handed on, which is exactly what the new run
+     * carries over. A [stage] that is none of the five, a workflow somebody
+     * drew their own way, keeps the row as it is and says it restarted.
+     */
+    fun restarted(held: Research, stage: ResearchStage?, gathered: ResearchGathered?): Triple<String, String, String> {
+        val was = progressFrom(held.progress) ?: ResearchProgress(step = "")
+        val sources = sourcesFrom(held.foundSources)
+        val images = imagesFrom(held.foundImages)
+        val (progress, keptSources, keptImages) = when (stage) {
+            null -> Triple(was.copy(step = RESTARTING, reading = null), sources, images)
+            ResearchStage.PLAN -> Triple(ResearchProgress(RESTARTING, stage = stage), emptyList(), emptyList())
+            ResearchStage.GATHER ->
+                Triple(ResearchProgress(RESTARTING, subQuestions = was.subQuestions, stage = stage), emptyList(), emptyList())
+            else -> if (gathered == null) {
+                Triple(was.copy(step = RESTARTING, stage = stage, reading = null), sources, images)
+            } else {
+                Triple(
+                    ResearchProgress(
+                        step = RESTARTING,
+                        subQuestions = was.subQuestions,
+                        searched = gathered.searched,
+                        level = gathered.level,
+                        sourcesRead = gathered.sources.size,
+                        stage = stage,
+                    ),
+                    gathered.sources,
+                    gathered.images.ifEmpty { images },
+                )
+            }
+        }
+        return Triple(mapper.writeValueAsString(progress), mapper.writeValueAsString(keptSources), mapper.writeValueAsString(keptImages))
     }
 
     /** The pictures a research row holds; none where it holds none, or something an older server wrote. */
@@ -974,6 +1243,27 @@ class ResearchPipeline(
     companion object {
         /** What a model writes for a source with nothing on the question. */
         const val NOTHING = "NOTHING RELEVANT"
+
+        const val ACCEPTED = "ACCEPT"
+        const val REVISED = "REVISE"
+        val ISSUE_KINDS = setOf("UNSUPPORTED", "MISSING", "CITATION", "CONTRADICTION", "FORMATTING", "OTHER")
+
+        /** What the reviewer is told; the Research reviewer agent is seeded with it. */
+        const val REVIEW = "You review research reports before they are published. You are given the question, the " +
+            "plan it was broken into, the sources by number with the notes taken on each, and the report, which cites " +
+            "them as [n]. Check that every claim is supported by the notes of the source it cites, that every part " +
+            "of the plan is answered, that each citation points at a source that says what is claimed, that nothing " +
+            "contradicts the sources, and that the report is well-formed Markdown with a # title and ## headings. " +
+            "Answer with JSON and nothing else: {\"verdict\": \"accept\" or \"revise\", \"summary\": one sentence, " +
+            "\"issues\": [{\"kind\": \"unsupported\", \"missing\", \"citation\", \"contradiction\" or \"formatting\", " +
+            "\"issue\": what is wrong, quoting the passage, \"fix\": what to change}]}. Accept when nothing is worth " +
+            "changing; ask to revise only for issues you can name."
+
+        /** What the writer is told above the reviewer's findings. */
+        const val REVISE = "A reviewer read your report and asks for these changes. Write the whole report again " +
+            "with them made, in the same register and citing the same numbered sources. Answer with the report only."
+        /** What a restarted research says it is doing until its first step says otherwise. */
+        const val RESTARTING = "Restarting"
 
         /*
          * The four things a model is asked. Each opens with a line of its own,

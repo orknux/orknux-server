@@ -78,6 +78,26 @@ interface RoundWatch {
     fun answering() = Unit
 
     /**
+     * A round's thinking is over: all of it, and how long it went on for as
+     * the client measured it.
+     *
+     * The pieces arrive through [thinking] and say nothing about time, so a
+     * watcher drawing each round's thinking had only its own clock - which
+     * read "0.0 seconds" for reasoning that arrived in one burst and nothing
+     * at all for a round it never saw go live. This is the round's own
+     * figure, sent once the round has ended and before anything it went on to
+     * do. Never sent for a round that thought nothing.
+     */
+    fun thought(text: String, millis: Long) = Unit
+
+    /**
+     * A piece of the answer, as it arrives. For a reader that shows the answer
+     * being written - a research's report on its page - rather than how much
+     * of it there is, which is [writing].
+     */
+    fun answered(piece: String) = Unit
+
+    /**
      * A picture the round drew, as the markdown that shows it.
      *
      * Written into the thread the moment it is drawn - see [ChatPictures.draw]
@@ -720,6 +740,7 @@ class AgentConversation(
                     reasoningEffort = reasoningEffort,
                 ) {
                     watch.answering()
+                    watch.answered(it)
                     writing.answer(it)
                 }
             }
@@ -786,6 +807,7 @@ class AgentConversation(
             thinking.append(reasoning)
             thoughtFor += millis
             if (announce) watch?.thinking(reasoning)
+            watch?.thought(reasoning, millis)
         }
 
         val rounds = roundsFor(agent)
@@ -983,6 +1005,7 @@ class AgentConversation(
                     reasoningEffort = reasoningEffort,
                 ) {
                     watch.answering()
+                    watch.answered(it)
                     writing.answer(it)
                 }
             }

@@ -87,6 +87,13 @@ data class EmbeddedTool(
      */
     val reads: StoredReader? = null,
     /**
+     * The kinds of stored file it answers questions about without reading
+     * them whole - an XPath, a search - so the note on an attachment can offer
+     * the question beside the whole read, which on a large file is the one
+     * that fits. Chat 981.
+     */
+    val asks: StoredReader? = null,
+    /**
      * Whether it changes nothing outside the conversation that calls it - it
      * reads, works something out, or draws into the conversation's own store.
      * What a chat in plan mode is offered; see [io.mszymanski.orknux.server.chat.ToolEffects].

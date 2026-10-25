@@ -35,6 +35,7 @@ class SvgCapability(
     private val scratch: LlmSessionStore,
     private val mapper: ObjectMapper,
     private val installation: InstallationSettings,
+    private val measuring: SvgMeasure,
 ) : EmbeddedCapability {
 
     override val key = CAPABILITY
@@ -67,9 +68,46 @@ class SvgCapability(
             summary = "Reads the SVG markup kept under a key.",
             description = "Answers the markup of an SVG kept under a $KEY in this session - a drawing made as svg, " +
                 "an attached .svg file - so it can be read or changed and drawn again. To look at it as a picture, " +
-                "ask for it as a picture instead.",
+                "ask for it as a picture instead. Do not read a large SVG whole to answer a question about it - a " +
+                "drawing exported from a CAD tool is hundreds of thousands of characters of coordinates: count or " +
+                "list its elements with ${XmlCapability.QUERY_TOOL}, and measure sizes, positions, spacing and groups " +
+                "of its shapes with $MEASURE_TOOL; only their answers enter the conversation.",
             params = listOf(EmbeddedParam(KEY, ValueType.STRING, "The contentKey of the SVG.", required = true)),
             reads = StoredReader(setOf("image/svg+xml"), KEY),
+        ),
+        EmbeddedTool(
+            name = MEASURE,
+            readOnly = true,
+            summary = "Measures an SVG's shapes - boxes, sizes, pitch, spacing, groups - without reading it whole.",
+            description = "Measures the shapes of an SVG kept under a $KEY in this session without the file entering " +
+                "the conversation: only a table of numbers does. Use it instead of reading a large SVG whole with " +
+                "$READ_TOOL - a PCB layer, a floor plan, a chart. Answers each shape's bounding box (x, y, width, " +
+                "height) in user units with every transform of its groups applied, the overall extent, and how many " +
+                "millimetres a user unit is where the file says (width=\"..mm\" over a viewBox). Chooses every " +
+                "path, rect, circle, ellipse, line, polyline and polygon, or what an XPath in ${SvgMeasure.SELECT} " +
+                "chooses (as ${XmlCapability.QUERY_TOOL} writes one). A box includes the stroke's width unless " +
+                "${SvgMeasure.STROKE} is false. ${SvgMeasure.STATS} adds, for the chosen shapes: " +
+                "${SvgMeasure.STAT_SIZES} (distinct width x height with counts), ${SvgMeasure.STAT_PITCH} (each " +
+                "one's nearest neighbour, centre to centre), ${SvgMeasure.STAT_SPACING} (the closest pairs edge to " +
+                "edge, and how many touch). ${SvgMeasure.GROUP_BY} \"${SvgMeasure.PROXIMITY}\" groups shapes " +
+                "whose edges are within ${SvgMeasure.GAP} of each other - pads into footprints; leave out a pour or a " +
+                "background that touches everything with ${SvgMeasure.MAX_SIZE}. Totals are always " +
+                "given; lists are paged with ${SvgMeasure.OFFSET} and ${SvgMeasure.LIMIT}, and ${SvgMeasure.LIMIT} 0 " +
+                "leaves the per-shape rows out.",
+            params = listOf(
+                EmbeddedParam(KEY, ValueType.STRING, "The contentKey of the SVG.", required = true),
+                EmbeddedParam(SvgMeasure.SELECT, ValueType.STRING, "An XPath 1.0 expression choosing the elements to measure, such as //svg:circle | //svg:path[contains(@style,'stroke:none')]. Left out, every shape."),
+                EmbeddedParam(SvgMeasure.STATS, ValueType.STRING, "Which of \"${SvgMeasure.STAT_SIZES}\", \"${SvgMeasure.STAT_PITCH}\" and \"${SvgMeasure.STAT_SPACING}\" to add, comma separated, or \"${SvgMeasure.ALL}\"."),
+                EmbeddedParam(SvgMeasure.GROUP_BY, ValueType.STRING, "\"${SvgMeasure.PROXIMITY}\" to group shapes that are close together."),
+                EmbeddedParam(SvgMeasure.GAP, ValueType.NUMBER, "How close, edge to edge, two shapes are to be grouped, in the answer's units. Left out, worked out from the shapes' pitch."),
+                EmbeddedParam(SvgMeasure.MAX_SIZE, ValueType.NUMBER, "Leave out shapes whose width or height is larger than this, in the answer's units - a copper pour or a background the size of the drawing, which every other shape touches."),
+                EmbeddedParam(SvgMeasure.MM, ValueType.BOOLEAN, "true to answer in millimetres, where the file says how large a user unit is."),
+                EmbeddedParam(SvgMeasure.STROKE, ValueType.BOOLEAN, "false to measure the geometry without the stroke's width."),
+                EmbeddedParam(SvgMeasure.PRECISION, ValueType.NUMBER, "Decimal places in the answer. Left out, 4."),
+                EmbeddedParam(SvgMeasure.OFFSET, ValueType.NUMBER, "How many rows to skip, for the next page."),
+                EmbeddedParam(SvgMeasure.LIMIT, ValueType.NUMBER, "How many rows to list; 0 for none, for totals and statistics only."),
+            ),
+            asks = StoredReader(setOf("image/svg+xml"), KEY),
         ),
         EmbeddedTool(
             name = TO_PNG,
@@ -122,6 +160,7 @@ class SvgCapability(
                 )
                 mapper.writeValueAsString(linkedMapOf(SVG to svg, "characters" to svg.length))
             }
+            MEASURE -> measuring.run(asked, sessionId)
             TO_PNG -> {
                 // A key that already holds a PNG - a drawing made in the default format - is the answer as it is.
                 pngHeld(asked, sessionId)?.let { return it }
@@ -236,6 +275,13 @@ class SvgCapability(
         const val RENDER_TOOL = CAPABILITY + "_" + TO_PNG
 
         const val READ = "read"
+        const val MEASURE = "measure"
+
+        /** The tool that answers an SVG's markup whole, as the tool list names it. */
+        const val READ_TOOL = CAPABILITY + "_" + READ
+
+        /** The tool that measures an SVG's shapes without reading it whole, as the tool list names it. */
+        const val MEASURE_TOOL = CAPABILITY + "_" + MEASURE
         const val SVG = "svg"
         const val KEY = "key"
         const val FORMAT = "format"

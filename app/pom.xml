@@ -148,6 +148,31 @@
             <groupId>org.apache.xmlgraphics</groupId>
             <artifactId>batik-transcoder</artifactId>
             <version>1.19</version>
+            <!--
+                xml-apis 1.4 is a 2009 copy of javax.xml and org.w3c.dom, which the
+                JDK's java.xml module has held since Java 9 and which wins at run
+                time anyway. On the compile classpath it hid every API since -
+                XMLConstants.ACCESS_EXTERNAL_DTD, XPathExpression.evaluateExpression -
+                that HostileXml needs to read a stranger's XML safely.
+            -->
+            <exclusions>
+                <exclusion>
+                    <groupId>xml-apis</groupId>
+                    <artifactId>xml-apis</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!--
+            svg_measure: Batik's path, transform, points and length parsers,
+            which turn an SVG's own attributes into java.awt.geom shapes. Named
+            although the transcoder already brings it (77 KB, with
+            batik-awt-util for the shapes it produces), because SvgGeometry
+            calls it directly and a transitive jar is one a bump may drop.
+        -->
+        <dependency>
+            <groupId>org.apache.xmlgraphics</groupId>
+            <artifactId>batik-parser</artifactId>
+            <version>1.19</version>
         </dependency>
         <!--
             The PDF rasteriser, behind the same capability as the SVG one.

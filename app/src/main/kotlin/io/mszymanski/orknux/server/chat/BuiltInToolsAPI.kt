@@ -33,6 +33,10 @@ class BuiltInToolsAPI(
      * HTTP tools switched off in Admin Settings leave every grant as it was,
      * and the Tools list says so rather than losing the rows.
      */
+    /** Whether a new agent, or one given the grant afresh, starts with it hidden; see OrknuxTools.startsHidden. */
+    @SchemaMapping(typeName = "BuiltInTool")
+    fun startsHidden(tool: BuiltInTool): Boolean = tool.name in builtIns.orknuxStartsHidden()
+
     @SchemaMapping(typeName = "BuiltInTool")
     fun unavailable(tool: BuiltInTool): String? =
         if (http.offers(tool.name)) null else "Switched off for this installation in Admin Settings -> HTTP tools."

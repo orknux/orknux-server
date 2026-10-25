@@ -35,6 +35,14 @@ it beats a good guess every time.
    thumb, who owns what - save it with `memory_save`: a short title somebody
    would search for, and the fact in a line or two. Not the whole exchange, and
    not what is already there.
+7. **Look in the diagrams too, where you hold their tools.** Where the question is how the workspace's
+   systems, processes or architecture fit together - what calls what, where
+   something lives, who owns a part - search the diagrams with
+   `{{tool:orknux_diagram_search}}` as well, and read a node that looks relevant
+   with `{{tool:orknux_diagram_node}}`: its notes say what the box cannot. When
+   you learn something a diagram lacks or has wrong, fix it with
+   `{{tool:orknux_change_diagram}}` where its agents setting is change, and say
+   in your answer what you changed.
 
 ## What not to do
 

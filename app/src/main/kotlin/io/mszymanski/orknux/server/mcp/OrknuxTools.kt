@@ -40,6 +40,7 @@ import io.mszymanski.orknux.server.research.ResearchAPI
 import io.mszymanski.orknux.server.research.ResearchLanguage
 import io.mszymanski.orknux.server.research.ResearchModeKind
 import io.mszymanski.orknux.server.research.ResearchOutputFormat
+import io.mszymanski.orknux.server.research.ResearchStage
 import io.mszymanski.orknux.server.research.StartResearchInput
 
 /**
@@ -212,6 +213,8 @@ class OrknuxTools(
     private val wireframeTools: WireframeTools,
     /** Reading, writing, searching and exporting documents; see [DocumentTools]. */
     private val documentTools: DocumentTools,
+    /** Searching, reading, drawing and exporting diagrams; see [DiagramTools]. */
+    private val diagramTools: DiagramTools,
     private val access: io.mszymanski.orknux.server.security.WorkspaceAccess,
     private val newsTools: NewsTools,
     private val web: WebProperties,
@@ -288,7 +291,15 @@ class OrknuxTools(
 
     /** What to offer, which depends on whether this caller may start anything. */
     fun specs(scope: OrknuxScope): List<ToolSpec> =
-        ownSpecs(scope) + buildTools.specs(scope) + wireframeTools.specs(scope) + documentTools.specs(scope) + manualTools.specs()
+        ownSpecs(scope) + buildTools.specs(scope) + wireframeTools.specs(scope) + diagramTools.specs(scope) + documentTools.specs(scope) + manualTools.specs()
+
+    /**
+     * The orknux_* tools an agent starts with hidden, which its owner turns on
+     * one agent at a time: the ones that take away what people made. Everything
+     * else starts at Always. Read by every place that gives an agent its marks -
+     * a new agent, the grant given afresh - and by the migration's test.
+     */
+    fun startsHidden(): Set<String> = DiagramTools.STARTS_HIDDEN
 
     private fun ownSpecs(scope: OrknuxScope): List<ToolSpec> = buildList {
         add(
@@ -803,6 +814,12 @@ class OrknuxTools(
                             "Whether to look for images, place them in the report and keep each on the Artifacts page. false when left out.",
                             required = false,
                         ),
+                        ToolParameterSpec(
+                            "review",
+                            "Whether a second model reviews the report before it is saved and the writer revises it where asked. false when left out.",
+                            required = false,
+                        ),
+                        ToolParameterSpec("reviewerModel", "The chat model that reviews: its name or id. Required when review is true.", required = false),
                         ToolParameterSpec("sitesInclude", "Websites to keep to, as a list of hosts.", required = false, LIST),
                         ToolParameterSpec("sitesExclude", "Websites never to read, as a list of hosts.", required = false, LIST),
                         ToolParameterSpec("documentsInclude", "Ids of the workspace's documents to read.", required = false, LIST),
@@ -814,6 +831,21 @@ class OrknuxTools(
                         ToolParameterSpec(
                             "output", "PDF or DOCUMENT; PDF when left out.", required = false,
                             mapOf("type" to "string", "enum" to ResearchOutputFormat.entries.map { it.name }),
+                        ),
+                    ),
+                ),
+            )
+            add(
+                ToolSpec(
+                    name = RESTART_RESEARCH,
+                    description = "Runs a research that failed or was stopped again from the step it stopped at, as the same " +
+                        "research: what the steps before it found is kept and not asked for again. Give a step to restart " +
+                        "a finished one from there instead. $RESEARCH follows it.",
+                    parameters = listOf(
+                        ToolParameterSpec("id", "The research's id.", required = true),
+                        ToolParameterSpec(
+                            "fromStep", "The step to restart from; left out, the one it failed or stopped at.", required = false,
+                            mapOf("type" to "string", "enum" to ResearchStage.entries.map { it.name }),
                         ),
                     ),
                 ),
@@ -962,6 +994,7 @@ class OrknuxTools(
             "orknux_start_task" -> startTask(scope, arguments)
             START_RESEARCH -> startResearch(scope, arguments)
             RESEARCH -> research(scope, arguments)
+            RESTART_RESEARCH -> restartResearch(scope, arguments)
             "orknux_rerun_execution" -> rerun(scope, arguments)
             "orknux_set_workflow_enabled" -> setWorkflowEnabled(scope, arguments)
             "orknux_set_agent_enabled" -> setAgentEnabled(scope, arguments)
@@ -979,6 +1012,8 @@ class OrknuxTools(
                 access.actingIn(scope.workspaceId, scope.actor) { wireframeTools.run(scope, name, arguments) }
             } else if (documentTools.handles(name)) {
                 access.actingIn(scope.workspaceId, scope.actor) { documentTools.run(scope, name, arguments) }
+            } else if (diagramTools.handles(name)) {
+                access.actingIn(scope.workspaceId, scope.actor) { diagramTools.run(scope, name, arguments) }
             } else {
                 refuse("There is no tool called $name")
             }
@@ -1980,6 +2015,12 @@ class OrknuxTools(
                 ?: return refuse("There is no model called $named here")
         } ?: held.firstOrNull { it.kind == io.mszymanski.orknux.connector.model.ModelKind.CHAT }
             ?: return refuse("There is no chat model in this workspace to research with")
+        val review = flag(arguments, "review") ?: false
+        val reviewer = text(arguments, "reviewerModel")?.trim()?.takeIf { it.isNotEmpty() }?.let { named ->
+            (named.toLongOrNull()?.let { id -> held.firstOrNull { it.id == id } } ?: held.firstOrNull { it.name.equals(named, ignoreCase = true) })
+                ?: return refuse("There is no model called $named here")
+        }
+        if (review && reviewer == null) return refuse("A reviewed research needs a reviewerModel: the chat model that reviews it")
         val register = text(arguments, "register")?.trim()?.uppercase()?.let { said ->
             ResearchLanguage.entries.firstOrNull { it.name == said } ?: return refuse("The register is ACADEMIC, COLLOQUIAL or FORMAL")
         } ?: ResearchLanguage.FORMAL
@@ -2007,6 +2048,8 @@ class OrknuxTools(
                     documentsExclude = documents.getValue("documentsExclude"),
                     useWebSearch = flag(arguments, "webSearch"),
                     includeImages = flag(arguments, "includeImages"),
+                    review = review,
+                    reviewerModelId = reviewer?.id?.takeIf { review },
                 ),
             )
         }
@@ -2016,6 +2059,34 @@ class OrknuxTools(
                 "mode" to started.modeName,
                 "status" to started.status,
                 "url" to researchLink(scope.workspaceId, started.id),
+                "note" to "It runs on its own; ask $RESEARCH about this id to see where it has got to.",
+            ),
+        )
+    }
+
+    /**
+     * Restarts a research through the Research page's own mutation: the same
+     * checks, the same refusals and the same audit entry, under the caller's name.
+     */
+    private fun restartResearch(scope: OrknuxScope, arguments: String): String {
+        if (!scope.mayWrite) return readOnly()
+        val id = number(arguments, "id") ?: return refuse("Which research? Give its id.")
+        access.actingIn(scope.workspaceId, scope.actor) { researchApi.research(id) }
+            ?.takeIf { it.workspaceId == scope.workspaceId }
+            ?: return refuse("There is no research $id here")
+        val stage = text(arguments, "fromStep")?.trim()?.uppercase()?.let { said ->
+            ResearchStage.entries.firstOrNull { it.name == said.replace(' ', '_') }
+                ?: return refuse("A step is one of ${ResearchStage.entries.joinToString(", ") { it.name }}")
+        }
+        val restarted = access.actingIn(scope.workspaceId, scope.actor) { researchApi.restartResearch(id, stage) }
+        return mapper.writeValueAsString(
+            linkedMapOf(
+                "restarted" to restarted.id,
+                "status" to restarted.status,
+                "step" to restarted.progress?.step,
+                "run" to restarted.executionId?.let { runLink(scope.workspaceId, it) },
+                "earlierRuns" to restarted.earlierExecutionIds,
+                "url" to researchLink(scope.workspaceId, restarted.id),
                 "note" to "It runs on its own; ask $RESEARCH about this id to see where it has got to.",
             ),
         )
@@ -2035,6 +2106,17 @@ class OrknuxTools(
                 "model" to held.modelName,
                 "webSearch" to held.useWebSearch,
                 "includeImages" to held.includeImages,
+                "reviewed" to held.review,
+                "reviewerModel" to held.reviewerModelName,
+                "review" to held.reviewRounds.map { round ->
+                    mapOf(
+                        "round" to round.round,
+                        "verdict" to round.verdict,
+                        "summary" to round.summary,
+                        "issues" to round.issues.map { mapOf("kind" to it.kind, "issue" to it.issue, "fix" to it.fix) },
+                        "revised" to round.revised,
+                    )
+                },
                 "status" to held.status,
                 "step" to held.progress?.step,
                 "subQuestions" to held.progress?.subQuestions.orEmpty(),
@@ -2047,6 +2129,8 @@ class OrknuxTools(
                 },
                 "error" to held.error,
                 "run" to held.executionId?.let { runLink(scope.workspaceId, it) },
+                "earlierRuns" to held.earlierExecutionIds.map { runLink(scope.workspaceId, it) },
+                "secondsLeft" to held.estimatedSecondsLeft,
                 "url" to researchLink(scope.workspaceId, held.id),
             ),
         )
@@ -2092,6 +2176,9 @@ class OrknuxTools(
                 // The original input, so it acts on the same event rather than
                 // on nothing — which is what makes this a repeat at all.
                 payload = original.input,
+                // So the new run points back at this one, and what followed the
+                // old one - a research - follows the repeat.
+                startedFrom = id,
             ),
         )
         return mapper.writeValueAsString(
@@ -2217,6 +2304,7 @@ class OrknuxTools(
         const val UPDATE_MODEL = "orknux_update_model"
         const val START_RESEARCH = "orknux_start_research"
         const val RESEARCH = "orknux_research"
+        const val RESTART_RESEARCH = "orknux_restart_research"
 
         /** What a list parameter is declared as, so a model sends a list rather than the text of one. */
         val LIST = mapOf("type" to "array", "items" to mapOf("type" to "string"))

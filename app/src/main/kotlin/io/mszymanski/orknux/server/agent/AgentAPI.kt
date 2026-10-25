@@ -224,6 +224,8 @@ class AgentAPI(
                 // Nothing of the workspace's, and every built-in: a fresh agent
                 // hides none, and hiding is the only thing stored. Issue #455.
                 requiredTools = startingAlways(input.orknuxAccess ?: STARTS_WITH_ORKNUX_ACCESS),
+                // Less the orknux_* tools that take away what people made, which start hidden.
+                hiddenTools = builtIns.orknuxStartsHidden().toMutableList(),
                 // And the skills the server brings, for the same reason: they
                 // are what a command means, and an agent that holds none has no
                 // commands to tell anybody about. Issue #471. With every
@@ -313,6 +315,7 @@ class AgentAPI(
                 icon = DEFAULT_AGENT_ICON,
                 // As a hand-made agent: nothing hidden, so every built-in. #455.
                 requiredTools = startingAlways(STARTS_WITH_ORKNUX_ACCESS),
+                hiddenTools = builtIns.orknuxStartsHidden().toMutableList(),
                 // And the server's own skills and its plugins', as a hand-made
                 // agent has. Still nothing of the workspace's, which is what the
                 // paragraph above is about: these catalogs are the
@@ -945,7 +948,7 @@ class AgentAPI(
      * before those had an Offer of their own.
      */
     private fun startingAlways(orknuxAccess: Boolean): MutableList<String> =
-        (BuiltInTools.GRANTED + (if (orknuxAccess) builtIns.orknuxNames() else emptyList())).toMutableList()
+        (BuiltInTools.GRANTED + (if (orknuxAccess) builtIns.orknuxNames() - builtIns.orknuxStartsHidden() else emptyList())).toMutableList()
 
     /** Whoever is asking, for the stamp a revision of this state will carry. */
     private fun currentUser(): String =

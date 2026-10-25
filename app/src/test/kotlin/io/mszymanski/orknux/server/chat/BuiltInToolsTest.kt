@@ -1,5 +1,7 @@
 package io.mszymanski.orknux.server.chat
 
+import io.mszymanski.orknux.server.mcp.DiagramTools
+
 import io.mszymanski.orknux.connector.model.ToolCall
 import io.mszymanski.orknux.server.agent.Agent
 import io.mszymanski.orknux.server.agent.AgentRepository
@@ -94,7 +96,8 @@ class BuiltInToolsTest(
 
             assertThat(requireNotNull(agents.findByIdOrNull(id)).hiddenTools)
                 .describedAs("nothing is hidden while the workspace has not allowed it, but what may be hidden anyway")
-                .containsExactlyElementsOf(BuiltInTools.OPTIONAL)
+                // And the orknux_* tools that start hidden on every agent, kept as they were.
+                .containsExactlyElementsOf(BuiltInTools.OPTIONAL + DiagramTools.STARTS_HIDDEN)
         } finally {
             workspace.unsafeBuiltInTools = true
             workspaces.save(workspace)
@@ -255,6 +258,29 @@ class BuiltInToolsTest(
             .path("agent.artifactAccess").entity(Boolean::class.java).isEqualTo(true)
             .path("agent.finishAccess").entity(Boolean::class.java).isEqualTo(true)
             .path("agent.pictureLinkAccess").entity(Boolean::class.java).isEqualTo(true)
+    }
+
+    /**
+     * The tools that answer a question about a large file without reading it
+     * whole - chat 981 - reach a new agent marked Always and are offered to it.
+     */
+    @Test
+    fun `a fresh agent is offered the questions about a file, Always`() {
+        val asking = listOf(
+            io.mszymanski.orknux.server.embedded.XmlCapability.QUERY_TOOL,
+            io.mszymanski.orknux.server.embedded.SvgCapability.MEASURE_TOOL,
+            io.mszymanski.orknux.server.embedded.PdfCapability.SEARCH_TOOL,
+        )
+        val id = created("Asking")
+
+        graphQlTester.document("{ agent(id: $id) { tools requiredTools } }")
+            .execute()
+            .path("agent.requiredTools").entityList(String::class.java).contains(*asking.toTypedArray())
+
+        val agent = requireNotNull(agents.findByIdOrNull(id))
+        assertThat(tools.offeringFor(agent).core.map { it.name }).containsAll(asking)
+        val capped = agent(tools = BuiltInTools.GRANTED, ceiling = 10)
+        assertThat(tools.offeringFor(capped).core.map { it.name }).containsAll(asking)
     }
 
     /**
@@ -500,6 +526,6 @@ class BuiltInToolsTest(
             """mutation { updateAgent(id: $id, input: { name: "Stored", tools: [] }) { tools } }""",
         ).execute().path("updateAgent.tools").entityList(String::class.java).hasSize(0)
         assertThat(requireNotNull(agents.findByIdOrNull(id)).hiddenTools)
-            .containsExactlyInAnyOrderElementsOf(BuiltInTools.GRANTED)
+            .containsExactlyInAnyOrderElementsOf(BuiltInTools.GRANTED + DiagramTools.STARTS_HIDDEN)
     }
 }

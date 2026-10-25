@@ -106,6 +106,8 @@ class AgentNodeRunner(
     private val prompts: io.mszymanski.orknux.server.llm.SessionPrompt,
     /** Whether a model a node names is one its workspace may talk to; see [MODEL]. */
     private val chatModels: WorkspaceChatModels,
+    /** Whatever shows a step's answer while it is written; see [AgentStepDrafts]. */
+    private val drafts: org.springframework.beans.factory.ObjectProvider<AgentStepDrafts>,
 ) : NodeRunner {
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
@@ -632,7 +634,14 @@ class AgentNodeRunner(
          * written. So a model without thinking, or a provider that keeps it to
          * itself, leaves the transcript exactly as it was.
          */
-        val watching = session?.let { SessionThinking(it, agent.name, sessions) }
+        val thinking = session?.let { SessionThinking(it, agent.name, sessions) }
+        /*
+         * And the answer as it is written, where something shows it: a step
+         * that keeps no session is then streamed all the same, because there
+         * is somebody to show the words to. See [AgentStepDrafts].
+         */
+        val drafting = drafts.orderedStream().toList().firstNotNullOfOrNull { it.follow(step) }
+        val watching = if (drafting == null) thinking else DraftWatch(thinking, drafting)
 
         /*
          * And the way to end the call early, handed to the step's interrupt.
@@ -740,7 +749,7 @@ class AgentNodeRunner(
             // session: a line left open is one a page reads as still being
             // thought, and on a turn that threw there is nothing left to close
             // it later.
-            watching?.settle()
+            thinking?.settle()
         }
 
         if (answer is ChatCompletion.Answered) {

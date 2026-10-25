@@ -915,12 +915,22 @@ orknux:
     agent.wait.longest.seconds: ${ORKNUX_TUNING_AGENT_WAIT_LONGEST_SECONDS:300}
     tools.loaded.at.once: ${ORKNUX_TUNING_TOOLS_LOADED_AT_ONCE:8}
     tools.searches.at.once: ${ORKNUX_TUNING_TOOLS_SEARCHES_AT_ONCE:8}
-    tool.result.window.percent: ${ORKNUX_TUNING_TOOL_RESULT_WINDOW_PERCENT:25}
+    tool.result.window.percent: ${ORKNUX_TUNING_TOOL_RESULT_WINDOW_PERCENT:10}
+    # One character a token: an SVG measured 1.3 on Qwen, so two let a 10% share take 15%.
+    turn.window.chars.per.token: ${ORKNUX_TUNING_TURN_WINDOW_CHARS_PER_TOKEN:1}
     turn.window.reserve.percent: ${ORKNUX_TUNING_TURN_WINDOW_RESERVE_PERCENT:25}
     scratchpad.pads: ${ORKNUX_TUNING_SCRATCHPAD_PADS:50}
     sheet.rows.most: ${ORKNUX_TUNING_SHEET_ROWS_MOST:200}
     sheet.answer.characters: ${ORKNUX_TUNING_SHEET_ANSWER_CHARACTERS:60000}
     sheet.unpacked.mb: ${ORKNUX_TUNING_SHEET_UNPACKED_MB:100}
+    # xml_query, svg_measure and pdf_search: answers about a large file instead of the file.
+    xml.matches.most: ${ORKNUX_TUNING_XML_MATCHES_MOST:50}
+    xml.file.mb: ${ORKNUX_TUNING_XML_FILE_MB:20}
+    xml.attribute.characters: ${ORKNUX_TUNING_XML_ATTRIBUTE_CHARACTERS:200}
+    svg.group.gap.percent: ${ORKNUX_TUNING_SVG_GROUP_GAP_PERCENT:100}
+    pdf.snippet.characters: ${ORKNUX_TUNING_PDF_SNIPPET_CHARACTERS:200}
+    pdf.matches.most: ${ORKNUX_TUNING_PDF_MATCHES_MOST:20}
+    pdf.text.documents: ${ORKNUX_TUNING_PDF_TEXT_DOCUMENTS:16}
     regex.match.seconds: ${ORKNUX_TUNING_REGEX_MATCH_SECONDS:2}
     watcher.match.characters: ${ORKNUX_TUNING_WATCHER_MATCH_CHARACTERS:1000000}
     watcher.result.characters: ${ORKNUX_TUNING_WATCHER_RESULT_CHARACTERS:10000}
@@ -964,6 +974,11 @@ orknux:
     grammar.text.most: ${ORKNUX_TUNING_GRAMMAR_TEXT_MOST:20000}
     document.search.results: ${ORKNUX_TUNING_DOCUMENT_SEARCH_RESULTS:20}
     document.snippet.characters: ${ORKNUX_TUNING_DOCUMENT_SNIPPET_CHARACTERS:160}
+    diagram.note.characters: ${ORKNUX_TUNING_DIAGRAM_NOTE_CHARACTERS:5000}
+    diagram.items.most: ${ORKNUX_TUNING_DIAGRAM_ITEMS_MOST:2000}
+    diagram.search.hits: ${ORKNUX_TUNING_DIAGRAM_SEARCH_HITS:20}
+    diagram.notes.shown.characters: ${ORKNUX_TUNING_DIAGRAM_NOTES_SHOWN_CHARACTERS:200}
+    diagram.picture.pixels: ${ORKNUX_TUNING_DIAGRAM_PICTURE_PIXELS:1600}
     action.retry.seconds: ${ORKNUX_TUNING_ACTION_RETRY_SECONDS:30}
     action.wait.seconds: ${ORKNUX_TUNING_ACTION_WAIT_SECONDS:3600}
     trigger.remember.minutes: ${ORKNUX_TUNING_TRIGGER_REMEMBER_MINUTES:10}
@@ -976,6 +991,10 @@ orknux:
     research.step.retry.seconds: ${ORKNUX_TUNING_RESEARCH_STEP_RETRY_SECONDS:10}
     research.images.most: ${ORKNUX_TUNING_RESEARCH_IMAGES_MOST:6}
     research.image.mb: ${ORKNUX_TUNING_RESEARCH_IMAGE_MB:2}
+    research.resume.after.restart: ${ORKNUX_TUNING_RESEARCH_RESUME_AFTER_RESTART:2}
+    research.review.rounds: ${ORKNUX_TUNING_RESEARCH_REVIEW_ROUNDS:1}
+    research.estimate.runs: ${ORKNUX_TUNING_RESEARCH_ESTIMATE_RUNS:3}
+    research.estimate.lookback: ${ORKNUX_TUNING_RESEARCH_ESTIMATE_LOOKBACK:20}
     research.image.pixels: ${ORKNUX_TUNING_RESEARCH_IMAGE_PIXELS:120}
     plugin.http.body.mb: ${ORKNUX_TUNING_PLUGIN_HTTP_BODY_MB:2}
     plugin.download.mb: ${ORKNUX_TUNING_PLUGIN_DOWNLOAD_MB:5}

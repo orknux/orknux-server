@@ -10,6 +10,9 @@ import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
 import io.mszymanski.orknux.server.workspace.pageRequest
 import io.mszymanski.orknux.workflow.execution.ExecutionStatus
+import io.mszymanski.orknux.workflow.execution.ExecutionStep
+import io.mszymanski.orknux.workflow.execution.ExecutionStepRepository
+import io.mszymanski.orknux.workflow.execution.StepStatus
 import io.mszymanski.orknux.workflow.execution.WorkflowExecutionRepository
 import org.springframework.data.domain.Sort
 import org.springframework.data.repository.findByIdOrNull
@@ -47,6 +50,10 @@ class ResearchAPI(
     private val access: WorkspaceAccess,
     private val auditRecorder: WorkspaceAuditRecorder,
     private val mapper: ObjectMapper,
+    private val steps: ExecutionStepRepository,
+    private val estimates: ResearchEstimates,
+    private val drafts: ResearchDrafts,
+    private val pipeline: ResearchPipeline,
 ) {
 
     /**
@@ -74,10 +81,11 @@ class ResearchAPI(
         )
     }
 
+    /** One research; the one being looked at, so it is the one told how long it has left. */
     @QueryMapping
     fun research(@Argument id: Long): ResearchView? {
         val held = researches.findByIdOrNull(id)?.takeIf { access.canSee(it.workspaceId) } ?: return null
-        return describe(caughtUp(held))
+        return describe(caughtUp(held), estimated = true)
     }
 
     /**
@@ -151,6 +159,16 @@ class ResearchAPI(
         val useWebSearch = input.useWebSearch ?: true
         if (!useWebSearch && included.isEmpty() && websitesInclude.isEmpty()) throw ResearchNothingToReadException()
         val includeImages = input.includeImages ?: false
+        // A review is a second model reading the report, and a review with no model to read it is no review.
+        val review = input.review ?: false
+        val reviewer = if (!review) {
+            null
+        } else {
+            val asked = input.reviewerModelId ?: throw ResearchReviewerMissingException()
+            // A review asked of a workflow with no Review step would be a research that says it was reviewed and was not.
+            if (!seeding.reviews(requireNotNull(assignment.workflow.id))) throw ResearchModeNotReviewedException(mode.name)
+            chatModels.usable(input.workspaceId, asked) ?: throw ResearchReviewerUnusableException()
+        }
 
         val research = researches.save(
             Research(
@@ -167,6 +185,9 @@ class ResearchAPI(
                 sources = mapper.writeValueAsString(sources),
                 useWebSearch = useWebSearch,
                 includeImages = includeImages,
+                review = review,
+                reviewerModelId = reviewer?.id,
+                reviewerModelName = reviewer?.name,
                 startedBy = SecurityContextHolder.getContext().authentication?.name ?: "system",
             ),
         )
@@ -198,6 +219,9 @@ class ResearchAPI(
                 ResearchModes.DOCUMENTS_EXCLUDE_NAMES to (excluded.joinToString(", ") { it.name }.ifEmpty { "none" }),
                 ResearchCapability.WEB_SEARCH to useWebSearch,
                 ResearchCapability.INCLUDE_IMAGES to includeImages,
+                // Whether Review report runs, and with what: read by the question before it and by the step itself.
+                ResearchCapability.REVIEW_ASKED to review,
+                ResearchCapability.REVIEWER_MODEL to reviewer?.id?.toString(),
                 ResearchModes.BRIEF to briefs.of(question, input.language, input.outputFormat, sources, included, excluded, useWebSearch, includeImages),
             ),
         )
@@ -211,6 +235,74 @@ class ResearchAPI(
         }
         following.launch(research, payload)
         return describe(research)
+    }
+
+    /**
+     * Runs a research again from one of its steps, as the same research.
+     *
+     * A research that failed at Gather - the model gave up, the server was
+     * restarted under it - had planned and searched and read, and starting a
+     * new one threw all of that away and asked the model to plan again. This
+     * restarts its run from the step asked for, or by default from the step
+     * that failed or was cut short, through the same start a rerun of a step
+     * takes: the steps before it are carried over from the run as they were,
+     * and refused where that cannot honestly be done, in the execution
+     * module's own words. The research moves onto the new run - see
+     * [ResearchRuns.started] - and keeps what the steps before it found.
+     */
+    @MutationMapping
+    fun restartResearch(@Argument id: Long, @Argument fromStage: ResearchStage?): ResearchView {
+        val held = researches.findByIdOrNull(id)?.takeIf { access.canSee(it.workspaceId) }
+            ?: throw ResearchNotFoundException(id)
+        access.requireVisible(held.workspaceId)
+        val research = caughtUp(held)
+        if (research.status == ResearchStatus.RUNNING) throw ResearchStillRunningException(id)
+        val previous = research.executionId?.let { executions.findByIdOrNull(it) } ?: throw ResearchNeverRanException(id)
+
+        val recorded = steps.findByExecutionIdOrderByOrderAsc(requireNotNull(previous.id))
+        val from = restartPoint(recorded, fromStage)
+        try {
+            following.restart(research, previous, from?.nodeKey)
+        } catch (refused: ResearchStillRunningException) {
+            throw refused
+        } catch (refused: RuntimeException) {
+            throw ResearchRestartRefusedException(refused.message ?: "the run could not be started again")
+        }
+        auditRecorder.record(
+            research.workspaceId,
+            WorkspaceAuditCategory.WORKFLOW,
+            "Research restarted from ${from?.name ?: "the beginning"}: " +
+                research.question.replace(Regex("\\s+"), " ").take(MOST_AUDITED),
+        )
+        return describe(researches.findByIdOrNull(id) ?: research, estimated = true)
+    }
+
+    /**
+     * The step of [recorded] a restart begins at; null for the beginning,
+     * which is a rerun of the whole run.
+     *
+     * Asked for by stage, that stage's step. Otherwise the step the run
+     * failed at, or the one a stop or a restart cut short - left SKIPPED - and
+     * where a run was stopped between two steps, the one it had last finished,
+     * because a step that never began has nothing recorded to begin from.
+     */
+    private fun restartPoint(recorded: List<ExecutionStep>, stage: ResearchStage?): ExecutionStep? {
+        if (stage != null) {
+            val key = ResearchRuns.NODES.getValue(stage)
+            val at = recorded.indexOfFirst { it.nodeKey == key }
+            if (at < 0) throw ResearchStageNotInRunException(stage)
+            return recorded[at].takeIf { at > 0 }
+        }
+        recorded.indexOfFirst { it.status == StepStatus.FAILED }
+            .takeIf { it >= 0 }
+            ?.let { return recorded[it].takeIf { _ -> it > 0 } }
+        // The last such: a step a condition went past is SKIPPED too, and is not where the run stopped.
+        recorded.indexOfLast { it.status != StepStatus.COMPLETED && it.status != StepStatus.PENDING }
+            .takeIf { it >= 0 }
+            ?.let { return recorded[it].takeIf { _ -> it > 0 } }
+        val waiting = recorded.indexOfFirst { it.status == StepStatus.PENDING }
+        if (waiting < 0) throw ResearchNothingToRestartException()
+        return recorded.take(waiting).lastOrNull { it.status == StepStatus.COMPLETED }?.takeIf { waiting > 1 }
     }
 
     /** Takes a research off the list. Its run and its file stay where they are. */
@@ -312,7 +404,9 @@ class ResearchAPI(
         )
     }
 
-    private fun describe(research: Research): ResearchView {
+    private fun describe(research: Research, estimated: Boolean = false): ResearchView {
+        val id = requireNotNull(research.id)
+        val running = research.status == ResearchStatus.RUNNING
         val sources = runCatching { mapper.readValue(research.sources, Map::class.java) }.getOrNull().orEmpty()
         fun list(key: String): List<String> = (sources[key] as? List<*>).orEmpty().map { it.toString() }
         val names = (list("documentsInclude") + list("documentsExclude")).mapNotNull { it.toLongOrNull() }
@@ -320,7 +414,7 @@ class ResearchAPI(
         fun documents(key: String) = list(key).mapNotNull { it.toLongOrNull() }.map { names[it] ?: "#$it" }
         val artifact = research.artifactId?.let { saved.findByIdOrNull(it) }
         return ResearchView(
-            id = requireNotNull(research.id),
+            id = id,
             workspaceId = research.workspaceId,
             question = research.question,
             modeId = research.modeId,
@@ -351,6 +445,13 @@ class ResearchAPI(
             startedBy = research.startedBy,
             startedAt = research.startedAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
             finishedAt = research.finishedAt?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+            earlierExecutionIds = following.earlierRunsOf(research),
+            review = research.review,
+            reviewerModelId = research.reviewerModelId,
+            reviewerModelName = research.reviewerModelName,
+            reviewRounds = pipeline.reviewRoundsFrom(research.reviewRounds),
+            draft = if (running) drafts.of(id) else null,
+            estimatedSecondsLeft = if (running && estimated) estimates.secondsLeft(research) else null,
         )
     }
 
@@ -370,6 +471,10 @@ class ResearchAPI(
             sourcesRead = read.path("sourcesRead").takeIf { it.isNumber }?.intValue() ?: 0,
             stage = read.path("stage").takeIf { it.isTextual }
                 ?.let { runCatching { ResearchStage.valueOf(it.stringValue()) }.getOrNull() },
+            reading = read.path("reading").takeIf { it.isObject }?.let { reading ->
+                fun text(key: String) = reading.path(key).takeIf { it.isTextual }?.stringValue()
+                text("url")?.let { url -> ResearchReadingView(title = text("title") ?: url, url = url, kind = text("kind") ?: "WEB") }
+            },
         )
     }
 
@@ -433,6 +538,9 @@ data class StartResearchInput(
     val useWebSearch: Boolean? = null,
     /** Absent is off: a research looks for images only when asked to. */
     val includeImages: Boolean? = null,
+    /** Absent is off: a research is reviewed only when asked to, and then [reviewerModelId] is required. */
+    val review: Boolean? = null,
+    val reviewerModelId: Long? = null,
 )
 
 data class CreateResearchModeInput(
@@ -497,6 +605,17 @@ data class ResearchView(
     val startedBy: String,
     val startedAt: String,
     val finishedAt: String?,
+    /** The runs it was on before [executionId], oldest first. */
+    val earlierExecutionIds: List<Long> = emptyList(),
+    /** The report as its writer is writing it, while it runs; see [ResearchDrafts]. */
+    val draft: String? = null,
+    /** About how long it has left; see [ResearchEstimates]. */
+    val estimatedSecondsLeft: Int? = null,
+    val review: Boolean = false,
+    val reviewerModelId: Long? = null,
+    val reviewerModelName: String? = null,
+    /** What each round of review said; empty for one not reviewed, or not yet. */
+    val reviewRounds: List<ResearchReviewRound> = emptyList(),
 )
 
 data class ResearchProgressView(
@@ -506,7 +625,11 @@ data class ResearchProgressView(
     val level: Int,
     val sourcesRead: Int,
     val stage: ResearchStage?,
+    /** What is being read this moment, before it is a source. */
+    val reading: ResearchReadingView? = null,
 )
+
+data class ResearchReadingView(val title: String, val url: String, val kind: String)
 
 data class ResearchSourceView(
     val number: Int,
@@ -539,6 +662,46 @@ data class ResearchPage(
 )
 
 class ResearchQuestionMissingException : RuntimeException("Say what to research")
+
+class ResearchReviewerMissingException : RuntimeException("Choose the chat model that reviews the research")
+
+class ResearchReviewerUnusableException : RuntimeException("That model cannot review research in this workspace")
+
+class ResearchModeNotReviewedException(val mode: String) :
+    RuntimeException("The research mode $mode has no Review step in its workflow, so it cannot be reviewed"), Refusal {
+    override val arguments get() = mapOf("mode" to mode)
+}
+
+class ResearchReviewRoundsOutOfRangeException(val rounds: Int, val least: Int, val most: Int) :
+    RuntimeException("$rounds is not a number of review rounds; choose between $least and $most"), Refusal {
+    override val arguments get() = mapOf("rounds" to rounds, "least" to least, "most" to most)
+}
+
+class ResearchNotFoundException(val id: Long) : RuntimeException("No research with id $id"), Refusal {
+    override val arguments get() = mapOf("id" to id)
+}
+
+class ResearchStillRunningException(val id: Long) :
+    RuntimeException("Research $id is still running; it can be restarted once it has finished, failed or been stopped"), Refusal {
+    override val arguments get() = mapOf("id" to id)
+}
+
+class ResearchNeverRanException(val id: Long) : RuntimeException("Research $id never started a run to restart"), Refusal {
+    override val arguments get() = mapOf("id" to id)
+}
+
+class ResearchStageNotInRunException(val stage: ResearchStage) :
+    RuntimeException("This research's run has no $stage step to restart from"), Refusal {
+    override val arguments get() = mapOf("stage" to stage.name)
+}
+
+class ResearchNothingToRestartException :
+    RuntimeException("Every step of this research finished; say which step to restart from")
+
+class ResearchRestartRefusedException(val reason: String) :
+    RuntimeException("The research cannot be restarted there: $reason"), Refusal {
+    override val arguments get() = mapOf("reason" to reason)
+}
 
 class ResearchQuestionTooLongException(val most: Int) :
     RuntimeException("A research question is at most $most characters"), Refusal {

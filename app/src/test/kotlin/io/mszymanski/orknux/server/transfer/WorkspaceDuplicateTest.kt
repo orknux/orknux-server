@@ -52,6 +52,8 @@ class WorkspaceDuplicateTest(
     @Autowired val layers: io.mszymanski.orknux.server.design.DesignImageLayers,
     @Autowired val documentCatalogs: io.mszymanski.orknux.server.design.DocumentCatalogRepository,
     @Autowired val documents: io.mszymanski.orknux.server.design.DesignDocumentRepository,
+    @Autowired val diagramCatalogs: io.mszymanski.orknux.server.diagram.DiagramCatalogRepository,
+    @Autowired val diagrams: io.mszymanski.orknux.server.diagram.DiagramRepository,
 ) {
 
     /** A document is written work, like a picture: a copy carries neither it nor its catalog. */
@@ -72,6 +74,32 @@ class WorkspaceDuplicateTest(
         assertThat(documentCatalogs.findByWorkspaceIdOrderByNameAsc(copy)).isEmpty()
         assertThat(documents.findByWorkspaceIdOrderByUpdatedAtDescIdDesc(copy)).isEmpty()
         assertThat(documents.findByWorkspaceIdOrderByUpdatedAtDescIdDesc(source).map { it.name }).containsExactly("Plan")
+    }
+
+    /**
+     * A diagram is work drawn in a workspace, as a Design picture is, and is
+     * left behind for the same reason - and so is its catalog, which would be
+     * an empty folder in the copy. Deleting the workspace takes both with it.
+     */
+    @Test
+    fun `a copy carries no diagram, and deleting the workspace takes its diagrams`() {
+        val stamp = System.nanoTime()
+        val source = requireNotNull(workspaces.save(Workspace(name = "dup-diagrams-$stamp")).id)
+        val catalog = diagramCatalogs.save(io.mszymanski.orknux.server.diagram.DiagramCatalog(workspaceId = source, name = "Systems", createdBy = "alice"))
+        val diagram = diagrams.save(
+            io.mszymanski.orknux.server.diagram.Diagram(
+                workspaceId = source, catalogId = requireNotNull(catalog.id), name = "Landscape", createdBy = "alice", updatedBy = "alice",
+            ),
+        )
+
+        val copy = duplicator.duplicate(source, "dup-diagrams-copy-$stamp", "alice").workspaceId
+
+        assertThat(diagrams.findByWorkspaceIdOrderByUpdatedAtDescIdDesc(copy)).isEmpty()
+        assertThat(diagramCatalogs.findByWorkspaceIdOrderByNameAsc(copy)).isEmpty()
+
+        graphQlTester.document("mutation { deleteWorkspace(id: $source) }").execute()
+        assertThat(diagrams.findById(requireNotNull(diagram.id))).isEmpty
+        assertThat(diagramCatalogs.findById(requireNotNull(catalog.id))).isEmpty
     }
 
     /**
@@ -545,10 +573,10 @@ class WorkspaceDuplicateTest(
         assertThat(modeWorkflows).containsExactlyInAnyOrderElementsOf(carried.map { it.workflow.id })
         // One of each step's action and one of each agent, adopted rather than made a second time beside the copied ones.
         assertThat(actions.findByWorkspaceId(copy).map { it.name }.filter { it.startsWith("Research") })
-            .containsExactlyInAnyOrder("Research: Gather", "Research: Follow up", "Research: Save")
+            .containsExactlyInAnyOrder("Research: Gather sources", "Research: Deepen findings", "Research: Save report", "Research: Review report")
         val copiedAgents = agents.findByWorkspaceId(copy, org.springframework.data.domain.Pageable.unpaged()).content
         assertThat(copiedAgents.map { it.name }.filter { it.startsWith("Research") })
-            .containsExactlyInAnyOrder("Research planner", "Research writer")
+            .containsExactlyInAnyOrder("Research planner", "Research writer", "Research reviewer")
         // And the copy's agent nodes point at the copy's agents.
         val agentNodes = carried.flatMap { workflowNodes.findByWorkflowId(requireNotNull(it.workflow.id)) }.mapNotNull { it.agentId }
         assertThat(agentNodes).hasSize(6).allMatch { id -> copiedAgents.any { it.id == id } }

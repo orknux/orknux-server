@@ -151,8 +151,8 @@ class ScratchpadTools(
             ToolSpec(
                 name = APPEND,
                 readOnly = true,
-                description = "Adds text to the end of a scratchpad, without resending what is already there. " +
-                    "The cheap way to grow a file a piece at a time.",
+                description = "Adds text to the end of a scratchpad, without resending what is already there, " +
+                    "and starts the scratchpad if there is none of that name yet. The cheap way to grow a file a piece at a time.",
                 parameters = listOf(
                     ToolParameterSpec(NAME, "Which scratchpad to add to.", required = true),
                     ToolParameterSpec(TEXT, "The text to add at the end. Leave out when passing $KEY.", required = false),

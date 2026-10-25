@@ -86,7 +86,20 @@ data class RunEnded(val executionId: Long)
  * asked for it on another thread can learn its id while it runs - the inline
  * engine hands the id back only once the walk is over. Issue #659.
  */
-data class RunStarted(val executionId: Long)
+data class RunStarted(
+    val executionId: Long,
+    /**
+     * The node a re-run starts at, the steps ahead of it carried over; null for
+     * a run that starts at the beginning, a re-run of a whole run among them.
+     * Said here because the steps are written down only after this is told.
+     */
+    val resumedAt: String? = null,
+    /**
+     * Whether the run carries an earlier one on *past* a node with a new answer
+     * (see [ResumePoint.answer]) rather than doing a step again.
+     */
+    val carriedOn: Boolean = false,
+)
 
 data class RetryPolicy(
     val attempts: Int,
@@ -405,7 +418,13 @@ class StepRunner(
         // What the run carries from here on. Written once, where it is read
         // from, so both engines carry the same thing and neither has to hand it
         // to the other.
-        if (result.status == StepStatus.COMPLETED) carry(executionId, result.output)
+        //
+        // Not a condition's "no": that is a direction, and what it says - "X
+        // did not hold." - is a sentence for the log. Carried, it took the place
+        // of everything the run was holding, so a step down the "no" path was
+        // handed that sentence and nothing it reads.
+        val directionOnly = result.halt && result.branch != null
+        if (result.status == StepStatus.COMPLETED && !directionOnly) carry(executionId, result.output)
 
         log.write(
             executionId,

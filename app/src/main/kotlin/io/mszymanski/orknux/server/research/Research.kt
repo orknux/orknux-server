@@ -151,6 +151,25 @@ class Research(
     @Column(name = "include_images", nullable = false)
     val includeImages: Boolean = false,
 
+    /**
+     * Whether a second model reads the report before it is saved, and the
+     * writer revises it where the reviewer asks. Off unless asked for.
+     */
+    @Column(nullable = false)
+    val review: Boolean = false,
+
+    /** The chat model the reviewer thinks with; null where it is not reviewed. */
+    @Column(name = "reviewer_model_id")
+    val reviewerModelId: Long? = null,
+
+    /** As the reviewer's model was called when the research started, for the reason the mode's name is kept. */
+    @Column(name = "reviewer_model_name", length = 255)
+    val reviewerModelName: String? = null,
+
+    /** What each round of review said, as a JSON list of [ResearchReviewRound]; written by the Review step. */
+    @Column(name = "review_rounds", columnDefinition = "text")
+    var reviewRounds: String? = null,
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     var status: ResearchStatus = ResearchStatus.RUNNING,
@@ -191,6 +210,14 @@ class Research(
 
     @Column(name = "finished_at")
     var finishedAt: OffsetDateTime? = null,
+
+    /**
+     * The runs it was on before [executionId], oldest first, as a JSON list of
+     * ids: a research restarted from one of its steps moves onto the new run
+     * and keeps its row, so the page and the tools can still reach the old ones.
+     */
+    @Column(name = "earlier_runs", columnDefinition = "text")
+    var earlierRuns: String? = null,
 )
 
 interface ResearchModeRepository : JpaRepository<ResearchMode, Long> {
@@ -243,4 +270,42 @@ interface ResearchRepository : JpaRepository<Research, Long> {
     @Transactional
     @Query("UPDATE Research r SET r.artifactId = :artifactId, r.error = :error WHERE r.id = :id")
     fun noteDelivered(@Param("id") id: Long, @Param("artifactId") artifactId: Long?, @Param("error") error: String?): Int
+
+    /**
+     * Moves a research onto a run that restarts one of its earlier ones: running
+     * again, with no error, no report and no file, and what it had got to set
+     * back to the stage the new run starts at. Columns rather than the row, for
+     * the reason [attachRun] gives.
+     */
+    @Modifying
+    @Transactional
+    @Query(
+        "UPDATE Research r SET r.executionId = :executionId, r.status = :status, r.error = NULL, r.result = NULL, " +
+            "r.artifactId = NULL, r.finishedAt = NULL, r.progress = :progress, r.foundSources = :sources, " +
+            "r.foundImages = :images, r.earlierRuns = :earlier, r.reviewRounds = :reviewRounds WHERE r.id = :id",
+    )
+    fun restarted(
+        @Param("id") id: Long,
+        @Param("executionId") executionId: Long,
+        @Param("status") status: ResearchStatus,
+        @Param("progress") progress: String,
+        @Param("sources") sources: String,
+        @Param("images") images: String?,
+        @Param("earlier") earlier: String,
+        @Param("reviewRounds") reviewRounds: String?,
+    ): Int
+
+    /** What the Review step's rounds said so far, written as each one ends, for the reason [attachRun] gives. */
+    @Modifying
+    @Transactional
+    @Query("UPDATE Research r SET r.reviewRounds = :rounds WHERE r.id = :id")
+    fun noteReview(@Param("id") id: Long, @Param("rounds") rounds: String): Int
+
+    /** The workspace's finished research in one mode, newest first: what an estimate is measured from. */
+    fun findByWorkspaceIdAndModeIdAndStatusAndExecutionIdIsNotNullOrderByFinishedAtDesc(
+        workspaceId: Long,
+        modeId: Long,
+        status: ResearchStatus,
+        pageable: Pageable,
+    ): List<Research>
 }

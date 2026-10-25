@@ -296,6 +296,14 @@ class Workspace(
     var chatMaxRounds: Int? = null,
 
     /**
+     * How many rounds of review a research here gets: the reviewer reads, the
+     * writer revises, as many times as this. Null means the workspace has
+     * decided nothing and Admin -> Settings' research.review.rounds applies.
+     */
+    @Column(name = "research_review_rounds")
+    var researchReviewRounds: Int? = null,
+
+    /**
      * How many identical tool calls in a row end the turn. Issue #516.
      *
      * A loop is not a long turn, and the rounds ceiling cannot tell them apart:
