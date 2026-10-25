@@ -28,6 +28,8 @@ enum class TuningUnit(val said: String) {
     MB("MB"),
     PIXELS("pixels"),
     PERCENT("percent"),
+    HERTZ("Hz"),
+    KILOBITS_PER_SECOND("kbit/s"),
 }
 
 /**
@@ -257,6 +259,31 @@ enum class Tunable(
         "midi.read.notes", 2000, 10, 100_000, TuningSection.MEDIA, TuningUnit.ITEMS,
         "How many notes midi_read lists from one file",
         "Past this many the answer stops listing them and says how many more there were; the tracks, tempo and time signature are still given whole.",
+    ),
+    /*
+     * Counted in the length of the music rather than the time it takes,
+     * because the length is known before anything is synthesised: a file
+     * longer than this is refused up front, not after a minute of CPU.
+     */
+    MIDI_RENDER_LONGEST_SECONDS(
+        "midi.render.longest.seconds", 300, 1, 3600, TuningSection.MEDIA, TuningUnit.SECONDS,
+        "The longest piece midi_render turns into sound",
+        "A MIDI file that plays for longer is refused before anything is synthesised; the sound it would make is kept whole in the session, so this also bounds its size.",
+    ),
+    /*
+     * At most 48 kHz because the MP3 the same render may be asked for carries
+     * nothing higher, and a rate one format refuses is a setting that works
+     * for FLAC and fails for MP3.
+     */
+    MIDI_RENDER_SAMPLE_RATE(
+        "midi.render.sample.rate", 44100, 8000, 48000, TuningSection.MEDIA, TuningUnit.HERTZ,
+        "The sample rate midi_render synthesises at",
+        "Every format is rendered at this rate, in stereo: 44100 is a CD's, 48000 a video's, and lower makes smaller files that sound duller.",
+    ),
+    MIDI_RENDER_MP3_KBITS(
+        "midi.render.mp3.kbits", 192, 32, 320, TuningSection.MEDIA, TuningUnit.KILOBITS_PER_SECOND,
+        "The bitrate of an MP3 midi_render encodes",
+        "Higher is closer to the FLAC and larger; FLAC and WAV are lossless and take no bitrate.",
     ),
     /*
      * Counted in elements because that is what a model drawing one adds, and

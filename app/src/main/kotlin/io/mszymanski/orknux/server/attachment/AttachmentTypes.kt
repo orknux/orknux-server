@@ -34,6 +34,9 @@ object AttachmentTypes {
     const val WAV = "audio/wav"
     const val FLAC = "audio/flac"
     const val MIDI = "audio/midi"
+    const val OGG = "audio/ogg"
+    const val M4A = "audio/mp4"
+    const val AAC = "audio/aac"
 
     /** What every browser sends for a file whose type it does not know. */
     private const val UNKNOWN = "application/octet-stream"
@@ -50,6 +53,11 @@ object AttachmentTypes {
         "flac" to (FLAC to setOf("", UNKNOWN, "audio/x-flac")),
         "mid" to (MIDI to setOf("", UNKNOWN, "audio/mid", "audio/x-mid", "audio/x-midi")),
         "midi" to (MIDI to setOf("", UNKNOWN, "audio/mid", "audio/x-mid", "audio/x-midi")),
+        // Played in a chat as well, which is all these three are listed for.
+        "ogg" to (OGG to setOf("", UNKNOWN, "application/ogg", "audio/x-ogg", "audio/vorbis")),
+        "oga" to (OGG to setOf("", UNKNOWN, "application/ogg", "audio/x-ogg", "audio/vorbis")),
+        "m4a" to (M4A to setOf("", UNKNOWN, "audio/x-m4a", "audio/m4a")),
+        "aac" to (AAC to setOf("", UNKNOWN, "audio/x-aac", "audio/aacp")),
     )
 
     /** The type [filename] is filed under, given what the browser [declared]. */

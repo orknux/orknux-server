@@ -598,6 +598,18 @@
                         <manifest>
                             <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
                         </manifest>
+                        <!--
+                            midi_render synthesises offline through the JDK's own
+                            Gervill, whose one door for that - AudioSynthesizer.openStream -
+                            sits in a package java.desktop does not export. `java -jar`
+                            reads this attribute off the jar it starts, which is how
+                            both images, the release launcher and the desktop app start
+                            the server; surefire and spring-boot:run pass the same flag
+                            below. Without it midi_render refuses and says why.
+                        -->
+                        <manifestEntries>
+                            <Add-Exports>java.desktop/com.sun.media.sound</Add-Exports>
+                        </manifestEntries>
                     </archive>
                 </configuration>
             </plugin>
@@ -611,6 +623,8 @@
                         data loader does not see application.yml through it.
                     -->
                     <useManifestOnlyJar>false</useManifestOnlyJar>
+                    <!-- What the jar's Add-Exports says for `java -jar`; see maven-jar-plugin above. -->
+                    <argLine>--add-exports java.desktop/com.sun.media.sound=ALL-UNNAMED</argLine>
                     <!--
                         Tests tagged `slow` are left out of the ordinary run.
 
@@ -706,6 +720,8 @@
                 <version>${spring-boot.version}</version>
                 <configuration>
                     <mainClass>${start-class}</mainClass>
+                    <!-- spring-boot:run forks with a classpath, not the jar's manifest; see maven-jar-plugin above. -->
+                    <jvmArguments>--add-exports java.desktop/com.sun.media.sound=ALL-UNNAMED</jvmArguments>
                     <!-- The parent skips this goal for every module; this is the one that runs. -->
                     <skip>false</skip>
                 </configuration>

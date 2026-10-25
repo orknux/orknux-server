@@ -133,7 +133,7 @@ class AttachmentDownloads(private val store: AttachmentStore) {
         val SHOWABLE = setOf(
             "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp",
             "video/mp4", "video/webm", "video/ogg",
-            "audio/mpeg", "audio/flac", "audio/wav",
+            "audio/mpeg", "audio/flac", "audio/wav", "audio/ogg", "audio/mp4", "audio/aac",
         )
 
         /**

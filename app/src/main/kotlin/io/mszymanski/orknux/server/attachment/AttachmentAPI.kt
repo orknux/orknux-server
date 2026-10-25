@@ -40,6 +40,8 @@ class AttachmentAPI(
     private val ownership: ChatOwnership,
     private val auditRecorder: WorkspaceAuditRecorder,
     private val downloads: AttachmentDownloads,
+    /** A MIDI file rendered as sound, for Play. */
+    private val audio: AttachmentAudio,
 ) {
 
     /** Several at once, because a file picker hands over several at once. */
@@ -97,14 +99,7 @@ class AttachmentAPI(
      */
     @GetMapping("/api/attachments/{id}")
     fun download(@PathVariable id: Long): ResponseEntity<InputStreamResource> {
-        val attachment = attachments.findByIdOrNull(id) ?: throw AttachmentNotFoundException(id)
-        val chatId = attachment.chatSessionId
-        if (chatId == null) {
-            if (attachment.uploadedBy != currentUser()) throw AttachmentNotFoundException(id)
-        } else {
-            val chat = chats.findByIdOrNull(chatId) ?: throw AttachmentNotFoundException(id)
-            if (!ownership.owns(chat)) throw AttachmentNotFoundException(id)
-        }
+        val attachment = readable(id)
 
         /*
          * A row whose bytes have gone is answered as a file that is not here.
@@ -125,6 +120,41 @@ class AttachmentAPI(
             sizeBytes = attachment.sizeBytes,
             location = attachment.location,
         )
+    }
+
+    /**
+     * A MIDI file as sound, for the chat's Play: a browser plays no MIDI, so
+     * this renders it - once, then kept - and serves the MP3 the way any sound
+     * is served. Asked of the same owner as the file itself; a file that is not
+     * MIDI, or a server that cannot render, is refused in a sentence.
+     */
+    @GetMapping("/api/attachments/{id}/audio")
+    @Transactional
+    fun audio(@PathVariable id: Long): ResponseEntity<InputStreamResource> {
+        val attachment = readable(id)
+        if (!store.exists(attachment.location)) throw AttachmentNotFoundException(id)
+        return when (val played = audio.of(attachment)) {
+            is AttachmentAudio.Played.Refused -> throw AttachmentNotPlayableException(played.reason)
+            is AttachmentAudio.Played.Ready -> downloads.serve(
+                filename = played.filename,
+                contentType = played.contentType,
+                sizeBytes = played.bytes,
+                location = played.location,
+            )
+        }
+    }
+
+    /** The attachment, where this caller may have it; missing otherwise, never forbidden - see [download]. */
+    private fun readable(id: Long): ChatAttachment {
+        val attachment = attachments.findByIdOrNull(id) ?: throw AttachmentNotFoundException(id)
+        val chatId = attachment.chatSessionId
+        if (chatId == null) {
+            if (attachment.uploadedBy != currentUser()) throw AttachmentNotFoundException(id)
+        } else {
+            val chat = chats.findByIdOrNull(chatId) ?: throw AttachmentNotFoundException(id)
+            if (!ownership.owns(chat)) throw AttachmentNotFoundException(id)
+        }
+        return attachment
     }
 
     private fun describe(attachment: ChatAttachment) = mapOf(

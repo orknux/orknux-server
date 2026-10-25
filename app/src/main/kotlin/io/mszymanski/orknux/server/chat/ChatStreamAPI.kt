@@ -375,7 +375,8 @@ class ChatStreamAPI(
                          * thread, which the open chat learns about no other way.
                          */
                         val watch = generation.watch()
-                        chats.ask(start, watch, chatTools.shed(session, watch), hangup)
+                        // A voice turn is the one whose reader leaves on a lost stream, and the one with speakers to play to.
+                        chats.ask(start, watch, chatTools.shed(session, watch, voice = interruptOnLeave), hangup)
                             .also { whole ->
                                 if (whole is ChatCompletion.Answered) send("chunk", mapOf("text" to whole.content))
                             }
@@ -612,6 +613,9 @@ internal fun ChatGeneration.watch(): RoundWatch = object : RoundWatch {
 
     override fun filed(id: Long, filename: String, contentType: String, sizeBytes: Long) =
         post("filed", mapOf("id" to id.toString(), "filename" to filename, "contentType" to contentType, "sizeBytes" to sizeBytes))
+
+    override fun played(url: String, filename: String, contentType: String) =
+        post("play", mapOf("url" to url, "filename" to filename, "contentType" to contentType))
 
     override fun said(text: String) = post("said", mapOf("text" to text))
 

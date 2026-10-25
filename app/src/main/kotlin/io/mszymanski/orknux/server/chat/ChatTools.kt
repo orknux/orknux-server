@@ -57,6 +57,8 @@ class ChatTools(
     private val parameters: DrawToolParameters,
     /** Timers and stopwatches above the composer; see [io.mszymanski.orknux.server.widget.WidgetTools]. */
     private val widgets: io.mszymanski.orknux.server.widget.WidgetTools,
+    /** Attaching a file to the answer, and playing a sound in a voice turn; see [ChatFileTools]. */
+    private val files: ChatFileTools,
 ) {
 
     /**
@@ -67,9 +69,9 @@ class ChatTools(
      * which workspace — and reading it again inside the round would be a second
      * read of a row the door had in its hand.
      */
-    fun shed(chat: ChatSession, watch: RoundWatch = object : RoundWatch {}): ToolShed = Shed(chat, watch)
+    fun shed(chat: ChatSession, watch: RoundWatch = object : RoundWatch {}, voice: Boolean = false): ToolShed = Shed(chat, watch, voice)
 
-    private inner class Shed(private val chat: ChatSession, private val watch: RoundWatch) : ToolShed {
+    private inner class Shed(private val chat: ChatSession, private val watch: RoundWatch, private val voice: Boolean) : ToolShed {
 
         /**
          * The drawing as this workspace's model takes it, read every send:
@@ -78,9 +80,9 @@ class ChatTools(
          */
         override fun specs(): List<ToolSpec> =
             (if (pictures.offered(chat)) listOf(parameters.offering(DRAWING, pictures.modelFor(chat))) else emptyList()) +
-                widgets.specs()
+                widgets.specs() + files.specs(voice)
 
-        override fun handles(name: String): Boolean = name == DRAW || widgets.handles(name)
+        override fun handles(name: String): Boolean = name == DRAW || widgets.handles(name) || files.handles(name)
 
         /**
          * The pictures of something that may be drawn again in this turn, by
@@ -140,6 +142,7 @@ class ChatTools(
          */
         override fun run(call: ToolCall): String = when (call.name) {
             in io.mszymanski.orknux.server.widget.WidgetTools.NAMES -> widgets.run(chat, call) { now -> watch.widgets(now) }
+            ChatFileTools.ATTACH, ChatFileTools.PLAY -> files.run(chat, call, watch, voice)
             DRAW -> {
                 val description = argument(call, "description")?.trim()
                 // The size and quality, held to what the model takes before the

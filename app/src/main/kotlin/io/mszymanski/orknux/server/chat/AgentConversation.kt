@@ -99,6 +99,13 @@ interface RoundWatch {
     fun filed(id: Long, filename: String, contentType: String, sizeBytes: Long) = Unit
 
     /**
+     * A sound to play to the person now, through their speakers, at [url]. Only
+     * a voice conversation is lent the tool that says this, and only the voice
+     * panel listening to the round does anything with it.
+     */
+    fun played(url: String, filename: String, contentType: String) = Unit
+
+    /**
      * The chat's widgets as they stand after a widget tool changed them - all of
      * them, so a page replaces what it draws rather than patching it.
      */

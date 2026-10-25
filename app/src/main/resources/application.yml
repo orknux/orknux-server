@@ -484,6 +484,12 @@ orknux:
     # Stable Diffusion checkpoint draws near the size it was trained at, and a
     # 2048 square sent to an SD 1.5 one estimated thirteen hours. 256 to 4096.
     harmonize-size: ${ORKNUX_IMAGE_HARMONIZE_SIZE:1024}
+  music:
+    # A SoundFont (.sf2) on this machine that midi_render plays MIDI with - an
+    # absolute path, on a volume in a container. Empty uses the JDK's own
+    # bank, which is small and sounds it; a render says which bank it used.
+    # Read on every render, so a new file needs no restart.
+    soundfont: ${ORKNUX_MUSIC_SOUNDFONT:}
   mail:
     # The mail server this installation sends its own mail through: the password
     # reset link, and issue notifications for anybody who has not turned them off.
@@ -926,6 +932,9 @@ orknux:
     speeches.per.run: ${ORKNUX_TUNING_SPEECHES_PER_RUN:20}
     chat.audio.max.mb: ${ORKNUX_TUNING_CHAT_AUDIO_MAX_MB:20}
     midi.read.notes: ${ORKNUX_TUNING_MIDI_READ_NOTES:2000}
+    midi.render.longest.seconds: ${ORKNUX_TUNING_MIDI_RENDER_LONGEST_SECONDS:300}
+    midi.render.sample.rate: ${ORKNUX_TUNING_MIDI_RENDER_SAMPLE_RATE:44100}
+    midi.render.mp3.kbits: ${ORKNUX_TUNING_MIDI_RENDER_MP3_KBITS:192}
     videos.at.once: ${ORKNUX_TUNING_VIDEOS_AT_ONCE:1}
     video.poll.seconds: ${ORKNUX_TUNING_VIDEO_POLL_SECONDS:5}
     video.longest.minutes: ${ORKNUX_TUNING_VIDEO_LONGEST_MINUTES:120}
