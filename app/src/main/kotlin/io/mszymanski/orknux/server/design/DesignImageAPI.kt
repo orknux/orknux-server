@@ -60,6 +60,7 @@ class DesignImageAPI(
     private val mapper: tools.jackson.databind.ObjectMapper,
     private val tuning: io.mszymanski.orknux.server.tuning.Tuning,
     private val layers: DesignImageLayers,
+    private val estimates: DesignImageEstimates,
 ) {
 
     /**
@@ -783,6 +784,8 @@ class DesignImageAPI(
         } else {
             jobs.findByStatusOrderByRequestedAtAscIdAsc(DesignImageJobStatus.QUEUED).indexOfFirst { it.id == job.id }.takeIf { it >= 0 }
         }
+        val asOf = java.time.OffsetDateTime.now()
+        val wait = estimates.waitOf(job, asOf)
         return DesignImageJobView(
             id = requireNotNull(job.id).toString(),
             status = job.status,
@@ -806,6 +809,10 @@ class DesignImageAPI(
             scale = job.scale,
             feather = job.feather,
             image = job.imageId?.let { images.findByIdOrNull(it) }?.let(artifacts::describe),
+            progress = wait.percent,
+            secondsLeft = wait.secondsLeft,
+            typicalSeconds = wait.typicalSeconds,
+            asOf = asOf.toString(),
         )
     }
 
@@ -1019,6 +1026,17 @@ data class DesignImageJobView(
     /** How far an edit's selection edge was softened, in pixels; null for anything else. */
     val feather: Int? = null,
     val image: ArtifactView?,
+    /** How far its WebUI says it is, 0 to 100; null where its server reports nothing, or it is not being drawn. */
+    val progress: Int? = null,
+    /** How many seconds its WebUI reckons are left, as of [asOf]; null where it says nothing. */
+    val secondsLeft: Int? = null,
+    /**
+     * How long the same model's newest pictures of the same kind took, the
+     * median in seconds; null with too few of them, or when it is not being drawn.
+     */
+    val typicalSeconds: Int? = null,
+    /** The server's clock when this was read, to count from startedAt on the same clock. */
+    val asOf: String? = null,
 )
 
 /** Why nothing was drawn, in the words the page shows. */

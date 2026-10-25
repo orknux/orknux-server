@@ -343,6 +343,51 @@ class ModelUpscaleClient(
         }
     }
 
+    /**
+     * How far the model's WebUI is with what it is drawing, by `GET
+     * /sdapi/v1/progress`: its `progress`, a share from 0 to 1, and its
+     * `eta_relative`, the seconds it reckons are left, which it works out
+     * itself from how long the job has taken so far over that share. Null
+     * where it reports nothing to go on - nothing being drawn, a share of 0,
+     * an error or no answer within [timeout] - and a time left of null where
+     * it gave a share but no positive time. Like [interrupt], about whatever
+     * the WebUI is drawing, which the caller must know is its own request.
+     */
+    fun progress(modelId: Long, timeout: Duration): Progress? {
+        val provider = when (val found = upscaler(modelId)) {
+            is Found.No -> return null
+            is Found.Yes -> found.provider
+        }
+        val base = provider.endpoint.trimEnd('/')
+        val url = "$base$PROGRESS"
+        if (connections.vet(url) != null) return null
+        val header = when (val credential = probe.credentials(provider)) {
+            is ModelProviderProbe.Credential.Failed -> return null
+            is ModelProviderProbe.Credential.Header -> credential.header
+        }
+        return try {
+            val answer = http.send(
+                HttpRequest.newBuilder(URI(url))
+                    .timeout(timeout)
+                    .header(header.name, header.value)
+                    .GET()
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(),
+            )
+            if (answer.statusCode() !in 200..299) return null
+            val tree = mapper.readTree(answer.body())
+            val share = tree.path("progress").takeIf { it.isNumber }?.asDouble()?.takeIf { it.isFinite() && it > 0 } ?: return null
+            val left = tree.path("eta_relative").takeIf { it.isNumber }?.asDouble()?.takeIf { it.isFinite() && it > 0 }
+            Progress(percent = (share * 100).toInt().coerceIn(0, 100), secondsLeft = left?.let { Math.round(it).toInt() })
+        } catch (failure: Exception) {
+            log.debug("Asking {} for its progress could not be done: {}", base, failure.toString())
+            null
+        }
+    }
+
+    /** How far a WebUI says it is, and how long it reckons is left; see [progress]. */
+    data class Progress(val percent: Int, val secondsLeft: Int?)
+
     private fun upscaler(modelId: Long): Found {
         val model = models.findByIdOrNull(modelId) ?: return Found.No("That model no longer exists")
         if (model.kind != ModelKind.UPSCALE) return Found.No("${model.name} is not an upscale model")
@@ -395,6 +440,9 @@ class ModelUpscaleClient(
         const val EXTRA_BATCH_IMAGES = "/sdapi/v1/extra-batch-images"
         const val IMG2IMG = "/sdapi/v1/img2img"
         const val INTERRUPT = "/sdapi/v1/interrupt"
+
+        /** Without the picture so far, which the WebUI would otherwise encode into every answer. */
+        const val PROGRESS = "/sdapi/v1/progress?skip_current_image=true"
         const val SD_MODELS = "/sdapi/v1/sd-models"
         const val SD_OPTIONS = "/sdapi/v1/options"
 

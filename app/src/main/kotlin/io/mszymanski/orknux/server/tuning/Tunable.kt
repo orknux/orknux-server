@@ -585,6 +585,28 @@ enum class Tunable(
         "How many layers a picture may keep",
         "Over the picture itself, in the image editor. Each is a picture the same size, kept with every unsaved version, so more layers take more disk.",
     ),
+    /*
+     * How long a picture being drawn has left, in the image editor. A Stable
+     * Diffusion WebUI says how far it is and how long it reckons is left, and is
+     * asked this often while it draws; every other server says nothing, and the
+     * time left is then measured off the same model's newest pictures of the
+     * same kind - or not said at all, where there are too few of them.
+     */
+    IMAGE_PROGRESS_POLL_SECONDS(
+        "images.progress.poll.seconds", 2, 1, 60, TuningSection.MEDIA, TuningUnit.SECONDS,
+        "How often a picture being drawn is asked about",
+        "Only a Stable Diffusion WebUI says how far it is. Each ask is one request to it, and the image editor's time left moves this often.",
+    ),
+    IMAGE_ESTIMATE_JOBS(
+        "images.estimate.jobs", 10, 1, 200, TuningSection.MEDIA, TuningUnit.ITEMS,
+        "How many of a model's newest pictures a time left looks at",
+        "Where a model's server says nothing of its progress, the time left is the middle of how long these took, less the time taken so far.",
+    ),
+    IMAGE_ESTIMATE_LEAST(
+        "images.estimate.least", 3, 1, 50, TuningSection.MEDIA, TuningUnit.ITEMS,
+        "How many timed pictures a time left needs",
+        "Fewer drawn by the same model in the same way, and the image editor says only how long it has taken.",
+    ),
 
     /* ---- Workflows and triggers ---- */
 

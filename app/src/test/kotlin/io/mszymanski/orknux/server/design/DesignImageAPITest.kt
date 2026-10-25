@@ -34,6 +34,8 @@ import org.springframework.data.repository.findByIdOrNull
         "orknux.attachments.location=target/test-design-images",
         // Hard edges unless a test asks otherwise, so an edit's pixels are exactly the original's or the model's.
         "orknux.tuning.images.feather.pixels=0",
+        // Asked about every second while a WebUI draws, so a test waits a second rather than the installation's two.
+        "orknux.tuning.images.progress.poll.seconds=1",
     ],
 )
 @AutoConfigureGraphQlTester
@@ -61,6 +63,7 @@ class DesignImageAPITest(
     private val upscaled = CopyOnWriteArrayList<String>()
     private val harmonized = CopyOnWriteArrayList<String>()
     private val interrupted = CopyOnWriteArrayList<String>()
+    private val progressAsked = CopyOnWriteArrayList<String>()
 
     /** Set to hold img2img open until the WebUI is interrupted, as a long redraw would be. */
     @Volatile
@@ -86,6 +89,7 @@ class DesignImageAPITest(
         upscaled.clear()
         harmonized.clear()
         interrupted.clear()
+        progressAsked.clear()
         hold = null
         authorised.clear()
         server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
@@ -163,6 +167,16 @@ class DesignImageAPITest(
             hold?.countDown()
             exchange.sendResponseHeaders(200, 2)
             exchange.responseBody.use { it.write("{}".toByteArray()) }
+            exchange.close()
+        }
+        // How far it is: forty percent, twelve seconds left by its own reckoning.
+        server.createContext("/sdapi/v1/progress") { exchange ->
+            progressAsked += exchange.requestURI.toString()
+            val bytes = """{"progress":0.4,"eta_relative":12.0,"state":{"job_count":1},"current_image":null,"textinfo":null}"""
+                .toByteArray(StandardCharsets.UTF_8)
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
             exchange.close()
         }
         // More than one request at a time: an interrupt arrives while img2img is held open.
@@ -1223,6 +1237,81 @@ class DesignImageAPITest(
                }) { id } }""",
         ).execute().path("queueDesignImage.id").entity(String::class.java).get().let(::drawnPicture)
         assertThat(drawn.single()).doesNotContain("sd_cpp_extra_args").doesNotContain("negative")
+    }
+
+    @Test
+    fun `a picture a WebUI is drawing says how far it is and how long it reckons is left, and is timed once drawn`() {
+        val webUi = model("Forge", "UPSCALE", type = "STABLE_DIFFUSION_WEBUI", keyed = false, modelId = "Lanczos")
+        val source = whiteSource()
+        hold = java.util.concurrent.CountDownLatch(1)
+        val jobId = graphQlTester.document(
+            """mutation { queueDesignImageHarmonize(input: {
+                 workspaceId: $workspaceId, imageId: "DESIGN-${source.id}", modelId: $webUi, prompt: "A white square"
+               }) { id } }""",
+        ).execute().path("queueDesignImageHarmonize.id").entity(String::class.java).get().toLong()
+        await().atMost(Duration.ofSeconds(10)).until { harmonized.size == 1 }
+
+        fun read(): Map<*, *> = graphQlTester.document(
+            """{ designImageJob(workspaceId: $workspaceId, id: $jobId) { status progress secondsLeft typicalSeconds asOf } }""",
+        ).execute().path("designImageJob").entity(Map::class.java).get()
+        await().pollInSameThread().atMost(Duration.ofSeconds(10)).until { read()["progress"] != null }
+        val drawing = read()
+        assertThat(drawing["status"]).isEqualTo("DRAWING")
+        assertThat(drawing["progress"]).isEqualTo(40)
+        // Its own twelve seconds, counted down from when it said so - never more.
+        assertThat(drawing["secondsLeft"] as Int).isBetween(1, 12)
+        // Nothing of this model's has been timed, so there is no usual time to give.
+        assertThat(drawing["typicalSeconds"]).isNull()
+        assertThat(drawing["asOf"] as String).isNotBlank()
+        assertThat(progressAsked).allSatisfy { assertThat(it).isEqualTo("/sdapi/v1/progress?skip_current_image=true") }
+
+        hold?.countDown()
+        drawnPicture(jobId.toString())
+        val done = requireNotNull(jobs.findByIdOrNull(jobId))
+        assertThat(done.finishedAt).isNotNull().isAfterOrEqualTo(done.startedAt)
+        // Drawn, it has no wait left to tell of, and its WebUI is asked nothing more.
+        assertThat(read()["progress"]).isNull()
+        val asked = progressAsked.size
+        Thread.sleep(1_500)
+        assertThat(progressAsked).hasSize(asked)
+    }
+
+    @Test
+    fun `a picture whose server says nothing of its progress is given the median of the model's newest timed pictures of its kind`() {
+        val drawer = model("Drawer", "IMAGE")
+        val now = java.time.OffsetDateTime.now()
+        fun timed(seconds: Long, mask: String? = "mask.png", scale: Double? = null, at: Long = 0) = jobs.save(
+            DesignImageJob(
+                workspaceId = workspaceId, modelId = drawer, modelName = "Drawer", prompt = "A change",
+                size = null, quality = null, style = null, requestedBy = "alice",
+                startedAt = now.minusSeconds(1000 + at + seconds), status = DesignImageJobStatus.DRAWN,
+                sourceId = "DESIGN-1", maskLocation = mask, scale = scale,
+            ).also { it.finishedAt = now.minusSeconds(1000 + at) },
+        )
+        val drawing = jobs.save(
+            DesignImageJob(
+                workspaceId = workspaceId, modelId = drawer, modelName = "Drawer", prompt = "Another change",
+                size = null, quality = null, style = null, requestedBy = "alice",
+                startedAt = now, status = DesignImageJobStatus.DRAWING, sourceId = "DESIGN-1", maskLocation = "mask.png",
+            ),
+        )
+        fun read(): Map<*, *> = graphQlTester.document(
+            """{ designImageJob(workspaceId: $workspaceId, id: ${drawing.id}) { progress secondsLeft typicalSeconds } }""",
+        ).execute().path("designImageJob").entity(Map::class.java).get()
+
+        timed(10)
+        timed(90, at = 10)
+        // An upscale by the same model is another kind of wait, and does not count.
+        timed(500, mask = null, scale = 2.0, at = 20)
+        // Two timed edits are fewer than the installation asks for: no figure at all.
+        assertThat(read()["typicalSeconds"]).isNull()
+
+        timed(20, at = 30)
+        val read = read()
+        assertThat(read["typicalSeconds"]).isEqualTo(20)
+        // Its server says nothing, so nothing is said for it.
+        assertThat(read["progress"]).isNull()
+        assertThat(read["secondsLeft"]).isNull()
     }
 
     private fun model(

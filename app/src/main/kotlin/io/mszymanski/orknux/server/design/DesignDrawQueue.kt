@@ -44,6 +44,7 @@ class DesignDrawQueue(
     private val artifacts: io.mszymanski.orknux.server.workflow.WorkspaceArtifactAPI,
     private val layers: DesignImageLayers,
     private val slots: DesignDrawSlots,
+    private val estimates: DesignImageEstimates,
 ) : SmartLifecycle {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -120,17 +121,20 @@ class DesignDrawQueue(
             val mask = job.maskLocation?.let { store.open(it).use { stream -> stream.readBytes() } }
             val scale = job.scale
             val strength = job.strength
-            val asked = if (original != null && strength != null) {
-                harmonized(id, job, modelId, original, strength)
-            } else if (original != null && scale != null) {
-                log.info("Design image {} upscaling {} {}x by {} with {}", id, job.sourceId, scale, job.upscaler ?: "its own algorithm", job.modelName)
-                cleanedUp(upscaling.upscale(modelId, original, job.upscaler, scale), original, scale)
-            } else if (original != null && mask != null) {
-                log.info("Design image {} editing {} with {}", id, job.sourceId, job.modelName)
-                drawing.edit(modelId, job.prompt, original, mask, job.negativePrompt)
-            } else {
-                log.info("Design image {} drawing with {} at {}", id, job.modelName, job.size ?: "the model's size")
-                drawing.draw(modelId, job.prompt, ImageOptions(job.size, job.quality, job.style, job.negativePrompt))
+            // A WebUI is asked how far it is while it draws; see DesignImageEstimates.
+            val asked = estimates.watching(job).use {
+                if (original != null && strength != null) {
+                    harmonized(id, job, modelId, original, strength)
+                } else if (original != null && scale != null) {
+                    log.info("Design image {} upscaling {} {}x by {} with {}", id, job.sourceId, scale, job.upscaler ?: "its own algorithm", job.modelName)
+                    cleanedUp(upscaling.upscale(modelId, original, job.upscaler, scale), original, scale)
+                } else if (original != null && mask != null) {
+                    log.info("Design image {} editing {} with {}", id, job.sourceId, job.modelName)
+                    drawing.edit(modelId, job.prompt, original, mask, job.negativePrompt)
+                } else {
+                    log.info("Design image {} drawing with {} at {}", id, job.modelName, job.size ?: "the model's size")
+                    drawing.draw(modelId, job.prompt, ImageOptions(job.size, job.quality, job.style, job.negativePrompt))
+                }
             }
             // An edit keeps every pixel outside the selection: the original's own, not the model's redrawing of it.
             val result = if (asked is Picture.Drawn && original != null && mask != null) {
@@ -174,7 +178,7 @@ class DesignDrawQueue(
                         layeredChange(job, from, "DESIGN-${saved.id}", picture.image, original, mask)
                     } ?: false
                     // Stopped while the picture was being filed: the row decides, and the picture goes.
-                    if (jobs.drawn(id, requireNotNull(saved.id)) != 1) {
+                    if (jobs.drawn(id, requireNotNull(saved.id), OffsetDateTime.now()) != 1) {
                         images.delete(saved)
                         runCatching { store.remove(saved.location) }
                         if (layered) layers.forget(job.workspaceId, "DESIGN-${saved.id}")
