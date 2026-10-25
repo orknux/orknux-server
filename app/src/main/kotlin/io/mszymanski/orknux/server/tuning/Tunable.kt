@@ -337,6 +337,15 @@ enum class Tunable(
         "How much of a document's Markdown is handed to a model",
         "A longer document is handed over cut at this length, with a note saying how long it is.",
     ),
+    /*
+     * Counted in pixels because a drawing in SVG has no size of its own worth
+     * keeping: it is laid out as pixels this wide to be a picture in a page.
+     */
+    DOCUMENT_SVG_PIXELS(
+        "document.svg.pixels", 1600, 200, 4096, TuningSection.MEDIA, TuningUnit.PIXELS,
+        "How wide an SVG put in a document is drawn",
+        "A drawing an agent hands over as SVG is kept as a picture this many pixels wide.",
+    ),
     DOCUMENT_SEARCH_RESULTS(
         "document.search.results", 20, 1, 200, TuningSection.MEDIA, TuningUnit.ITEMS,
         "How many documents a search answers",

@@ -362,6 +362,35 @@
             <artifactId>commonmark-ext-gfm-tables</artifactId>
             <version>0.29.0</version>
         </dependency>
+        <!--
+          A document written out as OpenDocument text (.odt), which LibreOffice,
+          Word and Google Docs open. The ODF Toolkit's own DOM, Apache 2.0, from
+          The Document Foundation; it builds the package, the manifest and the
+          styles a word processor checks, which is a format nobody should write
+          by hand. It brings Xerces, whose DOM it is built on.
+
+          Taken whole. Leaving out Jena, java-rdfa and Bouncy Castle - RDF
+          metadata and encryption, neither of which a document written here
+          has - was tried, and saving a package reached both java-rdfa and Bouncy
+          Castle anyway; DocumentExportTest drives the export end to end, so a
+          class one of them is needed for is a failing test, not a failing
+          download.
+        -->
+        <dependency>
+            <groupId>org.odftoolkit</groupId>
+            <artifactId>odfdom-java</artifactId>
+            <version>0.13.0</version>
+        </dependency>
+        <!--
+          Struck-through words, for the Markdown a model writes into a document:
+          the editor has a strike mark, and core commonmark reads ~~ as two
+          tildes. The same project and licence again.
+        -->
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark-ext-gfm-strikethrough</artifactId>
+            <version>0.29.0</version>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>

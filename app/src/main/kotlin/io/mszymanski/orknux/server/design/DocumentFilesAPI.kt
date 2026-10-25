@@ -5,10 +5,16 @@ import io.mszymanski.orknux.server.attachment.AttachmentStore
 import io.mszymanski.orknux.server.security.WorkspaceAccess
 import io.mszymanski.orknux.server.workflow.WorkspaceArtifactAPI
 import org.springframework.core.io.InputStreamResource
+import org.springframework.http.ContentDisposition
+import org.springframework.http.HttpHeaders
+import org.springframework.http.HttpStatus
+import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.RestController
+import org.springframework.web.server.ResponseStatusException
+import java.nio.charset.StandardCharsets
 
 /**
  * The files of documents: the pictures an editor draws in a page.
@@ -26,6 +32,7 @@ class DocumentFilesAPI(
     private val store: AttachmentStore,
     private val access: WorkspaceAccess,
     private val downloads: AttachmentDownloads,
+    private val exports: DocumentExports,
 ) {
 
     @GetMapping("/api/workspaces/{workspaceId}/document-images/{artifactId}")
@@ -39,6 +46,30 @@ class DocumentFilesAPI(
             sizeBytes = held.view.sizeBytes,
             location = held.location,
         )
+    }
+
+    /**
+     * The stored document as a file to keep: pdf, md, odt or ods - the address
+     * orknux_document_export hands out and the editor's Export opens. Always an
+     * attachment; what is in it was written by people and models.
+     */
+    @GetMapping("/api/documents/{id}/export/{format}")
+    fun export(@PathVariable id: Long, @PathVariable format: String): ResponseEntity<ByteArray> {
+        val made = try {
+            exports.export(id, format)
+        } catch (refused: DocumentFormatUnknownException) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, refused.message)
+        } catch (failed: DocumentExportFailedException) {
+            throw ResponseStatusException(HttpStatus.valueOf(422), failed.message)
+        }
+        return ResponseEntity.ok()
+            .contentType(MediaType.parseMediaType(made.contentType))
+            .header(
+                HttpHeaders.CONTENT_DISPOSITION,
+                ContentDisposition.attachment().filename(made.filename, StandardCharsets.UTF_8).build().toString(),
+            )
+            .header("X-Content-Type-Options", "nosniff")
+            .body(made.bytes)
     }
 }
 
