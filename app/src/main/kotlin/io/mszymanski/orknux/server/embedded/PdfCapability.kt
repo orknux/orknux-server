@@ -563,7 +563,7 @@ class PdfCapability(
         if (named.isNullOrBlank()) {
             "Give the $KEY of a document - the one fromHtml answered, or the one an attachment reader gave you."
         } else {
-            "Nothing in this session is kept under \"$named\"."
+            PictureAddresses.nothingUnder(named)
         }
 
     /**

@@ -1,6 +1,8 @@
 package io.mszymanski.orknux.server.embedded
 
+import io.mszymanski.orknux.server.chat.AgentTools
 import io.mszymanski.orknux.server.chat.BuiltInTools
+import io.mszymanski.orknux.server.llm.StoredTypes
 import io.mszymanski.orknux.server.tuning.Tuning
 import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.connector.proxy.ProxyRouter
@@ -113,7 +115,8 @@ class HttpCapability(
             summary = "Fetches bytes and answers a key for them.",
             description = "Fetches a URL as bytes and keeps them here, answering a $KEY rather than base64 - " +
                 "so a file goes from an API into a channel without a megabyte passing through you, which is " +
-                "the one thing that does not survive the trip to the next call. " + WHERE,
+                "the one thing that does not survive the trip to the next call. The contentType is what the " +
+                "bytes are, where they say. " + WHERE,
             params = listOf(
                 EmbeddedParam(URL, ValueType.STRING, "The full URL.", required = true),
                 EmbeddedParam(HEADERS, ValueType.MAP, "Headers to send."),
@@ -284,42 +287,104 @@ class HttpCapability(
     }
 
     private fun download(url: String, asked: JsonNode, sessionId: Long?): String {
-        val request = HttpRequest.newBuilder(URI.create(url))
-            .timeout(Duration.ofSeconds(tuning[Tunable.HTTP_TIMEOUT_SECONDS].toLong()))
-            .apply { headersIn(asked).forEach { (name, value) -> header(name, value) } }
-            .GET()
-            .build()
-
         val mostMb = tuning[Tunable.HTTP_DOWNLOAD_MB]
-        val answered = when (
-            val fetched = fetch.fetch(router.client(), request, mostMb * 1024L * 1024L, followRedirects = false, router::authorized)
-        ) {
-            is io.mszymanski.orknux.server.security.GuardedFetch.Fetched.Refused ->
-                return refusal("that address may not be reached: ${fetched.why}.")
-            is io.mszymanski.orknux.server.security.GuardedFetch.Fetched.TooLarge ->
-                return refusal("that is more than $mostMb MB, which is the most that is fetched.")
-            is io.mszymanski.orknux.server.security.GuardedFetch.Fetched.Answered -> fetched
+        // The policy was asked in perform, for this tool's door; here the address and the size.
+        val fetched = when (val got = bytes(url, mostMb * 1024L * 1024L, headersIn(asked), followRedirects = false)) {
+            is Bytes.Refused -> return refusal(got.why)
+            is Bytes.Fetched -> got
         }
-        val bytes = answered.bytes
 
         val answer = linkedMapOf<String, Any?>(
-            "status" to answered.status,
-            "ok" to (answered.status < 400),
-            "size" to bytes.size,
-            "contentType" to answered.headers.firstValue("content-type").orElse(null),
+            "status" to fetched.status,
+            "ok" to (fetched.status < 400),
+            "size" to fetched.bytes.size,
+            "contentType" to fetched.contentType,
         )
         if (sessionId == null) {
-            answer["base64"] = Base64.getEncoder().encodeToString(bytes)
+            answer["base64"] = Base64.getEncoder().encodeToString(fetched.bytes)
         } else {
             val named = "http." + java.lang.Long.toString(System.nanoTime(), 36)
             scratch.put(
-                sessionId, named, mapper.writeValueAsString(Base64.getEncoder().encodeToString(bytes)),
-                io.mszymanski.orknux.workflow.script.StoredKind(answered.headers.firstValue("content-type").orElse(null)?.substringBefore(';')?.trim(), true),
-            )
+                sessionId, named, mapper.writeValueAsString(Base64.getEncoder().encodeToString(fetched.bytes)),
+                io.mszymanski.orknux.workflow.script.StoredKind(fetched.contentType, true),
+            )?.let { return refusal("what was fetched could not be kept: $it.") }
             answer[KEY] = named
-            answer["note"] = "Pass $KEY to whatever sends, uploads or saves a file."
+            answer["note"] = "Pass $KEY to whatever sends, uploads or saves a file" +
+                if (fetched.contentType in StoredTypes.SHOWN_PICTURES || fetched.contentType == SVG) {
+                    ", or to ${AgentTools.VIEW_TOOL.name} to look at it."
+                } else {
+                    "."
+                }
         }
         return mapper.writeValueAsString(answer)
+    }
+
+    /** What [bytes] answers: the body and what it is, or the sentence a caller is told. */
+    sealed interface Bytes {
+        /** [contentType] is what the bytes say they are, else what the answer said, else null. */
+        class Fetched(val status: Int, val bytes: ByteArray, val contentType: String?) : Bytes
+
+        class Refused(val why: String) : Bytes
+    }
+
+    /**
+     * An address's body as bytes, through the installation's router and the
+     * address guard, read no further than [most]. The one fetch of bytes on a
+     * model's behalf - `http_download`, and `picture_view` given an address -
+     * so the two cannot differ about what is reachable or how large is too
+     * large.
+     *
+     * Asks nothing of Admin Settings -> HTTP tools: whether this caller may
+     * make the request at all is the caller's question ([mayFetch] answers it
+     * for an agent's own choice of address). What it does ask is everything
+     * else - http or https only, the installation's host list, the address
+     * guard at every hop. [followRedirects] only where every hop may go
+     * anywhere, since a policy rule is held to the first address alone.
+     *
+     * The type is the bytes', not the header's: a picture host answering
+     * `application/octet-stream` for a JPEG is still a JPEG to a reader.
+     */
+    fun bytes(url: String, most: Long, headers: Map<String, String> = emptyMap(), followRedirects: Boolean): Bytes {
+        refusalFor(url)?.let { return Bytes.Refused(it) }
+        val request = HttpRequest.newBuilder(URI.create(url))
+            .timeout(Duration.ofSeconds(tuning[Tunable.HTTP_TIMEOUT_SECONDS].toLong()))
+            .apply { headers.forEach { (name, value) -> header(name, value) } }
+            .GET()
+            .build()
+        val answered = try {
+            when (val fetched = fetch.fetch(router.client(), request, most, followRedirects, router::authorized)) {
+                is io.mszymanski.orknux.server.security.GuardedFetch.Fetched.Refused ->
+                    return Bytes.Refused("that address may not be reached: ${fetched.why}.")
+                is io.mszymanski.orknux.server.security.GuardedFetch.Fetched.TooLarge ->
+                    return Bytes.Refused("that is more than ${megabytes(most)} MB, which is the most that is fetched.")
+                is io.mszymanski.orknux.server.security.GuardedFetch.Fetched.Answered -> fetched
+            }
+        } catch (failure: Exception) {
+            log.warn("A fetch of {} did not finish: {}", url, failure.message)
+            return Bytes.Refused("that call did not finish: " + (failure.message ?: "the host could not be reached"))
+        }
+        val said = answered.headers.firstValue("content-type").orElse(null)
+            ?.substringBefore(';')?.trim()?.lowercase()?.ifEmpty { null }
+        return Bytes.Fetched(answered.status, answered.bytes, StoredTypes.magic(answered.bytes) ?: said)
+    }
+
+    /**
+     * Whether an agent's own choice of address may be fetched with GET, as the
+     * HTTP tools would fetch it: null where it may, the sentence otherwise.
+     * Admin Settings -> HTTP tools switched on, and its policy allowing the URL.
+     */
+    fun mayFetch(url: String): String? {
+        if (!policy.enabled()) return HttpToolPolicy.SWITCHED_OFF_SENTENCE
+        val decided = policy.decide(url, "GET")
+        return if (decided.allowed) null else decided.message
+    }
+
+    /** Whether a redirect may be followed for an agent's own address: only where the policy allows any URL. */
+    fun followsForAgents(): Boolean = policy.current().kind == HttpToolPolicyKind.ANY
+
+    private fun megabytes(bytes: Long): String {
+        val mb = bytes / (1024.0 * 1024.0)
+        return if (mb == Math.floor(mb)) mb.toLong().toString() else String.format(java.util.Locale.ROOT, "%.1f", mb)
     }
 
     /* --------------------------------------------------------------- the fence */
@@ -379,6 +444,7 @@ class HttpCapability(
         const val HEADERS = "headers"
         const val KEY = "contentKey"
         const val AUTH = "authorization"
+        const val SVG = "image/svg+xml"
 
         val METHODS = setOf("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD")
 

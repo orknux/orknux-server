@@ -480,6 +480,7 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_HTTP_TIMEOUT_SECONDS` | How long one HTTP request from a tool may take, in seconds. | `30` |
 | `ORKNUX_TUNING_HTTP_BODY_CHARACTERS` | How much of an HTTP answer a tool hands a model, in characters. | `200000` |
 | `ORKNUX_TUNING_HTTP_DOWNLOAD_MB` | The largest file a tool may download, in MB. | `5` |
+| `ORKNUX_TUNING_PICTURE_URL_MB` | The largest picture an agent may fetch from an address to look at, in MB. | `5` |
 | `ORKNUX_TUNING_SEARCH_RESULTS_MOST` | The most results one web search may ask for, in items. | `20` |
 | `ORKNUX_TUNING_SEARCH_TIMEOUT_SECONDS` | How long one web search may take, in seconds. | `20` |
 | `ORKNUX_TUNING_SCRIPT_LOG_LINES` | How many lines one function call may log back, in lines. | `500` |

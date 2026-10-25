@@ -18,7 +18,9 @@ import java.util.regex.PatternSyntaxException
 /**
  * Admin -> Settings -> HTTP tools: whether an agent's `http_get`,
  * `http_request` and `http_download` are offered at all, and where they may
- * go. Issue #602.
+ * go. Issue #602. `picture_view` given an address no picture search answered
+ * asks the same of it, through [HttpCapability.mayFetch]: that is an agent
+ * choosing an address too.
  *
  * **The agents' tools and nothing else.** `orknux.http` - what a function, a
  * workspace's JavaScript tool and a plugin call - is a different door with a

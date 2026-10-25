@@ -350,11 +350,83 @@ class BoxToolsTest(
         val exported = call("orkbox_export", mapOf("session" to session, "path" to "out", "key" to "report.tgz"))
         assertThat(exported.path("error").isMissingNode).describedAs(exported.toString()).isTrue()
         assertThat(exported.path("bytes").asInt()).isPositive()
+        assertThat(exported.path("contentType").stringValue()).isEqualTo("application/gzip")
 
         val imported = call("orkbox_import", mapOf("session" to session, "key" to "report.tgz", "path" to "copy"))
         assertThat(imported.path("error").isMissingNode).describedAs(imported.toString()).isTrue()
         assertThat(call("orkbox_read", mapOf("session" to session, "path" to "copy/report.txt")).path("content").stringValue())
             .isEqualTo("done")
+    }
+
+    /**
+     * One file goes out as itself. A picture curled into a box came out as a
+     * .tar.gz of one entry, which picture_view, an attachment and an upload
+     * all refuse - so what a box made could only be described.
+     */
+    @Test
+    fun `one file goes out as itself with its type, and is looked at by its key`() {
+        val session = opened()
+        val png = java.util.Base64.getDecoder().decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        )
+        // Named .bin, so its type can only have come from its bytes.
+        storeZipBytes("pics.zip", mapOf("pics/dot.bin" to png))
+        call("orkbox_import", mapOf("session" to session, "key" to "pics.zip")).also {
+            assertThat(it.path("error").isMissingNode).describedAs(it.toString()).isTrue()
+        }
+
+        val exported = call("orkbox_export", mapOf("session" to session, "path" to "pics/dot.bin"))
+        assertThat(exported.path("error").isMissingNode).describedAs(exported.toString()).isTrue()
+        assertThat(exported.path("contentType").stringValue()).isEqualTo("image/png")
+        assertThat(exported.path("bytes").asInt()).isEqualTo(png.size)
+        assertThat(exported.path("note").stringValue()).contains(AgentTools.VIEW_TOOL.name).doesNotContain(".tar.gz")
+        val key = exported.path("key").stringValue()
+        assertThat(store.kindOf(conversation, key)?.binary).isTrue()
+
+        val seen = tools.run(agent, ToolCall("v", AgentTools.VIEW, mapper.writeValueAsString(mapOf("contentKey" to key))), conversation)
+        assertThat(AgentTools.pictureIn(seen)?.type).describedAs(seen).isEqualTo("image/png")
+
+        // Text is kept as text, under its type by name.
+        call("orkbox_write", mapOf("session" to session, "path" to "notes.csv", "content" to "a,b\n1,2\n"))
+        val notes = call("orkbox_export", mapOf("session" to session, "path" to "notes.csv", "key" to "notes"))
+        assertThat(notes.path("contentType").stringValue()).describedAs(notes.toString()).isEqualTo("text/csv")
+        assertThat(store.kindOf(conversation, "notes")?.binary).isFalse()
+        assertThat(mapper.readTree(store.get(conversation, "notes")).stringValue()).isEqualTo("a,b\n1,2\n")
+
+        // A binary file read is pointed at the export that takes it out as itself.
+        assertThat(read(session, "pics/dot.bin").path("note").stringValue()).contains(BoxTools.EXPORT).contains("as itself")
+    }
+
+    @Test
+    fun `one file larger than the store keeps is refused before it is read`() {
+        stored.save(io.mszymanski.orknux.server.attachment.InstallationSetting(name = "session.store.value.max.mb").apply { value = "1" })
+        try {
+            val session = opened()
+            call("orkbox_write", mapOf("session" to session, "path" to "big.txt", "content" to "x".repeat(900_000)))
+            val exported = call("orkbox_export", mapOf("session" to session, "path" to "big.txt", "key" to "big"))
+            assertThat(exported.path("error").stringValue()).describedAs(exported.toString()).contains("more than 767 KB").contains("not kept")
+            assertThat(store.get(conversation, "big")).isNull()
+        } finally {
+            stored.deleteById("session.store.value.max.mb")
+        }
+    }
+
+    private fun storeZipBytes(key: String, entries: Map<String, ByteArray>) {
+        val bytes = java.io.ByteArrayOutputStream().also { out ->
+            java.util.zip.ZipOutputStream(out).use { zip ->
+                entries.forEach { (name, content) ->
+                    zip.putNextEntry(java.util.zip.ZipEntry(name))
+                    zip.write(content)
+                    zip.closeEntry()
+                }
+            }
+        }.toByteArray()
+        store.put(
+            conversation,
+            key,
+            mapper.writeValueAsString(java.util.Base64.getEncoder().encodeToString(bytes)),
+            io.mszymanski.orknux.workflow.script.StoredKind("application/zip", true),
+        )
     }
 
     /**

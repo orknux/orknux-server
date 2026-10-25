@@ -314,7 +314,7 @@ class BuiltInTools(
         val REACHING: List<String> = listOf(
             "http_get",
             "http_request",
-            "http_download",
+            HTTP_DOWNLOAD,
             "web_search",
             "web_searchImages",
         )
@@ -395,7 +395,10 @@ class BuiltInTools(
          * switches and fences. Issue #602. Not `web_search`: a search engine's
          * address is not one a model picks.
          */
-        val HTTP: List<String> = listOf("http_get", "http_request", "http_download")
+        val HTTP: List<String> = listOf("http_get", "http_request", HTTP_DOWNLOAD)
+
+        /** Fetching an address's bytes into a key: named where a model is told how a file at an address comes in. */
+        const val HTTP_DOWNLOAD = "http_download"
 
         /**
          * What answers where those may go. Issue #602.

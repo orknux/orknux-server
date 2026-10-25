@@ -18,7 +18,9 @@ import io.mszymanski.orknux.orkbox.model.SessionDto
 import io.mszymanski.orknux.orkbox.model.Source
 import io.mszymanski.orknux.orkbox.model.UpdateSessionRequest
 import io.mszymanski.orknux.server.agent.Agent
+import io.mszymanski.orknux.server.chat.AgentTools
 import io.mszymanski.orknux.server.llm.LlmSessionStore
+import io.mszymanski.orknux.server.llm.StoredTypes
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
 import io.mszymanski.orknux.workflow.script.StoredKind
@@ -549,7 +551,8 @@ class BoxTools(
                     "path" to path,
                     "size" to file.size,
                     "binary" to true,
-                    "note" to "This file is not text. Use orkbox_export to take it out as an archive into the session store.",
+                    "note" to "This file is not text. $EXPORT with this path takes it out as itself into the session store, " +
+                        "under a key you can look at, attach or upload.",
                 ),
             )
         }
@@ -875,6 +878,15 @@ class BoxTools(
         val held = held(agent, args, sessionId)
         val conversation = held.conversation
         val path = args.text("path")
+        /*
+         * One file goes out as itself. A picture curled into a box came out as a
+         * .tar.gz of one entry, which nothing that looks at, attaches or uploads
+         * a file can read - so a file made in a box could only be described.
+         */
+        if (path != null && path.trim().trim('/', '.').isNotEmpty()) {
+            val entry = held.client.stat(held.row.remoteSessionId, path)
+            if (entry.type == "file") return exportFile(held, path, entry.size, args.text("key"))
+        }
         val key = args.text("key") ?: "box.${held.row.id}.archive"
         /*
          * Bounded by what the store would keep, and while it is read: it used to
@@ -895,15 +907,54 @@ class BoxTools(
                 "key" to key,
                 "bytes" to bytes.size,
                 "contentType" to ARCHIVE_TYPE,
-                "note" to "A .tar.gz of ${path ?: "the workspace"}. Hand the key to a tool that takes a file, or to orkbox_import.",
+                "note" to "A .tar.gz of ${path ?: "the workspace"}. Hand the key to a tool that takes a file, or to $IMPORT.",
             ),
         )
     }
 
+    /**
+     * One file into the store as itself: its bytes, and what they are by their
+     * magic and then by its name. Text is kept as text and anything else as
+     * base64, as the store's rule says. Bounded by the store's limit, as an
+     * archive is, and asked of the size the box reports before anything is read.
+     */
+    private fun exportFile(held: Held, path: String, size: Long?, asked: String?): String {
+        val most = store.mostBinaryBytes()
+        fun tooLarge(bytes: Long) = Refused(
+            "$path is ${kilobytes(bytes)} KB, more than ${kilobytes(most)} KB, which is the most a value in this " +
+                "conversation's store holds, so it was not kept",
+        )
+        if (size != null && size > most) throw tooLarge(size)
+        val file = held.client.read(held.row.remoteSessionId, path, null, null)
+        touch(held)
+        if (file.bytes.size > most) throw tooLarge(file.bytes.size.toLong())
+        val name = path.trimEnd('/').substringAfterLast('/')
+        val key = asked ?: "box.${held.row.id}.$name".take(MOST_KEY)
+        val sniffed = StoredTypes.typeOf(file.bytes, name)
+        val text = (sniffed == null || StoredTypes.isText(sniffed)) && StoredTypes.readsAsText(file.bytes)
+        val type = sniffed ?: if (text) "text/plain" else "application/octet-stream"
+        val value = if (text) String(file.bytes, Charsets.UTF_8) else Base64.getEncoder().encodeToString(file.bytes)
+        store.put(held.conversation, key, mapper.writeValueAsString(value), StoredKind(type, !text))
+            ?.let { throw Refused("$path could not be kept: $it") }
+        return answer(
+            mapOf(
+                "key" to key,
+                "bytes" to file.bytes.size,
+                "contentType" to type,
+                "note" to "$path as itself, not an archive. Hand the key to a tool that takes a file" +
+                    (if (type.startsWith("image/")) ", or to ${AgentTools.VIEW_TOOL.name} to look at it." else "."),
+            ),
+        )
+    }
+
+    /** Whole kilobytes, rounded down as the archive's refusal rounds them. */
+    private fun kilobytes(bytes: Long) = bytes / 1024
+
     private fun import(agent: Agent, args: JsonNode, sessionId: Long?): String {
         val held = held(agent, args, sessionId)
         val key = args.text("key") ?: throw Refused("Say which key holds the archive")
-        val stored = store.get(held.conversation, key) ?: throw Refused("This conversation holds nothing under $key")
+        val stored = store.get(held.conversation, key)
+            ?: throw Refused(io.mszymanski.orknux.server.embedded.PictureAddresses.nothingUnder(key, "This conversation holds nothing under $key"))
         val kind = store.kindOf(held.conversation, key)
         if (kind != null && !kind.binary) throw Refused("$key holds text, not an archive")
         val base64 = runCatching { mapper.readTree(stored) }.getOrNull()?.takeIf { it.isString }?.stringValue() ?: stored
@@ -1210,6 +1261,9 @@ class BoxTools(
         const val LOG = "orkbox_log"
         const val EXPORT = "orkbox_export"
         const val IMPORT = "orkbox_import"
+
+        /** The longest key the store takes. */
+        private const val MOST_KEY = 200
         const val FETCH_ARTIFACT = "orkbox_fetch_artifact"
         const val EXPOSE = "orkbox_expose"
         const val PORTS = "orkbox_ports"
@@ -1558,11 +1612,13 @@ class BoxTools(
             ),
             ToolSpec(
                 EXPORT,
-                "Takes a directory or file out of a session's workspace as a .tar.gz into this conversation's store, " +
-                    "under a key any tool that takes a file can be handed.",
+                "Takes a file or a directory out of a session's workspace into this conversation's store, under a " +
+                    "key any tool that takes a file can be handed. One file goes as itself, with its type - a " +
+                    "picture to look at with ${AgentTools.VIEW_TOOL.name}, a PDF to attach or upload; a directory, " +
+                    "or the whole workspace, goes as a .tar.gz.",
                 listOf(
                     SESSION,
-                    text("path", "What to take, relative to the workspace root; the whole workspace by default."),
+                    text("path", "What to take, relative to the workspace root: a file, or a directory; the whole workspace by default."),
                     text("key", "The key to keep it under; one is made up otherwise."),
                 ),
             ),
