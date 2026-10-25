@@ -138,7 +138,7 @@ class WireframeAPI(
     @MutationMapping
     fun exportWireframeHtml(@Argument id: Long, @Argument document: String?): String {
         val held = find(id)
-        return html(held, if (document == null) this.document.read(held.document) else checked(document), pictures = true)
+        return html(held, if (document == null) this.document.stored(held.document) else checked(document), pictures = true)
     }
 
     /**
@@ -150,7 +150,7 @@ class WireframeAPI(
      */
     fun html(id: Long, pictures: Boolean = false): WireframeHtmlPage {
         val held = find(id)
-        return WireframeHtmlPage(held.name, html(held, document.read(held.document), pictures))
+        return WireframeHtmlPage(held.name, html(held, document.stored(held.document), pictures))
     }
 
     /** Written out, and said in the audit log: a page leaving the server is a copy somebody now holds. */
@@ -206,7 +206,7 @@ class WireframeAPI(
         workspaceId = wireframe.workspaceId,
         name = wireframe.name,
         document = wireframe.document,
-        elementCount = runCatching { document.read(wireframe.document).size }.getOrDefault(0),
+        elementCount = runCatching { document.stored(wireframe.document).size }.getOrDefault(0),
         revision = wireframe.revision,
         createdBy = wireframe.createdBy,
         createdAt = wireframe.createdAt.toString(),

@@ -231,6 +231,54 @@ class WireframeAPITest(
             .containsExactly("Sketcher")
     }
 
+    /**
+     * A checkbox and a style, through the tools: the descriptions say what
+     * exists, read off the declarations; a change merges a style into what is
+     * there, a hostile one is refused saying why, and what is kept is the one
+     * spelling the exports write.
+     */
+    @Test
+    fun `the tools draw checkboxes and styles, say which there are, and refuse a colour that is not one`() {
+        SecurityContextHolder.clearContext()
+        val scope = OrknuxScope(workspaceId = workspaceId, mayWrite = true, actor = "Sketcher")
+        fun call(name: String, arguments: String): JsonNode = mapper.readTree(tools.run(scope, name, arguments))
+
+        val drawing = tools.specs(scope).filter { it.name in setOf(WireframeTools.CREATE, WireframeTools.CHANGE, WireframeTools.DRAW) }
+        assertThat(drawing).hasSize(3)
+        drawing.forEach { spec ->
+            WireframeElementType.entries.forEach { assertThat(spec.description).describedAs(spec.name).contains("${it.key} - ") }
+            (WireframeStyle.NAMES - WireframeStyle.CHECKED).forEach { assertThat(spec.description).describedAs(spec.name).contains(it) }
+        }
+
+        val made = call(
+            WireframeTools.CREATE,
+            """{"name":"Preferences","add":[{"id":"news","type":"checkbox","x":0,"y":0,"w":200,"h":24,"text":"Newsletter","props":{"checked":true}},
+               {"id":"save","type":"button","x":0,"y":40,"w":120,"h":40,"text":"Save"}]}""",
+        )
+        assertThat(made.has("error")).describedAs(made.toString()).isFalse()
+        val id = made.path("id").asLong()
+
+        val styled = call(
+            WireframeTools.CHANGE,
+            """{"wireframe":"$id","update":[{"id":"save","props":{"fill":"linear-gradient(45deg, Navy, #F80)","color":"white","shadow":"Small","radius":"20"}}]}""",
+        )
+        assertThat(styled.has("error")).describedAs(styled.toString()).isFalse()
+        val props = elementsOf(id).get(1).path("props")
+        assertThat(props.path("fill").stringValue()).isEqualTo("linear-gradient(45deg, #000080 0%, #ff8800 100%)")
+        assertThat(props.path("color").stringValue()).isEqualTo("#ffffff")
+        assertThat(props.path("shadow").stringValue()).isEqualTo("small")
+        assertThat(props.path("radius").asInt()).isEqualTo(20)
+        assertThat(elementsOf(id).get(0).path("props").path("checked").booleanValue()).isTrue()
+
+        val refused = call(WireframeTools.CHANGE, """{"wireframe":"$id","update":[{"id":"save","props":{"fill":"red;background:url(javascript:alert(1))"}}]}""")
+        assertThat(refused.path("error").stringValue()).contains("element save has fill").contains("not a colour")
+        assertThat(elementsOf(id).get(1).path("props").path("fill").stringValue()).startsWith("linear-gradient(45deg")
+
+        val html = call(WireframeTools.HTML, """{"wireframe":"$id"}""").path("html").stringValue()
+        assertThat(html).contains("<input type=\"checkbox\" checked><span>Newsletter</span>")
+            .contains("background:linear-gradient(45deg, #000080 0%, #ff8800 100%);color:#ffffff;border-radius:20px;box-shadow:0 1px 3px rgba(0,0,0,0.2)")
+    }
+
     /** The editor's export: the drawing it holds, unsaved or not, as a page; checked as a save is, and audited. */
     @Test
     fun `the editor exports the drawing it holds as HTML, and the export is audited`() {

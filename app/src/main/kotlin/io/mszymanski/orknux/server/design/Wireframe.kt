@@ -100,7 +100,13 @@ enum class WireframeElementType(val key: String, val box: Boolean, val said: Str
     LINE("line", false, "a straight line from (x, y) to (x + w, y + h)"),
     ARROW("arrow", false, "a line from (x, y) to (x + w, y + h) with an arrowhead at its end"),
     NOTE("note", true, "a sticky note: an annotation about the design rather than part of it"),
+    CHECKBOX("checkbox", true, "a checkbox with its label as its text; props.checked true draws it ticked"),
+    RADIO("radio", true, "a radio button with its label as its text; props.checked true draws it chosen"),
+    TOGGLE("toggle", true, "an on and off switch with its label as its text; props.checked true draws it on"),
     ;
+
+    /** Whether the kind is a control drawn with its label beside it, which props.checked turns on. */
+    val checkable: Boolean get() = this == CHECKBOX || this == RADIO || this == TOGGLE
 
     companion object {
         fun byKey(key: String?): WireframeElementType? = entries.firstOrNull { it.key == key?.trim()?.lowercase() }
@@ -129,8 +135,15 @@ data class WireframeElement(
  */
 class WireframeDocument(private val mapper: ObjectMapper) {
 
+    /**
+     * The elements of a document as it is stored: a style prop that cannot be
+     * read is dropped rather than refusing the drawing, so one stored before
+     * styles were checked still opens. What arrives is read by [read].
+     */
+    fun stored(document: String?): List<WireframeElement> = read(document, lenient = true)
+
     /** The elements of a document as stored or as sent; an empty text is an empty drawing. */
-    fun read(document: String?): List<WireframeElement> {
+    fun read(document: String?, lenient: Boolean = false): List<WireframeElement> {
         if (document.isNullOrBlank()) return emptyList()
         val tree = try {
             mapper.readTree(document)
@@ -143,15 +156,15 @@ class WireframeDocument(private val mapper: ObjectMapper) {
             tree.isObject && tree.path("elements").isMissingNode -> return emptyList()
             else -> throw WireframeDocumentInvalidException("elements has to be a list")
         }
-        return elements(list)
+        return elements(list, lenient)
     }
 
     /** A list of elements as a model or the editor sends it, each checked and given an id where it has none. */
-    fun elements(list: JsonNode): List<WireframeElement> {
+    fun elements(list: JsonNode, lenient: Boolean = false): List<WireframeElement> {
         if (!list.isArray) throw WireframeDocumentInvalidException("elements has to be a list")
         val taken = mutableSetOf<String>()
         return (0 until list.size()).map { at ->
-            val made = element(list.get(at), at, taken)
+            val made = element(list.get(at), at, taken, lenient)
             taken += made.id
             made
         }
@@ -162,7 +175,7 @@ class WireframeDocument(private val mapper: ObjectMapper) {
      * repeated one is refused rather than leaving two things nobody can tell
      * apart.
      */
-    fun element(node: JsonNode, at: Int, taken: Set<String>): WireframeElement {
+    fun element(node: JsonNode, at: Int, taken: Set<String>, lenient: Boolean = false): WireframeElement {
         if (!node.isObject) throw WireframeDocumentInvalidException("element ${at + 1} is not an object")
         val asked = text(node.path("type"))
         val type = WireframeElementType.byKey(asked)
@@ -189,7 +202,7 @@ class WireframeDocument(private val mapper: ObjectMapper) {
             w = if (type.box) w.coerceAtLeast(1) else w,
             h = if (type.box) h.coerceAtLeast(1) else h,
             text = words?.takeIf { it.isNotEmpty() },
-            props = props(node.path("props"), id ?: "${at + 1}"),
+            props = props(node.path("props"), id ?: "${at + 1}", lenient),
         )
     }
 
@@ -230,7 +243,7 @@ class WireframeDocument(private val mapper: ObjectMapper) {
         return element(merged, 0, others)
     }
 
-    private fun props(node: JsonNode, of: String): Map<String, Any?> {
+    private fun props(node: JsonNode, of: String, lenient: Boolean): Map<String, Any?> {
         if (node.isMissingNode || node.isNull) return emptyMap()
         if (!node.isObject) throw WireframeDocumentInvalidException("element $of has props that are not an object")
         val kept = linkedMapOf<String, Any?>()
@@ -241,7 +254,8 @@ class WireframeDocument(private val mapper: ObjectMapper) {
         if (kept.size > Wireframes.PROPS_MOST) {
             throw WireframeDocumentInvalidException("element $of has more than ${Wireframes.PROPS_MOST} props")
         }
-        return kept
+        // How it looks is written into the exports' CSS and SVG, so it is read in its one spelling or not at all.
+        return WireframeStyle.checked(kept, of, lenient)
     }
 
     private fun scalar(value: JsonNode): Any? = when {

@@ -7,6 +7,7 @@ import io.mszymanski.orknux.server.design.WireframeDocument
 import io.mszymanski.orknux.server.design.WireframeDocumentInvalidException
 import io.mszymanski.orknux.server.design.WireframeElementType
 import io.mszymanski.orknux.server.design.WireframeRepository
+import io.mszymanski.orknux.server.design.WireframeStyle
 import io.mszymanski.orknux.server.design.WireframeSvg
 import io.mszymanski.orknux.server.chat.AgentTools
 import io.mszymanski.orknux.server.llm.LlmSessionStore
@@ -180,7 +181,7 @@ class WireframeTools(
     }
 
     private fun change(scope: OrknuxScope, held: WireframeView, asked: JsonNode): String {
-        val before = document.read(held.document)
+        val before = document.stored(held.document)
         val gone = list(asked.path(REMOVE))?.let { ids -> (0 until ids.size()).mapNotNull { text(ids.get(it)) }.toSet() }.orEmpty()
         val unknown = gone - before.map { it.id }.toSet()
         if (unknown.isNotEmpty()) return refuse("${held.name} has no element ${unknown.joinToString(", ")}; read it with $READ")
@@ -241,7 +242,7 @@ class WireframeTools(
             "name" to view.name,
             "url" to link(view),
             "revision" to view.revision,
-            "elements" to document.read(view.document).map(document::shown),
+            "elements" to document.stored(view.document).map(document::shown),
         ),
     )
 
@@ -263,7 +264,7 @@ class WireframeTools(
     private fun drawn(scope: OrknuxScope, view: WireframeView): String {
         val answer = shown(scope, view)
         val session = scope.session ?: return answer
-        val svg = runCatching { pictures.drawing(document.read(view.document)) }.getOrNull() ?: return answer
+        val svg = runCatching { pictures.drawing(document.stored(view.document)) }.getOrNull() ?: return answer
         val natural = svg.substringAfter("width=\"").substringBefore('"').toIntOrNull() ?: return answer
         // The Tunable stops at the renderer's own ceiling, 4096 pixels.
         val width = minOf(natural * 2, tuning[Tunable.WIREFRAME_PICTURE_PIXELS])
@@ -343,7 +344,7 @@ class WireframeTools(
 
         /** The kinds there are, from the enum the document is checked against. */
         private val ELEMENTS_SAID: String =
-            "Element types: " + WireframeElementType.entries.joinToString("; ") { "${it.key} - ${it.said}" } + "."
+            "Element types: " + WireframeElementType.entries.joinToString("; ") { "${it.key} - ${it.said}" } + ". " + WireframeStyle.SAID
 
         /** What the drawing tools answer, said in each so a model knows to hand the link on. */
         private const val ANSWERED =
@@ -365,7 +366,19 @@ class WireframeTools(
                     "w" to mapOf("type" to "number"),
                     "h" to mapOf("type" to "number"),
                     "text" to mapOf("type" to "string"),
-                    "props" to mapOf("type" to "object"),
+                    "props" to mapOf(
+                        "type" to "object",
+                        "properties" to mapOf(
+                            WireframeStyle.FILL to mapOf("type" to "string"),
+                            WireframeStyle.COLOR to mapOf("type" to "string"),
+                            WireframeStyle.BORDER_WIDTH to mapOf("type" to "number"),
+                            WireframeStyle.BORDER_STYLE to mapOf("type" to "string", "enum" to WireframeStyle.BorderStyle.entries.map { it.key }),
+                            WireframeStyle.BORDER_COLOR to mapOf("type" to "string"),
+                            WireframeStyle.RADIUS to mapOf("type" to "number"),
+                            WireframeStyle.SHADOW to mapOf("type" to "string", "enum" to WireframeStyle.Shadow.entries.map { it.key }),
+                            WireframeStyle.CHECKED to mapOf("type" to "boolean"),
+                        ),
+                    ),
                 ),
             ),
         )

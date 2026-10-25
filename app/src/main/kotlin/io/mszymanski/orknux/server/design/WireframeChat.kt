@@ -116,7 +116,8 @@ class WireframeChat(
         return buildString {
             append(
                 "You draw wireframes in the Orknux Design editor: low-fidelity, greyscale screens, like a " +
-                    "designer's first sketch in Figma. You are working on the wireframe \"${wireframe.name}\" " +
+                    "designer's first sketch in Figma - colours, gradients, borders and shadows only where you are asked " +
+                    "for them, through the style props the tools describe. You are working on the wireframe \"${wireframe.name}\" " +
                     "(id ${wireframe.id}). The person sees it beside this conversation, and every change you save " +
                     "appears on it as soon as you answer, where they can go on editing it by hand. ",
             )

@@ -18,8 +18,10 @@ package io.mszymanski.orknux.server.design
  *
  * The drawing is untrusted: a model wrote it, or somebody sharing the
  * workspace. Every word in it is escaped, a prop reaches the page only as one
- * of the few values that are looked for (a number, a weight, a variant), and
- * the page refuses scripts in its own Content-Security-Policy besides.
+ * of the few values that are looked for (a number, a weight, a variant) or as
+ * a style [WireframeStyle] parsed and wrote out again - never as it was given -
+ * and the page refuses scripts in its own Content-Security-Policy besides.
+ * A checkbox, a radio button and a switch are real inputs, in a label.
  */
 class WireframeHtml(
     /**
@@ -122,11 +124,12 @@ class WireframeHtml(
     private fun StringBuilder.element(element: WireframeElement, originX: Int, originY: Int) {
         val words = element.text?.let(::escape).orEmpty()
         val id = escape(element.id)
+        val look = WireframeStyle.look(element.props)
         if (!element.type.box) {
-            line(element, originX, originY, id)
+            line(element, originX, originY, id, look)
             return
         }
-        val place = "left:${element.x - originX}px;top:${element.y - originY}px;width:${element.w}px;height:${element.h}px"
+        val place = "left:${element.x - originX}px;top:${element.y - originY}px;width:${element.w}px;height:${element.h}px" + css(element, look)
         when (element.type) {
             WireframeElementType.FRAME -> append("<div class=\"el frame\" data-id=\"$id\" style=\"$place\">")
                 .append(if (words.isEmpty()) "" else "<span class=\"frame-title\">$words</span>").append("</div>\n")
@@ -152,22 +155,97 @@ class WireframeHtml(
                 .append("<line x1=\"100\" y1=\"0\" x2=\"0\" y2=\"100\" vector-effect=\"non-scaling-stroke\"/></svg>")
                 .append(if (words.isEmpty()) "" else "<figcaption>$words</figcaption>").append("</figure>\n")
             WireframeElementType.NOTE -> append("<aside class=\"el note\" data-id=\"$id\" style=\"$place\">$words</aside>\n")
+            WireframeElementType.CHECKBOX, WireframeElementType.RADIO, WireframeElementType.TOGGLE -> {
+                // A real control in a label, so the words are its name and a press on them works it.
+                val input = when (element.type) {
+                    WireframeElementType.RADIO -> "<input type=\"radio\""
+                    WireframeElementType.TOGGLE -> "<input type=\"checkbox\" role=\"switch\" class=\"switch\""
+                    else -> "<input type=\"checkbox\""
+                }
+                append("<label class=\"el check ${element.type.key}\" data-id=\"$id\" style=\"$place\">")
+                append(input).append(if (look.checked) " checked" else "").append(">")
+                append(if (words.isEmpty()) "" else "<span>$words</span>").append("</label>\n")
+            }
             WireframeElementType.LINE, WireframeElementType.ARROW -> Unit
         }
     }
 
+    /**
+     * What the props say about how a box looks, as declarations after its
+     * place. Every value is one [WireframeStyle] wrote out again from what it
+     * parsed - hex digits, numbers and its own words - and is escaped besides.
+     */
+    private fun css(element: WireframeElement, look: WireframeStyle.Look): String {
+        val parts = mutableListOf<String>()
+        look.fill?.let { parts += "background:" + WireframeStyle.written(it) }
+        look.color?.let { parts += "color:$it" }
+        border(element, look)?.let { parts += "border:$it" }
+        look.radius?.let { parts += "border-radius:${it}px" }
+        look.shadow?.let { parts += "box-shadow:" + it.css() }
+        return escape(parts.joinToString("") { ";$it" })
+    }
+
+    /**
+     * A border, where the props say anything about one: the kind's own width,
+     * style and colour - the stylesheet's - under what they say. A width or a
+     * colour given to a kind with no outline draws a solid one.
+     */
+    private fun border(element: WireframeElement, look: WireframeStyle.Look): String? {
+        if (look.borderWidth == null && look.borderStyle == null && look.borderColor == null) return null
+        val primary = element.props["variant"]?.toString()?.trim()?.lowercase() == "primary"
+        val (width, colour) = when (element.type) {
+            WireframeElementType.FRAME -> 1.5 to "#3f3f46"
+            WireframeElementType.BUTTON -> 1.5 to if (primary) "#52525b" else "#3f3f46"
+            WireframeElementType.NOTE -> 1.0 to "#d9c87a"
+            WireframeElementType.RECT, WireframeElementType.INPUT, WireframeElementType.IMAGE -> 1.0 to "#8a8a93"
+            else -> 1.0 to "#3f3f46"
+        }
+        val style = look.borderStyle ?: WireframeStyle.BorderStyle.SOLID
+        val drawn = look.borderWidth?.toDouble() ?: width
+        return "${WireframeStyle.number(drawn)}px ${style.key} ${look.borderColor ?: colour}"
+    }
+
     /** A line or an arrow, as an svg of its own around it, padded for the stroke and the head. */
-    private fun StringBuilder.line(element: WireframeElement, originX: Int, originY: Int, id: String) {
+    private fun StringBuilder.line(element: WireframeElement, originX: Int, originY: Int, id: String, look: WireframeStyle.Look) {
         val left = minOf(element.x, element.x + element.w) - LINE_PAD
         val top = minOf(element.y, element.y + element.h) - LINE_PAD
         val width = Math.abs(element.w) + LINE_PAD * 2
         val height = Math.abs(element.h) + LINE_PAD * 2
         val x1 = element.x - left
         val y1 = element.y - top
-        val head = if (element.type == WireframeElementType.ARROW) " marker-end=\"url(#wf-arrowhead)\"" else ""
+        val colour = look.borderColor
+        val drawn = look.borderWidth?.toDouble() ?: 1.5
+        val stroke = buildString {
+            colour?.let { append("stroke:$it;") }
+            look.borderWidth?.let { append("stroke-width:$it;") }
+            when (look.borderStyle) {
+                WireframeStyle.BorderStyle.NONE -> append("stroke:none;")
+                WireframeStyle.BorderStyle.DASHED ->
+                    append("stroke-dasharray:${WireframeStyle.number(maxOf(4.0, drawn * 3))} ${WireframeStyle.number(maxOf(3.0, drawn * 2))};")
+                WireframeStyle.BorderStyle.DOTTED -> append("stroke-dasharray:${WireframeStyle.number(drawn)} ${WireframeStyle.number(drawn)};")
+                else -> Unit
+            }
+        }
+        val headId = "wf-arrowhead-" + element.id.replace(Regex("[^A-Za-z0-9_-]"), "_")
+        val head = when {
+            element.type != WireframeElementType.ARROW -> ""
+            colour == null -> " marker-end=\"url(#wf-arrowhead)\""
+            else -> " marker-end=\"url(#$headId)\""
+        }
         append("<svg class=\"el ${element.type.key}\" data-id=\"$id\" aria-hidden=\"true\" ")
-        append("style=\"left:${left - originX}px;top:${top - originY}px;width:${width}px;height:${height}px\" viewBox=\"0 0 $width $height\">")
-        append("<line x1=\"$x1\" y1=\"$y1\" x2=\"${x1 + element.w}\" y2=\"${y1 + element.h}\"$head/></svg>\n")
+        append("style=\"left:${left - originX}px;top:${top - originY}px;width:${width}px;height:${height}px")
+        look.shadow?.takeIf { it != WireframeStyle.Shadow.NONE }?.let { shadow ->
+            append(";filter:drop-shadow(0 ${shadow.dy}px ${shadow.blur / 2}px rgba(0,0,0,${shadow.opacity}))")
+        }
+        append("\" viewBox=\"0 0 $width $height\">")
+        if (element.type == WireframeElementType.ARROW && colour != null) {
+            // An arrow in a colour of its own has a head of that colour.
+            append("<defs><marker id=\"$headId\" viewBox=\"0 0 10 10\" refX=\"9\" refY=\"5\" markerWidth=\"8\" markerHeight=\"8\" orient=\"auto-start-reverse\">")
+            append("<path d=\"M 0 0 L 10 5 L 0 10 z\" fill=\"$colour\"/></marker></defs>")
+        }
+        append("<line x1=\"$x1\" y1=\"$y1\" x2=\"${x1 + element.w}\" y2=\"${y1 + element.h}\"$head")
+        if (stroke.isNotEmpty()) append(" style=\"").append(escape(stroke)).append('"')
+        append("/></svg>\n")
     }
 
     companion object {
@@ -223,6 +301,12 @@ class WireframeHtml(
             |.image img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
             |.image figcaption { position: relative; color: #8a8a93; font-size: 12px; }
             |.note { padding: 10px; background: #fdf3c4; border: 1px solid #d9c87a; border-radius: 2px; font-size: 13px; }
+            |.check { display: flex; align-items: center; gap: 8px; color: #3f3f46; white-space: nowrap; cursor: pointer; }
+            |.check input { flex: none; width: 16px; height: 16px; margin: 0; accent-color: #52525b; }
+            |.check input.switch { appearance: none; position: relative; width: 32px; height: 18px; border: 1.5px solid #8a8a93; border-radius: 9px; background: #ffffff; }
+            |.check input.switch::before { content: ""; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: #8a8a93; }
+            |.check input.switch:checked { background: #52525b; border-color: #52525b; }
+            |.check input.switch:checked::before { left: 16px; background: #ffffff; }
             |svg.el { overflow: visible; }
             |svg.el line { stroke: #3f3f46; stroke-width: 1.5; fill: none; }
             |

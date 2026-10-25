@@ -1,6 +1,7 @@
 package io.mszymanski.orknux.server.design
 
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import tools.jackson.databind.json.JsonMapper
 
@@ -99,6 +100,99 @@ class WireframeHtmlTest {
         // A prop that is not one of the values looked for is no prop at all: the default size, the normal weight, no variant.
         assertThat(html).contains("font-size:14px;font-weight:400").contains("class=\"el button\"")
         assertThat(html).contains("&lt;b&gt;bold&lt;/b&gt;")
+    }
+
+    @Test
+    fun `a checkbox, a radio button and a switch are real inputs in a label, ticked where they are checked`() {
+        val html = page(
+            "Settings",
+            """{"elements":[
+              {"id":"terms","type":"checkbox","x":0,"y":0,"w":200,"h":24,"text":"I agree <now>","props":{"checked":true}},
+              {"id":"news","type":"checkbox","x":0,"y":40,"w":200,"h":24,"text":"Newsletter"},
+              {"id":"card","type":"radio","x":0,"y":80,"w":200,"h":24,"text":"Card","props":{"checked":"true"}},
+              {"id":"dark","type":"toggle","x":0,"y":120,"w":200,"h":24,"text":"Dark mode","props":{"checked":false}}
+            ]}""",
+        )
+        assertThat(html).contains("<label class=\"el check checkbox\" data-id=\"terms\" style=\"left:0px;top:0px;width:200px;height:24px\"><input type=\"checkbox\" checked><span>I agree &lt;now&gt;</span></label>")
+        assertThat(html).contains("<label class=\"el check checkbox\" data-id=\"news\"").contains("<input type=\"checkbox\"><span>Newsletter</span>")
+        assertThat(html).contains("<input type=\"radio\" checked><span>Card</span>")
+        assertThat(html).contains("<input type=\"checkbox\" role=\"switch\" class=\"switch\"><span>Dark mode</span>")
+    }
+
+    @Test
+    fun `a style reaches the page as CSS, in the one spelling it was checked into`() {
+        val html = page(
+            "Styled",
+            """{"elements":[
+              {"id":"hero","type":"rect","x":0,"y":0,"w":300,"h":100,"props":{
+                "fill":"linear-gradient(90DEG, #F0A, rgb(0, 0, 255), white 100%)","color":"rgba(255, 0, 0, 0.5)",
+                "borderWidth":2,"borderStyle":"Dashed","borderColor":"#123","radius":12,"shadow":"medium"}},
+              {"id":"plain","type":"text","x":0,"y":120,"w":100,"h":20,"text":"x","props":{"fill":"navy","borderColor":"#00ff00"}},
+              {"id":"go","type":"arrow","x":0,"y":200,"w":100,"h":0,"props":{"borderColor":"#ff0000","borderWidth":3,"borderStyle":"dotted"}}
+            ]}""",
+        )
+        assertThat(html).contains(
+            "data-id=\"hero\" style=\"left:0px;top:0px;width:300px;height:100px;background:linear-gradient(90deg, #ff00aa 0%, #0000ff 50%, #ffffff 100%)" +
+                ";color:#ff000080;border:2px dashed #112233;border-radius:12px;box-shadow:0 4px 10px rgba(0,0,0,0.22)\"",
+        )
+        // A colour given to a kind with no outline draws a solid one.
+        assertThat(html).contains("data-id=\"plain\" style=\"left:0px;top:120px;width:100px;height:20px;background:#000080;border:1px solid #00ff00;")
+        assertThat(html).contains("<marker id=\"wf-arrowhead-go\"").contains("fill=\"#ff0000\"")
+            .contains("style=\"stroke:#ff0000;stroke-width:3;stroke-dasharray:3 3;\"")
+    }
+
+    @Test
+    fun `a colour or a gradient that is not one is refused, and never reaches the page as it was written`() {
+        val hostile = listOf(
+            "red;background:url(javascript:alert(1))",
+            "expression(alert(1))",
+            "#fff\" onmouseover=\"alert(2)",
+            "url(#x)",
+            "</style><script>alert(3)</script>",
+            "linear-gradient(90deg, red 0%, url(javascript:alert(4)) 100%)",
+            "linear-gradient(90deg, red 0%, blue 100%); color: red",
+            "linear-gradient(90deg, red)",
+            "rgb(300, 0, 0)",
+            "#ggg",
+            "var(--x)",
+        )
+        hostile.forEach { said ->
+            val json = """{"elements":[{"id":"a","type":"rect","x":0,"y":0,"w":10,"h":10,"props":{"fill":${quoted(said)},"color":${quoted(said)}}}]}"""
+            assertThatThrownBy { document.read(json) }.describedAs(said).isInstanceOf(WireframeDocumentInvalidException::class.java)
+                .hasMessageContaining("fill")
+            // A drawing stored before styles were checked still opens, without the value.
+            val stored = document.stored(json)
+            assertThat(stored.single().props).describedAs(said).doesNotContainKeys("fill", "color")
+            val html = WireframeHtml().page("x", stored)
+            assertThat(html).describedAs(said).doesNotContain("javascript").doesNotContain("<script").doesNotContain("onmouseover")
+                .doesNotContain("expression(").doesNotContain("url(#x)").doesNotContain("var(")
+        }
+        listOf("borderStyle" to "groove", "shadow" to "0 0 4px red", "borderWidth" to "99", "radius" to "-1", "checked" to "maybe").forEach { (key, value) ->
+            val json = """{"elements":[{"id":"a","type":"checkbox","x":0,"y":0,"w":10,"h":10,"props":{"$key":${quoted(value)}}}]}"""
+            assertThatThrownBy { document.read(json) }.describedAs(key).isInstanceOf(WireframeDocumentInvalidException::class.java).hasMessageContaining(key)
+        }
+    }
+
+    @Test
+    fun `a drawn style is the picture's too, with gradients and shadows the renderer reads`() {
+        val svg = requireNotNull(
+            WireframeSvg().drawing(
+                document.read(
+                    """{"elements":[
+                      {"id":"a","type":"button","x":0,"y":0,"w":100,"h":40,"text":"Go","props":{"fill":"linear-gradient(0deg, #ff0000, #0000ff80)","color":"#00ff00","shadow":"large","radius":20}},
+                      {"id":"b","type":"checkbox","x":0,"y":60,"w":100,"h":24,"text":"Yes","props":{"checked":true}},
+                      {"id":"c","type":"line","x":0,"y":100,"w":100,"h":0,"props":{"borderStyle":"none"}}
+                    ]}""",
+                ),
+            ),
+        )
+        assertThat(svg).contains("<linearGradient id=\"wf-fill-1\" gradientUnits=\"userSpaceOnUse\" x1=\"50\" y1=\"40\" x2=\"50\" y2=\"0\">")
+            .contains("<stop offset=\"100%\" stop-color=\"#0000ff\" stop-opacity=\"0.5\"/>")
+            .contains("rx=\"20\" fill=\"url(#wf-fill-1)\"").contains("filter=\"url(#wf-shadow-large)\"")
+            .contains("<filter id=\"wf-shadow-large\"").doesNotContain("feDropShadow")
+            .contains("fill=\"#00ff00\" text-anchor=\"middle\">Go</text>")
+            .contains("<path d=\"M 4 72 L 7 75 L 12 69\"")
+            .contains("<line x1=\"0\" y1=\"100\" x2=\"100\" y2=\"100\" stroke=\"none\"")
     }
 
     @Test

@@ -20,7 +20,9 @@ out.
   change in the wireframe editor, and a picture is not. A picture of it goes
   into the conversation by itself; answer with the wireframe's `url`, which is
   where it opens. Change one with `orknux_change_wireframe`, never by drawing a
-  new one.
+  new one. Checkboxes, radio buttons and switches are elements of their own,
+  and any element can be given a colour, a gradient, a border or a shadow: the
+  tool's description lists the kinds and the style props there are.
 - **A diagram** - boxes and arrows, a sequence, states, a timeline - is
   `diagram_render`.
 - **A chart** - numbers with labels - is `charts_render`. A pie is a chart, not
