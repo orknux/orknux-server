@@ -177,17 +177,18 @@ class SvgRenderer {
     private fun declaredWidth(svg: String): Int? =
         DECLARED_WIDTH.find(svg.take(HEADER))?.groupValues?.get(1)?.toDoubleOrNull()?.toInt()?.takeIf { it > 0 }
 
-    private companion object {
+    companion object {
         /** `<svg ... width="290px"`: the root's width, read off its opening tag. */
-        val DECLARED_WIDTH = Regex("<svg[^>]*?\\swidth=\"([0-9.]+)(?:px)?\"")
+        private val DECLARED_WIDTH = Regex("<svg[^>]*?\\swidth=\"([0-9.]+)(?:px)?\"")
 
         /** Far enough in to be past the prolog and the root's attributes. */
-        const val HEADER = 4096
+        private const val HEADER = 4096
 
         /** As long a document as this draws. A diagram, not a map. */
-        const val MOST_SOURCE = 2 * 1024 * 1024
+        private const val MOST_SOURCE = 2 * 1024 * 1024
 
+        /** The widest picture this draws for anybody: a width past it is refused, a declared one scaled down to it. */
         const val MOST_WIDTH = 4096
-        const val MOST_HEIGHT = 4096
+        private const val MOST_HEIGHT = 4096
     }
 }
