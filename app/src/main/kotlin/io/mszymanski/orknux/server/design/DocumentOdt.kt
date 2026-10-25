@@ -229,7 +229,14 @@ class DocumentOdt {
                     "hardBreak" -> into.appendChild(dom.newOdfElement(TextLineBreakElement::class.java))
                     "text" -> {
                         val marks = node.path("marks")
-                        val kinds = (0 until marks.size()).map { marks.get(it).path("type").asText("") }.toSet()
+                        // A colour is part of what a style is, so it is named in the set the styles are kept by.
+                        val kinds = (0 until marks.size()).mapNotNull { at ->
+                            val mark = marks.get(at)
+                            when (val type = mark.path("type").asText("")) {
+                                "textStyle" -> DocumentContent.colour(mark.path("attrs").path("color").asText(""))?.let { "$COLOUR$it" }
+                                else -> type
+                            }
+                        }.toSet()
                         val href = (0 until marks.size()).map { marks.get(it) }.firstOrNull { it.path("type").asText("") == "link" }
                             ?.path("attrs")?.path("href")?.asText("")
                         var target: OdfElement = into
@@ -303,6 +310,8 @@ class DocumentOdt {
             }
             if ("strike" in kinds) style.setProperty(OdfTextProperties.TextLineThroughStyle, "solid")
             if ("code" in kinds) style.setProperty(OdfTextProperties.FontFamily, "monospace")
+            kinds.firstOrNull { it.startsWith(COLOUR) }?.let { style.setProperty(OdfTextProperties.Color, it.removePrefix(COLOUR)) }
+            if ("note" in kinds) style.setProperty(OdfTextProperties.BackgroundColor, DocumentHtml.NOTE_COLOUR)
             style.styleNameAttribute
         }
 
@@ -390,6 +399,9 @@ class DocumentOdt {
         const val PIXELS_PER_MM = 96 / 25.4
 
         const val LIST_LEVELS = 6
+
+        /** How a text colour is named among a run's marks. */
+        const val COLOUR = "color:"
 
         val HEADING_POINTS = listOf("20pt", "16pt", "14pt", "12pt", "11pt", "11pt")
 

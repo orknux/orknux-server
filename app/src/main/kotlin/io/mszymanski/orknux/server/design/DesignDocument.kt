@@ -227,6 +227,9 @@ object Documents {
     const val NAME_LENGTH = 200
     const val CATALOG_NAME_LENGTH = 120
 
+    /** The longest note a highlight carries: a remark beside the words, not a second document. */
+    const val NOTE_LENGTH = 2000
+
     /** How deep blocks may nest - a list in a quote in a table cell - before it is not a document but a puzzle. */
     const val DEPTH = 40
 
@@ -290,6 +293,31 @@ class DocumentChangedException(val name: String) :
 class DocumentAnswerFailedException(val reason: String) :
     RuntimeException("The model could not answer: $reason"), Refusal {
     override val arguments get() = mapOf("reason" to reason)
+}
+
+/** A language a selection cannot be translated into, named with the ones it can. */
+class DocumentTranslationLanguageException(val asked: String) :
+    RuntimeException("A selection is translated into ${TranslationLanguages.NAMES.keys.joinToString(", ")}, not $asked"), Refusal {
+    override val arguments get() = mapOf("asked" to asked)
+}
+
+/** A selection longer than an installation sends a model to explain or translate. */
+class DocumentSelectionTooLongException(val characters: Int, val most: Int) :
+    RuntimeException("A selection sent to the model holds at most $most characters, and this one holds $characters"), Refusal {
+    override val arguments get() = mapOf("characters" to characters, "most" to most)
+}
+
+/**
+ * What the editor's Translate offers, by code, with the name the model is told. The interface
+ * names them in the reader's language; the model is told the English name, which every model knows.
+ */
+object TranslationLanguages {
+    val NAMES = linkedMapOf(
+        "en" to "English", "pl" to "Polish", "de" to "German", "fr" to "French", "es" to "Spanish",
+        "it" to "Italian", "pt" to "Portuguese", "nl" to "Dutch", "cs" to "Czech", "uk" to "Ukrainian",
+    )
+
+    fun of(asked: String?): String? = asked?.trim()?.lowercase()?.takeIf { it in NAMES }
 }
 
 class DocumentCatalogNotFoundException(val id: Long) : RuntimeException("No document catalog with id $id"), Refusal {

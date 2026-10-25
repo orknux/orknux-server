@@ -489,6 +489,21 @@ enum class Tunable(
         "How many documents a search answers",
         "Quick actions and orknux_search_documents list at most this many, names that match first.",
     ),
+    /*
+     * The editor's Translate. Counted in characters because that is what the
+     * chat model is sent and paid for: the selection whole - refused past the
+     * first - and the text either side of it cut to the second.
+     */
+    DOCUMENT_SELECTION_CHARACTERS(
+        "document.selection.characters", 8_000, 100, 200_000, TuningSection.MEDIA, TuningUnit.CHARACTERS,
+        "How much selected text Translate sends a model",
+        "A longer selection is refused and says how long it was.",
+    ),
+    DOCUMENT_SELECTION_CONTEXT_CHARACTERS(
+        "document.selection.context.characters", 600, 0, 20_000, TuningSection.MEDIA, TuningUnit.CHARACTERS,
+        "How much text around a selection Translate sends",
+        "The text before the selection and the text after it are each cut to this, so a word is translated as the document means it.",
+    ),
     DOCUMENT_SNIPPET_CHARACTERS(
         "document.snippet.characters", 160, 40, 1_000, TuningSection.MEDIA, TuningUnit.CHARACTERS,
         "How much of a document a search shows around a match",

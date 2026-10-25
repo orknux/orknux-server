@@ -2,6 +2,7 @@ package io.mszymanski.orknux.server.design
 
 import io.mszymanski.orknux.connector.model.ChatCompletion
 import io.mszymanski.orknux.connector.model.ChatTurn
+import io.mszymanski.orknux.connector.model.LlmModelView
 import io.mszymanski.orknux.connector.model.ModelChatClient
 import io.mszymanski.orknux.connector.model.ModelKind
 import io.mszymanski.orknux.connector.model.ModelService
@@ -45,17 +46,14 @@ class DocumentChat(
      * model that could not answer is refused with its reason, after whatever it
      * wrote before failing has been kept.
      */
-    fun answer(document: DesignDocumentView, modelId: Long, said: List<ChatTurn>, asker: String): String {
-        val model = catalogue.model(modelId) ?: throw ModelNotFoundForWorkspaceException(modelId)
-        if (model.workspaceId != document.workspaceId) throw ModelNotFoundForWorkspaceException(modelId)
-        if (model.kind != ModelKind.CHAT) throw ModelNotChatException(model.name)
+    fun answer(document: DesignDocumentView, modelId: Long, said: List<ChatTurn>, asker: String, readOnly: Boolean = false): String {
+        val model = chatModel(document, modelId)
 
-        val session = runCatching { sessions.open(document.workspaceId, SESSION_PREFIX, "${document.id}-$asker") }
-            .onFailure { log.warn("The document chat could not open a session for {}", asker, it) }
-            .getOrNull()
-        val scope = OrknuxScope(workspaceId = document.workspaceId, mayWrite = true, session = session)
-        val offered = offered(scope)
-        val conversation = mutableListOf(ChatTurn(role = "system", content = briefing(document, offered)))
+        val session = session(document, asker)
+        // Read-only twice over: a scope that may not write, and only the reading tools out of what it declares.
+        val scope = OrknuxScope(workspaceId = document.workspaceId, mayWrite = !readOnly, session = session)
+        val offered = offered(scope, readOnly)
+        val conversation = mutableListOf(ChatTurn(role = "system", content = if (readOnly) reading(document, offered) else briefing(document, offered)))
         conversation += said
         session?.let { held -> said.lastOrNull { it.role == "user" }?.let { sessions.userSaid(held, asker, it.content) } }
 
@@ -95,8 +93,96 @@ class DocumentChat(
         throw DocumentAnswerFailedException("it asked for a tool when it was offered none")
     }
 
-    /** The document tools for writing, read off what [OrknuxTools] declares for this scope. */
-    fun offered(scope: OrknuxScope): List<ToolSpec> = orknux.specs(scope).filter { it.name in DocumentTools.EDITING }
+    /** The document tools for writing - or for reading alone - read off what [OrknuxTools] declares for this scope. */
+    fun offered(scope: OrknuxScope, readOnly: Boolean = false): List<ToolSpec> =
+        orknux.specs(scope).filter { it.name in (if (readOnly) DocumentTools.READING else DocumentTools.EDITING) }
+
+    /**
+     * A selection put into another language: one call, offered no tools, answered with the translation
+     * alone. The words around it are sent so that a word with two meanings is translated as the
+     * document means it, and the model is told they are not to be translated.
+     */
+    fun translate(document: DesignDocumentView, modelId: Long, text: String, before: String, after: String, language: String, asker: String): String {
+        val model = chatModel(document, modelId)
+        val into = TranslationLanguages.NAMES[language] ?: throw DocumentTranslationLanguageException(language)
+        val session = session(document, asker)
+        val asked = buildString {
+            if (before.isNotBlank()) append("The text just before it, for context only:\n<before>\n").append(before).append("\n</before>\n\n")
+            if (after.isNotBlank()) append("The text just after it, for context only:\n<after>\n").append(after).append("\n</after>\n\n")
+            append("Translate into $into:\n<text>\n").append(text).append("\n</text>")
+        }
+        val turns = listOf(
+            ChatTurn(
+                role = "system",
+                content = "You translate a passage of the document \"${document.name}\" into $into. Answer with the translation " +
+                    "of the text between <text> and </text> and nothing else: no quotes, no tags, no notes, no explanation. " +
+                    "Keep its meaning, tone, punctuation and line breaks; leave names, code and numbers as they are. The text " +
+                    "around it is there so you understand what it means and is not translated.",
+            ),
+            ChatTurn(role = "user", content = asked),
+        )
+        session?.let { sessions.userSaid(it, asker, "Translate into $into: $text") }
+        when (val answer = models.complete(modelId, turns)) {
+            is ChatCompletion.Failed -> {
+                session?.let { sessions.note(it, "The model could not answer: ${answer.reason}") }
+                errors.record(document.workspaceId, io.mszymanski.orknux.server.errors.ErrorSource.MODEL, model.name, answer.reason, sessionId = session)
+                throw DocumentAnswerFailedException(answer.reason)
+            }
+            is ChatCompletion.Answered -> {
+                session?.let { sessions.agentSaid(it, SPEAKER, answer.content) }
+                val translated = unwrapped(answer.content, text)
+                if (translated.isBlank()) throw DocumentAnswerFailedException("it answered with no translation")
+                return translated
+            }
+            is ChatCompletion.CalledTools -> throw DocumentAnswerFailedException("it asked for a tool when it was offered none")
+        }
+    }
+
+    /**
+     * What a model said, less the wrapping it was told not to add and adds anyway: the tags it was
+     * shown, a fence, or quotes round the whole - each taken off only where the original had none.
+     */
+    fun unwrapped(said: String, original: String): String {
+        var text = said.trim()
+        text = text.removePrefix("<text>").removeSuffix("</text>").trim()
+        if (text.startsWith("```") && text.endsWith("```") && !original.trim().startsWith("```")) {
+            text = text.removePrefix("```").removeSuffix("```").substringAfter('\n', text.removePrefix("```").removeSuffix("```")).trim()
+        }
+        val quotes = listOf("\"" to "\"", "\u201c" to "\u201d", "\u201e" to "\u201d", "\u00ab" to "\u00bb", "'" to "'")
+        quotes.firstOrNull { (open, close) -> text.length > 1 && text.startsWith(open) && text.endsWith(close) && !original.trim().startsWith(open) }
+            ?.let { (open, close) -> text = text.removePrefix(open).removeSuffix(close).trim() }
+        return text
+    }
+
+    /** What the model is told when it is asked about the document and may not change it. */
+    fun reading(document: DesignDocumentView, offered: List<ToolSpec>): String {
+        val named = offered.map { it.name }.toSet()
+        fun tool(name: String) = if (name in named) "`$name`" else error("$name is not offered")
+        return buildString {
+            append(
+                "You answer questions about the document \"${document.name}\" (id ${document.id}) in the Orknux Design editor, " +
+                    "which the person has open beside this conversation. This time you only read it: nothing you say is " +
+                    "written into the document, and you have no tool that could change it. ",
+            )
+            append(
+                "Read it with ${tool(DocumentTools.READ)} and find words in it with ${tool(DocumentTools.FIND)} when you need " +
+                    "more than you were given - to explain a passage as it is used where it stands, or to summarise all of it. ",
+            )
+            append("Answer in the language the person writes in, plainly and briefly, as Markdown.")
+        }
+    }
+
+    private fun chatModel(document: DesignDocumentView, modelId: Long): LlmModelView {
+        val model = catalogue.model(modelId) ?: throw ModelNotFoundForWorkspaceException(modelId)
+        if (model.workspaceId != document.workspaceId) throw ModelNotFoundForWorkspaceException(modelId)
+        if (model.kind != ModelKind.CHAT) throw ModelNotChatException(model.name)
+        return model
+    }
+
+    private fun session(document: DesignDocumentView, asker: String): Long? =
+        runCatching { sessions.open(document.workspaceId, SESSION_PREFIX, "${document.id}-$asker") }
+            .onFailure { log.warn("The document chat could not open a session for {}", asker, it) }
+            .getOrNull()
 
     /**
      * What the model is told first. Every tool it names is read off a

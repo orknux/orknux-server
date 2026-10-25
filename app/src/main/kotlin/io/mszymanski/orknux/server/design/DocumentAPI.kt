@@ -318,14 +318,41 @@ class DocumentAPI(
         @Argument id: Long,
         @Argument modelId: Long,
         @Argument messages: List<DocumentChatTurnInput>,
+        @Argument readOnly: Boolean?,
     ): DocumentAnswerView {
         val held = find(id)
         // What was attached goes with the turn it was sent on: pictures as pictures, the rest as text.
         val turns = files.turns(held.workspaceId, who(), messages.map { EditorChatTurn(it.role, it.content, it.attachmentIds.orEmpty()) })
         if (turns.none { it.role == "user" }) throw DocumentAnswerFailedException("there is nothing to answer")
-        val answered = chat.answer(view(held), modelId, turns, who())
+        val answered = chat.answer(view(held), modelId, turns, who(), readOnly = readOnly == true)
         val now = find(id)
         return DocumentAnswerView(answer = answered, changed = now.revision != held.revision, document = view(now))
+    }
+
+    /**
+     * A selection put into [language] by a chat model, and answered rather than written: the editor
+     * puts it in place of the selection as one step undo goes back over, and it is saved - and
+     * audited - as every other edit is, by Save. So nothing is recorded here; nothing changed.
+     *
+     * @param before the words before the selection; only their end is sent.
+     * @param after the words after it; only their start is.
+     */
+    @MutationMapping
+    fun translateDocumentText(
+        @Argument id: Long,
+        @Argument modelId: Long,
+        @Argument text: String,
+        @Argument language: String,
+        @Argument before: String?,
+        @Argument after: String?,
+    ): String {
+        val held = find(id)
+        val into = TranslationLanguages.of(language) ?: throw DocumentTranslationLanguageException(language)
+        if (text.isBlank()) throw DocumentAnswerFailedException("there is nothing to translate")
+        val most = tuning[Tunable.DOCUMENT_SELECTION_CHARACTERS]
+        if (text.length > most) throw DocumentSelectionTooLongException(text.length, most)
+        val room = tuning[Tunable.DOCUMENT_SELECTION_CONTEXT_CHARACTERS]
+        return chat.translate(view(held), modelId, text, before.orEmpty().takeLast(room), after.orEmpty().take(room), into, who())
     }
 
     /**

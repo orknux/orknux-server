@@ -202,6 +202,68 @@ class DocumentToolsTest(
         assertThat(audit.findAll().filter { it.message == "Document Brief saved" }.map { it.userId }).containsExactly("alice")
     }
 
+    /**
+     * Explain and Summarise ask about the document rather than in it: offered only the tools that read,
+     * told so, and the document is as it was - however hard the model tries to write.
+     */
+    @Test
+    fun `a read-only ask is offered only the reading tools and changes nothing`() {
+        val id = graphQlTester.document(
+            """mutation(${'$'}w: ID!, ${'$'}d: String) { createDocument(workspaceId: ${'$'}w, name: "Brief", content: ${'$'}d) { id revision } }""",
+        ).variable("w", workspaceId).variable("d", DocumentAPITest.PARAGRAPH("Intro"))
+            .execute().path("createDocument.id").entity(Long::class.java).get()
+        val modelId = model(
+            serve { _ ->
+                if (received.size == 1) {
+                    val arguments = mapper.writeValueAsString(mapOf("document" to id.toString(), "heading" to "Goals", "markdown" to "Ship it."))
+                    """{"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[
+                       {"id":"call_1","type":"function","function":{"name":"${DocumentTools.APPEND}","arguments":${mapper.writeValueAsString(arguments)}}}
+                     ]}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}"""
+                } else {
+                    """{"choices":[{"message":{"role":"assistant","content":"It introduces the brief."}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}"""
+                }
+            },
+        )
+        graphQlTester.document(
+            """mutation { askDocument(id: $id, modelId: $modelId, readOnly: true, messages: [{role: "user", content: "Explain: Intro"}]) {
+                 answer changed document { revision } } }""",
+        ).execute()
+            .path("askDocument.answer").entity(String::class.java).isEqualTo("It introduces the brief.")
+            .path("askDocument.changed").entity(Boolean::class.java).isEqualTo(false)
+        val sentTools = mapper.readTree(received.first()).path("tools")
+        val offeredNames = (0 until sentTools.size()).map { sentTools.get(it).path("function").path("name").stringValue().orEmpty() }
+        assertThat(offeredNames).containsExactlyInAnyOrder(*DocumentTools.READING.toTypedArray())
+        assertThat(received.first()).contains("nothing you say is written into the document")
+        assertThat(received[1]).describedAs("the write it asked for was not run").contains("There is no tool called ${DocumentTools.APPEND} here")
+        assertThat(markdownOf(id)).isEqualTo("Intro\n")
+        assertThat(audit.findAll().map { it.message }).noneMatch { it == "Document Brief saved" }
+    }
+
+    /** Translate: one call, no tools, the words around the selection as context, the translation alone back. */
+    @Test
+    fun `a selection is translated into the language asked, with the words around it, and nothing is written`() {
+        val id = graphQlTester.document(
+            """mutation(${'$'}w: ID!, ${'$'}d: String) { createDocument(workspaceId: ${'$'}w, name: "Brief", content: ${'$'}d) { id } }""",
+        ).variable("w", workspaceId).variable("d", DocumentAPITest.PARAGRAPH("We ship the editor in May."))
+            .execute().path("createDocument.id").entity(Long::class.java).get()
+        val modelId = model(serve { """{"choices":[{"message":{"role":"assistant","content":"\"edytor\""}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}""" })
+        fun translate(text: String, language: String) = graphQlTester.document(
+            """mutation(${'$'}t: String!, ${'$'}l: String!) { translateDocumentText(id: $id, modelId: $modelId, text: ${'$'}t, language: ${'$'}l,
+                 before: "We ship the ", after: " in May.") }""",
+        ).variable("t", text).variable("l", language).execute()
+
+        translate("editor", "pl").path("translateDocumentText").entity(String::class.java).isEqualTo("edytor")
+        val sent = mapper.readTree(received.single())
+        assertThat(sent.path("tools").isMissingNode || sent.path("tools").isEmpty).isTrue()
+        assertThat(received.single()).contains("Translate into Polish", "<text>\\neditor\\n</text>", "We ship the ", " in May.")
+        assertThat(markdownOf(id)).isEqualTo("We ship the editor in May.\n")
+
+        translate("editor", "xx").errors().expect { it.message?.startsWith("A selection is translated into en, pl,") == true && it.message!!.endsWith("not xx") }.verify()
+        translate("w".repeat(8_001), "pl").errors()
+            .expect { it.message == "A selection sent to the model holds at most 8000 characters, and this one holds 8001" }.verify()
+        assertThat(received).hasSize(1)
+    }
+
     /** The editor's suggestion: the workspace's completion model, the title and the text around the caret, only the new words. */
     @Test
     fun `the editor's suggestion comes from the completion model, shown the text around the caret`() {

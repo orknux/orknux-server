@@ -168,10 +168,24 @@ class DocumentContent(private val mapper: ObjectMapper) {
             if (type !in MARKS) throw DocumentContentInvalidException("a mark of type $type is not one of ${MARKS.joinToString(", ")}")
             if (!seen.add(type)) continue
             val made = mapper.createObjectNode().put("type", type)
-            if (type == "link") {
-                // An address that runs something when followed is not kept; the words stay, unlinked.
-                val href = text(mark.path("attrs").path("href"))?.trim()?.takeIf { safeLink(it) } ?: continue
-                made.putObject("attrs").put("href", href.take(2000))
+            when (type) {
+                "link" -> {
+                    // An address that runs something when followed is not kept; the words stay, unlinked.
+                    val href = text(mark.path("attrs").path("href"))?.trim()?.takeIf { safeLink(it) } ?: continue
+                    made.putObject("attrs").put("href", href.take(2000))
+                }
+                // A colour is kept as #rrggbb whatever it arrived as - a paste carries rgb() - and one that is
+                // not a colour at all, a name or a var(), leaves the words in the ordinary colour.
+                "textStyle" -> made.putObject("attrs").put("color", colour(text(mark.path("attrs").path("color"))) ?: continue)
+                "note" -> {
+                    val attrs = mark.path("attrs")
+                    val note = text(attrs.path("note"))?.trim().orEmpty()
+                    if (note.length > Documents.NOTE_LENGTH) {
+                        throw DocumentContentInvalidException("a highlight's note is at most ${Documents.NOTE_LENGTH} characters, and one holds ${note.length}")
+                    }
+                    val kept = made.putObject("attrs").put("note", note)
+                    text(attrs.path("id"))?.trim()?.takeIf { NOTE_ID.matches(it) }?.let { kept.put("id", it) }
+                }
             }
             kept.add(made)
         }
@@ -197,7 +211,30 @@ class DocumentContent(private val mapper: ObjectMapper) {
             "horizontalRule", "hardBreak", "pageBreak", "image", "table", "tableRow", "tableHeader", "tableCell",
         )
 
-        val MARKS = listOf("bold", "italic", "underline", "strike", "code", "link")
+        /**
+         * Every mark the editor has an extension for. `textStyle` carries a text colour and nothing else;
+         * `note` is a highlight with the note written on it, and an id that tells two highlights apart.
+         */
+        val MARKS = listOf("bold", "italic", "underline", "strike", "code", "link", "textStyle", "note")
+
+        /** What a highlight is told apart by: the editor makes one, short and plain. */
+        private val NOTE_ID = Regex("^[A-Za-z0-9_-]{1,40}$")
+
+        private val HEX = Regex("^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+        private val RGB = Regex("""^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(,\s*[0-9.]+%?\s*)?\)$""")
+
+        /** A text colour as `#rrggbb`, from a hex or an `rgb()`; null for anything that is not one. */
+        fun colour(asked: String?): String? {
+            val value = asked?.trim()?.lowercase() ?: return null
+            HEX.matchEntire(value)?.let { hex ->
+                val digits = hex.groupValues[1]
+                return "#" + if (digits.length == 3) digits.map { "$it$it" }.joinToString("") else digits
+            }
+            val rgb = RGB.matchEntire(value) ?: return null
+            val parts = (1..3).map { rgb.groupValues[it].toInt() }
+            if (parts.any { it > 255 }) return null
+            return "#" + parts.joinToString("") { String.format(java.util.Locale.ROOT, "%02x", it) }
+        }
 
         /** Nodes that hold nothing. */
         private val LEAVES = setOf("horizontalRule", "hardBreak", "pageBreak")

@@ -985,6 +985,8 @@ orknux:
     grammar.text.most: ${ORKNUX_TUNING_GRAMMAR_TEXT_MOST:20000}
     document.search.results: ${ORKNUX_TUNING_DOCUMENT_SEARCH_RESULTS:20}
     document.snippet.characters: ${ORKNUX_TUNING_DOCUMENT_SNIPPET_CHARACTERS:160}
+    document.selection.characters: ${ORKNUX_TUNING_DOCUMENT_SELECTION_CHARACTERS:8000}
+    document.selection.context.characters: ${ORKNUX_TUNING_DOCUMENT_SELECTION_CONTEXT_CHARACTERS:600}
     diagram.note.characters: ${ORKNUX_TUNING_DIAGRAM_NOTE_CHARACTERS:5000}
     diagram.description.characters: ${ORKNUX_TUNING_DIAGRAM_DESCRIPTION_CHARACTERS:2000}
     diagram.items.most: ${ORKNUX_TUNING_DIAGRAM_ITEMS_MOST:2000}

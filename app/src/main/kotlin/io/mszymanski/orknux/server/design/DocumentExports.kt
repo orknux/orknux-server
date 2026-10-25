@@ -287,6 +287,10 @@ class DocumentHtml {
                             "code" -> "<code>$text</code>"
                             // A link stays words in a PDF: nothing in it is followed while it is laid out.
                             "link" -> "<a href=\"${escape(mark.path("attrs").path("href").asText(""))}\">$text</a>"
+                            // Read through the same check a save is, so nothing but a colour reaches the style.
+                            "textStyle" -> DocumentContent.colour(mark.path("attrs").path("color").asText(""))
+                                ?.let { "<span style=\"color: $it\">$text</span>" } ?: text
+                            "note" -> "<span style=\"background-color: $NOTE_COLOUR\">$text</span>"
                             else -> text
                         }
                     }
@@ -301,6 +305,9 @@ class DocumentHtml {
     private fun escape(text: String): String = Entities.escape(text)
 
     companion object {
+        /** What a highlight is drawn in on paper: the editor's own yellow, which prints legibly under black. */
+        const val NOTE_COLOUR = "#fde68a"
+
         fun mm(value: Double): String = String.format(java.util.Locale.ROOT, "%.2fmm", value)
     }
 }

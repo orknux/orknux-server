@@ -67,7 +67,18 @@ extend type Mutation {
     Asks a chat model to write in the document: the conversation so far, oldest
     first, ending with what is asked now. Whatever it writes is saved as it goes.
     """
-    askDocument(id: ID!, modelId: ID!, messages: [DocumentChatTurnInput!]!): DocumentAnswer!
+    askDocument(
+        id: ID!, modelId: ID!, messages: [DocumentChatTurnInput!]!,
+        "True to ask about the document rather than in it - Explain, Summarise: the model is offered only the tools that read it, and nothing is saved."
+        readOnly: Boolean
+    ): DocumentAnswer!
+    """
+    A selection of the document put into another language by a chat model, and
+    answered: nothing is written, the editor puts it in place of the selection.
+    `language` is en, pl, de, fr, es, it, pt, nl, cs or uk; `before` and `after`
+    are the words around the selection, sent as context.
+    """
+    translateDocumentText(id: ID!, modelId: ID!, text: String!, language: String!, before: String, after: String): String!
     """
     Reads a file into the document's vocabulary - PDF, Markdown (or Export's
     zip of it), ODT, DOCX, HTML or text - for the editor to put on the page,
