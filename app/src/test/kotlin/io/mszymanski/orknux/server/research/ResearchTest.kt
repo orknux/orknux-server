@@ -826,11 +826,11 @@ class ResearchTest(
     /* ------------------------------------------------------------- images --- */
 
     @Test
-    fun `a research not asked for images looks for none, fetches none and tells the writer of none`() {
+    fun `a research told not to look for images looks for none, fetches none and tells the writer of none`() {
         val modelId = model(serve())
         val id = start(
             """{ workspaceId: $workspaceId, question: "Why are there tides?", modeId: ${modeId("SHALLOW")}, modelId: $modelId,
-                 language: FORMAL, outputFormat: PDF }""",
+                 language: FORMAL, outputFormat: PDF, includeImages: false }""",
         )
         val done = settled(id)
         assertThat(done.status).describedAs(done.error).isEqualTo(ResearchStatus.COMPLETED)
@@ -965,11 +965,18 @@ class ResearchTest(
         assertThat(read.path("images").values().map { it.path("caption").stringValue() }).containsExactly("A tide chart", "Another picture")
         assertThat(read.path("images").first().path("file").stringValue()).startsWith("http").contains("/api/artifacts/")
 
-        // Left out, it is off.
+        // Left out, it is on; said, it is off.
         val plain = mapper.readTree(
             orknux.run(scope, "orknux_start_research", """{"question":"Tides","sitesInclude":["harbour.example.org/tides"],"webSearch":false}"""),
         )
-        assertThat(settled(plain.path("started").asLong()).includeImages).isFalse()
+        assertThat(settled(plain.path("started").asLong()).includeImages).isTrue()
+        val without = mapper.readTree(
+            orknux.run(
+                scope, "orknux_start_research",
+                """{"question":"Tides","sitesInclude":["harbour.example.org/tides"],"webSearch":false,"includeImages":false}""",
+            ),
+        )
+        assertThat(settled(without.path("started").asLong()).includeImages).isFalse()
     }
 
     @Test

@@ -15,6 +15,8 @@ extend type Query {
 extend type Mutation {
     "Writes a research down and starts its mode's workflow; answers at once, with it running."
     startResearch(input: StartResearchInput!): Research!
+    "Starts a research on one of a finished research's follow-up questions, with the same mode, model, language, output, sources, images and review, linked back to it."
+    startFollowUpResearch(parentId: ID!, question: String!): Research!
     "Takes a research off the list. Its run and its file are kept."
     deleteResearch(id: ID!): Boolean!
     "Runs a finished, failed or stopped research again from one of its steps, the steps before it carried over from its run; the same research, running again. Without a stage, from the step that failed or was cut short."
@@ -139,6 +141,22 @@ type Research {
     reviewerModelName: String
     "What each round of review said, in order; empty where it is not reviewed, or not yet."
     reviewRounds: [ResearchReviewRound!]!
+    "The questions it suggests asking next, once it has finished; each starts a research of its own."
+    followUps: [String!]!
+    "How many it was asked for when it started; null for one started before there were any."
+    followUpCount: Int
+    "The research it was started from as a follow-up; null where it was not."
+    parentId: ID
+    parentQuestion: String
+    "The research started from it as follow-ups, oldest first; read only on the one opened."
+    children: [ResearchChild!]!
+}
+
+"A research started from another as a follow-up, as the parent lists it."
+type ResearchChild {
+    id: ID!
+    question: String!
+    status: ResearchStatus!
 }
 
 "One round of review: the reviewer's verdict and what it found, and whether the writer revised the report for it."
@@ -245,11 +263,15 @@ input StartResearchInput {
     documentsExclude: [ID!]
     "Whether to search the web; off reads only the documents and the websites to keep to. On when absent."
     useWebSearch: Boolean
-    "Whether to look for images, place them in the report and keep each as an artifact. Off when absent."
+    "Whether to look for images, place them in the report and keep each as an artifact. On when absent."
     includeImages: Boolean
     "Whether a second model reviews the report before it is saved. Off when absent; on, reviewerModelId is required."
     review: Boolean
     reviewerModelId: ID
+    "How many follow-up questions it suggests once finished, 0 to 10; absent is the workspace's number."
+    followUps: Int
+    "The research this one follows up, in the same workspace."
+    parentId: ID
 }
 
 input CreateResearchModeInput {

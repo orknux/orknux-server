@@ -2038,6 +2038,8 @@ type Mutation {
     setWorkspaceChatMaxRounds(workspaceId: ID!, count: Int): Workspace!
     "Rounds of review a reviewed research here gets; within research.review.rounds' bounds, null takes the installation's."
     setWorkspaceResearchReviewRounds(workspaceId: ID!, count: Int): Workspace!
+    "Follow-up questions a finished research here suggests; 0 to 10, null takes the installation's."
+    setWorkspaceResearchFollowUps(workspaceId: ID!, count: Int): Workspace!
     "How many tool calls one message here may ask for; null takes the installation's. Issue #518."
     setWorkspaceMaxToolCallsAtOnce(workspaceId: ID!, count: Int): Workspace!
     "How a turn here is compacted when it outgrows its model; null on any takes the installation's. Issue #522."
@@ -2581,6 +2583,10 @@ type Workspace {
     researchReviewRounds: Int
     "What a reviewed research here gets when `researchReviewRounds` is null: the installation's number."
     researchReviewRoundsDefault: Int!
+    "Follow-up questions a finished research here suggests; null is the installation's research.followups."
+    researchFollowUps: Int
+    "What a research here suggests when `researchFollowUps` is null: the installation's number."
+    researchFollowUpsDefault: Int!
     """
     How many tool calls one message from an agent here may ask for at once.
 

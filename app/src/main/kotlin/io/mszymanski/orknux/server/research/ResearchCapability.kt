@@ -50,6 +50,7 @@ class ResearchCapability(
     private val tuning: Tuning,
     private val mapper: ObjectMapper,
     private val reviewRounds: ResearchReviewRounds,
+    private val followUps: ResearchFollowUps,
 ) : EmbeddedCapability {
 
     override val key = KEY
@@ -269,6 +270,8 @@ class ResearchCapability(
             said.info("$placed of ${images.size} kept ${if (images.size == 1) "image is" else "images are"} placed in the report")
             found["images"] = images.map { mapOf("number" to it.number, "caption" to it.caption, "artifact" to it.artifactId) }
         }
+        // What to research next, once the report is the one that is saved: asked apart from it, so it is never in it.
+        followUps.suggest(researchId, report)
         return when (val delivered = delivery.deliver(workspaceId, question, format, report, images)) {
             is ResearchDelivery.Delivered.Saved -> {
                 researchId?.let { researches.noteDelivered(it, delivered.artifactId, null) }

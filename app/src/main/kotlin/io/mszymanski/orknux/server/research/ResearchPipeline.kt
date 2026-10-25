@@ -1194,6 +1194,9 @@ class ResearchPipeline(
         return Triple(mapper.writeValueAsString(progress), mapper.writeValueAsString(keptSources), mapper.writeValueAsString(keptImages))
     }
 
+    /** The parts a research's question was broken into, as its row says. */
+    fun subQuestionsOf(held: String?): List<String> = progressFrom(held)?.subQuestions.orEmpty()
+
     /** The pictures a research row holds; none where it holds none, or something an older server wrote. */
     fun imagesFrom(held: String?): List<ResearchImage> =
         held?.let { runCatching { mapper.readTree(it) }.getOrNull() }?.takeIf { it.isArray }?.let(::imagesOf).orEmpty()
@@ -1258,6 +1261,12 @@ class ResearchPipeline(
             "\"issues\": [{\"kind\": \"unsupported\", \"missing\", \"citation\", \"contradiction\" or \"formatting\", " +
             "\"issue\": what is wrong, quoting the passage, \"fix\": what to change}]}. Accept when nothing is worth " +
             "changing; ask to revise only for issues you can name."
+
+        /** What a finished research's follow-up questions are asked with. */
+        const val FOLLOW_UPS = "You suggest what to research next. From a question, the parts already covered and the " +
+            "report written on it, write the follow-up questions a reader of the report would most want answered " +
+            "next: each specific, each a research of its own, none repeating a part already covered. Answer with a " +
+            "JSON array of strings and nothing else."
 
         /** What the writer is told above the reviewer's findings. */
         const val REVISE = "A reviewer read your report and asks for these changes. Write the whole report again " +

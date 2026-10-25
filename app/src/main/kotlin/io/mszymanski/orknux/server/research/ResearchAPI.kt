@@ -54,6 +54,7 @@ class ResearchAPI(
     private val estimates: ResearchEstimates,
     private val drafts: ResearchDrafts,
     private val pipeline: ResearchPipeline,
+    private val followUps: ResearchFollowUps,
 ) {
 
     /**
@@ -158,7 +159,8 @@ class ResearchAPI(
         if (model == null) throw ResearchModelMissingException()
         val useWebSearch = input.useWebSearch ?: true
         if (!useWebSearch && included.isEmpty() && websitesInclude.isEmpty()) throw ResearchNothingToReadException()
-        val includeImages = input.includeImages ?: false
+        // On unless said otherwise: a report with its pictures is what most research is asked for.
+        val includeImages = input.includeImages ?: true
         // A review is a second model reading the report, and a review with no model to read it is no review.
         val review = input.review ?: false
         val reviewer = if (!review) {
@@ -168,6 +170,15 @@ class ResearchAPI(
             // A review asked of a workflow with no Review step would be a research that says it was reviewed and was not.
             if (!seeding.reviews(requireNotNull(assignment.workflow.id))) throw ResearchModeNotReviewedException(mode.name)
             chatModels.usable(input.workspaceId, asked) ?: throw ResearchReviewerUnusableException()
+        }
+        // How many questions to suggest once it is finished: what the start said, or the workspace's number.
+        val bounds = io.mszymanski.orknux.server.tuning.Tunable.RESEARCH_FOLLOW_UPS.let { it.least..it.most }
+        val followUpCount = input.followUps?.also {
+            if (it !in bounds) throw ResearchFollowUpsOutOfRangeException(it, bounds.first, bounds.last)
+        } ?: followUps.countFor(input.workspaceId)
+        // The research it follows up, which has to be one of this workspace's.
+        val parent = input.parentId?.let { parentId ->
+            researches.findByIdOrNull(parentId)?.takeIf { it.workspaceId == input.workspaceId } ?: throw ResearchNotFoundException(parentId)
         }
 
         val research = researches.save(
@@ -188,13 +199,17 @@ class ResearchAPI(
                 review = review,
                 reviewerModelId = reviewer?.id,
                 reviewerModelName = reviewer?.name,
+                followUpCount = followUpCount,
+                parentResearchId = parent?.id,
                 startedBy = SecurityContextHolder.getContext().authentication?.name ?: "system",
             ),
         )
         auditRecorder.record(
             input.workspaceId,
             WorkspaceAuditCategory.WORKFLOW,
-            "Research started in ${mode.name} mode: ${question.replace(Regex("\\s+"), " ").take(MOST_AUDITED)}",
+            "Research started in ${mode.name} mode" +
+                (parent?.let { " as a follow-up of #${it.id}" } ?: "") +
+                ": ${question.replace(Regex("\\s+"), " ").take(MOST_AUDITED)}",
         )
 
         /*
@@ -303,6 +318,47 @@ class ResearchAPI(
         val waiting = recorded.indexOfFirst { it.status == StepStatus.PENDING }
         if (waiting < 0) throw ResearchNothingToRestartException()
         return recorded.take(waiting).lastOrNull { it.status == StepStatus.COMPLETED }?.takeIf { waiting > 1 }
+    }
+
+    /**
+     * A research on one of a finished research's follow-up questions: the same
+     * mode, model, language, output, websites, documents, web search, images,
+     * review and number of follow-ups, with the question as its topic and the
+     * parent as where it came from. Through [startResearch], so it is checked
+     * and refused exactly as any start is - a model the workspace has since
+     * lost, a mode removed.
+     */
+    @MutationMapping
+    fun startFollowUpResearch(@Argument parentId: Long, @Argument question: String): ResearchView {
+        val parent = researches.findByIdOrNull(parentId)?.takeIf { access.canSee(it.workspaceId) }
+            ?: throw ResearchNotFoundException(parentId)
+        return startResearch(followUpOf(parent, question))
+    }
+
+    /** What starting a follow-up of [parent] on [question] asks for: everything the parent was started with. */
+    fun followUpOf(parent: Research, question: String): StartResearchInput {
+        val sources = runCatching { mapper.readTree(parent.sources) }.getOrNull()
+        fun texts(key: String) = sources?.path(key)?.toList()?.mapNotNull { one ->
+            one.takeIf { it.isTextual }?.stringValue() ?: one.takeIf { it.isNumber }?.asString()
+        }.orEmpty()
+        return StartResearchInput(
+            workspaceId = parent.workspaceId,
+            question = question,
+            modeId = parent.modeId ?: throw ResearchModeNotFoundException(0),
+            modelId = parent.modelId,
+            language = parent.language,
+            outputFormat = parent.outputFormat,
+            websitesInclude = texts("websitesInclude"),
+            websitesExclude = texts("websitesExclude"),
+            documentsInclude = texts("documentsInclude").mapNotNull { it.toLongOrNull() },
+            documentsExclude = texts("documentsExclude").mapNotNull { it.toLongOrNull() },
+            useWebSearch = parent.useWebSearch,
+            includeImages = parent.includeImages,
+            review = parent.review,
+            reviewerModelId = parent.reviewerModelId,
+            followUps = parent.followUpCount,
+            parentId = parent.id,
+        )
     }
 
     /** Takes a research off the list. Its run and its file stay where they are. */
@@ -450,6 +506,15 @@ class ResearchAPI(
             reviewerModelId = research.reviewerModelId,
             reviewerModelName = research.reviewerModelName,
             reviewRounds = pipeline.reviewRoundsFrom(research.reviewRounds),
+            followUps = followUps.of(research.followUps),
+            followUpCount = research.followUpCount,
+            parentId = research.parentResearchId,
+            parentQuestion = research.parentResearchId?.takeIf { estimated }?.let { researches.findByIdOrNull(it)?.question },
+            children = if (!estimated) {
+                emptyList()
+            } else {
+                researches.findByParentResearchIdOrderByStartedAtAscIdAsc(id).map { ResearchChildView(requireNotNull(it.id), it.question, it.status) }
+            },
             draft = if (running) drafts.of(id) else null,
             estimatedSecondsLeft = if (running && estimated) estimates.secondsLeft(research) else null,
         )
@@ -536,11 +601,15 @@ data class StartResearchInput(
     val documentsExclude: List<Long>? = null,
     /** Absent is on: a research searches the web unless told not to. */
     val useWebSearch: Boolean? = null,
-    /** Absent is off: a research looks for images only when asked to. */
+    /** Absent is on: a research looks for images unless told not to. */
     val includeImages: Boolean? = null,
     /** Absent is off: a research is reviewed only when asked to, and then [reviewerModelId] is required. */
     val review: Boolean? = null,
     val reviewerModelId: Long? = null,
+    /** How many follow-up questions to suggest once finished; absent is the workspace's number. */
+    val followUps: Int? = null,
+    /** The research this one follows up. */
+    val parentId: Long? = null,
 )
 
 data class CreateResearchModeInput(
@@ -616,7 +685,15 @@ data class ResearchView(
     val reviewerModelName: String? = null,
     /** What each round of review said; empty for one not reviewed, or not yet. */
     val reviewRounds: List<ResearchReviewRound> = emptyList(),
+    val followUps: List<String> = emptyList(),
+    val followUpCount: Int? = null,
+    val parentId: Long? = null,
+    val parentQuestion: String? = null,
+    val children: List<ResearchChildView> = emptyList(),
 )
+
+/** A research started from another as a follow-up, as the parent lists it. */
+data class ResearchChildView(val id: Long, val question: String, val status: ResearchStatus)
 
 data class ResearchProgressView(
     val step: String,
@@ -664,6 +741,11 @@ data class ResearchPage(
 class ResearchQuestionMissingException : RuntimeException("Say what to research")
 
 class ResearchReviewerMissingException : RuntimeException("Choose the chat model that reviews the research")
+
+class ResearchFollowUpsOutOfRangeException(val count: Int, val least: Int, val most: Int) :
+    RuntimeException("$count is not a number of follow-up questions; choose between $least and $most"), Refusal {
+    override val arguments get() = mapOf("count" to count, "least" to least, "most" to most)
+}
 
 class ResearchReviewerUnusableException : RuntimeException("That model cannot review research in this workspace")
 

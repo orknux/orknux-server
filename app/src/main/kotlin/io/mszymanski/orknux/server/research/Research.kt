@@ -170,6 +170,18 @@ class Research(
     @Column(name = "review_rounds", columnDefinition = "text")
     var reviewRounds: String? = null,
 
+    /** The questions it suggests asking next, as a JSON list of strings; null until it has finished, or where it asked for none. */
+    @Column(name = "follow_ups", columnDefinition = "text")
+    var followUps: String? = null,
+
+    /** How many follow-up questions it was asked for when it started; null for one started before there were any. */
+    @Column(name = "follow_up_count")
+    val followUpCount: Int? = null,
+
+    /** The research it was started from as a follow-up, by id without a key: removing the parent leaves the child. */
+    @Column(name = "parent_research_id")
+    val parentResearchId: Long? = null,
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     var status: ResearchStatus = ResearchStatus.RUNNING,
@@ -282,7 +294,7 @@ interface ResearchRepository : JpaRepository<Research, Long> {
     @Query(
         "UPDATE Research r SET r.executionId = :executionId, r.status = :status, r.error = NULL, r.result = NULL, " +
             "r.artifactId = NULL, r.finishedAt = NULL, r.progress = :progress, r.foundSources = :sources, " +
-            "r.foundImages = :images, r.earlierRuns = :earlier, r.reviewRounds = :reviewRounds WHERE r.id = :id",
+            "r.foundImages = :images, r.earlierRuns = :earlier, r.reviewRounds = :reviewRounds, r.followUps = NULL WHERE r.id = :id",
     )
     fun restarted(
         @Param("id") id: Long,
@@ -294,6 +306,15 @@ interface ResearchRepository : JpaRepository<Research, Long> {
         @Param("earlier") earlier: String,
         @Param("reviewRounds") reviewRounds: String?,
     ): Int
+
+    /** The follow-up questions a finished research suggests, written by Save once the report is final. */
+    @Modifying
+    @Transactional
+    @Query("UPDATE Research r SET r.followUps = :followUps WHERE r.id = :id")
+    fun noteFollowUps(@Param("id") id: Long, @Param("followUps") followUps: String): Int
+
+    /** The research started from this one as follow-ups, oldest first. */
+    fun findByParentResearchIdOrderByStartedAtAscIdAsc(parentResearchId: Long): List<Research>
 
     /** What the Review step's rounds said so far, written as each one ends, for the reason [attachRun] gives. */
     @Modifying
