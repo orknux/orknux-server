@@ -62,6 +62,8 @@ class RevisionSweeper(
     private val properties: RevisionProperties,
     /** Which replica sweeps; alone where nothing says otherwise. Issue #597. */
     private val leader: ClusterLeader = ClusterLeader.alone(),
+    /** What prunes the kinds kept by count - a document's history - after the count is lowered. */
+    private val recorder: ComponentRevisionRecorder? = null,
 ) : SmartLifecycle {
 
     /**
@@ -141,7 +143,10 @@ class RevisionSweeper(
         val old = publications.idsPublishedBefore(cutoff).filterNot { it in live }
         if (old.isNotEmpty()) publications.deleteAllByIdInBatch(old)
 
-        val swept = stale.size + old.size
+        // A document's history is kept by count, not by age; a count lowered since its last save is honoured here.
+        val pruned = recorder?.pruneAll(ComponentRevisionKind.DOCUMENT) ?: 0
+
+        val swept = stale.size + old.size + pruned
         if (swept > 0) log.info("Swept {} revisions recorded before {}", swept, cutoff)
         return swept
     }

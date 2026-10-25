@@ -9,6 +9,7 @@ import io.mszymanski.orknux.server.design.DocumentAPI
 import io.mszymanski.orknux.server.design.DocumentCatalogRepository
 import io.mszymanski.orknux.server.design.DocumentContentInvalidException
 import io.mszymanski.orknux.server.design.DocumentMarkdown
+import io.mszymanski.orknux.server.design.DocumentDoor
 import io.mszymanski.orknux.server.design.DocumentPageSize
 import io.mszymanski.orknux.server.design.ImportDesignImageInput
 import io.mszymanski.orknux.server.llm.LlmSessionStore
@@ -211,9 +212,9 @@ class DocumentTools(
                 EXPORT -> withDocument(scope, asked) { export(scope, it, asked) }
                 else -> if (!scope.mayWrite) refuse("This conversation may read what is here, but not change it") else when (name) {
                     CREATE -> create(scope, asked)
-                    WRITE -> withDocument(scope, asked) { write(it, asked) }
-                    INSERT -> withDocument(scope, asked) { insert(it, asked) }
-                    APPEND -> withDocument(scope, asked) { append(it, asked) }
+                    WRITE -> withDocument(scope, asked) { write(scope, it, asked) }
+                    INSERT -> withDocument(scope, asked) { insert(scope, it, asked) }
+                    APPEND -> withDocument(scope, asked) { append(scope, it, asked) }
                     ADD_IMAGE -> withDocument(scope, asked) { addImage(scope, it, asked) }
                     else -> refuse("There is no tool called $name")
                 }
@@ -358,11 +359,15 @@ class DocumentTools(
             found?.id ?: api.createDocumentCatalog(scope.workspaceId, named).id
         }
         val doc = text(asked.path(MARKDOWN))?.let { markdown.document(it) } ?: api.content.empty()
-        val made = api.create(scope.workspaceId, catalogId, name, api.content.checked(doc, scope.workspaceId), pageSize)
+        val made = api.create(
+            scope.workspaceId, catalogId, name, api.content.checked(doc, scope.workspaceId), pageSize,
+            door = if (scope.documentTurn == null) DocumentDoor.TOOL else DocumentDoor.CHAT,
+            turn = scope.documentTurn,
+        )
         return written(api.find(made.id))
     }
 
-    private fun write(document: DesignDocument, asked: JsonNode): String {
+    private fun write(scope: OrknuxScope, document: DesignDocument, asked: JsonNode): String {
         val text = text(asked.path(MARKDOWN)) ?: return refuse("Give the $MARKDOWN to write.")
         val from = int(asked.path(FROM))
         val tree = if (from == null) {
@@ -375,22 +380,22 @@ class DocumentTools(
             }
             withBlocks(blocks.subList(0, from) + markdown.read(text) + blocks.subList(to + 1, blocks.size))
         }
-        return saved(document, tree)
+        return saved(scope, document, tree)
     }
 
-    private fun insert(document: DesignDocument, asked: JsonNode): String {
+    private fun insert(scope: OrknuxScope, document: DesignDocument, asked: JsonNode): String {
         val text = text(asked.path(MARKDOWN)) ?: return refuse("Give the $MARKDOWN to put in.")
         val blocks = blocksOf(document)
         val at = int(asked.path(AT)) ?: blocks.size
         if (at < 0 || at > blocks.size) return refuse("${document.name} has blocks 0 to ${blocks.size - 1}; $AT is one of them, or ${blocks.size} for the end")
-        return saved(document, withBlocks(blocks.subList(0, at) + markdown.read(text) + blocks.subList(at, blocks.size)))
+        return saved(scope, document, withBlocks(blocks.subList(0, at) + markdown.read(text) + blocks.subList(at, blocks.size)))
     }
 
-    private fun append(document: DesignDocument, asked: JsonNode): String {
+    private fun append(scope: OrknuxScope, document: DesignDocument, asked: JsonNode): String {
         val heading = text(asked.path(HEADING)) ?: return refuse("Give the section a $HEADING.")
         val level = (int(asked.path(LEVEL)) ?: 2).coerceIn(1, 6)
         val section = markdown.read("#".repeat(level) + " " + heading.replace("\n", " ") + "\n\n" + (text(asked.path(MARKDOWN)) ?: ""))
-        return saved(document, withBlocks(blocksOf(document).dropLastWhile(::emptyParagraph) + section))
+        return saved(scope, document, withBlocks(blocksOf(document).dropLastWhile(::emptyParagraph) + section))
     }
 
     private fun addImage(scope: OrknuxScope, document: DesignDocument, asked: JsonNode): String {
@@ -417,7 +422,7 @@ class DocumentTools(
         val blocks = blocksOf(document)
         val at = int(asked.path(AT)) ?: blocks.size
         if (at < 0 || at > blocks.size) return refuse("${document.name} has blocks 0 to ${blocks.size - 1}; $AT is one of them, or ${blocks.size} for the end")
-        return saved(document, withBlocks(blocks.subList(0, at) + listOf(picture) + blocks.subList(at, blocks.size)))
+        return saved(scope, document, withBlocks(blocks.subList(0, at) + listOf(picture) + blocks.subList(at, blocks.size)))
     }
 
     /** A picture handed over by key, kept; or why it could not be. */
@@ -455,8 +460,9 @@ class DocumentTools(
         }
     }
 
-    private fun saved(document: DesignDocument, doc: ObjectNode): String {
-        api.saveContent(requireNotNull(document.id), doc)
+    /** Saved through the document's one door, saying which turn of the document chat it is, where it is one. */
+    private fun saved(scope: OrknuxScope, document: DesignDocument, doc: ObjectNode): String {
+        api.saveContent(requireNotNull(document.id), doc, scope.documentTurn)
         return written(api.find(requireNotNull(document.id)))
     }
 

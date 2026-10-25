@@ -51,7 +51,9 @@ class DocumentChat(
 
         val session = session(document, asker)
         // Read-only twice over: a scope that may not write, and only the reading tools out of what it declares.
-        val scope = OrknuxScope(workspaceId = document.workspaceId, mayWrite = !readOnly, session = session)
+        // One turn: what it saves keeps one version of the document between them, the state before it.
+        val turn = java.util.UUID.randomUUID().toString()
+        val scope = OrknuxScope(workspaceId = document.workspaceId, mayWrite = !readOnly, session = session, documentTurn = turn)
         val offered = offered(scope, readOnly)
         val conversation = mutableListOf(ChatTurn(role = "system", content = if (readOnly) reading(document, offered) else briefing(document, offered)))
         conversation += said

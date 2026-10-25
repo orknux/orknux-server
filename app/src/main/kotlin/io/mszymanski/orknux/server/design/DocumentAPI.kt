@@ -33,13 +33,17 @@ import java.time.OffsetDateTime
  * checked by the same [DocumentContent], held to the same Tunable and written
  * in the audit log in the same words, under the name of whoever asked.
  *
- * **Not versioned through ComponentRevisionRecorder.** A document is work done
- * in the workspace, like a wireframe or a picture, not a component a workflow
- * runs: nothing executes an older version of it, and the history that recorder
- * keeps is there so that a change in what *runs* can be traced and put back. A
- * document is saved far more often than a function is, and every save would
- * be a whole copy of its content. What protects it instead is [DesignDocument.revision],
- * which refuses a save over a change somebody else made, and the editor's undo.
+ * **Versioned through ComponentRevisionRecorder**, as a function or an agent
+ * is: every write of its content - the editor's Save, an import saved there,
+ * the document chat, the orknux_* tools, a restore - goes through [write],
+ * which hands the recorder the state it displaces and the door that state was
+ * saved through. Nothing runs an older version of a document, but people want
+ * to see what changed and go back, and the many doors are exactly what that
+ * recorder is for. A document is saved far more often than a function, so its
+ * history is kept by count (`Tunable.DOCUMENT_VERSIONS_KEPT`) rather than by
+ * days, and the saves one turn of the document chat makes keep one version:
+ * the state before the turn. [DesignDocument.revision] still refuses a save
+ * over a change somebody else made.
  */
 @Controller
 class DocumentAPI(
@@ -50,7 +54,7 @@ class DocumentAPI(
     private val artifacts: WorkspaceArtifactAPI,
     private val audit: WorkspaceAuditRecorder,
     private val access: WorkspaceAccess,
-    mapper: ObjectMapper,
+    private val mapper: ObjectMapper,
     /** Lazy: the chat reaches the orknux_* tools, which save through here. */
     @param:Lazy private val chat: DocumentChat,
     /** What a turn's files say, for the model. */
@@ -58,6 +62,8 @@ class DocumentAPI(
     /** The inline suggestion while typing, the chat composer's own. */
     @param:Lazy private val sentences: io.mszymanski.orknux.server.chat.ChatSentences,
     private val tuning: Tuning = Tuning.DEFAULTS,
+    /** Keeps what each save displaces; see the class's note. */
+    private val revisions: io.mszymanski.orknux.server.revision.ComponentRevisionRecorder? = null,
 ) {
 
     val content = DocumentContent(mapper)
@@ -181,9 +187,21 @@ class DocumentAPI(
         return create(workspaceId, catalogId, name, doc, pageSize)
     }
 
-    /** The same make, from the orknux_* tools, which hold a checked tree rather than text. */
+    /**
+     * The same make, from the orknux_* tools, which hold a checked tree rather than text.
+     *
+     * @param turn the document chat's turn, where it is the chat that made it.
+     */
     @Transactional
-    fun create(workspaceId: Long, catalogId: Long?, name: String, doc: ObjectNode, pageSize: String?): DesignDocumentView {
+    fun create(
+        workspaceId: Long,
+        catalogId: Long?,
+        name: String,
+        doc: ObjectNode,
+        pageSize: String?,
+        door: DocumentDoor = DocumentDoor.EDITOR,
+        turn: String? = null,
+    ): DesignDocumentView {
         access.requireVisible(workspaceId)
         val catalog = catalogId?.let { catalog(it) }?.also { if (it.workspaceId != workspaceId) throw DocumentCatalogNotFoundException(catalogId) }
             ?: firstCatalog(workspaceId)
@@ -200,6 +218,8 @@ class DocumentAPI(
                 pageSize = pageSize(pageSize)?.name ?: documentPageSizeDefault(workspaceId),
                 createdBy = who,
                 updatedBy = who,
+                updatedVia = door.name,
+                updatedTurn = turn,
             ),
         )
         keepImages(made, doc)
@@ -241,6 +261,7 @@ class DocumentAPI(
      *   writing this over it would lose what they did, so it is refused.
      * @param pageSize a [DocumentPageSize]; this and the settings after it are left as they are when not given.
      * @param language `en` or `pl`; an empty one is the reader's own.
+     * @param via `IMPORT` where what is saved came in by the editor's Import; anything else is the editor's own Save.
      */
     @MutationMapping
     @Transactional
@@ -252,6 +273,7 @@ class DocumentAPI(
         @Argument orientation: String?,
         @Argument margins: String?,
         @Argument language: String?,
+        @Argument via: String?,
     ): DesignDocumentView {
         val held = find(id)
         if (revision != null && revision != held.revision) throw DocumentChangedException(held.name)
@@ -265,7 +287,7 @@ class DocumentAPI(
         language?.let {
             held.language = if (it.isBlank()) null else DocumentLanguages.of(it) ?: throw DocumentSettingInvalidException("language", it, DocumentLanguages.ALL.joinToString(" or "))
         }
-        return write(held, this.content.read(content, held.workspaceId))
+        return write(held, this.content.read(content, held.workspaceId), DocumentDoor.fromEditor(via))
     }
 
     /** The page a new document in this workspace starts on. */
@@ -288,11 +310,39 @@ class DocumentAPI(
         return size.name
     }
 
-    /** The same save, from the orknux_* tools. */
+    /**
+     * The same save, from the orknux_* tools.
+     *
+     * @param turn the document chat's turn, where it is the chat saving: the
+     *   saves one turn makes one after another keep one version between them.
+     */
     @Transactional
-    fun saveContent(id: Long, doc: ObjectNode): DesignDocumentView {
+    fun saveContent(id: Long, doc: ObjectNode, turn: String? = null): DesignDocumentView {
         val held = find(id)
-        return write(held, content.checked(doc, held.workspaceId))
+        return write(held, content.checked(doc, held.workspaceId), if (turn == null) DocumentDoor.TOOL else DocumentDoor.CHAT, turn)
+    }
+
+    /**
+     * Puts one of a document's versions back, as a save of its own: what it
+     * replaces is kept, so a restore is undone by restoring again. The content
+     * and the page settings come back; the name and the catalog stay as they
+     * are. Its pictures are not asked about - they were this workspace's when
+     * the version was saved, and one deleted since leaves a gap, as it would in
+     * the live document.
+     *
+     * Called by `ComponentRevisionAPI`, which has checked that the version is
+     * one the caller may see and writes the audit line.
+     */
+    @Transactional
+    fun restore(id: Long, snapshot: String): DesignDocumentView {
+        val held = find(id)
+        val was = io.mszymanski.orknux.server.revision.ComponentSnapshot.documentIn(snapshot, mapper)
+        was.pageSize?.let { DocumentPageSize.of(it) }?.let { held.pageSize = it.name }
+        was.orientation?.let { DocumentOrientation.of(it) }?.let { held.orientation = it.name }
+        was.margins?.let { DocumentMargins.of(it) }?.let { held.margins = it.name }
+        if (was.languageKept) held.language = DocumentLanguages.of(was.language)
+        val doc = content.read(was.content, held.workspaceId)
+        return write(held, doc, DocumentDoor.RESTORE, checkPictures = false, said = false)
     }
 
     @MutationMapping
@@ -301,6 +351,7 @@ class DocumentAPI(
         val held = find(id)
         images.deleteByDocumentId(requireNotNull(held.id))
         documents.delete(held)
+        revisions?.forget(io.mszymanski.orknux.server.revision.ComponentRevisionKind.DOCUMENT, requireNotNull(held.id))
         audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Document ${held.name} removed")
         return true
     }
@@ -426,6 +477,7 @@ class DocumentAPI(
             margins = held.margins,
             language = held.language,
             page = DocumentPage.of(held),
+            updatedVia = held.updatedVia,
         )
     }
 
@@ -443,16 +495,38 @@ class DocumentAPI(
         return (if (start > 0) "…" else "") + flat.substring(start, end).trim() + (if (end < flat.length) "…" else "")
     }
 
-    private fun write(held: DesignDocument, doc: ObjectNode): DesignDocumentView {
+    /**
+     * Every write of a document's content, whichever door it came through.
+     *
+     * The state it displaces is handed to the recorder first - unless that
+     * state was itself written by this same turn of the document chat, which
+     * makes it the middle of what the model is doing rather than a version
+     * anybody chose: the turn keeps the state before it, and its last save is
+     * the live one.
+     *
+     * @param said whether the save is said in the audit log here; a restore is said by its own line.
+     */
+    private fun write(
+        held: DesignDocument,
+        doc: ObjectNode,
+        door: DocumentDoor,
+        turn: String? = null,
+        checkPictures: Boolean = true,
+        said: Boolean = true,
+    ): DesignDocumentView {
         val before = images.findByDocumentId(requireNotNull(held.id)).map { it.artifactId }.toSet()
-        picturesHere(held.workspaceId, content.images(doc).filter { it !in before })
-        held.content = stored(doc)
+        if (checkPictures) picturesHere(held.workspaceId, content.images(doc).filter { it !in before })
+        val written = stored(doc)
+        if (turn == null || held.updatedTurn != turn) revisions?.saved(held)
+        held.content = written
         held.plainText = content.plainText(doc)
         held.revision += 1
+        held.updatedVia = door.name
+        held.updatedTurn = turn
         touch(held)
         val saved = documents.save(held)
         keepImages(saved, doc)
-        audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Document ${held.name} saved")
+        if (said) audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Document ${held.name} saved")
         return view(saved)
     }
 
@@ -540,6 +614,8 @@ data class DesignDocumentView(
     val language: String? = null,
     /** The page as laid out, in millimetres: its size turned the way it is, and its margin. */
     val page: DocumentPage = DocumentPage(210.0, 297.0, 25.0),
+    /** The [DocumentDoor] the live state was saved through; null before doors were recorded. */
+    val updatedVia: String? = null,
 )
 
 data class DocumentCatalogView(

@@ -4,6 +4,9 @@ import io.mszymanski.orknux.server.action.WorkflowFunction
 import io.mszymanski.orknux.server.agent.Agent
 import io.mszymanski.orknux.server.agent.AgentSkill
 import io.mszymanski.orknux.server.agent.AgentTool
+import io.mszymanski.orknux.server.design.DesignDocument
+import io.mszymanski.orknux.server.tuning.Tunable
+import io.mszymanski.orknux.server.tuning.Tuning
 import io.mszymanski.orknux.server.workflow.WorkflowPublication
 import io.mszymanski.orknux.server.workflow.WorkflowPublicationRepository
 import org.springframework.data.domain.PageRequest
@@ -27,6 +30,8 @@ data class RevisionSubject(
     val savedAt: OffsetDateTime,
     val savedBy: String,
     val snapshot: String,
+    /** Which door [savedAt]'s save came through, where the kind says; see [ComponentRevision.door]. */
+    val door: String? = null,
 )
 
 /**
@@ -50,6 +55,7 @@ class ComponentRevisionRecorder(
     private val revisions: ComponentRevisionRepository,
     private val publications: WorkflowPublicationRepository,
     private val mapper: ObjectMapper,
+    private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
     /**
@@ -72,12 +78,15 @@ class ComponentRevisionRecorder(
                 workspaceId = held.workspaceId,
                 kind = kind,
                 componentId = held.componentId,
-                name = held.name,
+                // The columns' widths: a document's name and a signed-in name may be longer than a revision keeps.
+                name = held.name.take(NAME_LENGTH),
                 savedAt = held.savedAt,
-                savedBy = held.savedBy,
+                savedBy = held.savedBy.take(NAME_LENGTH),
                 snapshot = held.snapshot,
+                door = held.door,
             ),
         )
+        if (kind == ComponentRevisionKind.DOCUMENT) prune(kind, held.componentId)
     }
 
     /** What a function was before this save. Nothing is written for a plugin's. */
@@ -139,6 +148,52 @@ class ComponentRevisionRecorder(
     }
 
     /**
+     * What a document was before this save, and the door that saved it.
+     *
+     * Every door calls this - the editor, an import, the document chat, the
+     * orknux_* tools, a restore - through `DocumentAPI`, which is the one
+     * place a document's content is written. Pruned to the count kept as it
+     * is written, so a document saved a thousand times holds what was asked.
+     */
+    fun saved(document: DesignDocument) {
+        val id = document.id ?: return
+        saved(ComponentRevisionKind.DOCUMENT) {
+            RevisionSubject(
+                workspaceId = document.workspaceId,
+                componentId = id,
+                name = document.name,
+                savedAt = document.updatedAt,
+                savedBy = document.updatedBy,
+                snapshot = ComponentSnapshot.of(document, mapper),
+                door = document.updatedVia,
+            )
+        }
+    }
+
+    /**
+     * Drops what is past the count a kind keeps per component, oldest first.
+     * Zero keeps them all. Answers how many went.
+     */
+    fun prune(kind: ComponentRevisionKind, componentId: Long): Int {
+        val kept = keptPer(kind) ?: return 0
+        val beyond = revisions.idsNewestFirst(kind, componentId).drop(kept)
+        if (beyond.isNotEmpty()) revisions.deleteAllByIdInBatch(beyond)
+        return beyond.size
+    }
+
+    /** Every component of [kind] pruned to its count: what the sweep does after the count is lowered. */
+    fun pruneAll(kind: ComponentRevisionKind): Int {
+        val kept = keptPer(kind) ?: return 0
+        return revisions.componentsHoldingMoreThan(kind, kept.toLong()).sumOf { prune(kind, it) }
+    }
+
+    /** How many revisions a kind keeps per component, or null where it is not kept by count. */
+    private fun keptPer(kind: ComponentRevisionKind): Int? = when (kind) {
+        ComponentRevisionKind.DOCUMENT -> tuning[Tunable.DOCUMENT_VERSIONS_KEPT].takeIf { it > 0 }
+        else -> null
+    }
+
+    /**
      * A workflow was published, and the publication is kept.
      *
      * It used to be one row per workflow, overwritten every time, which is what
@@ -193,5 +248,8 @@ class ComponentRevisionRecorder(
     private companion object {
         /** More than a screen shows, and less than a table nobody wanted to read. */
         const val MOST = 200
+
+        /** `component_revision.name` and `saved_by`: a format, not a behaviour. */
+        const val NAME_LENGTH = 120
     }
 }

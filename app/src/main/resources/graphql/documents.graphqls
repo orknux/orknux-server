@@ -58,7 +58,9 @@ extend type Mutation {
         "NORMAL, NARROW or WIDE."
         margins: String,
         "en or pl; empty is the reader's own."
-        language: String
+        language: String,
+        "IMPORT where what is saved came in by the editor's Import, for the history; anything else is the editor's own Save."
+        via: String
     ): DesignDocument!
     "Sets the page a new document in the workspace starts on; its administrators'."
     setDocumentPageSizeDefault(workspaceId: ID!, pageSize: String!): String!
@@ -152,6 +154,8 @@ type DesignDocument {
     updatedBy: String!
     "ISO-8601."
     updatedAt: String!
+    "Which door the live state was saved through: EDITOR, IMPORT, CHAT, TOOL or RESTORE; null before doors were recorded."
+    updatedVia: String
 }
 
 "A document a search found."

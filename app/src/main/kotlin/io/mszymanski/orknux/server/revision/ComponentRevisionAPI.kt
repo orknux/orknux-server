@@ -10,9 +10,12 @@ import io.mszymanski.orknux.server.agent.AgentToolRepository
 import io.mszymanski.orknux.server.agent.SkillCatalogRepository
 import io.mszymanski.orknux.server.agent.SkillNameTakenException
 import io.mszymanski.orknux.server.agent.ToolNameTakenException
+import io.mszymanski.orknux.server.design.DesignDocumentRepository
+import io.mszymanski.orknux.server.design.DocumentAPI
 import io.mszymanski.orknux.server.security.WorkspaceAccess
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
+import org.springframework.context.annotation.Lazy
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.graphql.data.method.annotation.Argument
 import org.springframework.graphql.data.method.annotation.BatchMapping
@@ -51,6 +54,9 @@ class ComponentRevisionAPI(
     private val auditRecorder: WorkspaceAuditRecorder,
     private val mapper: ObjectMapper,
     private val changes: RevisionChanges,
+    private val documents: DesignDocumentRepository,
+    /** Lazy: a document is restored through its own door, which holds the chat and the tools. */
+    @param:Lazy private val documentApi: DocumentAPI,
 ) {
 
     /**
@@ -122,12 +128,15 @@ class ComponentRevisionAPI(
             ComponentRevisionKind.AGENT -> agents.findByIdOrNull(componentId)
                 ?.let { Triple(ComponentSnapshot.of(it, mapper), it.lastModifiedAt, it.lastModifiedBy) }
             ComponentRevisionKind.WORKFLOW -> null
+            ComponentRevisionKind.DOCUMENT -> documents.findByIdOrNull(componentId)
+                ?.let { Triple(ComponentSnapshot.of(it, mapper), it.updatedAt, it.updatedBy) }
         } ?: return null
         return ComponentCurrentVersionView(
             savedAt = savedAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
             savedBy = savedBy,
             changes = changes.between(before.snapshot, live),
-            readable = changes.readable(live),
+            readable = readable(kind, live),
+            door = if (kind == ComponentRevisionKind.DOCUMENT) documents.findByIdOrNull(componentId)?.updatedVia else null,
         )
     }
 
@@ -136,7 +145,7 @@ class ComponentRevisionAPI(
     @Transactional(readOnly = true)
     fun componentRevision(@Argument id: Long): ComponentRevisionDetailView {
         val held = revision(id)
-        return ComponentRevisionDetailView.of(held, mapper, changes.readable(held.snapshot))
+        return ComponentRevisionDetailView.of(held, mapper, readable(held.kind, held.snapshot))
     }
 
     /**
@@ -240,12 +249,25 @@ class ComponentRevisionAPI(
             // Restored through the workflow's own door, which is where the
             // publication that is a workflow's version is written and read.
             ComponentRevisionKind.WORKFLOW -> throw RevisionNotRestorableException(restoredName)
+
+            /*
+             * Through the document's own door, which is the one place its
+             * content is written: it keeps what it displaces as a version, as
+             * every save there does, checks and counts the content, and leaves
+             * the name and the catalog where they are - neither is a version.
+             */
+            ComponentRevisionKind.DOCUMENT -> {
+                if (documents.findByIdOrNull(held.componentId) == null) throw RevisionComponentGoneException(held.kind, held.componentId)
+                documentApi.restore(held.componentId, held.snapshot)
+            }
         }
 
+        // A document keeps the name it has now, so the line says that one.
+        val said = if (held.kind == ComponentRevisionKind.DOCUMENT) documents.findByIdOrNull(held.componentId)?.name ?: restoredName else restoredName
         auditRecorder.record(
             held.workspaceId,
             categoryOf(held.kind),
-            "${held.kind.name.lowercase().replaceFirstChar { it.uppercase() }} $restoredName restored to the " +
+            "${held.kind.name.lowercase().replaceFirstChar { it.uppercase() }} $said restored to the " +
                 "version saved on ${DateTimeFormatter.ISO_INSTANT.format(held.savedAt.toInstant())}",
         )
         return true
@@ -272,13 +294,20 @@ class ComponentRevisionAPI(
         ComponentRevisionKind.SKILL -> skills.findByIdOrNull(componentId)?.workspaceId
         ComponentRevisionKind.AGENT -> agents.workspaceIdOf(componentId)
         ComponentRevisionKind.WORKFLOW -> null
+        ComponentRevisionKind.DOCUMENT -> documents.findByIdOrNull(componentId)?.workspaceId
     } ?: throw RevisionComponentGoneException(kind, componentId)
+
+    /** A state as a person reads it: a document as Markdown, which is what two versions are compared in; the rest as named JSON. */
+    private fun readable(kind: ComponentRevisionKind, snapshot: String): String =
+        if (kind == ComponentRevisionKind.DOCUMENT) ComponentSnapshot.documentMarkdown(snapshot, mapper) else changes.readable(snapshot)
 
     /** Where the audit line goes, by whose screen the component lives on. */
     private fun categoryOf(kind: ComponentRevisionKind): WorkspaceAuditCategory = when (kind) {
         ComponentRevisionKind.FUNCTION, ComponentRevisionKind.WORKFLOW -> WorkspaceAuditCategory.WORKFLOW
         ComponentRevisionKind.TOOL, ComponentRevisionKind.SKILL, ComponentRevisionKind.AGENT ->
             WorkspaceAuditCategory.AGENT
+        // Where every other change to a document is written.
+        ComponentRevisionKind.DOCUMENT -> WorkspaceAuditCategory.WORKSPACE
     }
 
     private fun currentUser(): String =
@@ -303,6 +332,8 @@ data class ComponentRevisionView(
     val recordedAt: String,
     /** The version before this one, which its changes are worked out against; not in the schema. */
     val previousId: Long? = null,
+    /** Which door saved it, where the kind says: a document's `DocumentDoor`. */
+    val door: String? = null,
 ) {
     constructor(revision: RevisionSummary, previousId: Long? = null) : this(
         id = revision.id,
@@ -313,6 +344,7 @@ data class ComponentRevisionView(
         savedBy = revision.savedBy,
         recordedAt = revision.recordedAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         previousId = previousId,
+        door = revision.door,
     )
 }
 
@@ -321,8 +353,10 @@ data class ComponentCurrentVersionView(
     val savedAt: String,
     val savedBy: String,
     val changes: List<RevisionChange>,
-    /** The live state as pretty JSON with ids named, to compare with the newest version. */
+    /** The live state as pretty JSON with ids named - a document's as Markdown - to compare with the newest version. */
     val readable: String,
+    /** Which door saved it, where the kind says. */
+    val door: String? = null,
 )
 
 /**
@@ -346,8 +380,10 @@ data class ComponentRevisionDetailView(
     /** `typescript`, `markdown`, or `json`. What to colour [content] as. */
     val contentLanguage: String,
     val snapshot: String,
-    /** [snapshot] as pretty JSON with every id said as the name behind it. */
+    /** [snapshot] as pretty JSON with every id said as the name behind it; a document's as Markdown. */
     val readable: String,
+    /** Which door saved it, where the kind says. */
+    val door: String? = null,
 ) {
     companion object {
 
@@ -371,6 +407,7 @@ data class ComponentRevisionDetailView(
                 contentLanguage = read.language,
                 snapshot = revision.snapshot,
                 readable = readable,
+                door = revision.door,
             )
         }
     }

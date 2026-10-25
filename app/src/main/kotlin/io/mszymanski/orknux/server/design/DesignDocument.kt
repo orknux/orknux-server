@@ -114,7 +114,44 @@ class DesignDocument(
 
     @Column(name = "updated_at", nullable = false)
     var updatedAt: OffsetDateTime = OffsetDateTime.now(),
+
+    /**
+     * The [DocumentDoor] the live state was saved through, by name: what the
+     * revision the next save displaces it into says. Null on a document not
+     * saved since doors were recorded.
+     */
+    @Column(name = "updated_via", length = 16)
+    var updatedVia: String? = null,
+
+    /**
+     * The document chat's turn that saved the live state, or null for any
+     * other door. A save in the same turn displaces a state nobody chose - the
+     * middle of what the model is doing - so it is not kept as a version.
+     */
+    @Column(name = "updated_turn", length = 64)
+    var updatedTurn: String? = null,
 )
+
+/**
+ * Which door a document's save came through, as its history says it.
+ *
+ * Said by the door rather than worked out afterwards: the editor's Save, the
+ * editor's Save of an imported file, the document chat's model, an agent or an
+ * MCP client through the orknux_* tools, and a version put back.
+ */
+enum class DocumentDoor {
+    EDITOR,
+    IMPORT,
+    CHAT,
+    TOOL,
+    RESTORE,
+    ;
+
+    companion object {
+        /** What the editor may say of its own save: Save, or Save of an import. Anything else is the editor's. */
+        fun fromEditor(asked: String?): DocumentDoor = if (asked?.trim().equals(IMPORT.name, ignoreCase = true)) IMPORT else EDITOR
+    }
+}
 
 /**
  * One picture a document shows, by the id the Artifacts page gives it

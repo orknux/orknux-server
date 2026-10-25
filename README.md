@@ -530,6 +530,7 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_GRAMMAR_TEXT_MOST` | How much text one grammar check takes, in characters. | `20000` |
 | `ORKNUX_TUNING_DOCUMENT_SEARCH_RESULTS` | How many documents a search answers, in items. | `20` |
 | `ORKNUX_TUNING_DOCUMENT_SNIPPET_CHARACTERS` | How much of a document a search shows around a match, in characters. | `160` |
+| `ORKNUX_TUNING_DOCUMENT_VERSIONS_KEPT` | How many versions of each document its history keeps, in items; 0 keeps them all. | `50` |
 | `ORKNUX_TUNING_DIAGRAM_NOTE_CHARACTERS` | How long a diagram node's notes may be, in characters. | `5000` |
 | `ORKNUX_TUNING_DIAGRAM_DESCRIPTION_CHARACTERS` | How long a diagram's description may be, in characters. | `2000` |
 | `ORKNUX_TUNING_DIAGRAM_ITEMS_MOST` | How many nodes and connections one diagram may hold, in items. | `2000` |

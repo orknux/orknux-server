@@ -3133,6 +3133,9 @@ The rule behind the split: a kind with a draft is versioned by publishing, and
 a kind without one by saving. WORKFLOW is the only one with a draft today, so
 it is the only one whose history is its publications - it appears here so that
 the vocabulary is one vocabulary, and never in `componentRevisions`.
+
+DOCUMENT is a Design document: every save of its content is a version, kept
+by count rather than by days, and its `readable` is its Markdown.
 """
 enum ComponentRevisionKind {
     FUNCTION
@@ -3140,6 +3143,7 @@ enum ComponentRevisionKind {
     SKILL
     AGENT
     WORKFLOW
+    DOCUMENT
 }
 
 "One line of a component's history: what it was, and when it stopped being it."
@@ -3156,6 +3160,8 @@ type ComponentRevision {
     recordedAt: String!
     "What the save that made this state changed; null where no older version is kept to compare."
     changes: [RevisionChange!]
+    "Which door saved it, where the kind says - a document's EDITOR, IMPORT, CHAT, TOOL or RESTORE; null where it was not recorded."
+    door: String
 }
 
 "The newest save of a component, which its history never holds."
@@ -3163,8 +3169,10 @@ type ComponentCurrentVersion {
     savedAt: String!
     savedBy: String!
     changes: [RevisionChange!]!
-    "The live state as pretty JSON with ids named, to compare with the newest version."
+    "The live state as pretty JSON with ids named - a document's as Markdown - to compare with the newest version."
     readable: String!
+    "Which door saved it, where the kind says."
+    door: String
 }
 
 """
@@ -3197,8 +3205,10 @@ type ComponentRevisionDetail {
     contentLanguage: String!
     "The whole component as it was, as JSON."
     snapshot: String!
-    "The same as pretty JSON, with every id said as the name behind it."
+    "The same as pretty JSON, with every id said as the name behind it; a document's as Markdown."
     readable: String!
+    "Which door saved it, where the kind says."
+    door: String
 }
 
 """
