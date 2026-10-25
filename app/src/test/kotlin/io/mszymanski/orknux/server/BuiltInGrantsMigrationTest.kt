@@ -95,9 +95,10 @@ class BuiltInGrantsMigrationTest {
                 migrate(postgres, target = "latest")
 
                 DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password).use { db ->
-                    // V309: every built-in is offered, whatever V303 kept hidden.
-                    assertThat(hidden(db, 900)).isEmpty()
-                    assertThat(hidden(db, 901)).isEmpty()
+                    // V309: every built-in is offered, whatever V303 kept hidden - less
+                    // orknux_delete_diagram, which a later migration hides on every agent.
+                    assertThat(hidden(db, 900)).containsExactly("orknux_delete_diagram")
+                    assertThat(hidden(db, 901)).containsExactly("orknux_delete_diagram")
                     assertThat(granted(db, 901)).containsExactly("jira_search")
                     /*
                      * find_connections, which is offered to every agent now
