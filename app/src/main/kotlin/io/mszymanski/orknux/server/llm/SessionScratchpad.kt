@@ -259,7 +259,7 @@ class SessionScratchpadService(
     fun append(sessionId: Long, name: String, text: String): ScratchpadResult {
         binaryProblem(sessionId, name, "added to")?.let { return it }
         // Appending to a pad not yet started starts it: a model that appends first, as models do, was refused.
-        if (find(sessionId, name) == null) return write(sessionId, name, text)
+        if (find(sessionId, name) == null) return create(sessionId, name, null, text)
         return edit(sessionId, name) { it + text }
     }
 
