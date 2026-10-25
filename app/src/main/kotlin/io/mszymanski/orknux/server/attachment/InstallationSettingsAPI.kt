@@ -34,6 +34,7 @@ class InstallationSettingsAPI(
         // something to hand a browser the ability to change.
         attachmentLocation = settings.location(),
         attachmentMaxFileSizeMb = settings.maxFileSizeMb().toInt(),
+        attachmentMaxFileSizeMbConfigured = settings.maxFileSizeMbConfigured(),
         chatEnabled = settings.chatEnabled(),
         chatConfigurable = settings.chatConfigurable(),
         metricsAnonymous = settings.metricsAnonymous(),
@@ -812,6 +813,15 @@ class InstallationSettingsAPI(
         return installationSettings()
     }
 
+    /** The largest file any upload may be, whichever page it comes from. */
+    @MutationMapping
+    fun setAttachmentMaxFileSizeMb(@Argument megabytes: Int): InstallationSettingsView {
+        access.requireAdmin()
+        settings.setMaxFileSizeMb(megabytes, currentUser())
+        auditRecorder.record(null, WorkspaceAuditCategory.WORKSPACE, "Upload limit set to $megabytes MB")
+        return installationSettings()
+    }
+
     /** The longest description a picture is drawn from, wherever it is drawn. */
     @MutationMapping
     fun setImageDrawsAtOnce(@Argument draws: Int): InstallationSettingsView {
@@ -1206,7 +1216,10 @@ data class InstallationSettingsView(
     val attachmentStorage: String,
     /** Where they are written; the operator's setting, shown so it can be checked. */
     val attachmentLocation: String,
+    /** The largest file any upload may be, as held or else as started with. */
     val attachmentMaxFileSizeMb: Int,
+    /** What a fresh installation does - ORKNUX_ATTACHMENTS_MAX_FILE_SIZE_MB. */
+    val attachmentMaxFileSizeMbConfigured: Int,
     /** Whether this installation has a chat, as the file and the screen agree it. */
     val chatEnabled: Boolean,
     /** False when the configuration file has said no, and the switch is not offered. */

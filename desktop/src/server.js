@@ -20,6 +20,20 @@ const PREFERRED_PORT = 8080;
 const READY_TIMEOUT_MS = 180_000;
 const STOP_GRACE_MS = 15_000;
 
+/**
+ * The largest file an upload may be here, in MB, where the person has not said.
+ * The jar and the images keep 25, sized for a server somebody else's disk is
+ * under; this machine's disk is the person's own, and a video or a dataset is an
+ * ordinary thing to attach. Admin Settings' Largest file overrides it.
+ */
+const DESKTOP_UPLOAD_MAX_MB = '500';
+
+/** ORKNUX_ATTACHMENTS_MAX_FILE_SIZE_MB as the server is given it: the environment's when it has one, else the desktop's. */
+function uploadLimitOf(env) {
+  const said = env.ORKNUX_ATTACHMENTS_MAX_FILE_SIZE_MB;
+  return typeof said === 'string' && said.trim() !== '' ? said : DESKTOP_UPLOAD_MAX_MB;
+}
+
 /** Whether a port can be listened on at that address, asked by listening on it. */
 function free(port, host) {
   return new Promise((resolve) => {
@@ -197,6 +211,8 @@ class Server {
       ORKNUX_DESKTOP: 'true',
       // Run on a chat answer's shell blocks: the machine is the person's own here, and Windows and Linux have a prompt to ask for administrator rights with. A value already in the environment wins.
       ORKNUX_CHAT_RUN_COMMANDS: process.env.ORKNUX_CHAT_RUN_COMMANDS ?? (process.platform === 'win32' || process.platform === 'linux' ? 'true' : 'false'),
+      // 500 MB rather than the jar's 25; a value already in the environment wins.
+      ORKNUX_ATTACHMENTS_MAX_FILE_SIZE_MB: uploadLimitOf(process.env),
       MALLOC_ARENA_MAX: process.env.MALLOC_ARENA_MAX ?? '2',
     };
     this.apply(prepared, network);
@@ -375,4 +391,4 @@ class Server {
   }
 }
 
-module.exports = { Server, launchOf, restoreTimes };
+module.exports = { Server, launchOf, restoreTimes, uploadLimitOf };

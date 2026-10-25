@@ -363,7 +363,8 @@ class DesignImageAPI(
             DesignArchive.read(mapper, decoded(it), maxBytes, tuning[io.mszymanski.orknux.server.tuning.Tunable.IMAGE_LAYERS_MOST] + 1)
         }
         val bytes = archived?.image ?: decoded(input.image.orNullIfBlank() ?: throw DesignImageRefusedException("There is no file to import."))
-        if (bytes.size > maxBytes) throw DesignImageRefusedException("That picture is larger than this installation keeps.")
+        // The same refusal every upload gives, naming the limit and where it is raised.
+        settings.requireUploadable(input.name.orNullIfBlank() ?: "That picture", bytes.size.toLong())
         val contentType = pictureTypeOf(bytes)
             ?: throw DesignImageRefusedException("That file is not a picture this can keep: a PNG, JPEG, WebP or GIF.")
         val project = archived?.project

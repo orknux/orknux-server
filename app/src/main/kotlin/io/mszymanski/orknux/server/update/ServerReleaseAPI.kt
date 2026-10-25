@@ -37,11 +37,11 @@ import java.nio.file.Path
  * launcher - which checks it again before it runs it.
  *
  * The upload is REST and its body is the jar itself rather than a multipart
- * form: multipart is capped installation-wide at a size meant for recordings
- * and attachments (ORKNUX_UPLOAD_MAX_FILE_SIZE), a jar is a third of a gigabyte,
- * and raising that cap for one administrator's door would raise it for every
- * door. The body is streamed to a temporary file and counted against this
- * installation's own limit as it arrives.
+ * form: every multipart upload is held to the upload limit people's files are
+ * (Admin Settings' Largest file), a jar is a third of a gigabyte, and raising
+ * that limit for one administrator's door would raise it for every door. The
+ * body is streamed to a temporary file and counted against this installation's
+ * own limit as it arrives.
  */
 @RestController
 class ServerReleaseAPI(

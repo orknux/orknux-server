@@ -92,9 +92,17 @@ class AttachmentNotFoundException(val id: Long) : RuntimeException("No attachmen
 class AttachmentsDisabledException :
     RuntimeException("Attachments are turned off for this installation")
 
-class AttachmentTooLargeException(val name: String, val limitMb: Long) :
-    RuntimeException("\"$name\" is larger than the $limitMb MB an attachment may be"), Refusal {
+/**
+ * A file past the upload limit. Says the file's size, the limit and where the
+ * limit is raised, because the person told no is seldom the one who can change
+ * it, and needs to know whom to ask and for what.
+ */
+class AttachmentTooLargeException(val name: String, val sizeMb: Long, val limitMb: Long) :
+    RuntimeException(
+        "$name is $sizeMb MB; uploads are limited to $limitMb MB - an administrator can raise it in Admin Settings → Attachments",
+    ),
+    Refusal {
 
-    override val arguments get() = mapOf("name" to name, "limitMb" to limitMb)
+    override val arguments get() = mapOf("name" to name, "sizeMb" to sizeMb, "limitMb" to limitMb)
 }
 

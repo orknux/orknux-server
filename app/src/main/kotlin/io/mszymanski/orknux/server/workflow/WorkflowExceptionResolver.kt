@@ -286,6 +286,7 @@ class WorkflowExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is io.mszymanski.orknux.server.attachment.ReplySuggestionsOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.ReplySuggestionsMaxTokensOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.VideoMaxOutOfRangeException,
+            is io.mszymanski.orknux.server.attachment.UploadMaxOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.ObjectDepthOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.ImagePromptOutOfRangeException,
             is io.mszymanski.orknux.server.attachment.ImageDrawsOutOfRangeException,

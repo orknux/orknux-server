@@ -57,7 +57,8 @@ class WorkspaceArtifactUploadTest(
         assertThat(said.path("url").asString()).isEqualTo("/workspace/$workspaceId/artifacts/SAVED-${kept.id}")
         assertThat(kept.name).isEqualTo("unreleased.html")
         assertThat(kept.description).isEqualTo("Unreleased since v1.1.9")
-        assertThat(audit.findAll().map { it.message }).contains("Artifact unreleased.html uploaded").noneMatch { it.contains("for research") }
+        // This workspace's lines only: ResearchTest leaves "Uploaded ... for research" in a workspace of its own.
+        assertThat(audit.findAll().filter { it.workspaceId == workspaceId }.map { it.message }).contains("Artifact unreleased.html uploaded").noneMatch { it.contains("for research") }
 
         // From the page's Upload there is no description: the file's name stands for one, which the store asks for.
         val bare = try {
