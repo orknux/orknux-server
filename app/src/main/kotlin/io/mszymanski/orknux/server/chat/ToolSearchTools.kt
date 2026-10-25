@@ -88,8 +88,15 @@ class ToolSearchTools(
         room: () -> Int,
         /** The tools the agent already carries, so loading one is answered "already loaded". Issue #542. */
         carried: Set<String> = emptySet(),
+        /**
+         * The id of the agent's skill a name is, or null: asked only of a name
+         * that is no tool, so a skill's id handed to tool_load is said to be a
+         * skill rather than a tool that does not exist. Session 896. Before
+         * [forget], which callers pass as the trailing lambda.
+         */
+        skill: (String) -> String? = { null },
         forget: (Int) -> List<String> = { emptyList() },
-    ): ToolShed = Shed(searchable, found, room, forget, carried)
+    ): ToolShed = Shed(searchable, found, room, forget, carried, skill)
 
     private inner class Shed(
         private val searchable: List<ToolSpec>,
@@ -107,6 +114,7 @@ class ToolSearchTools(
          */
         private val forget: (Int) -> List<String>,
         private val carried: Set<String> = emptySet(),
+        private val skill: (String) -> String? = { null },
     ) : ToolShed {
 
         /**
@@ -238,7 +246,7 @@ class ToolSearchTools(
                     }
                     name.lowercase() in inHand -> "$name is already loaded: its description and parameters are " +
                         "in your list of tools, so call it directly."
-                    else -> "You have no tool called $name."
+                    else -> skillSaid(name) ?: "You have no tool called $name."
                 }
             }
         }
@@ -300,7 +308,11 @@ class ToolSearchTools(
             val already = asked.filter { it.lowercase() in inHand }
             val present = asked.filter { it.lowercase() !in inHand }.mapNotNull { byName[it.lowercase()] }
                 .distinctBy { it.name }
-            val missing = asked.filter { it.lowercase() !in inHand && it.lowercase() !in byName }
+            val unmatched = asked.filter { it.lowercase() !in inHand && it.lowercase() !in byName }
+            // A skill's id is not a tool that does not exist, and is said apart from one.
+            val saidOf = unmatched.associateWith(::skillSaid)
+            val skills = saidOf.values.filterNotNull().joinToString("\n")
+            val missing = unmatched.filter { saidOf[it] == null }
             val none = buildString {
                 missing.forEach { name ->
                     val near = matching(name).take(NEAREST).map { it.name }
@@ -316,12 +328,24 @@ class ToolSearchTools(
                     already.joinToString(", ") + "."
             }
             if (present.isEmpty()) {
-                return listOf(held, none.takeIf { it.isNotEmpty() }?.let {
-                    it + "\n\nNothing " + (if (held.isEmpty()) "" else "else ") + "was loaded. Do not say you can do what these would have done."
+                return listOf(held, skills, none.takeIf { it.isNotEmpty() }?.let {
+                    it + "\n\nNothing " + (if (held.isEmpty() && skills.isEmpty()) "" else "else ") + "was loaded. Do not say you can do what these would have done."
                 }.orEmpty()).filter { it.isNotEmpty() }.joinToString("\n\n")
             }
             val loaded = loadInto(present, present.map { it.name }, present.associate { it.name to listOf(it) })
-            return listOf(loaded, held, none).filter { it.isNotEmpty() }.joinToString("\n\n")
+            return listOf(loaded, held, skills, none).filter { it.isNotEmpty() }.joinToString("\n\n")
+        }
+
+        /**
+         * What a skill's name is told where a tool's was expected. Session 896:
+         * a Qwen agent handed tool_load the id of a skill, ending-a-slack-turn,
+         * was answered "You have no tool called ending-a-slack-turn" with three
+         * tools that looked alike, and concluded the skill was not there. It
+         * was; it is read with another tool, which is named off its declaration.
+         */
+        private fun skillSaid(name: String): String? = skill(name)?.let { id ->
+            "$name is a skill, not a tool: read it with " + io.mszymanski.orknux.server.agent.SkillTool.LOAD.name +
+                ", passing " + id + "."
         }
 
         private fun searchAndLoad(call: ToolCall): String {

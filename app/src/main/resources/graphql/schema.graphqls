@@ -6928,6 +6928,12 @@ type BuiltInTool {
     startsHidden: Boolean!
     "Whether an agent, or a grant given afresh, starts with it at Offer rather than Always: found once a tool limit is set."
     startsOffered: Boolean!
+    """
+    Whether it is held at Always while the workspace keeps its built-ins fixed,
+    whatever a save sends: finish_answer, and the skill tools the briefing makes
+    the first step of every piece of work. The form draws the row fixed.
+    """
+    fixedAlways: Boolean!
 }
 
 "What decides whether an agent is offered a built-in tool."

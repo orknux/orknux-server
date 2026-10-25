@@ -85,6 +85,11 @@ class GrantRequestTools(
     private val tasks: io.mszymanski.orknux.server.task.TaskRepository,
     /** The conversation's frame, which takes in a grant made there rather than being made again; see [io.mszymanski.orknux.server.llm.SessionFrames]. */
     private val frames: io.mszymanski.orknux.server.llm.SessionFrames,
+    /**
+     * What the agent holds, carried or behind the search, for a refusal that
+     * says which: a provider, because the agent's tools are built on this.
+     */
+    private val offerings: ObjectProvider<AgentTools>,
 ) {
 
     /** What sort of grant a [Grantable] is, which is also how it is granted. */
@@ -221,13 +226,7 @@ class GrantRequestTools(
 
         val grantable = grantables(agent).associateBy { it.name }
         val unknown = wanted.filter { it !in grantable }
-        if (unknown.isNotEmpty()) {
-            throw Refused(
-                "${unknown.joinToString(", ")} " + (if (unknown.size == 1) "is" else "are") +
-                    " not something you could be granted - either you already hold it, or it does not exist here. " +
-                    "$LIST says what you could be given.",
-            )
-        }
+        if (unknown.isNotEmpty()) throw Refused(notGrantable(agent, unknown, conversation))
         val asking = wanted.map { grantable.getValue(it) }
 
         // The same tools asked for again while the first question is open answer the first question.
@@ -382,6 +381,44 @@ class GrantRequestTools(
             "Tools $names refused to ${request.askedBy ?: "an agent"}",
         )
         return "Refused"
+    }
+
+    /**
+     * Why each of [names] cannot be asked for, by what the agent has of it.
+     *
+     * Session 896: a Qwen agent under a tool limit asked to be granted
+     * slack_post, which it carried, and skill_list, which it held behind the
+     * tool search, and was told both were "not something you could be granted -
+     * either you already hold it, or it does not exist here". Which of the two
+     * was left for it to work out, and it could not. So a name it carries this
+     * turn is said to be one, to call; a name it holds behind the search is
+     * said to be one, to load; and only a name it has nowhere is pointed at
+     * [LIST]. Carried is what the conversation's frame sends - the array the
+     * model reads - and held is the offering the round is built from, with the
+     * built-ins the round lends.
+     */
+    private fun notGrantable(agent: Agent, names: List<String>, conversation: Long): String {
+        val offering = offerings.getObject().offeringFor(agent, session = conversation)
+        val lendable = BuiltInTools.GRANTED.filter { BuiltInTools.granted(agent, it) }
+        val carried = frames.read(conversation)?.takeIf { it.agentId == agent.id }?.tools?.map { it.name }?.toSet()
+            ?: (offering.core.map { it.name } + lendable.filter { BuiltInTools.carried(agent, it) }).toSet()
+        val held = carried + offering.core.map { it.name } + offering.searchable.map { it.name } + lendable
+        val have = names.filter { it in carried }
+        val behind = names.filter { it !in carried && it in held }
+        val nowhere = names.filter { it !in held }
+        fun them(of: List<String>, one: String, many: String) = if (of.size == 1) one else many
+        return listOfNotNull(
+            have.takeIf { it.isNotEmpty() }?.let {
+                "You already have ${it.joinToString(", ")}: call ${them(it, "it", "them")}."
+            },
+            behind.takeIf { it.isNotEmpty() }?.let {
+                "You already hold ${it.joinToString(", ")}: load ${them(it, "it", "them")} with ${ToolSearchTools.FIND}."
+            },
+            nowhere.takeIf { it.isNotEmpty() }?.let {
+                "${it.joinToString(", ")} ${them(it, "is", "are")} not something you could be granted - " +
+                    "${them(it, "it does", "they do")} not exist here. $LIST says what you could be given."
+            },
+        ).joinToString(" ")
     }
 
     private fun refuse(message: String): String = mapper.writeValueAsString(mapOf("error" to message))

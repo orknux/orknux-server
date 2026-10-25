@@ -41,6 +41,10 @@ class BuiltInToolsAPI(
     @SchemaMapping(typeName = "BuiltInTool")
     fun startsOffered(tool: BuiltInTool): Boolean = BuiltInTools.startsOffered(tool.name)
 
+    /** Whether it is held at Always while the workspace keeps its built-ins fixed; see BuiltInTools.FIXED_ALWAYS. */
+    @SchemaMapping(typeName = "BuiltInTool")
+    fun fixedAlways(tool: BuiltInTool): Boolean = BuiltInTools.fixedAlways(tool.name)
+
     @SchemaMapping(typeName = "BuiltInTool")
     fun unavailable(tool: BuiltInTool): String? =
         if (http.offers(tool.name)) null else "Switched off for this installation in Admin Settings -> HTTP tools."

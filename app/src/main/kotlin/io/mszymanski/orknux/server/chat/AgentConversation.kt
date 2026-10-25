@@ -347,6 +347,8 @@ class AgentConversation(
      * the same in every request; see [io.mszymanski.orknux.server.llm.SessionFrames].
      */
     private val frames: io.mszymanski.orknux.server.llm.SessionFrames,
+    /** The agent's skills, so a skill's id handed to tool_load is said to be one. Session 896. */
+    private val skills: io.mszymanski.orknux.server.agent.SkillTool,
     /** How many tools that arrived late are described whole past the provider's cap: as many as one tool_load loads. */
     private val tuning: io.mszymanski.orknux.server.tuning.Tuning = io.mszymanski.orknux.server.tuning.Tuning.DEFAULTS,
 ) {
@@ -735,7 +737,15 @@ class AgentConversation(
         val finder = if (!frame.hunting) {
             null
         } else {
-            searching.shed(findable, found, room = { Int.MAX_VALUE }, carried = carriedNames)
+            searching.shed(
+                findable,
+                found,
+                room = { Int.MAX_VALUE },
+                carried = carriedNames,
+                skill = { name ->
+                    if (BuiltInTools.granted(agent, io.mszymanski.orknux.server.agent.SkillTool.LOAD.name)) skills.load(agent, name)?.key else null
+                },
+            )
         }
         val hunt = if (finder == null) lending else sheds(lending, finder)
 

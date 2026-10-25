@@ -379,6 +379,31 @@ class BuiltInTools(
         fun startingAlways(): List<String> = GRANTED.filterNot(::startsOffered)
 
         /**
+         * The built-ins held at Always whatever was sent, while the workspace
+         * keeps its built-ins fixed: the form draws their rows fixed at Always,
+         * and [io.mszymanski.orknux.server.agent.AgentAPI] puts the mark back
+         * from every door.
+         *
+         * `finish_answer` first (V330): an agent under a ceiling holding it at
+         * Offer promised to check back later and could not. And the skill tools
+         * since session 896: the briefing tells every agent to call skill_list
+         * and skill_load before it starts work, and a Qwen agent under a limit
+         * found them marked "(load it first)", asked to be granted skill_list,
+         * was told it could not be, and never read a skill. A tool the briefing
+         * makes the first step is not one to be found. V600 marks the agents
+         * that predate it.
+         */
+        val FIXED_ALWAYS: Set<String> = setOf(
+            FinishAnswerTools.FINISH,
+            SkillTool.LIST.name,
+            SkillTool.LOAD.name,
+            SkillTool.SEARCH.name,
+        )
+
+        /** Whether this built-in is held at Always while the workspace keeps its built-ins fixed; see [FIXED_ALWAYS]. */
+        fun fixedAlways(name: String): Boolean = name in FIXED_ALWAYS
+
+        /**
          * The built-ins in [GRANTED] that may be hidden without the workspace's
          * unsafe switch. The switch guards what an agent is built on - a
          * scratchpad, a clock, a way to say it has finished - and sending a

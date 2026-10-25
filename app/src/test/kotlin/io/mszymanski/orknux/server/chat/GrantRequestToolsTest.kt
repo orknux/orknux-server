@@ -240,7 +240,41 @@ class GrantRequestToolsTest(
     fun `something it holds already, or that does not exist, is refused in a sentence`() {
         val refused = call(GrantRequestTools.ASK, mapOf("tools" to listOf(NoteTools.NOTE, "noSuchTool"), "why" to "x"))
         assertThat(refused.path("error").stringValue())
-            .contains("${NoteTools.NOTE}, noSuchTool are not something you could be granted")
+            .contains("You already have ${NoteTools.NOTE}: call it.")
+            .contains("noSuchTool is not something you could be granted - it does not exist here. ${GrantRequestTools.LIST} says")
+        assertThat(requests.findAll()).isEmpty()
+    }
+
+    /**
+     * Session 896: under a tool limit, an agent asked to be granted slack_post,
+     * which it carried, and skill_list, which it held behind the search, and was
+     * told both were "not something you could be granted - either you already
+     * hold it, or it does not exist here". Each is now told which it is.
+     */
+    @Test
+    fun `under a tool limit a refusal says which are carried, which are to load, and which do not exist`() {
+        val held = agents.findByIdOrNull(agent.id!!)!!.apply {
+            maxTools = 10
+            requiredTools = mutableListOf(NoteTools.NOTE)
+        }
+        agents.save(held)
+        assertThat(tools.offeringFor(held).searchable.map { it.name }).contains(io.mszymanski.orknux.server.agent.SkillTool.LIST.name)
+
+        val refused = call(
+            GrantRequestTools.ASK,
+            mapOf(
+                "tools" to listOf(NoteTools.NOTE, io.mszymanski.orknux.server.agent.SkillTool.LIST.name, ScratchpadTools.READ, "noSuchTool"),
+                "why" to "x",
+            ),
+        ).path("error").stringValue()
+
+        assertThat(refused).contains("You already have ${NoteTools.NOTE}: call it.")
+        assertThat(refused).contains(
+            "You already hold ${io.mszymanski.orknux.server.agent.SkillTool.LIST.name}, ${ScratchpadTools.READ}: " +
+                "load them with ${ToolSearchTools.FIND}.",
+        )
+        assertThat(refused).contains("noSuchTool is not something you could be granted - it does not exist here.")
+        assertThat(refused).doesNotContain("either you already hold it")
         assertThat(requests.findAll()).isEmpty()
     }
 
