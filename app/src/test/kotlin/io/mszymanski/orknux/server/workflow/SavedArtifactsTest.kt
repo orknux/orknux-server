@@ -115,9 +115,12 @@ class SavedArtifactsTest(
      * the disk that no row points at.
      */
     @Test
-    fun `a file past the ceiling is refused before anything is written`() {
-        val saving = save(content = "x".repeat(6 * 1024 * 1024))
+    fun `a file past the upload limit is refused before anything is written, and one under it kept`() {
+        // Held to the installation's upload limit (25 MB here), not the 5 MB an agent's file used to stop at.
+        assertThat(save(content = "x".repeat(6 * 1024 * 1024))).isInstanceOf(SavedArtifacts.Saving.Saved::class.java)
+        rows.deleteAll()
 
+        val saving = save(content = "x".repeat(26 * 1024 * 1024))
         assertThat(saving).isInstanceOf(SavedArtifacts.Saving.Refused::class.java)
         assertThat((saving as SavedArtifacts.Saving.Refused).reason).contains("as large as")
         assertThat(rows.count()).isZero()
