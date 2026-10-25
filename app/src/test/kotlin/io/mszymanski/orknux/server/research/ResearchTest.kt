@@ -310,16 +310,17 @@ class ResearchTest(
     }
 
     @Test
-    fun `a five-action mode workflow somebody edited is left as it is, and still runs its functions`() {
+    fun `a five-action mode workflow with numbers of its own is drawn again with them, and runs through the steps`() {
         val shallow = modeWorkflow("SHALLOW")
-        // Shallow's numbers, but one source rather than eight: somebody's own.
-        actionShape(shallow, mapOf(SUB to 3, BREADTH to 0, DEPTH to 1, RESULTS to 3, SOURCES to 1, PAGES to 1))
+        // Shallow's numbers, but one source rather than eight and four queries: somebody's own, and the mode's.
+        actionShape(shallow, mapOf(SUB to 4, BREADTH to 0, DEPTH to 1, RESULTS to 3, SOURCES to 1, PAGES to 1))
 
         researchModes.ensure(workspaceId)
 
-        val kept = nodes.findByWorkflowId(shallow)
-        assertThat(kept).allMatch { it.kind == NodeKind.ACTION }
-        assertThat(kept.single { it.nodeKey == "gather" }.mappings.single { it.name == SOURCES }.expression).isEqualTo("1")
+        val drawn = nodes.findByWorkflowId(shallow).sortedBy { it.positionX }
+        assertCurrentShape(drawn)
+        assertThat(knobsOf(drawn).values.fold(emptyMap<String, Int>()) { one, other -> one + other })
+            .containsExactlyInAnyOrderEntriesOf(mapOf(SUB to 4, BREADTH to 0, DEPTH to 1, RESULTS to 3, SOURCES to 1, PAGES to 1))
 
         val modelId = model(serve())
         val done = settled(
@@ -327,9 +328,8 @@ class ResearchTest(
         )
         assertThat(done.status).describedAs(done.error).isEqualTo(ResearchStatus.COMPLETED)
         assertThat(web.read).hasSize(1)
-        assertThat(stepsOf(done)).containsExactly("plan", "gather", "followUp", "write", "save")
-        // research_write wrote it, in the register asked for, with the sources after it.
-        assertThat(asked(WRITE).single()).contains("colloquial register")
+        assertThat(stepsOf(done)).containsExactly("plan", "gather", "followUp", "write", "reviewing", "review", "save")
+        assertThat(asked(PLAN).single()).contains("exactly 4 search queries")
         assertThat(done.result).contains("## Sources")
         assertThat(saved.findByIdOrNull(requireNotNull(done.artifactId))!!.name).isEqualTo("tides.md")
     }
@@ -379,17 +379,18 @@ class ResearchTest(
     }
 
     @Test
-    fun `a mode under the former names that somebody edited keeps every name it has`() {
+    fun `a mode under the former names with a step somebody renamed is drawn again, and keeps the name they gave it`() {
         val deep = modeWorkflow("DEEP")
         formerNames(deep)
-        nodes.saveAll(nodes.findByWorkflowId(deep).onEach { if (it.nodeKey == "gather") it.name = "Dig" })
+        nodes.saveAll(nodes.findByWorkflowId(deep).onEach { if (it.nodeKey == "gather") { it.name = "Dig"; it.description = "Digs" } })
 
         researchModes.ensure(workspaceId)
 
-        assertThat(nodes.findByWorkflowId(deep).sortedBy { it.positionX }.map { it.name })
-            .containsExactly("Plan", "Dig", "Follow up", "Write", "Save")
-        assertThat(nodes.findByWorkflowId(deep).single { it.nodeKey == "plan" }.description)
-            .isEqualTo("Research planner writes the search queries")
+        val drawn = nodes.findByWorkflowId(deep).sortedBy { it.positionX }
+        assertThat(drawn.map { it.name })
+            .containsExactly("Plan research", "Dig", "Deepen findings", "Write report", "Review asked for?", "Review report", "Save report")
+        assertThat(drawn.single { it.nodeKey == "gather" }.description).isEqualTo("Digs")
+        assertThat(drawn.single { it.nodeKey == "plan" }.description).isEqualTo("Research planner drafts the search queries")
     }
 
     @Test
@@ -1201,7 +1202,7 @@ class ResearchTest(
 
     @Suppress("UNCHECKED_CAST")
     private fun modesOf(): List<Map<String, Any?>> =
-        graphQlTester.document("""query { researchModes(workspaceId: $workspaceId) { id kind name workflowId workflowName } }""")
+        graphQlTester.document("""query { researchModes(workspaceId: $workspaceId) { id kind name workflowId workflowName reviewable } }""")
             .execute().path("researchModes").entity(List::class.java).get() as List<Map<String, Any?>>
 
     private fun modeId(kind: String): Long = (modesOf().first { it["kind"] == kind }["id"] as String).toLong()
@@ -1390,6 +1391,123 @@ class ResearchTest(
         assertThat(stepsOf(done)).containsExactly("plan", "gather", "followUp", "write", "reviewing", "review", "save")
     }
 
+    /**
+     * Shallow on the development server's workspace 9: the agent shape under
+     * the former names, seeded before Gather read includeImages and before
+     * there were retries or a review, with the boxes the editor writes into an
+     * agent node when it is opened - and missed by every start-up upgrade,
+     * because each looked for the shape the one before it left. Read for what
+     * it does, it is drawn as today's shape with its own numbers, and a
+     * research reviewed in it is started rather than refused.
+     */
+    @Test
+    fun `a mode that missed every upgrade on the way is drawn as today's shape with its own numbers, and may be reviewed`() {
+        val shallow = modeWorkflow("SHALLOW")
+        missedEveryUpgrade(shallow)
+        assertThat(researchModes.reviews(shallow)).isFalse()
+
+        researchModes.ensure(workspaceId)
+
+        val drawn = nodes.findByWorkflowId(shallow).sortedBy { it.positionX }
+        assertThat(drawn.map { it.name })
+            .containsExactly("Plan research", "Gather sources", "Deepen findings", "Write report", "Review asked for?", "Review report", "Save report")
+        assertCurrentShape(drawn)
+        assertThat(drawn.single { it.nodeKey == "gather" }.mappings.map { it.name }).contains(ResearchCapability.INCLUDE_IMAGES)
+        assertThat(drawn.flatMap { node -> node.mappings.map { it.name } }).doesNotContain("systemPrompt", "skillIds")
+        assertThat(knobsOf(drawn).values.fold(emptyMap<String, Int>()) { one, other -> one + other })
+            .containsExactlyInAnyOrderEntriesOf(mapOf(SUB to 4, BREADTH to 0, DEPTH to 1, RESULTS to 3, SOURCES to 5, PAGES to 1))
+        val attempts = tunables[Tunable.RESEARCH_STEP_RETRIES] + 1
+        assertThat(drawn).allMatch { it.retryAttempts == attempts }
+        assertThat(modesOf().single { it["kind"] == "SHALLOW" }["reviewable"]).isEqualTo(true)
+
+        // Drawn once: the next start-up finds today's shape and leaves it be.
+        val ids = drawn.map { it.id }
+        researchModes.ensure(workspaceId)
+        assertThat(nodes.findByWorkflowId(shallow).map { it.id }).containsExactlyInAnyOrderElementsOf(ids)
+
+        val endpoint = serve()
+        val modelId = model(endpoint)
+        val reviewer = model(endpoint, "reviewer")
+        val done = settled(
+            start(
+                """{ workspaceId: $workspaceId, question: "Why are there tides?", modeId: ${modeId("SHALLOW")}, modelId: $modelId,
+                     language: FORMAL, outputFormat: DOCUMENT, review: true, reviewerModelId: $reviewer }""",
+            ),
+        )
+        assertThat(done.status).describedAs(done.error).isEqualTo(ResearchStatus.COMPLETED)
+        assertThat(asked(PLAN).single()).contains("exactly 4 search queries")
+        assertThat(received).anyMatch { it.contains(opening(REVIEW)) }
+        assertThat(runSteps.findByExecutionIdOrderByOrderAsc(requireNotNull(done.executionId)).single { it.nodeKey == "review" }.status)
+            .isEqualTo(StepStatus.COMPLETED)
+    }
+
+    @Test
+    fun `a mode somebody really changed is left as it is, and says it cannot be reviewed`() {
+        val shallow = modeWorkflow("SHALLOW")
+        val medium = modeWorkflow("MEDIUM")
+        val deep = modeWorkflow("DEEP")
+        listOf(shallow, medium, deep).forEach(::missedEveryUpgrade)
+        // A step added after Save.
+        nodes.save(
+            WorkflowNode(
+                workflowId = shallow, nodeKey = "announce", kind = NodeKind.AGENT, name = "Announce",
+                agentId = agents.findByWorkspaceIdAndName(workspaceId, "Research writer")!!.id, positionX = 0.0, positionY = 600.0,
+            ),
+        )
+        edges.save(io.mszymanski.orknux.server.workflow.WorkflowEdge(workflowId = shallow, sourceKey = "save", targetKey = "announce"))
+        // Write fed straight from Gather, Follow up left hanging.
+        edges.deleteAll(edges.findByWorkflowId(medium).filter { it.sourceKey == "followUp" })
+        edges.save(io.mszymanski.orknux.server.workflow.WorkflowEdge(workflowId = medium, sourceKey = "gather", targetKey = "write"))
+        // How many sources read off the run rather than written.
+        nodes.saveAll(nodes.findByWorkflowId(deep).onEach { node ->
+            if (node.nodeKey == "gather") node.mappings.single { it.name == SOURCES }.let { it.expression = "trigger.maxSources"; it.mode = MappingMode.REFERENCE }
+        })
+        fun shapeOf(workflowId: Long) = nodes.findByWorkflowId(workflowId).map { Triple(it.id, it.name, it.mappings.size) }.toSet() to
+            edges.findByWorkflowId(workflowId).map { it.sourceKey to it.targetKey }.toSet()
+        val before = listOf(shallow, medium, deep).associateWith(::shapeOf)
+
+        researchModes.ensure(workspaceId)
+
+        assertThat(listOf(shallow, medium, deep).associateWith(::shapeOf)).isEqualTo(before)
+        assertThat(modesOf().map { it["reviewable"] }).containsOnly(false)
+        val modelId = model(serve())
+        refused(
+            """{ workspaceId: $workspaceId, question: "Tides", modeId: ${modeId("MEDIUM")}, modelId: $modelId,
+                 language: FORMAL, outputFormat: DOCUMENT, review: true, reviewerModelId: $modelId }""",
+            "ResearchModeNotReviewed",
+        )
+    }
+
+    /**
+     * A mode's workflow as workspace 9 had it: the agent shape under the
+     * former names with no review, Gather not reading includeImages, no retry
+     * policy, the editor's boxes on the two agent nodes, and numbers of the
+     * mode's own - four queries and five sources.
+     */
+    private fun missedEveryUpgrade(workflowId: Long) {
+        formerNames(workflowId)
+        nodes.saveAll(
+            nodes.findByWorkflowId(workflowId).onEach { node ->
+                node.retryAttempts = null
+                node.retryBackoffSeconds = null
+                when (node.nodeKey) {
+                    "gather" -> {
+                        node.mappings.removeIf { it.name == ResearchCapability.INCLUDE_IMAGES }
+                        node.mappings.single { it.name == SOURCES }.expression = "5"
+                    }
+                    "plan", "write" -> {
+                        if (node.nodeKey == "plan") {
+                            node.mappings.single { it.name == "prompt" }.let { it.expression = Regex("exactly \\d+ search").replace(it.expression, "exactly 4 search") }
+                        }
+                        val briefing = agents.findByIdOrNull(requireNotNull(node.agentId))!!.systemPrompt.orEmpty()
+                        node.mappings.add(NodeMapping(name = "systemPrompt", expression = briefing, mode = MappingMode.VALUE))
+                        node.mappings.add(NodeMapping(name = "skillIds", expression = "", mode = MappingMode.VALUE))
+                    }
+                }
+            },
+        )
+    }
+
     /** The nodes a research's run went through, in order. */
     private fun stepsOf(research: Research): List<String> =
         runSteps.findByExecutionIdOrderByOrderAsc(requireNotNull(research.executionId)).map { it.nodeKey }
@@ -1497,6 +1615,7 @@ class ResearchTest(
             val answer = when {
                 // Nothing said, as llama.cpp's Qwen answered research 3632's writer: a stop with no message.
                 writerSilent && body.contains(opening(WRITE)) && retries.seen.none { it.nodeKey == "write" } -> ""
+                body.contains(opening(REVIEW)) -> """{"verdict": "ACCEPT", "summary": "Sound.", "issues": []}"""
                 body.contains(opening(PLAN)) -> """["tide causes", "tide timing", "tide records"]"""
                 body.contains(opening(FOLLOW_UP)) -> """["moon distance and tides"]"""
                 body.contains(opening(NOTES)) -> "The moon's gravity raises tides."
@@ -1625,6 +1744,7 @@ class ResearchTest(
         const val NOTES = ResearchPipeline.NOTES
         const val FOLLOW_UP = ResearchPipeline.FOLLOW_UP
         const val WRITE = ResearchPipeline.WRITE
+        const val REVIEW = ResearchPipeline.REVIEW
         const val PICTURES = "https://pictures.example.org"
 
         /** A picture of [width] by [height] in one colour, as [format] writes it. */
