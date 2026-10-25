@@ -374,8 +374,11 @@ class BuiltInToolsTest(
         assertThat(BuiltInTools.listed(briefing, lent, setOf("agent_asks", "note_to_self"), hunting = true))
             .contains("- note_to_self (loaded)")
         // Nothing to find, nothing marked to load: the mark is what the request carries, not a guess at it.
-        assertThat(BuiltInTools.listed(briefing, lent, emptySet(), hunting = false))
+        assertThat(BuiltInTools.listed(briefing, lent, setOf("agent_asks", "web_search"), hunting = false))
             .contains("- web_search (loaded)").doesNotContain("(load it first)")
+        // And one the array does not carry, with nothing to find, came after it: called through tool_run.
+        assertThat(BuiltInTools.listed(briefing, lent, setOf("agent_asks"), hunting = false))
+            .contains("- web_search (" + BuiltInTools.THROUGH_RUN + ")").doesNotContain("(load it first)")
     }
 
     /**

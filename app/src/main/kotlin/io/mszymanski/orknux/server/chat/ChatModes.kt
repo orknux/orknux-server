@@ -118,8 +118,8 @@ class ChatModes(
             inbox.post(
                 request.llmSessionId,
                 SessionEventKind.ANSWER,
-                "$by approved your plan.$said This conversation has left plan mode, and every tool you hold is " +
-                    "offered again. Carry the plan out now, step by step:\n\n${request.question}",
+                "$by approved your plan.$said This conversation has left plan mode, and every tool you hold " +
+                    "runs again. Carry the plan out now, step by step:\n\n${request.question}",
             )
             return "Approved"
         }
@@ -162,8 +162,8 @@ class ChatModes(
 
         /** Read off the tool's own declaration, so a rename carries into what the model is told. */
         val PLAN_BRIEFING: String =
-            "This conversation is in plan mode. You are offered only the tools that change nothing; everything " +
-                "else you hold is withheld until the person approves a plan, so do not try to make the change and " +
+            "This conversation is in plan mode. Only the tools that change nothing will run; everything " +
+                "else you hold is refused until the person approves a plan, so do not try to make the change and " +
                 "do not ask for the withheld tools. Look into what was asked, then put your plan to the person " +
                 "with ${PRESENT_SPEC.name}: what you found, then the steps, each saying what it will change. If " +
                 "the person asks something instead, answer it and stay in plan mode."

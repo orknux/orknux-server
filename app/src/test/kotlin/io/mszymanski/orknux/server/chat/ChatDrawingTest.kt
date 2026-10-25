@@ -609,12 +609,16 @@ class ChatDrawingTest(
             .doesNotContain("\"style\"")
 
         // A second model on the same stub, and the workspace re-pointed at it:
-        // what is offered follows the choice, send by send.
+        // what the tool takes follows the choice, send by send - said in a
+        // message, since the conversation's tool array does not move.
+        val mapper = tools.jackson.databind.ObjectMapper()
+        val array = mapper.writeValueAsString(mapper.readTree(offered.last()).path("tools"))
         drawWith(modelId = "stub-image", again = true)
         graphQlTester.document("""mutation { sendChatMessage(id: $chatId, text: "Draw it again") { millis } }""").execute()
-        assertThat(offered.last())
-            .contains("from 64 to 4096")
-            .doesNotContain("\"quality\":{")
+        assertThat(mapper.writeValueAsString(mapper.readTree(offered.last()).path("tools"))).isEqualTo(array)
+        val told = mapper.readTree(offered.last()).path("messages").values().map { it.path("content").asString() }
+            .last { it.contains("These tools have changed") }
+        assertThat(told).contains("from 64 to 4096").doesNotContain("\"quality\":{")
     }
 
     /**

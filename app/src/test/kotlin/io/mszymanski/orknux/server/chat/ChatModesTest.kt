@@ -31,8 +31,10 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * Plan and auto mode in a chat, issue #653: switched from the composer, plan
- * mode offering only what changes nothing and ending in a plan the person
- * approves, which hands the plan back and runs it with every tool offered again.
+ * mode refusing whatever changes something and ending in a plan the person
+ * approves, which hands the plan back and runs it with every tool. The tool
+ * array is the conversation's and does not move with the mode; see
+ * [io.mszymanski.orknux.server.llm.SessionFrames].
  */
 @SpringBootTest
 @AutoConfigureGraphQlTester
@@ -60,6 +62,9 @@ class ChatModesTest(
 
     /** Each request's system turn, in the order they came. */
     private val briefed = CopyOnWriteArrayList<String>()
+
+    /** And each request whole. */
+    private val bodies = CopyOnWriteArrayList<String>()
 
     @BeforeEach
     fun reset() {
@@ -116,7 +121,7 @@ class ChatModesTest(
     }
 
     @Test
-    fun `plan mode offers only what changes nothing, refuses the rest, and ends in a plan the person approves`() {
+    fun `plan mode refuses what changes something, and ends in a plan the person approves`() {
         val chatId = chatWithAgent(serve())
         graphQlTester.document("mutation { setChatMode(id: $chatId, mode: PLAN) { mode } }").execute()
 
@@ -125,9 +130,14 @@ class ChatModesTest(
         val chat = chats.findById(chatId).orElseThrow()
         assertThat(assistantSaid(chat.conversationId)).containsExactly("I have put the plan to you.")
 
-        // Offered: the way to present a plan and what only looks; withheld: a reminder, which changes something.
+        /*
+         * Offered: the way to present a plan, and everything else the agent
+         * holds - the conversation's tool array is made once, and leaving plan
+         * mode does not make it again. A reminder, which changes something, is
+         * refused when it is called.
+         */
         val first = offered.first()
-        assertThat(first).contains(ChatModes.PRESENT, DateTools.NOW).doesNotContain(TimerTools.SET, AgentTools.SAVE_ARTIFACT)
+        assertThat(first).contains(ChatModes.PRESENT, DateTools.NOW, TimerTools.SET)
         assertThat(briefed.first()).contains("plan mode").contains(ChatModes.PRESENT_SPEC.name)
         // The reminder the model asked for anyway was refused, not set.
         assertThat(inbox.findAll()).noneMatch { it.kind == io.mszymanski.orknux.server.llm.SessionEventKind.TIMER }
@@ -151,9 +161,10 @@ class ChatModesTest(
         await().atMost(Duration.ofSeconds(15)).untilAsserted {
             assertThat(assistantSaid(chat.conversationId)).containsExactly("I have put the plan to you.", "Done: reminder set.")
         }
-        val carried = offered.last()
-        assertThat(carried).contains(TimerTools.SET).doesNotContain(ChatModes.PRESENT)
-        assertThat(briefed.last()).doesNotContain("plan mode")
+        // The same array and system turn throughout; that plan mode is over is said in a message.
+        assertThat(offered.last()).isEqualTo(first).contains(TimerTools.SET)
+        assertThat(briefed.last()).isEqualTo(briefed.first())
+        assertThat(bodies.last()).contains("No longer so").contains("This conversation is in plan mode")
     }
 
     @Test
@@ -172,7 +183,7 @@ class ChatModesTest(
         // And the chat wakes to it, still planning.
         val conversation = chats.findById(chatId).orElseThrow().conversationId
         await().atMost(Duration.ofSeconds(15)).untilAsserted { assertThat(assistantSaid(conversation)).hasSize(2) }
-        assertThat(offered.last()).contains(ChatModes.PRESENT).doesNotContain(TimerTools.SET)
+        assertThat(offered.last()).contains(ChatModes.PRESENT).isEqualTo(offered.first())
     }
 
     @Test
@@ -198,6 +209,7 @@ class ChatModesTest(
         stub.createContext("/chat/completions") { exchange ->
             val body = exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
             val request = mapper.readTree(body)
+            bodies += body
             offered += request.path("tools").values().map { it.path("function").path("name").stringValue() }
             briefed += request.path("messages").values().firstOrNull { it.path("role").stringValue() == "system" }
                 ?.path("content")?.stringValue().orEmpty()

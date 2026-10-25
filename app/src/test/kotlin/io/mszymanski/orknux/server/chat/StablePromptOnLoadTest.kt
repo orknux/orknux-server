@@ -25,7 +25,8 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * Loading a tool changes what the next request declares and nothing else.
+ * Loading a tool changes nothing the next request declares: it answers with how
+ * the tool is called, and the tool is called through tool_run.
  *
  * llama.cpp reuses a prompt only where it is the same from its first byte, and
  * measured against a Qwen hybrid model it reuses nothing at all past a
@@ -76,7 +77,7 @@ class StablePromptOnLoadTest(
     }
 
     @Test
-    fun `the system turn is the same before and after a tool_load, across rounds and turns`() {
+    fun `the system turn and the tools are the same before and after a tool_load, across rounds and turns`() {
         val chat = chatWith(cap = 16)
         var picked = ""
         // Round one: load a tool the request does not carry, chosen off what was sent.
@@ -84,8 +85,8 @@ class StablePromptOnLoadTest(
             picked = behind(body).let { if (DateTools.NOW in it) DateTools.NOW else it.first() }
             called("call_1", ToolSearchTools.FIND, """{"names":["$picked"]}""")
         }
-        // Round two: call it.
-        script += { _ -> called("call_2", picked, "{}") }
+        // Round two: call it, through tool_run.
+        script += { _ -> called("call_2", ToolRun.NAME, """{"name":"$picked","arguments":{}}""") }
         script += { _ -> answered("Done.") }
         // A second turn in the same conversation.
         script += { _ -> answered("Again.") }
@@ -96,21 +97,15 @@ class StablePromptOnLoadTest(
         assertThat(received).hasSize(4)
         // Byte for byte the same system turn in every request: the load moved nothing in it.
         assertThat(received.map { system(it) }.distinct()).hasSize(1)
-
-        // The loaded tool is declared from the round after the load, and stays declared.
-        assertThat(tools(received[0])).doesNotContain(picked).contains(ToolSearchTools.FIND)
-        assertThat(tools(received[1])).contains(picked)
-        assertThat(tools(received[3])).contains(picked)
-        // Added at the end, after everything the first request carried, in the order it was sent.
-        assertThat(tools(received[1])).isEqualTo(tools(received[0]) + picked)
-        // And the whole array the same from then on, the second turn included.
-        assertThat(text(received[3], "tools")).isEqualTo(text(received[1], "tools"))
+        // Nor the array: a loaded tool is not added to it, in this turn or the next.
+        assertThat(received.map { text(it, "tools") }.distinct()).hasSize(1)
+        assertThat(tools(received[0])).doesNotContain(picked).contains(ToolSearchTools.FIND, ToolRun.NAME)
 
         // Callable: the call was answered by the tool, not refused as one the agent lacks.
         val answeredCall = toolResult(received[2], "call_2")
         assertThat(answeredCall).doesNotContain("no tool called").doesNotContain("not offered")
-        // And the load said it is the agent's now, to call directly.
-        assertThat(toolResult(received[1], "call_1")).contains("Loaded").contains(picked).contains("directly")
+        // And the load said how it is called, and through what.
+        assertThat(toolResult(received[1], "call_1")).contains("Loaded").contains(picked).contains(ToolRun.NAME).contains("Arguments:")
     }
 
     @Test
@@ -221,6 +216,6 @@ class StablePromptOnLoadTest(
     }
 
     private companion object {
-        val ENTRY = Regex("^- ([A-Za-z0-9_.:-]+) [(](loaded|load it first)[)]")
+        val ENTRY = Regex("^- ([A-Za-z0-9_.:-]+) [(](loaded|load it first|call it with tool_run)[)]")
     }
 }

@@ -23,11 +23,12 @@ import tools.jackson.databind.ObjectMapper
  *
  * So above the ceiling an agent is handed the tools it uses constantly, and
  * `find_tools`. It searches what the agent was granted and answers with what
- * matches; the server then puts those in the array for the next round. That is
- * the whole mechanism, and the reason it has to work that way: a model can only
- * call what was declared in the request it is answering, so discovery has to
- * change what the *next* request declares. The conversation loop rebuilds the
- * request every round, so the array can grow inside one answer.
+ * matches. Loading a tool used to put it in the array for the next round; the
+ * array is now fixed for the session (see
+ * [io.mszymanski.orknux.server.llm.SessionFrames]), because a provider caching
+ * the prompt by its prefix read all of it again for one tool added. So
+ * `tool_load` answers with how each tool is called, and the model calls it
+ * through [ToolRun], which is in the array from the start.
  *
  * ### What it is not
  *
@@ -43,7 +44,7 @@ import tools.jackson.databind.ObjectMapper
  *
  * ### Why what is found stays found
  *
- * A tool searched for in one turn is declared for the rest of the session
+ * A tool searched for in one turn stays loaded for the rest of the session
  * rather than searched for again. An agent that looks something up, is asked a
  * follow-up and has to rediscover the same tool spends a round per turn on a
  * question it has already answered - and the second search is not guaranteed to
@@ -144,9 +145,10 @@ class ToolSearchTools(
             ToolSpec(
                 name = FIND,
                 readOnly = true,
-                description = "Loads tools by their exact names so you can call them from your next " +
-                    "message onwards. A name you cannot load is said to be one, with the nearest real names - " +
-                    "it is never swapped for another tool. Load everything the job needs in one call.",
+                description = "Loads tools by their exact names: it answers with how each is called, and you " +
+                    "call it with " + ToolRun.NAME + " from then on. A name you cannot load is said to be one, " +
+                    "with the nearest real names - it is never swapped for another tool. Load everything the " +
+                    "job needs in one call.",
                 parameters = listOf(
                     ToolParameterSpec(
                         name = NAMES,
@@ -219,7 +221,7 @@ class ToolSearchTools(
                 when {
                     spec != null -> buildString {
                         append(spec.name)
-                        append(if (spec.name.lowercase() in inHand) " (loaded)" else " (not loaded - call $FIND to use it)")
+                        append(if (spec.name.lowercase() in inHand) " (loaded)" else " (not loaded yet)")
                         append("\n").append(spec.description.trim())
                         if (spec.parameters.isEmpty()) {
                             append("\nParameters: none.")
@@ -231,6 +233,8 @@ class ToolSearchTools(
                                 param.description.trim().takeIf { it.isNotEmpty() }?.let { append(": ").append(it) }
                             }
                         }
+                        // Not in the request's array, which is fixed for the session; see [ToolRun].
+                        append("\nCall it with ").append(ToolRun.NAME).append(", giving its name and its arguments.")
                     }
                     name.lowercase() in inHand -> "$name is already loaded: its description and parameters are " +
                         "in your list of tools, so call it directly."
@@ -286,7 +290,13 @@ class ToolSearchTools(
              * save_artifact" - which is false, and sent the model looking for a
              * way round a tool it had all along.
              */
-            val inHand = (carried + found).map { it.lowercase() }.toSet()
+            /*
+             * Carried is in the array, and is called directly. Loaded before
+             * is not, and is answered again with how it is called: the array
+             * is fixed for the session, so a tool loaded is reached through
+             * tool_run, and a model asking twice has lost track of how.
+             */
+            val inHand = carried.map { it.lowercase() }.toSet()
             val already = asked.filter { it.lowercase() in inHand }
             val present = asked.filter { it.lowercase() !in inHand }.mapNotNull { byName[it.lowercase()] }
                 .distinctBy { it.name }
@@ -393,15 +403,18 @@ class ToolSearchTools(
                 // "Loaded", matching the name: the tools are now the agent's to call. Issue #535.
                 append("Loaded ${taken.size} of the ${matches.size} that matched. ")
                 /*
-                 * And that they are called directly from now on. The list in
-                 * the briefing keeps the mark it started with, so the system
-                 * turn does not move under a provider's prompt cache - and a
-                 * model reading "(load it first)" there beside a tool it has
-                 * just loaded needs telling which of the two to believe.
+                 * And how they are called, whole: the request's tool array is
+                 * fixed for the session - one tool added to it and a provider
+                 * caching the prompt by its prefix reads all of it again - so a
+                 * loaded tool is not added there. Its schema is here, and it is
+                 * called through tool_run. The list in the briefing keeps the
+                 * mark it started with, for the same reason, and a model reading
+                 * "(load it first)" there beside a tool it has just loaded needs
+                 * telling which of the two to believe.
                  */
-                append("You can call these directly by name from your next message onwards, for the rest of this ")
-                append("conversation, whatever your list of tools still marks them:\n")
-                taken.forEach { append("\n${it.name} - ${it.description.take(DESCRIPTION)}") }
+                append("Call them with ").append(ToolRun.NAME).append(", giving the name and the arguments, for the ")
+                append("rest of this conversation, whatever your list of tools still marks them:\n")
+                taken.forEach { append("\n").append(ToolRun.described(it)).append("\n") }
                 /*
                  * Said rather than done quietly. A tool the agent called two
                  * turns ago and is about to call again has just gone, and an

@@ -83,6 +83,8 @@ class GrantRequestTools(
     private val interactions: ObjectProvider<Interactions>,
     /** Which conversations are a task's, where asking goes through the task instead; see [offered]. */
     private val tasks: io.mszymanski.orknux.server.task.TaskRepository,
+    /** The conversation's frame, which takes in a grant made there rather than being made again; see [io.mszymanski.orknux.server.llm.SessionFrames]. */
+    private val frames: io.mszymanski.orknux.server.llm.SessionFrames,
 ) {
 
     /** What sort of grant a [Grantable] is, which is also how it is granted. */
@@ -304,9 +306,18 @@ class GrantRequestTools(
                     Kind.BOX -> one.boxLabel?.let { agent.boxLabels = agent.boxLabels + it }
                 }
             }
+            val was = agent.lastModifiedAt
             agent.lastModifiedAt = OffsetDateTime.now()
             agent.lastModifiedBy = by
             agents.save(agent)
+            /*
+             * Granted from inside the conversation, so the conversation keeps
+             * its system turn and tool array: the next turn says what is new
+             * and the agent calls it through tool_run, where a new frame would
+             * have the provider read the whole conversation again - 167,792
+             * tokens, and minutes, in the session that showed it.
+             */
+            frames.absorb(request.llmSessionId, agent.id, was, agent.lastModifiedAt)
             auditRecorder.record(
                 agent.workspaceId,
                 WorkspaceAuditCategory.AGENT,
@@ -339,9 +350,9 @@ class GrantRequestTools(
             SessionEventKind.ANSWER,
             buildString {
                 if (granting.isNotEmpty()) {
-                    append("$by granted you $names for good; they are offered from your next round on")
+                    append("$by granted you $names for good; they are yours from your next turn, which says how each is called")
                     append(if (loaded.isEmpty()) "." else ", and ${loaded.joinToString(", ")} " +
-                        (if (loaded.size == 1) "is" else "are") + " loaded already - call them directly.")
+                        (if (loaded.size == 1) "is" else "are") + " loaded already.")
                 }
                 if (gone.isNotEmpty()) {
                     if (isNotEmpty()) append(" ")

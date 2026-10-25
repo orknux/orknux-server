@@ -3,8 +3,6 @@ package io.mszymanski.orknux.server.chat
 import io.mszymanski.orknux.connector.model.ModelChatClient
 import io.mszymanski.orknux.connector.model.ToolSpec
 import io.mszymanski.orknux.server.agent.Agent
-import io.mszymanski.orknux.server.tuning.Tunable
-import io.mszymanski.orknux.server.tuning.Tuning
 import org.springframework.stereotype.Service
 
 /**
@@ -26,11 +24,7 @@ import org.springframework.stereotype.Service
  * model loaded what it held, or the other way about.
  */
 @Service
-class ToolCeilings(
-    private val models: ModelChatClient,
-    /** For the room left to load into past the provider's cap; Admin -> Settings decides. */
-    private val tuning: Tuning = Tuning.DEFAULTS,
-) {
+class ToolCeilings(private val models: ModelChatClient) {
 
     /** The ceiling for [agent] on [modelId]: its own, or null where the provider offers every tool. */
     fun of(agent: Agent, modelId: Long? = agent.modelId): Int? =
@@ -69,7 +63,8 @@ class ToolCeilings(
          */
         val limit = minOf(modelId?.let(models::toolLimit) ?: Int.MAX_VALUE, ceiling ?: Int.MAX_VALUE)
         val holds = holding.core.size + holding.searchable.size + lent.size + lentFindable.size
-        if (holds <= limit) {
+        // And tool_run, which every array carries for the tools that arrive after it was made.
+        if (holds + ToolRun.SLOTS <= limit) {
             // Everything fits: every tool goes out, and nothing is found.
             return Carrying(false, limit, holding.core + holding.searchable, lent + lentFindable, emptyList())
         }
@@ -79,7 +74,7 @@ class ToolCeilings(
              * what is carried cut to the request where even that overflows.
              */
             val carried = holding.core + lent
-            val kept = carried.take((limit - ToolSearchTools.OFFERED).coerceAtLeast(0)).map { it.name }.toSet()
+            val kept = carried.take((limit - ToolSearchTools.OFFERED - ToolRun.SLOTS).coerceAtLeast(0)).map { it.name }.toSet()
             return Carrying(
                 true,
                 limit,
@@ -102,16 +97,16 @@ class ToolCeilings(
          * request reads 4. So the array is filled, and a load becomes the rare
          * case of a tool past the cap.
          *
-         * Short of the cap by a little, so that rare case has somewhere to go:
-         * a request filled to the brim answered every tool_load with "no
-         * room", and there is nothing found yet to give up.
+         * Filled to the brim, less the finder and tool_run. It was kept short
+         * of the cap so a load had somewhere to go; a loaded tool no longer
+         * goes into the array, which is fixed for the session, but is called
+         * through tool_run - see [io.mszymanski.orknux.server.llm.SessionFrames].
          */
         val split = capped(limit)
         val (splitLent, splitLentFindable) = lending.partition { BuiltInTools.carried(agent, it.name, limit) }
         val ordered = split.core + splitLent + split.searchable + splitLentFindable
-        val room = (limit - ToolSearchTools.OFFERED).coerceAtLeast(0)
-        val headroom = minOf(tuning[Tunable.TOOLS_LOADED_AT_ONCE], room / 2)
-        val kept = ordered.take(room - headroom).map { it.name }.toSet()
+        val room = (limit - ToolSearchTools.OFFERED - ToolRun.SLOTS).coerceAtLeast(0)
+        val kept = ordered.take(room).map { it.name }.toSet()
         return Carrying(
             true,
             limit,
