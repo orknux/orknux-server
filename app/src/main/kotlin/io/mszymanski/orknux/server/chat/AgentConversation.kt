@@ -878,7 +878,7 @@ class AgentConversation(
                 }
             }
             into?.let { spend.add(it, modelId, once) }
-            record(into, agent, once)
+            record(into, agent, once, hangup)
             if (once is ChatCompletion.Answered) kept?.sent(told + ChatTurn(role = "assistant", content = once.content))
             return once
         }
@@ -1227,7 +1227,7 @@ class AgentConversation(
                         return@repeat
                     }
                     if (!answer.replyFault || answer.permanent || retried >= settings.unusableReplyRetries()) {
-                        return answer.also { record(into, agent, it) }
+                        return answer.also { record(into, agent, it, hangup) }
                     }
                     retried += 1
                     into?.let { session -> sessions.note(session, "Could not be used: ${answer.reason}") }
@@ -2176,7 +2176,18 @@ class AgentConversation(
         return jackson.writeValueAsString(envelope)
     }
 
-    private fun record(into: Long?, agent: Agent, answer: ChatCompletion) {
+    /**
+     * Writes a round down in the session, and a failure in the error report.
+     *
+     * Except a turn hung up on as an ordinary part of the conversation - a
+     * voice turn whose reader cut in or left (see [Hangup.ordinary]). Issue
+     * #671: that turn was written as "could not answer: Nobody was left to read
+     * the answer", a failure line for something that happens every time
+     * somebody talks over an answer. What the agent said before the cut is
+     * already in the session as said; the cut itself is nobody's fault.
+     */
+    private fun record(into: Long?, agent: Agent, answer: ChatCompletion, hangup: Hangup? = null) {
+        if (answer is ChatCompletion.Failed && hangup?.ordinary == true) return
         if (answer is ChatCompletion.Failed) {
             errors.record(agent.workspaceId, io.mszymanski.orknux.server.errors.ErrorSource.AGENT, agent.name, answer.reason, sessionId = into)
         }

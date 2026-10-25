@@ -200,6 +200,48 @@ class ChatStreamInterruptTest(
     }
 
     /**
+     * And a voice turn cut short that way is not written down as a failure.
+     * Issue #671.
+     *
+     * Talking over an answer, or leaving voice mode, is how a spoken turn
+     * ends every few minutes - and each one was in the session as "Worker
+     * could not answer: Nobody was left to read the answer", a failure line for
+     * the conversation working as it should.
+     */
+    @Test
+    fun `a voice turn whose reader goes records no failure`() {
+        val chatId = chatWithAgent(model(serve()))
+
+        run(chatId)
+
+        assertThat(torn.get()).isTrue()
+        assertThat(llmEvents.findAll().map { it.content.orEmpty() }).noneMatch { it.contains("could not answer") }
+    }
+
+    /**
+     * A typed turn that is stopped still says so, as it did: Stop is not a
+     * reader leaving, and the record of a turn somebody stopped is theirs.
+     */
+    @Test
+    fun `a text turn that is stopped still records that it could not answer`() {
+        val chatId = chatWithAgent(model(serve()))
+        val response = MockHttpServletResponse()
+        val body = streaming.stream(chatId, ChatStreamRequest("Say something long", voice = false), response)
+
+        val worker = Executors.newSingleThreadExecutor()
+        worker.submit { runCatching { body.writeTo(response.outputStream) } }
+        Thread.sleep(INTERRUPT_AFTER_MILLIS)
+        streaming.interrupt(chatId)
+
+        assertThat(done.await(10, TimeUnit.SECONDS)).isTrue()
+        await().atMost(Duration.ofSeconds(10)).untilAsserted {
+            assertThat(llmEvents.findAll().map { it.content.orEmpty() })
+                .anyMatch { it.contains("could not answer: Nobody was left to read the answer") }
+        }
+        worker.shutdownNow()
+    }
+
+    /**
      * A text turn whose reader leaves is finished anyway, and written down.
      *
      * The other half of the same decision: a text chat is a record, so an answer
