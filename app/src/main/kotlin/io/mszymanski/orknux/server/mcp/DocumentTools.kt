@@ -541,6 +541,9 @@ class DocumentTools(
         /** What the editor's own chat is offered: reading and writing in the document it has open. */
         val EDITING = setOf(READ, FIND, WRITE, INSERT, APPEND, ADD_IMAGE)
 
+        /** What it is offered when it is asked about the document rather than to write in it: Explain, Summarise. */
+        val READING = setOf(READ, FIND)
+
         val NAMES = setOf(LIST, READ, SEARCH, FIND, EXPORT, CREATE, WRITE, INSERT, APPEND, ADD_IMAGE)
 
         private const val MATCH_CASE = "matchCase"

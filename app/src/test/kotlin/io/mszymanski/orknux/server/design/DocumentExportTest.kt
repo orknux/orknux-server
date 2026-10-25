@@ -172,6 +172,26 @@ class DocumentExportTest(
         assertThat(content).contains("fo:color=\"#cf222e\"", "monospace", "println")
     }
 
+    /** A coloured run and a highlight: drawn in their colours in the PDF's page and the ODT, and words in the Markdown. */
+    @Test
+    fun `a text colour and a highlight are kept in the PDF and the ODT and do not stop the Markdown`() {
+        val coloured = """{"type":"doc","content":[{"type":"paragraph","content":[
+            {"type":"text","text":"Red words","marks":[{"type":"textStyle","attrs":{"color":"#c00000"}}]},
+            {"type":"text","text":" and "},
+            {"type":"text","text":"a noted one","marks":[{"type":"note","attrs":{"note":"Why?","id":"n1"}},{"type":"italic"}]}]}]}"""
+        graphQlTester.document("""mutation(${'$'}id: ID!, ${'$'}d: String!) { saveDocument(id: ${'$'}id, content: ${'$'}d) { id } }""")
+            .variable("id", documentId).variable("d", coloured).execute().errors().verify()
+
+        assertThat(download("md").getContentAsString(Charsets.UTF_8)).isEqualTo("Red words and *a noted one*\n")
+        val page = DocumentHtml().page("Colours", tools.jackson.databind.json.JsonMapper.builder().build().readTree(coloured), DocumentPage(210.0, 297.0, 25.0))
+        assertThat(page).contains("<span style=\"color: #c00000\">Red words</span>", "<em><span style=\"background-color: ${DocumentHtml.NOTE_COLOUR}\">a noted one</span></em>")
+        val pdf = download("pdf")
+        assertThat(pdf.status).isEqualTo(200)
+        Loader.loadPDF(pdf.contentAsByteArray).use { assertThat(PDFTextStripper().getText(it)).contains("Red words", "a noted one") }
+        val content = String(requireNotNull(unzip(download("odt").contentAsByteArray)["content.xml"]), Charsets.UTF_8)
+        assertThat(content).contains("fo:color=\"#c00000\"", "fo:background-color=\"${DocumentHtml.NOTE_COLOUR}\"", "Red words", "a noted one")
+    }
+
     /** A5 turned on its side, with wide margins: the PDF's pages are that size, and the ODT's page says so. */
     @Test
     fun `the page a document is set to is the page its PDF and ODT are laid out on`() {

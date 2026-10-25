@@ -193,6 +193,34 @@ class DocumentAPITest(
             .execute().errors().expect { it.message?.contains("needs a name") == true }.verify()
     }
 
+    /**
+     * The editor's text colour and highlights: a colour kept as #rrggbb whatever it was pasted as and
+     * dropped where it is not one, a highlight with its note and its id, and a note past its length refused.
+     */
+    @Test
+    fun `a text colour and a highlight with its note are kept, a colour that is not one is dropped`() {
+        val id = create("Coloured")
+        fun run(text: String, marks: String) = """{"type":"text","text":"$text","marks":$marks}"""
+        val content = """{"type":"doc","content":[{"type":"paragraph","content":[
+            ${run("red ", """[{"type":"textStyle","attrs":{"color":"#C00"}}]""")},
+            ${run("pasted ", """[{"type":"textStyle","attrs":{"color":"rgb(0, 128, 255)"}}]""")},
+            ${run("named ", """[{"type":"textStyle","attrs":{"color":"red"}}]""")},
+            ${run("noted", """[{"type":"note","attrs":{"note":"  Check the figure  ","id":"n-1","colour":"x"}},{"type":"bold"}]""")}
+        ]}]}"""
+        save(id, content).errors().verify()
+        val runs = stored(id).path("content").get(0).path("content")
+        assertThat(runs.get(0).path("marks").get(0).toString()).isEqualTo("""{"type":"textStyle","attrs":{"color":"#cc0000"}}""")
+        assertThat(runs.get(1).path("marks").get(0).path("attrs").path("color").stringValue()).isEqualTo("#0080ff")
+        assertThat(runs.get(2).has("marks")).describedAs("a colour by name is not kept").isFalse()
+        assertThat(runs.get(3).path("marks").get(0).toString()).isEqualTo("""{"type":"note","attrs":{"note":"Check the figure","id":"n-1"}}""")
+        assertThat(documents.findById(id).get().plainText).isEqualTo("red pasted named noted")
+
+        val long = "w".repeat(Documents.NOTE_LENGTH + 1)
+        save(id, """{"type":"doc","content":[{"type":"paragraph","content":[${run("x", """[{"type":"note","attrs":{"note":"$long"}}]""")}]}]}""").errors()
+            .expect { it.message == "The document cannot be saved: a highlight's note is at most ${Documents.NOTE_LENGTH} characters, and one holds ${long.length}" }
+            .verify()
+    }
+
     @Test
     fun `a document past the characters an installation allows is refused with the count`() {
         tunables.set(Tunable.DOCUMENT_CHARACTERS_MOST, 10_000, "alice")

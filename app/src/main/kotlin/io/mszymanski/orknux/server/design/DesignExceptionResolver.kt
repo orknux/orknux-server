@@ -30,6 +30,8 @@ class DesignExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is DocumentTooLargeException,
             is DocumentChangedException,
             is DocumentAnswerFailedException,
+            is DocumentTranslationLanguageException,
+            is DocumentSelectionTooLongException,
             is DocumentCatalogNameInvalidException,
             is DocumentCatalogNameTakenException,
             is DocumentCatalogNotEmptyException,
