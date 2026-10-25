@@ -1,0 +1,84 @@
+# Documents: rich text written in the Design perspective, in pages, filed in
+# catalogs, by hand in the editor and by a chat model through the orknux_*
+# document tools. Anybody who can see the workspace.
+
+extend type Query {
+    "A workspace's document catalogs, by name."
+    documentCatalogs(workspaceId: ID!): [DocumentCatalog!]!
+    "A workspace's documents, the one worked on last first; in one catalog, or holding some words in the name or the text."
+    documents(workspaceId: ID!, catalogId: ID, search: String): [DesignDocument!]!
+    "One document; null where there is none."
+    document(id: ID!): DesignDocument
+    "Documents holding some words, each with the words around where they were found; names that match first."
+    searchDocuments(workspaceId: ID!, text: String!, limit: Int): [DocumentHit!]!
+}
+
+extend type Mutation {
+    createDocumentCatalog(workspaceId: ID!, name: String!): DocumentCatalog!
+    renameDocumentCatalog(id: ID!, name: String!): DocumentCatalog!
+    "Refused while the catalog holds documents."
+    deleteDocumentCatalog(id: ID!): Boolean!
+    """
+    Makes a document, empty or holding `content` (ProseMirror JSON). Without a
+    catalog it is filed in the workspace's first, which is made if there is none.
+    `pageSize` is A4, the default, or LETTER.
+    """
+    createDocument(workspaceId: ID!, catalogId: ID, name: String!, content: String, pageSize: String): DesignDocument!
+    renameDocument(id: ID!, name: String!): DesignDocument!
+    "Files a document in another catalog of its workspace."
+    moveDocument(id: ID!, catalogId: ID!): DesignDocument!
+    """
+    Writes a whole document over the one held. With `revision`, refused when the
+    document has been saved since that revision - by somebody else or by a model.
+    """
+    saveDocument(id: ID!, content: String!, revision: Int, pageSize: String): DesignDocument!
+    deleteDocument(id: ID!): Boolean!
+}
+
+"A folder of documents."
+type DocumentCatalog {
+    id: ID!
+    workspaceId: ID!
+    name: String!
+    documentCount: Int!
+    createdBy: String!
+    "ISO-8601."
+    createdAt: String!
+}
+
+"A document and its content."
+type DesignDocument {
+    id: ID!
+    workspaceId: ID!
+    catalogId: ID!
+    catalogName: String!
+    name: String!
+    """
+    The content, as ProseMirror JSON: {"type":"doc","content":[...]}. A picture
+    is an image node naming its artifact (attrs.artifact, such as DESIGN-12);
+    a pageBreak node starts a new page.
+    """
+    content: String!
+    "A4 or LETTER."
+    pageSize: String!
+    "Counts the saves; what saveDocument is checked against."
+    revision: Int!
+    words: Int!
+    "The first words, on one line."
+    excerpt: String!
+    "The artifact ids of the pictures it shows."
+    images: [String!]!
+    createdBy: String!
+    "ISO-8601."
+    createdAt: String!
+    updatedBy: String!
+    "ISO-8601."
+    updatedAt: String!
+}
+
+"A document a search found."
+type DocumentHit {
+    document: DesignDocument!
+    "The words around where it was found, on one line."
+    snippet: String!
+}

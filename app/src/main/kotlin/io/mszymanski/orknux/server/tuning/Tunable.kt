@@ -318,6 +318,37 @@ enum class Tunable(
     ),
 
     /*
+     * Design's Documents page. Counted in the characters of the stored content
+     * because that is what is sent whole on every save and read whole by every
+     * export: a document past this is one the editor and a PDF take too long over.
+     */
+    DOCUMENT_CHARACTERS_MOST(
+        "document.characters.most", 2_000_000, 10_000, 50_000_000, TuningSection.MEDIA, TuningUnit.CHARACTERS,
+        "How long one document's stored content may be",
+        "A save, from the editor or from a model writing in it, that would make it longer is refused and says how long it was.",
+    ),
+    /*
+     * Counted in characters because that is what a model pays for: the
+     * Markdown orknux_document hands back is read in full. Past this the
+     * answer carries the first part and says the rest is there.
+     */
+    DOCUMENT_MARKDOWN_INLINE_CHARACTERS(
+        "document.markdown.inline.characters", 100_000, 1_000, 5_000_000, TuningSection.MEDIA, TuningUnit.CHARACTERS,
+        "How much of a document's Markdown is handed to a model",
+        "A longer document is handed over cut at this length, with a note saying how long it is.",
+    ),
+    DOCUMENT_SEARCH_RESULTS(
+        "document.search.results", 20, 1, 200, TuningSection.MEDIA, TuningUnit.ITEMS,
+        "How many documents a search answers",
+        "Quick actions and orknux_search_documents list at most this many, names that match first.",
+    ),
+    DOCUMENT_SNIPPET_CHARACTERS(
+        "document.snippet.characters", 160, 40, 1_000, TuningSection.MEDIA, TuningUnit.CHARACTERS,
+        "How much of a document a search shows around a match",
+        "Also how much of a document's start the Documents list shows under its name.",
+    ),
+
+    /*
      * Design's Videos page. Issue #658. A video is a job its backend runs for
      * minutes, so how many run at once, how often each is asked about, how
      * long it may take and how large a file is kept are the four numbers that

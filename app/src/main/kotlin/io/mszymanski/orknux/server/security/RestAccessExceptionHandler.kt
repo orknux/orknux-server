@@ -3,6 +3,8 @@ package io.mszymanski.orknux.server.security
 import io.mszymanski.orknux.server.attachment.AttachmentNotFoundException
 import io.mszymanski.orknux.server.attachment.AttachmentTooLargeException
 import io.mszymanski.orknux.server.attachment.AttachmentsDisabledException
+import io.mszymanski.orknux.server.design.DocumentImageNotFoundException
+import io.mszymanski.orknux.server.design.DocumentNotFoundException
 import io.mszymanski.orknux.server.design.WireframeNotFoundException
 import io.mszymanski.orknux.server.task.TaskPictureNotFoundException
 import io.mszymanski.orknux.server.workflow.ExecutionPictureNotFoundException
@@ -59,6 +61,8 @@ class RestAccessExceptionHandler {
         ExecutionSpeechNotFoundException::class,
         SavedArtifactNotFoundException::class,
         WireframeNotFoundException::class,
+        DocumentNotFoundException::class,
+        DocumentImageNotFoundException::class,
     )
     fun notFound(failure: RuntimeException): ResponseEntity<Map<String, String>> =
         ResponseEntity.status(HttpStatus.NOT_FOUND)

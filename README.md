@@ -500,6 +500,10 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_WIREFRAME_ELEMENTS_MOST` | How many elements one wireframe may hold, in items. | `2000` |
 | `ORKNUX_TUNING_WIREFRAME_HTML_INLINE_CHARACTERS` | How long a wireframe's HTML may be and still be handed to a model, in characters. | `100000` |
 | `ORKNUX_TUNING_WIREFRAME_PICTURE_PIXELS` | How wide the picture of a wireframe an agent drew may be, in pixels. | `1600` |
+| `ORKNUX_TUNING_DOCUMENT_CHARACTERS_MOST` | How long one document's stored content may be, in characters. | `2000000` |
+| `ORKNUX_TUNING_DOCUMENT_MARKDOWN_INLINE_CHARACTERS` | How much of a document's Markdown is handed to a model, in characters. | `100000` |
+| `ORKNUX_TUNING_DOCUMENT_SEARCH_RESULTS` | How many documents a search answers, in items. | `20` |
+| `ORKNUX_TUNING_DOCUMENT_SNIPPET_CHARACTERS` | How much of a document a search shows around a match, in characters. | `160` |
 | `ORKNUX_TUNING_ACTION_RETRY_SECONDS` | How often a waiting action asks again, in seconds. | `30` |
 | `ORKNUX_TUNING_ACTION_WAIT_SECONDS` | How long a waiting action waits when it does not say, in seconds. | `3600` |
 | `ORKNUX_TUNING_TRIGGER_REMEMBER_MINUTES` | How long a trigger remembers an event it ran on, in minutes. | `10` |

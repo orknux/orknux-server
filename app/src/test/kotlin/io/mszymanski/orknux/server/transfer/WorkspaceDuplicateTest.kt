@@ -50,7 +50,29 @@ class WorkspaceDuplicateTest(
     @Autowired val designImages: io.mszymanski.orknux.server.design.DesignImageRepository,
     @Autowired val layerRows: io.mszymanski.orknux.server.design.DesignImageLayerRepository,
     @Autowired val layers: io.mszymanski.orknux.server.design.DesignImageLayers,
+    @Autowired val documentCatalogs: io.mszymanski.orknux.server.design.DocumentCatalogRepository,
+    @Autowired val documents: io.mszymanski.orknux.server.design.DesignDocumentRepository,
 ) {
+
+    /** A document is written work, like a picture: a copy carries neither it nor its catalog. */
+    @Test
+    fun `a copy carries no document and no document catalog`() {
+        val stamp = System.nanoTime()
+        val source = requireNotNull(workspaces.save(Workspace(name = "dup-documents-$stamp")).id)
+        val catalog = documentCatalogs.save(io.mszymanski.orknux.server.design.DocumentCatalog(workspaceId = source, name = "Notes", createdBy = "alice"))
+        documents.save(
+            io.mszymanski.orknux.server.design.DesignDocument(
+                workspaceId = source, catalogId = requireNotNull(catalog.id), name = "Plan",
+                content = """{"type":"doc","content":[{"type":"paragraph"}]}""", createdBy = "alice", updatedBy = "alice",
+            ),
+        )
+
+        val copy = duplicator.duplicate(source, "dup-documents-copy-$stamp", "alice").workspaceId
+
+        assertThat(documentCatalogs.findByWorkspaceIdOrderByNameAsc(copy)).isEmpty()
+        assertThat(documents.findByWorkspaceIdOrderByUpdatedAtDescIdDesc(copy)).isEmpty()
+        assertThat(documents.findByWorkspaceIdOrderByUpdatedAtDescIdDesc(source).map { it.name }).containsExactly("Plan")
+    }
 
     /**
      * What was drawn in Design is work done in a workspace, not how it is set

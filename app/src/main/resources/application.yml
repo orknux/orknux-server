@@ -952,6 +952,10 @@ orknux:
     wireframe.elements.most: ${ORKNUX_TUNING_WIREFRAME_ELEMENTS_MOST:2000}
     wireframe.html.inline.characters: ${ORKNUX_TUNING_WIREFRAME_HTML_INLINE_CHARACTERS:100000}
     wireframe.picture.pixels: ${ORKNUX_TUNING_WIREFRAME_PICTURE_PIXELS:1600}
+    document.characters.most: ${ORKNUX_TUNING_DOCUMENT_CHARACTERS_MOST:2000000}
+    document.markdown.inline.characters: ${ORKNUX_TUNING_DOCUMENT_MARKDOWN_INLINE_CHARACTERS:100000}
+    document.search.results: ${ORKNUX_TUNING_DOCUMENT_SEARCH_RESULTS:20}
+    document.snippet.characters: ${ORKNUX_TUNING_DOCUMENT_SNIPPET_CHARACTERS:160}
     action.retry.seconds: ${ORKNUX_TUNING_ACTION_RETRY_SECONDS:30}
     action.wait.seconds: ${ORKNUX_TUNING_ACTION_WAIT_SECONDS:3600}
     trigger.remember.minutes: ${ORKNUX_TUNING_TRIGGER_REMEMBER_MINUTES:10}

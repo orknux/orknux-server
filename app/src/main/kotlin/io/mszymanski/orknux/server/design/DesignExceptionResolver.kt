@@ -23,6 +23,17 @@ class DesignExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is WireframeChangedException,
             is WireframeAnswerFailedException,
             -> ErrorType.BAD_REQUEST
+            is DocumentNotFoundException, is DocumentCatalogNotFoundException -> ErrorType.NOT_FOUND
+            is DocumentNameInvalidException,
+            is DocumentPageSizeInvalidException,
+            is DocumentContentInvalidException,
+            is DocumentTooLargeException,
+            is DocumentChangedException,
+            is DocumentAnswerFailedException,
+            is DocumentCatalogNameInvalidException,
+            is DocumentCatalogNameTakenException,
+            is DocumentCatalogNotEmptyException,
+            -> ErrorType.BAD_REQUEST
             else -> return null
         }
         return refused(exception, errorType, environment)
