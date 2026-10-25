@@ -13,7 +13,8 @@ WITH orknux_name (ord, name) AS (
     (6, 'orknux_write_document'),
     (7, 'orknux_insert_into_document'),
     (8, 'orknux_append_document_section'),
-    (9, 'orknux_add_document_image')
+    (9, 'orknux_add_document_image'),
+    (10, 'orknux_find_in_document')
 ),
 missing AS (
   SELECT a.id AS agent_id, t.ord, t.name

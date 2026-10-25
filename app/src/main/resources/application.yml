@@ -267,6 +267,10 @@ orknux:
     # be allowed is still read from its code, in the sandbox, at the moment
     # somebody accepts it. Override it per installation if you have your own.
     install-key: ${ORKNUX_INSTALL_KEY:7444beb07c53a65ed81074f73cdeec6defeecced280e1ee6d866a95a6f69ac72}
+  # A LanguageTool server for the document editor's grammar check. Empty checks with the
+  # library inside this server, loading a language the first time it is checked.
+  grammar:
+    server-url: ${ORKNUX_GRAMMAR_SERVER_URL:}
   chat:
     # Whether this installation has a chat at all. False here is final: an
     # administrator can turn the chat off from the screen, but not back on
@@ -956,6 +960,8 @@ orknux:
     document.markdown.inline.characters: ${ORKNUX_TUNING_DOCUMENT_MARKDOWN_INLINE_CHARACTERS:100000}
     document.svg.pixels: ${ORKNUX_TUNING_DOCUMENT_SVG_PIXELS:1600}
     document.completion.context.characters: ${ORKNUX_TUNING_DOCUMENT_COMPLETION_CONTEXT_CHARACTERS:2000}
+    grammar.pause.millis: ${ORKNUX_TUNING_GRAMMAR_PAUSE_MILLIS:800}
+    grammar.text.most: ${ORKNUX_TUNING_GRAMMAR_TEXT_MOST:20000}
     document.search.results: ${ORKNUX_TUNING_DOCUMENT_SEARCH_RESULTS:20}
     document.snippet.characters: ${ORKNUX_TUNING_DOCUMENT_SNIPPET_CHARACTERS:160}
     action.retry.seconds: ${ORKNUX_TUNING_ACTION_RETRY_SECONDS:30}

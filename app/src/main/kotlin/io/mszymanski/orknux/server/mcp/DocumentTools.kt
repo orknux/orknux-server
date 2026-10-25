@@ -95,6 +95,20 @@ class DocumentTools(
         )
         add(
             ToolSpec(
+                name = FIND,
+                description = "Finds words in one document: each place they are, with the top-level block it is in - as $READ " +
+                    "numbers them, for $WRITE and $INSERT - the page, counted by the document's page breaks, and the words around it.",
+                parameters = listOf(
+                    ToolParameterSpec(DOCUMENT, "The document's name, or its id.", required = true),
+                    ToolParameterSpec(TEXT, "What to look for.", required = true),
+                    ToolParameterSpec(MATCH_CASE, "true to tell capitals from small letters; false by default.", required = false),
+                    ToolParameterSpec(WHOLE_WORD, "true to find it only as a whole word; false by default.", required = false),
+                ),
+                summary = "Finds words in one document",
+            ),
+        )
+        add(
+            ToolSpec(
                 name = EXPORT,
                 description = "Writes a document out as a file: pdf (its pages, pictures and page breaks laid out), md (Markdown; " +
                     "a zip with its pictures beside it where it has any), odt (an OpenDocument text a word processor opens) or ods " +
@@ -118,7 +132,7 @@ class DocumentTools(
                     ToolParameterSpec("name", "What it is called.", required = true),
                     ToolParameterSpec(MARKDOWN, "Its content, as Markdown.", required = false),
                     ToolParameterSpec(CATALOG, "The catalog to file it in, by name; made if there is none of that name. The workspace's first when left out.", required = false),
-                    ToolParameterSpec(PAGE_SIZE, "A4, the default, or LETTER.", required = false),
+                    ToolParameterSpec(PAGE_SIZE, "A3, A4, A5, LETTER or LEGAL; the workspace's own page for new documents when left out.", required = false),
                 ),
                 summary = "Writes a new document",
             ),
@@ -193,6 +207,7 @@ class DocumentTools(
                 LIST -> list(scope, asked)
                 READ -> withDocument(scope, asked) { read(it, text(asked.path(AS)) == "json") }
                 SEARCH -> search(scope, asked)
+                FIND -> withDocument(scope, asked) { find(it, asked) }
                 EXPORT -> withDocument(scope, asked) { export(scope, it, asked) }
                 else -> if (!scope.mayWrite) refuse("This conversation may read what is here, but not change it") else when (name) {
                     CREATE -> create(scope, asked)
@@ -269,6 +284,41 @@ class DocumentTools(
         )
     }
 
+    /** Every place the words are in one document, in order, with where each is. */
+    private fun find(document: DesignDocument, asked: JsonNode): String {
+        val needle = text(asked.path(TEXT)) ?: return refuse("What should be looked for? Give $TEXT.")
+        val matchCase = asked.path(MATCH_CASE).asBoolean(false)
+        val whole = asked.path(WHOLE_WORD).asBoolean(false)
+        val pattern = Regex(
+            (if (whole) "(?<![\\p{L}\\p{N}_])" else "") + Regex.escape(needle) + (if (whole) "(?![\\p{L}\\p{N}_])" else ""),
+            if (matchCase) emptySet() else setOf(RegexOption.IGNORE_CASE),
+        )
+        val blocks = api.tree(document).path("content")
+        var page = 1
+        val found = mutableListOf<Map<String, Any?>>()
+        for (at in 0 until blocks.size()) {
+            val block = blocks.get(at)
+            if (block.path("type").asText("") == "pageBreak") {
+                page++
+                continue
+            }
+            val words = api.content.plainText(block).replace('\n', ' ')
+            pattern.findAll(words).forEach { match ->
+                val from = (match.range.first - CONTEXT).coerceAtLeast(0)
+                val to = (match.range.last + 1 + CONTEXT).coerceAtMost(words.length)
+                found += mapOf(
+                    "block" to at,
+                    "page" to page,
+                    "offset" to match.range.first,
+                    "context" to (if (from > 0) "…" else "") + words.substring(from, to) + (if (to < words.length) "…" else ""),
+                )
+            }
+        }
+        return mapper.writeValueAsString(
+            mapOf("id" to document.id, "name" to document.name, "count" to found.size, "matches" to found, "url" to link(document)),
+        )
+    }
+
     /**
      * The file, where to download it, and - in a conversation - the file
      * itself under a key, so a tool that sends or saves files can take it.
@@ -302,7 +352,7 @@ class DocumentTools(
 
     private fun create(scope: OrknuxScope, asked: JsonNode): String {
         val name = text(asked.path("name")) ?: return refuse("What is it called? Give it a name.")
-        val pageSize = text(asked.path(PAGE_SIZE))?.let { DocumentPageSize.of(it)?.name ?: return refuse("A page is A4 or LETTER, not $it") }
+        val pageSize = text(asked.path(PAGE_SIZE))?.let { DocumentPageSize.of(it)?.name ?: return refuse("A page is A3, A4, A5, LETTER or LEGAL, not $it") }
         val catalogId = text(asked.path(CATALOG))?.let { named ->
             val found = catalogs.findByWorkspaceIdOrderByNameAsc(scope.workspaceId).firstOrNull { it.name.equals(named, ignoreCase = true) }
             found?.id ?: api.createDocumentCatalog(scope.workspaceId, named).id
@@ -486,10 +536,18 @@ class DocumentTools(
         const val APPEND = "orknux_append_document_section"
         const val ADD_IMAGE = "orknux_add_document_image"
 
-        /** What the editor's own chat is offered: writing in the document it has open. */
-        val EDITING = setOf(READ, WRITE, INSERT, APPEND, ADD_IMAGE)
+        const val FIND = "orknux_find_in_document"
 
-        val NAMES = setOf(LIST, READ, SEARCH, EXPORT, CREATE, WRITE, INSERT, APPEND, ADD_IMAGE)
+        /** What the editor's own chat is offered: reading and writing in the document it has open. */
+        val EDITING = setOf(READ, FIND, WRITE, INSERT, APPEND, ADD_IMAGE)
+
+        val NAMES = setOf(LIST, READ, SEARCH, FIND, EXPORT, CREATE, WRITE, INSERT, APPEND, ADD_IMAGE)
+
+        private const val MATCH_CASE = "matchCase"
+        private const val WHOLE_WORD = "wholeWord"
+
+        /** How many characters either side of a match it is shown with. A format: the words around a place. */
+        private const val CONTEXT = 40
 
         private const val DOCUMENT = "document"
         private const val CATALOG = "catalog"

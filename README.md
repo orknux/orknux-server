@@ -415,6 +415,7 @@ installation starts from.
 | `ORKNUX_CHAT_REPLY_SUGGESTIONS_MAX_TOKENS` | The most tokens an answer's suggested replies together may be. | `150` |
 | `ORKNUX_CHAT_REPLY_SUGGESTIONS_TIMEOUT_MILLIS` | How long suggested replies may take before they are dropped. | `8000` |
 | `ORKNUX_CHAT_VIDEO_MAX_MB` | The largest video, in MB, a chat message may send to a model that takes video; a larger one is refused before the model is asked. | `20` |
+| `ORKNUX_GRAMMAR_SERVER_URL` | A LanguageTool server the document editor's grammar check sends its text to, such as `http://languagetool:8010`; empty checks with the LanguageTool library inside the server, loading a language the first time it is checked. Admin Settings can set it too. | empty |
 | `ORKNUX_CHAT_TITLE_SECONDS` | How long the workspace's companion model has to name a chat before the chat's own model is asked, in seconds. Admin -> Settings overrides it. | `30` |
 | `ORKNUX_COMMAND_MARKER` | What marks a skill command in a message. | `!` |
 | `ORKNUX_LDAP_GROUP_SEARCH_SUBTREE` | Search for groups below the group base too. | `false` |
@@ -504,6 +505,8 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_DOCUMENT_MARKDOWN_INLINE_CHARACTERS` | How much of a document's Markdown is handed to a model, in characters. | `100000` |
 | `ORKNUX_TUNING_DOCUMENT_SVG_PIXELS` | How wide an SVG put in a document is drawn, in pixels. | `1600` |
 | `ORKNUX_TUNING_DOCUMENT_COMPLETION_CONTEXT_CHARACTERS` | How much of a document the inline suggestion reads, in characters. | `2000` |
+| `ORKNUX_TUNING_GRAMMAR_PAUSE_MILLIS` | How long the typing pauses before grammar is checked, in ms. | `800` |
+| `ORKNUX_TUNING_GRAMMAR_TEXT_MOST` | How much text one grammar check takes, in characters. | `20000` |
 | `ORKNUX_TUNING_DOCUMENT_SEARCH_RESULTS` | How many documents a search answers, in items. | `20` |
 | `ORKNUX_TUNING_DOCUMENT_SNIPPET_CHARACTERS` | How much of a document a search shows around a match, in characters. | `160` |
 | `ORKNUX_TUNING_ACTION_RETRY_SECONDS` | How often a waiting action asks again, in seconds. | `30` |

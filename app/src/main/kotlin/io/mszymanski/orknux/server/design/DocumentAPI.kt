@@ -42,6 +42,7 @@ import java.time.OffsetDateTime
 @Controller
 class DocumentAPI(
     private val documents: DesignDocumentRepository,
+    private val workspaces: io.mszymanski.orknux.server.workspace.WorkspaceRepository,
     private val catalogs: DocumentCatalogRepository,
     private val images: DesignDocumentImageRepository,
     private val artifacts: WorkspaceArtifactAPI,
@@ -192,7 +193,7 @@ class DocumentAPI(
                 name = cleanName(name),
                 content = written,
                 plainText = this.content.plainText(doc),
-                pageSize = pageSize(pageSize)?.name ?: DocumentPageSize.A4.name,
+                pageSize = pageSize(pageSize)?.name ?: documentPageSizeDefault(workspaceId),
                 createdBy = who,
                 updatedBy = who,
             ),
@@ -234,15 +235,53 @@ class DocumentAPI(
      * @param revision the revision it was written from. Where it is given and
      *   is not the one held, somebody - or a model - saved in between, and
      *   writing this over it would lose what they did, so it is refused.
-     * @param pageSize A4 or LETTER; left as it is when not given.
+     * @param pageSize a [DocumentPageSize]; this and the settings after it are left as they are when not given.
+     * @param language `en` or `pl`; an empty one is the reader's own.
      */
     @MutationMapping
     @Transactional
-    fun saveDocument(@Argument id: Long, @Argument content: String, @Argument revision: Int?, @Argument pageSize: String?): DesignDocumentView {
+    fun saveDocument(
+        @Argument id: Long,
+        @Argument content: String,
+        @Argument revision: Int?,
+        @Argument pageSize: String?,
+        @Argument orientation: String?,
+        @Argument margins: String?,
+        @Argument language: String?,
+    ): DesignDocumentView {
         val held = find(id)
         if (revision != null && revision != held.revision) throw DocumentChangedException(held.name)
         pageSize?.let { held.pageSize = (pageSize(it) ?: throw DocumentPageSizeInvalidException(it)).name }
+        orientation?.let {
+            held.orientation = (DocumentOrientation.of(it) ?: throw DocumentSettingInvalidException("orientation", it, "PORTRAIT or LANDSCAPE")).name
+        }
+        margins?.let {
+            held.margins = (DocumentMargins.of(it) ?: throw DocumentSettingInvalidException("margins", it, "NORMAL, NARROW or WIDE")).name
+        }
+        language?.let {
+            held.language = if (it.isBlank()) null else DocumentLanguages.of(it) ?: throw DocumentSettingInvalidException("language", it, DocumentLanguages.ALL.joinToString(" or "))
+        }
         return write(held, this.content.read(content, held.workspaceId))
+    }
+
+    /** The page a new document in this workspace starts on. */
+    @QueryMapping
+    @Transactional(readOnly = true)
+    fun documentPageSizeDefault(@Argument workspaceId: Long): String {
+        val workspace = access.requireVisible(workspaceId)
+        return DocumentPageSize.of(workspace.documentPageSize)?.name ?: DocumentPageSize.A4.name
+    }
+
+    /** Sets the page a new document in this workspace starts on: a workspace setting, so its administrators'. */
+    @MutationMapping
+    @Transactional
+    fun setDocumentPageSizeDefault(@Argument workspaceId: Long, @Argument pageSize: String): String {
+        val workspace = access.requireAdministers(workspaceId)
+        val size = pageSize(pageSize) ?: throw DocumentPageSizeInvalidException(pageSize)
+        workspace.documentPageSize = size.name
+        workspaces.save(workspace)
+        audit.record(workspaceId, WorkspaceAuditCategory.WORKSPACE, "New documents start on ${size.name} pages")
+        return size.name
     }
 
     /** The same save, from the orknux_* tools. */
@@ -353,6 +392,10 @@ class DocumentAPI(
             createdAt = held.createdAt.toString(),
             updatedBy = held.updatedBy,
             updatedAt = held.updatedAt.toString(),
+            orientation = held.orientation,
+            margins = held.margins,
+            language = held.language,
+            page = DocumentPage.of(held),
         )
     }
 
@@ -461,6 +504,12 @@ data class DesignDocumentView(
     val createdAt: String,
     val updatedBy: String,
     val updatedAt: String,
+    val orientation: String = DocumentOrientation.PORTRAIT.name,
+    val margins: String = DocumentMargins.NORMAL.name,
+    /** en or pl; null is the reader's own. */
+    val language: String? = null,
+    /** The page as laid out, in millimetres: its size turned the way it is, and its margin. */
+    val page: DocumentPage = DocumentPage(210.0, 297.0, 25.0),
 )
 
 data class DocumentCatalogView(

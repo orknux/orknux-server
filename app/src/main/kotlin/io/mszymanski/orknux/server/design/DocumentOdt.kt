@@ -45,7 +45,7 @@ import javax.imageio.ImageIO
  */
 class DocumentOdt {
 
-    fun write(doc: JsonNode, size: DocumentPageSize, title: String, picture: (String) -> DocumentExports.Picture?): ByteArray {
+    fun write(doc: JsonNode, size: DocumentPage, title: String, picture: (String) -> DocumentExports.Picture?): ByteArray {
         val odt = OdfTextDocument.newTextDocument()
         try {
             val content = odt.contentDom
@@ -63,14 +63,14 @@ class DocumentOdt {
     }
 
     /** Every page layout the template has, made this document's size, with the editor's margins. */
-    private fun pageSize(odt: OdfTextDocument, size: DocumentPageSize) {
+    private fun pageSize(odt: OdfTextDocument, size: DocumentPage) {
         val layouts = odt.stylesDom.getElementsByTagNameNS(STYLE, "page-layout-properties")
         for (at in 0 until layouts.length) {
             val layout = layouts.item(at) as org.w3c.dom.Element
             layout.setAttributeNS(FO, "fo:page-width", mm(size.widthMm))
             layout.setAttributeNS(FO, "fo:page-height", mm(size.heightMm))
-            listOf("top", "bottom", "left", "right").forEach { layout.setAttributeNS(FO, "fo:margin-$it", mm(DocumentHtml.MARGIN_MM.toDouble())) }
-            layout.setAttributeNS(STYLE, "style:print-orientation", "portrait")
+            listOf("top", "bottom", "left", "right").forEach { layout.setAttributeNS(FO, "fo:margin-$it", mm(size.marginMm)) }
+            layout.setAttributeNS(STYLE, "style:print-orientation", if (size.widthMm > size.heightMm) "landscape" else "portrait")
         }
     }
 
@@ -78,7 +78,7 @@ class DocumentOdt {
         private val odt: OdfTextDocument,
         private val dom: OdfContentDom,
         private val styles: OdfOfficeAutomaticStyles,
-        private val size: DocumentPageSize,
+        private val size: DocumentPage,
         private val picture: (String) -> DocumentExports.Picture?,
     ) {
         private val textStyles = mutableMapOf<Set<String>, String>()
@@ -108,7 +108,17 @@ class DocumentOdt {
                 "codeBlock" -> {
                     val inner = node.path("content")
                     val code = (0 until inner.size()).joinToString("") { inner.get(it).path("text").asText("") }
-                    text(paragraph(parent, code()), code)
+                    val into = paragraph(parent, code())
+                    DocumentCode.runs(code, node.path("attrs").path("language").asText("")).forEach { run ->
+                        if (run.colour == null) {
+                            text(into, run.text)
+                        } else {
+                            val span = dom.newOdfElement(TextSpanElement::class.java)
+                            span.setTextStyleNameAttribute(colour(run.colour))
+                            into.appendChild(span)
+                            text(span, run.text)
+                        }
+                    }
                 }
                 "horizontalRule" -> paragraph(parent, rule())
                 "pageBreak" -> paragraph(parent, pageBreak())
@@ -191,7 +201,7 @@ class DocumentOdt {
             val path = "Pictures/picture${++pictures}.$extension"
             odt.`package`.insert(held.bytes, path, held.contentType)
             val read = runCatching { ImageIO.read(ByteArrayInputStream(held.bytes)) }.getOrNull()
-            val textWidth = size.widthMm - 2 * DocumentHtml.MARGIN_MM
+            val textWidth = size.widthMm - 2 * size.marginMm
             val natural = read?.let { it.width / PIXELS_PER_MM } ?: textWidth
             val percent = attrs.path("width").asInt(0).takeIf { it in 5..100 }
             val widthMm = percent?.let { textWidth * it / 100.0 } ?: minOf(natural, textWidth)
@@ -295,6 +305,15 @@ class DocumentOdt {
             if ("code" in kinds) style.setProperty(OdfTextProperties.FontFamily, "monospace")
             style.styleNameAttribute
         }
+
+        /** A code token's colour, as a text style; one per colour. */
+        private fun colour(hex: String): String = colours.getOrPut(hex) {
+            val style = styles.newStyle(OdfStyleFamily.Text)
+            style.setProperty(OdfTextProperties.Color, hex)
+            style.styleNameAttribute
+        }
+
+        private val colours = mutableMapOf<String, String>()
 
         private fun paragraphStyle(key: String, set: (org.odftoolkit.odfdom.incubator.doc.style.OdfStyle) -> Unit): String = paragraphStyles.getOrPut(key) {
             val style = styles.newStyle(OdfStyleFamily.Paragraph)

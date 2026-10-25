@@ -115,7 +115,7 @@ class DocumentChat(
             )
             append(
                 "Read it with ${tool(DocumentTools.READ)} before changing it: it answers the document as Markdown and an " +
-                    "outline numbering its top-level blocks. Put new text in with ${tool(DocumentTools.INSERT)} or " +
+                    "outline numbering its top-level blocks; find words in it with ${tool(DocumentTools.FIND)}. Put new text in with ${tool(DocumentTools.INSERT)} or " +
                     "${tool(DocumentTools.APPEND)}, rewrite blocks with ${tool(DocumentTools.WRITE)} - the whole document " +
                     "only when you are asked for something new - and put pictures in with ${tool(DocumentTools.ADD_IMAGE)}. ",
             )

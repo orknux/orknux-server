@@ -18,6 +18,17 @@ extend type Query {
     Null where there is nothing to suggest. Nothing is written.
     """
     documentCompletion(id: ID!, before: String!, after: String, page: Int): String
+    "The page a new document in the workspace starts on: A3, A4, A5, LETTER or LEGAL."
+    documentPageSizeDefault(workspaceId: ID!): String!
+}
+
+"A document's page as laid out, in millimetres."
+type DocumentPage {
+    "Its width, turned the way it is."
+    widthMm: Float!
+    heightMm: Float!
+    "The white round the text, each side."
+    marginMm: Float!
 }
 
 extend type Mutation {
@@ -38,7 +49,19 @@ extend type Mutation {
     Writes a whole document over the one held. With `revision`, refused when the
     document has been saved since that revision - by somebody else or by a model.
     """
-    saveDocument(id: ID!, content: String!, revision: Int, pageSize: String): DesignDocument!
+    saveDocument(
+        id: ID!, content: String!, revision: Int,
+        "A3, A4, A5, LETTER or LEGAL; left as it is when not given, as are the settings after it."
+        pageSize: String,
+        "PORTRAIT or LANDSCAPE."
+        orientation: String,
+        "NORMAL, NARROW or WIDE."
+        margins: String,
+        "en or pl; empty is the reader's own."
+        language: String
+    ): DesignDocument!
+    "Sets the page a new document in the workspace starts on; its administrators'."
+    setDocumentPageSizeDefault(workspaceId: ID!, pageSize: String!): String!
     deleteDocument(id: ID!): Boolean!
     """
     Asks a chat model to write in the document: the conversation so far, oldest
@@ -86,8 +109,15 @@ type DesignDocument {
     a pageBreak node starts a new page.
     """
     content: String!
-    "A4 or LETTER."
+    "A3, A4, A5, LETTER or LEGAL."
     pageSize: String!
+    "PORTRAIT or LANDSCAPE."
+    orientation: String!
+    "NORMAL, NARROW or WIDE."
+    margins: String!
+    "en or pl, what its grammar is checked in; null is the reader's own."
+    language: String
+    page: DocumentPage!
     "Counts the saves; what saveDocument is checked against."
     revision: Int!
     words: Int!

@@ -553,6 +553,14 @@ class Workspace(
     @Enumerated(EnumType.STRING)
     @Column(name = "voice_speech_chunking", nullable = false, length = 16)
     var voiceSpeechChunking: SpeechChunking = SpeechChunking.SENTENCE,
+
+    /**
+     * The page a new document in Design starts on: A4, A5, A3, LETTER or
+     * LEGAL. Null is A4, which is what a workspace that has decided nothing
+     * gets; a document keeps the page it was made on whatever this becomes.
+     */
+    @Column(name = "document_page_size", length = 10)
+    var documentPageSize: String? = null,
 )
 
 /**

@@ -80,9 +80,25 @@ class DesignDocument(
     @Column(name = "plain_text", nullable = false, columnDefinition = "text")
     var plainText: String = "",
 
-    /** A4 or LETTER: what the editor draws its pages as, and what the PDF and the ODT are laid out on. */
+    /** A [DocumentPageSize]: what the editor draws its pages as, and what the PDF and the ODT are laid out on. */
     @Column(name = "page_size", nullable = false, length = 10)
     var pageSize: String = DocumentPageSize.A4.name,
+
+    /** PORTRAIT or LANDSCAPE. */
+    @Column(nullable = false, length = 10)
+    var orientation: String = DocumentOrientation.PORTRAIT.name,
+
+    /** A [DocumentMargins]: how much white is left round the text. */
+    @Column(nullable = false, length = 10)
+    var margins: String = DocumentMargins.NORMAL.name,
+
+    /**
+     * What language the document is written in, as the interface names its
+     * languages (`en`, `pl`): what its grammar is checked in. Null is whatever
+     * the person reading it uses.
+     */
+    @Column(length = 10)
+    var language: String? = null,
 
     @Column(nullable = false)
     var revision: Int = 1,
@@ -148,13 +164,62 @@ enum class DocumentPageSize(
     /** How CSS `@page` names it. */
     val css: String,
 ) {
+    A3(297.0, 420.0, "A3"),
     A4(210.0, 297.0, "A4"),
+    A5(148.0, 210.0, "A5"),
     LETTER(215.9, 279.4, "letter"),
+    LEGAL(215.9, 355.6, "legal"),
     ;
 
     companion object {
         fun of(asked: String?): DocumentPageSize? = entries.firstOrNull { it.name.equals(asked?.trim(), ignoreCase = true) }
     }
+}
+
+/** Which way up a page is: a landscape page is its size turned on its side. */
+enum class DocumentOrientation {
+    PORTRAIT,
+    LANDSCAPE,
+    ;
+
+    companion object {
+        fun of(asked: String?): DocumentOrientation? = entries.firstOrNull { it.name.equals(asked?.trim(), ignoreCase = true) }
+    }
+}
+
+/** The white round the text, all four sides alike, in millimetres - the word processor's three. */
+enum class DocumentMargins(val mm: Double) {
+    NORMAL(25.0),
+    NARROW(12.7),
+    WIDE(38.1),
+    ;
+
+    companion object {
+        fun of(asked: String?): DocumentMargins? = entries.firstOrNull { it.name.equals(asked?.trim(), ignoreCase = true) }
+    }
+}
+
+/** A document's page as laid out: its size turned the way it is, and the margins round it. */
+data class DocumentPage(val widthMm: Double, val heightMm: Double, val marginMm: Double) {
+    companion object {
+        fun of(held: DesignDocument): DocumentPage {
+            val size = DocumentPageSize.of(held.pageSize) ?: DocumentPageSize.A4
+            val landscape = DocumentOrientation.of(held.orientation) == DocumentOrientation.LANDSCAPE
+            val margins = DocumentMargins.of(held.margins) ?: DocumentMargins.NORMAL
+            return if (landscape) {
+                DocumentPage(size.heightMm, size.widthMm, margins.mm)
+            } else {
+                DocumentPage(size.widthMm, size.heightMm, margins.mm)
+            }
+        }
+    }
+}
+
+/** The languages a document can be written in: the ones the interface is read in. */
+object DocumentLanguages {
+    val ALL = listOf("en", "pl")
+
+    fun of(asked: String?): String? = asked?.trim()?.lowercase()?.substringBefore('-')?.takeIf { it in ALL }
 }
 
 /** The formats a document is held to; how long one may be is a Tunable. */
@@ -197,8 +262,14 @@ class DocumentNameInvalidException :
     RuntimeException("A document needs a name, ${Documents.NAME_LENGTH} characters at most")
 
 class DocumentPageSizeInvalidException(val asked: String) :
-    RuntimeException("A page is A4 or LETTER, not $asked"), Refusal {
+    RuntimeException("A page is A3, A4, A5, LETTER or LEGAL, not $asked"), Refusal {
     override val arguments get() = mapOf("asked" to asked)
+}
+
+/** An orientation, margins or language a document cannot have, named with what it can. */
+class DocumentSettingInvalidException(val setting: String, val asked: String, val allowed: String) :
+    RuntimeException("A document's $setting is $allowed, not $asked"), Refusal {
+    override val arguments get() = mapOf("setting" to setting, "asked" to asked, "allowed" to allowed)
 }
 
 class DocumentContentInvalidException(val why: String) :

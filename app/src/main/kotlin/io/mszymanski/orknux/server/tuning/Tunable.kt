@@ -30,6 +30,7 @@ enum class TuningUnit(val said: String) {
     PERCENT("percent"),
     HERTZ("Hz"),
     KILOBITS_PER_SECOND("kbit/s"),
+    MILLISECONDS("ms"),
 }
 
 /**
@@ -355,6 +356,21 @@ enum class Tunable(
         "document.completion.context.characters", 2_000, 100, 50_000, TuningSection.MEDIA, TuningUnit.CHARACTERS,
         "How much of a document the inline suggestion reads",
         "The text before the caret is cut to this many characters, and the text after it to a quarter as many.",
+    ),
+    /*
+     * The document editor's grammar check. Asked of the paragraphs changed
+     * once the typing has paused this long, and never of more text than the
+     * second at once: LanguageTool's time grows with the text.
+     */
+    GRAMMAR_PAUSE_MILLIS(
+        "grammar.pause.millis", 800, 100, 10_000, TuningSection.MEDIA, TuningUnit.MILLISECONDS,
+        "How long the typing pauses before grammar is checked",
+        "Only the paragraphs changed since the last check are sent.",
+    ),
+    GRAMMAR_TEXT_MOST(
+        "grammar.text.most", 20_000, 1_000, 200_000, TuningSection.MEDIA, TuningUnit.CHARACTERS,
+        "How much text one grammar check takes",
+        "A longer paragraph is not checked; the editor sends paragraphs one request each.",
     ),
     DOCUMENT_SEARCH_RESULTS(
         "document.search.results", 20, 1, 200, TuningSection.MEDIA, TuningUnit.ITEMS,

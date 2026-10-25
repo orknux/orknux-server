@@ -63,7 +63,7 @@ class DocumentExports(
     fun export(id: Long, format: String): Exported {
         val held = api.find(id)
         val tree = api.tree(held)
-        val size = DocumentPageSize.of(held.pageSize) ?: DocumentPageSize.A4
+        val size = DocumentPage.of(held)
         val made = when (format.lowercase()) {
             "pdf" -> pdf(held, tree, size)
             "md", "markdown" -> markdown(held, tree)
@@ -78,7 +78,7 @@ class DocumentExports(
         return made
     }
 
-    private fun pdf(held: DesignDocument, tree: JsonNode, size: DocumentPageSize): Exported {
+    private fun pdf(held: DesignDocument, tree: JsonNode, size: DocumentPage): Exported {
         val page = DocumentHtml().page(held.name, tree, size)
         return when (val written = pdf.fromHtml(page, held.name) { name -> pictureOf(held.workspaceId, name)?.let { PageBlocks.Picture(it.bytes, it.contentType) } }) {
             is PdfWriter.Written.Refused -> throw DocumentExportFailedException("PDF", written.reason)
@@ -171,14 +171,16 @@ class DocumentExports(
  */
 class DocumentHtml {
 
-    fun page(name: String, doc: JsonNode, size: DocumentPageSize): String = buildString {
+    fun page(name: String, doc: JsonNode, size: DocumentPage): String = buildString {
         append("<!doctype html><html><head><meta charset=\"utf-8\"><title>").append(escape(name)).append("</title><style>")
-        append("@page { size: ").append(size.css).append("; margin: ${MARGIN_MM}mm; }")
+        append("@page { size: ${mm(size.widthMm)} ${mm(size.heightMm)}; margin: ${mm(size.marginMm)}; }")
         append("body { font-size: 11pt; }")
         append("figure { margin: 0 0 10pt; text-align: center; page-break-inside: avoid; }")
         append("figcaption { font-size: 9pt; color: #555555; margin-top: 4pt; }")
         append("blockquote { margin: 0 0 8pt; padding-left: 10pt; border-left: 2pt solid #c8c8c8; color: #444444; }")
         append(".page-break { page-break-after: always; height: 0; margin: 0; }")
+        // A page cannot scroll sideways as the editor does, so a line too long for it wraps; its own breaks stay.
+        append("pre.code { font-family: monospace; font-size: 9pt; background: #f6f8fa; border: 0.5pt solid #d0d7de; white-space: pre-wrap; }")
         append("</style></head><body>")
         blocks(doc.path("content"), this)
         append("</body></html>")
@@ -205,7 +207,18 @@ class DocumentHtml {
             "codeBlock" -> {
                 val inner = node.path("content")
                 val code = (0 until inner.size()).joinToString("") { inner.get(it).path("text").asText("") }
-                out.append("<pre><code>").append(escape(code)).append("</code></pre>")
+                val language = DocumentCode.named(node.path("attrs").path("language").asText(""))
+                out.append("<pre class=\"code\"")
+                if (language != null) out.append(" data-language=\"").append(language).append("\"")
+                out.append("><code>")
+                DocumentCode.runs(code, language).forEach { run ->
+                    if (run.colour == null) {
+                        out.append(escape(run.text))
+                    } else {
+                        out.append("<span style=\"color: ").append(run.colour).append("\">").append(escape(run.text)).append("</span>")
+                    }
+                }
+                out.append("</code></pre>")
             }
             "horizontalRule" -> out.append("<hr>")
             "pageBreak" -> out.append("<div class=\"page-break\"></div>")
@@ -288,8 +301,7 @@ class DocumentHtml {
     private fun escape(text: String): String = Entities.escape(text)
 
     companion object {
-        /** The page's margin all round, as the editor draws it. */
-        const val MARGIN_MM = 25
+        fun mm(value: Double): String = String.format(java.util.Locale.ROOT, "%.2fmm", value)
     }
 }
 

@@ -19,6 +19,9 @@ CREATE TABLE design_document (
     content      TEXT         NOT NULL,
     plain_text   TEXT         NOT NULL DEFAULT '',
     page_size    VARCHAR(10)  NOT NULL DEFAULT 'A4',
+    orientation  VARCHAR(10)  NOT NULL DEFAULT 'PORTRAIT',
+    margins      VARCHAR(10)  NOT NULL DEFAULT 'NORMAL',
+    language     VARCHAR(10),
     revision     INTEGER      NOT NULL DEFAULT 1,
     created_by   VARCHAR(255) NOT NULL,
     created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -26,7 +29,9 @@ CREATE TABLE design_document (
     updated_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     constraint design_document_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspace(id) ON DELETE CASCADE,
     constraint design_document_catalog_id_fkey FOREIGN KEY (catalog_id) REFERENCES document_catalog(id) ON DELETE CASCADE,
-    CONSTRAINT ck_design_document_page_size CHECK (page_size IN ('A4', 'LETTER'))
+    CONSTRAINT ck_design_document_page_size CHECK (page_size IN ('A3', 'A4', 'A5', 'LETTER', 'LEGAL')),
+    CONSTRAINT ck_design_document_orientation CHECK (orientation IN ('PORTRAIT', 'LANDSCAPE')),
+    CONSTRAINT ck_design_document_margins CHECK (margins IN ('NORMAL', 'NARROW', 'WIDE'))
 );
 
 CREATE INDEX idx_design_document_workspace ON design_document (workspace_id, updated_at);
@@ -41,3 +46,6 @@ CREATE TABLE design_document_image (
 
 CREATE INDEX idx_design_document_image_document ON design_document_image (document_id);
 CREATE INDEX idx_design_document_image_artifact ON design_document_image (artifact_id);
+
+-- The page a new document starts on, per workspace; null is A4.
+ALTER TABLE workspace ADD COLUMN document_page_size VARCHAR(10);

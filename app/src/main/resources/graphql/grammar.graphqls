@@ -1,0 +1,41 @@
+# Grammar and spelling for the document editor, from LanguageTool: the library
+# inside the server, or a LanguageTool server an administrator points it at.
+
+extend type Query {
+    """
+    Where the mistakes in a text are, written in `language` (en or pl).
+    Offsets are characters into `text`. Nothing is stored.
+    """
+    grammarCheck(language: String!, text: String!): [GrammarMatch!]!
+    "How the editor asks: how long to wait, how much to send, which languages, and where it goes."
+    grammarSettings: GrammarSettings!
+}
+
+extend type Mutation {
+    "Points grammar checking at a LanguageTool server; empty or null goes back to the file's choice. Administrators."
+    setGrammarServer(url: String): GrammarSettings!
+}
+
+"One mistake in a text."
+type GrammarMatch {
+    offset: Int!
+    length: Int!
+    message: String!
+    shortMessage: String
+    "What could go there instead, the likeliest first."
+    replacements: [String!]!
+    "LanguageTool's name for the rule."
+    rule: String!
+    "Whether it is a word the dictionary does not know, rather than grammar."
+    spelling: Boolean!
+}
+
+type GrammarSettings {
+    pauseMillis: Int!
+    textMost: Int!
+    languages: [String!]!
+    "The LanguageTool server the text goes to; null where the built-in library checks it."
+    server: String
+    "What the file says - ORKNUX_GRAMMAR_SERVER_URL."
+    serverConfigured: String
+}

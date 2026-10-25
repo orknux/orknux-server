@@ -188,7 +188,7 @@ class DocumentAPITest(
             .expect { it.message?.contains("never written into the document") == true }.verify()
         save(id, """{"type":"doc","content":[{"type":"image","attrs":{"artifact":"DESIGN-999999999"}}]}""").errors()
             .expect { it.message == "The document cannot be saved: there is no picture DESIGN-999999999 in this workspace" }.verify()
-        save(id, PARAGRAPH("x"), pageSize = "A3").errors().expect { it.message == "A page is A4 or LETTER, not A3" }.verify()
+        save(id, PARAGRAPH("x"), pageSize = "B5").errors().expect { it.message == "A page is A3, A4, A5, LETTER or LEGAL, not B5" }.verify()
         graphQlTester.document("""mutation { createDocument(workspaceId: $workspaceId, name: "  ") { id } }""")
             .execute().errors().expect { it.message?.contains("needs a name") == true }.verify()
     }

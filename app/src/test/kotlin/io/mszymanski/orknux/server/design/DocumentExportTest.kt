@@ -152,6 +152,53 @@ class DocumentExportTest(
         assertThat(sheet.getRange(1, 1).value).isEqualTo("Pages")
     }
 
+    /** A Kotlin block: fenced with its language in Markdown, coloured and monospace in the PDF's page and the ODT. */
+    @Test
+    fun `a code block keeps its language in Markdown and its colours in the PDF and the ODT`() {
+        val code = """{"type":"doc","content":[{"type":"codeBlock","attrs":{"language":"kt"},
+            "content":[{"type":"text","text":"fun main() {\n    println(\"hi\") // greet\n}"}]}]}"""
+        graphQlTester.document("""mutation(${'$'}id: ID!, ${'$'}d: String!) { saveDocument(id: ${'$'}id, content: ${'$'}d) { id } }""")
+            .variable("id", documentId).variable("d", code).execute().errors().verify()
+
+        val md = download("md").getContentAsString(Charsets.UTF_8)
+        assertThat(md).isEqualTo("```kotlin\nfun main() {\n    println(\"hi\") // greet\n}\n```\n")
+
+        val page = DocumentHtml().page("Code", tools.jackson.databind.json.JsonMapper.builder().build().readTree(code), DocumentPage(210.0, 297.0, 25.0))
+        assertThat(page).contains("<pre class=\"code\" data-language=\"kotlin\">", "<span style=\"color: #cf222e\">fun</span>", "<span style=\"color: #6a737d\">// greet</span>")
+        Loader.loadPDF(download("pdf").contentAsByteArray).use { pdf ->
+            assertThat(PDFTextStripper().apply { sortByPosition = true }.getText(pdf)).contains("println", "\"hi\"", "// greet")
+        }
+        val content = String(requireNotNull(unzip(download("odt").contentAsByteArray)["content.xml"]), Charsets.UTF_8)
+        assertThat(content).contains("fo:color=\"#cf222e\"", "monospace", "println")
+    }
+
+    /** A5 turned on its side, with wide margins: the PDF's pages are that size, and the ODT's page says so. */
+    @Test
+    fun `the page a document is set to is the page its PDF and ODT are laid out on`() {
+        graphQlTester.document(
+            """mutation(${'$'}id: ID!, ${'$'}d: String!) { saveDocument(id: ${'$'}id, content: ${'$'}d, pageSize: "A5", orientation: "LANDSCAPE", margins: "WIDE") {
+                 page { widthMm heightMm marginMm } } }""",
+        ).variable("id", documentId).variable("d", DocumentAPITest.PARAGRAPH("Small and wide")).execute()
+            .path("saveDocument.page.widthMm").entity(Double::class.java).isEqualTo(210.0)
+            .path("saveDocument.page.heightMm").entity(Double::class.java).isEqualTo(148.0)
+            .path("saveDocument.page.marginMm").entity(Double::class.java).isEqualTo(38.1)
+        // A new document starts on the workspace's own page.
+        graphQlTester.document("""mutation { setDocumentPageSizeDefault(workspaceId: $workspaceId, pageSize: "LEGAL") }""").execute().errors().verify()
+        graphQlTester.document("""mutation { createDocument(workspaceId: $workspaceId, name: "Long") { pageSize page { heightMm } } }""").execute()
+            .path("createDocument.pageSize").entity(String::class.java).isEqualTo("LEGAL")
+            .path("createDocument.page.heightMm").entity(Double::class.java).isEqualTo(355.6)
+
+        val pdf = download("pdf")
+        Loader.loadPDF(pdf.contentAsByteArray).use { laid ->
+            val box = laid.getPage(0).mediaBox
+            val points = { mm: Double -> mm / 25.4 * 72 }
+            assertThat(box.width.toDouble()).isCloseTo(points(210.0), org.assertj.core.data.Offset.offset(1.5))
+            assertThat(box.height.toDouble()).isCloseTo(points(148.0), org.assertj.core.data.Offset.offset(1.5))
+        }
+        val styles = String(requireNotNull(unzip(download("odt").contentAsByteArray)["styles.xml"]), Charsets.UTF_8)
+        assertThat(styles).contains("fo:page-width=\"210.00mm\"", "fo:page-height=\"148.00mm\"", "fo:margin-left=\"38.10mm\"", "style:print-orientation=\"landscape\"")
+    }
+
     @Test
     fun `a format that is not one is refused, and a document nobody may see is not there`() {
         assertThat(download("docx").status).isEqualTo(400)

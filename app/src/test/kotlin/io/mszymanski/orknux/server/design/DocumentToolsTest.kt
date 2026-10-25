@@ -104,7 +104,7 @@ class DocumentToolsTest(
 
         assertThat(tools.specs(scope).map { it.name }).containsAll(DocumentTools.NAMES)
         assertThat(tools.specs(scope.copy(mayWrite = false)).map { it.name }.filter { it in DocumentTools.NAMES })
-            .containsExactlyInAnyOrder(DocumentTools.LIST, DocumentTools.READ, DocumentTools.SEARCH, DocumentTools.EXPORT)
+            .containsExactlyInAnyOrder(DocumentTools.LIST, DocumentTools.READ, DocumentTools.SEARCH, DocumentTools.FIND, DocumentTools.EXPORT)
 
         val made = call(DocumentTools.CREATE, """{"name":"Quarterly report","catalog":"Reports","markdown":"# Summary\n\nRevenue grew.\n\n## Risks\n\nHiring."}""")
         val id = made.path("id").asLong()
@@ -134,6 +134,16 @@ class DocumentToolsTest(
         val found = call(DocumentTools.SEARCH, """{"text":"tenth"}""")
         assertThat(found.path("documents").get(0).path("snippet").stringValue()).contains("by a tenth")
         assertThat(call(DocumentTools.LIST, """{"catalog":"reports"}""").path("documents").size()).isEqualTo(1)
+
+        // A code block, written with its language as a fence, and found again with the words in the document.
+        call(DocumentTools.APPEND, """{"document":"$id","heading":"Appendix","markdown":"<!-- pagebreak -->\n\n```kt\nval tenth = 0.1\n```"}""")
+        assertThat(markdownOf(id)).contains("```kotlin\nval tenth = 0.1\n```")
+        val inDocument = call(DocumentTools.FIND, """{"document":"$id","text":"Tenth","wholeWord":true}""")
+        assertThat(inDocument.path("count").asInt()).describedAs(inDocument.toString()).isEqualTo(2)
+        assertThat(inDocument.path("matches").get(0).path("page").asInt()).isEqualTo(1)
+        assertThat(inDocument.path("matches").get(0).path("context").stringValue()).contains("by a tenth")
+        assertThat(inDocument.path("matches").get(1).path("page").asInt()).isEqualTo(2)
+        assertThat(call(DocumentTools.FIND, """{"document":"$id","text":"Tenth","matchCase":true}""").path("count").asInt()).isEqualTo(0)
 
         val exported = call(DocumentTools.EXPORT, """{"document":"$id","format":"pdf"}""")
         assertThat(exported.path("download").stringValue()).endsWith("/api/documents/$id/export/pdf")

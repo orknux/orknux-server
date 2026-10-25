@@ -115,7 +115,7 @@ class DocumentContent(private val mapper: ObjectMapper) {
             }
             "heading" -> made.putObject("attrs").put("level", (int(attrs.path("level")) ?: 1).coerceIn(1, 6))
             "orderedList" -> int(attrs.path("start"))?.takeIf { it > 1 }?.let { made.putObject("attrs").put("start", it) }
-            "codeBlock" -> text(attrs.path("language"))?.trim()?.takeIf { it.isNotEmpty() && it.length <= 40 }
+            "codeBlock" -> text(attrs.path("language"))?.trim()?.takeIf { it.isNotEmpty() && it.length <= 40 }?.let { DocumentCode.named(it) ?: it }
                 ?.let { made.putObject("attrs").put("language", it) }
             "tableCell", "tableHeader" -> {
                 val kept = mapper.createObjectNode()
