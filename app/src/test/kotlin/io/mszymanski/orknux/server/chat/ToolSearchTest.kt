@@ -253,6 +253,36 @@ class ToolSearchTest(
     }
 
     /**
+     * Session 896: a skill's id handed to tool_load was answered "You have no
+     * tool called ending-a-slack-turn", and the model took the skill to be
+     * missing. It is said to be a skill, with the tool that reads one.
+     */
+    @Test
+    fun `tool_load given a skill's id says it is a skill and how to read it`() {
+        val found = mutableSetOf<String>()
+        val shed = searching.shed(
+            granted,
+            found,
+            room = { 10 },
+            skill = { asked -> if (asked.equals("Ending-a-Slack-turn", ignoreCase = true)) "ending-a-slack-turn" else null },
+        )
+
+        val said = shed.run(ToolCall("1", ToolSearchTools.FIND, """{"names":["ending-a-slack-turn","github_openPull"]}"""))
+
+        assertThat(found).isEmpty()
+        assertThat(said)
+            .contains(
+                "ending-a-slack-turn is a skill, not a tool: read it with " +
+                    io.mszymanski.orknux.server.agent.SkillTool.LOAD.name + ", passing ending-a-slack-turn.",
+            )
+            .doesNotContain("You have no tool called ending-a-slack-turn")
+            .contains("You have no tool called github_openPull")
+
+        val alone = shed.run(ToolCall("2", ToolSearchTools.FIND, """{"names":["ending-a-slack-turn"]}"""))
+        assertThat(alone).contains("is a skill, not a tool").doesNotContain("Do not say you can do")
+    }
+
+    /**
      * A tool the agent already carries is answered "already loaded", not "no
      * such tool". Issue #542: save_artifact was carried from the start, so it was
      * not among the tools to load, and a model asking for it was told it had no
