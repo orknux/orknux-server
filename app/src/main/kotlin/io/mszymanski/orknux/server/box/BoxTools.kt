@@ -85,6 +85,7 @@ class BoxTools(
     private val attachments: io.mszymanski.orknux.server.attachment.AttachmentStore,
     private val exposed: ExposedPorts,
     private val family: io.mszymanski.orknux.server.llm.SessionFamily,
+    private val llmSessions: io.mszymanski.orknux.server.llm.LlmSessionRepository,
 ) {
 
     /** Offered while the agent holds any box label. */
@@ -289,12 +290,7 @@ class BoxTools(
                         "note",
                         "Use session ${row.id} with the other box tools. Paths are relative to the workspace root. " +
                             "Close it with orkbox_close when you are done; it is stopped by itself when it expires or sits idle. " +
-                            "In your next message to the person you are working for, once, send them `url` so they can " +
-                            "watch the commands as they run: one sentence in their language saying you started a box session " +
-                            "and naming in a few words what you will do in it, the words for the session being the link - " +
-                            "\"I've started a [box session](url) where I'll implement the requested changes.\", in Polish " +
-                            "\"Rozpocząłem [sesję w skrzynce](url), będę tam implementował wymagane zmiany projektowe.\" " +
-                            "In the thread they are following, as that place writes a link: in Slack <url|sesję w skrzynce>." +
+                            watchNote(sessionId) +
                             /*
                              * Said where the clone is made, because that is where
                              * the work starts. Session 629 cloned, edited, never
@@ -312,6 +308,32 @@ class BoxTools(
                 }
             },
         )
+    }
+
+    /**
+     * What the agent is told to say about where the session can be watched.
+     *
+     * In Orknux's own chat and task pages the call's card carries a Watch link,
+     * read off `url` by the page, so the model is told to leave the link out:
+     * asked to copy it, Qwen wrote one to a task that had nothing to do with
+     * the session (session 870), while the address it was handed was right.
+     * Anywhere else - a Slack thread - nothing draws the card, so the link is
+     * the model's to send.
+     */
+    private fun watchNote(sessionId: Long?): String {
+        val prefix = sessionId?.let { llmSessions.findByIdOrNull(it)?.keyPrefix }
+        return if (prefix in PAGES_DRAWING_CALLS) {
+            "The person sees a link to watch the commands as they run on this call's own line in the conversation, so do " +
+                "not write a link to the session or its address; in your next message say once, in one sentence in their " +
+                "language, that you started a box session and what you will do in it."
+        } else {
+            "In your next message to the person you are working for, once, send them `url` so they can " +
+                "watch the commands as they run: one sentence in their language saying you started a box session " +
+                "and naming in a few words what you will do in it, the words for the session being the link - " +
+                "\"I've started a [box session](url) where I'll implement the requested changes.\", in Polish " +
+                "\"Rozpocząłem [sesję w skrzynce](url), będę tam implementował wymagane zmiany projektowe.\" " +
+                "In the thread they are following, as that place writes a link: in Slack <url|sesję w skrzynce>."
+        }
     }
 
     /**
@@ -1166,6 +1188,9 @@ class BoxTools(
 
         const val LIST = "orkbox_list"
         const val OPEN = "orkbox_open"
+
+        /** The sessions read on Orknux's own chat and task pages, whose call lines draw the Watch link themselves. */
+        val PAGES_DRAWING_CALLS = setOf("chat", "task")
         const val SESSIONS = "orkbox_sessions"
         const val CLOSE = "orkbox_close"
         const val EXTEND = "orkbox_extend"

@@ -837,13 +837,19 @@ class BoxToolsTest(
     }
 
     @Test
-    fun `a session answers with an absolute link to the conversation with it open, and says to send it`() {
+    fun `a session answers with an absolute link to the conversation with it open, and says to send it only where nothing draws it`() {
         val answer = call("orkbox_open")
         val session = answer.path("session").asLong()
         val expected = web.baseUrl.trimEnd('/') + "/workspace/$workspaceId/sessions/$conversation?box=$session"
         assertThat(expected).startsWith("http")
         assertThat(answer.path("url").stringValue()).isEqualTo(expected)
-        assertThat(answer.path("note").stringValue()).contains("url").contains("sesję w skrzynce").contains("<url|sesję w skrzynce>")
+        // A chat's page draws the Watch link on the call itself; a model asked to copy it wrote another (session 870).
+        assertThat(answer.path("note").stringValue()).contains("do not write a link").doesNotContain("[box session](url)")
         assertThat(call("orkbox_sessions").path("sessions")[0].path("url").stringValue()).isEqualTo(expected)
+
+        // A Slack thread draws no call lines, so there the link is the model's to send.
+        val thread = recorder.open(workspaceId, "slack_", "thread")
+        val inSlack = call("orkbox_open", into = thread)
+        assertThat(inSlack.path("note").stringValue()).contains("url").contains("sesję w skrzynce").contains("<url|sesję w skrzynce>")
     }
 }
