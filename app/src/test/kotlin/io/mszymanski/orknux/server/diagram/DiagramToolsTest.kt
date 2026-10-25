@@ -209,6 +209,9 @@ class DiagramToolsTest(
     @Test
     fun `the delete tool starts hidden on a new agent, and works once its owner shows it`() {
         assertThat(builtIns.orknuxStartsHidden()).containsExactly(DiagramTools.DELETE)
+        // Said to the agent form too, so granting Orknux access afresh there leaves it hidden as well.
+        graphQlTester.document("{ builtInTools { name startsHidden } }").execute()
+            .path("builtInTools[?(@.startsHidden == true)].name").entityList(String::class.java).containsExactly(DiagramTools.DELETE)
         val agentId = graphQlTester.document(
             """mutation { createAgent(input: { workspaceId: $workspaceId, name: "Mapper", type: LLM, orknuxAccess: true }) { id } }""",
         ).execute().path("createAgent.id").entity(Long::class.java).get()
