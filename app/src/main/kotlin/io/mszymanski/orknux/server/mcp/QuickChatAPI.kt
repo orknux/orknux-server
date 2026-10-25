@@ -404,7 +404,7 @@ class QuickChat(
         }
     }
 
-    private companion object {
+    internal companion object {
         /**
          * What the panel's sessions are filed under, so they sort together and
          * are obviously not somebody's workflow conversation.

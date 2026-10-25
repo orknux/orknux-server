@@ -59,7 +59,8 @@ class QuestionToolsTest(
     fun seed() {
         clean()
         workspaceId = requireNotNull(workspaces.save(Workspace(name = "questions-${System.nanoTime()}")).id)
-        conversation = recorder.open(workspaceId, "chat", "help")
+        // The quick chat: one of the two places a person can press the card.
+        conversation = recorder.open(workspaceId, io.mszymanski.orknux.server.mcp.QuickChat.SESSION_PREFIX, "help")
         agent = agents.save(Agent(workspaceId = workspaceId, name = "Helper", type = AgentType.LLM))
     }
 
@@ -81,6 +82,19 @@ class QuestionToolsTest(
     private fun told(): List<String> = inbox.findAll().filter { it.sessionId == conversation }.map { it.body }
 
     private fun open() = requests.findAll().single { it.chosen == null }.id
+
+    /** A Slack thread's run asked and waited on an answer nobody could give (session 879): only a chat asks. */
+    @Test
+    fun `outside a chat the question is neither offered nor asked`() {
+        val thread = recorder.open(workspaceId, "slack_", "1792930724.079399")
+        val held = agents.findByIdOrNull(agent.id!!)!!
+        assertThat(tools.offeringFor(held, null, thread).let { it.core + it.searchable }.map { it.name }).doesNotContain(QuestionTools.ASK)
+        val answer = mapper.readTree(
+            tools.run(held, ToolCall("call", QuestionTools.ASK, mapper.writeValueAsString(mapOf("question" to "Which?", "options" to options))), thread),
+        )
+        assertThat(answer.path("error").stringValue()).contains("it is not a chat").contains("Ask in your reply")
+        assertThat(requests.findAll()).isEmpty()
+    }
 
     @Test
     fun `the question is drawn with each option and what it means`() {

@@ -34,11 +34,25 @@ class QuestionTools(
     private val interactions: ObjectProvider<Interactions>,
     private val inbox: SessionInbox,
     private val mapper: ObjectMapper,
-    private val tasks: io.mszymanski.orknux.server.task.TaskRepository,
+    private val chats: ChatSessionRepository,
+    private val sessions: io.mszymanski.orknux.server.llm.LlmSessionRepository,
 ) {
 
+    /**
+     * Only where a person reads the conversation in Orknux and can press the
+     * card: a chat and the quick chat. Everywhere else the card was drawn on a
+     * session page nobody had open - a Slack thread's agent was told "the
+     * person has been shown the question" and waited on an answer that could
+     * not come (session 879). A task asks with its own permission tool.
+     * With no session it is listed - the Tools page and the agent form ask
+     * that way - and [run] refuses anything but a chat.
+     */
     fun offered(agent: Agent, session: Long?): Boolean =
-        BuiltInTools.granted(agent, ASK) && (session == null || tasks.findFirstBySessionId(session) == null)
+        BuiltInTools.granted(agent, ASK) && (session == null || readInOrknux(session))
+
+    private fun readInOrknux(session: Long): Boolean =
+        chats.findFirstByLlmSessionId(session) != null ||
+            sessions.findById(session).map { it.keyPrefix == io.mszymanski.orknux.server.mcp.QuickChat.SESSION_PREFIX }.orElse(false)
 
     fun handles(name: String): Boolean = name == ASK
 
@@ -46,7 +60,11 @@ class QuestionTools(
         fun refuse(said: String) = mapper.writeValueAsString(mapOf("error" to said))
         val conversation = sessionId ?: return refuse("There is no conversation to ask in, so there is nobody to ask")
         if (!offered(agent, sessionId)) {
-            return refuse("In a task, ask with ${io.mszymanski.orknux.server.task.TaskTools.PERMISSION} instead")
+            return refuse(
+                "Nobody reads this conversation where a question card can be answered - it is not a chat. Ask in your " +
+                    "reply instead, with the options written out, and the answer comes back the way this conversation's " +
+                    "messages do; in a task, ask with ${io.mszymanski.orknux.server.task.TaskTools.PERMISSION}",
+            )
         }
         val args = runCatching { mapper.readTree(arguments.ifBlank { "{}" }) }.getOrNull()
             ?: return refuse("The arguments were not a JSON object")
