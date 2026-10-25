@@ -8,6 +8,7 @@ import io.mszymanski.orknux.server.action.ActionType
 import io.mszymanski.orknux.server.action.FunctionScope
 import io.mszymanski.orknux.server.action.WorkflowAction
 import io.mszymanski.orknux.server.action.WorkflowFunctionRepository
+import io.mszymanski.orknux.server.workflow.EdgeBranch
 import io.mszymanski.orknux.server.workflow.GraphValidator
 import io.mszymanski.orknux.server.workflow.MappingMode
 import io.mszymanski.orknux.server.workflow.NodeMapping
@@ -137,12 +138,15 @@ class ResearchTest(
 
         val knobs = ids.map { id ->
             val drawn = nodes.findByWorkflowId(id).sortedBy { it.positionX }
-            assertThat(drawn.map { it.name }).containsExactly("Plan research", "Gather sources", "Deepen findings", "Write report", "Save report")
+            assertThat(drawn.map { it.name }).containsExactly("Plan research", "Gather sources", "Deepen findings", "Write report", "Review asked for?", "Review report", "Save report")
             assertCurrentShape(drawn)
-            // A chain, left to right.
+            // A chain, left to right, with the question whether to review between Write and Save.
             assertThat(edges.findByWorkflowId(id).map { it.sourceKey to it.targetKey }).containsExactlyInAnyOrder(
-                "plan" to "gather", "gather" to "followUp", "followUp" to "write", "write" to "save",
+                "plan" to "gather", "gather" to "followUp", "followUp" to "write", "write" to "reviewing",
+                "reviewing" to "review", "reviewing" to "save", "review" to "save",
             )
+            assertThat(edges.findByWorkflowId(id).filter { it.sourceKey == "reviewing" }.associate { it.targetKey to it.branch })
+                .isEqualTo(mapOf("review" to EdgeBranch.YES, "save" to EdgeBranch.NO))
             // And it is a graph that holds together, with nothing to warn about.
             assertThat(validator.problems(drawn, edges.findByWorkflowId(id), workspaceId = workspaceId)).isEmpty()
             knobsOf(drawn)
@@ -153,6 +157,8 @@ class ResearchTest(
                 "Gather sources" to setOf(ResearchCapability.RESULTS_PER_QUERY, ResearchCapability.MAX_SOURCES, ResearchCapability.MAX_PAGES_PER_SOURCE),
                 "Deepen findings" to setOf(ResearchCapability.BREADTH, ResearchCapability.DEPTH),
                 "Write report" to emptySet(),
+                "Review asked for?" to emptySet(),
+                "Review report" to emptySet(),
                 "Save report" to emptySet(),
             )
         }
@@ -169,6 +175,8 @@ class ResearchTest(
         // Two agents, ordinary ones on the Agents page, offered nothing that runs anything and with no model of their own.
         val planner = requireNotNull(agents.findByWorkspaceIdAndName(workspaceId, "Research planner"))
         val writer = requireNotNull(agents.findByWorkspaceIdAndName(workspaceId, "Research writer"))
+        // And the reviewer, whom no node names: the Review step reads its instructions.
+        assertThat(agents.findByWorkspaceIdAndName(workspaceId, "Research reviewer")!!.systemPrompt).isEqualTo(ResearchPipeline.REVIEW)
         assertThat(planner.systemPrompt).isEqualTo(PLAN)
         assertThat(writer.systemPrompt).startsWith(WRITE).contains("COLLOQUIAL")
         listOf(planner, writer).forEach { agent ->
@@ -196,11 +204,11 @@ class ResearchTest(
         researchModes.ensure(workspaceId)
 
         val drawn = nodes.findByWorkflowId(medium).sortedBy { it.positionX }
-        assertThat(drawn.map { it.name }).containsExactly("Plan research", "Gather sources", "Deepen findings", "Write report", "Save report")
+        assertThat(drawn.map { it.name }).containsExactly("Plan research", "Gather sources", "Deepen findings", "Write report", "Review asked for?", "Review report", "Save report")
         assertCurrentShape(drawn)
         assertThat(knobsOf(drawn).values.fold(emptyMap<String, Int>()) { one, other -> one + other })
             .containsExactlyInAnyOrderEntriesOf(mapOf(SUB to 5, BREADTH to 2, DEPTH to 2, RESULTS to 4, SOURCES to 20, PAGES to 2))
-        assertThat(edges.findByWorkflowId(medium)).hasSize(4)
+        assertThat(edges.findByWorkflowId(medium)).hasSize(7)
 
         // And it runs as the steps.
         val modelId = model(serve())
@@ -208,7 +216,7 @@ class ResearchTest(
             start("""{ workspaceId: $workspaceId, question: "Why are there tides?", modeId: ${modeId("MEDIUM")}, modelId: $modelId, language: FORMAL, outputFormat: DOCUMENT }"""),
         )
         assertThat(done.status).describedAs(done.error).isEqualTo(ResearchStatus.COMPLETED)
-        assertThat(stepsOf(done)).containsExactly("plan", "gather", "followUp", "write", "save")
+        assertThat(stepsOf(done)).containsExactly("plan", "gather", "followUp", "write", "reviewing", "review", "save")
     }
 
     @Test
@@ -261,7 +269,8 @@ class ResearchTest(
         assertThat(knobsOf(drawn).values.fold(emptyMap<String, Int>()) { one, other -> one + other })
             .containsExactlyInAnyOrderEntriesOf(mapOf(SUB to 6, BREADTH to 4, DEPTH to 3, RESULTS to 5, SOURCES to 50, PAGES to 3))
         assertThat(edges.findByWorkflowId(deep).map { it.sourceKey to it.targetKey }).containsExactlyInAnyOrder(
-            "plan" to "gather", "gather" to "followUp", "followUp" to "write", "write" to "save",
+            "plan" to "gather", "gather" to "followUp", "followUp" to "write", "write" to "reviewing",
+                "reviewing" to "review", "reviewing" to "save", "review" to "save",
         )
         assertThat(validator.problems(drawn, edges.findByWorkflowId(deep), workspaceId = workspaceId)).isEmpty()
 
@@ -270,7 +279,7 @@ class ResearchTest(
             start("""{ workspaceId: $workspaceId, question: "Why are there tides?", modeId: ${modeId("DEEP")}, modelId: $modelId, language: FORMAL, outputFormat: DOCUMENT }"""),
         )
         assertThat(done.status).describedAs(done.error).isEqualTo(ResearchStatus.COMPLETED)
-        assertThat(stepsOf(done)).containsExactly("plan", "gather", "followUp", "write", "save")
+        assertThat(stepsOf(done)).containsExactly("plan", "gather", "followUp", "write", "reviewing", "review", "save")
         assertThat(asked(PLAN).single()).contains("exactly 6 search queries")
     }
 
@@ -351,7 +360,9 @@ class ResearchTest(
         researchModes.ensure(workspaceId)
 
         val drawn = nodes.findByWorkflowId(medium).sortedBy { it.positionX }
-        assertThat(drawn.map { it.name }).containsExactly("Plan research", "Gather sources", "Deepen findings", "Write report", "Save report")
+        // Renamed, and then given its review, as the five steps it was become the seven.
+        assertThat(drawn.map { it.name })
+            .containsExactly("Plan research", "Gather sources", "Deepen findings", "Write report", "Review asked for?", "Review report", "Save report")
         assertCurrentShape(drawn)
         assertThat(actions.findByWorkspaceId(workspaceId).map { it.name })
             .contains("Research: Gather sources", "Research: Deepen findings", "Research: Save report", "Research: Save")
@@ -414,9 +425,9 @@ class ResearchTest(
         // As a copied workspace arrives: the workflows and the action there, no modes.
         assertThat(modesOf().map { it["workflowId"]?.toString()?.toLong() }).isEqualTo(before)
         assertThat(actions.findByWorkspaceId(workspaceId).filter { it.name.startsWith(ResearchModes.ACTION_NAME) }.map { it.name })
-            .containsExactlyInAnyOrder("Research: Gather sources", "Research: Deepen findings", "Research: Save report")
+            .containsExactlyInAnyOrder("Research: Gather sources", "Research: Deepen findings", "Research: Review report", "Research: Save report")
         assertThat(agents.findByWorkspaceId(workspaceId, org.springframework.data.domain.Sort.unsorted()).map { it.name }.filter { it.startsWith("Research") })
-            .containsExactlyInAnyOrder("Research planner", "Research writer")
+            .containsExactlyInAnyOrder("Research planner", "Research writer", "Research reviewer")
         assertThat(modesOf()).hasSize(3)
     }
 
@@ -429,7 +440,7 @@ class ResearchTest(
         val wait = tunables[Tunable.RESEARCH_STEP_RETRY_SECONDS]
         modesOf().forEach { mode ->
             assertThat(nodes.findByWorkflowId((mode["workflowId"] as String).toLong()))
-                .hasSize(5)
+                .hasSize(7)
                 .allMatch { it.retryAttempts == attempts && it.retryBackoffSeconds == wait }
         }
 
@@ -440,7 +451,7 @@ class ResearchTest(
             workspaceId = requireNotNull(workspaceApi.create("Research retried $stamp", null).id)
             modesOf().forEach { mode ->
                 assertThat(nodes.findByWorkflowId((mode["workflowId"] as String).toLong()))
-                    .hasSize(5)
+                    .hasSize(7)
                     .allMatch { it.retryAttempts == 5 && it.retryBackoffSeconds == 7 && it.retryMultiplier == null }
             }
         } finally {
@@ -478,12 +489,12 @@ class ResearchTest(
         assertThat(nodes.findByWorkflowId(shallow)).allMatch { it.retryAttempts == attempts && it.retryBackoffSeconds == wait }
         assertThat(nodes.findByWorkflowId(medium)).allMatch { it.retryAttempts == null && it.retryBackoffSeconds == null }
         assertThat(nodes.findByWorkflowId(deep).associate { it.nodeKey to it.retryAttempts })
-            .isEqualTo(mapOf("plan" to null, "gather" to null, "followUp" to null, "write" to 5, "save" to null))
+            .isEqualTo(mapOf("plan" to null, "gather" to null, "followUp" to null, "write" to 5, "reviewing" to null, "review" to null, "save" to null))
 
         // And a retry policy is no edit: Shallow, retried now, is still laid out again when its cards are heaped.
         nodes.saveAll(nodes.findByWorkflowId(shallow).onEach { it.positionX = 5.0; it.positionY = 5.0 })
         researchModes.ensure(workspaceId)
-        assertThat(nodes.findByWorkflowId(shallow).map { it.positionX }.distinct()).hasSize(5)
+        assertThat(nodes.findByWorkflowId(shallow).map { it.positionX }.distinct()).hasSize(7)
     }
 
     /**
@@ -520,7 +531,8 @@ class ResearchTest(
         val steps = runSteps.findByExecutionIdOrderByOrderAsc(requireNotNull(done.executionId)).associateBy { it.nodeKey }
         assertThat(steps.getValue("write").attempts).isEqualTo(2)
         assertThat(steps.getValue("write").status).isEqualTo(StepStatus.COMPLETED)
-        assertThat(steps.filterKeys { it != "write" }.values).allMatch { it.attempts == 1 }
+        // Review was not asked for, so it never ran.
+        assertThat(steps.filterKeys { it != "write" && it != "review" }.values).allMatch { it.attempts == 1 }
         assertThat(retries.seen.map { it.nodeKey }).containsExactly("write")
         // On the run, under the step, as any retry is.
         assertThat(runLogs.findByExecutionIdOrderBySequenceAsc(requireNotNull(done.executionId)).filter { it.nodeKey == "write" }.map { it.message })
@@ -578,7 +590,7 @@ class ResearchTest(
         view.path("research.progress.subQuestions").entityList(String::class.java).containsExactly("tide causes", "tide timing", "tide records")
         view.path("research.progress.step").entity(String::class.java).isEqualTo("Finished")
         // Five steps ran, one node each, and the page was told which one it was in.
-        assertThat(stepsOf(done)).containsExactly("plan", "gather", "followUp", "write", "save")
+        assertThat(stepsOf(done)).containsExactly("plan", "gather", "followUp", "write", "reviewing", "review", "save")
         graphQlTester.document("""query { research(id: $id) { progress { stage } } }""").execute()
             .path("research.progress.stage").entity(String::class.java).isEqualTo("SAVE")
         val urls = view.path("research.sources[*].url").entityList(String::class.java).get()
@@ -963,6 +975,7 @@ class ResearchTest(
     @Test
     fun `a seeded mode drawn before Gather read includeImages is given it, and still counts as seeded`() {
         val shallow = modeWorkflow("SHALLOW")
+        unreviewed(shallow)
         val gather = nodes.findByWorkflowId(shallow).single { it.nodeKey == "gather" }
         gather.mappings.removeIf { it.name == ResearchCapability.INCLUDE_IMAGES }
         nodes.save(gather)
@@ -1201,7 +1214,8 @@ class ResearchTest(
      * actions, reading the request off the run and the step before off the run.
      */
     private fun assertCurrentShape(drawn: List<WorkflowNode>) {
-        assertThat(drawn.map { it.kind }).containsExactly(NodeKind.AGENT, NodeKind.ACTION, NodeKind.ACTION, NodeKind.AGENT, NodeKind.ACTION)
+        assertThat(drawn.map { it.kind })
+            .containsExactly(NodeKind.AGENT, NodeKind.ACTION, NodeKind.ACTION, NodeKind.AGENT, NodeKind.CONDITION, NodeKind.ACTION, NodeKind.ACTION)
         val byKey = drawn.associateBy { it.nodeKey }
         listOf("plan" to "Research planner", "write" to "Research writer").forEach { (key, agent) ->
             val node = byKey.getValue(key)
@@ -1214,7 +1228,7 @@ class ResearchTest(
         }
         assertThat(byKey.getValue("write").mappings.single { it.name == "prompt" }.expression)
             .contains("{{trigger.language}}", "{{trigger.documentsExcludeNames}}", "{{deepened.notes}}")
-        listOf("gather", "followUp", "save").forEach { key ->
+        listOf("gather", "followUp", "review", "save").forEach { key ->
             val node = byKey.getValue(key)
             assertThat(actions.findByIdOrNull(requireNotNull(node.actionId))!!.name).isEqualTo("Research: ${node.name}")
             node.mappings.filter { it.name in ResearchCapability.REQUEST }.forEach {
@@ -1227,6 +1241,12 @@ class ResearchTest(
         assertThat(byKey.getValue("save").mappings.single { it.name == "report" }.expression).isEqualTo("draft")
         assertThat(byKey.getValue("save").mappings.single { it.name == "gathered" }.expression).isEqualTo("deepened")
         assertThat(byKey.getValue("save").outputName).isEqualTo("research")
+        // The review reads the plan, what was gathered and the draft, with the model chosen for reviewing; Save prefers what it left.
+        assertThat(byKey.getValue("review").mappings.associate { it.name to it.expression })
+            .containsEntry("queries", "plan").containsEntry("gathered", "deepened").containsEntry("report", "draft")
+            .containsEntry("reviewerModel", "trigger.reviewerModel")
+        assertThat(byKey.getValue("save").mappings.single { it.name == "reviewed" }.expression).isEqualTo("reviewed.report")
+        assertThat(byKey.getValue("reviewing").mappings.single().expression).isEqualTo("{{trigger.review}}")
         // Laid out so no two cards overlap: a description short enough to keep a card near its least
         // width, and room between cards for the line's label.
         assertThat(drawn.map { it.description.orEmpty().length }).allMatch { it in 1..50 }
@@ -1238,7 +1258,8 @@ class ResearchTest(
 
     /** Each step's knobs by name: its written numbers, and on Plan the number its prompt asks for. */
     private fun knobsOf(drawn: List<WorkflowNode>): Map<String, Map<String, Int>> = drawn.associate { node ->
-        val numbers = node.mappings.filter { it.mode == MappingMode.VALUE && it.name != "prompt" }.associate { it.name to it.expression.toInt() }
+        val numbers = node.mappings.filter { it.mode == MappingMode.VALUE && it.name != "prompt" }
+            .mapNotNull { mapping -> mapping.expression.toIntOrNull()?.let { mapping.name to it } }.toMap()
         val asked = node.mappings.singleOrNull { it.name == "prompt" && node.nodeKey == "plan" }
             ?.let { Regex("exactly (\\d+) search queries").find(it.expression)!!.groupValues[1].toInt() }
         node.name to (numbers + listOfNotNull(asked?.let { SUB to it }))
@@ -1308,6 +1329,7 @@ class ResearchTest(
 
     /** A mode's workflow in the current shape as it was seeded under the steps' former names, and its actions under theirs. */
     private fun formerNames(workflowId: Long) {
+        unreviewed(workflowId)
         val former = mapOf(
             "plan" to ("Plan" to "Research planner writes the search queries"),
             "gather" to ("Gather" to "Searches each query and notes what it reads"),
@@ -1326,6 +1348,39 @@ class ResearchTest(
                 }
             },
         )
+    }
+
+    /**
+     * A mode's workflow as it was seeded before there was a review: the five
+     * steps in a line, Write straight to Save, and Save reading the draft alone.
+     */
+    private fun unreviewed(workflowId: Long) {
+        edges.deleteAll(edges.findByWorkflowId(workflowId).filter { it.sourceKey in setOf("write", "reviewing", "review") })
+        nodes.deleteAll(nodes.findByWorkflowId(workflowId).filter { it.nodeKey == "reviewing" || it.nodeKey == "review" })
+        edges.save(io.mszymanski.orknux.server.workflow.WorkflowEdge(workflowId = workflowId, sourceKey = "write", targetKey = "save"))
+        nodes.saveAll(nodes.findByWorkflowId(workflowId).onEach { node -> if (node.nodeKey == "save") node.mappings.removeIf { it.name == "reviewed" } })
+    }
+
+    @Test
+    fun `a mode still the five steps it was before there was a review is given the review, and runs through it`() {
+        val medium = modeWorkflow("MEDIUM")
+        unreviewed(medium)
+
+        researchModes.ensure(workspaceId)
+
+        val drawn = nodes.findByWorkflowId(medium).sortedBy { it.positionX }
+        assertThat(drawn.map { it.name }).containsExactly("Plan research", "Gather sources", "Deepen findings", "Write report", "Review asked for?", "Review report", "Save report")
+        assertCurrentShape(drawn)
+        assertThat(edges.findByWorkflowId(medium)).hasSize(7)
+        // Still counted as seeded: laid out and retried like any other.
+        assertThat(drawn.map { it.retryAttempts }).allMatch { it != null }
+
+        val modelId = model(serve())
+        val done = settled(
+            start("""{ workspaceId: $workspaceId, question: "Why are there tides?", modeId: ${modeId("MEDIUM")}, modelId: $modelId, language: FORMAL, outputFormat: DOCUMENT }"""),
+        )
+        assertThat(done.status).describedAs(done.error).isEqualTo(ResearchStatus.COMPLETED)
+        assertThat(stepsOf(done)).containsExactly("plan", "gather", "followUp", "write", "reviewing", "review", "save")
     }
 
     /** The nodes a research's run went through, in order. */

@@ -505,6 +505,11 @@ enum class Tunable(
         "How many times a research step a restart cut short is run again",
         "Plan, Gather, Deepen and Write change nothing outside the research, so one a server restart cut short is run again when the server is back; 0 fails it, to be restarted from its page. Save is never run again.",
     ),
+    RESEARCH_REVIEW_ROUNDS(
+        "research.review.rounds", 1, 1, 10, TuningSection.WORKFLOWS, TuningUnit.TIMES,
+        "How many rounds of review a research gets",
+        "For a research started with Review: the reviewer reads the report and the writer revises it where asked, at most this many times, before it is saved. A workspace may set its own number.",
+    ),
     RESEARCH_ESTIMATE_RUNS(
         "research.estimate.runs", 3, 1, 50, TuningSection.WORKFLOWS, TuningUnit.ITEMS,
         "How many finished research a time left is measured from",

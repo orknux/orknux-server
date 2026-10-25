@@ -42,6 +42,18 @@ class ResearchDrafts(
         return { piece -> draft.append(piece) }
     }
 
+    /**
+     * The writer revising the report for the reviewer: the draft is started
+     * again and filled as the revision is written, so the page shows the
+     * report being rewritten rather than the one being replaced.
+     */
+    fun revising(researchId: Long?): (String) -> Unit {
+        if (researchId == null) return {}
+        val draft = StringBuffer()
+        held[researchId] = draft
+        return { piece -> draft.append(piece) }
+    }
+
     /** What the writer has written so far, or null where nothing is being written. */
     fun of(researchId: Long): String? = held[researchId]?.toString()?.takeIf { it.isNotBlank() }
 

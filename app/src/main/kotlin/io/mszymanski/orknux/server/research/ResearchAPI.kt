@@ -53,6 +53,7 @@ class ResearchAPI(
     private val steps: ExecutionStepRepository,
     private val estimates: ResearchEstimates,
     private val drafts: ResearchDrafts,
+    private val pipeline: ResearchPipeline,
 ) {
 
     /**
@@ -158,6 +159,16 @@ class ResearchAPI(
         val useWebSearch = input.useWebSearch ?: true
         if (!useWebSearch && included.isEmpty() && websitesInclude.isEmpty()) throw ResearchNothingToReadException()
         val includeImages = input.includeImages ?: false
+        // A review is a second model reading the report, and a review with no model to read it is no review.
+        val review = input.review ?: false
+        val reviewer = if (!review) {
+            null
+        } else {
+            val asked = input.reviewerModelId ?: throw ResearchReviewerMissingException()
+            // A review asked of a workflow with no Review step would be a research that says it was reviewed and was not.
+            if (!seeding.reviews(requireNotNull(assignment.workflow.id))) throw ResearchModeNotReviewedException(mode.name)
+            chatModels.usable(input.workspaceId, asked) ?: throw ResearchReviewerUnusableException()
+        }
 
         val research = researches.save(
             Research(
@@ -174,6 +185,9 @@ class ResearchAPI(
                 sources = mapper.writeValueAsString(sources),
                 useWebSearch = useWebSearch,
                 includeImages = includeImages,
+                review = review,
+                reviewerModelId = reviewer?.id,
+                reviewerModelName = reviewer?.name,
                 startedBy = SecurityContextHolder.getContext().authentication?.name ?: "system",
             ),
         )
@@ -205,6 +219,9 @@ class ResearchAPI(
                 ResearchModes.DOCUMENTS_EXCLUDE_NAMES to (excluded.joinToString(", ") { it.name }.ifEmpty { "none" }),
                 ResearchCapability.WEB_SEARCH to useWebSearch,
                 ResearchCapability.INCLUDE_IMAGES to includeImages,
+                // Whether Review report runs, and with what: read by the question before it and by the step itself.
+                ResearchCapability.REVIEW_ASKED to review,
+                ResearchCapability.REVIEWER_MODEL to reviewer?.id?.toString(),
                 ResearchModes.BRIEF to briefs.of(question, input.language, input.outputFormat, sources, included, excluded, useWebSearch, includeImages),
             ),
         )
@@ -279,7 +296,8 @@ class ResearchAPI(
         recorded.indexOfFirst { it.status == StepStatus.FAILED }
             .takeIf { it >= 0 }
             ?.let { return recorded[it].takeIf { _ -> it > 0 } }
-        recorded.indexOfFirst { it.status != StepStatus.COMPLETED && it.status != StepStatus.PENDING }
+        // The last such: a step a condition went past is SKIPPED too, and is not where the run stopped.
+        recorded.indexOfLast { it.status != StepStatus.COMPLETED && it.status != StepStatus.PENDING }
             .takeIf { it >= 0 }
             ?.let { return recorded[it].takeIf { _ -> it > 0 } }
         val waiting = recorded.indexOfFirst { it.status == StepStatus.PENDING }
@@ -428,6 +446,10 @@ class ResearchAPI(
             startedAt = research.startedAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
             finishedAt = research.finishedAt?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
             earlierExecutionIds = following.earlierRunsOf(research),
+            review = research.review,
+            reviewerModelId = research.reviewerModelId,
+            reviewerModelName = research.reviewerModelName,
+            reviewRounds = pipeline.reviewRoundsFrom(research.reviewRounds),
             draft = if (running) drafts.of(id) else null,
             estimatedSecondsLeft = if (running && estimated) estimates.secondsLeft(research) else null,
         )
@@ -516,6 +538,9 @@ data class StartResearchInput(
     val useWebSearch: Boolean? = null,
     /** Absent is off: a research looks for images only when asked to. */
     val includeImages: Boolean? = null,
+    /** Absent is off: a research is reviewed only when asked to, and then [reviewerModelId] is required. */
+    val review: Boolean? = null,
+    val reviewerModelId: Long? = null,
 )
 
 data class CreateResearchModeInput(
@@ -586,6 +611,11 @@ data class ResearchView(
     val draft: String? = null,
     /** About how long it has left; see [ResearchEstimates]. */
     val estimatedSecondsLeft: Int? = null,
+    val review: Boolean = false,
+    val reviewerModelId: Long? = null,
+    val reviewerModelName: String? = null,
+    /** What each round of review said; empty for one not reviewed, or not yet. */
+    val reviewRounds: List<ResearchReviewRound> = emptyList(),
 )
 
 data class ResearchProgressView(
@@ -632,6 +662,20 @@ data class ResearchPage(
 )
 
 class ResearchQuestionMissingException : RuntimeException("Say what to research")
+
+class ResearchReviewerMissingException : RuntimeException("Choose the chat model that reviews the research")
+
+class ResearchReviewerUnusableException : RuntimeException("That model cannot review research in this workspace")
+
+class ResearchModeNotReviewedException(val mode: String) :
+    RuntimeException("The research mode $mode has no Review step in its workflow, so it cannot be reviewed"), Refusal {
+    override val arguments get() = mapOf("mode" to mode)
+}
+
+class ResearchReviewRoundsOutOfRangeException(val rounds: Int, val least: Int, val most: Int) :
+    RuntimeException("$rounds is not a number of review rounds; choose between $least and $most"), Refusal {
+    override val arguments get() = mapOf("rounds" to rounds, "least" to least, "most" to most)
+}
 
 class ResearchNotFoundException(val id: Long) : RuntimeException("No research with id $id"), Refusal {
     override val arguments get() = mapOf("id" to id)
