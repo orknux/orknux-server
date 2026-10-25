@@ -92,6 +92,7 @@ have failed.
 - **Quick actions finds a diagram by its name and a node by its label**, and opens the editor on the node.
 - **A diagram has a description** of what it is for, typed in the editor's panel and shown on the list on one line. Agents read it in `orknux_diagrams` and `orknux_diagram`, set it with `orknux_create_diagram` and `orknux_change_diagram`, and `orknux_diagram_search` matches it; the editor's chat is told it, and the briefing says it is how to pick the right diagram. Its length is a Limit, `ORKNUX_TUNING_DIAGRAM_DESCRIPTION_CHARACTERS`, 2000 by default.
 - **A diagram's labels are typed over where they are drawn.** Double-click a node's words or a connection, or press Enter or F2 on the one selected; Enter puts the label down, Escape puts the old one back, and it is one step undo goes back over.
+- **A diagram's details have a page of their own.** The pencil on the Diagrams list opens it - name, description, catalog and Agents, with Save, Discard and a question before leaving unsaved - and the list no longer has an Agents column; a read-only diagram is marked Read only. In the editor, a Diagram section is always in the side panel, folded or open as you left it, holding the description and the Agents setting.
 
 ### 🔧 Changed
 
