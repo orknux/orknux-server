@@ -459,7 +459,7 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_AGENT_WAIT_LONGEST_SECONDS` | The longest agent_wait may wait, in seconds. | `300` |
 | `ORKNUX_TUNING_TOOLS_LOADED_AT_ONCE` | How many findable tools one search loads, in items. | `8` |
 | `ORKNUX_TUNING_TOOLS_SEARCHES_AT_ONCE` | How many names or searches one tool_find call may carry, in items. | `8` |
-| `ORKNUX_TUNING_TOOL_RESULT_WINDOW_PERCENT` | How much of the model's window one tool result may take, in percent. | `25` |
+| `ORKNUX_TUNING_TOOL_RESULT_WINDOW_PERCENT` | How much of the model's window one tool result may take, in percent. | `10` |
 | `ORKNUX_TUNING_TURN_WINDOW_RESERVE_PERCENT` | How much of the model's window a shrunk turn leaves free, in percent. | `25` |
 | `ORKNUX_TUNING_SCRATCHPAD_PADS` | How many scratchpads one session may open, in items. | `50` |
 | `ORKNUX_TUNING_SHEET_ROWS_MOST` | How many rows one read of a CSV or a workbook answers, in items. | `200` |

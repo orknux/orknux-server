@@ -132,7 +132,7 @@ enum class Tunable(
      * answer of 523,768 characters against a 262,144-token window. TurnWindow.
      */
     TOOL_RESULT_WINDOW_PERCENT(
-        "tool.result.window.percent", 25, 1, 90, TuningSection.AGENTS, TuningUnit.PERCENT,
+        "tool.result.window.percent", 10, 1, 90, TuningSection.AGENTS, TuningUnit.PERCENT,
         "How much of the model's window one tool result may take",
         "A longer answer is cut to this share of the model's context window, counted at two characters a token, and the model is told how long it was and how to read the rest. Applies to models whose window is known.",
     ),

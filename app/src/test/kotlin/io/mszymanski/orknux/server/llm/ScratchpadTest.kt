@@ -359,6 +359,13 @@ class ScratchpadTest(
     }
 
     @Test
+    fun `appending to a scratchpad not yet started starts it`() {
+        ok(pads.append(session, "fresh.md", "first line\n"))
+
+        assertThat(requireNotNull(pads.find(session, "fresh.md")).content).isEqualTo("first line\n")
+    }
+
+    @Test
     fun `replace changes one piece in place, and refuses an absent or ambiguous one`() {
         ok(pads.create(session, "code", null, "val x = 1\nval y = 1\n"))
 
