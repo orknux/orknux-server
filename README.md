@@ -456,6 +456,7 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_MODEL_THROTTLE_LONGEST_DELAY_SECONDS` | The longest a throttled model call is held, in seconds. | `60` |
 | `ORKNUX_TUNING_MODEL_IMAGE_FETCH_SECONDS` | How long fetching a drawn picture may take, in seconds. | `60` |
 | `ORKNUX_TUNING_MODEL_SPEED_CALLS` | How many recent calls a model's speed is averaged over, in items. | `50` |
+| `ORKNUX_TUNING_MODEL_SPEED_POINTS` | How many points a model's speed chart draws, in items. | `1000` |
 | `ORKNUX_TUNING_AGENT_WAIT_DEFAULT_SECONDS` | How long agent_wait waits when not told, in seconds. | `30` |
 | `ORKNUX_TUNING_AGENT_WAIT_LONGEST_SECONDS` | The longest agent_wait may wait, in seconds. | `300` |
 | `ORKNUX_TUNING_TOOLS_LOADED_AT_ONCE` | How many findable tools one search loads, in items. | `8` |

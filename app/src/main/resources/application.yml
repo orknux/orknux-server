@@ -911,6 +911,7 @@ orknux:
     model.throttle.longest.delay.seconds: ${ORKNUX_TUNING_MODEL_THROTTLE_LONGEST_DELAY_SECONDS:60}
     model.image.fetch.seconds: ${ORKNUX_TUNING_MODEL_IMAGE_FETCH_SECONDS:60}
     model.speed.calls: ${ORKNUX_TUNING_MODEL_SPEED_CALLS:50}
+    model.speed.points: ${ORKNUX_TUNING_MODEL_SPEED_POINTS:1000}
     agent.wait.default.seconds: ${ORKNUX_TUNING_AGENT_WAIT_DEFAULT_SECONDS:30}
     agent.wait.longest.seconds: ${ORKNUX_TUNING_AGENT_WAIT_LONGEST_SECONDS:300}
     tools.loaded.at.once: ${ORKNUX_TUNING_TOOLS_LOADED_AT_ONCE:8}

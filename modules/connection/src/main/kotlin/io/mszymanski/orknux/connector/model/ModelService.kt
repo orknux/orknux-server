@@ -654,43 +654,7 @@ class ModelService(
 
         val today = LocalDate.now(clock)
 
-        /*
-         * The window, from whichever of the two was asked for.
-         *
-         * A range the wrong way round is read rather than refused: somebody who
-         * picked the two dates in the other order meant the days between them,
-         * and a chart that answers is better than an error about which box was
-         * which. A range running past today is cut off at today - there is no
-         * usage in the future, and drawing empty days after the last one would
-         * squash the part somebody is looking at.
-         */
-        val since: LocalDate
-        val until: LocalDate
-        when {
-            from != null && to != null -> {
-                // Either way round: somebody who picked the two dates in the
-                // other order meant the days between them, and an error about
-                // which box was which answers nothing they asked.
-                until = minOf(maxOf(from, to), today)
-                since = minOf(minOf(from, to), until)
-            }
-            // One end and nothing else is a half-open range, read the way it is
-            // said: "since the 1st" runs to now, and "up to the 14th" is the
-            // window ending there - asking somebody to type today's date to mean
-            // "until now" is asking them to type what the server already knows.
-            from != null -> {
-                until = today
-                since = minOf(from, until)
-            }
-            to != null -> {
-                until = minOf(to, today)
-                since = until.minusDays((days - 1).toLong())
-            }
-            else -> {
-                until = today
-                since = until.minusDays((days - 1).toLong())
-            }
-        }
+        val (since, until) = usageWindow(days, from, to, today)
         val span = ChronoUnit.DAYS.between(since, until).toInt() + 1
         val previousFrom = since.minusDays(span.toLong())
 
@@ -833,6 +797,52 @@ class ModelService(
         const val MESSAGE_LENGTH = 500
         const val FOREVER_YEARS = 100L
     }
+}
+
+/**
+ * The days a model's figures are over, from a count back from [today] or a
+ * range somebody chose: the usage card's window, and the speed chart's, which
+ * follows the same dates and has to read them the same way.
+ */
+fun usageWindow(days: Int, from: LocalDate?, to: LocalDate?, today: LocalDate): Pair<LocalDate, LocalDate> {
+    /*
+     * The window, from whichever of the two was asked for.
+     *
+     * A range the wrong way round is read rather than refused: somebody who
+     * picked the two dates in the other order meant the days between them,
+     * and a chart that answers is better than an error about which box was
+     * which. A range running past today is cut off at today - there is no
+     * usage in the future, and drawing empty days after the last one would
+     * squash the part somebody is looking at.
+     */
+    val since: LocalDate
+    val until: LocalDate
+    when {
+        from != null && to != null -> {
+            // Either way round: somebody who picked the two dates in the
+            // other order meant the days between them, and an error about
+            // which box was which answers nothing they asked.
+            until = minOf(maxOf(from, to), today)
+            since = minOf(minOf(from, to), until)
+        }
+        // One end and nothing else is a half-open range, read the way it is
+        // said: "since the 1st" runs to now, and "up to the 14th" is the
+        // window ending there - asking somebody to type today's date to mean
+        // "until now" is asking them to type what the server already knows.
+        from != null -> {
+            until = today
+            since = minOf(from, until)
+        }
+        to != null -> {
+            until = minOf(to, today)
+            since = until.minusDays((days - 1).toLong())
+        }
+        else -> {
+            until = today
+            since = until.minusDays((days - 1).toLong())
+        }
+    }
+    return since to until
 }
 
 data class CreateProviderInput(

@@ -105,6 +105,11 @@ enum class Tunable(
         "How many recent calls a model's speed is averaged over",
         "A model's page averages the speeds its provider reported over this many of its newest calls, and a session's page lists this many of its newest calls with theirs. Only providers that report timings, such as llama.cpp, have any.",
     ),
+    MODEL_SPEED_POINTS(
+        "model.speed.points", 1000, 10, 50000, TuningSection.MODELS, TuningUnit.ITEMS,
+        "How many points a model's speed chart draws",
+        "A model's speed chart averages its calls per minute, hour, day, month or year over the dates chosen. Past this many periods that had calls, it draws the newest this many and says so; minutes over thirty days are 43,200.",
+    ),
 
     /* ---- Agents ---- */
 

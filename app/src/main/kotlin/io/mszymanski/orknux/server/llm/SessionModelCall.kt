@@ -115,6 +115,26 @@ interface SessionModelCallRepository : JpaRepository<SessionModelCall, Long> {
 
     /** A model's newest calls that reported timings, newest first. */
     fun findByModelIdAndPromptTokensIsNotNullOrderByIdDesc(modelId: Long, page: Pageable): List<SessionModelCall>
+
+    /**
+     * One page of a model's timed calls in `[since, until)` with an id below
+     * [before], newest first: id, at, prompt tokens, prompt milliseconds,
+     * generated tokens, generated milliseconds. Paged by id rather than by
+     * offset, so the speed chart walks a long window on `(model_id, id)` in
+     * pages of the same cost however far back it has got.
+     */
+    @Query(
+        "SELECT c.id, c.at, c.promptTokens, c.promptMillis, c.generatedTokens, c.generatedMillis " +
+            "FROM SessionModelCall c WHERE c.modelId = :model AND c.promptTokens IS NOT NULL " +
+            "AND c.at >= :since AND c.at < :until AND c.id < :before ORDER BY c.id DESC",
+    )
+    fun timedBetween(
+        @Param("model") model: Long,
+        @Param("since") since: OffsetDateTime,
+        @Param("until") until: OffsetDateTime,
+        @Param("before") before: Long,
+        page: Pageable,
+    ): List<Array<Any?>>
 }
 
 /**

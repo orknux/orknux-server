@@ -19,6 +19,7 @@ have failed.
 
 ### ✨ Added
 
+- **A model's speed over time.** Under its speed figures, a model's page charts the prompt and generation speed averaged per minute, hour, day, month or year (Day, or Hour for a single day) over the usage card's dates, weighted by tokens as the figures are; a period with no timed calls is a gap, never a zero. Past `ORKNUX_TUNING_MODEL_SPEED_POINTS` (1000) periods only the newest are drawn, and the chart says so (`Model.speedOverTime`).
 - **A diagram's PNG at 1×, 2× or 3×**, chosen beside PNG in the editor's Export menu, 2× by default: so many pixels for each drawn one, up to 4096 wide (`/api/diagrams/{id}/export/png?scale=`). The link an agent hands out is unchanged; the SVG was already vector.
 - **A dark page in the document editor.** A switch in the toolbar draws the sheets dark - dark paper, light ink, code, quotes, links and Find in colours of their own - remembered in the browser; the document and every export stay the white page.
 - **Import in the document editor**: a PDF, Markdown (or Export's zip of it), ODT, DOCX, HTML or text file read into the document, in place of it or at the caret, as an unsaved change Undo takes back; its pictures are kept as Design pictures. Limits `ORKNUX_TUNING_DOCUMENT_IMPORT_MB` and `ORKNUX_TUNING_DOCUMENT_IMPORT_PICTURES_MOST`.

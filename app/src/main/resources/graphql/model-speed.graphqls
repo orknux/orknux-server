@@ -51,10 +51,51 @@ extend type LlmSession {
     modelCalls(timedOnly: Boolean = false): [SessionModelCall!]!
 }
 
+"How long a period each point of a speed chart averages over, in the server's time zone."
+enum SpeedUnit {
+    MINUTE
+    HOUR
+    DAY
+    MONTH
+    YEAR
+}
+
+"One period of a speed chart: the calls in it that reported timings, weighted by tokens as ModelSpeed is."
+type ModelSpeedPoint {
+    "When the period starts, as YYYY-MM-DDTHH:mm in the server's time zone."
+    at: String!
+    calls: Int!
+    "Null where the period's prompt milliseconds add up to nothing."
+    promptTokensPerSecond: Float
+    generatedTokensPerSecond: Float
+}
+
+"""
+A model's speed over the same window its usage is drawn for, one point per
+period that had timed calls - a period with none is left out rather than drawn
+as zero.
+"""
+type ModelSpeedOverTime {
+    unit: SpeedUnit!
+    "The first day of the window, YYYY-MM-DD."
+    from: String!
+    "The last day of the window, YYYY-MM-DD."
+    to: String!
+    "Oldest first."
+    points: [ModelSpeedPoint!]!
+    "True where more periods had calls than Admin -> Settings lets one chart draw, and only the newest are here."
+    truncated: Boolean!
+}
+
 extend type Model {
     """
     Over this model's newest calls that reported timings, as many as Admin ->
     Settings says; null where none did.
     """
     speed: ModelSpeed
+    """
+    The speeds averaged per `unit` over a window read as `modelUsage` reads
+    it: the last thirty days, or `from` to `to`, YYYY-MM-DD.
+    """
+    speedOverTime(unit: SpeedUnit!, from: String, to: String): ModelSpeedOverTime!
 }
