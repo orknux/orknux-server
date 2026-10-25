@@ -40,6 +40,7 @@ import io.mszymanski.orknux.server.research.ResearchAPI
 import io.mszymanski.orknux.server.research.ResearchLanguage
 import io.mszymanski.orknux.server.research.ResearchModeKind
 import io.mszymanski.orknux.server.research.ResearchOutputFormat
+import io.mszymanski.orknux.server.research.ResearchStage
 import io.mszymanski.orknux.server.research.StartResearchInput
 
 /**
@@ -818,6 +819,21 @@ class OrknuxTools(
             )
             add(
                 ToolSpec(
+                    name = RESTART_RESEARCH,
+                    description = "Runs a research that failed or was stopped again from the step it stopped at, as the same " +
+                        "research: what the steps before it found is kept and not asked for again. Give a step to restart " +
+                        "a finished one from there instead. $RESEARCH follows it.",
+                    parameters = listOf(
+                        ToolParameterSpec("id", "The research's id.", required = true),
+                        ToolParameterSpec(
+                            "fromStep", "The step to restart from; left out, the one it failed or stopped at.", required = false,
+                            mapOf("type" to "string", "enum" to ResearchStage.entries.map { it.name }),
+                        ),
+                    ),
+                ),
+            )
+            add(
+                ToolSpec(
                     name = "orknux_start_task",
                     description =
                         "Starts a task: one of this workspace's agents set to work on a brief, on its own, until it " +
@@ -960,6 +976,7 @@ class OrknuxTools(
             "orknux_start_task" -> startTask(scope, arguments)
             START_RESEARCH -> startResearch(scope, arguments)
             RESEARCH -> research(scope, arguments)
+            RESTART_RESEARCH -> restartResearch(scope, arguments)
             "orknux_rerun_execution" -> rerun(scope, arguments)
             "orknux_set_workflow_enabled" -> setWorkflowEnabled(scope, arguments)
             "orknux_set_agent_enabled" -> setAgentEnabled(scope, arguments)
@@ -2017,6 +2034,34 @@ class OrknuxTools(
         )
     }
 
+    /**
+     * Restarts a research through the Research page's own mutation: the same
+     * checks, the same refusals and the same audit entry, under the caller's name.
+     */
+    private fun restartResearch(scope: OrknuxScope, arguments: String): String {
+        if (!scope.mayWrite) return readOnly()
+        val id = number(arguments, "id") ?: return refuse("Which research? Give its id.")
+        access.actingIn(scope.workspaceId, scope.actor) { researchApi.research(id) }
+            ?.takeIf { it.workspaceId == scope.workspaceId }
+            ?: return refuse("There is no research $id here")
+        val stage = text(arguments, "fromStep")?.trim()?.uppercase()?.let { said ->
+            ResearchStage.entries.firstOrNull { it.name == said.replace(' ', '_') }
+                ?: return refuse("A step is one of ${ResearchStage.entries.joinToString(", ") { it.name }}")
+        }
+        val restarted = access.actingIn(scope.workspaceId, scope.actor) { researchApi.restartResearch(id, stage) }
+        return mapper.writeValueAsString(
+            linkedMapOf(
+                "restarted" to restarted.id,
+                "status" to restarted.status,
+                "step" to restarted.progress?.step,
+                "run" to restarted.executionId?.let { runLink(scope.workspaceId, it) },
+                "earlierRuns" to restarted.earlierExecutionIds,
+                "url" to researchLink(scope.workspaceId, restarted.id),
+                "note" to "It runs on its own; ask $RESEARCH about this id to see where it has got to.",
+            ),
+        )
+    }
+
     /** Where a research has got to, and its report once it has one. */
     private fun research(scope: OrknuxScope, arguments: String): String {
         val id = number(arguments, "id") ?: return refuse("Which research? Give its id.")
@@ -2043,6 +2088,8 @@ class OrknuxTools(
                 },
                 "error" to held.error,
                 "run" to held.executionId?.let { runLink(scope.workspaceId, it) },
+                "earlierRuns" to held.earlierExecutionIds.map { runLink(scope.workspaceId, it) },
+                "secondsLeft" to held.estimatedSecondsLeft,
                 "url" to researchLink(scope.workspaceId, held.id),
             ),
         )
@@ -2088,6 +2135,9 @@ class OrknuxTools(
                 // The original input, so it acts on the same event rather than
                 // on nothing — which is what makes this a repeat at all.
                 payload = original.input,
+                // So the new run points back at this one, and what followed the
+                // old one - a research - follows the repeat.
+                startedFrom = id,
             ),
         )
         return mapper.writeValueAsString(
@@ -2213,6 +2263,7 @@ class OrknuxTools(
         const val UPDATE_MODEL = "orknux_update_model"
         const val START_RESEARCH = "orknux_start_research"
         const val RESEARCH = "orknux_research"
+        const val RESTART_RESEARCH = "orknux_restart_research"
 
         /** What a list parameter is declared as, so a model sends a list rather than the text of one. */
         val LIST = mapOf("type" to "array", "items" to mapOf("type" to "string"))

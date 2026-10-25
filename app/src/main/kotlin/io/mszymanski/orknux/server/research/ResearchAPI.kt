@@ -10,6 +10,9 @@ import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
 import io.mszymanski.orknux.server.workspace.pageRequest
 import io.mszymanski.orknux.workflow.execution.ExecutionStatus
+import io.mszymanski.orknux.workflow.execution.ExecutionStep
+import io.mszymanski.orknux.workflow.execution.ExecutionStepRepository
+import io.mszymanski.orknux.workflow.execution.StepStatus
 import io.mszymanski.orknux.workflow.execution.WorkflowExecutionRepository
 import org.springframework.data.domain.Sort
 import org.springframework.data.repository.findByIdOrNull
@@ -47,6 +50,9 @@ class ResearchAPI(
     private val access: WorkspaceAccess,
     private val auditRecorder: WorkspaceAuditRecorder,
     private val mapper: ObjectMapper,
+    private val steps: ExecutionStepRepository,
+    private val estimates: ResearchEstimates,
+    private val drafts: ResearchDrafts,
 ) {
 
     /**
@@ -74,10 +80,11 @@ class ResearchAPI(
         )
     }
 
+    /** One research; the one being looked at, so it is the one told how long it has left. */
     @QueryMapping
     fun research(@Argument id: Long): ResearchView? {
         val held = researches.findByIdOrNull(id)?.takeIf { access.canSee(it.workspaceId) } ?: return null
-        return describe(caughtUp(held))
+        return describe(caughtUp(held), estimated = true)
     }
 
     /**
@@ -213,6 +220,73 @@ class ResearchAPI(
         return describe(research)
     }
 
+    /**
+     * Runs a research again from one of its steps, as the same research.
+     *
+     * A research that failed at Gather - the model gave up, the server was
+     * restarted under it - had planned and searched and read, and starting a
+     * new one threw all of that away and asked the model to plan again. This
+     * restarts its run from the step asked for, or by default from the step
+     * that failed or was cut short, through the same start a rerun of a step
+     * takes: the steps before it are carried over from the run as they were,
+     * and refused where that cannot honestly be done, in the execution
+     * module's own words. The research moves onto the new run - see
+     * [ResearchRuns.started] - and keeps what the steps before it found.
+     */
+    @MutationMapping
+    fun restartResearch(@Argument id: Long, @Argument fromStage: ResearchStage?): ResearchView {
+        val held = researches.findByIdOrNull(id)?.takeIf { access.canSee(it.workspaceId) }
+            ?: throw ResearchNotFoundException(id)
+        access.requireVisible(held.workspaceId)
+        val research = caughtUp(held)
+        if (research.status == ResearchStatus.RUNNING) throw ResearchStillRunningException(id)
+        val previous = research.executionId?.let { executions.findByIdOrNull(it) } ?: throw ResearchNeverRanException(id)
+
+        val recorded = steps.findByExecutionIdOrderByOrderAsc(requireNotNull(previous.id))
+        val from = restartPoint(recorded, fromStage)
+        try {
+            following.restart(research, previous, from?.nodeKey)
+        } catch (refused: ResearchStillRunningException) {
+            throw refused
+        } catch (refused: RuntimeException) {
+            throw ResearchRestartRefusedException(refused.message ?: "the run could not be started again")
+        }
+        auditRecorder.record(
+            research.workspaceId,
+            WorkspaceAuditCategory.WORKFLOW,
+            "Research restarted from ${from?.name ?: "the beginning"}: " +
+                research.question.replace(Regex("\\s+"), " ").take(MOST_AUDITED),
+        )
+        return describe(researches.findByIdOrNull(id) ?: research, estimated = true)
+    }
+
+    /**
+     * The step of [recorded] a restart begins at; null for the beginning,
+     * which is a rerun of the whole run.
+     *
+     * Asked for by stage, that stage's step. Otherwise the step the run
+     * failed at, or the one a stop or a restart cut short - left SKIPPED - and
+     * where a run was stopped between two steps, the one it had last finished,
+     * because a step that never began has nothing recorded to begin from.
+     */
+    private fun restartPoint(recorded: List<ExecutionStep>, stage: ResearchStage?): ExecutionStep? {
+        if (stage != null) {
+            val key = ResearchRuns.NODES.getValue(stage)
+            val at = recorded.indexOfFirst { it.nodeKey == key }
+            if (at < 0) throw ResearchStageNotInRunException(stage)
+            return recorded[at].takeIf { at > 0 }
+        }
+        recorded.indexOfFirst { it.status == StepStatus.FAILED }
+            .takeIf { it >= 0 }
+            ?.let { return recorded[it].takeIf { _ -> it > 0 } }
+        recorded.indexOfFirst { it.status != StepStatus.COMPLETED && it.status != StepStatus.PENDING }
+            .takeIf { it >= 0 }
+            ?.let { return recorded[it].takeIf { _ -> it > 0 } }
+        val waiting = recorded.indexOfFirst { it.status == StepStatus.PENDING }
+        if (waiting < 0) throw ResearchNothingToRestartException()
+        return recorded.take(waiting).lastOrNull { it.status == StepStatus.COMPLETED }?.takeIf { waiting > 1 }
+    }
+
     /** Takes a research off the list. Its run and its file stay where they are. */
     @MutationMapping
     @Transactional
@@ -312,7 +386,9 @@ class ResearchAPI(
         )
     }
 
-    private fun describe(research: Research): ResearchView {
+    private fun describe(research: Research, estimated: Boolean = false): ResearchView {
+        val id = requireNotNull(research.id)
+        val running = research.status == ResearchStatus.RUNNING
         val sources = runCatching { mapper.readValue(research.sources, Map::class.java) }.getOrNull().orEmpty()
         fun list(key: String): List<String> = (sources[key] as? List<*>).orEmpty().map { it.toString() }
         val names = (list("documentsInclude") + list("documentsExclude")).mapNotNull { it.toLongOrNull() }
@@ -320,7 +396,7 @@ class ResearchAPI(
         fun documents(key: String) = list(key).mapNotNull { it.toLongOrNull() }.map { names[it] ?: "#$it" }
         val artifact = research.artifactId?.let { saved.findByIdOrNull(it) }
         return ResearchView(
-            id = requireNotNull(research.id),
+            id = id,
             workspaceId = research.workspaceId,
             question = research.question,
             modeId = research.modeId,
@@ -351,6 +427,9 @@ class ResearchAPI(
             startedBy = research.startedBy,
             startedAt = research.startedAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
             finishedAt = research.finishedAt?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+            earlierExecutionIds = following.earlierRunsOf(research),
+            draft = if (running) drafts.of(id) else null,
+            estimatedSecondsLeft = if (running && estimated) estimates.secondsLeft(research) else null,
         )
     }
 
@@ -370,6 +449,10 @@ class ResearchAPI(
             sourcesRead = read.path("sourcesRead").takeIf { it.isNumber }?.intValue() ?: 0,
             stage = read.path("stage").takeIf { it.isTextual }
                 ?.let { runCatching { ResearchStage.valueOf(it.stringValue()) }.getOrNull() },
+            reading = read.path("reading").takeIf { it.isObject }?.let { reading ->
+                fun text(key: String) = reading.path(key).takeIf { it.isTextual }?.stringValue()
+                text("url")?.let { url -> ResearchReadingView(title = text("title") ?: url, url = url, kind = text("kind") ?: "WEB") }
+            },
         )
     }
 
@@ -497,6 +580,12 @@ data class ResearchView(
     val startedBy: String,
     val startedAt: String,
     val finishedAt: String?,
+    /** The runs it was on before [executionId], oldest first. */
+    val earlierExecutionIds: List<Long> = emptyList(),
+    /** The report as its writer is writing it, while it runs; see [ResearchDrafts]. */
+    val draft: String? = null,
+    /** About how long it has left; see [ResearchEstimates]. */
+    val estimatedSecondsLeft: Int? = null,
 )
 
 data class ResearchProgressView(
@@ -506,7 +595,11 @@ data class ResearchProgressView(
     val level: Int,
     val sourcesRead: Int,
     val stage: ResearchStage?,
+    /** What is being read this moment, before it is a source. */
+    val reading: ResearchReadingView? = null,
 )
+
+data class ResearchReadingView(val title: String, val url: String, val kind: String)
 
 data class ResearchSourceView(
     val number: Int,
@@ -539,6 +632,32 @@ data class ResearchPage(
 )
 
 class ResearchQuestionMissingException : RuntimeException("Say what to research")
+
+class ResearchNotFoundException(val id: Long) : RuntimeException("No research with id $id"), Refusal {
+    override val arguments get() = mapOf("id" to id)
+}
+
+class ResearchStillRunningException(val id: Long) :
+    RuntimeException("Research $id is still running; it can be restarted once it has finished, failed or been stopped"), Refusal {
+    override val arguments get() = mapOf("id" to id)
+}
+
+class ResearchNeverRanException(val id: Long) : RuntimeException("Research $id never started a run to restart"), Refusal {
+    override val arguments get() = mapOf("id" to id)
+}
+
+class ResearchStageNotInRunException(val stage: ResearchStage) :
+    RuntimeException("This research's run has no $stage step to restart from"), Refusal {
+    override val arguments get() = mapOf("stage" to stage.name)
+}
+
+class ResearchNothingToRestartException :
+    RuntimeException("Every step of this research finished; say which step to restart from")
+
+class ResearchRestartRefusedException(val reason: String) :
+    RuntimeException("The research cannot be restarted there: $reason"), Refusal {
+    override val arguments get() = mapOf("reason" to reason)
+}
 
 class ResearchQuestionTooLongException(val most: Int) :
     RuntimeException("A research question is at most $most characters"), Refusal {

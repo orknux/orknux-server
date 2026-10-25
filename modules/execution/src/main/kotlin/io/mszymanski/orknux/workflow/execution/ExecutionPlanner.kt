@@ -221,7 +221,9 @@ class ExecutionPlanner(
         )
         val executionId = requireNotNull(execution.id)
         metrics.runStarted()
-        published.publishEvent(RunStarted(executionId))
+        published.publishEvent(
+            RunStarted(executionId, resumedAt = resumeFrom?.nodeKey, carriedOn = resumeFrom?.answer != null),
+        )
 
         val recorded = steps.saveAll(
             order.mapIndexed { index, node ->

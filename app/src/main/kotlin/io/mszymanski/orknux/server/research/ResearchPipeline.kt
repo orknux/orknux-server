@@ -149,7 +149,17 @@ data class ResearchProgress(
     val sourcesRead: Int = 0,
     /** The step doing it; null on a progress written before the steps were nodes. */
     val stage: ResearchStage? = null,
+    /**
+     * The page or document being read this moment, before the model has noted
+     * it: what the page draws as the row on its way, so a source a slow model
+     * spends a minute on is on the screen for that minute rather than after it.
+     * Not a source yet - one the model notes nothing in never becomes one.
+     */
+    val reading: ResearchReading? = null,
 )
+
+/** A page or document on its way to being a source; see [ResearchProgress.reading]. */
+data class ResearchReading(val title: String, val url: String, val kind: String)
 
 /** What a research came to. */
 data class ResearchFound(val report: String, val sources: List<ResearchSource>)
@@ -304,7 +314,7 @@ class ResearchPipeline(
         val held = saved.findAllById(asked.documentsInclude).filter { it.workspaceId == asked.workspaceId }
         for (document in held) {
             if (reading.stopped()) break
-            tracker.step("Reading ${document.name}")
+            tracker.reading(document.name, "/api/artifacts/${document.id}", "DOCUMENT")
             val text = documents.text(document)?.trim().orEmpty()
             if (text.isEmpty()) {
                 said.info("Skipped document ${document.name}: it has no text to read")
@@ -313,6 +323,7 @@ class ResearchPipeline(
             val pages = text.chunked(tuning[Tunable.RESEARCH_PAGE_CHARACTERS]).take(limits.maxPagesPerSource)
             val notes = noted(asked, asked.question, document.name, pages.joinToString("\n\n"))
             if (notes == null) {
+                tracker.notReading()
                 said.info("Skipped document ${document.name}: the model noted nothing in it on the question")
                 continue
             }
@@ -501,22 +512,26 @@ class ResearchPipeline(
             }
             if (!taken(reading, url, host, emptyList(), asked.websitesExclude)) continue
 
-            tracker.step("Reading $url")
+            tracker.reading(host, url, "WEB")
             val read = when (val answered = web.read(asked.workspaceId, url)) {
                 is PageRead.Read -> answered
                 is PageRead.Unread -> {
+                    tracker.notReading()
                     said.warn("Could not read $url: ${answered.reason}")
                     continue
                 }
             }
             val page = read.text.take(tuning[Tunable.RESEARCH_PAGE_CHARACTERS])
             if (page.isBlank()) {
+                tracker.notReading()
                 said.info("Skipped $url: the page has no text")
                 continue
             }
             val title = read.title?.trim()?.ifEmpty { null } ?: host
+            tracker.reading(title, url, "WEB")
             val notes = noted(asked, asked.question, title, page)
             if (notes == null) {
+                tracker.notReading()
                 said.info("Skipped $url: the model noted nothing in it on the question")
                 continue
             }
@@ -707,7 +722,7 @@ class ResearchPipeline(
                 }
                 if (!taken(reading, hit.url, host, asked.websitesInclude, asked.websitesExclude)) continue
 
-                tracker.step("Reading ${hit.title}")
+                tracker.reading(hit.title, hit.url, "WEB")
                 val read = web.read(asked.workspaceId, hit.url)
                 val page = when (read) {
                     is PageRead.Read -> read.text
@@ -718,11 +733,13 @@ class ResearchPipeline(
                     }
                 }.take(tuning[Tunable.RESEARCH_PAGE_CHARACTERS])
                 if (page.isBlank()) {
+                    tracker.notReading()
                     told.info("Skipped ${hit.url}: there is no text to read")
                     continue
                 }
                 val notes = noted(asked, query, hit.title, page)
                 if (notes == null) {
+                    tracker.notReading()
                     told.info("Skipped ${hit.url}: the model noted nothing in it on the question")
                     continue
                 }
@@ -881,13 +898,22 @@ class ResearchPipeline(
             }
         }
 
-        fun step(said: String) = write(now.copy(step = said))
+        fun step(said: String) = write(now.copy(step = said, reading = null))
+
+        /** A page or document being read, on the page as a row on its way before the model has noted it. */
+        fun reading(title: String, url: String, kind: String) =
+            write(now.copy(step = "Reading $title", reading = ResearchReading(title, url, kind)))
+
+        /** What was being read came to nothing: the model noted nothing in it, or there was nothing to note. */
+        fun notReading() {
+            if (now.reading != null) write(now.copy(reading = null))
+        }
         fun planned(plan: List<String>) = write(now.copy(step = "Planned ${plan.size} questions", subQuestions = plan))
         fun searching(searched: List<String>, level: Int) =
             write(now.copy(step = "Searching: ${searched.last()}", searched = searched.toList(), level = level))
         fun read(found: List<ResearchSource>) {
             sources = found.toList()
-            write(now.copy(sourcesRead = found.size))
+            write(now.copy(sourcesRead = found.size, reading = null))
         }
 
         /** The pictures kept so far, on the research as they are kept, so the page shows them while it runs. */
@@ -923,6 +949,48 @@ class ResearchPipeline(
             stage = read.path("stage").takeIf { it.isTextual }?.stringValue()
                 ?.let { held -> ResearchStage.entries.firstOrNull { it.name == held } },
         )
+    }
+
+    /**
+     * What a research row says once a run restarts it at [stage], as JSON for
+     * [ResearchRepository.restarted]: what the steps before [stage] found is
+     * kept, and what [stage] and the steps after it found is let go, because
+     * they are about to find it again.
+     *
+     * Planning restarted keeps nothing. Gather keeps the plan's sub-questions
+     * and starts its sources over. A later step keeps what [gathered] - the
+     * earlier run's answer from the step before it - holds: the sources, the
+     * searches and the images it handed on, which is exactly what the new run
+     * carries over. A [stage] that is none of the five, a workflow somebody
+     * drew their own way, keeps the row as it is and says it restarted.
+     */
+    fun restarted(held: Research, stage: ResearchStage?, gathered: ResearchGathered?): Triple<String, String, String> {
+        val was = progressFrom(held.progress) ?: ResearchProgress(step = "")
+        val sources = sourcesFrom(held.foundSources)
+        val images = imagesFrom(held.foundImages)
+        val (progress, keptSources, keptImages) = when (stage) {
+            null -> Triple(was.copy(step = RESTARTING, reading = null), sources, images)
+            ResearchStage.PLAN -> Triple(ResearchProgress(RESTARTING, stage = stage), emptyList(), emptyList())
+            ResearchStage.GATHER ->
+                Triple(ResearchProgress(RESTARTING, subQuestions = was.subQuestions, stage = stage), emptyList(), emptyList())
+            else -> if (gathered == null) {
+                Triple(was.copy(step = RESTARTING, stage = stage, reading = null), sources, images)
+            } else {
+                Triple(
+                    ResearchProgress(
+                        step = RESTARTING,
+                        subQuestions = was.subQuestions,
+                        searched = gathered.searched,
+                        level = gathered.level,
+                        sourcesRead = gathered.sources.size,
+                        stage = stage,
+                    ),
+                    gathered.sources,
+                    gathered.images.ifEmpty { images },
+                )
+            }
+        }
+        return Triple(mapper.writeValueAsString(progress), mapper.writeValueAsString(keptSources), mapper.writeValueAsString(keptImages))
     }
 
     /** The pictures a research row holds; none where it holds none, or something an older server wrote. */
@@ -974,6 +1042,9 @@ class ResearchPipeline(
     companion object {
         /** What a model writes for a source with nothing on the question. */
         const val NOTHING = "NOTHING RELEVANT"
+
+        /** What a restarted research says it is doing until its first step says otherwise. */
+        const val RESTARTING = "Restarting"
 
         /*
          * The four things a model is asked. Each opens with a line of its own,

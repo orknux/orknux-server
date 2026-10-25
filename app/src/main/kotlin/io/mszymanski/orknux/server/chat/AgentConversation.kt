@@ -91,6 +91,13 @@ interface RoundWatch {
     fun thought(text: String, millis: Long) = Unit
 
     /**
+     * A piece of the answer, as it arrives. For a reader that shows the answer
+     * being written - a research's report on its page - rather than how much
+     * of it there is, which is [writing].
+     */
+    fun answered(piece: String) = Unit
+
+    /**
      * A picture the round drew, as the markdown that shows it.
      *
      * Written into the thread the moment it is drawn - see [ChatPictures.draw]
@@ -733,6 +740,7 @@ class AgentConversation(
                     reasoningEffort = reasoningEffort,
                 ) {
                     watch.answering()
+                    watch.answered(it)
                     writing.answer(it)
                 }
             }
@@ -997,6 +1005,7 @@ class AgentConversation(
                     reasoningEffort = reasoningEffort,
                 ) {
                     watch.answering()
+                    watch.answered(it)
                     writing.answer(it)
                 }
             }

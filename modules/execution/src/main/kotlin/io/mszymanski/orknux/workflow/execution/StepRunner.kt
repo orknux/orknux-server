@@ -86,7 +86,20 @@ data class RunEnded(val executionId: Long)
  * asked for it on another thread can learn its id while it runs - the inline
  * engine hands the id back only once the walk is over. Issue #659.
  */
-data class RunStarted(val executionId: Long)
+data class RunStarted(
+    val executionId: Long,
+    /**
+     * The node a re-run starts at, the steps ahead of it carried over; null for
+     * a run that starts at the beginning, a re-run of a whole run among them.
+     * Said here because the steps are written down only after this is told.
+     */
+    val resumedAt: String? = null,
+    /**
+     * Whether the run carries an earlier one on *past* a node with a new answer
+     * (see [ResumePoint.answer]) rather than doing a step again.
+     */
+    val carriedOn: Boolean = false,
+)
 
 data class RetryPolicy(
     val attempts: Int,
