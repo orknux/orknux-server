@@ -131,8 +131,9 @@ class DocumentChat(
                 throw DocumentAnswerFailedException(answer.reason)
             }
             is ChatCompletion.Answered -> {
-                session?.let { sessions.agentSaid(it, SPEAKER, answer.content) }
+                // What the person is handed, not what the model wrapped it in: the session showed <text>...</text>.
                 val translated = unwrapped(answer.content, text)
+                session?.let { sessions.agentSaid(it, SPEAKER, translated.ifBlank { answer.content }) }
                 if (translated.isBlank()) throw DocumentAnswerFailedException("it answered with no translation")
                 return translated
             }
