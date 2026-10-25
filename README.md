@@ -415,9 +415,9 @@ installation starts from.
 | `ORKNUX_CHAT_REPLY_SUGGESTIONS_MAX_TOKENS` | The most tokens an answer's suggested replies together may be. | `150` |
 | `ORKNUX_CHAT_REPLY_SUGGESTIONS_TIMEOUT_MILLIS` | How long suggested replies may take before they are dropped. | `8000` |
 | `ORKNUX_CHAT_VIDEO_MAX_MB` | The largest video, in MB, a chat message may send to a model that takes video; a larger one is refused before the model is asked. | `20` |
-| `ORKNUX_ATTACHMENTS_MAX_FILE_SIZE_MB` | The largest file any upload may be, in MB (1 to 2048) - a chat's, an issue's, the Artifacts page's, a research's, a picture or document imported. A larger one is refused with its size, the limit and where it is raised. Where a fresh installation starts; Admin -> Settings -> Attachments holds what it is now. The desktop app sets it `500`. | `25` |
-| `ORKNUX_UPLOAD_MAX_FILE_SIZE` | Spring's multipart cap on one file, fixed at start-up. Kept above the largest upload, because what it refuses Tomcat refuses before any code runs, and a browser reports that as "Failed to fetch". | `2048MB` |
-| `ORKNUX_UPLOAD_MAX_REQUEST_SIZE` | Spring's cap on one whole upload request; the interface sends one file per request. | `2049MB` |
+| `ORKNUX_ATTACHMENTS_MAX_FILE_SIZE_MB` | The largest file any upload may be, in MB (1 or more) - a chat's, an issue's, the Artifacts page's, a research's, a picture or document imported. A larger one is refused with its size, the limit and where it is raised. Where a fresh installation starts; Admin -> Settings -> Attachments holds what it is now. The desktop app sets it `500`. | `25` |
+| `ORKNUX_UPLOAD_MAX_FILE_SIZE` | Spring's multipart cap on one file, fixed at start-up. Kept above the largest upload, because what it refuses Tomcat refuses before any code runs, and a browser reports that as "Failed to fetch". `-1` is no cap. | `-1` |
+| `ORKNUX_UPLOAD_MAX_REQUEST_SIZE` | Spring's cap on one whole upload request; the interface sends one file per request. | `-1` |
 | `ORKNUX_GRAMMAR_SERVER_URL` | A LanguageTool server the document editor's grammar check sends its text to, such as `http://languagetool:8010`; empty checks with the LanguageTool library inside the server, loading a language the first time it is checked. Admin Settings can set it too. | empty |
 | `ORKNUX_CHAT_TITLE_SECONDS` | How long the workspace's companion model has to name a chat before the chat's own model is asked, in seconds. Admin -> Settings overrides it. | `30` |
 | `ORKNUX_COMMAND_MARKER` | What marks a skill command in a message. | `!` |

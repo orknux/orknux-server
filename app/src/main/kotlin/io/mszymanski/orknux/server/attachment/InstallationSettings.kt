@@ -2421,17 +2421,17 @@ val VIDEO_MAX_MB = 1..1024
 
 /*
  * What the upload limit may be, in megabytes. One at the bottom because nought
- * is what turning attachments off already says; two gigabytes at the top
- * because that is where Spring's multipart caps sit (application.yml), and a
- * limit above them would be refused by a reset connection instead of a
- * sentence.
+ * is what turning attachments off already says; nothing at the top - how large
+ * a file this installation takes is the administrator's to decide, and
+ * Spring's multipart caps are unlimited by default (application.yml) so they
+ * never refuse first, by a reset connection instead of a sentence.
  */
-val UPLOAD_MAX_MB = 1..2048
+val UPLOAD_MAX_MB = 1..Int.MAX_VALUE
 
 private const val MEGABYTE = 1024L * 1024L
 
 class UploadMaxOutOfRangeException(val megabytes: Int) : RuntimeException(
-    "Uploads cannot be limited to $megabytes MB. Choose between ${UPLOAD_MAX_MB.first} and ${UPLOAD_MAX_MB.last}.",
+    "Uploads cannot be limited to $megabytes MB. Choose ${UPLOAD_MAX_MB.first} MB or more.",
 ), io.mszymanski.orknux.server.graphql.Refusal {
     override val arguments get() = mapOf("megabytes" to megabytes)
 }

@@ -305,8 +305,8 @@ Networking** match the request URL and carry every outbound HTTP call; an
 | `ORKNUX_ATTACHMENTS_ENABLED` | Whether files may be attached to a message, an issue or a comment. `false` is final too. | `true` | No |
 | `ORKNUX_ATTACHMENTS_LOCATION` | Where the bytes go, a directory per workspace. **An absolute path on a volume.** | `data/attachments` | **Yes** if attachments are on |
 | `ORKNUX_ATTACHMENTS_MAX_FILE_SIZE_MB` | The largest upload, in MB. Admin -> Settings overrides. | `25` | No |
-| `ORKNUX_UPLOAD_MAX_FILE_SIZE` | The servlet's cap on one file; above the largest upload. | `2048MB` | No |
-| `ORKNUX_UPLOAD_MAX_REQUEST_SIZE` | The cap on one upload request. | `2049MB` | No |
+| `ORKNUX_UPLOAD_MAX_FILE_SIZE` | The servlet's cap on one file; above the largest upload. | `-1` (none) | No |
+| `ORKNUX_UPLOAD_MAX_REQUEST_SIZE` | The cap on one upload request. | `-1` (none) | No |
 
 The tracker uses the chat's attachments.
 

@@ -67,19 +67,19 @@ class UploadLimitTest(
     }
 
     @Test
-    fun `the limit is between 1 and 2048 MB, and outside that is refused with a code`() {
-        listOf(0, 2049).forEach { megabytes ->
+    fun `the limit is 1 MB or more, with no ceiling, and below that is refused with a code`() {
+        listOf(0, -5).forEach { megabytes ->
             graphQlTester.document("mutation { setAttachmentMaxFileSizeMb(megabytes: $megabytes) { attachmentMaxFileSizeMb } }")
                 .execute().errors().satisfy { errors ->
                     assertThat(errors).hasSize(1)
-                    assertThat(errors.single().message).isEqualTo("Uploads cannot be limited to $megabytes MB. Choose between 1 and 2048.")
+                    assertThat(errors.single().message).isEqualTo("Uploads cannot be limited to $megabytes MB. Choose 1 MB or more.")
                     assertThat(errors.single().extensions["code"]).isEqualTo("UploadMaxOutOfRange")
                     assertThat(errors.single().extensions["arguments"]).isEqualTo(mapOf("megabytes" to megabytes))
                 }
         }
         assertThat(settings.maxFileSizeMb()).isEqualTo(25)
 
-        listOf(1, 2048).forEach { megabytes ->
+        listOf(1, 2048, 100_000).forEach { megabytes ->
             graphQlTester.document("mutation { setAttachmentMaxFileSizeMb(megabytes: $megabytes) { attachmentMaxFileSizeMb } }")
                 .execute().path("setAttachmentMaxFileSizeMb.attachmentMaxFileSizeMb").entity(Int::class.java).isEqualTo(megabytes)
         }
