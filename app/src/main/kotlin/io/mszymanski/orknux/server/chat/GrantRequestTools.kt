@@ -348,11 +348,7 @@ class GrantRequestTools(
             request.llmSessionId,
             SessionEventKind.ANSWER,
             buildString {
-                if (granting.isNotEmpty()) {
-                    append("$by granted you $names for good; they are yours from your next turn, which says how each is called")
-                    append(if (loaded.isEmpty()) "." else ", and ${loaded.joinToString(", ")} " +
-                        (if (loaded.size == 1) "is" else "are") + " loaded already.")
-                }
+                if (granting.isNotEmpty()) append(granted(by, granting, loaded))
                 if (gone.isNotEmpty()) {
                     if (isNotEmpty()) append(" ")
                     append("${gone.joinToString(", ")} could not be granted: you hold it already, or it is gone.")
@@ -363,6 +359,42 @@ class GrantRequestTools(
             granting.isEmpty() -> "Nothing left to grant"
             gone.isEmpty() -> "Granted - $names"
             else -> "Granted - $names (not ${gone.joinToString(", ")})"
+        }
+    }
+
+    /**
+     * What the agent is told of a grant. Session 910 was told its tools were
+     * "yours from your next turn", called tool_load in the same turn, was
+     * answered that it had no such tool, and told the person they had not
+     * arrived. They are callable at once now - through [ToolRun], since the
+     * array does not move inside a turn - and this says so, with the call's
+     * shape; how each is called follows in the conversation, and the next turn
+     * says it again. Every tool named here is read off its declaration.
+     */
+    private fun granted(by: String, granting: List<Grantable>, loaded: List<String>): String = buildString {
+        append("$by granted you ${granting.joinToString(", ") { it.name }} for good.")
+        val callable = granting.filter { it.kind in NAMED }.map { it.name }
+        val families = granting.filter { it.kind == Kind.MCP_SERVER || it.kind == Kind.ORKNUX }.map { it.name }
+        if (callable.isNotEmpty() || families.isNotEmpty()) {
+            append(" ")
+            append(
+                when {
+                    callable.isEmpty() -> "The tools that come with ${families.joinToString(", ")} are"
+                    callable.size == 1 -> "${callable.single()} is"
+                    else -> "They are"
+                },
+            )
+            append(" yours to call now, in this turn, through ").append(ToolRun.NAME).append(" - as ")
+            append(ToolRun.NAME).append(" with {\"").append(ToolRun.TOOL).append("\": \"")
+            append(callable.firstOrNull() ?: "the tool's name").append("\", \"").append(ToolRun.ARGUMENTS)
+            append("\": {...its arguments...}} - and how each is called follows. From your next turn you are ")
+            append("told again how each is called.")
+            if (callable.isNotEmpty() && families.isNotEmpty()) {
+                append(" So are the tools that come with ${families.joinToString(", ")}.")
+            }
+        }
+        if (loaded.isNotEmpty()) {
+            append(" ${loaded.joinToString(", ")} ${if (loaded.size == 1) "is" else "are"} loaded already.")
         }
     }
 
@@ -400,8 +432,11 @@ class GrantRequestTools(
     private fun notGrantable(agent: Agent, names: List<String>, conversation: Long): String {
         val offering = offerings.getObject().offeringFor(agent, session = conversation)
         val lendable = BuiltInTools.GRANTED.filter { BuiltInTools.granted(agent, it) }
-        val carried = frames.read(conversation)?.takeIf { it.agentId == agent.id }?.tools?.map { it.name }?.toSet()
+        val frame = frames.read(conversation)?.takeIf { it.agentId == agent.id }
+        val carried = frame?.tools?.map { it.name }?.toSet()
             ?: (offering.core.map { it.name } + lendable.filter { BuiltInTools.carried(agent, it) }).toSet()
+        // Loaded with the finder where the frame has one; where every tool went up front, a grant since is called through tool_run.
+        val finding = frame?.hunting ?: true
         val held = carried + offering.core.map { it.name } + offering.searchable.map { it.name } + lendable
         val have = names.filter { it in carried }
         val behind = names.filter { it !in carried && it in held }
@@ -412,7 +447,12 @@ class GrantRequestTools(
                 "You already have ${it.joinToString(", ")}: call ${them(it, "it", "them")}."
             },
             behind.takeIf { it.isNotEmpty() }?.let {
-                "You already hold ${it.joinToString(", ")}: load ${them(it, "it", "them")} with ${ToolSearchTools.FIND}."
+                if (finding) {
+                    "You already hold ${it.joinToString(", ")}: load ${them(it, "it", "them")} with ${ToolSearchTools.FIND}."
+                } else {
+                    "You already hold ${it.joinToString(", ")}: call ${them(it, "it", "them")} with ${ToolRun.NAME}, " +
+                        "giving the name and the arguments."
+                }
             },
             nowhere.takeIf { it.isNotEmpty() }?.let {
                 "${it.joinToString(", ")} ${them(it, "is", "are")} not something you could be granted - " +
@@ -457,6 +497,9 @@ class GrantRequestTools(
         const val BOX_PREFIX = "box:"
 
         private val NOTHING_TO_LOAD = setOf(Kind.MCP_SERVER, Kind.CONNECTION, Kind.BOX)
+
+        /** The kinds whose name is the name of the one tool granted, and so what a call names. */
+        private val NAMED = setOf(Kind.BUILT_IN, Kind.WORKSPACE_TOOL, Kind.PLUGIN_TOOL)
 
         /** How many tools one question may carry: a person reads every one before saying yes. */
         private const val MOST_AT_ONCE = 20

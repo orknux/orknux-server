@@ -55,6 +55,7 @@ class GrantRequestToolsTest(
     @Autowired val boxRows: io.mszymanski.orknux.server.box.BoxRepository,
     @Autowired val boxTools: io.mszymanski.orknux.server.box.BoxTools,
     @Autowired val builtIns: BuiltInTools,
+    @Autowired val frames: io.mszymanski.orknux.server.llm.SessionFrames,
 ) {
 
     private var workspaceId = 0L
@@ -275,6 +276,30 @@ class GrantRequestToolsTest(
         )
         assertThat(refused).contains("noSuchTool is not something you could be granted - it does not exist here.")
         assertThat(refused).doesNotContain("either you already hold it")
+        assertThat(requests.findAll()).isEmpty()
+    }
+
+    /*
+     * Asked again for a tool granted since the conversation's frame was made,
+     * where that frame carries every tool up front and so has no tool_load:
+     * pointing the model at tool_load sent it to a tool it was not offered.
+     * It is told to call the tool through tool_run, which every frame carries.
+     */
+    @Test
+    fun `asked for a tool granted since, where nothing is found, the refusal says to call it through tool_run`() {
+        agents.save(agents.findByIdOrNull(agent.id!!)!!.apply { tools.add("lookupOrder") })
+        frames.write(
+            conversation,
+            io.mszymanski.orknux.server.llm.SessionFrames.Frame(
+                agentId = agent.id!!, modelId = 0, agentStamp = 0, system = null, tools = emptyList(),
+                hunting = false, seenSystem = null, seenTools = emptyMap(),
+            ),
+        )
+
+        val refused = call(GrantRequestTools.ASK, mapOf("tools" to listOf("lookupOrder"), "why" to "x")).path("error").stringValue()
+
+        assertThat(refused).contains("You already hold lookupOrder: call it with ${ToolRun.NAME}")
+        assertThat(refused).doesNotContain(ToolSearchTools.FIND)
         assertThat(requests.findAll()).isEmpty()
     }
 
