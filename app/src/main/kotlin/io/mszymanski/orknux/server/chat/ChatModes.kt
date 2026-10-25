@@ -76,18 +76,18 @@ class ChatModes(
                 options = listOf(
                     InteractionOption(APPROVE, "Approve", "primary"),
                     InteractionOption(KEEP_PLANNING, "Keep planning"),
+                    InteractionOption(REJECT, "Reject"),
                 ),
                 // So "keep planning" can say what to change, in the person's own words.
                 allowsText = true,
             )
-            return mapper.writeValueAsString(
-                mapOf(
-                    "presented" to asked.id,
-                    "status" to "pending",
-                    "note" to "The person has been shown your plan, with a button to approve it and one to keep " +
-                        "planning. Their answer reaches you later; end your turn now, without repeating the plan.",
-                ),
-            )
+            /*
+             * The turn ends here, not on the model's say-so. It was told to end
+             * it, and Qwen went on to say "Plan approved" and try the first
+             * step (chat 996): nobody had answered. Their answer wakes the
+             * agent through its inbox, approved or not.
+             */
+            throw PlanPresented(asked.id)
         }
     }
 
@@ -123,6 +123,15 @@ class ChatModes(
             )
             return "Approved"
         }
+        if (REJECT in options) {
+            inbox.post(
+                request.llmSessionId,
+                SessionEventKind.ANSWER,
+                "$by rejected your plan.$said Do not carry any of it out. This conversation stays in plan mode; say in " +
+                    "a sentence that you will not go ahead, and ask what they want instead.",
+            )
+            return listOfNotNull("Rejected", text?.let { "\"$it\"" }).joinToString(", ")
+        }
         inbox.post(
             request.llmSessionId,
             SessionEventKind.ANSWER,
@@ -138,6 +147,7 @@ class ChatModes(
         const val KIND = "agent.plan"
         const val APPROVE = "approve"
         const val KEEP_PLANNING = "keep-planning"
+        const val REJECT = "reject"
 
         /** A plan somebody reads before approving, not a document. */
         private const val MOST_PLAN_CHARS = 20_000
@@ -187,3 +197,13 @@ class PlanApprovals(private val modes: ChatModes) : InteractionHandler {
     override fun answered(request: InteractionRequest, options: List<String>, text: String?, by: String): String =
         modes.answered(request, options, text, by)
 }
+
+/**
+ * A plan put to the person: the round ends with it, and the turn with the
+ * round. What the transcript and the model are told in the call's place is
+ * this message - that the plan waits for an answer.
+ */
+class PlanPresented(val presented: Long?) : AgentRoundHalted(
+    "The person has been shown your plan, with buttons to approve it, keep planning or reject it. This turn has " +
+        "ended; their answer reaches you in a new one.",
+)

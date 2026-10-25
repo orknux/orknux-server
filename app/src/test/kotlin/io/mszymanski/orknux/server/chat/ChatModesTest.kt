@@ -128,7 +128,7 @@ class ChatModesTest(
         graphQlTester.document("""mutation { sendChatMessage(id: $chatId, text: "Remind me to deploy") { millis } }""")
             .execute().path("sendChatMessage.millis").hasValue()
         val chat = chats.findById(chatId).orElseThrow()
-        assertThat(assistantSaid(chat.conversationId)).containsExactly("I have put the plan to you.")
+        assertThat(assistantSaid(chat.conversationId)).containsExactly(PLAN_WAITING)
 
         /*
          * Offered: the way to present a plan, and everything else the agent
@@ -150,7 +150,7 @@ class ChatModesTest(
             .path("sessionRequests[0].question").entity(String::class.java).isEqualTo(PLAN_TEXT)
             .path("sessionRequests[0].askedBy").entity(String::class.java).isEqualTo("Worker")
             .path("sessionRequests[0].options[*].id").entityList(String::class.java)
-            .containsExactly(ChatModes.APPROVE, ChatModes.KEEP_PLANNING)
+            .containsExactly(ChatModes.APPROVE, ChatModes.KEEP_PLANNING, ChatModes.REJECT)
         val requestId = requests.findAll().single().id
 
         // Approving leaves plan mode and hands the plan back; the chat wakes and carries it out with everything offered.
@@ -159,7 +159,7 @@ class ChatModesTest(
         assertThat(chats.findById(chatId).orElseThrow().mode).isNull()
 
         await().atMost(Duration.ofSeconds(15)).untilAsserted {
-            assertThat(assistantSaid(chat.conversationId)).containsExactly("I have put the plan to you.", "Done: reminder set.")
+            assertThat(assistantSaid(chat.conversationId)).containsExactly(PLAN_WAITING, "Done: reminder set.")
         }
         // The same array and system turn throughout; that plan mode is over is said in a message.
         assertThat(offered.last()).isEqualTo(first).contains(TimerTools.SET)
@@ -184,6 +184,20 @@ class ChatModesTest(
         val conversation = chats.findById(chatId).orElseThrow().conversationId
         await().atMost(Duration.ofSeconds(15)).untilAsserted { assertThat(assistantSaid(conversation)).hasSize(2) }
         assertThat(offered.last()).contains(ChatModes.PRESENT).isEqualTo(offered.first())
+    }
+
+    @Test
+    fun `rejecting a plan tells the agent not to carry it out, and stays in plan mode`() {
+        val chatId = chatWithAgent(serve())
+        graphQlTester.document("mutation { setChatMode(id: $chatId, mode: PLAN) { mode } }").execute()
+        graphQlTester.document("""mutation { sendChatMessage(id: $chatId, text: "Remind me to deploy") { millis } }""")
+            .execute().path("sendChatMessage.millis").hasValue()
+        val requestId = requests.findAll().single().id
+
+        graphQlTester.document("""mutation { answerRequest(id: $requestId, option: "${ChatModes.REJECT}") { outcome } }""")
+            .execute().path("answerRequest.outcome").entity(String::class.java).isEqualTo("Rejected")
+        assertThat(chats.findById(chatId).orElseThrow().mode).isEqualTo(ChatMode.PLAN)
+        assertThat(inbox.findAll().map { it.body }).anyMatch { it.contains("rejected your plan") && it.contains("Do not carry any of it out") }
     }
 
     @Test
@@ -215,7 +229,8 @@ class ChatModesTest(
                 ?.path("content")?.stringValue().orEmpty()
             val reply = when {
                 body.contains("approved your plan") -> said("Done: reminder set.")
-                body.contains("\\\"presented\\\"") -> said("I have put the plan to you.")
+                // What Qwen did in chat 996, asked again after presenting: the turn ends at the plan, so it never is.
+                body.contains("buttons to approve it") -> said("Plan approved, starting.")
                 body.contains("it was not run") -> called(ChatModes.PRESENT, mapOf(ChatModes.PLAN to PLAN_TEXT))
                 body.contains("in plan mode") -> called(TimerTools.SET, mapOf("seconds" to 60, "note" to "deploy"))
                 else -> said("Answered.")
@@ -271,5 +286,9 @@ class ChatModesTest(
 
     private companion object {
         const val PLAN_TEXT = "1. Set a reminder for the deploy."
+
+        /** What the turn says once it has put the plan to the person: the chat's own words, not the model's. */
+        const val PLAN_WAITING = "I've put the plan to you above. I'll carry it out once you approve it."
     }
+
 }

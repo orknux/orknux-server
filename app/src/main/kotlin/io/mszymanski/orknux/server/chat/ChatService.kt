@@ -1048,6 +1048,8 @@ class ChatService(
                 runCatching { recorder.describeAgent(session, agentDetails.getObject().snapshot(agent, lent, instructed)) }
                     .onFailure { log.warn("The setup of agent {} could not be written into session {}", agent.id, session, it) }
             }
+            val started = System.currentTimeMillis()
+            try {
             if (session != null && watch != null) {
                 val written = SessionThinking(session, name, recorder)
                 try {
@@ -1069,6 +1071,10 @@ class ChatService(
                         recorder.thoughtFor(recorder.thinking(session, name, done.reasoning), done.reasoning, done.reasoningMillis)
                     }
                 }
+            }
+            } catch (presented: PlanPresented) {
+                // The plan is drawn as its own card with the buttons; the answer only says what is being waited for.
+                ChatCompletion.Answered(PLAN_WAITING, System.currentTimeMillis() - started)
             }
         }
 
@@ -1615,6 +1621,9 @@ class ChatService(
     }
 
     private companion object {
+        /** A turn that ended on a plan put to the person says only what it is waiting for. */
+        const val PLAN_WAITING = "I've put the plan to you above. I'll carry it out once you approve it."
+
         val log = LoggerFactory.getLogger(ChatService::class.java)
 
         /** Matches the column. */
