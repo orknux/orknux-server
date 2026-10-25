@@ -496,6 +496,7 @@ class ResearchAPI(
             fileName = artifact?.name,
             fileUrl = artifact?.let { "/api/artifacts/${it.id}" },
             artifactId = artifact?.id,
+            artifactKey = artifact?.id?.let { "${io.mszymanski.orknux.server.workflow.ArtifactKind.SAVED.name}-$it" },
             previewUrl = artifact?.let { "/api/artifacts/${it.id}/preview" },
             error = research.error,
             startedBy = research.startedBy,
@@ -669,6 +670,11 @@ data class ResearchView(
     val fileName: String?,
     val fileUrl: String?,
     val artifactId: Long? = null,
+    /**
+     * The artifact as the Artifacts page addresses it, kind and row: the bare
+     * row number opened nothing there, and the page fell back to its list.
+     */
+    val artifactKey: String? = null,
     val previewUrl: String?,
     val error: String?,
     val startedBy: String,
