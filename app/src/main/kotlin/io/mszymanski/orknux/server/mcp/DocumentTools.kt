@@ -474,7 +474,7 @@ class DocumentTools(
 
     /**
      * What a writing tool answers: where the document opens, and its outline as it now stands - and the
-     * highlights a rewrite lost, which the person wrote and has to be told of.
+     * highlights and colours a rewrite lost, which the person put there and has to be told of.
      */
     private fun written(document: DesignDocument, dropped: List<String> = emptyList()): String = mapper.writeValueAsString(
         buildMap {
@@ -489,8 +489,8 @@ class DocumentTools(
                 put("dropped", dropped)
                 put(
                     "note",
-                    "Saved, but " + dropped.joinToString("; ") + ". Tell the person which highlights went; " +
-                        "if one should stay, write it back as a mark tag on the words it belongs to. " +
+                    "Saved, but " + dropped.joinToString("; ") + ". Tell the person which highlights and colours went; " +
+                        "if one should stay, write it back as a mark or span tag on the words it belongs to. " +
                         "Give the person the url, which opens it in the document editor.",
                 )
             }
