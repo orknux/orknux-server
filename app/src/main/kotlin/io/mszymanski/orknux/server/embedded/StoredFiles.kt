@@ -3,7 +3,6 @@ package io.mszymanski.orknux.server.embedded
 import io.mszymanski.orknux.server.llm.LlmSessionStore
 import io.mszymanski.orknux.server.llm.SessionScratchpadService
 import org.springframework.stereotype.Component
-import tools.jackson.databind.ObjectMapper
 import java.util.Base64
 
 /**
@@ -19,7 +18,6 @@ import java.util.Base64
 class StoredFiles(
     private val pads: SessionScratchpadService,
     private val scratch: LlmSessionStore,
-    private val mapper: ObjectMapper,
 ) {
 
     /** What a key held, with its content type where one was said. */
@@ -33,16 +31,11 @@ class StoredFiles(
             else runCatching { Base64.getDecoder().decode(pad.content.trim()) }.getOrNull() ?: return null
             return Held(bytes, pad.contentType)
         }
-        val stored = scratch.get(sessionId, key) ?: return null
-        val kind = scratch.kindOf(sessionId, key)
-        val value = runCatching { mapper.readTree(stored) }.getOrNull()?.takeIf { it.isString }?.stringValue() ?: stored
-        val bytes = when (kind?.binary) {
-            true -> runCatching { Base64.getDecoder().decode(value.trim()) }.getOrNull() ?: return null
-            false -> value.toByteArray(Charsets.UTF_8)
-            // A value from before kinds were written: base64 where it decodes, its text otherwise.
-            null -> runCatching { Base64.getDecoder().decode(value.trim()) }.getOrNull()?.takeIf { value.trim().isNotEmpty() }
-                ?: value.toByteArray(Charsets.UTF_8)
-        }
-        return Held(bytes, kind?.contentType)
+        // Decoded as its kind says, or read from the attachment store, by the store's one rule.
+        val held = scratch.content(sessionId, key) ?: return null
+        return Held(held.bytes(), held.kind?.contentType)
     }
+
+    /** The sentence for a name nothing is kept under, saying the key where it is an attached file's name. */
+    fun nothingUnder(named: String, sessionId: Long?): String = scratch.nothingUnder(sessionId, named)
 }

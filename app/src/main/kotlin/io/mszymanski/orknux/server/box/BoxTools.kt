@@ -953,12 +953,12 @@ class BoxTools(
     private fun import(agent: Agent, args: JsonNode, sessionId: Long?): String {
         val held = held(agent, args, sessionId)
         val key = args.text("key") ?: throw Refused("Say which key holds the archive")
-        val stored = store.get(held.conversation, key)
-            ?: throw Refused(io.mszymanski.orknux.server.embedded.PictureAddresses.nothingUnder(key, "This conversation holds nothing under $key"))
+        if (!store.has(held.conversation, key)) {
+            throw Refused(store.nothingUnder(held.conversation, key, "This conversation holds nothing under $key"))
+        }
         val kind = store.kindOf(held.conversation, key)
         if (kind != null && !kind.binary) throw Refused("$key holds text, not an archive")
-        val base64 = runCatching { mapper.readTree(stored) }.getOrNull()?.takeIf { it.isString }?.stringValue() ?: stored
-        val bytes = runCatching { Base64.getDecoder().decode(base64.trim()) }.getOrNull()
+        val bytes = store.content(held.conversation, key)?.bytes()
             ?: throw Refused("$key does not hold the bytes of a file")
         val path = args.text("path")
         val zipped = BoxArchives.isZip(bytes)

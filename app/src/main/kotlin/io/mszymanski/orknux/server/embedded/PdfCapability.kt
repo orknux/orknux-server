@@ -5,6 +5,7 @@ import io.mszymanski.orknux.server.chat.AgentTools
 import io.mszymanski.orknux.server.llm.LlmSessionStore
 import io.mszymanski.orknux.server.llm.SessionScratchpadService
 import io.mszymanski.orknux.server.plugin.PdfRenderer
+import io.mszymanski.orknux.server.plugin.PdfSource
 import io.mszymanski.orknux.workflow.script.ScriptResult
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
@@ -116,7 +117,7 @@ class PdfCapability(
                 EmbeddedParam(FROM, ValueType.NUMBER, "First page, counting from 1. Left out, the start."),
                 EmbeddedParam(TO, ValueType.NUMBER, "Last page. Left out, the end."),
             ),
-            reads = StoredReader(setOf("application/pdf"), KEY),
+            reads = StoredReader(setOf("application/pdf"), KEY, range = FROM to TO),
         ),
         EmbeddedTool(
             name = SEARCH,
@@ -230,7 +231,7 @@ class PdfCapability(
      */
     private fun fromHtmlZip(asked: JsonNode, sessionId: Long?): String {
         val zipKey = text(asked, KEY)
-        val bytes = bytesFor(zipKey, sessionId) ?: return refusal(keyRefusal(zipKey))
+        val bytes = bytesFor(zipKey, sessionId) ?: return refusal(keyRefusal(zipKey, sessionId))
         val entries = unzipped(bytes)
             ?: return refusal(
                 "\"$zipKey\" is not a zip this can open: it is not an archive, or it holds more than " +
@@ -356,7 +357,7 @@ class PdfCapability(
     }
 
     private fun read(asked: JsonNode, sessionId: Long?): String {
-        val pdf = bytesFor(text(asked, KEY), sessionId) ?: return refusal(keyRefusal(text(asked, KEY)))
+        val pdf = sourceFor(text(asked, KEY), sessionId) ?: return refusal(keyRefusal(text(asked, KEY), sessionId))
         return when (val said = renderer.html(pdf, number(asked, FROM), number(asked, TO))) {
             is PdfRenderer.Reading.Refused -> refusal(
                 // Too much text at once: the pages worth reading are the ones a search names.
@@ -383,7 +384,7 @@ class PdfCapability(
      */
     private fun search(asked: JsonNode, sessionId: Long?): String {
         val query = text(asked, QUERY)?.takeIf { it.isNotBlank() } ?: return refusal("Give the $QUERY to find.")
-        val pdf = bytesFor(text(asked, KEY), sessionId) ?: return refusal(keyRefusal(text(asked, KEY)))
+        val pdf = sourceFor(text(asked, KEY), sessionId) ?: return refusal(keyRefusal(text(asked, KEY), sessionId))
         val pages = when (val read = texts.pages(pdf, sessionId)) {
             is PdfText.Pages.Refused -> return refusal(read.reason)
             is PdfText.Pages.Read -> read
@@ -425,7 +426,7 @@ class PdfCapability(
     }
 
     private fun preview(asked: JsonNode, sessionId: Long?): String {
-        val pdf = bytesFor(text(asked, KEY), sessionId) ?: return refusal(keyRefusal(text(asked, KEY)))
+        val pdf = sourceFor(text(asked, KEY), sessionId) ?: return refusal(keyRefusal(text(asked, KEY), sessionId))
         return when (val drawn = renderer.png(pdf, number(asked, PAGE) ?: 1, number(asked, WIDTH))) {
             is PdfRenderer.Drawing.Refused -> refusal(drawn.reason)
             is PdfRenderer.Drawing.Drawn ->
@@ -548,22 +549,42 @@ class PdfCapability(
     /** A picture the page named: a scratchpad first, then a key. */
     private fun picture(named: String, sessionId: Long?): PageBlocks.Picture? = pictures.find(named, sessionId)
 
-    /** The bytes a key holds, which is how a document reaches the next call. */
+    /**
+     * The document a key holds, which is how a document reaches the next call.
+     * Opened where it lies: an attachment is read from the attachment store in
+     * place, so a page range of a long one is that range and not the file held
+     * in memory several times over.
+     */
+    private fun sourceFor(named: String?, sessionId: Long?): PdfSource? {
+        val key = named?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        if (sessionId == null) return null
+        pads.find(sessionId, key)?.takeIf { it.contentType != null }?.let { pad ->
+            return runCatching { Base64.getDecoder().decode(pad.content) }.getOrNull()?.let(PdfSource::of)
+        }
+        val held = scratch.content(sessionId, key) ?: return null
+        val identity = held.identity
+        return when {
+            held.path != null && identity != null -> PdfSource.of(held.path, held.size, identity)
+            identity != null -> PdfSource.of(held.size, identity, held::open)
+            else -> PdfSource.of(held.bytes())
+        }
+    }
+
+    /** The bytes a key holds, for a reader that needs them all - a zip. */
     private fun bytesFor(named: String?, sessionId: Long?): ByteArray? {
         val key = named?.trim()?.takeIf { it.isNotEmpty() } ?: return null
         if (sessionId == null) return null
         pads.find(sessionId, key)?.takeIf { it.contentType != null }?.let { pad ->
             return runCatching { Base64.getDecoder().decode(pad.content) }.getOrNull()
         }
-        val held = scratch.get(sessionId, key) ?: return null
-        return runCatching { Base64.getDecoder().decode(parsed(held)) }.getOrNull()
+        return scratch.content(sessionId, key)?.bytes()
     }
 
-    private fun keyRefusal(named: String?): String =
+    private fun keyRefusal(named: String?, sessionId: Long?): String =
         if (named.isNullOrBlank()) {
             "Give the $KEY of a document - the one fromHtml answered, or the one an attachment reader gave you."
         } else {
-            PictureAddresses.nothingUnder(named)
+            scratch.nothingUnder(sessionId, named)
         }
 
     /**

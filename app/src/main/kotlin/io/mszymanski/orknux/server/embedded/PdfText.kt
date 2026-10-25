@@ -4,10 +4,9 @@ import io.mszymanski.orknux.server.regex.AuthoredRegex
 import io.mszymanski.orknux.server.regex.RegexTooSlowException
 import io.mszymanski.orknux.server.tuning.Tunable
 import io.mszymanski.orknux.server.tuning.Tuning
-import org.apache.pdfbox.Loader
+import io.mszymanski.orknux.server.plugin.PdfSource
 import org.apache.pdfbox.text.PDFTextStripper
 import org.springframework.stereotype.Component
-import java.security.MessageDigest
 
 /**
  * A PDF's text page by page, and finding things in it. What `pdf_search`
@@ -37,19 +36,22 @@ class PdfText(private val tuning: Tuning) {
             size > tuning[Tunable.PDF_TEXT_DOCUMENTS]
     }
 
-    fun pages(pdf: ByteArray, sessionId: Long?): Pages {
-        val key = (sessionId ?: 0L).toString() + ":" + digest(pdf)
+    fun pages(pdf: ByteArray, sessionId: Long?): Pages = pages(PdfSource.of(pdf), sessionId)
+
+    /** The same, from wherever the document is; an attachment is known by which it is rather than by hashing it. */
+    fun pages(pdf: PdfSource, sessionId: Long?): Pages {
+        val key = (sessionId ?: 0L).toString() + ":" + pdf.identity()
         synchronized(kept) { kept[key]?.let { return it } }
         val read = extract(pdf)
         if (read is Pages.Read && tuning[Tunable.PDF_TEXT_DOCUMENTS] > 0) synchronized(kept) { kept[key] = read }
         return read
     }
 
-    private fun extract(pdf: ByteArray): Pages {
-        if (pdf.isEmpty()) return Pages.Refused("there is nothing to read: the pdf is empty")
-        if (pdf.size > MOST_BYTES) return Pages.Refused("that pdf is larger than ${MOST_BYTES / (1024 * 1024)} MB, which is the most this reads")
+    private fun extract(pdf: PdfSource): Pages {
+        if (pdf.size == 0L) return Pages.Refused("there is nothing to read: the pdf is empty")
+        if (pdf.inMemory && pdf.size > MOST_BYTES) return Pages.Refused("that pdf is larger than ${MOST_BYTES / (1024 * 1024)} MB, which is the most this reads")
         return try {
-            Loader.loadPDF(pdf).use { document ->
+            pdf.load().use { document ->
                 if (document.isEncrypted) return Pages.Refused("that pdf is encrypted, and this does not open one")
                 Pages.Read(
                     (1..document.numberOfPages).map { page ->
@@ -116,9 +118,6 @@ class PdfText(private val tuning: Tuning) {
             flat(text.substring(from, range.first)).trimStart() + "«" + flat(text.substring(range.first, range.last + 1)) + "»" +
             flat(text.substring(range.last + 1, to)).trimEnd() + (if (to < text.length) "…" else "")
     }
-
-    private fun digest(bytes: ByteArray): String =
-        MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
     private companion object {
         /** PdfRenderer's bound, for the same reason: one size to remember. */

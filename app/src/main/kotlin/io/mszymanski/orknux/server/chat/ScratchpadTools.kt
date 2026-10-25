@@ -471,8 +471,8 @@ class ScratchpadTools(
         private fun fromKey(key: String): String? = scratch.get(session, key)?.let(::keptText)
 
         private fun keyRefusal(key: String): String =
-            if (scratch.get(session, key) == null) {
-                refusal(io.mszymanski.orknux.server.embedded.PictureAddresses.nothingUnder(key))
+            if (!scratch.has(session, key)) {
+                refusal(scratch.nothingUnder(session, key))
             } else {
                 refusal(
                     "\"$key\" holds a picture or a file that is not text, so it cannot go into a page as text. " +

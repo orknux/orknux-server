@@ -939,6 +939,9 @@ orknux:
     pdf.snippet.characters: ${ORKNUX_TUNING_PDF_SNIPPET_CHARACTERS:200}
     pdf.matches.most: ${ORKNUX_TUNING_PDF_MATCHES_MOST:20}
     pdf.text.documents: ${ORKNUX_TUNING_PDF_TEXT_DOCUMENTS:16}
+    # An attached PDF this long is read a few pages at a time, each part summarised before the next.
+    pdf.long.pages: ${ORKNUX_TUNING_PDF_LONG_PAGES:20}
+    pdf.step.pages: ${ORKNUX_TUNING_PDF_STEP_PAGES:5}
     regex.match.seconds: ${ORKNUX_TUNING_REGEX_MATCH_SECONDS:2}
     watcher.match.characters: ${ORKNUX_TUNING_WATCHER_MATCH_CHARACTERS:1000000}
     watcher.result.characters: ${ORKNUX_TUNING_WATCHER_RESULT_CHARACTERS:10000}

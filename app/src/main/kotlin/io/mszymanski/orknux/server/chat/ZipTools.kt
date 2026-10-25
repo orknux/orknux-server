@@ -64,7 +64,7 @@ class ZipTools(
         val asked = runCatching { mapper.readTree(arguments) }.getOrNull()
             ?: return refusal("That is not valid JSON.")
         val key = text(asked, KEY)?.trim()?.ifEmpty { null } ?: return refusal("Give the $KEY of the archive to open.")
-        val bytes = read(asked, sessionId) ?: return refusal(io.mszymanski.orknux.server.embedded.PictureAddresses.nothingUnder(key))
+        val bytes = read(asked, sessionId) ?: return refusal(scratch.nothingUnder(sessionId, key))
         val entries = unpacked(bytes)
             ?: return refusal(
                 "\"$key\" is not a zip this can open: it is not an archive, or it holds more than $MOST_FILES " +

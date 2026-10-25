@@ -720,7 +720,7 @@ class AgentTools(
             requireNotNull(givenKey)
         }
         val held = scratch.get(sessionId, named)
-            ?: return refused(io.mszymanski.orknux.server.embedded.PictureAddresses.nothingUnder(named))
+            ?: return refused(scratch.nothingUnder(sessionId, named))
         val kind = scratch.kindOf(sessionId, named)
         val value = runCatching { mapper.readTree(held) }.getOrNull()?.takeIf { it.isTextual }?.stringValue() ?: held
         // An SVG is text, and is kept as its text where it came as a file: it is still a picture to look at.
@@ -790,12 +790,13 @@ class AgentTools(
              */
             val fromKey = argument(call, CONTENT_KEY)?.trim()?.takeIf { it.isNotEmpty() }
                 ?: argument(call, "content")?.trim()
-                    ?.takeIf { it.isNotEmpty() && it.length <= KEY_SIZED && sessionId != null && scratch.get(sessionId, it) != null }
+                    ?.takeIf { it.isNotEmpty() && it.length <= KEY_SIZED && sessionId != null && scratch.has(sessionId, it) }
             val held = fromKey?.let { key -> sessionId?.let { scratch.get(it, key) } }
             if (fromKey != null && held == null) {
                 return mapper.writeValueAsString(
                     mapOf(
-                        "error" to io.mszymanski.orknux.server.embedded.PictureAddresses.nothingUnder(
+                        "error" to scratch.nothingUnder(
+                            sessionId,
                             fromKey, "Nothing is kept under $fromKey in this session.",
                         ),
                     ),

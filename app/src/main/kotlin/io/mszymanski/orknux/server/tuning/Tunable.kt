@@ -213,6 +213,16 @@ enum class Tunable(
         "How many PDFs' text is kept for searching again",
         "The text of a searched PDF is kept in memory by its content, per session, so a second search does not read the file again. The least recently searched goes first; 0 keeps none.",
     ),
+    PDF_LONG_PAGES(
+        "pdf.long.pages", 20, 1, 100_000, TuningSection.AGENTS, TuningUnit.ITEMS,
+        "Pages from which an attached PDF is read a part at a time",
+        "An agent handed a PDF of at least this many pages is told to read it a few pages at a time and summarise each part before going on, rather than reading it whole.",
+    ),
+    PDF_STEP_PAGES(
+        "pdf.step.pages", 5, 1, 1_000, TuningSection.AGENTS, TuningUnit.ITEMS,
+        "Pages in one part of a long attached PDF",
+        "How many pages the agent is told to read at a time from a PDF long enough to be read in parts.",
+    ),
     /*
      * A time and not a length, because the patterns that never finish are
      * short: (a|a?){60}b is eleven characters. See AuthoredRegex.

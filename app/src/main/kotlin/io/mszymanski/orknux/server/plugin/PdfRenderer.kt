@@ -1,6 +1,5 @@
 package io.mszymanski.orknux.server.plugin
 
-import org.apache.pdfbox.Loader
 import org.apache.pdfbox.rendering.ImageType
 import org.apache.pdfbox.rendering.PDFRenderer
 import org.apache.pdfbox.text.PDFTextStripper
@@ -46,9 +45,12 @@ class PdfRenderer {
      * @param width how wide the picture should be in pixels, or null for
      *   something a screen can read.
      */
-    fun png(pdf: ByteArray, page: Int, width: Int?): Drawing {
-        if (pdf.isEmpty()) return Drawing.Refused("there is nothing to draw: the pdf is empty")
-        if (pdf.size > MOST_BYTES) {
+    fun png(pdf: ByteArray, page: Int, width: Int?): Drawing = png(PdfSource.of(pdf), page, width)
+
+    /** The same, from wherever the document is - a file on disk is drawn without reading it whole. */
+    fun png(pdf: PdfSource, page: Int, width: Int?): Drawing {
+        if (pdf.size == 0L) return Drawing.Refused("there is nothing to draw: the pdf is empty")
+        if (pdf.inMemory && pdf.size > MOST_BYTES) {
             // The cap in megabytes, as the contract's table asks: the caller is
             // usually a model, and a number it can act on beats "too large".
             return Drawing.Refused("that pdf is larger than ${MOST_BYTES / (1024 * 1024)} MB, which is the most this draws")
@@ -59,7 +61,7 @@ class PdfRenderer {
         }
 
         return try {
-            Loader.loadPDF(pdf).use { document ->
+            pdf.load().use { document ->
                 /*
                  * An encrypted document is refused rather than opened.
                  *
@@ -147,9 +149,25 @@ class PdfRenderer {
      *   because a caller checking one section of a long report should not have
      *   to hold the whole of it.
      */
-    fun html(pdf: ByteArray, from: Int?, to: Int?): Reading {
-        if (pdf.isEmpty()) return Reading.Refused("there is nothing to read: the pdf is empty")
-        if (pdf.size > MOST_BYTES) {
+    fun html(pdf: ByteArray, from: Int?, to: Int?): Reading = html(PdfSource.of(pdf), from, to)
+
+    /**
+     * How many pages a document has, or null where it cannot be opened - an
+     * encrypted one included, which the readers refuse. Read off the page tree
+     * without reading a page.
+     */
+    fun pages(pdf: PdfSource): Int? = runCatching {
+        pdf.load().use { document -> document.numberOfPages.takeUnless { document.isEncrypted } }
+    }.getOrNull()
+
+    /**
+     * The same, from wherever the document is. A file on disk is opened in
+     * place and only the pages asked for are read, so a range of a long
+     * attachment costs that range and not the document.
+     */
+    fun html(pdf: PdfSource, from: Int?, to: Int?): Reading {
+        if (pdf.size == 0L) return Reading.Refused("there is nothing to read: the pdf is empty")
+        if (pdf.inMemory && pdf.size > MOST_BYTES) {
             return Reading.Refused("that pdf is larger than ${MOST_BYTES / (1024 * 1024)} MB, which is the most this reads")
         }
         if (from != null && from < 1) return Reading.Refused("pages are counted from 1")
@@ -158,7 +176,7 @@ class PdfRenderer {
         }
 
         return try {
-            Loader.loadPDF(pdf).use { document ->
+            pdf.load().use { document ->
                 // Refused rather than opened with an empty password, for the
                 // reason `png` gives at length.
                 if (document.isEncrypted) {

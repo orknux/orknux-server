@@ -101,8 +101,14 @@ data class EmbeddedTool(
     val readOnly: Boolean = false,
 )
 
-/** What a tool reads out of a session's store: content types, and the parameter the key goes in. */
-data class StoredReader(val contentTypes: Set<String>, val keyParam: String)
+/**
+ * What a tool reads out of a session's store: content types, and the parameter
+ * the key goes in. [range] is the pair of parameters that bound a read to part
+ * of the file - a PDF's first and last page - where the tool has them, so the
+ * note on a long attachment can say how to read it a part at a time in the
+ * tool's own words.
+ */
+data class StoredReader(val contentTypes: Set<String>, val keyParam: String, val range: Pair<String, String>? = null)
 
 /** One workflow function, which is a row rather than a call. */
 data class EmbeddedFunction(

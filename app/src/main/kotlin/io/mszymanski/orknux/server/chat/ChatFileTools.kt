@@ -19,7 +19,6 @@ import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
-import java.util.Base64
 
 /**
  * Putting a file in front of the person a chat agent is answering, and playing
@@ -73,7 +72,7 @@ class ChatFileTools(
 
     private fun attach(chat: ChatSession, asked: JsonNode, watch: RoundWatch): String {
         val key = text(asked, KEY) ?: return refuse("Give the $KEY of the file to attach.")
-        val held = held(chat, key) ?: return refuse("Nothing in this conversation is kept under \"$key\".")
+        val held = held(chat, key) ?: return refuse(nothingUnder(chat, key))
         val name = text(asked, NAME)?.substringAfterLast('/')?.substringAfterLast('\\') ?: key
         val filed = file(chat, name, held.bytes, AttachmentTypes.of(name, held.contentType), watch)
             ?: return refuse(tooLarge(name))
@@ -108,7 +107,7 @@ class ChatFileTools(
                 }
             }
             key != null -> {
-                val held = held(chat, key) ?: return refuse("Nothing in this conversation is kept under \"$key\".")
+                val held = held(chat, key) ?: return refuse(nothingUnder(chat, key))
                 val type = AttachmentTypes.of(key, held.contentType)
                 val (bytes, name, kind) = when {
                     type in MidiCapability.MIDI_TYPES -> when (val made = renderer.render(held.bytes, RENDERED)) {
@@ -139,15 +138,14 @@ class ChatFileTools(
     private fun held(chat: ChatSession, key: String): Held? {
         // Read again: a first turn opens the session after the round's chat row was read.
         val session = (chat.id?.let { sessions.findByIdOrNull(it) } ?: chat).llmSessionId ?: return null
-        val stored = scratch.get(session, key) ?: return null
-        val kind = scratch.kindOf(session, key)
-        val value = runCatching { mapper.readTree(stored) }.getOrNull()?.takeIf { it.isString }?.stringValue() ?: stored
-        val bytes = if (kind?.binary == false) {
-            value.toByteArray(Charsets.UTF_8)
-        } else {
-            runCatching { Base64.getDecoder().decode(value.trim()) }.getOrNull() ?: value.toByteArray(Charsets.UTF_8)
-        }
-        return Held(bytes, kind?.contentType)
+        val held = scratch.content(session, key) ?: return null
+        return Held(held.bytes(), held.kind?.contentType)
+    }
+
+    /** Nothing under [key], and the key to pass where it is the name of a file attached here. */
+    private fun nothingUnder(chat: ChatSession, key: String): String {
+        val session = (chat.id?.let { sessions.findByIdOrNull(it) } ?: chat).llmSessionId
+        return scratch.nothingUnder(session, key, "Nothing in this conversation is kept under \"$key\".")
     }
 
     /** [bytes] as an attachment of the answer being written, told to whoever is watching; null where too large. */

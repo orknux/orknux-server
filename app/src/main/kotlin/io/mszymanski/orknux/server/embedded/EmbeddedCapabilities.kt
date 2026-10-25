@@ -358,6 +358,18 @@ class EmbeddedCapabilities(
     }
 
     /**
+     * The parameters that bound a read of a stored file of [contentType] to a
+     * part of it - first and last - on the tool [readerOf] names, where it has
+     * them. Read off [StoredReader.range].
+     */
+    fun rangeOf(contentType: String): Pair<String, String>? {
+        val type = contentType.substringBefore(';').trim().lowercase()
+        return native.firstNotNullOfOrNull { one ->
+            one.tools().firstNotNullOfOrNull { tool -> tool.reads?.takeIf { type in it.contentTypes } }
+        }?.range
+    }
+
+    /**
      * The tools that answer questions about a stored file of [contentType]
      * without reading it whole, as an agent calls them, each with the
      * parameter its key goes in. Read off [EmbeddedTool.asks].

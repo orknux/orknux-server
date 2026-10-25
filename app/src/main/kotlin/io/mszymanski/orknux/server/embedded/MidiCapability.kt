@@ -142,7 +142,7 @@ class MidiCapability(
 
     private fun write(asked: JsonNode, sessionId: Long?): String {
         val onto = asked.path(MidiWriter.APPEND).takeIf { it.isString }?.stringValue()?.trim()?.ifEmpty { null }?.let { named ->
-            val bytes = held(named, sessionId) ?: return refusal(PictureAddresses.nothingUnder(named, "Nothing in this session is kept under \"$named\" to add to."))
+            val bytes = held(named, sessionId) ?: return refusal(scratch.nothingUnder(sessionId, named, "Nothing in this session is kept under \"$named\" to add to."))
             runCatching { MidiSystem.getSequence(ByteArrayInputStream(bytes)) }.getOrElse {
                 return refusal("\"$named\" is not a MIDI file, so nothing can be added to it.")
             }
@@ -178,7 +178,7 @@ class MidiCapability(
     private fun render(asked: JsonNode, sessionId: Long?): String {
         val named = asked.path(KEY).takeIf { it.isString }?.stringValue()?.trim()?.ifEmpty { null }
             ?: return refusal("Give the $KEY of a MIDI file.")
-        val bytes = held(named, sessionId) ?: return refusal(PictureAddresses.nothingUnder(named))
+        val bytes = held(named, sessionId) ?: return refusal(scratch.nothingUnder(sessionId, named))
         val format = asked.path(FORMAT).takeIf { it.isString }?.stringValue()?.trim()?.removePrefix(".")?.ifEmpty { null } ?: DEFAULT_FORMAT
         val made = when (val rendered = renderer.render(bytes, format)) {
             is MidiRenderer.Rendered.Refused -> return refusal(
@@ -222,7 +222,7 @@ class MidiCapability(
     private fun read(asked: JsonNode, sessionId: Long?): String {
         val named = asked.path(KEY).takeIf { it.isTextual }?.stringValue()?.trim()?.ifEmpty { null }
             ?: return refusal("Give the $KEY of a MIDI file.")
-        val bytes = held(named, sessionId) ?: return refusal(PictureAddresses.nothingUnder(named))
+        val bytes = held(named, sessionId) ?: return refusal(scratch.nothingUnder(sessionId, named))
         val sequence = runCatching { MidiSystem.getSequence(ByteArrayInputStream(bytes)) }.getOrElse {
             val kind = sessionId?.let { scratch.kindOf(it, named)?.contentType }
             return refusal("\"$named\" is not a MIDI file${kind?.let { " (it holds $it)" }.orEmpty()}.")

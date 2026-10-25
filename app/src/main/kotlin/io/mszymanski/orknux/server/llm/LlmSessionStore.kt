@@ -12,6 +12,7 @@ import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import java.io.Serializable
+import java.util.Base64
 
 /**
  * One thing a session's store holds. The row's whole identity is which session
@@ -40,6 +41,15 @@ class LlmSessionStoreEntry(
     /** Whether the value is base64 bytes; null where nobody said. Issue #559. */
     @Column(name = "is_binary")
     var binary: Boolean? = null,
+
+    /**
+     * The chat attachment this key stands for, where it is one: the row then
+     * holds no value of its own, and the bytes are read from the attachment
+     * store when a tool asks. A file a person attached is not copied in, so
+     * Session Value Size - a bound on what tools write - says nothing about it.
+     */
+    @Column(name = "attachment_id")
+    var attachmentId: Long? = null,
 )
 
 data class LlmSessionStoreKey(val sessionId: Long = 0, val name: String = "") : Serializable
@@ -49,6 +59,18 @@ interface LlmSessionStoreRepository : JpaRepository<LlmSessionStoreEntry, LlmSes
     fun findBySessionId(sessionId: Long): List<LlmSessionStoreEntry>
 
     fun countBySessionId(sessionId: Long): Long
+
+    /** The attachments a session's store stands for, without reading any value. */
+    @org.springframework.data.jpa.repository.Query(
+        "select e.attachmentId from LlmSessionStoreEntry e where e.sessionId = :sessionId and e.attachmentId is not null",
+    )
+    fun attachmentIdsOf(sessionId: Long): List<Long>
+
+    /** The keys a session keeps an attachment under. */
+    @org.springframework.data.jpa.repository.Query(
+        "select e.name from LlmSessionStoreEntry e where e.sessionId = :sessionId and e.attachmentId = :attachmentId",
+    )
+    fun keysOf(sessionId: Long, attachmentId: Long): List<String>
 }
 
 /**
@@ -65,6 +87,9 @@ interface LlmSessionStoreRepository : JpaRepository<LlmSessionStoreEntry, LlmSes
 class LlmSessionStore(
     private val entries: LlmSessionStoreRepository,
     private val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
+    private val attachments: io.mszymanski.orknux.server.attachment.ChatAttachmentRepository,
+    private val files: io.mszymanski.orknux.server.attachment.AttachmentStore,
+    private val mapper: tools.jackson.databind.ObjectMapper,
 ) : SessionScratch {
 
     @Transactional
@@ -100,6 +125,8 @@ class LlmSessionStore(
                 held.value = json
                 held.contentType = kind?.contentType
                 held.binary = kind?.binary
+                // Written over, it is the tool's value now and no longer the attachment.
+                held.attachmentId = null
                 entries.save(held)
             }
             null
@@ -118,9 +145,117 @@ class LlmSessionStore(
      */
     fun mostBinaryBytes(): Long = (settings.sessionValueMaxMb() * 1024L * 1024L - 2) / 4 * 3
 
+    /**
+     * Holds a chat attachment under [key] by reference: no bytes are copied, so
+     * a file is kept whatever its size - the upload limit has already said how
+     * large one may be - and Session Value Size, which bounds what tools
+     * write, does not apply. The ceiling on keys still does.
+     *
+     * @return null when it was kept, or a sentence about why it was not.
+     */
+    @Transactional
+    fun putAttachment(sessionId: Long, key: String, attachmentId: Long, kind: StoredKind): String? {
+        val held = entries.findByIdOrNull(LlmSessionStoreKey(sessionId, key))
+        val mostKeys = settings.sessionStoreMaxKeys()
+        if (held == null && entries.countBySessionId(sessionId) >= mostKeys) {
+            return "this session's store already holds $mostKeys keys"
+        }
+        return runCatching {
+            val entry = held ?: LlmSessionStoreEntry(sessionId, key)
+            entry.value = ""
+            entry.contentType = kind.contentType
+            entry.binary = kind.binary
+            entry.attachmentId = attachmentId
+            entries.save(entry)
+            null
+        }.getOrElse { "this session no longer exists, so there is nothing to store into" }
+    }
+
+    /**
+     * What [key] holds, as JSON - for an attachment, made from its bytes as a
+     * value a tool wrote would have been, so every reader that reads JSON
+     * reads one too. A reader of bytes asks [content] instead, which does not
+     * build the base64 at all.
+     */
     @Transactional(readOnly = true)
-    override fun get(sessionId: Long, key: String): String? =
-        entries.findByIdOrNull(LlmSessionStoreKey(sessionId, key))?.value
+    override fun get(sessionId: Long, key: String): String? {
+        val held = entries.findByIdOrNull(LlmSessionStoreKey(sessionId, key)) ?: return null
+        if (held.attachmentId == null) return held.value
+        val content = attachmentContent(held) ?: return null
+        val bytes = content.bytes()
+        return if (held.binary == false) {
+            mapper.writeValueAsString(bytes.decodeToString())
+        } else {
+            "\"" + Base64.getEncoder().encodeToString(bytes) + "\""
+        }
+    }
+
+    /** Whether anything is kept under [key], without reading it. */
+    @Transactional(readOnly = true)
+    fun has(sessionId: Long, key: String): Boolean = entries.existsById(LlmSessionStoreKey(sessionId, key))
+
+    /**
+     * What [key] holds, as bytes - the one place that knows where they are.
+     *
+     * A value a tool wrote is decoded as its [StoredKind] says: a text type
+     * holds the text, anything else base64; a value from before kinds were
+     * recorded is base64 where it decodes and its text otherwise. An
+     * attachment is opened from the attachment store, with the file it lies in
+     * where the storage has one, so nothing is copied to say which key it is
+     * or how large. Null where nothing is kept, or the attachment is gone.
+     */
+    @Transactional(readOnly = true)
+    fun content(sessionId: Long, key: String): StoredContent? {
+        val held = entries.findByIdOrNull(LlmSessionStoreKey(sessionId, key)) ?: return null
+        if (held.attachmentId != null) return attachmentContent(held)
+        val kind = held.binary?.let { StoredKind(held.contentType, it) }
+        val value = runCatching { mapper.readTree(held.value) }.getOrNull()?.takeIf { it.isString }?.stringValue() ?: held.value
+        val bytes = when (held.binary) {
+            true -> runCatching { Base64.getDecoder().decode(value.trim()) }.getOrNull() ?: return null
+            false -> value.toByteArray(Charsets.UTF_8)
+            null -> runCatching { Base64.getDecoder().decode(value.trim()) }.getOrNull()?.takeIf { value.trim().isNotEmpty() }
+                ?: value.toByteArray(Charsets.UTF_8)
+        }
+        return StoredContent.of(bytes, kind)
+    }
+
+    private fun attachmentContent(held: LlmSessionStoreEntry): StoredContent? {
+        val attachment = held.attachmentId?.let { attachments.findByIdOrNull(it) } ?: return null
+        if (!files.exists(attachment.location)) return null
+        return StoredContent(
+            kind = StoredKind(held.contentType ?: attachment.contentType, held.binary ?: true),
+            size = attachment.sizeBytes,
+            path = files.pathOf(attachment.location),
+            identity = "attachment:${attachment.id}",
+        ) { files.open(attachment.location) }
+    }
+
+    /**
+     * The key of the file attached to this session that is called [name], where
+     * one is - for the refusal of a tool handed a file's name instead of its
+     * key, so it can say which key to pass. Session 911: told only that nothing
+     * was kept under "ZE2601f.pdf", an agent went looking for the file with
+     * `find /` on every machine it could reach.
+     */
+    @Transactional(readOnly = true)
+    fun attachmentKeyNamed(sessionId: Long?, name: String): String? {
+        if (sessionId == null) return null
+        val wanted = name.trim().substringAfterLast('/').substringAfterLast('\\').takeIf { it.isNotEmpty() } ?: return null
+        val ids = entries.attachmentIdsOf(sessionId).takeIf { it.isNotEmpty() } ?: return null
+        val match = attachments.findAllById(ids).firstOrNull { it.filename.equals(wanted, ignoreCase = true) } ?: return null
+        return entries.keysOf(sessionId, requireNotNull(match.id)).firstOrNull()
+    }
+
+    /**
+     * The sentence for a key nothing is kept under: [io.mszymanski.orknux.server.embedded.PictureAddresses.nothingUnder]'s,
+     * and, where the key given is the name of a file attached to this session,
+     * which key to pass instead.
+     */
+    fun nothingUnder(sessionId: Long?, key: String, plain: String = "Nothing in this session is kept under \"$key\"."): String {
+        val said = io.mszymanski.orknux.server.embedded.PictureAddresses.nothingUnder(key, plain)
+        val instead = attachmentKeyNamed(sessionId, key) ?: return said
+        return "$said \"${key.trim()}\" is the name of a file attached to this conversation, and its key is $instead: pass that."
+    }
 
     @Transactional
     override fun remove(sessionId: Long, key: String) {
@@ -149,7 +284,7 @@ class LlmSessionStore(
         entries.findBySessionId(from).forEach { held ->
             if (room == 0L) return@forEach
             if (entries.findByIdOrNull(LlmSessionStoreKey(into, held.name)) != null) return@forEach
-            entries.save(LlmSessionStoreEntry(into, held.name, held.value, held.contentType, held.binary))
+            entries.save(LlmSessionStoreEntry(into, held.name, held.value, held.contentType, held.binary, held.attachmentId))
             room -= 1
             copied += 1
         }

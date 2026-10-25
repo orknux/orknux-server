@@ -31,6 +31,14 @@ interface AttachmentStore {
     fun open(location: String): InputStream
 
     /**
+     * The file on this machine's disk the bytes are in, or null where the
+     * storage has no such thing. For a reader that can work from a file in
+     * place - PDFBox reads a document by seeking - so a 30 MB PDF a person
+     * attached is not read into memory to answer what its third page says.
+     */
+    fun pathOf(location: String): Path? = null
+
+    /**
      * Whether the bytes are still there.
      *
      * Asked before serving, so a row whose file has gone is a 404 rather than
@@ -87,6 +95,8 @@ class FilesystemAttachmentStore(private val settings: InstallationSettings) : At
     }
 
     override fun open(location: String): InputStream = Files.newInputStream(resolve(location))
+
+    override fun pathOf(location: String): Path? = runCatching { resolve(location) }.getOrNull()?.takeIf { Files.isRegularFile(it) }
 
     override fun exists(location: String): Boolean =
         runCatching { Files.isRegularFile(resolve(location)) }.getOrDefault(false)

@@ -560,7 +560,7 @@ class AgentRunTools(
      */
     private fun withKey(parent: Long, child: Long, answer: Map<String, Any?>): Map<String, Any?> {
         val key = "answer.$child"
-        return if (scratch.get(parent, key) != null) answer + ("contentKey" to key) else answer
+        return if (scratch.has(parent, key)) answer + ("contentKey" to key) else answer
     }
 
     /**
