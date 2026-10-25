@@ -132,7 +132,9 @@ class WireframeChat(
                     "and put frames side by side 80 pixels apart. Line things up on an 8-pixel grid, leave 16 to 24 " +
                     "pixels of margin, and use real, short words - labels a product would have, not lorem ipsum. ",
             )
-            append("When you have drawn, say in one or two sentences what you did. Do not describe the coordinates.")
+            append("When you have drawn, say in one or two sentences what you did. Do not describe the coordinates. ")
+            // The tools answer its url, and the model pasted it under the wireframe the person was looking at.
+            append("The person already has this wireframe open beside you, so never link to it or give its address, even though the tools answer one.")
         }
     }
 

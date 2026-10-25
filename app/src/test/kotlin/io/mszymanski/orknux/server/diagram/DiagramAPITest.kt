@@ -21,6 +21,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.setup.DefaultMockMvcBuilder
 import org.springframework.test.web.servlet.setup.MockMvcBuilders
 import org.springframework.web.context.WebApplicationContext
+import io.mszymanski.orknux.server.mcp.OrknuxScope
 import tools.jackson.databind.ObjectMapper
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -49,6 +50,7 @@ class DiagramAPITest(
     @Autowired val tunables: Tunables,
     @Autowired val mapper: ObjectMapper,
     @Autowired val context: WebApplicationContext,
+    @Autowired val chat: DiagramChat,
 ) {
 
     private var workspaceId: Long = 0
@@ -340,5 +342,14 @@ class DiagramAPITest(
         return graphQlTester.document(
             """mutation { createModel(input: { providerId: $providerId, name: "Stub", modelId: "stub", kind: CHAT }) { id } }""",
         ).execute().path("createModel.id").entity(Long::class.java).get()
+    }
+
+    /** The editor's chat is told the person has the diagram open: the tools answer its url, and a model pasted it under the diagram. */
+    @Test
+    fun `the chat never links the diagram the person has open`() {
+        val view = DiagramView(1, workspaceId, 1, "General", "Flow", null, 500, DiagramAgentAccess.CHANGE, "{}", 0, 0, 1, 2000, "alice", "", "alice", "")
+        val offered = chat.offered(OrknuxScope(workspaceId = workspaceId, mayWrite = true))
+        val briefing = chat.briefing(view, offered)
+        assertThat(briefing).contains("never link to it")
     }
 }

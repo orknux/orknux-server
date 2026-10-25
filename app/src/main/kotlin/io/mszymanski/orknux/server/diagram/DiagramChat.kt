@@ -117,7 +117,9 @@ class DiagramChat(
                     "and a group drawn around the nodes it holds. Keep labels to a few words and put the detail in notes, " +
                     "${diagram.noteCharactersMost} characters at most per node. ",
             )
-            append("When you have changed it, say in one or two sentences what you did. Do not describe the coordinates.")
+            append("When you have changed it, say in one or two sentences what you did. Do not describe the coordinates. ")
+            // The tools answer its url, and the model pasted it under the diagram the person was looking at.
+            append("The person already has this diagram open beside you, so never link to it or give its address, even though the tools answer one.")
         }
     }
 

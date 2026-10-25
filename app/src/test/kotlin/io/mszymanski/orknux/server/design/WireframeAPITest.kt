@@ -377,6 +377,7 @@ class WireframeAPITest(
         assertThat(offered.map { it.name }).containsExactlyInAnyOrderElementsOf(WireframeTools.DRAWING)
         val briefing = chat.briefing(view, offered)
         WireframeTools.DRAWING.forEach { assertThat(briefing).contains("`$it`") }
+        assertThat(briefing).contains("never link to it")
     }
 
     /** A model asked in the editor draws a button; it is on the stored drawing, and the answer says the drawing changed. */
