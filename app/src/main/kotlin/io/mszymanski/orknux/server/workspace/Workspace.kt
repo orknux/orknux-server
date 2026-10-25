@@ -303,6 +303,10 @@ class Workspace(
     @Column(name = "research_review_rounds")
     var researchReviewRounds: Int? = null,
 
+    /** How many follow-up questions a finished research here suggests; null is research.followups. */
+    @Column(name = "research_follow_ups")
+    var researchFollowUps: Int? = null,
+
     /**
      * How many identical tool calls in a row end the turn. Issue #516.
      *

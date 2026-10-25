@@ -968,6 +968,8 @@ orknux:
     research.image.mb: ${ORKNUX_TUNING_RESEARCH_IMAGE_MB:2}
     research.resume.after.restart: ${ORKNUX_TUNING_RESEARCH_RESUME_AFTER_RESTART:2}
     research.review.rounds: ${ORKNUX_TUNING_RESEARCH_REVIEW_ROUNDS:1}
+    research.followups: ${ORKNUX_TUNING_RESEARCH_FOLLOWUPS:5}
+    research.followups.tokens: ${ORKNUX_TUNING_RESEARCH_FOLLOWUPS_TOKENS:400}
     research.estimate.runs: ${ORKNUX_TUNING_RESEARCH_ESTIMATE_RUNS:3}
     research.estimate.lookback: ${ORKNUX_TUNING_RESEARCH_ESTIMATE_LOOKBACK:20}
     research.image.pixels: ${ORKNUX_TUNING_RESEARCH_IMAGE_PIXELS:120}

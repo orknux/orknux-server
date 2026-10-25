@@ -808,6 +808,15 @@ class OrknuxTools(
                             required = false,
                         ),
                         ToolParameterSpec("reviewerModel", "The chat model that reviews: its name or id. Required when review is true.", required = false),
+                        ToolParameterSpec(
+                            "followUps", "How many follow-up questions it suggests once finished, 0 to 10. The workspace's number when left out.",
+                            required = false,
+                        ),
+                        ToolParameterSpec(
+                            "parentId",
+                            "A finished research's id, to research one of its follow-up questions: everything else is taken from it, and the question is the topic.",
+                            required = false,
+                        ),
                         ToolParameterSpec("sitesInclude", "Websites to keep to, as a list of hosts.", required = false, LIST),
                         ToolParameterSpec("sitesExclude", "Websites never to read, as a list of hosts.", required = false, LIST),
                         ToolParameterSpec("documentsInclude", "Ids of the workspace's documents to read.", required = false, LIST),
@@ -1985,6 +1994,20 @@ class OrknuxTools(
 
         val question = text(arguments, "question")?.trim()?.ifEmpty { null }
             ?: return refuse("What should be researched? Give the question.")
+        // A follow-up of another research: what it was started with, the question its topic.
+        number(arguments, "parentId")?.let { parentId ->
+            val followed = access.actingIn(scope.workspaceId, scope.actor) { researchApi.startFollowUpResearch(parentId, question) }
+            return mapper.writeValueAsString(
+                mapOf(
+                    "started" to followed.id,
+                    "mode" to followed.modeName,
+                    "status" to followed.status,
+                    "parent" to followed.parentId,
+                    "url" to researchLink(scope.workspaceId, followed.id),
+                    "note" to "It runs on its own; ask $RESEARCH about this id to see where it has got to.",
+                ),
+            )
+        }
         val modes = access.actingIn(scope.workspaceId, scope.actor) { researchApi.researchModes(scope.workspaceId) }
         val asked = text(arguments, "mode")?.trim()
         val mode = if (asked == null) {
@@ -2034,6 +2057,7 @@ class OrknuxTools(
                     includeImages = flag(arguments, "includeImages"),
                     review = review,
                     reviewerModelId = reviewer?.id?.takeIf { review },
+                    followUps = number(arguments, "followUps")?.toInt(),
                 ),
             )
         }
@@ -2090,6 +2114,9 @@ class OrknuxTools(
                 "model" to held.modelName,
                 "webSearch" to held.useWebSearch,
                 "includeImages" to held.includeImages,
+                "followUps" to held.followUps,
+                "parent" to held.parentId,
+                "children" to held.children.map { mapOf("id" to it.id, "question" to it.question, "status" to it.status) },
                 "reviewed" to held.review,
                 "reviewerModel" to held.reviewerModelName,
                 "review" to held.reviewRounds.map { round ->

@@ -491,6 +491,11 @@ class WorkspaceAPI(
     fun chatMaxRoundsDefault(workspaces: List<Workspace>): List<Int> =
         installation.chatMaxRounds().let { value -> workspaces.map { value } }
 
+    /** How many follow-up questions a research here suggests when the workspace has said nothing: Admin -> Settings. */
+    @BatchMapping(typeName = "Workspace")
+    fun researchFollowUpsDefault(workspaces: List<Workspace>): List<Int> =
+        tuning[io.mszymanski.orknux.server.tuning.Tunable.RESEARCH_FOLLOW_UPS].let { value -> workspaces.map { value } }
+
     /** How many review rounds a research here gets when the workspace has said nothing: Admin -> Settings. */
     @BatchMapping(typeName = "Workspace")
     fun researchReviewRoundsDefault(workspaces: List<Workspace>): List<Int> =
@@ -1015,6 +1020,26 @@ class WorkspaceAPI(
             WorkspaceAuditCategory.WORKSPACE,
             count?.let { "An agent here gets $it rounds of tool calls unless it has its own number" }
                 ?: "Tool rounds in this workspace are the installation's again",
+        )
+        return workspace
+    }
+
+    /** The workspace's own number of follow-up questions for its research, or null to go back to the installation's. */
+    @MutationMapping
+    @Transactional
+    fun setWorkspaceResearchFollowUps(@Argument workspaceId: Long, @Argument count: Int?): Workspace {
+        val workspace = repository.findByIdOrNull(workspaceId) ?: throw WorkspaceNotFoundException(workspaceId)
+        access.requireAdministers(workspace)
+        val tunable = io.mszymanski.orknux.server.tuning.Tunable.RESEARCH_FOLLOW_UPS
+        if (count != null && count !in tunable.least..tunable.most) {
+            throw io.mszymanski.orknux.server.research.ResearchFollowUpsOutOfRangeException(count, tunable.least, tunable.most)
+        }
+        workspace.researchFollowUps = count
+        auditRecorder.record(
+            workspaceId,
+            WorkspaceAuditCategory.WORKSPACE,
+            count?.let { "A finished research here suggests $it follow-up ${if (it == 1) "question" else "questions"}" }
+                ?: "Follow-up questions in this workspace are the installation's again",
         )
         return workspace
     }

@@ -28,6 +28,7 @@ enum class TuningUnit(val said: String) {
     MB("MB"),
     PIXELS("pixels"),
     PERCENT("percent"),
+    TOKENS("tokens"),
     HERTZ("Hz"),
     KILOBITS_PER_SECOND("kbit/s"),
 }
@@ -509,6 +510,16 @@ enum class Tunable(
         "research.review.rounds", 1, 1, 10, TuningSection.WORKFLOWS, TuningUnit.TIMES,
         "How many rounds of review a research gets",
         "For a research started with Review: the reviewer reads the report and the writer revises it where asked, at most this many times, before it is saved. A workspace may set its own number.",
+    ),
+    RESEARCH_FOLLOW_UPS(
+        "research.followups", 5, 0, 10, TuningSection.WORKFLOWS, TuningUnit.ITEMS,
+        "How many follow-up questions a finished research suggests",
+        "Each one starts a research of its own when clicked; 0 suggests none and asks the model nothing. A workspace, and the start form, may say otherwise.",
+    ),
+    RESEARCH_FOLLOW_UPS_TOKENS(
+        "research.followups.tokens", 400, 50, 4_000, TuningSection.WORKFLOWS, TuningUnit.TOKENS,
+        "How long a research's follow-up questions may be in all",
+        "The most the model may write when it is asked for them, with its thinking off.",
     ),
     RESEARCH_ESTIMATE_RUNS(
         "research.estimate.runs", 3, 1, 50, TuningSection.WORKFLOWS, TuningUnit.ITEMS,

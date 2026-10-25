@@ -157,6 +157,7 @@ internal val WORKSPACE_SETTINGS: List<FileField<Workspace, *>> = listOf(
     FileField("agentMaxSubagents", { it.agentMaxSubagents }, { w, v -> w.agentMaxSubagents = v }, WHOLE_OR_NULL),
     FileField("chatMaxRounds", { it.chatMaxRounds }, { w, v -> w.chatMaxRounds = v }, WHOLE_OR_NULL),
     FileField("researchReviewRounds", { it.researchReviewRounds }, { w, v -> w.researchReviewRounds = v }, WHOLE_OR_NULL),
+    FileField("researchFollowUps", { it.researchFollowUps }, { w, v -> w.researchFollowUps = v }, WHOLE_OR_NULL),
     FileField("maxRepeatedToolCalls", { it.maxRepeatedToolCalls }, { w, v -> w.maxRepeatedToolCalls = v }, WHOLE_OR_NULL),
     FileField("maxToolCallsAtOnce", { it.maxToolCallsAtOnce }, { w, v -> w.maxToolCallsAtOnce = v }, WHOLE_OR_NULL),
     FileField("sessionCompactAfterTokens", { it.sessionCompactAfterTokens }, { w, v -> w.sessionCompactAfterTokens = v }, WHOLE_OR_NULL),
