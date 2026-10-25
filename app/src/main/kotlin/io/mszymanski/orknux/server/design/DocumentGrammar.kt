@@ -10,7 +10,6 @@ import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
 import org.languagetool.JLanguageTool
 import org.languagetool.Languages
-import org.languagetool.remote.RemoteLanguageTool
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.repository.findByIdOrNull
@@ -37,7 +36,10 @@ import java.util.concurrent.ConcurrentHashMap
  * An administrator may point the installation at a LanguageTool server
  * instead - their own, or LanguageTool's - in Admin Settings or through
  * `ORKNUX_GRAMMAR_SERVER_URL`; then nothing is loaded here and the text is
- * sent there through LanguageTool's own HTTP client.
+ * sent there through the installation's router: the proxy rules, a proxy's
+ * login and the trusted certificates, as every other outbound call here.
+ * LanguageTool's own `RemoteLanguageTool` opened its connection itself, with
+ * no way to hand it a proxy, so the documented `/v2/check` is asked directly.
  *
  * Nothing is stored: the editor sends a paragraph, and is answered with where
  * the mistakes in it are, what is wrong and what could go there instead.
@@ -48,6 +50,8 @@ class DocumentGrammar(
     private val access: WorkspaceAccess,
     private val audit: WorkspaceAuditRecorder,
     @Value("\${orknux.grammar.server-url:}") private val configuredServer: String,
+    private val router: io.mszymanski.orknux.connector.proxy.ProxyRouter,
+    private val mapper: tools.jackson.databind.ObjectMapper,
     private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
@@ -132,27 +136,42 @@ class DocumentGrammar(
     }
 
     private fun remote(url: String, language: String, text: String): List<GrammarMatchView> {
-        val result = try {
-            RemoteLanguageTool(URI(url).toURL()).check(text, VARIANTS.getValue(language))
+        val form = "language=" + encoded(VARIANTS.getValue(language)) + "&text=" + encoded(text)
+        val request = java.net.http.HttpRequest.newBuilder(URI.create(url.trimEnd('/') + CHECK))
+            .timeout(java.time.Duration.ofSeconds(tuning[Tunable.GRAMMAR_SERVER_TIMEOUT_SECONDS].toLong()))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .header("Accept", "application/json")
+            .POST(java.net.http.HttpRequest.BodyPublishers.ofString(form))
+            .build()
+        val body = try {
+            val answered = router.client().send(router.authorized(request), java.net.http.HttpResponse.BodyHandlers.ofString())
+            if (answered.statusCode() >= 400) throw java.io.IOException("it answered ${answered.statusCode()}")
+            mapper.readTree(answered.body())
         } catch (failure: Exception) {
+            if (failure is InterruptedException) Thread.currentThread().interrupt()
             log.warn("The LanguageTool server at {} could not check a text: {}", url, failure.message)
             throw GrammarServerUnreachableException(url)
         }
-        return result.matches.map { match ->
+        return body.path("matches").values().map { match ->
             GrammarMatchView(
-                offset = match.errorOffset,
-                length = match.errorLength,
-                message = match.message.replace(TAGS, ""),
-                shortMessage = match.shortMessage.orElse(null)?.takeIf { it.isNotBlank() },
-                replacements = match.replacements.orElse(emptyList()).take(REPLACEMENTS),
-                rule = match.ruleId,
-                spelling = match.locQualityIssueType.orElse("") == "misspelling",
+                offset = match.path("offset").asInt(),
+                length = match.path("length").asInt(),
+                message = match.path("message").asString("").replace(TAGS, ""),
+                shortMessage = match.path("shortMessage").asString("").takeIf { it.isNotBlank() },
+                replacements = match.path("replacements").values().mapNotNull { it.path("value").asString(null) }.take(REPLACEMENTS),
+                rule = match.path("rule").path("id").asString(""),
+                spelling = match.path("rule").path("issueType").asString("") == "misspelling",
             )
         }
     }
 
+    private fun encoded(value: String): String = java.net.URLEncoder.encode(value, Charsets.UTF_8)
+
     private companion object {
         val log = LoggerFactory.getLogger(DocumentGrammar::class.java)
+
+        /** LanguageTool's documented check, under the server's address. */
+        const val CHECK = "/v2/check"
 
         /** Where an administrator's choice of server is kept. */
         const val SERVER = "grammar.server.url"

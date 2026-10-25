@@ -522,6 +522,7 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_DOCUMENT_SVG_PIXELS` | How wide an SVG put in a document is drawn, in pixels. | `1600` |
 | `ORKNUX_TUNING_DOCUMENT_IMPORT_MB` | How large a file a document imports, in MB. | `25` |
 | `ORKNUX_TUNING_DOCUMENT_IMPORT_PICTURES_MOST` | How many pictures one import keeps, in items. | `200` |
+| `ORKNUX_TUNING_GRAMMAR_SERVER_TIMEOUT_SECONDS` | How long a configured LanguageTool server has to check a paragraph, in seconds. | `15` |
 | `ORKNUX_TUNING_DOCUMENT_COMPLETION_CONTEXT_CHARACTERS` | How much of a document the inline suggestion reads, in characters. | `2000` |
 | `ORKNUX_TUNING_EDITOR_CHAT_FILE_CHARACTERS` | How much of the files on one editor chat message a model reads, in characters. | `100000` |
 | `ORKNUX_TUNING_DOCUMENT_SELECTION_CHARACTERS` | How much selected text the document editor's Translate sends a model, in characters; a longer selection is refused. | `8000` |

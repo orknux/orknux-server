@@ -454,6 +454,11 @@ enum class Tunable(
      * every pause in the typing: the text before the caret, cut to this, and a
      * quarter as much after it.
      */
+    GRAMMAR_SERVER_TIMEOUT_SECONDS(
+        "grammar.server.timeout.seconds", 15, 1, 120, TuningSection.MEDIA, TuningUnit.SECONDS,
+        "How long a LanguageTool server has to check a paragraph",
+        "Only where Admin Settings names a LanguageTool server; the checker built into the server has no wait. Past it the editor says the server did not answer.",
+    ),
     DOCUMENT_COMPLETION_CONTEXT_CHARACTERS(
         "document.completion.context.characters", 2_000, 100, 50_000, TuningSection.MEDIA, TuningUnit.CHARACTERS,
         "How much of a document the inline suggestion reads",

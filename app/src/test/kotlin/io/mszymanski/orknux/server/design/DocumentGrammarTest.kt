@@ -23,7 +23,11 @@ import java.nio.charset.StandardCharsets
 @SpringBootTest
 @AutoConfigureGraphQlTester
 @WithMockUser(username = "alice", roles = ["ADMINS"])
-class DocumentGrammarTest(@Autowired val graphQlTester: ExecutionGraphQlServiceTester) {
+class DocumentGrammarTest(
+    @Autowired val graphQlTester: ExecutionGraphQlServiceTester,
+    @Autowired val proxyRules: io.mszymanski.orknux.connector.proxy.ProxyRuleRepository,
+    @Autowired val router: io.mszymanski.orknux.connector.proxy.ProxyRouter,
+) {
 
     private var server: HttpServer? = null
 
@@ -65,7 +69,7 @@ class DocumentGrammarTest(@Autowired val graphQlTester: ExecutionGraphQlServiceT
             .path("grammarSettings.server").valueIsNull()
     }
 
-    /** Pointed at a LanguageTool server, the text is sent there and its answer read through LanguageTool's own client. */
+    /** Pointed at a LanguageTool server, the text is sent to its /v2/check and the answer read back in the same shape. */
     @Test
     fun `pointed at a LanguageTool server, the text goes there`() {
         val asked = mutableListOf<String>()
@@ -95,5 +99,43 @@ class DocumentGrammarTest(@Autowired val graphQlTester: ExecutionGraphQlServiceT
         assertThat(asked.single()).contains("language=en-US")
         graphQlTester.document("""mutation { setGrammarServer(url: "ftp://nowhere") { server } }""").execute().errors()
             .expect { it.message?.contains("not an http or https address") == true }.verify()
+    }
+
+    /**
+     * The server is reached under the networking rules, as every outbound call is:
+     * LanguageTool's own client opened its connection itself and went past them.
+     */
+    @Test
+    fun `a LanguageTool server is reached through the proxy a rule names`() {
+        val asked = mutableListOf<String>()
+        val proxy = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
+        proxy.createContext("/") { exchange ->
+            asked += exchange.requestURI.toString()
+            val body = """{"matches":[{"message":"Possible spelling mistake found.","replacements":[{"value":"the"}],
+                "offset":4,"length":3,"rule":{"id":"STUB","issueType":"misspelling"}}]}""".toByteArray(StandardCharsets.UTF_8)
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+            exchange.close()
+        }
+        proxy.start()
+        server = proxy
+        val rule = proxyRules.save(
+            io.mszymanski.orknux.connector.proxy.ProxyRule(
+                name = "grammar", pattern = """languagetool-behind-proxy\.invalid""", proxyHost = "127.0.0.1", proxyPort = proxy.address.port, position = 0,
+            ),
+        )
+        router.reload()
+        try {
+            graphQlTester.document("""mutation { setGrammarServer(url: "http://languagetool-behind-proxy.invalid:8010") { server } }""")
+                .execute().errors().verify()
+            val found = check("en", "Fix teh")
+            assertThat(found.single()["replacements"] as List<*>).containsExactly("the")
+            // The host does not resolve, so only the proxy could have answered - and it was asked for the check.
+            assertThat(asked.single()).isEqualTo("http://languagetool-behind-proxy.invalid:8010/v2/check")
+        } finally {
+            proxyRules.delete(rule)
+            router.reload()
+        }
     }
 }
