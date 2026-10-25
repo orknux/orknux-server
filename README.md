@@ -503,6 +503,7 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_DOCUMENT_CHARACTERS_MOST` | How long one document's stored content may be, in characters. | `2000000` |
 | `ORKNUX_TUNING_DOCUMENT_MARKDOWN_INLINE_CHARACTERS` | How much of a document's Markdown is handed to a model, in characters. | `100000` |
 | `ORKNUX_TUNING_DOCUMENT_SVG_PIXELS` | How wide an SVG put in a document is drawn, in pixels. | `1600` |
+| `ORKNUX_TUNING_DOCUMENT_COMPLETION_CONTEXT_CHARACTERS` | How much of a document the inline suggestion reads, in characters. | `2000` |
 | `ORKNUX_TUNING_DOCUMENT_SEARCH_RESULTS` | How many documents a search answers, in items. | `20` |
 | `ORKNUX_TUNING_DOCUMENT_SNIPPET_CHARACTERS` | How much of a document a search shows around a match, in characters. | `160` |
 | `ORKNUX_TUNING_ACTION_RETRY_SECONDS` | How often a waiting action asks again, in seconds. | `30` |

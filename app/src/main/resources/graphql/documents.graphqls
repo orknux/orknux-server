@@ -11,6 +11,13 @@ extend type Query {
     document(id: ID!): DesignDocument
     "Documents holding some words, each with the words around where they were found; names that match first."
     searchDocuments(workspaceId: ID!, text: String!, limit: Int): [DocumentHit!]!
+    """
+    How the sentence being written at the caret might go on, from the
+    workspace's completion model: only the words that would follow `before`.
+    `after` is what follows the caret and `page` the page it is on, from 1.
+    Null where there is nothing to suggest. Nothing is written.
+    """
+    documentCompletion(id: ID!, before: String!, after: String, page: Int): String
 }
 
 extend type Mutation {
@@ -33,6 +40,26 @@ extend type Mutation {
     """
     saveDocument(id: ID!, content: String!, revision: Int, pageSize: String): DesignDocument!
     deleteDocument(id: ID!): Boolean!
+    """
+    Asks a chat model to write in the document: the conversation so far, oldest
+    first, ending with what is asked now. Whatever it writes is saved as it goes.
+    """
+    askDocument(id: ID!, modelId: ID!, messages: [DocumentChatTurnInput!]!): DocumentAnswer!
+}
+
+"What a model said, and the document as it stands after it."
+type DocumentAnswer {
+    answer: String!
+    "Whether it saved anything."
+    changed: Boolean!
+    document: DesignDocument!
+}
+
+"One turn of the editor's conversation."
+input DocumentChatTurnInput {
+    "user or assistant."
+    role: String!
+    content: String!
 }
 
 "A folder of documents."

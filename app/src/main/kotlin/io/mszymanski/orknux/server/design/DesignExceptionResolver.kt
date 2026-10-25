@@ -33,6 +33,8 @@ class DesignExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is DocumentCatalogNameInvalidException,
             is DocumentCatalogNameTakenException,
             is DocumentCatalogNotEmptyException,
+            is DocumentFormatUnknownException,
+            is DocumentExportFailedException,
             -> ErrorType.BAD_REQUEST
             else -> return null
         }

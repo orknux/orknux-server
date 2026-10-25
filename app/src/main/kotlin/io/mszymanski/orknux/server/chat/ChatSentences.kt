@@ -46,12 +46,42 @@ class ChatSentences(
      */
     fun continuation(session: ChatSession, typed: String): String? {
         if (typed.isBlank()) return null
-        val workspace = workspaces.findByIdOrNull(session.workspaceId) ?: return null
+        return continuation(session.workspaceId, "completion:${session.id}", INSTRUCTION, context(session, typed), typed)
+    }
+
+    /**
+     * The words that would follow the caret in a document being written: the
+     * document editor's inline suggestion, asked of the same completion model,
+     * under the same time limit and token cap, and hung up by a newer request
+     * for the same document as a chat's is.
+     *
+     * @param before the text before the caret, as far back as the editor sends.
+     * @param after the text after it, so a suggestion does not repeat what follows.
+     * @param page which page of the document the caret is on, from 1.
+     */
+    fun inDocument(workspaceId: Long, documentId: Long, title: String, page: Int?, before: String, after: String): String? {
+        if (before.isBlank()) return null
+        val context = buildString {
+            append("The document is called \"").append(title).append('"')
+            if (page != null) append(", and the writer is on page ").append(page)
+            append(".\n\nThe text before the caret:\n").append(before)
+            if (after.isNotBlank()) append("\n\nThe text after the caret, which must not be repeated:\n").append(after)
+        }
+        return continuation(workspaceId, "document-completion:$documentId", DOCUMENT_INSTRUCTION, context, before)
+    }
+
+    /**
+     * One ask of the workspace's completion model: [instruction] and
+     * [context], answered with the words that follow [typed], cleaned. A newer
+     * ask under the same [key] hangs this one up.
+     */
+    private fun continuation(workspaceId: Long, key: String, instruction: String, context: String, typed: String): String? {
+        val workspace = workspaces.findByIdOrNull(workspaceId) ?: return null
         val modelId = workspace.completionModelId ?: return null
 
         val turns = listOf(
-            ChatTurn(role = "system", content = INSTRUCTION),
-            ChatTurn(role = "user", content = context(session, typed)),
+            ChatTurn(role = "system", content = instruction),
+            ChatTurn(role = "user", content = context),
         )
         /*
          * A newer request for this chat hangs this one up. The composer drops
@@ -63,7 +93,7 @@ class ChatSentences(
          * calls nobody would read, and the one they were waiting for ran out of
          * time behind it. That was the completion that "stopped for a while".
          */
-        val hangup = asking.begin("completion:${session.id}")
+        val hangup = asking.begin(key)
         /*
          * Given up on after the installation's limit rather than the model's
          * own, which is set for answers that may think for minutes. Hanging up
@@ -81,13 +111,13 @@ class ChatSentences(
                 brief = Brief(maxOutput = settings.chatCompletionMaxTokens(), leastReasoning = true, noThinking = true),
             )
         } finally {
-            asking.end("completion:${session.id}", hangup)
+            asking.end(key, hangup)
         }
         return when (answer) {
             is ChatCompletion.Answered -> cleaned(typed, answer.content)
             is ChatCompletion.CalledTools -> null
             is ChatCompletion.Failed -> {
-                if (!hangup.hungUp) log.debug("No completion for chat {}: {}", session.id, answer.reason)
+                if (!hangup.hungUp) log.debug("No completion for {}: {}", key, answer.reason)
                 null
             }
         }
@@ -176,6 +206,15 @@ class ChatSentences(
                 "sentence, suggest the short sentence they would most likely write next. If they stopped in the " +
                 "middle of a word, begin with the rest of that word; otherwise begin with a space. Reply with " +
                 "nothing only when nothing sensible could follow."
+
+        /** The same ask, of somebody writing a document rather than a message. */
+        const val DOCUMENT_INSTRUCTION =
+            "You suggest how a document somebody is writing goes on at the caret. Reply with only the words that come " +
+                "next, in the writer's own voice, language and register - never repeat the text before the caret, never " +
+                "repeat the text after it, never comment on it. Finish the sentence they are in; if it is finished, " +
+                "suggest the short sentence they would most likely write next. If they stopped in the middle of a word, " +
+                "begin with the rest of that word; otherwise begin with a space. Reply with nothing only when nothing " +
+                "sensible could follow."
     }
 }
 

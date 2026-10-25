@@ -210,6 +210,8 @@ class OrknuxTools(
     private val manualTools: ManualTools,
     /** Reading and drawing wireframes; see [WireframeTools]. Issue #655. */
     private val wireframeTools: WireframeTools,
+    /** Reading, writing, searching and exporting documents; see [DocumentTools]. */
+    private val documentTools: DocumentTools,
     private val access: io.mszymanski.orknux.server.security.WorkspaceAccess,
     private val newsTools: NewsTools,
     private val web: WebProperties,
@@ -286,7 +288,7 @@ class OrknuxTools(
 
     /** What to offer, which depends on whether this caller may start anything. */
     fun specs(scope: OrknuxScope): List<ToolSpec> =
-        ownSpecs(scope) + buildTools.specs(scope) + wireframeTools.specs(scope) + manualTools.specs()
+        ownSpecs(scope) + buildTools.specs(scope) + wireframeTools.specs(scope) + documentTools.specs(scope) + manualTools.specs()
 
     private fun ownSpecs(scope: OrknuxScope): List<ToolSpec> = buildList {
         add(
@@ -975,6 +977,8 @@ class OrknuxTools(
                 access.actingIn(scope.workspaceId, scope.actor) { buildTools.run(scope, name, arguments) }
             } else if (wireframeTools.handles(name)) {
                 access.actingIn(scope.workspaceId, scope.actor) { wireframeTools.run(scope, name, arguments) }
+            } else if (documentTools.handles(name)) {
+                access.actingIn(scope.workspaceId, scope.actor) { documentTools.run(scope, name, arguments) }
             } else {
                 refuse("There is no tool called $name")
             }

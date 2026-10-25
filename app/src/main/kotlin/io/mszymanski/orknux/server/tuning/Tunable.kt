@@ -346,6 +346,16 @@ enum class Tunable(
         "How wide an SVG put in a document is drawn",
         "A drawing an agent hands over as SVG is kept as a picture this many pixels wide.",
     ),
+    /*
+     * Counted in characters because that is what the completion model reads on
+     * every pause in the typing: the text before the caret, cut to this, and a
+     * quarter as much after it.
+     */
+    DOCUMENT_COMPLETION_CONTEXT_CHARACTERS(
+        "document.completion.context.characters", 2_000, 100, 50_000, TuningSection.MEDIA, TuningUnit.CHARACTERS,
+        "How much of a document the inline suggestion reads",
+        "The text before the caret is cut to this many characters, and the text after it to a quarter as many.",
+    ),
     DOCUMENT_SEARCH_RESULTS(
         "document.search.results", 20, 1, 200, TuningSection.MEDIA, TuningUnit.ITEMS,
         "How many documents a search answers",

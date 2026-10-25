@@ -7,6 +7,7 @@ import io.mszymanski.orknux.server.tuning.Tuning
 import io.mszymanski.orknux.server.workflow.WorkspaceArtifactAPI
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory
 import io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder
+import org.springframework.context.annotation.Lazy
 import org.springframework.data.domain.Sort
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.graphql.data.method.annotation.Argument
@@ -47,6 +48,10 @@ class DocumentAPI(
     private val audit: WorkspaceAuditRecorder,
     private val access: WorkspaceAccess,
     mapper: ObjectMapper,
+    /** Lazy: the chat reaches the orknux_* tools, which save through here. */
+    @param:Lazy private val chat: DocumentChat,
+    /** The inline suggestion while typing, the chat composer's own. */
+    @param:Lazy private val sentences: io.mszymanski.orknux.server.chat.ChatSentences,
     private val tuning: Tuning = Tuning.DEFAULTS,
 ) {
 
@@ -257,6 +262,47 @@ class DocumentAPI(
         return true
     }
 
+    /**
+     * Asks a chat model to write in a document, and answers with what it said
+     * and the document as it now stands.
+     *
+     * Not transactional: a round can take a minute, and every change the model
+     * makes is its own save through [saveContent], which the editor takes up
+     * while it waits and when the answer comes back.
+     */
+    @MutationMapping
+    fun askDocument(
+        @Argument id: Long,
+        @Argument modelId: Long,
+        @Argument messages: List<DocumentChatTurnInput>,
+    ): DocumentAnswerView {
+        val held = find(id)
+        val turns = messages
+            .filter { it.content.isNotBlank() }
+            .map { io.mszymanski.orknux.connector.model.ChatTurn(role = if (it.role.equals("assistant", ignoreCase = true)) "assistant" else "user", content = it.content) }
+        if (turns.none { it.role == "user" }) throw DocumentAnswerFailedException("there is nothing to answer")
+        val answered = chat.answer(view(held), modelId, turns, who())
+        val now = find(id)
+        return DocumentAnswerView(answer = answered, changed = now.revision != held.revision, document = view(now))
+    }
+
+    /**
+     * How the sentence being written at the caret might go on: the editor's
+     * inline suggestion, from the workspace's completion model, as the chat
+     * composer's is. A query - nothing is written. Null where there is nothing
+     * to suggest.
+     *
+     * @param before the text before the caret; only its end is sent on.
+     * @param after the text after the caret; only its start is.
+     * @param page the page the caret is on, from 1.
+     */
+    @QueryMapping
+    fun documentCompletion(@Argument id: Long, @Argument before: String, @Argument after: String?, @Argument page: Int?): String? {
+        val held = find(id)
+        val room = tuning[Tunable.DOCUMENT_COMPLETION_CONTEXT_CHARACTERS]
+        return sentences.inDocument(held.workspaceId, requireNotNull(held.id), held.name, page, before.takeLast(room), after.orEmpty().take(room / 4))
+    }
+
     // -- For the tools and the files ------------------------------------------
 
     /** The document by id, checked to be one this caller may see. */
@@ -428,3 +474,16 @@ data class DocumentCatalogView(
 
 /** A document a search found, and the words around where. */
 data class DocumentHitView(val document: DesignDocumentView, val snippet: String)
+
+data class DocumentAnswerView(
+    val answer: String,
+    /** Whether the model saved anything, so the editor knows to take the document up. */
+    val changed: Boolean,
+    val document: DesignDocumentView,
+)
+
+/** One turn of the editor's conversation, which the editor keeps and sends up whole each time. */
+data class DocumentChatTurnInput @com.fasterxml.jackson.annotation.JsonCreator constructor(
+    @com.fasterxml.jackson.annotation.JsonProperty("role") val role: String,
+    @com.fasterxml.jackson.annotation.JsonProperty("content") val content: String,
+)
