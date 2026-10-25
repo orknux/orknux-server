@@ -113,7 +113,9 @@ param(
     [int] $DrawPort = 8299,
     # A stable-diffusion.cpp server to draw the manual's pictures with, as the
     # server on this machine reaches it; empty keeps the stand-in's drawings.
-    [string] $PictureEndpoint = ''
+    [string] $PictureEndpoint = '',
+    # The type the chat model's provider is made as: OLLAMA, or LLAMA_CPP for a llama.cpp server.
+    [string] $ProviderType = 'OLLAMA'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -261,7 +263,7 @@ try {
         docker compose -f $compose exec -T `
             -e "ORKNUX_DEMO_ENDPOINT=$Endpoint" -e "ORKNUX_DEMO_MODEL=$Model" `
             -e "ORKNUX_DEMO_IMAGE_ENDPOINT=http://localhost:$DrawPort" `
-            -e "ORKNUX_DEMO_PICTURE_ENDPOINT=$PictureEndpoint" `
+            -e "ORKNUX_DEMO_PICTURE_ENDPOINT=$PictureEndpoint" -e "ORKNUX_DEMO_TYPE=$ProviderType" `
             ui node scripts/seed-demo.mjs
     }
 
