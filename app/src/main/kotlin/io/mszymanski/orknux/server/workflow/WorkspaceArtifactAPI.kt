@@ -351,7 +351,8 @@ class WorkspaceArtifactAPI(
         contentType = artifact.contentType,
         sizeBytes = artifact.sizeBytes,
         url = versioned("/api/artifacts/" + artifact.id, artifact.location),
-        previewUrl = "/api/artifacts/${artifact.id}/preview".takeIf { readable(artifact.contentType) },
+        // Marked as the file's own address is: a replaced artifact keeps both addresses, and the viewer's frame reloads only when its src changes.
+        previewUrl = versioned("/api/artifacts/${artifact.id}/preview", artifact.location).takeIf { readable(artifact.contentType) },
         drawnAt = artifact.savedAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         at = artifact.savedAt,
     )

@@ -45,9 +45,13 @@ class SavedArtifact(
     @Column(name = "workspace_id", nullable = false)
     val workspaceId: Long,
 
-    /** What the agent called it, extension and all. */
+    /**
+     * What the agent called it, extension and all - and the new file's name once
+     * it is replaced, because the type is read off the name and a `.pdf` kept
+     * over a PNG would serve the picture as a document.
+     */
     @Column(nullable = false, length = 255)
-    val name: String,
+    var name: String,
 
     /**
      * What it is, in the agent's words.
@@ -57,7 +61,7 @@ class SavedArtifact(
      * a grid of filenames says nothing about which is which.
      */
     @Column(nullable = false, columnDefinition = "text")
-    val description: String,
+    var description: String,
 
     @Column(name = "content_type", nullable = false, length = 120)
     var contentType: String,

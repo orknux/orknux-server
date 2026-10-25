@@ -70,6 +70,8 @@ class AgentTools(
     private val questions: QuestionTools,
     /** A picture at an address, brought into the store for picture_view. */
     private val pictureAddresses: io.mszymanski.orknux.server.embedded.PictureAddresses,
+    /** Where a replaced artifact is said, as it is when a person replaces one on the page. */
+    private val auditRecorder: io.mszymanski.orknux.server.workspace.WorkspaceAuditRecorder,
 ) {
 
     /**
@@ -816,14 +818,50 @@ class AgentTools(
             } else {
                 emptyList()
             }
-            val saving = savedArtifacts.save(
-                workspaceId = agent.workspaceId,
-                savedBy = agent.name,
-                name = named,
-                description = argument(call, "description").orEmpty(),
-                content = content,
-                base64 = base64,
-            )
+            /*
+             * In place of one already saved, where the call names it: the same
+             * address, so a link somebody was sent opens the new file. Without
+             * this every revision was a new artifact and the old link went on
+             * showing the old one.
+             */
+            val replacing = argument(call, REPLACES)?.trim()?.takeIf { it.isNotEmpty() }
+            val saving = if (replacing == null) {
+                savedArtifacts.save(
+                    workspaceId = agent.workspaceId,
+                    savedBy = agent.name,
+                    name = named,
+                    description = argument(call, "description").orEmpty(),
+                    content = content,
+                    base64 = base64,
+                )
+            } else {
+                val number = savedArtifacts.numberOf(replacing)
+                    ?: return mapper.writeValueAsString(
+                        mapOf("error" to "$replacing is not a saved artifact's key, number or link; $REPLACES takes one of those."),
+                    )
+                when (
+                    val replaced = savedArtifacts.replace(
+                        workspaceId = agent.workspaceId,
+                        id = number,
+                        name = named,
+                        description = argument(call, "description"),
+                        content = content,
+                        base64 = base64,
+                    )
+                ) {
+                    is SavedArtifacts.Replacing.Missing -> return mapper.writeValueAsString(mapOf("error" to replaced.reason))
+                    is SavedArtifacts.Replacing.Refused -> return mapper.writeValueAsString(mapOf("error" to replaced.reason))
+                    is SavedArtifacts.Replacing.Replaced -> {
+                        auditRecorder.recordAutomated(
+                            agent.workspaceId,
+                            io.mszymanski.orknux.server.workspace.WorkspaceAuditCategory.WORKFLOW,
+                            "${io.mszymanski.orknux.server.workflow.replacedLine(replaced)} by ${agent.name}",
+                            agent.name,
+                        )
+                        SavedArtifacts.Saving.Saved(replaced.artifact)
+                    }
+                }
+            }
             return when (saving) {
                 is SavedArtifacts.Saving.Refused -> mapper.writeValueAsString(mapOf("error" to saving.reason))
                 is SavedArtifacts.Saving.Saved -> mapper.writeValueAsString(
@@ -851,6 +889,9 @@ class AgentTools(
                             if (refused == null) key else null
                         },
                     ).let { answer ->
+                        // Said, so the model does not tell anybody a new link exists.
+                        if (replacing == null) answer else answer + ("replaced" to "the same address now holds this file")
+                    }.let { answer ->
                         if (keyed.isEmpty()) {
                             answer
                         } else {
@@ -892,6 +933,9 @@ class AgentTools(
 
         /** What save_artifact takes a stored file by. */
         const val CONTENT_KEY = "contentKey"
+
+        /** What save_artifact names an artifact to replace by, keeping its address. */
+        const val REPLACES = "replaces"
 
         /** Longer than any key a tool hands out; a content past it is content, and is not looked up. */
         private const val KEY_SIZED = 200
@@ -1172,7 +1216,9 @@ class AgentTools(
                     "Send text as it stands: an SVG, a " +
                     "CSV, JSON, markdown or any source you could read is text, and encoding it to base64 " +
                     "only makes it longer and easier to get wrong. base64 is for bytes that are not text, " +
-                    "like a PDF or a PNG. Answers with the url it was saved at, and a contentKey the " +
+                    "like a PDF or a PNG. To change a file already saved, pass $REPLACES: the link anybody " +
+                    "was sent then opens the new file, where saving it again makes a new link. " +
+                    "Answers with the url it was saved at, and a contentKey the " +
                     "content is kept under in this session, for a tool that uploads or sends a file.",
                 parameters = listOf(
                     ToolParameterSpec(
@@ -1200,6 +1246,10 @@ class AgentTools(
                     ToolParameterSpec(
                         name = "base64",
                         description = "true when content is base64 rather than text. Left out for text files.",
+                    ),
+                    ToolParameterSpec(
+                        name = REPLACES,
+                        description = "A saved artifact's key, number or link, to put this file in its place at the same address instead of saving a new one.",
                     ),
                 ),
             ),
