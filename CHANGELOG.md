@@ -19,6 +19,7 @@ have failed.
 
 ### ✨ Added
 
+- **Diagrams, documents and wireframes can be worked on together, as workflows can**: each editor shows who else has it open and where they point, saves as it goes after Admin Settings' Workflow Autosave, and takes in what the others save as it lands - merging shapes and elements by id, and a document paragraph by paragraph, so two people changing it at once both keep their work. The Save button stays; an editor's saves are audited, and a document's earlier version kept, once per visit rather than once per save.
 - **A run's agent step says whether Output streaming was on**, under its Parameters, so a message that reached Slack late can be told from one the step held on purpose.
 - **A chat draws your avatar beside what you said**, as the agent's is beside its answers; Preferences → Avatar in Chat turns it off.
 - **Voice mode reads at the speed you pick**, from 0.75× to 2× in its panel; the choice is kept in your browser and also applies to reading an answer aloud. Whoever has not picked one hears the installation's pace, `ORKNUX_TUNING_SPEECH_SPEED_PERCENT` (100 by default), and at 100 no speed is sent to the speech model at all.
