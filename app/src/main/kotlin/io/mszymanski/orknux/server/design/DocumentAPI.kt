@@ -59,6 +59,8 @@ class DocumentAPI(
     @param:Lazy private val chat: DocumentChat,
     /** What a turn's files say, for the model. */
     private val files: EditorChatFiles,
+    /** Puts the current names on links to other documents, and checks a new one goes somewhere. */
+    private val links: DocumentLinks,
     /** The inline suggestion while typing, the chat composer's own. */
     @param:Lazy private val sentences: io.mszymanski.orknux.server.chat.ChatSentences,
     private val tuning: Tuning = Tuning.DEFAULTS,
@@ -207,6 +209,7 @@ class DocumentAPI(
             ?: firstCatalog(workspaceId)
         val written = stored(doc)
         picturesHere(workspaceId, this.content.images(doc))
+        documentsHere(workspaceId, links.linksIn(doc))
         val who = who()
         val made = documents.save(
             DesignDocument(
@@ -458,7 +461,7 @@ class DocumentAPI(
             }
 
     /** The stored content of a document, as a tree. */
-    fun tree(held: DesignDocument): ObjectNode = content.read(held.content, held.workspaceId)
+    fun tree(held: DesignDocument): ObjectNode = links.named(content.read(held.content, held.workspaceId), held.workspaceId)
 
     /** Said in the audit log: a file leaving the server is a copy somebody now holds. */
     fun exported(held: DesignDocument, format: String) {
@@ -474,7 +477,7 @@ class DocumentAPI(
             catalogId = held.catalogId,
             catalogName = catalogName,
             name = held.name,
-            content = held.content,
+            content = linked(held),
             pageSize = held.pageSize,
             revision = held.revision,
             words = words,
@@ -491,6 +494,14 @@ class DocumentAPI(
             updatedVia = held.updatedVia,
         )
     }
+
+    /**
+     * The stored content, with each link to another document showing that
+     * document's name as it is now. Read and written again only where there is
+     * a link to name, which most documents do not hold.
+     */
+    private fun linked(held: DesignDocument): String =
+        if (!held.content.contains(DocumentLinks.NODE)) held.content else content.write(tree(held))
 
     /**
      * The words around the first place [needle] is found, on one line; the
@@ -527,6 +538,10 @@ class DocumentAPI(
     ): DesignDocumentView {
         val before = images.findByDocumentId(requireNotNull(held.id)).map { it.artifactId }.toSet()
         if (checkPictures) picturesHere(held.workspaceId, content.images(doc).filter { it !in before })
+        if (checkPictures) {
+            val now = links.linksIn(doc)
+            if (now.isNotEmpty()) documentsHere(held.workspaceId, now - links.linksIn(content.read(held.content, held.workspaceId)))
+        }
         val written = stored(doc)
         if (turn == null || held.updatedTurn != turn) revisions?.saved(held)
         held.content = written
@@ -548,6 +563,16 @@ class DocumentAPI(
      */
     private fun picturesHere(workspaceId: Long, added: List<String>) {
         added.forEach { if (artifacts.storedOf(workspaceId, it) == null) throw DocumentContentInvalidException("there is no picture $it in this workspace") }
+    }
+
+    /**
+     * A link newly put in has to go to one of this workspace's documents, for
+     * the reason a picture does; one whose document was deleted since it was
+     * put in is shown as gone, and does not stop the document being saved.
+     */
+    private fun documentsHere(workspaceId: Long, added: Set<Long>) {
+        val found = links.here(workspaceId, added)
+        added.firstOrNull { it !in found }?.let { throw DocumentContentInvalidException("there is no document $it in this workspace to link to") }
     }
 
     private fun keepImages(held: DesignDocument, doc: ObjectNode) {

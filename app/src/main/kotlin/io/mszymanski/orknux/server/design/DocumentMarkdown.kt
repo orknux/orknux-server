@@ -164,11 +164,16 @@ class DocumentMarkdown(
             when (type(node)) {
                 "text" -> out.append(marked(node))
                 "hardBreak" -> out.append("\\\n")
+                "documentLink" -> out.append(documentLink(node.path("attrs")))
                 else -> out.append(inline(node.path("content")))
             }
         }
         return out.toString()
     }
+
+    private fun documentLink(attrs: JsonNode): String =
+        "[" + escape(attrs.path("name").asText("").ifBlank { "document ${attrs.path("document").asLong()}" }) + "](" +
+            DOCUMENT_SCHEME + attrs.path("document").asLong() + ")"
 
     private fun marked(node: JsonNode): String {
         val raw = node.path("text").asText("")
@@ -366,6 +371,11 @@ class DocumentMarkdown(
                 is Emphasis -> into = walkInline(child, active + listOf(mark("italic")), into, onPicture)
                 is StrongEmphasis -> into = walkInline(child, active + listOf(mark("bold")), into, onPicture)
                 is Strikethrough -> into = walkInline(child, active + listOf(mark("strike")), into, onPicture)
+                is Link if documentOf(child.destination) != null -> into.add(
+                    mapper.createObjectNode().put("type", "documentLink").also {
+                        it.putObject("attrs").put("document", documentOf(child.destination)!!).put("name", plain(child))
+                    },
+                )
                 is Link -> into = walkInline(child, active + listOf(mark("link").also { it.putObject("attrs").put("href", child.destination) }), into, onPicture)
                 is SoftLineBreak -> into.add(textNode(" ", active))
                 is HardLineBreak -> into.add(mapper.createObjectNode().put("type", "hardBreak"))
@@ -471,6 +481,19 @@ class DocumentMarkdown(
         /** How a picture in this workspace is addressed in Markdown a model reads or writes. */
         const val ARTIFACT_SCHEME = "artifact:"
 
+        /** How a link to another of the workspace's documents is written in Markdown a model reads or writes. */
+        const val DOCUMENT_SCHEME = "document:"
+
+        /** A document's page on this installation, the editor's or the view's. */
+        private val DOCUMENT_PAGE = Regex("^(?:https?://[^/]+)?/workspace/\\d+/design/documents/(\\d+)(?:/view)?/?$")
+
+        /** The id a link to a document names: document:12, or the address of its page; null for any other link. */
+        fun documentOf(destination: String?): Long? {
+            val bare = destination?.trim() ?: return null
+            if (bare.startsWith(DOCUMENT_SCHEME)) return bare.removePrefix(DOCUMENT_SCHEME).toLongOrNull()?.takeIf { it > 0 }
+            return DOCUMENT_PAGE.matchEntire(bare)?.groupValues?.get(1)?.toLongOrNull()
+        }
+
         const val PAGE_BREAK = "<!-- pagebreak -->"
 
         private val PAGE_BREAK_HTML = Regex("<!--\\s*page[ -]?break\\s*-->", RegexOption.IGNORE_CASE)
@@ -493,7 +516,8 @@ class DocumentMarkdown(
         const val MARKS_SAID =
             "coloured words are <span style=\"color:#c0392b\">words</span> (a #rrggbb colour), and highlighted words with " +
                 "a note on them are <mark data-note=\"the note\" data-note-id=\"n1\">words</mark> - keep a highlight's " +
-                "data-note-id as you read it, and leave it out on a new one"
+                "data-note-id as you read it, and leave it out on a new one; a link to another of the workspace's documents " +
+                "is [its name]($DOCUMENT_SCHEME<its id>), and is shown with that document's current name"
 
         /** The artifact id an image's address names: artifact:DESIGN-12, orknux:DESIGN-12, or the id alone. */
         fun artifactOf(destination: String?): String? {

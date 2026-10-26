@@ -318,6 +318,8 @@ class DocumentMarkCarry(private val mapper: ObjectMapper, private val mostCharac
                             add(node.path("text").asText(""), (0 until marks.size()).map { marks.get(it) })
                         }
                         "hardBreak" -> add("\n", emptyList())
+                        // Inline, and never marked: its name is part of the line's words, not a block of its own.
+                        "documentLink" -> add(node.path("attrs").path("name").asText(""), emptyList())
                         else -> {
                             val inner = node.path("content")
                             for (at in 0 until inner.size()) walk(inner.get(at))

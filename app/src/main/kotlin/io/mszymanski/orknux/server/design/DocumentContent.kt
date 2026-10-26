@@ -59,6 +59,7 @@ class DocumentContent(private val mapper: ObjectMapper) {
             when (text(node.path("type"))) {
                 "text" -> out.append(text(node.path("text")).orEmpty())
                 "hardBreak" -> out.append('\n')
+                "documentLink" -> out.append(text(node.path("attrs").path("name")).orEmpty())
                 "image" -> text(node.path("attrs").path("caption"))?.let { out.append(it).append('\n') }
                 else -> {
                     val inner = node.path("content")
@@ -132,6 +133,10 @@ class DocumentContent(private val mapper: ObjectMapper) {
                 made.set("attrs", picture(attrs, workspaceId))
                 return made
             }
+            "documentLink" -> {
+                made.set("attrs", documentLink(attrs))
+                return made
+            }
         }
         if (type in LEAVES) return made
         val inner = children(node, type, depth, workspaceId)
@@ -155,6 +160,22 @@ class DocumentContent(private val mapper: ObjectMapper) {
         text(attrs.path("alt"))?.trim()?.takeIf { it.isNotEmpty() }?.let { kept.put("alt", it.take(500)) }
         text(attrs.path("caption"))?.trim()?.takeIf { it.isNotEmpty() }?.let { kept.put("caption", it.take(1000)) }
         int(attrs.path("width"))?.let { kept.put("width", it.coerceIn(5, 100)) }
+        return kept
+    }
+
+    /**
+     * A link to another document: its id, which is what it follows, and the
+     * name it was given when it was put in - what is shown when the document it
+     * names is gone. The name it is drawn with is the document's own, put in by
+     * [DocumentLinks.named] whenever the content is read out, so a rename is
+     * followed without anything being saved.
+     */
+    private fun documentLink(attrs: JsonNode): ObjectNode {
+        val id = attrs.path("document").let { if (it.isNumber) it.asLong() else text(it)?.trim()?.toLongOrNull() }
+            ?.takeIf { it > 0 }
+            ?: throw DocumentContentInvalidException("a link to a document names no document; give attrs.document, its id")
+        val kept = mapper.createObjectNode().put("document", id)
+        kept.put("name", text(attrs.path("name"))?.trim()?.take(Documents.NAME_LENGTH).orEmpty())
         return kept
     }
 
@@ -209,6 +230,7 @@ class DocumentContent(private val mapper: ObjectMapper) {
         val KINDS = listOf(
             "paragraph", "heading", "text", "bulletList", "orderedList", "listItem", "blockquote", "codeBlock",
             "horizontalRule", "hardBreak", "pageBreak", "image", "table", "tableRow", "tableHeader", "tableCell",
+            "documentLink",
         )
 
         /**

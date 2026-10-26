@@ -302,6 +302,8 @@ class DocumentHtml {
                     out.append(text)
                 }
                 "hardBreak" -> out.append("<br>")
+                // The document's name as it is now: the address of an editor means nothing on paper.
+                "documentLink" -> out.append(escape(node.path("attrs").path("name").asText("")))
             }
         }
         return out.toString()

@@ -227,6 +227,7 @@ class DocumentOdt {
                 val node = list.get(at)
                 when (node.path("type").asText("")) {
                     "hardBreak" -> into.appendChild(dom.newOdfElement(TextLineBreakElement::class.java))
+                    "documentLink" -> text(into, node.path("attrs").path("name").asText(""))
                     "text" -> {
                         val marks = node.path("marks")
                         // A colour is part of what a style is, so it is named in the set the styles are kept by.

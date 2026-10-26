@@ -184,6 +184,9 @@ interface DesignDocumentRepository : JpaRepository<DesignDocument, Long>, JpaSpe
     fun findByWorkspaceIdOrderByUpdatedAtDescIdDesc(workspaceId: Long): List<DesignDocument>
 
     fun countByCatalogId(catalogId: Long): Long
+
+    /** A workspace's documents whose stored content holds [text]: what narrows those read for a link. */
+    fun findByWorkspaceIdAndContentContaining(workspaceId: Long, text: String): List<DesignDocument>
 }
 
 interface DesignDocumentImageRepository : JpaRepository<DesignDocumentImage, Long> {

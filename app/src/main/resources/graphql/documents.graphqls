@@ -129,7 +129,8 @@ type DesignDocument {
     """
     The content, as ProseMirror JSON: {"type":"doc","content":[...]}. A picture
     is an image node naming its artifact (attrs.artifact, such as DESIGN-12);
-    a pageBreak node starts a new page.
+    a pageBreak node starts a new page; a documentLink node links to another
+    document by id (attrs.document) and carries its current name (attrs.name).
     """
     content: String!
     "A3, A4, A5, LETTER or LEGAL."
@@ -156,6 +157,15 @@ type DesignDocument {
     updatedAt: String!
     "Which door the live state was saved through: EDITOR, IMPORT, CHAT, TOOL or RESTORE; null before doors were recorded."
     updatedVia: String
+    "The workspace's other documents that link to this one, by name."
+    mentionedBy: [DocumentReference!]!
+}
+
+"A document another one names."
+type DocumentReference {
+    id: ID!
+    name: String!
+    catalogName: String!
 }
 
 "A document a search found."
