@@ -14,6 +14,9 @@ enum class ExecutionKnob(val key: String, val fallback: Int, val least: Int, val
 
     /** The most times one node may do its work in one pass of a run. Issue #661. */
     NODE_REPEATS_MOST("node.repeats.most", 100, 2, 10_000),
+
+    /** The longest timeout a node may be given, in seconds: a day, and a week at most. */
+    NODE_TIMEOUT_MOST_SECONDS("node.timeout.most.seconds", 86_400, 1, 604_800),
 }
 
 /** What the installation says each [ExecutionKnob] is; [DEFAULTS] answers the fallbacks. */

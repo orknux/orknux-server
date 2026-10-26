@@ -1,7 +1,9 @@
 package io.mszymanski.orknux.workflow.execution
 
 import org.springframework.stereotype.Component
+import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 
 /**
  * The steps being carried out right now, so one can be cut short from outside
@@ -53,6 +55,11 @@ class StepInterrupts {
         private val lock = Any()
         private var carrier: Thread? = Thread.currentThread()
         private var stopped = false
+        private var expired = false
+
+        /** Whether what ended the work was the step's own timeout rather than a stop. */
+        val timedOut: Boolean
+            get() = synchronized(lock) { expired }
         private val hooks = ArrayList<() -> Unit>()
 
         /** Whether the run this step belongs to has been asked to stop while the step was running. */
@@ -104,6 +111,20 @@ class StepInterrupts {
             synchronized(lock) { carrier?.interrupt() }
         }
 
+        /**
+         * Ends the work because it has run past the step's timeout: the same
+         * hooks and interrupt as a stop, so a model call is hung up on and a
+         * script cancelled rather than left running, but read afterwards as a
+         * failure of the step, not a stop of the run.
+         */
+        internal fun expire() {
+            synchronized(lock) {
+                if (stopped || carrier == null) return
+                expired = true
+            }
+            stop()
+        }
+
         /** The step is over; nothing here may reach the thread again. */
         internal fun done() {
             synchronized(lock) {
@@ -134,17 +155,26 @@ class StepInterrupts {
      *   done before the stop reached it, returns: what it did is a fact, and
      *   the engine ends the run before the next step as it always has.
      */
-    fun <T> stoppable(executionId: Long, nodeKey: String, body: () -> T): T {
+    fun <T> stoppable(executionId: Long, nodeKey: String, within: Duration? = null, body: () -> T): T {
         val handle = Handle(executionId, nodeKey)
         val outer = current.get()
         running.compute(executionId) { _, held -> held.orEmpty() + handle }
         current.set(handle)
+        // The step's own timeout, cut as a stop is; null is none, as every step was.
+        val timer = within?.let { clock.schedule({ handle.expire() }, it.toMillis().coerceAtLeast(0), TimeUnit.MILLISECONDS) }
         try {
-            return body()
+            val done = body()
+            // Over its time, the work was cut short, whatever it handed back:
+            // an agent hung up on answers with what it had, and that is not an answer.
+            if (handle.timedOut) throw StepTimedOutException(nodeKey, requireNotNull(within), null)
+            return done
         } catch (failure: Exception) {
+            if (failure is StepTimedOutException) throw failure
+            if (handle.timedOut) throw StepTimedOutException(nodeKey, requireNotNull(within), failure)
             if (handle.wasStopped) throw StepInterruptedException(nodeKey, failure)
             throw failure
         } finally {
+            timer?.cancel(false)
             handle.done()
             running.computeIfPresent(executionId) { _, held -> (held - handle).ifEmpty { null } }
             if (outer == null) current.remove() else current.set(outer)
@@ -192,6 +222,14 @@ class StepInterrupts {
         private val current = ThreadLocal<Handle?>()
 
         /**
+         * What a step's timeout is kept by: one daemon thread for the whole
+         * process, because all it does is call [Handle.expire] when a time is up.
+         */
+        private val clock = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { task ->
+            Thread(task, "orknux-step-timeout").apply { isDaemon = true }
+        }
+
+        /**
          * The step this thread is carrying, or null off any step.
          *
          * Static because the code that wants it is deep inside a runner - a
@@ -214,3 +252,13 @@ class StepInterrupts {
  */
 class StepInterruptedException(val nodeKey: String, cause: Exception) :
     RuntimeException("$nodeKey was cut short: its run was asked to stop", cause)
+
+/**
+ * Raised in place of whatever a step's runner threw, or of what it returned,
+ * when the step ran past its node's timeout and was cut short.
+ *
+ * A failure of the step, unlike [StepInterruptedException]: the node's retry
+ * policy and its failure edge treat it as they treat any other.
+ */
+class StepTimedOutException(val nodeKey: String, val within: Duration, cause: Exception?) :
+    RuntimeException("$nodeKey ran past its timeout of ${within.seconds}s", cause)

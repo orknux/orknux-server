@@ -258,6 +258,7 @@ class ExecutionPlanner(
                     streamOutput = node.kind == NodeKind.AGENT && node.streamOutput,
                     retryBudgetSeconds = node.retryBudgetSeconds,
                     repeatTimes = node.repeatTimes,
+                    timeoutSeconds = node.timeoutSeconds,
                     // And of whether the node does its work at all, for the same reason.
                     enabled = node.enabled,
                     attempts = before?.attempts ?: 0,

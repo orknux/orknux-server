@@ -815,6 +815,11 @@ enum class Tunable(
         "The most times one node may repeat in a run",
         "A node set to repeat more often is saved at this many, and a run already holding a higher number stops here.",
     ),
+    NODE_TIMEOUT_MOST_SECONDS(
+        ExecutionKnob.NODE_TIMEOUT_MOST_SECONDS, TuningSection.WORKFLOWS, TuningUnit.SECONDS,
+        "The longest timeout a node may be given",
+        "A node given a longer one is saved at this, and a run already holding a longer one is held to it.",
+    ),
     SCHEDULES_PER_TICK(
         "schedules.per.tick", 60, 1, 10_000, TuningSection.WORKFLOWS, TuningUnit.ITEMS,
         "How many runs one schedule may start in one tick",

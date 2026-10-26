@@ -502,6 +502,15 @@ class WorkflowNode(
     var repeatTimes: Int? = null,
 
     /**
+     * How long one attempt of this node's work may take, in seconds, a wait
+     * inside it included; null is as long as it takes. A step past it is cut
+     * short and fails. On a node that does work, and saved at no more than the
+     * installation's node.timeout.most.seconds.
+     */
+    @Column(name = "timeout_seconds")
+    var timeoutSeconds: Int? = null,
+
+    /**
      * Whether a run does this node's work.
      *
      * Off, the node stays on the graph with every edge it had and the run

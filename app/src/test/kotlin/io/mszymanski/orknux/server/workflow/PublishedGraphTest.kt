@@ -81,6 +81,30 @@ class PublishedGraphTest(
             .execute().path("workflowGraph.nodes[?(@.key == 'call')].repeatTimes").entityList(Int::class.java).containsExactly(3)
     }
 
+    /**
+     * A node's timeout is part of what runs, so it is part of what is
+     * published; none is kept as nothing, a trigger has no work to time, and
+     * nothing past the installation's longest is kept.
+     */
+    @Test
+    fun `a node's timeout survives publishing, and is kept at no more than the longest`() {
+        save(
+            nodes = """
+                { key: "call", kind: ACTION, name: "Tell the customer", x: 0, y: 0, timeoutSeconds: 30 },
+                { key: "think", kind: AGENT, name: "Say it went out", x: 200, y: 0, timeoutSeconds: 100000000 },
+                { key: "none", kind: AGENT, name: "Take its time", x: 400, y: 0, timeoutSeconds: 0 }
+            """,
+            edges = "",
+        )
+        publish()
+
+        val live = source.graph(workspaceId, workflowId, GraphVersion.PUBLISHED)
+        assertThat(live.nodes.associate { it.key to it.timeoutSeconds })
+            .isEqualTo(mapOf("call" to 30, "think" to 86_400, "none" to null))
+        graphQlTester.document("""{ workflowGraph(workspaceId: $workspaceId, workflowId: $workflowId) { nodes { key timeoutSeconds } } }""")
+            .execute().path("workflowGraph.nodes[?(@.key == 'call')].timeoutSeconds").entityList(Int::class.java).containsExactly(30)
+    }
+
     /** One agent node, named, which is all a graph needs to be runnable. */
     private fun draw(nodeName: String) {
         graphQlTester.document(

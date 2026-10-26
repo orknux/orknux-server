@@ -3018,6 +3018,8 @@ type WorkflowNode {
     retryBudgetSeconds: Int
     "How many times a run does this node's work in one pass, each handed the last one's output; null is once."
     repeatTimes: Int
+    "How long one attempt of this node's work may take, in seconds, waits included; null is as long as it takes."
+    timeoutSeconds: Int
     x: Float!
     y: Float!
     "What the node needs, read off whatever it points at."
@@ -3481,6 +3483,14 @@ input WorkflowNodeInput {
     node.repeats.most. Issue #661.
     """
     repeatTimes: Int
+    """
+    How long one attempt of this node's work may take, in seconds, a wait
+    inside it included; null or 0 is as long as it takes. A step past it is cut
+    short and fails, and its retry policy and failure edge treat that as any
+    other failure. Kept on a node that does work - not a trigger or an object -
+    and saved at no more than the installation's node.timeout.most.seconds.
+    """
+    timeoutSeconds: Int
     """
     What this node passes to its action. Omitted leaves it to the action's own
     suggestions, which is what a node freshly pointed at one wants. Names the

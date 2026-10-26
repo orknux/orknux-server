@@ -374,6 +374,13 @@ class ExecutionStep(
     val repeatTimes: Int? = null,
 
     /**
+     * How long one attempt of this step may take, in seconds, waits included;
+     * null is as long as it takes. Each repeat and each retry has its own.
+     */
+    @Column(name = "timeout_seconds")
+    val timeoutSeconds: Int? = null,
+
+    /**
      * How many of [repeatTimes] are done, so one that parks or a worker that
      * dies between two picks up at the right one rather than the first.
      */

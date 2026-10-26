@@ -64,6 +64,7 @@ object WorkflowSnapshot {
                     "retryJitter" to node.retryJitter,
                     "retryBudgetSeconds" to node.retryBudgetSeconds,
                     "repeatTimes" to node.repeatTimes,
+                    "timeoutSeconds" to node.timeoutSeconds,
                     "enabled" to node.enabled,
                     "x" to node.x,
                     "y" to node.y,
@@ -157,6 +158,8 @@ object WorkflowSnapshot {
                     retryBudgetSeconds = number(node, "retryBudgetSeconds")?.toInt(),
                     // Absent from every snapshot published before a node could repeat: once.
                     repeatTimes = number(node, "repeatTimes")?.toInt(),
+                    // Absent from every snapshot published before a node could time out: no timeout.
+                    timeoutSeconds = number(node, "timeoutSeconds")?.toInt(),
                     // Absent from every snapshot published before a node could
                     // be switched off, and read as on - which is what it was.
                     enabled = node.path("enabled").asBoolean(true),

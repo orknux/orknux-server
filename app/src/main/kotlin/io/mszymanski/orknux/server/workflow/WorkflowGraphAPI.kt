@@ -563,6 +563,9 @@ class WorkflowGraphAPI(
             repeatTimes = node.repeatTimes
                 ?.coerceIn(1, tuning[io.mszymanski.orknux.server.tuning.Tunable.NODE_REPEATS_MOST])
                 ?.takeIf { it > 1 && handlesFailure(node.kind) },
+            // None is stored as nothing, and only a node that does work has any to cut short.
+            timeoutSeconds = node.timeoutSeconds?.takeIf { it > 0 && timesOut(node.kind) }
+                ?.coerceAtMost(tuning[io.mszymanski.orknux.server.tuning.Tunable.NODE_TIMEOUT_MOST_SECONDS]),
             // Null is on, which is what every node was before there was a switch
             // and what an older client that sends no flag still means. A
             // disabled trigger never gets this far: the validator refuses it.
@@ -635,6 +638,14 @@ class WorkflowGraphAPI(
      */
     private fun handlesFailure(kind: NodeKind): Boolean =
         kind == NodeKind.ACTION || kind == NodeKind.AGENT
+
+    /**
+     * Whether a node's work can run long enough to want a timeout: whatever
+     * calls a model, an action, another run or a drawing. A trigger is what
+     * started the run, and an object node assembles what it was handed.
+     */
+    private fun timesOut(kind: NodeKind): Boolean =
+        kind != NodeKind.TRIGGER && kind != NodeKind.OBJECT
 
     /** Whether this node has two ways out, and so two labels worth keeping. */
     private fun forks(node: WorkflowNodeInput): Boolean =
@@ -1038,6 +1049,8 @@ data class WorkflowNodeInput(
     val retryBudgetSeconds: Int? = null,
     /** How many times a run does this node's work in one pass; null or 1 is once. Issue #661. */
     val repeatTimes: Int? = null,
+    /** How long one attempt of this node's work may take, in seconds; null or 0 is as long as it takes. */
+    val timeoutSeconds: Int? = null,
     /**
      * Whether a run does this node's work; null is on, which is what every
      * node was. Off is refused on a trigger. Issue #439.
@@ -1172,6 +1185,8 @@ data class WorkflowNodeView(
     val retryBudgetSeconds: Int?,
     /** How many times a run does this node's work in one pass; null is once. */
     val repeatTimes: Int?,
+    /** How long one attempt of this node's work may take, in seconds; null is as long as it takes. */
+    val timeoutSeconds: Int?,
     /** Whether a run does this node's work; off is skipped, handing its input on. */
     val enabled: Boolean,
     val x: Double,
@@ -1232,6 +1247,7 @@ data class WorkflowNodeView(
         retryJitter = node.retryJitter,
         retryBudgetSeconds = node.retryBudgetSeconds,
         repeatTimes = node.repeatTimes,
+        timeoutSeconds = node.timeoutSeconds,
         enabled = node.enabled,
         x = node.positionX,
         y = node.positionY,

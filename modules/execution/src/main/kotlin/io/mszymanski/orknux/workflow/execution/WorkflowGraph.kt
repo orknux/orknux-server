@@ -184,6 +184,13 @@ data class GraphNode(
      */
     val repeatTimes: Int? = null,
     /**
+     * How long one attempt of this node's work may take, in seconds, a wait
+     * inside it included; null is as long as it takes. A step past it is cut
+     * short and fails, which its retry policy and failure edge treat as any
+     * other failure.
+     */
+    val timeoutSeconds: Int? = null,
+    /**
      * Whether a run does this node's work.
      *
      * Off, the engine records the step as skipped without asking any runner

@@ -362,6 +362,11 @@ class StepRunner(
         step.input = input
         steps.save(step)
 
+        // The node's timeout, counted from when this attempt began, so a wait
+        // inside it counts and a resumed wait does not start the clock again.
+        val deadline = deadlineOf(step)
+        if (deadline != null && !OffsetDateTime.now().isBefore(deadline)) return timedOut(executionId, step, input)
+
         val result = try {
             if (!step.enabled) {
                 skippedAsDisabled(step)
@@ -372,10 +377,13 @@ class StepRunner(
                 //
                 // Registered while it runs, so a stop asked mid-call reaches the
                 // call rather than waiting for it to finish on its own. #440.
-                interrupts.stoppable(executionId, nodeKey) {
+                interrupts.stoppable(executionId, nodeKey, deadline?.let { Duration.between(OffsetDateTime.now(), it) }) {
                     runnerFor(step.kind).run(step, input, execution.input)
                 }
             }
+        } catch (late: StepTimedOutException) {
+            // Cut short by its own timeout: a failure, so its policy and its failure edge decide.
+            return timedOut(executionId, step, input)
         } catch (interrupted: StepInterruptedException) {
             // The runner threw because the run was asked to stop and the call it
             // was in was cut short. Not a failure, so no policy is consulted and
@@ -392,6 +400,10 @@ class StepRunner(
 
         if (result.status == StepStatus.WAITING) {
             step.status = StepStatus.WAITING
+            // A wait does not outlast the step's timeout: it is woken at the
+            // deadline, and finding it passed, fails.
+            val left = deadline?.let { Duration.between(OffsetDateTime.now(), it).coerceAtLeast(Duration.ZERO) }
+            if (deadline != null && step.waitUntil?.isAfter(deadline) == true) step.waitUntil = deadline
             steps.save(step)
             published.publishEvent(StepParked(executionId, nodeKey, step.sessionId))
 
@@ -402,7 +414,11 @@ class StepRunner(
             }
             // It has produced nothing, so the next attempt is handed what this
             // one was.
-            return StepOutcome(StepStatus.WAITING, input, resumeAfter = result.resumeAfter)
+            return StepOutcome(
+                StepStatus.WAITING,
+                input,
+                resumeAfter = if (left == null) result.resumeAfter else result.resumeAfter?.let { minOf(it, left) } ?: left,
+            )
         }
 
         step.status = result.status
@@ -455,6 +471,39 @@ class StepRunner(
             return runStep(executionId, nodeKey)
         }
         return StepOutcome(result.status, result.output, result.halt, result.branch, result.option)
+    }
+
+    /**
+     * When the current attempt of [step] runs out of time, or null where its
+     * node gives it none. Held to the installation's longest whatever the node
+     * says, so a graph published before the ceiling was lowered is held to it too.
+     */
+    private fun deadlineOf(step: ExecutionStep): OffsetDateTime? {
+        val seconds = step.timeoutSeconds?.takeIf { it > 0 }
+            ?.coerceAtMost(tuning.valueOf(io.mszymanski.orknux.workflow.ExecutionKnob.NODE_TIMEOUT_MOST_SECONDS))
+            ?: return null
+        return (step.startedAt ?: OffsetDateTime.now()).plusSeconds(seconds.toLong())
+    }
+
+    /**
+     * Fails [step] for having run past its timeout, as any other failure is
+     * failed - its retry policy may try again, its failure edge may be taken.
+     *
+     * A Workflow step that times out was waiting on a run of its own, which
+     * would otherwise go on with nobody to hand its answer to, so that run is
+     * asked to stop as a person pressing Stop would.
+     */
+    private fun timedOut(executionId: Long, step: ExecutionStep, input: String?): StepOutcome {
+        step.childExecutionId?.let { child ->
+            executions.findByIdOrNull(child)?.takeIf { it.status == ExecutionStatus.RUNNING }?.let {
+                it.stopRequested = true
+                executions.save(it)
+                interrupts.stop(child)
+            }
+        }
+        step.waitUntil = null
+        val seconds = step.timeoutSeconds?.coerceAtMost(tuning.valueOf(io.mszymanski.orknux.workflow.ExecutionKnob.NODE_TIMEOUT_MOST_SECONDS))
+        return failed(executionId, step, input, "${step.name} took longer than its timeout of ${seconds}s", permanent = false)
     }
 
     /**

@@ -1025,6 +1025,7 @@ orknux:
     trigger.remember.minutes: ${ORKNUX_TUNING_TRIGGER_REMEMBER_MINUTES:10}
     trigger.remembered: ${ORKNUX_TUNING_TRIGGER_REMEMBERED:5000}
     node.repeats.most: ${ORKNUX_TUNING_NODE_REPEATS_MOST:100}
+    node.timeout.most.seconds: ${ORKNUX_TUNING_NODE_TIMEOUT_MOST_SECONDS:86400}
     schedules.per.tick: ${ORKNUX_TUNING_SCHEDULES_PER_TICK:60}
     research.document.characters: ${ORKNUX_TUNING_RESEARCH_DOCUMENT_CHARACTERS:200000}
     research.sources.most: ${ORKNUX_TUNING_RESEARCH_SOURCES_MOST:100}

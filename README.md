@@ -559,6 +559,7 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_TRIGGER_REMEMBER_MINUTES` | How long a trigger remembers an event it ran on, in minutes. | `10` |
 | `ORKNUX_TUNING_TRIGGER_REMEMBERED` | How many events a trigger remembers, in items. | `5000` |
 | `ORKNUX_TUNING_NODE_REPEATS_MOST` | The most times one node may repeat in a run, in times. | `100` |
+| `ORKNUX_TUNING_NODE_TIMEOUT_MOST_SECONDS` | The longest timeout a node may be given, in seconds. | `86400` |
 | `ORKNUX_TUNING_SCHEDULES_PER_TICK` | How many runs one schedule may start in one tick, in items. | `60` |
 | `ORKNUX_TUNING_RESEARCH_DOCUMENT_CHARACTERS` | How much of the chosen documents a research is handed, in characters. | `200000` |
 | `ORKNUX_TUNING_RESEARCH_SOURCES_MOST` | The most sources one research may read, in items. | `100` |
