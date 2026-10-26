@@ -111,6 +111,8 @@ class StreamOutputTest(
         assertThat(streamed.startedFrom).isEqualTo(first)
         assertThat(replyInputs(requireNotNull(streamed.id)).single()).contains("Checking the build.")
             .doesNotContain("The build is green.")
+        graphQlTester.document("""query { execution(id: $first) { steps { key streamOutput } } }""")
+            .execute().path("execution.steps[?(@.key == 'think')].streamOutput").entityList(Boolean::class.java).containsExactly(true)
     }
 
     @Test
@@ -119,6 +121,9 @@ class StreamOutputTest(
 
         assertThat(executions.findAll().map { it.id }).containsExactly(first)
         assertThat(replyInputs(first).single()).contains("Checking the build.").contains("The build is green.")
+        // And the run says so, so a message that came late can be told from one that was lost.
+        graphQlTester.document("""query { execution(id: $first) { steps { key streamOutput } } }""")
+            .execute().path("execution.steps[?(@.key == 'think')].streamOutput").entityList(Boolean::class.java).containsExactly(false)
     }
 
     /**

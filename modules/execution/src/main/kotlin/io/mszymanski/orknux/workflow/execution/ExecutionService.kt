@@ -349,6 +349,8 @@ data class ExecutionStepView(
     val branchOption: String? = null,
     /** The run a Workflow step started, once it has; null on every other kind. */
     val childExecutionId: Long? = null,
+    /** Whether an agent step handed on what its agent said as it said it, as the run copied the node's setting. */
+    val streamOutput: Boolean = false,
     /**
      * How many attempts the step spent. One for almost everything; more only
      * where the node was given a retry policy and needed it.
@@ -383,6 +385,7 @@ data class ExecutionStepView(
         branch = step.branch,
         branchOption = step.branchOption,
         childExecutionId = step.childExecutionId,
+        streamOutput = step.streamOutput,
         attempts = step.attempts,
         carriedOver = step.carriedOver,
         enabled = step.enabled,

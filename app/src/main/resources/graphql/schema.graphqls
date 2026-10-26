@@ -6269,6 +6269,8 @@ type ExecutionStep {
     agentId: ID
     "The LLM session an agent step talked into, so the run links to it; null for a step that kept none."
     sessionId: ID
+    "Whether this agent step handed on what its agent said as it said it - the node's setting, as the run copied it. False on every kind but AGENT."
+    streamOutput: Boolean!
     """
     Which way out this step sent the run; null where it answered nothing.
     FAILURE on a failed step means the run went on down its failure edge rather
