@@ -19,10 +19,17 @@ have failed.
 
 ### ✨ Added
 
+- **A Magic accent**, under Preferences → Accent: blue running into violet, more blue than violet. Filled surfaces - primary buttons, your messages, what is selected - paint with the gradient; text and borders take a blue-violet.
+- **A diagram shape's colour from three rows of swatches and a picker**: the pale row is shown, the stronger and deeper rows on asking, and any other colour from the browser's picker. Text on any of them is drawn light or dark to suit, in the editor and the exports.
+- **The diagram toolbar offers the common drawn shapes up front** - database, document, parallelogram, hexagon, cloud, actor, class and component - where the window is wide enough; all of them stay under More shapes.
+- **A document lists the documents it mentions**, above Mentioned by, and resting on a document link shows a card with the document's name, its catalog, its first words and, while editing, Ctrl+click to open.
+- **Delete in the document editor**, and the delete dialog - from the editor or the list - names the documents that mention it as links that open in a tab of their own.
+- **An artifact on its own at `/workspace/…/artifacts/…/content`**: the file itself with nothing of Orknux around it, at an address that stays the same as the artifact is replaced.
+- **Every field of New research has a (?)** saying what it does.
 - **A diagram's line has a style and a mark at each end**: solid, dashed or dotted, and at either end nothing, an arrow, an open arrow, a triangle, a diamond, a filled diamond or a circle - enough for UML's relations. Each is picked with its picture beside its name, agents draw them too, and a line saved as one of the four old kinds looks exactly as it did.
 - **A workflow node can have a timeout**: how long one attempt of its work may take, in seconds, waits included. A step past it is cut short - a model call hung up on, a script cancelled, a sub-workflow asked to stop - and fails saying so, which its retry policy and failure edge treat as any other failure. Each retry and each repeat gets its own time; Admin Settings' "The longest timeout a node may be given" caps it, a day by default.
 - **`!progress-none`, `!progress-low`, `!progress-medium` and `!progress-high` in a message set how much the agent says while it works**, for that message only - in a chat and in a Slack mention through an agent node, with the workspace's own marker. None is held to by the server, as an agent's own None is; a chat offers them in its command menu, and they are never looked for as skills.
-- **Diagrams, documents and wireframes can be worked on together, as workflows can**: each editor shows who else has it open and where they point, saves as it goes after Admin Settings' Workflow Autosave, and takes in what the others save as it lands - merging shapes and elements by id, and a document paragraph by paragraph, so two people changing it at once both keep their work. The Save button stays; an editor's saves are audited, and a document's earlier version kept, once per visit rather than once per save.
+- **Diagrams, documents and wireframes can be worked on together, as workflows can**: each editor shows who else has it open and where they point, saves as it goes after Admin Settings' Workflow Autosave, and takes in what the others save as it lands - merging shapes and elements by id, and a document paragraph by paragraph, so two people changing it at once both keep their work. There is no Save button: like the workflow editor, they save as they go (Ctrl+S still saves at once). An editor's saves are audited, and a document's earlier version kept, once per visit rather than once per save.
 - **A run's agent step says whether Output streaming was on**, under its Parameters, so a message that reached Slack late can be told from one the step held on purpose.
 - **A chat draws your avatar beside what you said**, as the agent's is beside its answers; Preferences → Avatar in Chat turns it off.
 - **Voice mode reads at the speed you pick**, from 0.75× to 2× in its panel; the choice is kept in your browser and also applies to reading an answer aloud. Whoever has not picked one hears the installation's pace, `ORKNUX_TUNING_SPEECH_SPEED_PERCENT` (100 by default), and at 100 no speed is sent to the speech model at all.
@@ -38,12 +45,20 @@ have failed.
 
 ### 🔧 Changed
 
+- **The diagram, document and wireframe editors have no Save button**: they save as they go, after Admin Settings' Workflow Autosave pause, as the workflow editor does.
+- **The diagram toolbar's Delete deletes the whole diagram**, asked first, and goes back to the list; selected shapes and lines are deleted with the Delete key.
+- **A settings page's choices are drawn as its text fields are** - their type and box - and as wide as their options rather than the page; the design chats' suggestions are smaller.
+- **Your avatar in a chat sits at the top left of your message**, as far from it as the agent's is from its answer.
 - **A chat shows what each answer cost, for everybody**, unless they turn it off under Preferences → Answer Cost. It was off unless turned on; on upgrade every person is switched on, so somebody who wants it off again sets it there.
 - **A chat message's time carries its date, today's included**, where it showed only the clock for today's lines.
 - **A research runs with agents, not a model.** New research picks a Planner, a Writer and, when reviewed, a Reviewer - the Research planner, writer and reviewer unless you pick others - and each thinks with the model on its own page; the Writer's model also takes the notes on each source. A research that searches the web lends its agents web search for that research. On upgrade the three Research agents are given the model your last research ran with; where you never ran one, choose a model on each of their pages, or a research is refused with "has no chat model". `orknux_start_research` takes `planner`, `writer` and `reviewer` agents in place of `model` and `reviewerModel`, and the `startResearch` mutation `plannerAgentId`, `writerAgentId` and `reviewerAgentId` in place of `modelId` and `reviewerModelId`.
 
 ### 🐛 Fixed
 
+- **A document opened and left alone no longer saves itself.** The editor adds an empty paragraph after a closing code block or table, and that alone counted as a change, so every visit wrote a new revision.
+- **A wireframe's HTML export no longer draws a second scrollbar inside the page** when a frame is filled to its edge.
+- **The attribution line at the foot of a page no longer runs under Ask AI**; it kept a fixed width clear that the button's label had outgrown.
+- **A run step's Output streaming value is drawn in the other parameters' type**, not the page's larger one.
 - **An agent that streams its output posts what it says as it ends a turn to wait for an agent it asked**, rather than holding it until that agent has answered and posting it together with the answer, minutes later.
 - **pdf_read says which pages hold pictures**, that a picture's content is not in the text, and - to an agent that holds the page preview - how to draw a page to look at it. A tool an agent does not hold is no longer named in a PDF answer.
 - **A long PDF read stops after a whole page and says which page to read on from**, instead of being refused for its length; how much one read answers is `ORKNUX_TUNING_PDF_READ_CHARACTERS` (200,000 by default). An answer read in pages that is too long for the model's window is cut between pages too, never in the middle of one.
