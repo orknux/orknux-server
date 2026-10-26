@@ -174,6 +174,14 @@ class LiveEditorsTest(
         assertThatThrownBy { live.live("diagram", id, "tab-m", response) }.isInstanceOf(WorkspaceNotFoundException::class.java)
     }
 
+    @Test
+    @WithMockUser(username = "bob", roles = ["USERS"])
+    fun `every editor reads how long to wait before it saves, which is the workflow editor's setting`() {
+        graphQlTester.document("{ editorAutosaveMillis }").execute().path("editorAutosaveMillis").entity(Int::class.java).satisfies({
+            assertThat(it).isBetween(200, 10_000)
+        })
+    }
+
     /** What is waiting for [seat] now, without waiting for more. */
     private fun frames(seat: LiveRooms.Seat): List<LiveRooms.Frame> = buildList {
         while (seat.waiting()) addAll(seat.next().orEmpty())

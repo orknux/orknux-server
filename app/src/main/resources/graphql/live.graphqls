@@ -1,0 +1,9 @@
+# Working together in an editor, issue #683: the diagram, document and
+# wireframe editors save as they go and share a live room, as the workflow
+# editor has since #645. The room itself is server-sent events at
+# /api/live/{kind}/{id}; this is what the editors read beside it.
+
+extend type Query {
+    "How long an editor waits after the last change before it saves, in milliseconds: Admin Settings' Workflow Autosave, which every editor that saves as it goes follows."
+    editorAutosaveMillis: Int!
+}
