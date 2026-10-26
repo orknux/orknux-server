@@ -303,14 +303,22 @@ class WireframeHtml(
             (name.replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]+"), " ").replace(Regex("\\s+"), " ").trim().take(120).ifEmpty { "wireframe" }) +
                 ".$extension"
 
-        /** Pencil on paper, as the editor draws it - the values of the interface's --wireframe-* tokens. */
+        /**
+         * Pencil on paper, as the editor draws it - the values of the interface's --wireframe-* tokens.
+         *
+         * A screen scrolls sideways when it is wider than the page, and a box
+         * that scrolls one way scrolls the other too: what touches a framed
+         * screen's bottom edge sits the frame's border below its inside, so
+         * every such export had a second, 1px scrollbar inside the page's.
+         * Nothing is drawn below a screen on purpose, so it does not scroll down.
+         */
         private val STYLE = """
             |*, *::before, *::after { box-sizing: border-box; }
             |body { display: flex; flex-direction: column; align-items: center; gap: 48px; min-height: 100vh; margin: 0; padding: 48px 16px; background: #e7e7ea; color: #3f3f46; font: 14px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
             |@media (prefers-color-scheme: dark) { body { background: #18181b; } .screen-title { color: #a1a1aa; } }
             |.wireframe-name { margin: 0; font-size: 20px; font-weight: 600; }
             |.defs { position: absolute; width: 0; height: 0; overflow: hidden; }
-            |.screen { max-width: 100%; margin: 0; overflow-x: auto; }
+            |.screen { max-width: 100%; margin: 0; overflow-x: auto; overflow-y: hidden; }
             |.screen-title { margin: 0 0 8px; color: #8a8a93; font-size: 12px; font-weight: 400; }
             |.canvas { position: relative; }
             |.canvas.framed { background: #ffffff; border: 1.5px solid #3f3f46; border-radius: 10px; }

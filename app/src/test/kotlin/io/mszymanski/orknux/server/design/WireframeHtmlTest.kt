@@ -57,6 +57,19 @@ class WireframeHtmlTest {
         assertThat(html).doesNotContain("<script").contains("default-src 'none'")
     }
 
+    /**
+     * A screen scrolls sideways and never down: a framed screen's contents sit
+     * inside its border, so a rectangle filling the frame stood 1px below it and
+     * the unreleased report drew a second scrollbar inside the page's.
+     */
+    @Test
+    fun `a screen scrolls sideways when it is wide, and never down`() {
+        val html = page("Report", """{"elements":[{"id":"f","type":"frame","x":0,"y":0,"w":400,"h":300,"text":"F"},{"id":"bg","type":"rect","x":0,"y":0,"w":400,"h":300}]}""")
+
+        val rule = Regex("""\.screen \{[^}]*}""").find(html)?.value
+        assertThat(rule).contains("overflow-x: auto").contains("overflow-y: hidden")
+    }
+
     @Test
     fun `screens are split by where each element's middle lies`() {
         val screens = WireframeHtml().screens(
