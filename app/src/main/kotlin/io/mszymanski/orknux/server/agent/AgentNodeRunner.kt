@@ -112,6 +112,8 @@ class AgentNodeRunner(
     private val executions: io.mszymanski.orknux.workflow.execution.WorkflowExecutionRepository,
     /** Web search lent for one step where the run asks for it; see [WEB_SEARCH]. */
     private val lentSearch: LentWebSearch,
+    /** One turn at a time in a session; a second run's message joins the turn going. */
+    private val turns: SessionTurns,
 ) : NodeRunner {
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
@@ -138,10 +140,46 @@ class AgentNodeRunner(
      * wall exists to protect. Unsettled when refused, so the node's retry asks
      * again later. Issue #616.
      */
-    override fun run(step: ExecutionStep, input: String?, trigger: String?): StepResult =
-        bulkheads.turn({ why ->
-            throw StepFailedException(step.nodeKey, "${step.name} could not start: $why", permanent = false)
-        }) { held(step, input, trigger) }
+    override fun run(step: ExecutionStep, input: String?, trigger: String?): StepResult {
+        /*
+         * Outside the place among the turns, because a run whose message joins
+         * another's turn waits for that turn to end and should not hold a place
+         * while it does. See [SessionTurns].
+         */
+        val outcome = turns.oneAtATime(sessionAhead(step, input, trigger), step.executionId, { questionOf(step, input, trigger) }) {
+            bulkheads.turn({ why ->
+                throw StepFailedException(step.nodeKey, "${step.name} could not start: $why", permanent = false)
+            }) { held(step, input, trigger) }
+        }
+        return when (outcome) {
+            is SessionTurns.Outcome.Ran -> outcome.result
+            is SessionTurns.Outcome.Joined -> {
+                runLog.write(
+                    step.executionId,
+                    step.nodeKey,
+                    LogLevel.INFO,
+                    "Run #${outcome.executionId} was still answering in this session, so this message was handed to " +
+                        "its turn and answered there",
+                )
+                // Nothing of its own to hand on, the way an agent that finished with nothing to add has none.
+                StepResult(StepStatus.COMPLETED, expressions.named(step.outputName, ""))
+            }
+        }
+    }
+
+    /** The session a step will talk in, worked out before its turn so a second run can join the first. */
+    private fun sessionAhead(step: ExecutionStep, input: String?, trigger: String?): Long? {
+        val agent = step.agentId?.let { agents.findByIdOrNull(it) }?.takeIf { it.enabled } ?: return null
+        return sessionFor(step, agent, expressions.mappingsOf(step), expressions.parse(input), expressions.parse(trigger))
+    }
+
+    /** What the step asks: the node's prompt where it has one, what reached it otherwise; see [held]. */
+    private fun questionOf(step: ExecutionStep, input: String?, trigger: String?): String =
+        expressions.mappingsOf(step)[PROMPT]
+            ?.let { expressions.textOf(it, expressions.parse(input), expressions.parse(trigger)) }
+            ?.takeIf { it.isNotBlank() }
+            ?: input
+            ?: "There is no input for this step."
 
     private fun held(step: ExecutionStep, input: String?, trigger: String?): StepResult {
         // A node pointing at nothing is not configured, which is not a failure:

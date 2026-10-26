@@ -193,6 +193,18 @@ class SessionInbox(
     }
 
     /**
+     * Leaves a message another run brought to a session whose turn is still
+     * going - see [io.mszymanski.orknux.server.agent.SessionTurns]. Read at the
+     * turn's next round as a person speaking, without a name: who wrote it is in
+     * the message, the way the run's own question carries it. Nothing is
+     * woken, because the turn it is left for is awake; answers its id, so the
+     * run that left it can take it back if that turn ends without reading it.
+     */
+    @Transactional
+    fun postArrived(sessionId: Long, text: String): Long =
+        requireNotNull(events.save(SessionEvent(sessionId = sessionId, kind = SessionEventKind.PERSON, body = text)).id)
+
+    /**
      * What is due, marked read and written into the transcript as said to the
      * agent - so a later turn recalls it like anything else it was told.
      *
@@ -216,8 +228,13 @@ class SessionInbox(
         }
         events.saveAll(due)
         return due.map { event ->
-            if (event.kind == SessionEventKind.PERSON) {
-                "${event.saidBy ?: "The person"} wrote this while you were working - read it before your next step:\n\n${event.body}"
+            if (event.kind == SessionEventKind.PERSON && event.saidBy == null) {
+                // Another run's message, joined to this turn rather than answered by a second one beside it.
+                "Another message arrived in this conversation while you were working. Read it before your next " +
+                    "step and answer it in the same reply as the rest: it was not given a turn of its own, so " +
+                    "nobody else will.\n\n${event.body}"
+            } else if (event.kind == SessionEventKind.PERSON) {
+                "${event.saidBy} wrote this while you were working - read it before your next step:\n\n${event.body}"
             } else {
                 event.body
             }
