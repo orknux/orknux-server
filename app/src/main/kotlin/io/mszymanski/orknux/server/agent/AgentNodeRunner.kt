@@ -114,6 +114,8 @@ class AgentNodeRunner(
     private val lentSearch: LentWebSearch,
     /** One turn at a time in a session; a second run's message joins the turn going. */
     private val turns: SessionTurns,
+    /** Which reasoning efforts the step's model takes; see [REASONING_EFFORT]. Issue #674. */
+    private val catalogue: io.mszymanski.orknux.connector.model.ModelService,
 ) : NodeRunner {
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
@@ -285,6 +287,7 @@ class AgentNodeRunner(
             ?.let { expressions.textOf(it, payload, started) }
             ?.let(Chattiness::of)
             ?: agent.chattiness
+        val effort = effortFor(mappings, payload, started, modelId, step)
         val briefed = if (override != null) {
             listOfNotNull(override, briefing.grants(agent, chattiness)).joinToString("\n\n")
         } else {
@@ -744,6 +747,7 @@ class AgentNodeRunner(
                     conversation.answer(
                         modelId, agent, turns, session, shed = shed, watch = watching, hangup = hangup, gated = false,
                         quiet = chattiness == Chattiness.NONE,
+                        reasoningEffort = effort,
                         /*
                          * Handed on as it is written, where the node streams:
                          * what an agent says beside its tool calls reached the
@@ -1126,6 +1130,35 @@ class AgentNodeRunner(
         }
     }
 
+    /**
+     * The node's [REASONING_EFFORT] for [modelId], or null for the model's own.
+     * The model may be read off the run, so a word it does not take is found
+     * here rather than on save: said in the run log, and the model's own
+     * setting is used rather than the step failing over how hard it thinks.
+     */
+    private fun effortFor(
+        mappings: Map<String, NodeBinding>,
+        payload: JsonNode?,
+        started: JsonNode?,
+        modelId: Long,
+        step: ExecutionStep,
+    ): String? {
+        val asked = mappings[REASONING_EFFORT]
+            ?.let { expressions.textOf(it, payload, started) }
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: return null
+        return runCatching { catalogue.heldReasoningEffort(modelId, asked) }.getOrElse { refused ->
+            runLog.write(
+                step.executionId,
+                step.nodeKey,
+                LogLevel.INFO,
+                "Reasoning effort \"$asked\" was not used: ${refused.message}; the model's own setting was",
+            )
+            null
+        }
+    }
+
     /** Whether the node's [WEB_SEARCH] parameter says yes. */
     private fun lendsWebSearch(mappings: Map<String, NodeBinding>, payload: JsonNode?, started: JsonNode?): Boolean =
         mappings[WEB_SEARCH]
@@ -1196,6 +1229,13 @@ class AgentNodeRunner(
          * it runs with. Blank, absent or false lends nothing. Issue #678.
          */
         const val WEB_SEARCH = "webSearch"
+
+        /**
+         * How hard the model thinks for this node only, as its provider spells
+         * it (`low`, `high`, ...): sent in place of the model's own
+         * reasoningEffort. Blank or absent is the model's. Issue #674.
+         */
+        const val REASONING_EFFORT = "reasoningEffort"
 
         /** NONE, LOW, MEDIUM or HIGH: how much the agent says while it works, for this node only. */
         const val CHATTINESS = "chattiness"

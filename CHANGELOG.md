@@ -27,6 +27,7 @@ have failed.
 - **Diagrams have flowchart and UML shapes**, under More shapes beside the shape buttons: database, document, hexagon, parallelogram, trapezoid, triangle and cloud; actor, class, component, package, interface, device, boundary, control and entity. Agents can draw them too, and a line now ends on a shape's outline - a diamond's and an ellipse's included - rather than at the box around it.
 - **The diagram editor's panel can be dragged wider, and the line above its chat up or down**; both sizes are kept. A long description and a node's notes no longer leave the chat a strip at the bottom.
 - **A tool call in a chat that started a run, filed an issue or named another item links to its page** from the call's own line, folded or not, while the turn is going and after a reload - "Workflow run #12: Nightly export".
+- **An agent node in a workflow chooses how hard its model thinks**, beside Progress messages, from the efforts its model takes; Default is the model's own. A word the model the run reaches does not take - a model read off the run - is said in the run's log and the model's own setting is used.
 
 ### 🔧 Changed
 

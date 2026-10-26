@@ -212,6 +212,36 @@ class AgentNodeRunnerTest(
     }
 
     /**
+     * A node may say how hard its model thinks, for that node only. A word the
+     * model does not take - its model may be read off the run - is said in the
+     * run log and the model's own setting is used. Issue #674.
+     */
+    @Test
+    fun `a node's reasoning effort is sent for its step, and one its model does not take is said and left out`() {
+        val agentId = agent("Reviewer", model(serveAnswer()))
+        graphQlTester.document(
+            """
+            mutation {
+              saveWorkflowGraph(workspaceId: $workspaceId, workflowId: $workflowId, input: {
+                nodes: [{ key: "think", kind: AGENT, name: "Reviewer", agentId: $agentId, x: 0, y: 0,
+                          mappings: [{ name: "reasoningEffort", expression: "trigger.effort", mode: REFERENCE }] }],
+                edges: []
+              }) { nodes { key } }
+            }
+            """,
+        ).execute().errors().verify()
+
+        start(input = """{"summary":"the database fell over","effort":"high"}""")
+        assertThat(mapper.readTree(received.single()).path("reasoning_effort").stringValue()).isEqualTo("high")
+
+        val unheld = start(input = """{"summary":"the database fell over","effort":"extreme"}""")
+        assertThat(steps.findAll().single { it.executionId == unheld }.status).isEqualTo(StepStatus.COMPLETED)
+        assertThat(mapper.readTree(received.last()).has("reasoning_effort")).isFalse()
+        assertThat(logs.findAll().filter { it.executionId == unheld }.map { it.message })
+            .anySatisfy { assertThat(it).startsWith("Reasoning effort \"extreme\" was not used:") }
+    }
+
+    /**
      * A node may be answered by an agent the run names, thinking with that
      * agent's own model, and be lent web search where the run asks for it.
      * Issue #678: a research names its Planner and its Writer when it starts.
