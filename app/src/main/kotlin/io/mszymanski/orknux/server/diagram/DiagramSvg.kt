@@ -1,6 +1,5 @@
 package io.mszymanski.orknux.server.diagram
 
-import kotlin.math.abs
 import kotlin.math.max
 
 /**
@@ -52,6 +51,7 @@ class DiagramSvg {
             else -> WHITE
         }
         val ink = if (dark(fill)) WHITE else INK
+        DiagramOutline.OUTLINES[node.kind]?.let { outline(node, it, fill, ink); return }
         when (node.kind) {
             DiagramNodeKind.BOX -> rect(x, y, w, h, fill, 4)
             DiagramNodeKind.ROUNDED -> rect(x, y, w, h, fill, minOf(h / 2, 24))
@@ -65,6 +65,7 @@ class DiagramSvg {
                 text(x + 10, y + 18, fitted(clean(node.label).lineSequence().firstOrNull().orEmpty(), w - 20, 13), 13, MUTED, bold = true)
                 return
             }
+            else -> Unit
         }
         val inset = if (node.kind == DiagramNodeKind.DIAMOND || node.kind == DiagramNodeKind.ELLIPSE) w / 5 else 8
         val lines = wrap(clean(node.label), w - inset * 2, SIZE, max(1, (h - 8) / LINE))
@@ -89,18 +90,66 @@ class DiagramSvg {
         text(mx.toInt(), (my + 4).toInt(), shown, 12, MUTED, anchor = "middle")
     }
 
-    /** Where a line from this box's centre towards (tx, ty) leaves the box. */
-    private fun border(node: DiagramShape, tx: Double, ty: Double): Pair<Double, Double> {
-        val cx = node.x + node.w / 2.0
-        val cy = node.y + node.h / 2.0
-        val dx = tx - cx
-        val dy = ty - cy
-        if (dx == 0.0 && dy == 0.0) return cx to cy
-        val scale = minOf(
-            if (dx != 0.0) (node.w / 2.0) / abs(dx) else Double.MAX_VALUE,
-            if (dy != 0.0) (node.h / 2.0) / abs(dy) else Double.MAX_VALUE,
-        )
-        return (cx + dx * scale) to (cy + dy * scale)
+    /** Where a line from this shape's centre towards (tx, ty) leaves the outline drawn. */
+    private fun border(node: DiagramShape, tx: Double, ty: Double): Pair<Double, Double> = DiagramOutline.border(node, tx, ty)
+
+    /** A shape drawn from its [DiagramOutline], with its words where that outline keeps them. */
+    private fun StringBuilder.outline(node: DiagramShape, outline: DiagramOutline.Outline, fill: String, ink: String) {
+        val frame = DiagramOutline.frame(node, outline)
+        val (fx, fy, fw, fh) = frame.toList()
+        outline.pieces.forEach { piece ->
+            // A piece that is only lines - a database's rim, an actor's limbs - is not filled.
+            val painted = if (piece.filled) fill else "none"
+            when (piece) {
+                is DiagramOutline.Path -> append(
+                    "<path d=\"${DiagramOutline.scaled(piece.d, frame)}\" fill=\"$painted\" " +
+                        "stroke=\"$INK\" stroke-width=\"1.5\" stroke-linejoin=\"round\"/>",
+                )
+                is DiagramOutline.Oval -> append(
+                    "<ellipse cx=\"${r(fx + piece.cx * fw / 100)}\" cy=\"${r(fy + piece.cy * fh / 100)}\" " +
+                        "rx=\"${r(piece.rx * fw / 100)}\" ry=\"${r(piece.ry * fh / 100)}\" fill=\"$painted\" stroke=\"$INK\" stroke-width=\"1.5\"/>",
+                )
+            }
+        }
+        val words = clean(node.label)
+        if (outline.icon) {
+            // Beneath the icon, on the paper rather than on the fill, so it is ink whatever the colour.
+            val line = fitted(words.lineSequence().firstOrNull().orEmpty(), node.w + 40, SIZE)
+            text(node.x + node.w / 2, node.y + node.h - 6, line, SIZE, INK, anchor = "middle")
+            return
+        }
+        if (node.kind == DiagramNodeKind.CLASS) {
+            compartments(node, DiagramOutline.compartments(words), ink)
+            return
+        }
+        val inside = outline.inside
+        val left = node.x + (inside.left * node.w / 100).toInt()
+        val right = node.x + (inside.right * node.w / 100).toInt()
+        val top = node.y + (inside.top * node.h / 100).toInt()
+        val bottom = node.y + (inside.bottom * node.h / 100).toInt()
+        val lines = wrap(words, right - left, SIZE, max(1, (bottom - top) / LINE))
+        val first = (top + bottom) / 2 - (lines.size - 1) * LINE / 2 + SIZE * 7 / 20
+        lines.forEachIndexed { at, line -> text((left + right) / 2, first + at * LINE, line, SIZE, ink, anchor = "middle") }
+    }
+
+    /** A class: its name bold in the middle, each compartment under a rule, its lines from the left. */
+    private fun StringBuilder.compartments(node: DiagramShape, parts: List<List<String>>, ink: String) {
+        var y = node.y + 4
+        val bottom = node.y + node.h - 4
+        parts.forEachIndexed { at, lines ->
+            if (at > 0) {
+                append("<line x1=\"${node.x}\" y1=\"$y\" x2=\"${node.x + node.w}\" y2=\"$y\" stroke=\"$INK\" stroke-width=\"1.5\"/>")
+                y += 2
+            }
+            lines.forEach { line ->
+                if (y + LINE > bottom) return
+                val shown = fitted(line, node.w - 16, SIZE)
+                if (at == 0) text(node.x + node.w / 2, y + SIZE, shown, SIZE, ink, bold = true, anchor = "middle")
+                else text(node.x + 8, y + SIZE, shown, SIZE, ink)
+                y += LINE
+            }
+            y += 4
+        }
     }
 
     private fun StringBuilder.rect(x: Int, y: Int, w: Int, h: Int, fill: String, radius: Int, dashed: Boolean = false) {

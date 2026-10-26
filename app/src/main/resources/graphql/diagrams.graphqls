@@ -70,8 +70,10 @@ type Diagram {
     """
     The drawing, as JSON: {"nodes": [{id, kind, label, x, y, w, h, color, notes,
     parent}], "edges": [{id, from, to, label, kind}]}, whole pixels from the top
-    left, absolute. Node kinds are box, rounded, ellipse, diamond, note and group;
-    edge kinds are arrow, line, dashed and both. Empty on the list.
+    left, absolute. Node kinds are box, rounded, ellipse, diamond, note, group,
+    database, document, hexagon, parallelogram, trapezoid, triangle, cloud,
+    actor, class, component, package, interface, device, boundary, control and
+    entity; edge kinds are arrow, line, dashed and both. Empty on the list.
     """
     document: String!
     nodeCount: Int!

@@ -122,6 +122,18 @@ class DiagramExport(
                 DiagramNodeKind.DIAMOND -> "$id{$label}"
                 DiagramNodeKind.NOTE -> "$id>$label]"
                 DiagramNodeKind.GROUP -> "$id[$label]"
+                // Mermaid's classic shapes only, which every version reads; where it has none
+                // like ours, the nearest it has.
+                DiagramNodeKind.DATABASE -> "$id[($label)]"
+                DiagramNodeKind.HEXAGON -> "$id{{$label}}"
+                DiagramNodeKind.PARALLELOGRAM -> "$id[/$label/]"
+                DiagramNodeKind.TRAPEZOID -> "$id[\\$label/]"
+                DiagramNodeKind.TRIANGLE -> "$id[/$label\\]"
+                DiagramNodeKind.COMPONENT, DiagramNodeKind.DEVICE -> "$id[[$label]]"
+                DiagramNodeKind.CLOUD -> "$id($label)"
+                DiagramNodeKind.ACTOR, DiagramNodeKind.INTERFACE, DiagramNodeKind.BOUNDARY,
+                DiagramNodeKind.CONTROL, DiagramNodeKind.ENTITY -> "$id(($label))"
+                DiagramNodeKind.DOCUMENT, DiagramNodeKind.CLASS, DiagramNodeKind.PACKAGE -> "$id[$label]"
             }
         }
         return buildString {
