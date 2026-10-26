@@ -237,6 +237,19 @@ Step "Photographing $version, lane $Lane ($project): server $ServerPort, interfa
 # browser; that is a few minutes which may as well be the same few minutes Maven
 # is using. Waited for further down.
 Step 'Starting the directory, Temporal, the drawing model and the interface.'
+# Temporal's own database starts empty every run. The installation is a new
+# SQLite file each time and numbers its tasks from 1 again, while a Temporal
+# database kept from the last run still holds those numbers as workflow ids: the
+# seed's first task was refused with WorkflowExecutionAlreadyStarted on every
+# second run in a lane. Left from a run that stopped half way, the containers go
+# first, or the volume is still in use and stays. In a block of its own with errors
+# let through: compose says what it removes on stderr, and Windows PowerShell turns
+# a native command's stderr into an error that 'Stop' would end the run on.
+& {
+    $ErrorActionPreference = 'Continue'
+    docker @composeArgs down --remove-orphans 2>$null | Out-Null
+    docker volume rm -f "${project}_postgres-data" 2>$null | Out-Null
+}
 Invoke-Checked 'docker compose up' { docker @composeArgs up -d }
 
 # ------------------------------------------------------------------------ the jar
@@ -315,8 +328,10 @@ try {
         Stop-Process -Id $server.Id -Force
         $server.WaitForExit(30000) | Out-Null
     }
-    # Without -v: the browser, the dependency tree and Temporal's schema are worth
-    # keeping between runs, and none of them is anybody's data.
+    # Without -v: the browser and the dependency tree are worth keeping between
+    # runs, and none of them is anybody's data. Temporal's database is removed at
+    # the next start instead, above, so it never meets an installation it did not
+    # see begin.
     docker @composeArgs down --remove-orphans | Out-Null
 
     if ($KeepData) {
