@@ -15,10 +15,11 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
-## Unreleased
+## 1.2.2
 
 ### 🐛 Fixed
 
+- **1.2.2 is the first published 1.2 release.** 1.2.1 was tagged but never published either: a test in its build failed on SQLite, so no image or jar was made. Upgrading from 1.1.9 to 1.2.2 brings everything listed under 1.2.1 and 1.2.0 below.
 - **Voice mode speaks what the agent says between its tool calls**, as it arrives and in order with the answer, without holding the turn back; it was drawn but never spoken, under Thinking. A line the answer repeats is spoken once.
 - **A voice turn cut short by talking over it or leaving is no longer recorded as a failure**; the session said "could not answer: Nobody was left to read the answer". A typed turn stopped with Stop still says so.
 

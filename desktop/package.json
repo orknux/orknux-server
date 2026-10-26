@@ -1,7 +1,7 @@
 {
   "name": "orknux-desktop",
   "productName": "Orknux",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Orknux on one machine: the server on SQLite, in a window of its own.",
   "homepage": "https://orknux.ai",
   "author": {
