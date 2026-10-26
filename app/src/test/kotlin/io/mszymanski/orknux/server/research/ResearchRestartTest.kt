@@ -295,12 +295,15 @@ class ResearchRestartTest(
         val held = CountDownLatch(1).also { writingHeld = it }
         val id = start(modelId)
 
+        // Until the draft reaches where the writer is held: it arrives in pieces, and the first read can land
+        // between them - CI's SQLite run read "# Tides" before "The moon" (v1.2.1's build).
         var draft: String? = null
         val until = System.currentTimeMillis() + 30_000
-        while (draft == null && System.currentTimeMillis() < until) {
+        val held0 = "# Tides\n\nThe moon"
+        while (draft != held0 && System.currentTimeMillis() < until) {
             draft = graphQlTester.document("""query { research(id: $id) { draft } }""").execute()
                 .path("research").entity(Map::class.java).get()["draft"] as String?
-            if (draft == null) Thread.sleep(50)
+            if (draft != held0) Thread.sleep(50)
         }
         assertThat(draft).isEqualTo("# Tides\n\nThe moon")
         graphQlTester.document("""query { research(id: $id) { status result progress { stage } } }""").execute()
