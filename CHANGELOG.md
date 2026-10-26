@@ -20,6 +20,7 @@ have failed.
 ### 🐛 Fixed
 
 - **A long role under the account name no longer squeezes Quick actions to a sliver**; its results opened as a column one letter wide. The name and role are cut short, with the whole of them on hover.
+- **The diagram's description grows when its corner is dragged**; the corner was drawn and did nothing.
 
 ## 1.2.2
 
