@@ -184,15 +184,18 @@ class PdfCapability(
 
     /* ------------------------------------------------------------- as a tool */
 
-    override fun run(name: String, arguments: String, workspaceId: Long, sessionId: Long?): String {
+    override fun run(name: String, arguments: String, workspaceId: Long, sessionId: Long?): String =
+        run(name, arguments, workspaceId, sessionId) { true }
+
+    override fun run(name: String, arguments: String, workspaceId: Long, sessionId: Long?, holds: (String) -> Boolean): String {
         val asked = runCatching { mapper.readTree(arguments) }.getOrNull()
             ?: return refusal("That is not valid JSON.")
         return when (name) {
             FROM_HTML -> fromHtml(asked, sessionId)
             FROM_HTML_ZIP -> fromHtmlZip(asked, sessionId)
             TO_PNG -> toPng(asked, sessionId)
-            READ -> read(asked, sessionId)
-            SEARCH -> search(asked, sessionId)
+            READ -> read(asked, sessionId, holds)
+            SEARCH -> search(asked, sessionId, holds)
             PREVIEW -> preview(asked, sessionId)
             else -> refusal("There is no tool called $key" + "_" + name + ".")
         }
@@ -357,7 +360,7 @@ class PdfCapability(
         }
     }
 
-    private fun read(asked: JsonNode, sessionId: Long?): String {
+    private fun read(asked: JsonNode, sessionId: Long?, holds: (String) -> Boolean): String {
         val pdf = sourceFor(text(asked, KEY), sessionId) ?: return refusal(keyRefusal(text(asked, KEY), sessionId))
         val most = tuning[io.mszymanski.orknux.server.tuning.Tunable.PDF_READ_CHARACTERS]
         return when (val said = renderer.html(pdf, number(asked, FROM), number(asked, TO), most)) {
@@ -372,7 +375,17 @@ class PdfCapability(
                 ).apply {
                     val notes = mutableListOf<String>()
                     // A scan reads as nothing; say so rather than answer empty pages as if they were blank paper.
-                    if (said.textless) notes += "$NO_TEXT_LAYER Look at a page with $PREVIEW_TOOL."
+                    if (said.textless) notes += NO_TEXT_LAYER + lookAt(said.from, holds)
+                    /*
+                     * Pictures are not text, and a model reading the text of a
+                     * report has no way to know a chart was there. Issue #665:
+                     * it answered from the words around a figure as if they were
+                     * the whole of what the page said.
+                     */
+                    if (!said.textless && said.figures.isNotEmpty()) {
+                        put(FIGURES, said.figures)
+                        notes += picturesNote(said.figures) + lookAt(said.figures.first(), holds)
+                    }
                     /*
                      * Stopped at a page boundary rather than refused for its
                      * length. Issue #664: a long document used to answer
@@ -381,7 +394,8 @@ class PdfCapability(
                     said.next?.let { next ->
                         put(NEXT, next)
                         notes += "Stopped after page ${said.to} of ${said.pages} to keep this answer under $most " +
-                            "characters. Read on with $READ_TOOL's $FROM $next, or find the pages that matter with $SEARCH_TOOL."
+                            "characters. Read on with $READ_TOOL's $FROM $next" +
+                            (if (holds(SEARCH_TOOL)) ", or find the pages that matter with $SEARCH_TOOL." else ".")
                     }
                     if (notes.isNotEmpty()) put("note", notes.joinToString(" "))
                 },
@@ -389,11 +403,25 @@ class PdfCapability(
         }
     }
 
+    /** Which pages hold pictures, said as what it means for the text beside it. */
+    private fun picturesNote(pages: List<Int>): String {
+        val named = if (pages.size == 1) "Page ${pages.single()} has" else
+            "Pages ${pages.dropLast(1).joinToString(", ")} and ${pages.last()} have"
+        return "$named pictures - figures, charts, photographs or scanned parts - and what a picture shows is not in this text."
+    }
+
+    /**
+     * How to look at a page, naming the preview tool and its page parameter
+     * from its declaration - and only where the caller holds it, or nothing.
+     */
+    private fun lookAt(page: Int, holds: (String) -> Boolean): String =
+        if (holds(PREVIEW_TOOL)) " To look at it, draw page $page with $PREVIEW_TOOL's $PAGE." else ""
+
     /**
      * Finding things in a long document without reading it into the turn.
      * The text is [PdfText]'s, kept per session so the next search is free.
      */
-    private fun search(asked: JsonNode, sessionId: Long?): String {
+    private fun search(asked: JsonNode, sessionId: Long?, holds: (String) -> Boolean): String {
         val query = text(asked, QUERY)?.takeIf { it.isNotBlank() } ?: return refusal("Give the $QUERY to find.")
         val pdf = sourceFor(text(asked, KEY), sessionId) ?: return refusal(keyRefusal(text(asked, KEY), sessionId))
         val pages = when (val read = texts.pages(pdf, sessionId)) {
@@ -406,7 +434,7 @@ class PdfCapability(
                     "count" to 0,
                     "pages" to pages.pages.size,
                     "textLayer" to false,
-                    "note" to "$NO_TEXT_LAYER There is nothing to search. Look at a page with $PREVIEW_TOOL.",
+                    "note" to "$NO_TEXT_LAYER There is nothing to search." + lookAt(1, holds),
                 ),
             )
         }
@@ -667,6 +695,7 @@ class PdfCapability(
         const val FROM = "from"
         const val TO = "to"
         const val NEXT = "next"
+        const val FIGURES = "figures"
         const val PAGE = "page"
         const val WIDTH = "width"
         const val SHOW = "show"

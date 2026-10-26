@@ -433,10 +433,17 @@ class EmbeddedCapabilities(
      * the workspace settings a plugin can be told, which an embedded bundle has
      * no way to be told and no reason to want.
      */
-    fun run(name: String, arguments: String, workspaceId: Long, sessionId: Long?): String {
+    fun run(
+        name: String,
+        arguments: String,
+        workspaceId: Long,
+        sessionId: Long?,
+        // Which tools the caller holds, by full name; see [EmbeddedCapability.run]. Left out, a caller with no agent behind it.
+        holds: (String) -> Boolean = { true },
+    ): String {
         nativeFor(name)?.let { (capability, own) ->
             val declared = capability.tools().firstOrNull { it.name == own }?.params.orEmpty()
-            return runCatching { capability.run(own, unwrapped(arguments, declared), workspaceId, sessionId) }
+            return runCatching { capability.run(own, unwrapped(arguments, declared), workspaceId, sessionId, holds) }
                 .getOrElse { why ->
                     log.warn("The embedded tool {} failed: {}", name, why.message)
                     refusal(why.message ?: "it did not work")

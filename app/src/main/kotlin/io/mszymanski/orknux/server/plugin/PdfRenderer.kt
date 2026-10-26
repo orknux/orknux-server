@@ -1,5 +1,8 @@
 package io.mszymanski.orknux.server.plugin
 
+import org.apache.pdfbox.pdmodel.PDResources
+import org.apache.pdfbox.pdmodel.graphics.form.PDFormXObject
+import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject
 import org.apache.pdfbox.rendering.ImageType
 import org.apache.pdfbox.rendering.PDFRenderer
 import org.apache.pdfbox.text.PDFTextStripper
@@ -201,6 +204,7 @@ class PdfRenderer {
                 var textless = true
                 var read = last
                 var next: Int? = null
+                val figures = mutableListOf<Int>()
                 for (page in first..last) {
                     val stripper = PDFTextStripper().apply {
                         startPage = page
@@ -239,11 +243,12 @@ class PdfRenderer {
                     written.append(section)
                     characters += said.length
                     if (said.isNotBlank()) textless = false
+                    if (pictures(document.getPage(page - 1).resources, 0) > 0) figures += page
                 }
 
                 Reading.Read(
                     written.toString(), pages = pages, from = first, to = read, characters = characters,
-                    textless = textless, next = next,
+                    textless = textless, next = next, figures = figures,
                 )
             }
         } catch (failure: java.io.IOException) {
@@ -252,6 +257,27 @@ class PdfRenderer {
         } catch (failure: Exception) {
             log.warn("a pdf could not be read as text", failure)
             Reading.Refused("could not read that pdf: ${failure.message ?: failure.javaClass.simpleName}")
+        }
+    }
+
+    /**
+     * How many pictures a page's resources hold, forms followed a few levels
+     * down. Issue #665: a chart on a page is not in its text, and a model told
+     * nothing about it answers from the words around it as if they were all.
+     *
+     * Counted off the resources rather than the drawing, so a picture a page
+     * names and never draws counts too - rare, and the cost is a model told to
+     * look at a page that turns out to be plain. A chart drawn as lines rather
+     * than as an image is not found at all.
+     */
+    private fun pictures(resources: PDResources?, depth: Int): Int {
+        if (resources == null || depth > PICTURE_DEPTH) return 0
+        return resources.xObjectNames.sumOf { name ->
+            when (val drawn = runCatching { resources.getXObject(name) }.getOrNull()) {
+                is PDImageXObject -> 1
+                is PDFormXObject -> pictures(drawn.resources, depth + 1)
+                else -> 0
+            }
         }
     }
 
@@ -286,6 +312,8 @@ class PdfRenderer {
             val textless: Boolean = false,
             /** The page to read on from, where the read stopped before the last page asked for; null where it did not. */
             val next: Int? = null,
+            /** The pages read that hold pictures, whose content the text does not carry. */
+            val figures: List<Int> = emptyList(),
         ) : Reading
 
         data class Refused(val reason: String) : Reading
@@ -318,6 +346,9 @@ class PdfRenderer {
          * installation sets; this is that setting's default.
          */
         const val MOST_CHARACTERS = 200_000
+
+        /** How far forms inside forms are followed looking for pictures: a format's nesting, not a behaviour. */
+        const val PICTURE_DEPTH = 4
 
         const val MOST_NARROW = 64
         const val MOST_WIDE = 4096

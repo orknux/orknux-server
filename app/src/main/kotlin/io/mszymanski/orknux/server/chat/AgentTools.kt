@@ -465,7 +465,8 @@ class AgentTools(
         } else if (call.name == VALIDATE) {
             validator.check(call.arguments)
         } else if (embedded.handles(call.name)) {
-            embedded.run(call.name, call.arguments, agent.workspaceId, sessionId)
+            // Told what the agent holds, so an answer names another tool only where it can be called. Issue #665.
+            embedded.run(call.name, call.arguments, agent.workspaceId, sessionId) { BuiltInTools.granted(agent, it) }
         } else if (call.name == AgentRunTools.LIST) {
             agentTools.listed(agent)
         } else if (call.name == AgentRunTools.ASKS) {

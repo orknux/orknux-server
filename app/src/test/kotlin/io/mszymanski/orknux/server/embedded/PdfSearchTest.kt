@@ -133,6 +133,43 @@ class PdfSearchTest(
     @AfterEach
     fun unlimit() = tunables.set(Tunable.PDF_READ_CHARACTERS, null, "alice")
 
+    /**
+     * Issue #665: a chart is not in a page's text, and a model told nothing
+     * about it answers from the words around it as if they were all there was.
+     */
+    @Test
+    fun `a page with a picture says the picture is not in the text, and how to look at it`() {
+        put("illustrated.pdf", illustrated())
+
+        val read = call(PdfCapability.READ_TOOL, mapOf("contentKey" to "illustrated.pdf"))
+
+        assertThat(read.path("figures").toString()).isEqualTo("[2]")
+        assertThat(read.path("note").stringValue())
+            .contains("Page 2 has pictures").contains("not in this text")
+            .contains("${PdfCapability.PREVIEW_TOOL}'s page")
+        // And a page without one says nothing of the kind.
+        val plain = call(PdfCapability.READ_TOOL, mapOf("contentKey" to "illustrated.pdf", "to" to 1))
+        assertThat(plain.has("figures")).isFalse()
+        assertThat(plain.has("note")).isFalse()
+    }
+
+    /** The way to look is named only to an agent that holds it: a tool named and not held is one it cannot call. */
+    @Test
+    fun `the preview is named only where it is held`() {
+        put("illustrated.pdf", illustrated())
+        val withoutPreview = { name: String -> name != PdfCapability.PREVIEW_TOOL }
+
+        val read = mapper.readTree(
+            embedded.run(PdfCapability.READ_TOOL, """{"contentKey":"illustrated.pdf"}""", workspaceId, sessionId, withoutPreview),
+        )
+        assertThat(read.path("note").stringValue()).contains("Page 2 has pictures").doesNotContain(PdfCapability.PREVIEW_TOOL)
+
+        val scan = mapper.readTree(
+            embedded.run(PdfCapability.READ_TOOL, """{"contentKey":"scan.pdf"}""", workspaceId, sessionId, withoutPreview),
+        )
+        assertThat(scan.path("note").stringValue()).contains("no text layer").doesNotContain(PdfCapability.PREVIEW_TOOL)
+    }
+
     @Test
     fun `pdf_read's description sends a long document to the search`() {
         val read = embedded.toolSpecs().single { it.name == PdfCapability.READ_TOOL }
@@ -175,6 +212,27 @@ class PdfSearchTest(
                         }
                     }
                     stream.endText()
+                }
+            }
+            ByteArrayOutputStream().also { document.save(it) }.toByteArray()
+        }
+
+        /** Two pages of text, the second with a chart drawn beside it as a picture. */
+        fun illustrated(): ByteArray = PDDocument().use { document ->
+            val font = PDType1Font(Standard14Fonts.FontName.HELVETICA)
+            listOf("Revenue by quarter", "As the chart shows, the third quarter grew").forEachIndexed { index, line ->
+                val page = PDPage()
+                document.addPage(page)
+                PDPageContentStream(document, page).use { stream ->
+                    stream.beginText()
+                    stream.setFont(font, 10f)
+                    stream.newLineAtOffset(50f, 700f)
+                    stream.showText(line)
+                    stream.endText()
+                    if (index == 1) {
+                        val chart = BufferedImage(120, 80, BufferedImage.TYPE_INT_RGB)
+                        stream.drawImage(LosslessFactory.createFromImage(document, chart), 50f, 500f)
+                    }
                 }
             }
             ByteArrayOutputStream().also { document.save(it) }.toByteArray()

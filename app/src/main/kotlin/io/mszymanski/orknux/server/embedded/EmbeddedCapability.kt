@@ -63,6 +63,16 @@ interface EmbeddedCapability {
     fun run(name: String, arguments: String, workspaceId: Long, sessionId: Long?): String
 
     /**
+     * The same call, told which tools the caller holds by their full names, so
+     * an answer that points at another tool names it only where it can be
+     * called. A tool named and not held is a model told it can do something it
+     * cannot (#665). Capabilities whose answers name no other tool keep the
+     * four-argument form.
+     */
+    fun run(name: String, arguments: String, workspaceId: Long, sessionId: Long?, holds: (String) -> Boolean): String =
+        run(name, arguments, workspaceId, sessionId)
+
+    /**
      * One function call, arguments positional and in declared order, which is
      * how a graph passes them. Null where this capability has no such function.
      */
