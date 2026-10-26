@@ -17,6 +17,10 @@ have failed.
 
 ## Unreleased
 
+### ✨ Added
+
+- **The diagram editor's panel can be dragged wider, and the line above its chat up or down**; both sizes are kept. A long description and a node's notes no longer leave the chat a strip at the bottom.
+
 ### 🐛 Fixed
 
 - **A long role under the account name no longer squeezes Quick actions to a sliver**; its results opened as a column one letter wide. The name and role are cut short, with the whole of them on hover.
