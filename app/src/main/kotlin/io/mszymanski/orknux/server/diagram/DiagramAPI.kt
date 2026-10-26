@@ -49,6 +49,9 @@ class DiagramAPI(
     private val files: EditorChatFiles,
     private val search: DiagramSearch,
     private val tuning: Tuning = Tuning.DEFAULTS,
+    /** Who has it open, told when it is saved from any door; and the audit's once-per-visit. Issue #683. */
+    private val published: org.springframework.context.ApplicationEventPublisher? = null,
+    private val rooms: io.mszymanski.orknux.server.live.LiveRooms? = null,
 ) {
 
     val document = DiagramDocument(mapper)
@@ -238,10 +241,18 @@ class DiagramAPI(
      */
     @MutationMapping
     @Transactional
-    fun saveDiagram(@Argument id: Long, @Argument document: String, @Argument revision: Int?): DiagramView {
+    fun saveDiagram(@Argument id: Long, @Argument document: String, @Argument revision: Int?, @Argument viewer: String?): DiagramView {
+        /*
+         * Claimed in one statement before it is read, so two editors saving
+         * over the same revision at once cannot both pass: the second waits on
+         * the row the first has locked and then finds the revision moved.
+         */
+        if (revision != null && diagrams.holdRevision(id, revision) == 0) {
+            throw DiagramChangedException(find(id).name)
+        }
         val held = find(id)
         if (revision != null && revision != held.revision) throw DiagramChangedException(held.name)
-        return write(held, this.document.read(document))
+        return write(held, this.document.read(document), viewer?.takeIf { it.isNotBlank() })
     }
 
     /** The same save, from the tools. */
@@ -352,17 +363,27 @@ class DiagramAPI(
     fun catalogNamed(workspaceId: Long, named: String): DiagramCatalog? =
         catalogs.findByWorkspaceIdOrderByNameAsc(workspaceId).firstOrNull { it.name.equals(named, ignoreCase = true) || it.id?.toString() == named }
 
-    private fun write(held: Diagram, drawing: DiagramDrawing): DiagramView {
+    private fun write(held: Diagram, drawing: DiagramDrawing, viewer: String? = null): DiagramView {
         held(drawing)
         val id = requireNotNull(held.id)
         writeRows(id, drawing)
         held.revision += 1
         touch(held)
         val saved = diagrams.save(held)
-        audit.record(
-            held.workspaceId,
-            WorkspaceAuditCategory.WORKSPACE,
-            "Diagram ${held.name} saved with ${drawing.nodes.size} nodes and ${drawing.edges.size} connections",
+        // Once per visit from an editor, which saves as it is edited; every time from anything else.
+        val key = io.mszymanski.orknux.server.live.LiveRooms.Key(io.mszymanski.orknux.server.live.LiveKind.DIAGRAM, id)
+        if (viewer == null || rooms?.firstSave(key, viewer) != false) {
+            audit.record(
+                held.workspaceId,
+                WorkspaceAuditCategory.WORKSPACE,
+                "Diagram ${held.name} saved with ${drawing.nodes.size} nodes and ${drawing.edges.size} connections",
+            )
+        }
+        // From every door - the editor, the orknux_* tools, a chat - so whoever has it open sees it.
+        published?.publishEvent(
+            io.mszymanski.orknux.server.live.ItemSaved(
+                io.mszymanski.orknux.server.live.LiveKind.DIAGRAM, id, saved.revision.toLong(), viewer, who(),
+            ),
         )
         return view(saved)
     }

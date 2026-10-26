@@ -32,7 +32,9 @@ extend type Mutation {
     Writes a whole drawing over the one held. With `revision`, refused when the
     diagram has been saved since that revision - by somebody else or by a model.
     """
-    saveDiagram(id: ID!, document: String!, revision: Int): Diagram!
+    saveDiagram(id: ID!, document: String!, revision: Int,
+        "The open editor saving it, as it named itself on the live channel; its saves are announced to the others as its own, and audited once per visit."
+        viewer: String): Diagram!
     deleteDiagram(id: ID!): Boolean!
     """
     Asks a chat model to work on the diagram: the conversation so far, oldest

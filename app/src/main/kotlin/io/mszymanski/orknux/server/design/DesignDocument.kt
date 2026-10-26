@@ -180,6 +180,11 @@ interface DocumentCatalogRepository : JpaRepository<DocumentCatalog, Long> {
 
 interface DesignDocumentRepository : JpaRepository<DesignDocument, Long>, JpaSpecificationExecutor<DesignDocument> {
 
+    /** Locks the row where it is still at [revision], changing nothing; 0 where somebody saved since. Issue #683. */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true, clearAutomatically = true)
+    @org.springframework.data.jpa.repository.Query("update DesignDocument d set d.revision = d.revision where d.id = :id and d.revision = :revision")
+    fun holdRevision(@org.springframework.data.repository.query.Param("id") id: Long, @org.springframework.data.repository.query.Param("revision") revision: Int): Int
+
     /** A workspace's documents, the one worked on last first. */
     fun findByWorkspaceIdOrderByUpdatedAtDescIdDesc(workspaceId: Long): List<DesignDocument>
 

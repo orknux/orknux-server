@@ -60,7 +60,9 @@ extend type Mutation {
         "en or pl; empty is the reader's own."
         language: String,
         "IMPORT where what is saved came in by the editor's Import, for the history; anything else is the editor's own Save."
-        via: String
+        via: String,
+        "The open editor saving it, as it named itself on the live channel; its saves are announced to the others as its own, and audited once per visit."
+        viewer: String
     ): DesignDocument!
     "Sets the page a new document in the workspace starts on; its administrators'."
     setDocumentPageSizeDefault(workspaceId: ID!, pageSize: String!): String!

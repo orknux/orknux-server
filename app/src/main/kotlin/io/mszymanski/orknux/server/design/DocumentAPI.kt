@@ -66,6 +66,9 @@ class DocumentAPI(
     private val tuning: Tuning = Tuning.DEFAULTS,
     /** Keeps what each save displaces; see the class's note. */
     private val revisions: io.mszymanski.orknux.server.revision.ComponentRevisionRecorder? = null,
+    /** Who has it open, told when it is saved from any door; and the audit's once-per-visit. Issue #683. */
+    private val published: org.springframework.context.ApplicationEventPublisher? = null,
+    private val rooms: io.mszymanski.orknux.server.live.LiveRooms? = null,
 ) {
 
     val content = DocumentContent(mapper)
@@ -277,7 +280,10 @@ class DocumentAPI(
         @Argument margins: String?,
         @Argument language: String?,
         @Argument via: String?,
+        @Argument viewer: String?,
     ): DesignDocumentView {
+        // Claimed before it is read, so two saves over one revision cannot both pass; see DiagramRepository.holdRevision.
+        if (revision != null && documents.holdRevision(id, revision) == 0) throw DocumentChangedException(find(id).name)
         val held = find(id)
         if (revision != null && revision != held.revision) throw DocumentChangedException(held.name)
         pageSize?.let { held.pageSize = (pageSize(it) ?: throw DocumentPageSizeInvalidException(it)).name }
@@ -290,7 +296,7 @@ class DocumentAPI(
         language?.let {
             held.language = if (it.isBlank()) null else DocumentLanguages.of(it) ?: throw DocumentSettingInvalidException("language", it, DocumentLanguages.ALL.joinToString(" or "))
         }
-        return write(held, this.content.read(content, held.workspaceId), DocumentDoor.fromEditor(via))
+        return write(held, this.content.read(content, held.workspaceId), DocumentDoor.fromEditor(via), viewer = viewer?.takeIf { it.isNotBlank() })
     }
 
     /** The page a new document in this workspace starts on. */
@@ -535,6 +541,7 @@ class DocumentAPI(
         turn: String? = null,
         checkPictures: Boolean = true,
         said: Boolean = true,
+        viewer: String? = null,
     ): DesignDocumentView {
         val before = images.findByDocumentId(requireNotNull(held.id)).map { it.artifactId }.toSet()
         if (checkPictures) picturesHere(held.workspaceId, content.images(doc).filter { it !in before })
@@ -543,7 +550,15 @@ class DocumentAPI(
             if (now.isNotEmpty()) documentsHere(held.workspaceId, now - links.linksIn(content.read(held.content, held.workspaceId)))
         }
         val written = stored(doc)
-        if (turn == null || held.updatedTurn != turn) revisions?.saved(held)
+        /*
+         * An editor saves as it is typed in, so the version it displaces and
+         * the audit line are kept once per visit rather than once a second;
+         * every save from any other door keeps both, as before. Issue #683.
+         */
+        val id = requireNotNull(held.id)
+        val key = io.mszymanski.orknux.server.live.LiveRooms.Key(io.mszymanski.orknux.server.live.LiveKind.DOCUMENT, id)
+        val firstOfVisit = viewer == null || rooms?.firstSave(key, viewer) != false
+        if (firstOfVisit && (turn == null || held.updatedTurn != turn)) revisions?.saved(held)
         held.content = written
         held.plainText = content.plainText(doc)
         held.revision += 1
@@ -552,7 +567,11 @@ class DocumentAPI(
         touch(held)
         val saved = documents.save(held)
         keepImages(saved, doc)
-        if (said) audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Document ${held.name} saved")
+        if (said && firstOfVisit) audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Document ${held.name} saved")
+        // From every door, so whoever has it open sees it.
+        published?.publishEvent(
+            io.mszymanski.orknux.server.live.ItemSaved(io.mszymanski.orknux.server.live.LiveKind.DOCUMENT, id, saved.revision.toLong(), viewer, who()),
+        )
         return view(saved)
     }
 

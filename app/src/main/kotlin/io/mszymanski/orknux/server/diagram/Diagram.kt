@@ -186,6 +186,16 @@ interface DiagramCatalogRepository : JpaRepository<DiagramCatalog, Long> {
 }
 
 interface DiagramRepository : JpaRepository<Diagram, Long> {
+
+    /**
+     * Locks the diagram's row where it is still at [revision], changing
+     * nothing; 0 where somebody saved since. Held until the save's transaction
+     * ends, so a second save over the same revision waits and then finds it
+     * moved. Issue #683.
+     */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true, clearAutomatically = true)
+    @org.springframework.data.jpa.repository.Query("update Diagram d set d.revision = d.revision where d.id = :id and d.revision = :revision")
+    fun holdRevision(@org.springframework.data.repository.query.Param("id") id: Long, @org.springframework.data.repository.query.Param("revision") revision: Int): Int
     /** A workspace's diagrams, the one worked on last first. */
     fun findByWorkspaceIdOrderByUpdatedAtDescIdDesc(workspaceId: Long): List<Diagram>
     fun countByCatalogId(catalogId: Long): Long

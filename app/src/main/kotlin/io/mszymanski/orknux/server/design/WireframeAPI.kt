@@ -45,6 +45,9 @@ class WireframeAPI(
     /** Lazy: the pictures an exported page carries in itself are read as a document's export reads them. */
     @param:Lazy private val exports: DocumentExports,
     private val tuning: Tuning = Tuning.DEFAULTS,
+    /** Who has it open, told when it is saved from any door; and the audit's once-per-visit. Issue #683. */
+    private val published: org.springframework.context.ApplicationEventPublisher? = null,
+    private val rooms: io.mszymanski.orknux.server.live.LiveRooms? = null,
 ) {
 
     private val document = WireframeDocument(mapper)
@@ -106,10 +109,12 @@ class WireframeAPI(
      */
     @MutationMapping
     @Transactional
-    fun saveWireframe(@Argument id: Long, @Argument document: String, @Argument revision: Int?): WireframeView {
+    fun saveWireframe(@Argument id: Long, @Argument document: String, @Argument revision: Int?, @Argument viewer: String?): WireframeView {
+        // Claimed before it is read, so two saves over one revision cannot both pass; see DiagramRepository.holdRevision.
+        if (revision != null && wireframes.holdRevision(id, revision) == 0) throw WireframeChangedException(find(id).name)
         val held = find(id)
         if (revision != null && revision != held.revision) throw WireframeChangedException(held.name)
-        return write(held, checked(document))
+        return write(held, checked(document), viewer?.takeIf { it.isNotBlank() })
     }
 
     /** The same save, from the orknux_* tools, which hold elements rather than text. */
@@ -214,12 +219,21 @@ class WireframeAPI(
         updatedAt = wireframe.updatedAt.toString(),
     )
 
-    private fun write(held: Wireframe, elements: List<WireframeElement>): WireframeView {
+    private fun write(held: Wireframe, elements: List<WireframeElement>, viewer: String? = null): WireframeView {
         held.document = document.write(elements)
         held.revision += 1
         touch(held)
         val saved = wireframes.save(held)
-        audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Wireframe ${held.name} saved with ${elements.size} elements")
+        val id = requireNotNull(saved.id)
+        val key = io.mszymanski.orknux.server.live.LiveRooms.Key(io.mszymanski.orknux.server.live.LiveKind.WIREFRAME, id)
+        // Once per visit from an editor, which saves as it is edited; every time from anything else.
+        if (viewer == null || rooms?.firstSave(key, viewer) != false) {
+            audit.record(held.workspaceId, WorkspaceAuditCategory.WORKSPACE, "Wireframe ${held.name} saved with ${elements.size} elements")
+        }
+        // From every door, so whoever has it open sees it.
+        published?.publishEvent(
+            io.mszymanski.orknux.server.live.ItemSaved(io.mszymanski.orknux.server.live.LiveKind.WIREFRAME, id, saved.revision.toLong(), viewer, who()),
+        )
         return view(saved)
     }
 

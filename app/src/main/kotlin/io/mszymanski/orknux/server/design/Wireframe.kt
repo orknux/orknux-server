@@ -60,6 +60,11 @@ class Wireframe(
 
 interface WireframeRepository : JpaRepository<Wireframe, Long> {
 
+    /** Locks the row where it is still at [revision], changing nothing; 0 where somebody saved since. Issue #683. */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true, clearAutomatically = true)
+    @org.springframework.data.jpa.repository.Query("update Wireframe w set w.revision = w.revision where w.id = :id and w.revision = :revision")
+    fun holdRevision(@org.springframework.data.repository.query.Param("id") id: Long, @org.springframework.data.repository.query.Param("revision") revision: Int): Int
+
     /** A workspace's wireframes, the one worked on last first. */
     fun findByWorkspaceIdOrderByUpdatedAtDescIdDesc(workspaceId: Long): List<Wireframe>
 }

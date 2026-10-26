@@ -100,20 +100,20 @@ class WorkflowCollaborationTest(
             room.pointer(workflowId, "tab-a", "mallory", 99.0, 99.0)
             val seen = frames(b).single()
             assertThat(seen.event).isEqualTo("pointer")
-            assertThat(seen.payload).isEqualTo(WorkflowRoom.PointerView("tab-a", "alice", 10.0, 20.0))
+            assertThat(seen.payload).isEqualTo(io.mszymanski.orknux.server.live.LiveRooms.PointerView("tab-a", "alice", 10.0, 20.0))
             assertThat(frames(a)).isEmpty()
 
             val saved = save(revision(), "tab-a").path("saveWorkflowGraph.revision").entity(Long::class.java).get()
             listOf(a, b).forEach { seat ->
                 val moved = frames(seat).single { it.event == "graph" }
-                assertThat(moved.payload).isEqualTo(WorkflowRoom.GraphMovedView(saved, "tab-a", "alice"))
+                assertThat(moved.payload).isEqualTo(io.mszymanski.orknux.server.live.LiveRooms.SavedView(saved, "tab-a", "alice"))
             }
 
             room.leave(a)
             val left = frames(b)
             assertThat(left.map { it.event }).containsExactly("pointer", "presence")
-            assertThat(left.first().payload).isEqualTo(WorkflowRoom.PointerView("tab-a", "alice", null, null))
-            assertThat(room.viewers(workflowId)).containsExactly(WorkflowRoom.ViewerView("tab-b", "bob"))
+            assertThat(left.first().payload).isEqualTo(io.mszymanski.orknux.server.live.LiveRooms.PointerView("tab-a", "alice", null, null))
+            assertThat(room.viewers(workflowId)).containsExactly(io.mszymanski.orknux.server.live.LiveRooms.ViewerView("tab-b", "bob"))
         } finally {
             room.leave(a)
             room.leave(b)
@@ -138,7 +138,7 @@ class WorkflowCollaborationTest(
     }
 
     /** What is waiting for [seat] now, without waiting for more. */
-    private fun frames(seat: WorkflowRoom.Seat): List<WorkflowRoom.Frame> = buildList {
+    private fun frames(seat: io.mszymanski.orknux.server.live.LiveRooms.Seat): List<io.mszymanski.orknux.server.live.LiveRooms.Frame> = buildList {
         while (seat.waiting()) addAll(seat.next().orEmpty())
     }
 }

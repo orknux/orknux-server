@@ -17,7 +17,9 @@ extend type Mutation {
     Writes a whole drawing over the one held. With `revision`, refused when the
     wireframe has been saved since that revision - by somebody else or by a model.
     """
-    saveWireframe(id: ID!, document: String!, revision: Int): Wireframe!
+    saveWireframe(id: ID!, document: String!, revision: Int,
+        "The open editor saving it, as it named itself on the live channel; its saves are announced to the others as its own, and audited once per visit."
+        viewer: String): Wireframe!
     deleteWireframe(id: ID!): Boolean!
     """
     The wireframe as one HTML page - styles inline, no script, each frame a
