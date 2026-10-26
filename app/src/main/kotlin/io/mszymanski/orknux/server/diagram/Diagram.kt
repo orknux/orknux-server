@@ -176,8 +176,19 @@ class DiagramEdge(
     @Column(length = Diagrams.LABEL_LENGTH)
     val label: String? = null,
 
+    /** The nearest of the four kinds, kept for a reader that knows only them - an older jar among them. */
     @Column(nullable = false, length = 20)
     val kind: String,
+
+    /** How the line is drawn and what each end carries; null on a row written before they existed, read off [kind]. V629. */
+    @Column(name = "line_style", length = 20)
+    val lineStyle: String? = null,
+
+    @Column(name = "start_end", length = 20)
+    val startEnd: String? = null,
+
+    @Column(name = "end_end", length = 20)
+    val endEnd: String? = null,
 )
 
 interface DiagramCatalogRepository : JpaRepository<DiagramCatalog, Long> {
@@ -288,16 +299,73 @@ enum class DiagramNodeKind(val key: String, val said: String, val w: Int, val h:
     }
 }
 
-/** What a line between two nodes is drawn as. */
-enum class DiagramEdgeKind(val key: String, val said: String) {
-    ARROW("arrow", "an arrow from one node to the other: calls, flows to, depends on"),
-    LINE("line", "a plain line: is related to"),
-    DASHED("dashed", "a dashed arrow: optional, asynchronous, or happens sometimes"),
-    BOTH("both", "an arrow at both ends: talks both ways"),
+/**
+ * What a line between two nodes was drawn as before it had a style and two
+ * ends of its own: still read, from a model or a drawing written then, and
+ * still written beside them as the nearest of the four - so an older jar, and
+ * a reader that knows only these, draws something close. Each is exactly one
+ * line style and two ends, which is what keeps an old drawing looking as it did.
+ */
+enum class DiagramEdgeKind(
+    val key: String,
+    val said: String,
+    val line: DiagramLineStyle,
+    val start: DiagramEndStyle,
+    val end: DiagramEndStyle,
+) {
+    ARROW("arrow", "an arrow from one node to the other: calls, flows to, depends on", DiagramLineStyle.SOLID, DiagramEndStyle.NONE, DiagramEndStyle.ARROW),
+    LINE("line", "a plain line: is related to", DiagramLineStyle.SOLID, DiagramEndStyle.NONE, DiagramEndStyle.NONE),
+    DASHED("dashed", "a dashed arrow: optional, asynchronous, or happens sometimes", DiagramLineStyle.DASHED, DiagramEndStyle.NONE, DiagramEndStyle.ARROW),
+    BOTH("both", "an arrow at both ends: talks both ways", DiagramLineStyle.SOLID, DiagramEndStyle.ARROW, DiagramEndStyle.ARROW),
     ;
 
     companion object {
         fun byKey(key: String?): DiagramEdgeKind? = entries.firstOrNull { it.key == key?.trim()?.lowercase() }
+
+        /**
+         * The one of the four nearest a line drawn as [line] with [start] and
+         * [end]. None of the four has a mark at its start alone, so a line with
+         * nothing at its end is a plain line, whatever its start carries.
+         */
+        fun nearest(line: DiagramLineStyle, start: DiagramEndStyle, end: DiagramEndStyle): DiagramEdgeKind = when {
+            end == DiagramEndStyle.NONE -> LINE
+            start != DiagramEndStyle.NONE -> BOTH
+            line != DiagramLineStyle.SOLID -> DASHED
+            else -> ARROW
+        }
+    }
+}
+
+/** How a line between two nodes is drawn along its length. */
+enum class DiagramLineStyle(val key: String, val said: String) {
+    SOLID("solid", "a solid line"),
+    DASHED("dashed", "a dashed line: optional, asynchronous, a UML dependency or realisation"),
+    DOTTED("dotted", "a dotted line: weaker still, a hint of a relation"),
+    ;
+
+    companion object {
+        fun byKey(key: String?): DiagramLineStyle? = entries.firstOrNull { it.key == key?.trim()?.lowercase() }
+    }
+}
+
+/**
+ * What one end of a line is drawn with, where it meets its node. Enough of
+ * UML's ends for its relations: an open arrow for a dependency or navigation,
+ * a hollow triangle for inheritance, a hollow diamond for aggregation and a
+ * filled one for composition, at the whole's end.
+ */
+enum class DiagramEndStyle(val key: String, val said: String) {
+    NONE("none", "nothing"),
+    ARROW("arrow", "a filled arrowhead: flows to, calls"),
+    OPEN("open", "an open arrowhead: depends on, navigates to"),
+    TRIANGLE("triangle", "a hollow triangle: inherits from, implements"),
+    DIAMOND("diamond", "a hollow diamond, at the whole: aggregation, holds"),
+    FILLED_DIAMOND("filled-diamond", "a filled diamond, at the whole: composition, owns"),
+    CIRCLE("circle", "a small circle: an interface end, an optional link"),
+    ;
+
+    companion object {
+        fun byKey(key: String?): DiagramEndStyle? = entries.firstOrNull { it.key == key?.trim()?.lowercase() }
     }
 }
 

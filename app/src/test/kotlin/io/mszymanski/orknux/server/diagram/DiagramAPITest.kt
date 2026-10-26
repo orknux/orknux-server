@@ -175,6 +175,31 @@ class DiagramAPITest(
         refused("""{"nodes":[{"id":"a"},{"id":"b","parent":"a"}]}""", "not a group")
         refused("""{"nodes":[{"id":"a","color":"red"}]}""", "#rrggbb")
         refused("""{"nodes":[{"id":"a"},{"id":"a"}]}""", "the id a")
+        refused("""{"nodes":[{"id":"a"},{"id":"b"}],"edges":[{"from":"a","to":"b","line":"wavy"}]}""", "not one of")
+        refused("""{"nodes":[{"id":"a"},{"id":"b"}],"edges":[{"from":"a","to":"b","end":"star"}]}""", "not one of")
+    }
+
+    /**
+     * A line's style and its two ends are kept in the rows and read back; a line
+     * saved with only one of the four old kinds is read as that kind exactly.
+     */
+    @Test
+    fun `a line's style and both its ends are saved and read back, and an old kind is read as it was`() {
+        val id = create("Styled")
+        val saved = save(
+            id,
+            """{"nodes":[{"id":"order"},{"id":"line"},{"id":"bus"}],"edges":[
+                {"id":"has","from":"order","to":"line","line":"solid","start":"filled-diamond","end":"open"},
+                {"id":"maybe","from":"order","to":"bus","line":"dotted","start":"circle","end":"none"},
+                {"id":"old","from":"line","to":"bus","kind":"dashed"}
+            ]}""",
+        ).path("saveDiagram.document").entity(String::class.java).get()
+
+        val edges = tools.jackson.databind.ObjectMapper().readTree(saved).path("edges").associateBy { it.path("id").stringValue() }
+        fun said(edge: String) = listOf("line", "start", "end", "kind").map { edges.getValue(edge).path(it).stringValue() }
+        assertThat(said("has")).containsExactly("solid", "filled-diamond", "open", "both")
+        assertThat(said("maybe")).containsExactly("dotted", "circle", "none", "line")
+        assertThat(said("old")).containsExactly("dashed", "none", "arrow", "dashed")
     }
 
     /** From the editor's door: notes past the cap are refused and name the node; the cap is the installation's. */

@@ -19,14 +19,27 @@ data class DiagramShape(
     val parent: String? = null,
 )
 
-/** One line between two boxes, by their ids. */
+/** One line between two boxes, by their ids: how it is drawn along its length, and what each end carries. */
 data class DiagramLink(
     val id: String,
     val from: String,
     val to: String,
     val label: String? = null,
-    val kind: DiagramEdgeKind = DiagramEdgeKind.ARROW,
-)
+    val line: DiagramLineStyle = DiagramLineStyle.SOLID,
+    /** At [from]. */
+    val start: DiagramEndStyle = DiagramEndStyle.NONE,
+    /** At [to]. */
+    val end: DiagramEndStyle = DiagramEndStyle.ARROW,
+) {
+    /** The nearest of the four kinds a line had before it had a style and two ends. */
+    val kind: DiagramEdgeKind get() = DiagramEdgeKind.nearest(line, start, end)
+
+    companion object {
+        /** A line drawn as one of the four kinds, exactly as it was drawn then. */
+        fun of(id: String, from: String, to: String, label: String?, kind: DiagramEdgeKind) =
+            DiagramLink(id, from, to, label, kind.line, kind.start, kind.end)
+    }
+}
 
 /** A whole drawing. */
 data class DiagramDrawing(val nodes: List<DiagramShape>, val edges: List<DiagramLink>) {
@@ -121,7 +134,23 @@ class DiagramDocument(private val mapper: ObjectMapper) {
         if (label != null && label.length > Diagrams.LABEL_LENGTH) {
             throw DiagramDocumentInvalidException("edge $id has a label longer than ${Diagrams.LABEL_LENGTH} characters")
         }
-        return DiagramLink(id = id, from = from, to = to, label = label, kind = kind)
+        // The kind says all three where nothing else does; each one named beside it is that one's own.
+        val line = text(node.path("line"))?.let { said ->
+            DiagramLineStyle.byKey(said) ?: throw DiagramDocumentInvalidException(
+                "edge $id has line $said, which is not one of ${DiagramLineStyle.entries.joinToString(", ") { it.key }}",
+            )
+        } ?: kind.line
+        return DiagramLink(
+            id = id, from = from, to = to, label = label, line = line,
+            start = end(node, "start", id) ?: kind.start,
+            end = end(node, "end", id) ?: kind.end,
+        )
+    }
+
+    private fun end(node: JsonNode, field: String, of: String): DiagramEndStyle? = text(node.path(field))?.let { said ->
+        DiagramEndStyle.byKey(said) ?: throw DiagramDocumentInvalidException(
+            "edge $of has $field $said, which is not one of ${DiagramEndStyle.entries.joinToString(", ") { it.key }}",
+        )
     }
 
     /**
@@ -183,6 +212,9 @@ class DiagramDocument(private val mapper: ObjectMapper) {
         put("from", edge.from)
         put("to", edge.to)
         put("kind", edge.kind.key)
+        put("line", edge.line.key)
+        put("start", edge.start.key)
+        put("end", edge.end.key)
         edge.label?.let { put("label", it) }
     }
 
@@ -196,6 +228,8 @@ class DiagramDocument(private val mapper: ObjectMapper) {
 
     fun changed(edge: DiagramLink, change: JsonNode, others: Set<String>): DiagramLink {
         val merged = mapper.valueToTree<JsonNode>(shown(edge)) as tools.jackson.databind.node.ObjectNode
+        // A change naming only a kind means that kind whole, not that kind under the style the line had.
+        if (change.has("kind")) STYLED.filterNot { change.has(it) }.forEach { merged.remove(it) }
         change.properties().forEach { (key, value) -> merged.set(key, value) }
         merged.put("id", edge.id)
         return edge(merged, 0, others)
@@ -252,5 +286,8 @@ class DiagramDocument(private val mapper: ObjectMapper) {
         const val MIN_SIZE = 8
 
         val COLOR = Regex("^#[0-9a-fA-F]{6}$")
+
+        /** What an edge says beyond its kind: the style along it and its two ends. */
+        val STYLED = listOf("line", "start", "end")
     }
 }

@@ -310,9 +310,13 @@ class DiagramAPI(
             )
         },
         edges = edges.findByDiagramIdOrderByPositionAsc(diagramId).map {
+            // A row from before V629 has only its kind, which says all three exactly as it was drawn.
+            val kind = DiagramEdgeKind.byKey(it.kind) ?: DiagramEdgeKind.ARROW
             DiagramLink(
                 id = it.key, from = it.sourceKey, to = it.targetKey, label = it.label,
-                kind = DiagramEdgeKind.byKey(it.kind) ?: DiagramEdgeKind.ARROW,
+                line = DiagramLineStyle.byKey(it.lineStyle) ?: kind.line,
+                start = DiagramEndStyle.byKey(it.startEnd) ?: kind.start,
+                end = DiagramEndStyle.byKey(it.endEnd) ?: kind.end,
             )
         },
     )
@@ -405,6 +409,7 @@ class DiagramAPI(
                 DiagramEdge(
                     diagramId = diagramId, key = edge.id, position = at, sourceKey = edge.from, targetKey = edge.to,
                     label = edge.label, kind = edge.kind.key,
+                    lineStyle = edge.line.key, startEnd = edge.start.key, endEnd = edge.end.key,
                 )
             },
         )

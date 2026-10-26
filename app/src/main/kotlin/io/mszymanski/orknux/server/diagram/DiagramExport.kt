@@ -153,12 +153,20 @@ class DiagramExport(
             drawing.edges.forEach { edge ->
                 val from = ids[edge.from] ?: return@forEach
                 val to = ids[edge.to] ?: return@forEach
-                val arrow = when (edge.kind) {
-                    DiagramEdgeKind.ARROW -> "-->"
-                    DiagramEdgeKind.LINE -> "---"
-                    DiagramEdgeKind.DASHED -> "-.->"
-                    DiagramEdgeKind.BOTH -> "<-->"
+                // Mermaid's flowchart has a solid and a dotted line, an arrowhead and a circle: each end
+                // the nearest of those, so the four old kinds come out as they always did.
+                val solid = edge.line == DiagramLineStyle.SOLID
+                val start = when (edge.start) {
+                    DiagramEndStyle.NONE -> ""
+                    DiagramEndStyle.CIRCLE -> "o"
+                    else -> "<"
                 }
+                val end = when (edge.end) {
+                    DiagramEndStyle.NONE -> if (solid) "-" else ""
+                    DiagramEndStyle.CIRCLE -> "o"
+                    else -> ">"
+                }
+                val arrow = start + (if (solid) "--" else "-.-") + end
                 val label = edge.label?.takeIf { it.isNotBlank() }?.let { "|" + quoted(it) + "|" }.orEmpty()
                 appendLine("  $from $arrow$label $to")
             }

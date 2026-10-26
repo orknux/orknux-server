@@ -19,6 +19,7 @@ have failed.
 
 ### ✨ Added
 
+- **A diagram's line has a style and a mark at each end**: solid, dashed or dotted, and at either end nothing, an arrow, an open arrow, a triangle, a diamond, a filled diamond or a circle - enough for UML's relations. Each is picked with its picture beside its name, agents draw them too, and a line saved as one of the four old kinds looks exactly as it did.
 - **Diagrams, documents and wireframes can be worked on together, as workflows can**: each editor shows who else has it open and where they point, saves as it goes after Admin Settings' Workflow Autosave, and takes in what the others save as it lands - merging shapes and elements by id, and a document paragraph by paragraph, so two people changing it at once both keep their work. The Save button stays; an editor's saves are audited, and a document's earlier version kept, once per visit rather than once per save.
 - **A run's agent step says whether Output streaming was on**, under its Parameters, so a message that reached Slack late can be told from one the step held on purpose.
 - **A chat draws your avatar beside what you said**, as the agent's is beside its answers; Preferences → Avatar in Chat turns it off.

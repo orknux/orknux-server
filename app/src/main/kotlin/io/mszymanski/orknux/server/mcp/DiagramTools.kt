@@ -10,9 +10,11 @@ import io.mszymanski.orknux.server.diagram.DiagramAgentAccess
 import io.mszymanski.orknux.server.diagram.DiagramDocumentInvalidException
 import io.mszymanski.orknux.server.diagram.DiagramDrawing
 import io.mszymanski.orknux.server.diagram.DiagramEdgeKind
+import io.mszymanski.orknux.server.diagram.DiagramEndStyle
 import io.mszymanski.orknux.server.diagram.DiagramExport
 import io.mszymanski.orknux.server.diagram.DiagramExportAPI
 import io.mszymanski.orknux.server.diagram.DiagramFormat
+import io.mszymanski.orknux.server.diagram.DiagramLineStyle
 import io.mszymanski.orknux.server.diagram.DiagramLink
 import io.mszymanski.orknux.server.diagram.DiagramNodeKind
 import io.mszymanski.orknux.server.diagram.DiagramReadOnlyException
@@ -49,8 +51,10 @@ import java.util.Base64
  * people drew, and an owner turns it on per agent. The editor's own chat passes
  * `personAsking`, because a person is there asking for the change.
  *
- * The vocabulary in the descriptions is read off [DiagramNodeKind] and
- * [DiagramEdgeKind], which the drawing is checked against, so the two cannot differ.
+ * The vocabulary in the descriptions is read off [DiagramNodeKind],
+ * [DiagramLineStyle] and [DiagramEndStyle], which the drawing is checked
+ * against, so the two cannot differ. [DiagramEdgeKind] is still taken, as a
+ * shorthand for all three.
  */
 @Service
 class DiagramTools(
@@ -305,6 +309,9 @@ class DiagramTools(
                 put("edge", edge.id)
                 put("direction", if (edge.from == edge.to) "self" else if (outgoing) "out" else "in")
                 put("kind", edge.kind.key)
+                put("line", edge.line.key)
+                put("start", edge.start.key)
+                put("end", edge.end.key)
                 edge.label?.let { put("label", it) }
                 put("node", brief(other))
             }
@@ -547,7 +554,11 @@ class DiagramTools(
 
         private val SHAPES_SAID: String =
             "Node kinds: " + DiagramNodeKind.entries.joinToString("; ") { "${it.key} - ${it.said}" } + ". " +
-                "Connection kinds: " + DiagramEdgeKind.entries.joinToString("; ") { "${it.key} - ${it.said}" } + "."
+                "A connection's line: " + DiagramLineStyle.entries.joinToString("; ") { "${it.key} - ${it.said}" } + ". " +
+                "Each end of it, start at from and end at to: " +
+                DiagramEndStyle.entries.joinToString("; ") { "${it.key} - ${it.said}" } + ". " +
+                "Or a kind, standing for all three: " +
+                DiagramEdgeKind.entries.joinToString("; ") { "${it.key} - ${it.said}" } + "."
 
         private const val ANSWERED =
             "Answers the diagram with its url - where it opens in the editor, to give the person - and, in a " +
@@ -558,7 +569,9 @@ class DiagramTools(
                 "inside a group; id optional on a new one; color #rrggbb; notes are free text about the node; parent " +
                 "is the id of the group it sits in. Lay them out left to right or top to bottom, about 80 pixels apart."
 
-        private const val EDGE_SAID = "Each is {id, from, to, label, kind}: from and to are node ids; id optional on a new one."
+        private const val EDGE_SAID =
+            "Each is {id, from, to, label, line, start, end}: from and to are node ids; id optional on a new one; " +
+                "kind may stand in for line, start and end."
 
         private val NODE_LIST: Map<String, Any?> = mapOf(
             "type" to "array",
@@ -589,6 +602,9 @@ class DiagramTools(
                     "to" to mapOf("type" to "string"),
                     "label" to mapOf("type" to "string"),
                     "kind" to mapOf("type" to "string", "enum" to DiagramEdgeKind.entries.map { it.key }),
+                    "line" to mapOf("type" to "string", "enum" to DiagramLineStyle.entries.map { it.key }),
+                    "start" to mapOf("type" to "string", "enum" to DiagramEndStyle.entries.map { it.key }),
+                    "end" to mapOf("type" to "string", "enum" to DiagramEndStyle.entries.map { it.key }),
                 ),
             ),
         )

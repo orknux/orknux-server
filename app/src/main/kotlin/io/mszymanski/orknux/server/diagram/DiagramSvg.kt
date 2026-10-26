@@ -34,7 +34,13 @@ class DiagramSvg {
             append("<defs><marker id=\"dg-head\" viewBox=\"0 0 10 10\" refX=\"9\" refY=\"5\" markerWidth=\"8\" ")
             append("markerHeight=\"8\" orient=\"auto\"><path d=\"M 0 0 L 10 5 L 0 10 z\" fill=\"$INK\"/></marker>")
             append("<marker id=\"dg-tail\" viewBox=\"0 0 10 10\" refX=\"1\" refY=\"5\" markerWidth=\"8\" ")
-            append("markerHeight=\"8\" orient=\"auto\"><path d=\"M 10 0 L 0 5 L 10 10 z\" fill=\"$INK\"/></marker></defs>")
+            append("markerHeight=\"8\" orient=\"auto\"><path d=\"M 10 0 L 0 5 L 10 10 z\" fill=\"$INK\"/></marker>")
+            // The other marks, each drawn twice for the same reason: pointing out of the line's end, and out of its start.
+            DiagramEndStyle.entries.filter { it != DiagramEndStyle.NONE && it != DiagramEndStyle.ARROW }.forEach { style ->
+                marker(style, atEnd = true)
+                marker(style, atEnd = false)
+            }
+            append("</defs>")
             append("<rect x=\"$left\" y=\"$top\" width=\"$width\" height=\"$height\" fill=\"$PAPER\"/>")
             nodes.filter { it.kind == DiagramNodeKind.GROUP }.forEach { node(it) }
             drawing.edges.forEach { edge -> edge(edge, byId[edge.from] ?: return@forEach, byId[edge.to] ?: return@forEach) }
@@ -77,9 +83,13 @@ class DiagramSvg {
         val (x1, y1) = border(from, to.x + to.w / 2.0, to.y + to.h / 2.0)
         val (x2, y2) = border(to, from.x + from.w / 2.0, from.y + from.h / 2.0)
         append("<line x1=\"${r(x1)}\" y1=\"${r(y1)}\" x2=\"${r(x2)}\" y2=\"${r(y2)}\" stroke=\"$INK\" stroke-width=\"1.5\"")
-        if (edge.kind == DiagramEdgeKind.DASHED) append(" stroke-dasharray=\"6 4\"")
-        if (edge.kind != DiagramEdgeKind.LINE) append(" marker-end=\"url(#dg-head)\"")
-        if (edge.kind == DiagramEdgeKind.BOTH) append(" marker-start=\"url(#dg-tail)\"")
+        when (edge.line) {
+            DiagramLineStyle.SOLID -> Unit
+            DiagramLineStyle.DASHED -> append(" stroke-dasharray=\"6 4\"")
+            DiagramLineStyle.DOTTED -> append(" stroke-dasharray=\"1.5 3.5\" stroke-linecap=\"round\"")
+        }
+        markerOf(edge.end, atEnd = true)?.let { append(" marker-end=\"url(#$it)\"") }
+        markerOf(edge.start, atEnd = false)?.let { append(" marker-start=\"url(#$it)\"") }
         append("/>")
         val label = edge.label?.let(::clean)?.lineSequence()?.firstOrNull()?.takeIf { it.isNotBlank() } ?: return
         val shown = fitted(label, 220, 12)
@@ -88,6 +98,36 @@ class DiagramSvg {
         val half = shown.length * 12 * CHAR_WIDTH / 2 + 4
         append("<rect x=\"${r(mx - half)}\" y=\"${r(my - 9)}\" width=\"${r(half * 2)}\" height=\"16\" rx=\"3\" fill=\"$PAPER\"/>")
         text(mx.toInt(), (my + 4).toInt(), shown, 12, MUTED, anchor = "middle")
+    }
+
+    /** The marker an end is drawn with, by id; the arrow keeps the two it always had, so an old line draws as it did. */
+    private fun markerOf(style: DiagramEndStyle, atEnd: Boolean): String? = when (style) {
+        DiagramEndStyle.NONE -> null
+        DiagramEndStyle.ARROW -> if (atEnd) "dg-head" else "dg-tail"
+        else -> "dg-${if (atEnd) "end" else "start"}-${style.key}"
+    }
+
+    /**
+     * One end's mark, its point or its far side on the node. Drawn at the end
+     * pointing along the line, and at the start mirrored, since the renderer
+     * the PNG goes through does not read auto-start-reverse.
+     */
+    private fun StringBuilder.marker(style: DiagramEndStyle, atEnd: Boolean) {
+        val x = { at: Double -> r(if (atEnd) at else MARK - at) }
+        append("<marker id=\"${markerOf(style, atEnd)}\" viewBox=\"0 0 $MARK $MARK\" refX=\"${x(MARK)}\" refY=\"${r(MARK / 2)}\" ")
+        append("markerWidth=\"10\" markerHeight=\"10\" orient=\"auto\">")
+        val stroke = "stroke=\"$INK\" stroke-width=\"1.2\" stroke-linejoin=\"round\""
+        when (style) {
+            DiagramEndStyle.OPEN -> append("<path d=\"M ${x(1.0)} 1 L ${x(MARK)} 6 L ${x(1.0)} 11\" fill=\"none\" $stroke/>")
+            DiagramEndStyle.TRIANGLE -> append("<path d=\"M ${x(1.0)} 1 L ${x(MARK)} 6 L ${x(1.0)} 11 z\" fill=\"$PAPER\" $stroke/>")
+            DiagramEndStyle.DIAMOND, DiagramEndStyle.FILLED_DIAMOND -> {
+                val fill = if (style == DiagramEndStyle.DIAMOND) PAPER else INK
+                append("<path d=\"M ${x(0.5)} 6 L ${x(6.0)} 1.5 L ${x(MARK)} 6 L ${x(6.0)} 10.5 z\" fill=\"$fill\" $stroke/>")
+            }
+            DiagramEndStyle.CIRCLE -> append("<circle cx=\"${x(7.0)}\" cy=\"6\" r=\"4.5\" fill=\"$PAPER\" $stroke/>")
+            else -> Unit
+        }
+        append("</marker>")
     }
 
     /** Where a line from this shape's centre towards (tx, ty) leaves the outline drawn. */
@@ -210,6 +250,8 @@ class DiagramSvg {
 
     companion object {
         const val PAD = 24
+        /** The square a line end's mark is drawn in, in its own units; a format, not a behaviour. */
+        private const val MARK = 12.0
         private const val SIZE = 14
         private const val LINE = 18
         private const val CHAR_WIDTH = 0.56
