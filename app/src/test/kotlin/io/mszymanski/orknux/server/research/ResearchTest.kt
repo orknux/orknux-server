@@ -570,12 +570,8 @@ class ResearchTest(
         assertThat(asked(PLAN)).hasSize(1)
         assertThat(asked(PLAN).single()).contains("Why are there tides?").contains("exactly 3 search queries")
         assertThat(modelOf(asked(PLAN).single())).isEqualTo("research-$stamp-Chosen")
-        // Offered nothing that runs anything but web search, lent because the research searches the web (#678) -
-        // beside the tool_ machinery that comes with having a tool at all. Nothing the session it keeps (#668) brings:
-        // every built-in is hidden from it, and a pad tool that no list switches is no use with the rest held back.
-        assertThat(toolsOf(asked(PLAN).single()).filterNot { it.startsWith("tool_") }).containsExactly("web_search")
-        // And not told to write its work into scratchpads it was not given.
-        assertThat(asked(PLAN) + asked(WRITE)).allSatisfy { assertThat(it).doesNotContain("You have scratchpads") }
+        // Lent web search because the research searches the web (#678).
+        assertThat(toolsOf(asked(PLAN).single())).contains("web_search")
         assertThat(web.searched).containsExactly("tide causes", "tide timing", "tide records")
         assertThat(asked(FOLLOW_UP)).isEmpty()
 
@@ -588,7 +584,7 @@ class ResearchTest(
         val write = asked(WRITE).single()
         assertThat(write).contains("Register: FORMAL").contains("Documents not to use: none").contains("[1] ").contains("The moon's gravity raises tides.")
         assertThat(modelOf(write)).isEqualTo("research-$stamp-Chosen")
-        assertThat(toolsOf(write).filterNot { it.startsWith("tool_") }).containsExactly("web_search")
+        assertThat(toolsOf(write)).contains("web_search")
         // Nor told of any: a model told of skill_list it was not given wrote the call out as the report.
         assertThat(asked(PLAN) + asked(WRITE)).allSatisfy { assertThat(it).doesNotContain("skill_list").doesNotContain("skill_load") }
         assertThat(asked(NOTES).map(::modelOf)).isNotEmpty().allMatch { it == "research-$stamp-Chosen" }
@@ -847,8 +843,8 @@ class ResearchTest(
         // No search at all, not even a follow-up one at Medium's depth; the website kept to is read where it was typed.
         assertThat(web.searched).isEmpty()
         // Nor is web search lent to the agents it runs with.
-        assertThat(toolsOf(asked(PLAN).single())).isEmpty()
-        assertThat(toolsOf(asked(WRITE).single())).isEmpty()
+        assertThat(toolsOf(asked(PLAN).single())).doesNotContain("web_search")
+        assertThat(toolsOf(asked(WRITE).single())).doesNotContain("web_search")
         assertThat(asked(FOLLOW_UP)).isEmpty()
         assertThat(web.read).containsExactly("https://harbour.example.org/tides")
         assertThat(asked(WRITE).single()).contains("/api/artifacts/$notes").contains("https://harbour.example.org/tides")

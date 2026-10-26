@@ -39,35 +39,6 @@ interface ToolShed {
      */
     fun briefing(): String? = null
 
-    /**
-     * The briefing, for an agent offered only [offered] of these tools; null
-     * where the paragraph would name tools the agent was not given.
-     *
-     * The agent's Tools list holds a lent built-in back, and the paragraph
-     * used to go out whole whatever it held back: an agent with every
-     * scratchpad tool hidden but `scratchpad_keep`, which no list switches,
-     * was told to write its long work into scratchpads it could not write to.
-     * Research's writer is that agent, and once its step kept a session
-     * (#668) it would have been told it. A shed whose paragraph is about
-     * tools a list may withhold answers here for what is left; one none of
-     * whose tools is offered says nothing. A shed that lends only its
-     * paragraph - auto mode, an asked agent's - holds no tool to withhold,
-     * and is said whole.
-     */
-    fun briefing(offered: Set<String>): String? =
-        briefing()?.takeIf { specs().let { held -> held.isEmpty() || held.any { it.name in offered } } }
-
-    /**
-     * Tools of this shed that are no use once the rest of [offered] is what
-     * the agent's list left: taken back too, rather than offered alone.
-     *
-     * `scratchpad_keep` is switched by no list, and hands on a pad; an agent
-     * with every pad tool hidden has no pad to hand on, and was offered it
-     * anyway - the one tool in an array that had held none, once Research's
-     * planner and writer kept sessions (#668).
-     */
-    fun withdrawn(offered: Set<String>): Set<String> = emptySet()
-
     /** Whether this is one of the shed's, by exact name. */
     fun handles(name: String): Boolean
 
@@ -173,11 +144,6 @@ fun sheds(vararg lent: ToolShed?): ToolShed? {
             /** Each shed's paragraph, in the order lent; null where none has one. */
             override fun briefing(): String? =
                 held.mapNotNull { it.briefing() }.takeIf { it.isNotEmpty() }?.joinToString("\n\n")
-
-            override fun briefing(offered: Set<String>): String? =
-                held.mapNotNull { it.briefing(offered) }.takeIf { it.isNotEmpty() }?.joinToString("\n\n")
-
-            override fun withdrawn(offered: Set<String>): Set<String> = held.flatMapTo(mutableSetOf()) { it.withdrawn(offered) }
 
             override fun handles(name: String): Boolean = held.any { it.handles(name) }
 
