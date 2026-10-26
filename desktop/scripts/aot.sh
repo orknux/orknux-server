@@ -36,6 +36,29 @@ rm -rf resources/server/app
 "$JAVA" -Djarmode=tools -jar resources/server/app.jar extract \
     --destination resources/server/app --application-filename app.jar
 
+# The release jar is signed, and extract carries its signature files into app.jar under a manifest it rewrote, so
+# the JVM refused to start it: "Invalid signature file digest for Manifest main attributes" (1.2.2's desktop build).
+# The signature belongs to resources/server/app.jar, which is kept and is what the launcher checks; the copy made
+# here is unpacked from it and drops it.
+PYTHON=""
+for candidate in python3 python; do
+    if "$candidate" -c 'import zipfile' >/dev/null 2>&1; then PYTHON="$candidate"; break; fi
+done
+[ -n "$PYTHON" ] || { echo "no python to strip the signature from the unpacked jar" >&2; exit 1; }
+"$PYTHON" - "$(native "$PWD/resources/server/app/app.jar")" <<'EOF'
+import os, re, sys, zipfile
+path = sys.argv[1]
+signed = re.compile(r'^META-INF/[^/]+\.(SF|RSA|DSA|EC)$', re.IGNORECASE)
+with zipfile.ZipFile(path) as source:
+    if not any(signed.match(one.filename) for one in source.infolist()):
+        sys.exit(0)
+    with zipfile.ZipFile(path + '.unsigned', 'w') as target:
+        for one in source.infolist():
+            if not signed.match(one.filename):
+                target.writestr(one, source.read(one.filename), compress_type=one.compress_type)
+os.replace(path + '.unsigned', path)
+EOF
+
 # Whole seconds, before the cache records them: it compares a jar's time to the tick, and the time put back after an
 # install (see aot-times.tsv below) is written in seconds - a fraction left here was a cache refused on every start.
 find resources/server/app -name '*.jar' -type f | while IFS= read -r jar; do touch -d "@$(stat -c %Y "$jar")" "$jar"; done

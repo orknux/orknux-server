@@ -21,6 +21,7 @@ have failed.
 
 - **A long role under the account name no longer squeezes Quick actions to a sliver**; its results opened as a column one letter wide. The name and role are cut short, with the whole of them on hover.
 - **The diagram's description grows when its corner is dragged**; the corner was drawn and did nothing.
+- **The desktop packages are built again.** 1.2.2 shipped without them: its quick start unpacked the signed release jar, and the copy kept a signature its rewritten manifest no longer matched, so it would not start.
 
 ## 1.2.2
 
