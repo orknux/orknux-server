@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🐛 Fixed
+
+- **A long role under the account name no longer squeezes Quick actions to a sliver**; its results opened as a column one letter wide. The name and role are cut short, with the whole of them on hover.
+
 ## 1.2.2
 
 ### 🐛 Fixed
