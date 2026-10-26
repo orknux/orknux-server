@@ -21,6 +21,10 @@ have failed.
 
 - **The diagram editor's panel can be dragged wider, and the line above its chat up or down**; both sizes are kept. A long description and a node's notes no longer leave the chat a strip at the bottom.
 
+### 🔧 Changed
+
+- **A research runs with agents, not a model.** New research picks a Planner, a Writer and, when reviewed, a Reviewer - the Research planner, writer and reviewer unless you pick others - and each thinks with the model on its own page; the Writer's model also takes the notes on each source. A research that searches the web lends its agents web search for that research. On upgrade the three Research agents are given the model your last research ran with; where you never ran one, choose a model on each of their pages, or a research is refused with "has no chat model". `orknux_start_research` takes `planner`, `writer` and `reviewer` agents in place of `model` and `reviewerModel`, and the `startResearch` mutation `plannerAgentId`, `writerAgentId` and `reviewerAgentId` in place of `modelId` and `reviewerModelId`.
+
 ### 🐛 Fixed
 
 - **A long role under the account name no longer squeezes Quick actions to a sliver**; its results opened as a column one letter wide. The name and role are cut short, with the whole of them on hover.

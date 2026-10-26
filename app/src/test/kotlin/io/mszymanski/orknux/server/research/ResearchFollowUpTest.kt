@@ -44,6 +44,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 class ResearchFollowUpTest(
     @Autowired val graphQlTester: ExecutionGraphQlServiceTester,
     @Autowired val researches: ResearchRepository,
+    @Autowired val agents: io.mszymanski.orknux.server.agent.AgentRepository,
     @Autowired val workspaceApi: WorkspaceAPI,
     @Autowired val orknux: OrknuxTools,
     @Autowired val tunables: Tunables,
@@ -106,7 +107,7 @@ class ResearchFollowUpTest(
         assertThat(followUpsAsked()).isEmpty()
 
         graphQlTester.document(
-            """mutation { startResearch(input: { workspaceId: $workspaceId, question: "Tides", modeId: ${modeId()}, modelId: $modelId,
+            """mutation { startResearch(input: { workspaceId: $workspaceId, question: "Tides", modeId: ${modeId()}, 
                  language: FORMAL, outputFormat: DOCUMENT, followUps: 11 }) { id } }""",
         ).execute().errors().expect { it.extensions?.get("code") == "ResearchFollowUpsOutOfRange" }.verify()
     }
@@ -185,8 +186,7 @@ class ResearchFollowUpTest(
         val format = if (more.contains("outputFormat")) "" else ", outputFormat: DOCUMENT"
         val language = if (more.contains("language")) "" else ", language: FORMAL"
         return graphQlTester.document(
-            """mutation { startResearch(input: { workspaceId: $workspaceId, question: "Why are there tides?", modeId: ${modeId()},
-                 modelId: $modelId$language$format$extra }) { id } }""",
+            """mutation { startResearch(input: { workspaceId: $workspaceId, question: "Why are there tides?", modeId: ${modeId()}$language$format$extra }) { id } }""",
         ).execute().path("startResearch.id").entity(Long::class.java).get()
     }
 
@@ -220,7 +220,7 @@ class ResearchFollowUpTest(
         ).execute().path("createModelProvider.id").entity(Long::class.java).get()
         return graphQlTester.document(
             """mutation { createModel(input: { providerId: $providerId, name: "Researcher model", modelId: "research-$stamp", kind: CHAT }) { id } }""",
-        ).execute().path("createModel.id").entity(Long::class.java).get()
+        ).execute().path("createModel.id").entity(Long::class.java).get().also { agents.researchWith(workspaceId, it) }
     }
 
     private fun reply(exchange: HttpExchange, streaming: Boolean, text: String) {

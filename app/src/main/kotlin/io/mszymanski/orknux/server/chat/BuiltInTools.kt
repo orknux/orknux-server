@@ -626,7 +626,7 @@ class BuiltInTools(
         fun lentTo(agent: Agent, shed: ToolShed?): ToolShed? {
             if (shed == null) return null
             return object : ToolShed {
-                override fun specs(): List<ToolSpec> = shed.specs().filter { granted(agent, it.name) }
+                override fun specs(): List<ToolSpec> = shed.specs().filter { granted(agent, it.name) || shed.lentRegardless(it.name) }
 
                 /*
                  * And what the shed wanted said about its tools, which this has
@@ -637,7 +637,9 @@ class BuiltInTools(
                  */
                 override fun briefing(): String? = shed.briefing()
 
-                override fun handles(name: String): Boolean = granted(agent, name) && shed.handles(name)
+                override fun handles(name: String): Boolean = (granted(agent, name) || shed.lentRegardless(name)) && shed.handles(name)
+
+                override fun lentRegardless(name: String): Boolean = shed.lentRegardless(name)
 
                 override fun run(call: ToolCall): String = shed.run(call)
             }

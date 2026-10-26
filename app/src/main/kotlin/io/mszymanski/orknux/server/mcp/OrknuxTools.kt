@@ -815,7 +815,11 @@ class OrknuxTools(
                     parameters = listOf(
                         ToolParameterSpec("question", "What to research.", required = true),
                         ToolParameterSpec("mode", "A research mode's name: Shallow, Medium, Deep or one the workspace added. Shallow when left out.", required = false),
-                        ToolParameterSpec("model", "The chat model to research with: its name or id. Left out, the workspace's first chat model.", required = false),
+                        ToolParameterSpec(
+                            "planner", "The agent that plans it: its name or id. Left out, the Research planner. Each agent thinks with its own model.",
+                            required = false,
+                        ),
+                        ToolParameterSpec("writer", "The agent that writes the report: its name or id. Left out, the Research writer.", required = false),
                         ToolParameterSpec("webSearch", "Whether to search the web; false reads only the documents and sitesInclude. true when left out.", required = false),
                         ToolParameterSpec(
                             "includeImages",
@@ -824,10 +828,10 @@ class OrknuxTools(
                         ),
                         ToolParameterSpec(
                             "review",
-                            "Whether a second model reviews the report before it is saved and the writer revises it where asked. false when left out.",
+                            "Whether a second agent reviews the report before it is saved and the writer revises it where asked. false when left out.",
                             required = false,
                         ),
-                        ToolParameterSpec("reviewerModel", "The chat model that reviews: its name or id. Required when review is true.", required = false),
+                        ToolParameterSpec("reviewer", "The agent that reviews: its name or id. Left out, the Research reviewer.", required = false),
                         ToolParameterSpec(
                             "followUps", "How many follow-up questions it suggests once finished, 0 to 10. The workspace's number when left out.",
                             required = false,
@@ -2039,19 +2043,24 @@ class OrknuxTools(
         } else {
             modes.firstOrNull { it.name.equals(asked, ignoreCase = true) || it.kind.name.equals(asked, ignoreCase = true) }
         } ?: return refuse("There is no research mode called ${asked ?: "Shallow"}; there are ${modes.joinToString(", ") { it.name }}")
-        val held = models.models(scope.workspaceId)
-        // A research always has its model; left out, the one the Research page offers first.
-        val model = text(arguments, "model")?.trim()?.let { named ->
-            (named.toLongOrNull()?.let { id -> held.firstOrNull { it.id == id } } ?: held.firstOrNull { it.name.equals(named, ignoreCase = true) })
-                ?: return refuse("There is no model called $named here")
-        } ?: held.firstOrNull { it.kind == io.mszymanski.orknux.connector.model.ModelKind.CHAT }
-            ?: return refuse("There is no chat model in this workspace to research with")
-        val review = flag(arguments, "review") ?: false
-        val reviewer = text(arguments, "reviewerModel")?.trim()?.takeIf { it.isNotEmpty() }?.let { named ->
-            (named.toLongOrNull()?.let { id -> held.firstOrNull { it.id == id } } ?: held.firstOrNull { it.name.equals(named, ignoreCase = true) })
-                ?: return refuse("There is no model called $named here")
+        /*
+         * The agents it runs with, by name or id; left out, the research's own
+         * - which the start checks, along with the model each thinks with.
+         * Issue #678.
+         */
+        val workspaceAgents = agents.findByWorkspaceId(scope.workspaceId, org.springframework.data.domain.Sort.by("name"))
+        val named = listOf("planner", "writer", "reviewer").associateWith { key -> text(arguments, key)?.trim()?.takeIf { it.isNotEmpty() } }
+        val chosen = named.mapValues { (_, said) ->
+            said?.let {
+                (said.toLongOrNull()?.let { id -> workspaceAgents.firstOrNull { it.id == id } }
+                    ?: workspaceAgents.firstOrNull { it.name.equals(said, ignoreCase = true) })?.id
+                    ?: return refuse("There is no agent called $said here")
+            }
         }
-        if (review && reviewer == null) return refuse("A reviewed research needs a reviewerModel: the chat model that reviews it")
+        val planner = chosen["planner"]
+        val writer = chosen["writer"]
+        val reviewer = chosen["reviewer"]
+        val review = flag(arguments, "review") ?: false
         val register = text(arguments, "register")?.trim()?.uppercase()?.let { said ->
             ResearchLanguage.entries.firstOrNull { it.name == said } ?: return refuse("The register is ACADEMIC, COLLOQUIAL or FORMAL")
         } ?: ResearchLanguage.FORMAL
@@ -2070,7 +2079,8 @@ class OrknuxTools(
                     workspaceId = scope.workspaceId,
                     question = question,
                     modeId = mode.id,
-                    modelId = model.id,
+                    plannerAgentId = planner,
+                    writerAgentId = writer,
                     language = register,
                     outputFormat = output,
                     websitesInclude = strings(arguments, "sitesInclude"),
@@ -2080,7 +2090,7 @@ class OrknuxTools(
                     useWebSearch = flag(arguments, "webSearch"),
                     includeImages = flag(arguments, "includeImages"),
                     review = review,
-                    reviewerModelId = reviewer?.id?.takeIf { review },
+                    reviewerAgentId = reviewer?.takeIf { review },
                     followUps = number(arguments, "followUps")?.toInt(),
                 ),
             )
@@ -2135,6 +2145,8 @@ class OrknuxTools(
                 "id" to held.id,
                 "question" to held.question,
                 "mode" to held.modeName,
+                "planner" to held.plannerAgentName,
+                "writer" to held.writerAgentName,
                 "model" to held.modelName,
                 "webSearch" to held.useWebSearch,
                 "includeImages" to held.includeImages,
@@ -2142,6 +2154,7 @@ class OrknuxTools(
                 "parent" to held.parentId,
                 "children" to held.children.map { mapOf("id" to it.id, "question" to it.question, "status" to it.status) },
                 "reviewed" to held.review,
+                "reviewer" to held.reviewerAgentName,
                 "reviewerModel" to held.reviewerModelName,
                 "review" to held.reviewRounds.map { round ->
                     mapOf(

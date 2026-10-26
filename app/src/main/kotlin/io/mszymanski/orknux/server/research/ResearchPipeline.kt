@@ -663,10 +663,10 @@ class ResearchPipeline(
      * from, and where it asks for changes the writer makes them - at most
      * [rounds] times, then the report goes on as it stands.
      *
-     * The reviewer is the workspace's Research reviewer and the writer its
-     * Research writer, by their instructions on the Agents page; the reviewer
-     * thinks with the model the research was started with for reviewing, the
-     * writer with the research's own. The writer is handed the conversation it
+     * The reviewer and the writer are the agents the research was started
+     * with - the Research reviewer and writer, unless somebody picked others -
+     * by their instructions on the Agents page, each thinking with the model
+     * it had when the research started. Issue #678. The writer is handed the conversation it
      * wrote the report in - the same request, the report as its answer - with
      * the reviewer's findings after it, so it revises its own work rather than
      * writing a new report from nothing. Its revision is shown on the page as
@@ -681,10 +681,13 @@ class ResearchPipeline(
         excluded: String,
         rounds: Int,
         said: ResearchLog = ResearchLog.NONE,
+        /** The agents the research was started with, whose instructions are read; null is the seeded one by name. Issue #678. */
+        writerAgentId: Long? = null,
+        reviewerAgentId: Long? = null,
     ): ResearchReviewed {
         val tracker = Tracker(asked.researchId, ResearchStage.REVIEW)
-        val reviewer = instructionsOf(asked.workspaceId, ResearchModes.REVIEWER)
-        val writer = instructionsOf(asked.workspaceId, ResearchModes.WRITER)
+        val reviewer = instructionsOf(asked.workspaceId, reviewerAgentId, ResearchModes.REVIEWER)
+        val writer = instructionsOf(asked.workspaceId, writerAgentId, ResearchModes.WRITER)
         val request = writerRequest(asked, excluded, gathered)
         var report = draft.trim()
         val held = mutableListOf<ResearchReviewRound>()
@@ -807,6 +810,22 @@ class ResearchPipeline(
     /** An agent's instructions as its page has them, or as it was seeded where the workspace has no such agent. */
     private fun instructionsOf(workspaceId: Long, seeded: ResearchModes.SeededAgent): String =
         agents.findByWorkspaceIdAndName(workspaceId, seeded.name)?.systemPrompt?.takeIf { it.isNotBlank() } ?: seeded.instructions
+
+    /**
+     * The instructions of the agent the research was started with for a part.
+     *
+     * The seeded agent - or none named - is told what its page says, as it
+     * always was. Anybody else's agent is told its own instructions and then
+     * the part's, as this product seeded them: the review is a verdict in a
+     * JSON shape this step reads, and an agent made for something else knows
+     * nothing of it, so without them a reviewer of somebody's own answers in
+     * prose and the review fails. Issue #678.
+     */
+    private fun instructionsOf(workspaceId: Long, agentId: Long?, seeded: ResearchModes.SeededAgent): String {
+        val picked = agentId?.let { agents.findByIdOrNull(it) }?.takeIf { it.workspaceId == workspaceId }
+        if (picked == null || picked.name == seeded.name) return instructionsOf(workspaceId, seeded)
+        return listOfNotNull(picked.systemPrompt?.takeIf { it.isNotBlank() }?.trim(), seeded.instructions).joinToString("\n\n")
+    }
 
     /** The rounds a research's Review step has said so far, as a row holds them. */
     fun reviewRoundsFrom(held: String?): List<ResearchReviewRound> =

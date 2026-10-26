@@ -108,6 +108,10 @@ class AgentNodeRunner(
     private val chatModels: WorkspaceChatModels,
     /** Whatever shows a step's answer while it is written; see [AgentStepDrafts]. */
     private val drafts: org.springframework.beans.factory.ObjectProvider<AgentStepDrafts>,
+    /** The run's workspace, which an agent the node names at run time must belong to; see [AGENT]. */
+    private val executions: io.mszymanski.orknux.workflow.execution.WorkflowExecutionRepository,
+    /** Web search lent for one step where the run asks for it; see [WEB_SEARCH]. */
+    private val lentSearch: LentWebSearch,
 ) : NodeRunner {
 
     private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
@@ -143,18 +147,41 @@ class AgentNodeRunner(
         // A node pointing at nothing is not configured, which is not a failure:
         // a graph is drawn before it is finished, and a run should say what it
         // found rather than stopping the workflow over it.
-        val agentId = step.agentId
-            ?: return StepResult(StepStatus.SKIPPED, "${step.name} names no agent, so there was nothing to ask.")
-
-        val agent = agents.findByIdOrNull(agentId)
-            ?: return StepResult(StepStatus.SKIPPED, "The agent ${step.name} runs has been deleted.")
-        if (!agent.enabled) {
-            return StepResult(StepStatus.SKIPPED, "${agent.name} is not active, so it was not asked.")
-        }
-
         val payload = expressions.parse(input)
         val started = expressions.parse(trigger)
         val mappings = expressions.mappingsOf(step)
+
+        /*
+         * Which agent answers: the one its `agent` parameter names, where it
+         * names one, and the node's own otherwise. A parameter for the reason
+         * [MODEL] is one - a research names its Planner and its Writer when it
+         * starts, and its Plan and Write nodes are the same two nodes whichever
+         * those are. Issue #678. Held to the run's workspace, because a value
+         * read off a run is somebody's input, and refused rather than replaced
+         * by the node's own: the run asked for that agent and no other.
+         */
+        val named = mappings[AGENT]
+            ?.let { expressions.textOf(it, payload, started) }
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+        val agent = if (named != null) {
+            val workspaceId = executions.findByIdOrNull(step.executionId)?.workspaceId
+            named.toLongOrNull()?.let { agents.findByIdOrNull(it) }?.takeIf { it.workspaceId == workspaceId }
+                ?: throw StepFailedException(
+                    step.nodeKey,
+                    "${step.name} names the agent \"$named\", which is no agent of this workspace",
+                    // The same parameter names the same agent on the next attempt.
+                    permanent = true,
+                )
+        } else {
+            val agentId = step.agentId
+                ?: return StepResult(StepStatus.SKIPPED, "${step.name} names no agent, so there was nothing to ask.")
+            agents.findByIdOrNull(agentId)
+                ?: return StepResult(StepStatus.SKIPPED, "The agent ${step.name} runs has been deleted.")
+        }
+        if (!agent.enabled) {
+            return StepResult(StepStatus.SKIPPED, "${agent.name} is not active, so it was not asked.")
+        }
 
         /*
          * The model this node thinks with: its own `model` parameter where it
@@ -165,15 +192,15 @@ class AgentNodeRunner(
          * that is. Checked as an agent's own model is: a chat model this
          * workspace may use, or the step refuses rather than asking another.
          */
-        val named = mappings[MODEL]
+        val namedModel = mappings[MODEL]
             ?.let { expressions.textOf(it, payload, started) }
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
-        val modelId = if (named != null) {
-            named.toLongOrNull()?.let { chatModels.usable(agent.workspaceId, it)?.id }
+        val modelId = if (namedModel != null) {
+            namedModel.toLongOrNull()?.let { chatModels.usable(agent.workspaceId, it)?.id }
                 ?: throw StepFailedException(
                     step.nodeKey,
-                    "${step.name} names the model \"$named\", which is no chat model this workspace can use",
+                    "${step.name} names the model \"$namedModel\", which is no chat model this workspace can use",
                     // The same parameter names the same model on the next attempt.
                     permanent = true,
                 )
@@ -387,6 +414,12 @@ class AgentNodeRunner(
          */
         val shed = io.mszymanski.orknux.server.chat.sheds(
             drawing,
+            /*
+             * Web search, where the run asks for it and the agent does not
+             * hold it: a research that searches the web lends it to the agents
+             * it runs with, for that research only. Issue #678.
+             */
+            lentSearch.shed(agent, session).takeIf { lendsWebSearch(mappings, payload, started) },
             /*
              * The tools every turn in a session is lent, taken whole so a step
              * cannot come to have different ones from a chat or a task. Most
@@ -1042,6 +1075,14 @@ class AgentNodeRunner(
         }
     }
 
+    /** Whether the node's [WEB_SEARCH] parameter says yes. */
+    private fun lendsWebSearch(mappings: Map<String, NodeBinding>, payload: JsonNode?, started: JsonNode?): Boolean =
+        mappings[WEB_SEARCH]
+            ?.let { expressions.textOf(it, payload, started) }
+            ?.trim()
+            ?.lowercase()
+            ?.toBooleanStrictOrNull() == true
+
     /**
      * The ids a `skillIds` mapping names: a list where the value is one - a
      * reference to the trigger's `commands`, say - and otherwise the words of
@@ -1090,6 +1131,20 @@ class AgentNodeRunner(
          * the run. Blank or absent is the agent's own model.
          */
         const val MODEL = "model"
+
+        /**
+         * The id of the agent that answers, written or read off the run, for
+         * this node's run only: blank or absent is the node's own. One of the
+         * run's workspace or the step fails. Issue #678.
+         */
+        const val AGENT = "agent"
+
+        /**
+         * True lends the agent web search for this node's run, where it does
+         * not hold it: what a research that searches the web hands the agents
+         * it runs with. Blank, absent or false lends nothing. Issue #678.
+         */
+        const val WEB_SEARCH = "webSearch"
 
         /** NONE, LOW, MEDIUM or HIGH: how much the agent says while it works, for this node only. */
         const val CHATTINESS = "chattiness"

@@ -212,6 +212,56 @@ class AgentNodeRunnerTest(
     }
 
     /**
+     * A node may be answered by an agent the run names, thinking with that
+     * agent's own model, and be lent web search where the run asks for it.
+     * Issue #678: a research names its Planner and its Writer when it starts.
+     * One of another workspace's is refused, not swapped for the node's own.
+     */
+    @Test
+    fun `a node naming an agent is answered by it with its own model, lent web search where asked, and another workspace's is refused`() {
+        val endpoint = serveAnswer()
+        val own = model(endpoint)
+        val providerId = requireNotNull(models.findById(own).get().providerId)
+        val theirs = graphQlTester.document(
+            """mutation { createModel(input: { providerId: $providerId, name: "Theirs", modelId: "theirs", kind: CHAT }) { id } }""",
+        ).execute().path("createModel.id").entity(Long::class.java).get()
+        val drawn = agent("Reviewer", modelId = own)
+        val named = agent("Second opinion", modelId = theirs)
+        graphQlTester.document(
+            """
+            mutation {
+              saveWorkflowGraph(workspaceId: $workspaceId, workflowId: $workflowId, input: {
+                nodes: [{ key: "think", kind: AGENT, name: "Reviewer", agentId: $drawn, x: 0, y: 0,
+                          mappings: [{ name: "agent", expression: "trigger.agent", mode: REFERENCE },
+                                     { name: "webSearch", expression: "trigger.search", mode: REFERENCE }] }],
+                edges: []
+              }) { nodes { key } }
+            }
+            """,
+        ).execute().errors().verify()
+        fun toolsOf(body: String) = mapper.readTree(body).path("tools").values().map { it.path("function").path("name").stringValue() }
+
+        val ran = start(input = """{"summary":"the database fell over","agent":"$named","search":true}""")
+        assertThat(steps.findAll().single { it.executionId == ran }.status).isEqualTo(StepStatus.COMPLETED)
+        assertThat(mapper.readTree(received.last()).path("model").stringValue()).isEqualTo("theirs")
+        assertThat(toolsOf(received.last())).contains("web_search")
+
+        // Named by nobody, the node's own; and without the run asking, nothing is lent.
+        start(input = """{"summary":"the database fell over","search":false}""")
+        assertThat(mapper.readTree(received.last()).path("model").stringValue()).isNotEqualTo("theirs")
+        assertThat(toolsOf(received.last())).doesNotContain("web_search")
+
+        val elsewhere = requireNotNull(workspaces.save(Workspace(name = "elsewhere")).id)
+        val stranger = agents.save(Agent(workspaceId = elsewhere, name = "Stranger", type = AgentType.LLM, modelId = own))
+        val asked = received.size
+        val refused = start(expectFailure = true, input = """{"summary":"the database fell over","agent":"${stranger.id}"}""")
+        val failed = steps.findAll().single { it.executionId == refused }
+        assertThat(failed.status).isEqualTo(StepStatus.FAILED)
+        assertThat(failed.error).contains("names the agent \"${stranger.id}\", which is no agent of this workspace")
+        assertThat(received).hasSize(asked)
+    }
+
+    /**
      * A node pointing at no agent is unfinished, not broken.
      *
      * A graph is drawn before it is finished, so the run says what it found and

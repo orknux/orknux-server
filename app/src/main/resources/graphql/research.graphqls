@@ -93,8 +93,16 @@ type Research {
     modeName: String!
     workflowId: ID!
     workflowName: String!
+    "The model its Writer thought with when it started, which its notes on each source were taken with too."
     modelId: ID
     modelName: String
+    "The agents it was started with - Planner, Writer and, where reviewed, Reviewer - and what each was called then; null on one started before research picked its agents."
+    plannerAgentId: ID
+    plannerAgentName: String
+    writerAgentId: ID
+    writerAgentName: String
+    reviewerAgentId: ID
+    reviewerAgentName: String
     language: ResearchLanguage!
     outputFormat: ResearchOutputFormat!
     websitesInclude: [String!]!
@@ -140,6 +148,7 @@ type Research {
     estimatedSecondsLeft: Int
     "Whether a second model reviews the report before it is saved."
     review: Boolean!
+    "The model its Reviewer thought with when it started."
     reviewerModelId: ID
     "As the reviewer's model was called when it started."
     reviewerModelName: String
@@ -253,8 +262,10 @@ input StartResearchInput {
     workspaceId: ID!
     question: String!
     modeId: ID!
-    "The chat model that plans, reads and writes; a start without one is refused."
-    modelId: ID
+    "The agent that plans, by id; absent, the Research planner. It thinks with the model on its own page."
+    plannerAgentId: ID
+    "The agent that writes, by id; absent, the Research writer. Its model also takes the notes on each source."
+    writerAgentId: ID
     language: ResearchLanguage!
     outputFormat: ResearchOutputFormat!
     "Domains or addresses to keep to."
@@ -269,9 +280,10 @@ input StartResearchInput {
     useWebSearch: Boolean
     "Whether to look for images, place them in the report and keep each as an artifact. On when absent."
     includeImages: Boolean
-    "Whether a second model reviews the report before it is saved. Off when absent; on, reviewerModelId is required."
+    "Whether a second agent reviews the report before it is saved. Off when absent."
     review: Boolean
-    reviewerModelId: ID
+    "The agent that reviews, by id, where it is reviewed; absent, the Research reviewer."
+    reviewerAgentId: ID
     "How many follow-up questions it suggests once finished, 0 to 10; absent is the workspace's number."
     followUps: Int
     "The research this one follows up, in the same workspace."

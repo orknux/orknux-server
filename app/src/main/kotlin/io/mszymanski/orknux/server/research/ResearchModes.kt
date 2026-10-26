@@ -50,12 +50,15 @@ import org.springframework.transaction.annotation.Transactional
  * Plan, Gather, Follow up, Write and Save below and by their keys. **Where a model does the thinking, the node
  * is an agent**: Plan is the workspace's Research planner and Write its
  * Research writer, two ordinary agents on the Agents page whose instructions
- * are what the planning and the writing are told, each node naming the model
- * the research was started with through its `model` parameter. Gather, Follow
+ * are what the planning and the writing are told. Each node is answered by the
+ * agent the research was started with for it through its `agent` parameter -
+ * those two unless somebody picked others - thinking with that agent's own
+ * model, and lends it web search through its `webSearch` where the research
+ * searches the web (#678). Gather, Follow
  * up and Save are action nodes calling [ResearchCapability]'s steps, because
  * searching, reading pages and saving a file are work, not thinking - though
- * Gather and Follow up still ask the same model for notes on each source, and
- * their nodes read the model off the run under the same name. Each node reads
+ * Gather and Follow up still ask a model for notes on each source - the
+ * Writer's, which the run carries as `model`. Each node reads
  * the request off what started the run and what the step before it found off
  * the run, and holds its own knobs: how many sub-questions in Plan's prompt;
  * how many results, sources and pages on Gather; how broad and how deep on
@@ -123,6 +126,9 @@ class ResearchModes(
     /** Only to write the research functions' rows where start-up has not yet; see [functionId]. */
     private val embedded: ObjectProvider<EmbeddedCapabilities>,
     private val tuning: Tuning,
+    /** What the workspace's research last ran with, for the seeded agents' models; see [givenModels]. */
+    private val researches: ResearchRepository,
+    private val chatModels: io.mszymanski.orknux.server.agent.WorkspaceChatModels,
 ) : GrantExemptions {
 
     /**
@@ -149,6 +155,7 @@ class ResearchModes(
     fun ensure(workspaceId: Long) {
         if (modes.existsByWorkspaceIdAndKindNot(workspaceId, ResearchModeKind.CUSTOM)) {
             upgrade(workspaceId)
+            givenModels(workspaceId)
             return
         }
 
@@ -217,6 +224,34 @@ class ResearchModes(
                 log.info("Research mode {} of workspace {} given its steps' retry policy", depth.modeName, workspaceId)
             }
         }
+    }
+
+    /**
+     * Gives the Research planner, writer and reviewer the model this
+     * workspace's research last ran with, where they have none. Issue #678.
+     *
+     * Until then they had no model of their own: each research named one, and
+     * its Plan and Write nodes thought with that. A research now runs with its
+     * agents' own models, so agents seeded bare would leave the form's default
+     * choice unable to start - and the model somebody last picked is the one
+     * they would have picked again. Only while the newest research is one
+     * started before the agents were picked: after that, an agent with no
+     * model is somebody's decision, and the form says so rather than this
+     * choosing for them. A model this workspace can no longer use is not given.
+     */
+    private fun givenModels(workspaceId: Long) {
+        val latest = researches.findFirstByWorkspaceIdOrderByStartedAtDescIdDesc(workspaceId) ?: return
+        if (latest.writerAgentId != null || latest.plannerAgentId != null) return
+        val reviewing = researches.findFirstByWorkspaceIdAndReviewerModelIdIsNotNullOrderByStartedAtDescIdDesc(workspaceId)
+        listOf(PLANNER to latest.modelId, WRITER to latest.modelId, REVIEWER to (reviewing?.reviewerModelId ?: latest.modelId))
+            .forEach { (seeded, modelId) ->
+                val agent = agents.findByWorkspaceIdAndName(workspaceId, seeded.name) ?: return@forEach
+                if (agent.modelId != null || modelId == null || chatModels.usable(workspaceId, modelId) == null) return@forEach
+                agent.modelId = modelId
+                agent.lastModifiedBy = "system"
+                agents.save(agent)
+                log.info("{} of workspace {} given model {}, which its research last ran with", seeded.name, workspaceId, modelId)
+            }
     }
 
     /**
@@ -454,14 +489,16 @@ class ResearchModes(
 
     /**
      * What the workflow editor writes into an agent node when it is opened,
-     * which changes nothing it does: an empty skills box, and the agent's own
-     * briefing - or an empty box - for its system prompt.
+     * which changes nothing it does: an empty skills box, the agent's own
+     * briefing - or an empty box - for its system prompt, and an empty model
+     * box, which leaves the agent its own model - the one Plan and Write have
+     * thought with since #678, when they stopped naming the research's.
      */
     private fun editorsOwn(mapping: NodeMapping, briefing: String?, step: Step): Boolean {
         if (mapping.mode != MappingMode.VALUE) return false
         val written = mapping.expression.trim()
         return when (mapping.name) {
-            AgentNodeRunner.SKILL_IDS -> written.isEmpty()
+            AgentNodeRunner.SKILL_IDS, AgentNodeRunner.MODEL -> written.isEmpty()
             AgentNodeRunner.SYSTEM_PROMPT -> written.isEmpty() || written == briefing?.trim() || written == step.agent?.instructions?.trim()
             else -> false
         }
@@ -570,8 +607,8 @@ class ResearchModes(
     /**
      * One of the research agents, found by name or made.
      *
-     * Made as bare as an agent can be: no model of its own, because each node
-     * names the research's; every built-in hidden, no skills, memory,
+     * Made as bare as an agent can be: no model until somebody chooses one on
+     * its page, or [givenModels] gives it the one research last ran with; every built-in hidden, no skills, memory,
      * connections or orknux access, and no asking for more - planning and
      * writing are answered from what the prompt holds, and a tool that runs
      * something is a tool these two have no use for. Silent while it works,
@@ -663,6 +700,9 @@ class ResearchModes(
         step.request.map {
             NodeMapping(name = it, expression = "${NodeExpressions.TRIGGER}.$it", mode = MappingMode.REFERENCE)
         } +
+            step.fromRun.map { (name, field) ->
+                NodeMapping(name = name, expression = "${NodeExpressions.TRIGGER}.$field", mode = MappingMode.REFERENCE)
+            } +
             // What the step before found.
             step.reads.map { (name, field) ->
                 NodeMapping(
@@ -754,6 +794,8 @@ class ResearchModes(
         val reads: List<Pair<String, String>> = emptyList(),
         val prompt: ((Knobs) -> String)? = null,
         val knobs: (Knobs) -> List<Pair<String, Int>> = { emptyList() },
+        /** Parameters read off the run's start under another name: the node's parameter, and the run's field. */
+        val fromRun: List<Pair<String, String>> = emptyList(),
     )
 
     /** What a step's node is called and says it does, and what its action is called. */
@@ -849,20 +891,20 @@ class ResearchModes(
 
         val PLANNER = SeededAgent(
             name = "Research planner",
-            description = "Plans a research: breaks its question into search queries. Thinks with the model each research is started with.",
+            description = "Plans a research: breaks its question into search queries. Thinks with the model chosen here.",
             instructions = ResearchPipeline.PLAN,
         )
 
         val REVIEWER = SeededAgent(
             name = "Research reviewer",
             description = "Reviews a research's report against its plan and the notes on its sources before it is saved. " +
-                "Thinks with the model each research is started with for reviewing.",
+                "Thinks with the model chosen here.",
             instructions = ResearchPipeline.REVIEW,
         )
 
         val WRITER = SeededAgent(
             name = "Research writer",
-            description = "Writes a research's report from the notes taken on its sources. Thinks with the model each research is started with.",
+            description = "Writes a research's report from the notes taken on its sources. Thinks with the model chosen here.",
             instructions = ResearchPipeline.WRITE + "\n\n" +
                 "Write in the register the request names. ACADEMIC: " + ResearchPipeline.register(ResearchLanguage.ACADEMIC) +
                 " COLLOQUIAL: " + ResearchPipeline.register(ResearchLanguage.COLLOQUIAL) +
@@ -870,8 +912,18 @@ class ResearchModes(
                 "\n\nNever use or cite the documents the request names as not to be used.",
         )
 
-        /** The model the research was started with, as an agent node names its own. */
+        /** The model the research was started with, as an agent node named its own before the agents were picked. */
         private val MODEL_OF_THE_RESEARCH = ResearchCapability.MODEL
+
+        /**
+         * What an agent step reads off the run now: the agent the research
+         * was started with for it, and whether the research searches the web,
+         * which lends that agent web search for the step. Issue #678.
+         */
+        private fun agentFromRun(field: String) = listOf(
+            AgentNodeRunner.AGENT to field,
+            AgentNodeRunner.WEB_SEARCH to ResearchCapability.WEB_SEARCH,
+        )
 
         private val GATHER_STEP = Step(
             GATHER, "Gather sources", "Searches each query and takes notes on sources",
@@ -915,28 +967,61 @@ class ResearchModes(
          * the research's model. Save puts the numbered sources after the
          * writer's draft and is where the report is carried from.
          */
-        private val PLAN_STEP =
+        private val PLAN_PROMPT: (Knobs) -> String =
+            { "Question: {{${NodeExpressions.TRIGGER}.${ResearchCapability.QUESTION}}}\nWrite exactly ${it.sub} search queries." }
+
+        private val WRITE_PROMPT: (Knobs) -> String = {
+            val trigger = NodeExpressions.TRIGGER
+            "Question: {{$trigger.${ResearchCapability.QUESTION}}}\n\n" +
+                "Register: {{$trigger.${ResearchCapability.LANGUAGE}}}\n" +
+                "Documents not to use: {{$trigger.$DOCUMENTS_EXCLUDE_NAMES}}\n\n" +
+                "Sources, by number:\n\n{{deepened.${ResearchCapability.NOTES}}}"
+        }
+
+        /** Plan and Write as they were drawn until #678: naming the research's model, with the agent the node points at. */
+        private val MODEL_PLAN_STEP =
             Step(
                 PLAN, "Plan research", "Research planner drafts the search queries",
                 PLAN,
                 agent = PLANNER,
                 request = listOf(MODEL_OF_THE_RESEARCH),
-                prompt = { "Question: {{${NodeExpressions.TRIGGER}.${ResearchCapability.QUESTION}}}\nWrite exactly ${it.sub} search queries." },
+                prompt = PLAN_PROMPT,
             )
 
-        private val WRITE_STEP =
+        private val MODEL_WRITE_STEP =
             Step(
                 WRITE, "Write report", "Research writer drafts the cited report",
                 DRAFT,
                 agent = WRITER,
                 request = listOf(MODEL_OF_THE_RESEARCH),
-                prompt = {
-                    val trigger = NodeExpressions.TRIGGER
-                    "Question: {{$trigger.${ResearchCapability.QUESTION}}}\n\n" +
-                        "Register: {{$trigger.${ResearchCapability.LANGUAGE}}}\n" +
-                        "Documents not to use: {{$trigger.$DOCUMENTS_EXCLUDE_NAMES}}\n\n" +
-                        "Sources, by number:\n\n{{deepened.${ResearchCapability.NOTES}}}"
-                },
+                prompt = WRITE_PROMPT,
+            )
+
+        /*
+         * And now: the agent the research was started with for the step, which
+         * thinks with its own model, and web search lent where the research
+         * searches the web. The node still points at the Research planner and
+         * writer, which is who answers a run that names no agent - one started
+         * before there were agents to pick, restarted.
+         */
+        private val PLAN_STEP =
+            Step(
+                PLAN, MODEL_PLAN_STEP.nodeName, MODEL_PLAN_STEP.description,
+                PLAN,
+                agent = PLANNER,
+                request = emptyList(),
+                prompt = PLAN_PROMPT,
+                fromRun = agentFromRun(ResearchCapability.PLANNER_AGENT),
+            )
+
+        private val WRITE_STEP =
+            Step(
+                WRITE, MODEL_WRITE_STEP.nodeName, MODEL_WRITE_STEP.description,
+                DRAFT,
+                agent = WRITER,
+                request = emptyList(),
+                prompt = WRITE_PROMPT,
+                fromRun = agentFromRun(ResearchCapability.WRITER_AGENT),
             )
 
         /** Save as it was before there was a review: the draft and the sources. */
@@ -965,7 +1050,7 @@ class ResearchModes(
          * Research writer revises it where asked - a function rather than two
          * agent nodes, because the rounds are a loop and a graph has none.
          */
-        private val REVIEW_STEP = Step(
+        private val MODEL_REVIEW_STEP = Step(
             REVIEW, "Review report", "Reviewer checks the draft; writer revises",
             REVIEWED_OUTPUT,
             function = ResearchCapability.REVIEW,
@@ -981,8 +1066,21 @@ class ResearchModes(
             ),
         )
 
+        /** And now with the Writer and the Reviewer the research was started with, whose instructions it reads. Issue #678. */
+        private val REVIEW_STEP = Step(
+            REVIEW, MODEL_REVIEW_STEP.nodeName, MODEL_REVIEW_STEP.description,
+            REVIEWED_OUTPUT,
+            function = ResearchCapability.REVIEW,
+            actionName = MODEL_REVIEW_STEP.actionName,
+            request = MODEL_REVIEW_STEP.request + listOf(ResearchCapability.WRITER_AGENT, ResearchCapability.REVIEWER_AGENT),
+            reads = MODEL_REVIEW_STEP.reads,
+        )
+
         /** The five as they were drawn before there was a review. */
-        private val STEPS = listOf(PLAN_STEP, GATHER_STEP, FOLLOW_UP_STEP, WRITE_STEP, UNREVIEWED_SAVE_STEP)
+        private val STEPS = listOf(MODEL_PLAN_STEP, GATHER_STEP, FOLLOW_UP_STEP, MODEL_WRITE_STEP, UNREVIEWED_SAVE_STEP)
+
+        /** Those with the review, as drawn until the research picked its agents (#678). */
+        private val REVIEWED_STEPS = listOf(MODEL_PLAN_STEP, GATHER_STEP, FOLLOW_UP_STEP, MODEL_WRITE_STEP, MODEL_REVIEW_STEP, SAVE_STEP)
 
         /** The shape a mode is drawn as now, less the question whether to review, which is a condition. */
         private val CURRENT = listOf(PLAN_STEP, GATHER_STEP, FOLLOW_UP_STEP, WRITE_STEP, REVIEW_STEP, SAVE_STEP)
@@ -1044,23 +1142,29 @@ class ResearchModes(
         /**
          * Every shape a mode has been seeded as, oldest first and the current
          * one last: the five actions, the five with Plan and Write as agents,
-         * and those with the review. Between releases a shape kept its nodes
+         * those with the review, and those with the agents the research was
+         * started with. Between releases a shape kept its nodes
          * and lines and changed in what [recognise] does not look at - names,
          * descriptions, retries, Gather's `includeImages` - so these are all
          * there were.
          */
-        private val SHAPES = listOf(Shape(ACTION_STEPS, gated = false), Shape(STEPS, gated = false), Shape(CURRENT, gated = true))
+        private val SHAPES = listOf(
+            Shape(ACTION_STEPS, gated = false),
+            Shape(STEPS, gated = false),
+            Shape(REVIEWED_STEPS, gated = true),
+            Shape(CURRENT, gated = true),
+        )
 
         /** What a step was given after it was first drawn in a shape, which a mode seeded before then lacks. */
         private val LATER = mapOf(GATHER to setOf(ResearchCapability.INCLUDE_IMAGES))
 
         /** Every name, and every description, a step's node has been given by this product: any other is somebody's. */
         private val OUR_NAMES: Map<String, Set<String>> =
-            ((ACTION_STEPS + STEPS + CURRENT).map { it.key to it.nodeName } + FORMER.map { (key, named) -> key to named.nodeName } +
+            ((ACTION_STEPS + STEPS + REVIEWED_STEPS + CURRENT).map { it.key to it.nodeName } + FORMER.map { (key, named) -> key to named.nodeName } +
                 (REVIEWING to GATE_NAME))
                 .groupBy({ it.first }, { it.second }).mapValues { it.value.toSet() }
         private val OUR_DESCRIPTIONS: Map<String, Set<String?>> =
-            ((ACTION_STEPS + STEPS + CURRENT).map { it.key to it.description } + FORMER.map { (key, named) -> key to named.description } +
+            ((ACTION_STEPS + STEPS + REVIEWED_STEPS + CURRENT).map { it.key to it.description } + FORMER.map { (key, named) -> key to named.description } +
                 (REVIEWING to GATE_DESCRIPTION))
                 .groupBy({ it.first }, { it.second }).mapValues { it.value.toSet<String?>() }
 

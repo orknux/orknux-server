@@ -43,6 +43,15 @@ interface ToolShed {
     fun handles(name: String): Boolean
 
     /**
+     * Whether a built-in of this name is lent whatever the agent's Tools list
+     * says of it. False for every shed but one lending a tool because the run
+     * asked for it - web search, for a research that searches the web (#678):
+     * the list is the agent's standing grants, and this is not one. See
+     * [BuiltInTools.lentTo], which otherwise holds a lent built-in to the list.
+     */
+    fun lentRegardless(name: String): Boolean = false
+
+    /**
      * Runs one of them.
      *
      * May return text for the model to go on with, or throw [AgentRoundHalted]
@@ -140,6 +149,8 @@ fun sheds(vararg lent: ToolShed?): ToolShed? {
 
             override fun run(call: ToolCall): String =
                 held.first { it.handles(call.name) }.run(call)
+
+            override fun lentRegardless(name: String): Boolean = held.any { it.handles(name) && it.lentRegardless(name) }
 
             /** The first shed that puts it somewhere. */
             override fun pictured(tool: String, picture: AgentTools.Companion.Picture): String? =

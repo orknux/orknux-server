@@ -96,6 +96,8 @@ class ResearchCapability(
                 "Answers the report as the review left it and what each round said.",
             params = listOf(
                 P_RESEARCH, P_QUESTION, P_MODEL, P_REVIEWER_MODEL, P_LANGUAGE, P_EXCLUDED_NAMES, P_PLAN, P_GATHERED, P_REPORT,
+                // Last, so a Review drawn before they were parameters reads every other one where it did.
+                P_WRITER_AGENT, P_REVIEWER_AGENT,
             ),
         ),
         EmbeddedFunction(
@@ -202,6 +204,8 @@ class ResearchCapability(
                     val plan = given.texts(QUERIES).ifEmpty { given.text(QUERIES)?.let(pipeline::listFrom).orEmpty() }
                     val reviewed = pipeline.review(
                         asked, reviewer, plan, gathered, draft, given.text(EXCLUDED_NAMES).orEmpty(), reviewRounds.of(workspaceId), said,
+                        writerAgentId = given.text(WRITER_AGENT)?.toLongOrNull(),
+                        reviewerAgentId = given.text(REVIEWER_AGENT)?.toLongOrNull(),
                     )
                     answered(linkedMapOf(REPORT to reviewed.report, "rounds" to reviewed.rounds, "revised" to reviewed.rounds.any { it.revised }))
                 }
@@ -390,6 +394,15 @@ class ResearchCapability(
         const val REVIEW_ASKED = "review"
         const val REVIEWER_MODEL = "reviewerModel"
 
+        /**
+         * The agents the research was started with, by id, as the run carries
+         * them: Plan's and Write's nodes are answered by the first two, and
+         * Review reads the Writer's and the Reviewer's instructions. Issue #678.
+         */
+        const val PLANNER_AGENT = "plannerAgent"
+        const val WRITER_AGENT = "writerAgent"
+        const val REVIEWER_AGENT = "reviewerAgent"
+
         /** The documents not to use, by name, as the run carries them for the writer. */
         const val EXCLUDED_NAMES = "documentsExcludeNames"
 
@@ -434,6 +447,12 @@ class ResearchCapability(
         private val P_PLAN = EmbeddedParam(QUERIES, ValueType.ARRAY, "The search queries Plan wrote, for the reviewer to check the report answers.")
         private val P_REVIEWER_MODEL = EmbeddedParam(
             REVIEWER_MODEL, ValueType.STRING, "The id of the chat model that reviews the report.", required = true,
+        )
+        private val P_WRITER_AGENT = EmbeddedParam(
+            WRITER_AGENT, ValueType.STRING, "The id of the agent that wrote the report and revises it; left out, the Research writer.",
+        )
+        private val P_REVIEWER_AGENT = EmbeddedParam(
+            REVIEWER_AGENT, ValueType.STRING, "The id of the agent that reviews the report; left out, the Research reviewer.",
         )
         private val P_EXCLUDED_NAMES = EmbeddedParam(EXCLUDED_NAMES, ValueType.STRING, "The documents not to use, by name, as the writer was told.")
         private val P_REVIEWED = EmbeddedParam(

@@ -166,6 +166,31 @@ class Research(
     @Column(name = "reviewer_model_name", length = 255)
     val reviewerModelName: String? = null,
 
+    /*
+     * The agents it was started with, and what each was called then. Issue
+     * #678: a research runs with agents, each thinking with the model on its
+     * own page, and [modelId] and [reviewerModelId] are the models the Writer
+     * and the Reviewer had when it started. Null on a research started before.
+     */
+    @Column(name = "planner_agent_id")
+    val plannerAgentId: Long? = null,
+
+    @Column(name = "planner_agent_name", length = 255)
+    val plannerAgentName: String? = null,
+
+    @Column(name = "writer_agent_id")
+    val writerAgentId: Long? = null,
+
+    @Column(name = "writer_agent_name", length = 255)
+    val writerAgentName: String? = null,
+
+    /** Null where it is not reviewed. */
+    @Column(name = "reviewer_agent_id")
+    val reviewerAgentId: Long? = null,
+
+    @Column(name = "reviewer_agent_name", length = 255)
+    val reviewerAgentName: String? = null,
+
     /** What each round of review said, as a JSON list of [ResearchReviewRound]; written by the Review step. */
     @Column(name = "review_rounds", columnDefinition = "text")
     var reviewRounds: String? = null,
@@ -246,6 +271,12 @@ interface ResearchRepository : JpaRepository<Research, Long> {
     fun findByWorkspaceIdOrderByStartedAtDescIdDesc(workspaceId: Long, pageable: Pageable): Page<Research>
 
     fun findByExecutionId(executionId: Long): Research?
+
+    /** The workspace's newest research, for what its seeded agents were last run with; see [ResearchModes]. */
+    fun findFirstByWorkspaceIdOrderByStartedAtDescIdDesc(workspaceId: Long): Research?
+
+    /** And its newest reviewed one, for the reviewer's. */
+    fun findFirstByWorkspaceIdAndReviewerModelIdIsNotNullOrderByStartedAtDescIdDesc(workspaceId: Long): Research?
 
     /**
      * Writes the run's id on a research that has none yet, without loading and

@@ -53,6 +53,7 @@ class ResearchReviewTest(
     @Autowired val tunables: Tunables,
     @Autowired val rounds: ResearchReviewRounds,
     @Autowired val mapper: ObjectMapper,
+    @Autowired val agents: io.mszymanski.orknux.server.agent.AgentRepository,
 ) {
 
     private var workspaceId: Long = 0
@@ -190,14 +191,21 @@ class ResearchReviewTest(
     }
 
     @Test
-    fun `a review without a reviewer is refused`() {
-        val (writer, _) = models()
+    fun `a review whose reviewer has no model is refused, before anything runs`() {
+        models()
+        val reviewer = requireNotNull(agents.findByWorkspaceIdAndName(workspaceId, ResearchModes.REVIEWER.name))
+        reviewer.modelId = null
+        agents.save(reviewer)
         graphQlTester.document(
-            """mutation { startResearch(input: { workspaceId: $workspaceId, question: "Tides", modeId: ${modeId()}, modelId: $writer,
+            """mutation { startResearch(input: { workspaceId: $workspaceId, question: "Tides", modeId: ${modeId()},
                  language: FORMAL, outputFormat: DOCUMENT, review: true }) { id } }""",
-        ).execute().errors().expect { it.extensions?.get("code") == "ResearchReviewerMissing" }.verify()
+        ).execute().errors().expect {
+            it.extensions?.get("code") == "ResearchAgentModelMissing" && it.message.orEmpty().contains("Research reviewer")
+        }.verify()
         val scope = OrknuxScope(workspaceId = workspaceId, mayWrite = true)
-        assertThat(orknux.run(scope, "orknux_start_research", """{"question":"Tides","review":true}""")).contains("needs a reviewerModel")
+        assertThat(orknux.run(scope, "orknux_start_research", """{"question":"Tides","review":true}"""))
+            .contains("Research reviewer has no chat model")
+        assertThat(received).isEmpty()
 
         // Nor is a review asked of a mode whose workflow has no Review step: it would say it was reviewed and not be.
         val mine = graphQlTester.document("""mutation { createWorkflow(input: { workspaceId: $workspaceId, name: "My research" }) { workflowId } }""")
@@ -208,8 +216,8 @@ class ResearchReviewTest(
         created.path("createResearchMode.reviewable").entity(Boolean::class.java).isEqualTo(false)
         val patents = created.path("createResearchMode.id").entity(String::class.java).get()
         graphQlTester.document(
-            """mutation { startResearch(input: { workspaceId: $workspaceId, question: "Tides", modeId: $patents, modelId: $writer,
-                 language: FORMAL, outputFormat: DOCUMENT, review: true, reviewerModelId: $writer }) { id } }""",
+            """mutation { startResearch(input: { workspaceId: $workspaceId, question: "Tides", modeId: $patents,
+                 language: FORMAL, outputFormat: DOCUMENT, review: true }) { id } }""",
         ).execute().errors().expect { it.extensions?.get("code") == "ResearchModeNotReviewed" }.verify()
     }
 
@@ -237,17 +245,36 @@ class ResearchReviewTest(
     }
 
     @Test
-    fun `an agent asks for a review by the reviewer's name`() {
-        val (_, _) = models()
+    fun `an agent asks for a review by the reviewer agent's name, which reviews with its own model and instructions`() {
+        val (writer, reviewerModel) = models()
+        // Somebody's own agent, made for something else: told its own instructions, then the review's.
+        val second = agents.save(
+            io.mszymanski.orknux.server.agent.Agent(
+                workspaceId = workspaceId,
+                name = "Second opinion $stamp",
+                type = io.mszymanski.orknux.server.agent.AgentType.LLM,
+                systemPrompt = "You are the harbour master's sceptical deputy.",
+                modelId = reviewerModel,
+            ),
+        )
+        // The seeded reviewer thinks with the writer's model here, so the request below says which agent reviewed.
+        agents.researchWith(workspaceId, writer, reviewer = writer)
         val scope = OrknuxScope(workspaceId = workspaceId, mayWrite = true)
         val started = mapper.readTree(
-            orknux.run(scope, "orknux_start_research", """{"question":"Why are there tides?","model":"Writer model","review":true,"reviewerModel":"Reviewer model"}"""),
+            orknux.run(scope, "orknux_start_research", """{"question":"Why are there tides?","review":true,"reviewer":"Second opinion $stamp"}"""),
         )
         assertThat(started.path("error").isMissingNode).describedAs(started.toString()).isTrue()
         val done = settled(started.path("started").asLong())
+        assertThat(done.status).describedAs(done.error).isEqualTo(ResearchStatus.COMPLETED)
         assertThat(done.review).isTrue()
+        assertThat(done.reviewerAgentId).isEqualTo(second.id)
+        assertThat(done.reviewerAgentName).isEqualTo("Second opinion $stamp")
+        assertThat(done.writerAgentName).isEqualTo(ResearchModes.WRITER.name)
         assertThat(done.reviewerModelName).isEqualTo("Reviewer model")
-        assertThat(reviewerAsked()).hasSize(1)
+        val asked = reviewerAsked().single()
+        assertThat(modelOf(asked)).isEqualTo("reviewer-$stamp")
+        val system = mapper.readTree(asked).path("messages").first { it.path("role").stringValue() == "system" }.path("content").stringValue()
+        assertThat(system).startsWith("You are the harbour master's sceptical deputy.").contains(ResearchPipeline.REVIEW)
     }
 
     /* ------------------------------------------------------- fixture ----- */
@@ -268,10 +295,12 @@ class ResearchReviewTest(
             .first { it["kind"] == "SHALLOW" }["id"] as String).toLong()
 
     private fun start(writer: Long, review: Boolean, reviewer: Long? = null): Long {
-        val reviewing = if (review) ", review: true, reviewerModelId: $reviewer" else ""
+        // The agents think with their own models: the writer's, and the reviewer's where one is given.
+        agents.researchWith(workspaceId, writer, reviewer = reviewer ?: writer)
+        val reviewing = if (review) ", review: true" else ""
         return graphQlTester.document(
             """mutation { startResearch(input: { workspaceId: $workspaceId, question: "Why are there tides?", modeId: ${modeId()},
-                 modelId: $writer, language: FORMAL, outputFormat: DOCUMENT$reviewing }) { id } }""",
+                 language: FORMAL, outputFormat: DOCUMENT$reviewing }) { id } }""",
         ).execute().path("startResearch.id").entity(Long::class.java).get()
     }
 
@@ -293,7 +322,8 @@ class ResearchReviewTest(
         fun model(name: String, id: String) = graphQlTester.document(
             """mutation { createModel(input: { providerId: $providerId, name: "$name", modelId: "$id", kind: CHAT }) { id } }""",
         ).execute().path("createModel.id").entity(Long::class.java).get()
-        return model("Writer model", "writer-$stamp") to model("Reviewer model", "reviewer-$stamp")
+        return (model("Writer model", "writer-$stamp") to model("Reviewer model", "reviewer-$stamp"))
+            .also { (writer, reviewer) -> agents.researchWith(workspaceId, writer, reviewer = reviewer) }
     }
 
     private fun serve(): String {

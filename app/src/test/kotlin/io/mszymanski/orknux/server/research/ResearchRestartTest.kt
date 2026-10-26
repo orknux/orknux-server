@@ -57,6 +57,7 @@ import java.util.concurrent.atomic.AtomicInteger
 class ResearchRestartTest(
     @Autowired val graphQlTester: ExecutionGraphQlServiceTester,
     @Autowired val researches: ResearchRepository,
+    @Autowired val agents: io.mszymanski.orknux.server.agent.AgentRepository,
     @Autowired val nodes: WorkflowNodeRepository,
     @Autowired val runSteps: ExecutionStepRepository,
     @Autowired val audit: WorkspaceAuditRepository,
@@ -379,7 +380,7 @@ class ResearchRestartTest(
     private fun start(modelId: Long): Long =
         graphQlTester.document(
             """mutation { startResearch(input: { workspaceId: $workspaceId, question: "Why are there tides?", modeId: ${modeId("SHALLOW")},
-                 modelId: $modelId, language: FORMAL, outputFormat: DOCUMENT }) { id } }""",
+                 language: FORMAL, outputFormat: DOCUMENT }) { id } }""",
         ).execute().path("startResearch.id").entity(Long::class.java).get()
 
     private fun sourcesOf(id: Long): List<String> =
@@ -409,7 +410,7 @@ class ResearchRestartTest(
         ).execute().path("createModelProvider.id").entity(Long::class.java).get()
         return graphQlTester.document(
             """mutation { createModel(input: { providerId: $providerId, name: "Researcher model", modelId: "research-$stamp", kind: CHAT }) { id } }""",
-        ).execute().path("createModel.id").entity(Long::class.java).get()
+        ).execute().path("createModel.id").entity(Long::class.java).get().also { agents.researchWith(workspaceId, it) }
     }
 
     /**

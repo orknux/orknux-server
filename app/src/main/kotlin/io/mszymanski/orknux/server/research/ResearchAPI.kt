@@ -55,6 +55,7 @@ class ResearchAPI(
     private val drafts: ResearchDrafts,
     private val pipeline: ResearchPipeline,
     private val followUps: ResearchFollowUps,
+    private val agents: io.mszymanski.orknux.server.agent.AgentRepository,
 ) {
 
     /**
@@ -137,9 +138,6 @@ class ResearchAPI(
             ?: throw ResearchModeNotFoundException(input.modeId)
         val assignment = mode.workflowId?.let { assignments.findByWorkspaceIdAndWorkflowId(input.workspaceId, it) }
             ?: throw ResearchModeWorkflowMissingException(mode.name)
-        val model = input.modelId?.let {
-            chatModels.usable(input.workspaceId, it) ?: throw ResearchModelUnusableException()
-        }
 
         val websitesInclude = websites(input.websitesInclude)
         val websitesExclude = websites(input.websitesExclude)
@@ -155,21 +153,26 @@ class ResearchAPI(
             documentsInclude = included.map { requireNotNull(it.id) },
             documentsExclude = excluded.map { requireNotNull(it.id) },
         )
-        // A research always has its model: no step of a mode's workflow holds one of its own.
-        if (model == null) throw ResearchModelMissingException()
+        /*
+         * The agents it runs with, and the model each thinks with: the ones
+         * asked for, or the Research planner and writer. Checked here rather
+         * than at the step, so a research that could never think is refused
+         * before it starts instead of failing at Plan. Issue #678.
+         */
+        val planner = picked(input.workspaceId, input.plannerAgentId, ResearchModes.PLANNER)
+        val writer = picked(input.workspaceId, input.writerAgentId, ResearchModes.WRITER)
         val useWebSearch = input.useWebSearch ?: true
         if (!useWebSearch && included.isEmpty() && websitesInclude.isEmpty()) throw ResearchNothingToReadException()
         // On unless said otherwise: a report with its pictures is what most research is asked for.
         val includeImages = input.includeImages ?: true
-        // A review is a second model reading the report, and a review with no model to read it is no review.
+        // A review is a second agent reading the report: the one asked for, or the Research reviewer.
         val review = input.review ?: false
         val reviewer = if (!review) {
             null
         } else {
-            val asked = input.reviewerModelId ?: throw ResearchReviewerMissingException()
             // A review asked of a workflow with no Review step would be a research that says it was reviewed and was not.
             if (!seeding.reviews(requireNotNull(assignment.workflow.id))) throw ResearchModeNotReviewedException(mode.name)
-            chatModels.usable(input.workspaceId, asked) ?: throw ResearchReviewerUnusableException()
+            picked(input.workspaceId, input.reviewerAgentId, ResearchModes.REVIEWER)
         }
         // How many questions to suggest once it is finished: what the start said, or the workspace's number.
         val bounds = io.mszymanski.orknux.server.tuning.Tunable.RESEARCH_FOLLOW_UPS.let { it.least..it.most }
@@ -189,16 +192,23 @@ class ResearchAPI(
                 modeName = mode.name,
                 workflowId = requireNotNull(assignment.workflow.id),
                 workflowName = assignment.workflow.name,
-                modelId = model.id,
-                modelName = model.name,
+                // The Writer's model: what the notes on each source are taken with, and what it wrote with.
+                modelId = writer.model.id,
+                modelName = writer.model.name,
                 language = input.language,
                 outputFormat = input.outputFormat,
                 sources = mapper.writeValueAsString(sources),
                 useWebSearch = useWebSearch,
                 includeImages = includeImages,
                 review = review,
-                reviewerModelId = reviewer?.id,
-                reviewerModelName = reviewer?.name,
+                reviewerModelId = reviewer?.model?.id,
+                reviewerModelName = reviewer?.model?.name,
+                plannerAgentId = planner.agent.id,
+                plannerAgentName = planner.agent.name,
+                writerAgentId = writer.agent.id,
+                writerAgentName = writer.agent.name,
+                reviewerAgentId = reviewer?.agent?.id,
+                reviewerAgentName = reviewer?.agent?.name,
                 followUpCount = followUpCount,
                 parentResearchId = parent?.id,
                 startedBy = SecurityContextHolder.getContext().authentication?.name ?: "system",
@@ -225,7 +235,16 @@ class ResearchAPI(
                 "mode" to mode.name,
                 ResearchCapability.LANGUAGE to input.language.name,
                 ResearchCapability.OUTPUT_FORMAT to input.outputFormat.name,
-                ResearchCapability.MODEL to model.id.toString(),
+                /*
+                 * The Writer's model, which Gather and Follow up take their
+                 * notes on each source with: the notes are what the writer
+                 * writes from, so they are read the way it would read them.
+                 */
+                ResearchCapability.MODEL to writer.model.id.toString(),
+                // Who answers Plan and Write, and whose instructions Review reads; see ResearchModes.
+                ResearchCapability.PLANNER_AGENT to planner.agent.id.toString(),
+                ResearchCapability.WRITER_AGENT to writer.agent.id.toString(),
+                ResearchCapability.REVIEWER_AGENT to reviewer?.agent?.id?.toString(),
                 ResearchCapability.WEBSITES_INCLUDE to websitesInclude,
                 ResearchCapability.WEBSITES_EXCLUDE to websitesExclude,
                 ResearchCapability.DOCUMENTS_INCLUDE to included.map { requireNotNull(it.id).toString() },
@@ -236,7 +255,7 @@ class ResearchAPI(
                 ResearchCapability.INCLUDE_IMAGES to includeImages,
                 // Whether Review report runs, and with what: read by the question before it and by the step itself.
                 ResearchCapability.REVIEW_ASKED to review,
-                ResearchCapability.REVIEWER_MODEL to reviewer?.id?.toString(),
+                ResearchCapability.REVIEWER_MODEL to reviewer?.model?.id?.toString(),
                 ResearchModes.BRIEF to briefs.of(question, input.language, input.outputFormat, sources, included, excluded, useWebSearch, includeImages),
             ),
         )
@@ -250,6 +269,25 @@ class ResearchAPI(
         }
         following.launch(research, payload)
         return describe(research)
+    }
+
+    /** An agent a research runs with, and the model it thinks with. */
+    private class Picked(val agent: io.mszymanski.orknux.server.agent.Agent, val model: io.mszymanski.orknux.connector.model.LlmModelView)
+
+    /**
+     * The agent asked for a part of a research, or the seeded one for it, and
+     * the model it thinks with - refused where it is not this workspace's, is
+     * switched off, or has no chat model this workspace can use. Issue #678.
+     */
+    private fun picked(workspaceId: Long, agentId: Long?, seeded: ResearchModes.SeededAgent): Picked {
+        val agent = if (agentId != null) {
+            agents.findByIdOrNull(agentId)?.takeIf { it.workspaceId == workspaceId } ?: throw ResearchAgentNotFoundException(agentId)
+        } else {
+            agents.findByWorkspaceIdAndName(workspaceId, seeded.name) ?: throw ResearchAgentMissingException(seeded.name)
+        }
+        if (!agent.enabled) throw ResearchAgentDisabledException(agent.name)
+        val model = agent.modelId?.let { chatModels.usable(workspaceId, it) } ?: throw ResearchAgentModelMissingException(agent.name)
+        return Picked(agent, model)
     }
 
     /**
@@ -322,7 +360,7 @@ class ResearchAPI(
 
     /**
      * A research on one of a finished research's follow-up questions: the same
-     * mode, model, language, output, websites, documents, web search, images,
+     * mode, agents, language, output, websites, documents, web search, images,
      * review and number of follow-ups, with the question as its topic and the
      * parent as where it came from. Through [startResearch], so it is checked
      * and refused exactly as any start is - a model the workspace has since
@@ -345,7 +383,9 @@ class ResearchAPI(
             workspaceId = parent.workspaceId,
             question = question,
             modeId = parent.modeId ?: throw ResearchModeNotFoundException(0),
-            modelId = parent.modelId,
+            // The agents it ran with; one started before there were agents to pick runs with the seeded ones.
+            plannerAgentId = parent.plannerAgentId,
+            writerAgentId = parent.writerAgentId,
             language = parent.language,
             outputFormat = parent.outputFormat,
             websitesInclude = texts("websitesInclude"),
@@ -355,7 +395,7 @@ class ResearchAPI(
             useWebSearch = parent.useWebSearch,
             includeImages = parent.includeImages,
             review = parent.review,
-            reviewerModelId = parent.reviewerModelId,
+            reviewerAgentId = parent.reviewerAgentId,
             followUps = parent.followUpCount,
             parentId = parent.id,
         )
@@ -507,6 +547,12 @@ class ResearchAPI(
             review = research.review,
             reviewerModelId = research.reviewerModelId,
             reviewerModelName = research.reviewerModelName,
+            plannerAgentId = research.plannerAgentId,
+            plannerAgentName = research.plannerAgentName,
+            writerAgentId = research.writerAgentId,
+            writerAgentName = research.writerAgentName,
+            reviewerAgentId = research.reviewerAgentId,
+            reviewerAgentName = research.reviewerAgentName,
             reviewRounds = pipeline.reviewRoundsFrom(research.reviewRounds),
             followUps = followUps.of(research.followUps),
             followUpCount = research.followUpCount,
@@ -594,7 +640,9 @@ data class StartResearchInput(
     val workspaceId: Long,
     val question: String,
     val modeId: Long,
-    val modelId: Long? = null,
+    /** The agents that plan and write; absent, the Research planner and writer. Issue #678. */
+    val plannerAgentId: Long? = null,
+    val writerAgentId: Long? = null,
     val language: ResearchLanguage,
     val outputFormat: ResearchOutputFormat,
     val websitesInclude: List<String>? = null,
@@ -605,9 +653,10 @@ data class StartResearchInput(
     val useWebSearch: Boolean? = null,
     /** Absent is on: a research looks for images unless told not to. */
     val includeImages: Boolean? = null,
-    /** Absent is off: a research is reviewed only when asked to, and then [reviewerModelId] is required. */
+    /** Absent is off: a research is reviewed only when asked to. */
     val review: Boolean? = null,
-    val reviewerModelId: Long? = null,
+    /** The agent that reviews where it is; absent, the Research reviewer. */
+    val reviewerAgentId: Long? = null,
     /** How many follow-up questions to suggest once finished; absent is the workspace's number. */
     val followUps: Int? = null,
     /** The research this one follows up. */
@@ -692,6 +741,13 @@ data class ResearchView(
     val review: Boolean = false,
     val reviewerModelId: Long? = null,
     val reviewerModelName: String? = null,
+    /** The agents it was started with, and what each was called then; null on one started before. */
+    val plannerAgentId: Long? = null,
+    val plannerAgentName: String? = null,
+    val writerAgentId: Long? = null,
+    val writerAgentName: String? = null,
+    val reviewerAgentId: Long? = null,
+    val reviewerAgentName: String? = null,
     /** What each round of review said; empty for one not reviewed, or not yet. */
     val reviewRounds: List<ResearchReviewRound> = emptyList(),
     val followUps: List<String> = emptyList(),
@@ -749,14 +805,29 @@ data class ResearchPage(
 
 class ResearchQuestionMissingException : RuntimeException("Say what to research")
 
-class ResearchReviewerMissingException : RuntimeException("Choose the chat model that reviews the research")
+class ResearchAgentNotFoundException(val id: Long) : RuntimeException("No agent with id $id in this workspace"), Refusal {
+    override val arguments get() = mapOf("id" to id)
+}
+
+class ResearchAgentMissingException(val agent: String) :
+    RuntimeException("This workspace has no $agent; choose the agent to use instead"), Refusal {
+    override val arguments get() = mapOf("agent" to agent)
+}
+
+class ResearchAgentDisabledException(val agent: String) :
+    RuntimeException("$agent is switched off; switch it on or choose another agent"), Refusal {
+    override val arguments get() = mapOf("agent" to agent)
+}
+
+class ResearchAgentModelMissingException(val agent: String) :
+    RuntimeException("$agent has no chat model this workspace can use; choose one on its page"), Refusal {
+    override val arguments get() = mapOf("agent" to agent)
+}
 
 class ResearchFollowUpsOutOfRangeException(val count: Int, val least: Int, val most: Int) :
     RuntimeException("$count is not a number of follow-up questions; choose between $least and $most"), Refusal {
     override val arguments get() = mapOf("count" to count, "least" to least, "most" to most)
 }
-
-class ResearchReviewerUnusableException : RuntimeException("That model cannot review research in this workspace")
 
 class ResearchModeNotReviewedException(val mode: String) :
     RuntimeException("The research mode $mode has no Review step in its workflow, so it cannot be reviewed"), Refusal {
@@ -807,10 +878,6 @@ class ResearchModeWorkflowMissingException(val mode: String) :
     RuntimeException("The research mode $mode has no workflow in this workspace to run"), Refusal {
     override val arguments get() = mapOf("mode" to mode)
 }
-
-class ResearchModelUnusableException : RuntimeException("That model cannot be used for research in this workspace")
-
-class ResearchModelMissingException : RuntimeException("Choose the chat model to research with")
 
 class ResearchNothingToReadException :
     RuntimeException("Without web search, pick documents or websites to read")
