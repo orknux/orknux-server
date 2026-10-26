@@ -625,8 +625,10 @@ class BuiltInTools(
 
         fun lentTo(agent: Agent, shed: ToolShed?): ToolShed? {
             if (shed == null) return null
+            fun allowed(name: String) = granted(agent, name) || shed.lentRegardless(name)
+            val withdrawn = shed.withdrawn(shed.specs().map { it.name }.filterTo(mutableSetOf(), ::allowed))
             return object : ToolShed {
-                override fun specs(): List<ToolSpec> = shed.specs().filter { granted(agent, it.name) || shed.lentRegardless(it.name) }
+                override fun specs(): List<ToolSpec> = shed.specs().filter { allowed(it.name) && it.name !in withdrawn }
 
                 /*
                  * And what the shed wanted said about its tools, which this has
@@ -635,9 +637,13 @@ class BuiltInTools(
                  * wrapper that forgot to pass it on would take the paragraph
                  * away from every agent while leaving the tools in place.
                  */
-                override fun briefing(): String? = shed.briefing()
+                override fun briefing(): String? = shed.briefing(specs().mapTo(mutableSetOf()) { it.name })
 
-                override fun handles(name: String): Boolean = (granted(agent, name) || shed.lentRegardless(name)) && shed.handles(name)
+                override fun briefing(offered: Set<String>): String? = shed.briefing(offered)
+
+                override fun withdrawn(offered: Set<String>): Set<String> = shed.withdrawn(offered)
+
+                override fun handles(name: String): Boolean = allowed(name) && name !in withdrawn && shed.handles(name)
 
                 override fun lentRegardless(name: String): Boolean = shed.lentRegardless(name)
 

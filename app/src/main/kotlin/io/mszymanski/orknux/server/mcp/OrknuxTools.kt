@@ -811,10 +811,22 @@ class OrknuxTools(
                 ToolSpec(
                     name = START_RESEARCH,
                     description = "Starts a research in Explore: the web and the workspace's documents searched, read " +
-                        "and written up with cited sources. Returns its id; $RESEARCH follows it.",
+                        "and written up with cited sources. A Shallow one unless the person asked for a deeper one. " +
+                        "Returns its id; $RESEARCH follows it.",
                     parameters = listOf(
                         ToolParameterSpec("question", "What to research.", required = true),
-                        ToolParameterSpec("mode", "A research mode's name: Shallow, Medium, Deep or one the workspace added. Shallow when left out.", required = false),
+                        /*
+                         * Said as a rule rather than as a list to choose from. Listed as a choice,
+                         * a model weighed the question and picked Deep for anything that sounded
+                         * big - minutes of somebody's searches for a question a Shallow one
+                         * answers - when nobody had asked it to go deeper. Issue #669.
+                         */
+                        ToolParameterSpec(
+                            "mode",
+                            "Leave it out unless the person asked for a deeper research: left out, it is Shallow. " +
+                                "Only when they asked, the mode they named - Medium, Deep or one the workspace added.",
+                            required = false,
+                        ),
                         ToolParameterSpec(
                             "planner", "The agent that plans it: its name or id. Left out, the Research planner. Each agent thinks with its own model.",
                             required = false,

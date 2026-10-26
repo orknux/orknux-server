@@ -472,6 +472,8 @@ class ResearchRestartTest(
      * its own; told to break, every page it is asked for throws.
      */
     class HeldWeb : ResearchWeb {
+        override fun searchReady(workspaceId: Long) = true
+
         val read = CopyOnWriteArrayList<String>()
 
         @Volatile var breaking: String? = null

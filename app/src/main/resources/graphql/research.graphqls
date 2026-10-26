@@ -10,6 +10,8 @@ extend type Query {
     research(id: ID!): Research
     "The workspace's documents a research can be pointed at: the readable files on the Artifacts page."
     researchDocuments(workspaceId: ID!, "Words in the name or what the file is; absent is every one." search: String, "How many, newest first; 20 when absent, at most 100." limit: Int): [ResearchDocument!]!
+    "Whether the workspace's web search could be used now: a key set that can be read. A research that searches the web is refused without one."
+    researchSearchReady(workspaceId: ID!): Boolean!
 }
 
 extend type Mutation {
@@ -163,6 +165,16 @@ type Research {
     parentQuestion: String
     "The research started from it as follow-ups, oldest first; read only on the one opened."
     children: [ResearchChild!]!
+    "The sessions its Plan, Write and Review steps talked in, those that have one yet, in step order."
+    sessions: [ResearchSession!]!
+}
+
+"A session a research's step talked in: what its agent was asked, the tools it called and what it answered."
+type ResearchSession {
+    stage: ResearchStage!
+    sessionId: ID!
+    "The session's page."
+    url: String!
 }
 
 "A research started from another as a follow-up, as the parent lists it."

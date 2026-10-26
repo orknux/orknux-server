@@ -29,6 +29,8 @@ have failed.
 - **A tool call in a chat that started a run, filed an issue or named another item links to its page** from the call's own line, folded or not, while the turn is going and after a reload - "Workflow run #12: Nightly export".
 - **An agent node in a workflow chooses how hard its model thinks**, beside Progress messages, from the efforts its model takes; Default is the model's own. A word the model the run reaches does not take - a model read off the run - is said in the run's log and the model's own setting is used.
 - **An action or an agent node can run more than once in a run**: Times it runs, beside its retries, does the node's work that many times, each time on what the last produced, and the node after it gets the last. A failure in any of them is the node's failure, and its retries count afresh for each. Admin Settings caps it (`node.repeats.most`, 100).
+- **A research's Plan, Write and Review keep sessions you can open** from a Sessions line on its page: what each agent was asked, the tools it called and what it answered.
+- **A Refresh button beside Auto** on the Research list and on a research's page.
 
 ### 🔧 Changed
 
@@ -41,6 +43,9 @@ have failed.
 - **An agent that streams its output posts what it says as it ends a turn to wait for an agent it asked**, rather than holding it until that agent has answered and posting it together with the answer, minutes later.
 - **pdf_read says which pages hold pictures**, that a picture's content is not in the text, and - to an agent that holds the page preview - how to draw a page to look at it. A tool an agent does not hold is no longer named in a PDF answer.
 - **A long PDF read stops after a whole page and says which page to read on from**, instead of being refused for its length; how much one read answers is `ORKNUX_TUNING_PDF_READ_CHARACTERS` (200,000 by default). An answer read in pages that is too long for the model's window is cut between pages too, never in the middle of one.
+- **A research that searches the web is refused before it starts when the workspace has no search key it can read**, and New research says so under its options; it used to plan and then fail at Gather.
+- **An agent starts a Shallow research unless the person asked for a deeper one**; told the modes as a list to choose from, it picked Deep for any question that sounded big.
+- **An agent with every scratchpad tool hidden is no longer told to write its work into scratchpads**, nor offered `scratchpad_keep` alone.
 - **An MCP tool's answer is kept whole in the transcript when nothing in it is long.** Its JSON arrives as one string, which was cut to the longest value kept (Admin Settings, 1,000 by default) as if it were a payload, so a later turn in that conversation was handed the first thousand characters of ten log lines and the agent said the tool had cut them.
 - **Two messages to an agent in one conversation no longer get two answers at once.** A second Slack mention while the agent is still answering the first joins that turn and is answered in the same reply; two mentions a minute apart had made the same task twice.
 - **A long role under the account name no longer squeezes Quick actions to a sliver**; its results opened as a column one letter wide. The name and role are cut short, with the whole of them on hover.

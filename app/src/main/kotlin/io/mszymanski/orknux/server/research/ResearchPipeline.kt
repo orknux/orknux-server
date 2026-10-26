@@ -291,6 +291,8 @@ class ResearchPipeline(
     private val agents: io.mszymanski.orknux.server.agent.AgentRepository,
     /** Where the writer's revision is shown while it is written. */
     private val drafts: ResearchDrafts,
+    /** Where Review's turns are written, so the rounds can be read as a conversation; see [ResearchSessions]. Issue #668. */
+    private val sessions: io.mszymanski.orknux.server.llm.LlmSessionRecorder,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -691,18 +693,26 @@ class ResearchPipeline(
         val request = writerRequest(asked, excluded, gathered)
         var report = draft.trim()
         val held = mutableListOf<ResearchReviewRound>()
+        val transcript = ReviewTranscript(
+            asked,
+            nameOf(asked.workspaceId, reviewerAgentId, ResearchModes.REVIEWER),
+            nameOf(asked.workspaceId, writerAgentId, ResearchModes.WRITER),
+        )
         for (round in 1..rounds.coerceAtLeast(1)) {
             tracker.step(if (rounds > 1) "Reviewing the report, round $round of $rounds" else "Reviewing the report")
+            val material = reviewMaterial(asked.question, plan, gathered, report)
+            transcript.asked(material)
             val answer = when (
                 val reviewed = models.complete(
                     reviewerModelId,
-                    listOf(ChatTurn("system", reviewer), ChatTurn("user", reviewMaterial(asked.question, plan, gathered, report))),
+                    listOf(ChatTurn("system", reviewer), ChatTurn("user", material)),
                 )
             ) {
                 is ChatCompletion.Answered -> reviewed.content
                 is ChatCompletion.Failed -> throw ResearchModelFailedException("The reviewer did not answer: ${reviewed.reason}")
                 else -> throw ResearchModelFailedException("The reviewer answered with something other than text")
             }
+            transcript.reviewed(answer)
             val verdict = verdictFrom(round, answer, report.length)
                 ?: throw ResearchModelFailedException("The reviewer did not answer with a verdict: ${answer.take(200)}")
             said.info(
@@ -719,11 +729,13 @@ class ResearchPipeline(
             tracker.step(if (rounds > 1) "Revising the report, round $round of $rounds" else "Revising the report")
             noteReview(asked.researchId, held + verdict)
             val showing = drafts.revising(asked.researchId)
+            val revision = revisionAsked(verdict)
+            transcript.asked(revision)
             val turns = listOf(
                 ChatTurn("system", writer),
                 ChatTurn("user", request),
                 ChatTurn("assistant", report),
-                ChatTurn("user", revisionAsked(verdict)),
+                ChatTurn("user", revision),
             )
             val revised = when (val written = models.stream(asked.modelId, turns) { showing(it) }) {
                 is ChatCompletion.Answered -> written.content.trim()
@@ -731,6 +743,7 @@ class ResearchPipeline(
                 else -> throw ResearchModelFailedException("The writer answered with something other than text")
             }
             if (revised.isEmpty()) throw ResearchModelFailedException("The writer answered the review with nothing")
+            transcript.revised(revised)
             said.info("Revised the report: ${report.length} characters before, ${revised.length} after")
             held += verdict.copy(revised = true, charactersAfter = revised.length)
             report = revised
@@ -805,6 +818,36 @@ class ResearchPipeline(
         val id = researchId ?: return
         runCatching { researches.noteReview(id, mapper.writeValueAsString(rounds)) }
             .onFailure { log.warn("Could not note the review of research {}", id, it) }
+    }
+
+    /** The name of the agent a research was started with for a part, or the seeded one's. */
+    private fun nameOf(workspaceId: Long, agentId: Long?, seeded: ResearchModes.SeededAgent): String =
+        agentId?.let { agents.findByIdOrNull(it) }?.takeIf { it.workspaceId == workspaceId }?.name ?: seeded.name
+
+    /**
+     * Review's turns, written into the research's Review session as they are
+     * taken: what each was asked, under the step's name, and what the
+     * reviewer and the writer answered, under theirs. Issue #668.
+     *
+     * Writing it is not what the step is for, so a session that cannot be
+     * written is said in the log and the review goes on; and a research with
+     * no row - `research_run` called on its own - has no session to write to.
+     */
+    private inner class ReviewTranscript(asked: ResearchAsked, private val reviewer: String, private val writer: String) {
+        private val session: Long? = asked.researchId?.let { id ->
+            runCatching { sessions.open(asked.workspaceId, ResearchSessions.PREFIX, ResearchSessions.keyAfterPrefix(id, ResearchStage.REVIEW)) }
+                .onFailure { log.warn("Could not open the review session of research {}", id, it) }
+                .getOrNull()
+        }
+
+        fun asked(said: String) = write { sessions.userSaid(it, REVIEW_STEP_NAME, said) }
+        fun reviewed(said: String) = write { sessions.agentSaid(it, reviewer, said) }
+        fun revised(said: String) = write { sessions.agentSaid(it, writer, said) }
+
+        private fun write(what: (Long) -> Unit) {
+            val held = session ?: return
+            runCatching { what(held) }.onFailure { log.warn("Could not write to review session {}", held, it) }
+        }
     }
 
     /** An agent's instructions as its page has them, or as it was seeded where the workspace has no such agent. */
@@ -1265,6 +1308,9 @@ class ResearchPipeline(
     companion object {
         /** What a model writes for a source with nothing on the question. */
         const val NOTHING = "NOTHING RELEVANT"
+
+        /** Who asks in the Review session: the step, as its node is called. */
+        const val REVIEW_STEP_NAME = "Review report"
 
         const val ACCEPTED = "ACCEPT"
         const val REVISED = "REVISE"

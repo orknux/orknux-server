@@ -1,7 +1,9 @@
 package io.mszymanski.orknux.server.research
 
+import io.mszymanski.orknux.connector.security.HeldCredential
 import io.mszymanski.orknux.server.embedded.HttpCapability
 import io.mszymanski.orknux.server.embedded.SearchCapability
+import io.mszymanski.orknux.server.embedded.SearchSettings
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.springframework.stereotype.Component
@@ -42,6 +44,13 @@ sealed interface ImageFetched {
  */
 interface ResearchWeb {
 
+    /**
+     * Whether the workspace's search could be asked now: a key set, and one
+     * that can be read. What a research that searches the web is refused on
+     * before it starts, rather than at Gather minutes later. Issue #666.
+     */
+    fun searchReady(workspaceId: Long): Boolean
+
     /** The workspace's search; empty, with the reason, where it has none. */
     fun search(workspaceId: Long, query: String, limit: Int): Result<List<SearchHit>>
 
@@ -60,7 +69,10 @@ class WorkspaceResearchWeb(
     private val search: SearchCapability,
     private val http: HttpCapability,
     private val mapper: ObjectMapper,
+    private val searchSettings: SearchSettings,
 ) : ResearchWeb {
+
+    override fun searchReady(workspaceId: Long): Boolean = searchSettings.keyOf(workspaceId) is HeldCredential.Held
 
     override fun search(workspaceId: Long, query: String, limit: Int): Result<List<SearchHit>> {
         val said = search.run(SEARCH, mapper.writeValueAsString(mapOf("query" to query, "limit" to limit)), workspaceId, null)

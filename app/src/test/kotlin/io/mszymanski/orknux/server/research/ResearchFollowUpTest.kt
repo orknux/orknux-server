@@ -237,6 +237,8 @@ class ResearchFollowUpTest(
     }
 
     class PlainWeb : ResearchWeb {
+        override fun searchReady(workspaceId: Long) = true
+
         override fun search(workspaceId: Long, query: String, limit: Int): Result<List<SearchHit>> {
             val slug = query.replace(' ', '-')
             return Result.success((1..2).map { at -> SearchHit("$query, part $at", "https://$slug-$at.example.org/$slug", "What $slug says.") })

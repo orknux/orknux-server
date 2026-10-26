@@ -703,6 +703,7 @@ class ResearchModes(
             step.fromRun.map { (name, field) ->
                 NodeMapping(name = name, expression = "${NodeExpressions.TRIGGER}.$field", mode = MappingMode.REFERENCE)
             } +
+            step.written.map { (name, value) -> NodeMapping(name = name, expression = value, mode = MappingMode.VALUE) } +
             // What the step before found.
             step.reads.map { (name, field) ->
                 NodeMapping(
@@ -796,6 +797,8 @@ class ResearchModes(
         val knobs: (Knobs) -> List<Pair<String, Int>> = { emptyList() },
         /** Parameters read off the run's start under another name: the node's parameter, and the run's field. */
         val fromRun: List<Pair<String, String>> = emptyList(),
+        /** Parameters written as they are, a run's fields filled into them: the session an agent step keeps. */
+        val written: List<Pair<String, String>> = emptyList(),
     )
 
     /** What a step's node is called and says it does, and what its action is called. */
@@ -1012,6 +1015,7 @@ class ResearchModes(
                 request = emptyList(),
                 prompt = PLAN_PROMPT,
                 fromRun = agentFromRun(ResearchCapability.PLANNER_AGENT),
+                written = ResearchSessions.mappings(ResearchStage.PLAN),
             )
 
         private val WRITE_STEP =
@@ -1022,6 +1026,7 @@ class ResearchModes(
                 request = emptyList(),
                 prompt = WRITE_PROMPT,
                 fromRun = agentFromRun(ResearchCapability.WRITER_AGENT),
+                written = ResearchSessions.mappings(ResearchStage.WRITE),
             )
 
         /** Save as it was before there was a review: the draft and the sources. */
@@ -1156,7 +1161,12 @@ class ResearchModes(
         )
 
         /** What a step was given after it was first drawn in a shape, which a mode seeded before then lacks. */
-        private val LATER = mapOf(GATHER to setOf(ResearchCapability.INCLUDE_IMAGES))
+        private val LATER = mapOf(
+            GATHER to setOf(ResearchCapability.INCLUDE_IMAGES),
+            // The session each agent step keeps, so what it did can be read. Issue #668.
+            PLAN to ResearchSessions.PARAMETERS,
+            WRITE to ResearchSessions.PARAMETERS,
+        )
 
         /** Every name, and every description, a step's node has been given by this product: any other is somebody's. */
         private val OUR_NAMES: Map<String, Set<String>> =

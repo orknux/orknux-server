@@ -26,6 +26,7 @@ class ResearchExceptionResolver : DataFetcherExceptionResolverAdapter() {
             is ResearchAgentDisabledException,
             is ResearchAgentModelMissingException,
             is ResearchNothingToReadException,
+            is ResearchSearchKeyMissingException,
             is ResearchTooManyWebsitesException,
             is ResearchWebsiteTooLongException,
             is ResearchModeNameInvalidException,

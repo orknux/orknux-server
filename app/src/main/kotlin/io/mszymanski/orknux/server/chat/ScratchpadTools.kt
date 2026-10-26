@@ -104,6 +104,13 @@ class ScratchpadTools(
             append("its content into the call.")
         }
 
+        /** Said only where the agent can write a pad: the paragraph is about writing them. */
+        override fun briefing(offered: Set<String>): String? = briefing().takeIf { WRITE in offered }
+
+        /** Keeping a pad needs a pad: with every other pad tool held back, there is none to keep. */
+        override fun withdrawn(offered: Set<String>): Set<String> =
+            if (specs().none { it.name != KEEP && it.name in offered }) setOf(KEEP) else emptySet()
+
         override fun specs(): List<ToolSpec> = listOf(
             ToolSpec(
                 name = LIST,

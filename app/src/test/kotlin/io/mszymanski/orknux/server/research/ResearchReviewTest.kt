@@ -54,6 +54,7 @@ class ResearchReviewTest(
     @Autowired val rounds: ResearchReviewRounds,
     @Autowired val mapper: ObjectMapper,
     @Autowired val agents: io.mszymanski.orknux.server.agent.AgentRepository,
+    @Autowired val llmEvents: io.mszymanski.orknux.server.llm.LlmSessionEventRepository,
 ) {
 
     private var workspaceId: Long = 0
@@ -152,6 +153,20 @@ class ResearchReviewTest(
         view.path("research.reviewRounds[0].revised").entity(Boolean::class.java).isEqualTo(true)
         view.path("research.reviewRounds[0].issues[0].kind").entity(String::class.java).isEqualTo("UNSUPPORTED")
         view.path("research.reviewRounds[0].charactersAfter").entity(Int::class.java).isEqualTo(REVISED.length)
+
+        // The round is a conversation of its own beside Plan's and Write's: what the reviewer was handed and said,
+        // and what the writer was asked and wrote back, under their names (#668).
+        val sessions = graphQlTester.document("""query { research(id: ${done.id}) { sessions { stage sessionId } } }""").execute()
+        sessions.path("research.sessions[*].stage").entityList(String::class.java).containsExactly("PLAN", "WRITE", "REVIEW")
+        val reviewSession = sessions.path("research.sessions[2].sessionId").entity(Long::class.java).get()
+        val said = llmEvents.findAll().filter { it.sessionId == reviewSession }.sortedBy { it.id }
+        assertThat(said.map { it.kind.name to it.actor }).containsExactly(
+            "USER" to ResearchPipeline.REVIEW_STEP_NAME,
+            "AGENT" to "Research reviewer",
+            "USER" to ResearchPipeline.REVIEW_STEP_NAME,
+            "AGENT" to "Research writer",
+        )
+        assertThat(said.last().content).startsWith(REVISED)
 
         // And an agent reads it the same way.
         val read = mapper.readTree(orknux.run(OrknuxScope(workspaceId = workspaceId, mayWrite = true), "orknux_research", """{"id":${done.id}}"""))
@@ -364,6 +379,8 @@ class ResearchReviewTest(
 
     /** Three results for every query, each on a website of its own. */
     class PlainWeb : ResearchWeb {
+        override fun searchReady(workspaceId: Long) = true
+
         override fun search(workspaceId: Long, query: String, limit: Int): Result<List<SearchHit>> {
             val slug = query.replace(' ', '-')
             return Result.success((1..3).map { at -> SearchHit("$query, part $at", "https://$slug-$at.example.org/$slug", "What $slug says.") })

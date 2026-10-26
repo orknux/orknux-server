@@ -56,6 +56,10 @@ class ResearchAPI(
     private val pipeline: ResearchPipeline,
     private val followUps: ResearchFollowUps,
     private val agents: io.mszymanski.orknux.server.agent.AgentRepository,
+    /** Asked whether the workspace's search could be used, before a research that searches the web starts. Issue #666. */
+    private val web: ResearchWeb,
+    /** Where a research's agents talked, found by key for its page. Issue #668. */
+    private val llmSessions: io.mszymanski.orknux.server.llm.LlmSessionRepository,
 ) {
 
     /**
@@ -127,6 +131,26 @@ class ResearchAPI(
      * Answers at once, with the research running: the run goes on on a thread
      * of its own, and the list follows it.
      */
+    /**
+     * The sessions its agents talked in, a step at a time - only those that
+     * have one yet, and only when asked for, which the list never is. Found
+     * by their keys, which are the research's id and the step. Issue #668.
+     */
+    @org.springframework.graphql.data.method.annotation.SchemaMapping(typeName = "Research", field = "sessions")
+    fun sessions(research: ResearchView): List<ResearchSessionView> =
+        ResearchSessions.STAGES.mapNotNull { stage ->
+            llmSessions.findByWorkspaceIdAndSessionKey(research.workspaceId, ResearchSessions.key(research.id, stage))?.id?.let {
+                ResearchSessionView(stage, it, "/workspace/${research.workspaceId}/sessions/$it")
+            }
+        }
+
+    /** What the new research form asks before it lets web search start one; the same check the start makes. Issue #666. */
+    @QueryMapping
+    fun researchSearchReady(@Argument workspaceId: Long): Boolean {
+        access.requireVisible(workspaceId)
+        return web.searchReady(workspaceId)
+    }
+
     @MutationMapping
     fun startResearch(@Argument input: StartResearchInput): ResearchView {
         access.requireVisible(input.workspaceId)
@@ -163,6 +187,12 @@ class ResearchAPI(
         val writer = picked(input.workspaceId, input.writerAgentId, ResearchModes.WRITER)
         val useWebSearch = input.useWebSearch ?: true
         if (!useWebSearch && included.isEmpty() && websitesInclude.isEmpty()) throw ResearchNothingToReadException()
+        /*
+         * Refused here rather than at Gather: without a key every search
+         * answers that there is none, and the research fails minutes later
+         * having planned for nothing. Issue #666.
+         */
+        if (useWebSearch && !web.searchReady(input.workspaceId)) throw ResearchSearchKeyMissingException()
         // On unless said otherwise: a report with its pictures is what most research is asked for.
         val includeImages = input.includeImages ?: true
         // A review is a second agent reading the report: the one asked for, or the Research reviewer.
@@ -760,6 +790,9 @@ data class ResearchView(
 /** A research started from another as a follow-up, as the parent lists it. */
 data class ResearchChildView(val id: Long, val question: String, val status: ResearchStatus)
 
+/** A session one of a research's steps talked in; `url` is the session page's, relative, for the browser. */
+data class ResearchSessionView(val stage: ResearchStage, val sessionId: Long, val url: String)
+
 data class ResearchProgressView(
     val step: String,
     val subQuestions: List<String>,
@@ -881,6 +914,9 @@ class ResearchModeWorkflowMissingException(val mode: String) :
 
 class ResearchNothingToReadException :
     RuntimeException("Without web search, pick documents or websites to read")
+
+class ResearchSearchKeyMissingException :
+    RuntimeException("Web search needs this workspace's search key, which is not set or cannot be read; set it in Search settings or turn web search off")
 
 class ResearchDocumentNotFoundException(val id: Long) :
     RuntimeException("No readable document with id $id in this workspace"), Refusal {

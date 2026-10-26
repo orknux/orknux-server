@@ -95,6 +95,9 @@ class ResearchTest(
     @Autowired val runLogs: io.mszymanski.orknux.workflow.execution.ExecutionLogRepository,
     @Autowired val tunables: io.mszymanski.orknux.server.tuning.Tunables,
     @Autowired val retries: RetryWatch,
+    @Autowired val realWeb: WorkspaceResearchWeb,
+    @Autowired val llmEvents: io.mszymanski.orknux.server.llm.LlmSessionEventRepository,
+    @Autowired val searchSettings: io.mszymanski.orknux.server.embedded.SearchSettings,
 ) {
 
     private var workspaceId: Long = 0
@@ -112,6 +115,7 @@ class ResearchTest(
         web.read.clear()
         web.refusing = null
         web.finding = true
+        web.ready = true
         web.searchedImages.clear()
         web.fetchedImages.clear()
         retries.seen.clear()
@@ -567,8 +571,11 @@ class ResearchTest(
         assertThat(asked(PLAN).single()).contains("Why are there tides?").contains("exactly 3 search queries")
         assertThat(modelOf(asked(PLAN).single())).isEqualTo("research-$stamp-Chosen")
         // Offered nothing that runs anything but web search, lent because the research searches the web (#678) -
-        // beside the tool_ machinery that comes with having a tool at all.
+        // beside the tool_ machinery that comes with having a tool at all. Nothing the session it keeps (#668) brings:
+        // every built-in is hidden from it, and a pad tool that no list switches is no use with the rest held back.
         assertThat(toolsOf(asked(PLAN).single()).filterNot { it.startsWith("tool_") }).containsExactly("web_search")
+        // And not told to write its work into scratchpads it was not given.
+        assertThat(asked(PLAN) + asked(WRITE)).allSatisfy { assertThat(it).doesNotContain("You have scratchpads") }
         assertThat(web.searched).containsExactly("tide causes", "tide timing", "tide records")
         assertThat(asked(FOLLOW_UP)).isEmpty()
 
@@ -608,6 +615,15 @@ class ResearchTest(
         assertThat(report).startsWith("# Tides").contains("[1]").contains("## Sources")
         assertThat(report.substringAfter("## Sources")).contains("1. [").contains(urls.first())
         assertThat(saved.findByIdOrNull(requireNotNull(done.artifactId))!!.name).isEqualTo("tides.md")
+
+        // Plan and Write each talked in a session of their own, which the page links: what each was asked and answered (#668).
+        val sessions = graphQlTester.document("""query { research(id: $id) { sessions { stage sessionId url } } }""").execute()
+        sessions.path("research.sessions[*].stage").entityList(String::class.java).containsExactly("PLAN", "WRITE")
+        val planSession = sessions.path("research.sessions[0].sessionId").entity(Long::class.java).get()
+        sessions.path("research.sessions[0].url").entity(String::class.java).isEqualTo("/workspace/$workspaceId/sessions/$planSession")
+        val said = llmEvents.findAll().filter { it.sessionId == planSession }
+        assertThat(said.map { it.kind.name }).contains("USER", "AGENT")
+        assertThat(said.first { it.kind.name == "USER" }.content).contains("Why are there tides?")
     }
 
     @Test
@@ -770,9 +786,27 @@ class ResearchTest(
         val unnamed = mapper.readTree(
             orknux.run(scope, "orknux_start_research", """{"question":"Tides","sitesInclude":["one.example.org"],"webSearch":false}"""),
         )
+        // And so is the mode: Shallow, which is what an agent is told to leave it at unless the person asked for more. Issue #669.
+        assertThat(unnamed.path("mode").stringValue()).isEqualTo("Shallow")
         val second = settled(unnamed.path("started").asLong())
         assertThat(second.modelId).isEqualTo(modelId)
         assertThat(second.useWebSearch).isFalse()
+    }
+
+    /**
+     * What an agent is told about the mode: Shallow unless the person asked
+     * for a deeper one, as a rule and not as a menu. Listed as a choice, a
+     * model picked Deep for any question that sounded big. Issue #669.
+     */
+    @Test
+    fun `an agent is told to start a Shallow research unless the person asked for a deeper one`() {
+        val spec = orknux.specs(io.mszymanski.orknux.server.mcp.OrknuxScope(workspaceId = workspaceId, mayWrite = true))
+            .single { it.name == "orknux_start_research" }
+        val mode = spec.parameters.single { it.name == "mode" }
+
+        assertThat(spec.description).contains("Shallow one unless the person asked for a deeper one")
+        assertThat(mode.description).startsWith("Leave it out unless the person asked for a deeper research")
+        assertThat(mode.description).contains("left out, it is Shallow")
     }
 
     @Test
@@ -833,6 +867,45 @@ class ResearchTest(
             "ResearchNothingToRead",
         )
         assertThat(researches.findAll().filter { it.workspaceId == workspaceId }).isEmpty()
+    }
+
+    /**
+     * Web search with no key it can read is refused at the start, with a
+     * code, and the form is told the same by asking. Without web search the
+     * key does not matter. Issue #666.
+     */
+    @Test
+    fun `a research that searches the web is refused before it starts where there is no search key`() {
+        model(serve())
+        web.ready = false
+        graphQlTester.document("""{ researchSearchReady(workspaceId: $workspaceId) }""")
+            .execute().path("researchSearchReady").entity(Boolean::class.java).isEqualTo(false)
+        refused(
+            """{ workspaceId: $workspaceId, question: "Tides", modeId: ${modeId("SHALLOW")}, language: FORMAL, outputFormat: PDF }""",
+            "ResearchSearchKeyMissing",
+        )
+        assertThat(orknux.run(io.mszymanski.orknux.server.mcp.OrknuxScope(workspaceId = workspaceId, mayWrite = true), "orknux_start_research", """{"question":"Tides"}"""))
+            .contains("search key")
+        assertThat(researches.findAll().filter { it.workspaceId == workspaceId }).isEmpty()
+        assertThat(web.searched).isEmpty()
+
+        val reading = start(
+            """{ workspaceId: $workspaceId, question: "Tides", modeId: ${modeId("SHALLOW")}, language: FORMAL,
+                 outputFormat: DOCUMENT, useWebSearch: false, websitesInclude: ["one.example.org"] }""",
+        )
+        assertThat(settled(reading).status).isEqualTo(ResearchStatus.COMPLETED)
+
+        web.ready = true
+        graphQlTester.document("""{ researchSearchReady(workspaceId: $workspaceId) }""")
+            .execute().path("researchSearchReady").entity(Boolean::class.java).isEqualTo(true)
+    }
+
+    /** And the server's own answer is the workspace's key: none, then one. Issue #666. */
+    @Test
+    fun `the workspace's search is ready once it has a key`() {
+        assertThat(realWeb.searchReady(workspaceId)).isFalse()
+        searchSettings.set(workspaceId, null, "tvly-test-key", null, null, "alice")
+        assertThat(realWeb.searchReady(workspaceId)).isTrue()
     }
 
     /* ------------------------------------------------------------- images --- */
@@ -1009,6 +1082,28 @@ class ResearchTest(
         assertThat(given.expression).isEqualTo("trigger.includeImages")
         assertCurrentShape(drawn)
         assertThat(drawn.map { it.retryAttempts }).allMatch { it != null }
+    }
+
+    /** A mode drawn before Plan and Write kept sessions is given them, and still counts as seeded. Issue #668. */
+    @Test
+    fun `a seeded mode drawn before its agents kept sessions is given them`() {
+        val shallow = modeWorkflow("SHALLOW")
+        nodes.findByWorkflowId(shallow).filter { it.nodeKey == "plan" || it.nodeKey == "write" }.forEach { node ->
+            node.mappings.removeIf { it.name == "sessionKey" || it.name == "sessionKeyPrefix" }
+            nodes.save(node)
+        }
+
+        researchModes.ensure(workspaceId)
+
+        val drawn = nodes.findByWorkflowId(shallow).sortedBy { it.positionX }
+        assertCurrentShape(drawn)
+        // And one whose session somebody changed is theirs, and left as it is.
+        val plan = drawn.single { it.nodeKey == "plan" }
+        plan.mappings.single { it.name == "sessionKey" }.expression = "mine"
+        nodes.save(plan)
+        researchModes.ensure(workspaceId)
+        assertThat(nodes.findByWorkflowId(shallow).single { it.nodeKey == "plan" }.mappings.single { it.name == "sessionKey" }.expression)
+            .isEqualTo("mine")
     }
 
     @Test
@@ -1248,6 +1343,10 @@ class ResearchTest(
             assertThat(node.mappings.single { it.name == "webSearch" }.expression).isEqualTo("trigger.webSearch")
             assertThat(node.mappings.single { it.name == "prompt" }.expression).contains("{{trigger.question}}")
             assertThat(node.streamOutput).isFalse()
+            // Each talks in a session of its own, the research's and the step's, so what it did can be read (#668).
+            assertThat(node.mappings.single { it.name == "sessionKeyPrefix" }.expression).isEqualTo("research")
+            assertThat(node.mappings.single { it.name == "sessionKey" }.let { it.mode to it.expression })
+                .isEqualTo(MappingMode.VALUE to "{{trigger.research}}-$key")
         }
         assertThat(byKey.getValue("write").mappings.single { it.name == "prompt" }.expression)
             .contains("{{trigger.language}}", "{{trigger.documentsExcludeNames}}", "{{deepened.notes}}")
@@ -1396,7 +1495,8 @@ class ResearchTest(
             nodes.findByWorkflowId(workflowId).onEach { node ->
                 when (node.nodeKey) {
                     "plan", "write" -> {
-                        node.mappings.removeIf { it.name == "agent" || it.name == "webSearch" }
+                        // And so before they kept sessions (#668), which came later still.
+                        node.mappings.removeIf { it.name == "agent" || it.name == "webSearch" || it.name == "sessionKey" || it.name == "sessionKeyPrefix" }
                         node.mappings.add(NodeMapping(name = "model", expression = "trigger.model", mode = MappingMode.REFERENCE))
                     }
                     "review" -> node.mappings.removeIf { it.name == "writerAgent" || it.name == "reviewerAgent" }
@@ -1775,6 +1875,11 @@ class ResearchTest(
 
         /** Off, every search answers no results at all. */
         @Volatile var finding = true
+
+        /** Off, as a workspace with no search key it can read. Issue #666. */
+        @Volatile var ready = true
+
+        override fun searchReady(workspaceId: Long) = ready
 
         override fun search(workspaceId: Long, query: String, limit: Int): Result<List<SearchHit>> {
             searched += query
