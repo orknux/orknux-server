@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.mszymanski</groupId>
         <artifactId>orknux-server</artifactId>
-        <version>1.2.0</version>
+        <version>1.2.1</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -823,7 +823,12 @@
                     -->
                     <useManifestOnlyJar>false</useManifestOnlyJar>
                     <!-- What the jar's Add-Exports says for `java -jar`; see maven-jar-plugin above. -->
-                    <argLine>--add-exports java.desktop/com.sun.media.sound=ALL-UNNAMED</argLine>
+                    <!--
+                        A heap of its own rather than a quarter of the machine's: on CI's 16 GB runner
+                        that was 4 GB, and 1.2.0's cached contexts and its uploads of tens of MB ran it
+                        out of memory - and a context that cannot load fails every class after it.
+                    -->
+                    <argLine>-Xmx6g --add-exports java.desktop/com.sun.media.sound=ALL-UNNAMED</argLine>
                     <!--
                         Tests tagged `slow` are left out of the ordinary run.
 

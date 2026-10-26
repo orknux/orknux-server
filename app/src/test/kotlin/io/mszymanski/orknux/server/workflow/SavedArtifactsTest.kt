@@ -23,6 +23,7 @@ class SavedArtifactsTest(
     @Autowired val rows: SavedArtifactRepository,
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val store: AttachmentStore,
+    @Autowired val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
 ) {
 
     private var workspaceId: Long = 0
@@ -116,14 +117,20 @@ class SavedArtifactsTest(
      */
     @Test
     fun `a file past the upload limit is refused before anything is written, and one under it kept`() {
-        // Held to the installation's upload limit (25 MB here), not the 5 MB an agent's file used to stop at.
-        assertThat(save(content = "x".repeat(6 * 1024 * 1024))).isInstanceOf(SavedArtifacts.Saving.Saved::class.java)
-        rows.deleteAll()
+        // Held to the installation's upload limit, set to 7 MB here, not the 5 MB an agent's file used to stop at -
+        // and kept small, since the suite's heap is shared: a 26 MB string here helped run CI's out of memory.
+        settings.setMaxFileSizeMb(7, "test")
+        try {
+            assertThat(save(content = "x".repeat(6 * 1024 * 1024))).isInstanceOf(SavedArtifacts.Saving.Saved::class.java)
+            rows.deleteAll()
 
-        val saving = save(content = "x".repeat(26 * 1024 * 1024))
-        assertThat(saving).isInstanceOf(SavedArtifacts.Saving.Refused::class.java)
-        assertThat((saving as SavedArtifacts.Saving.Refused).reason).contains("as large as")
-        assertThat(rows.count()).isZero()
+            val saving = save(content = "x".repeat(8 * 1024 * 1024))
+            assertThat(saving).isInstanceOf(SavedArtifacts.Saving.Refused::class.java)
+            assertThat((saving as SavedArtifacts.Saving.Refused).reason).contains("as large as")
+            assertThat(rows.count()).isZero()
+        } finally {
+            settings.setMaxFileSizeMb(25, "test")
+        }
     }
 
     /** An unknown extension is bytes to download, which is right for a file nothing can draw. */

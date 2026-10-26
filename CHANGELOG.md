@@ -15,6 +15,12 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## 1.2.1
+
+### 🐛 Fixed
+
+- **1.2.1 is 1.2.0 as it was meant to ship.** 1.2.0 was tagged but never published: its build ran out of memory in the test suite, so no image or jar was made. Upgrading from 1.1.9 to 1.2.1 brings everything listed under 1.2.0 below.
+
 ## 1.2.0
 
 ### ✨ Added
