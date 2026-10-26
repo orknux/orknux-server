@@ -43,7 +43,13 @@ class StepHandOn(
             return false
         }
         if (step.outputObjectId != null) {
-            if (!partial) session?.let { sessions.note(it, "This answer went no further: ${step.name} answers in a fixed shape, and prose is not it.") }
+            session?.let {
+                sessions.note(
+                    it,
+                    if (partial) "This was not handed on as it was written: ${step.name} answers in a fixed shape, so it goes on with that answer."
+                    else "This answer went no further: ${step.name} answers in a fixed shape, and prose is not it.",
+                )
+            }
             return false
         }
         val service = runs.getObject()
@@ -70,11 +76,19 @@ class StepHandOn(
             session?.let { sessions.note(it, "This was handed on past ${step.name} in run #${carried.id}.") }
             true
         } catch (refused: RuntimeException) {
-            // A message said while working that cannot go on stays with the step's
-            // answer, so it is not noted as lost; an answer after the step has no such place.
-            if (!partial) {
-                log.warn("Session {} could not hand its answer on past {}: {}", session, step.nodeKey, refused.message)
-                session?.let { sessions.note(it, "This went no further: ${refused.message}.") }
+            log.warn("Session {} could not hand {} on past {}: {}", session, if (partial) "a message" else "its answer", step.nodeKey, refused.message)
+            /*
+             * A message said while working that cannot go on stays with the
+             * step's answer, and arrives with it - which on a Slack thread is
+             * minutes later, after a subagent has answered. It used to be kept
+             * silently, so a message that came late left nothing saying why.
+             */
+            session?.let {
+                sessions.note(
+                    it,
+                    if (partial) "This was not handed on as it was written (${refused.message}); it goes on with ${step.name}'s answer."
+                    else "This went no further: ${refused.message}.",
+                )
             }
             false
         }
