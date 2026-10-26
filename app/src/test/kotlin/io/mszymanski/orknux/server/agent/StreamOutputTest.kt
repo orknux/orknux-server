@@ -61,6 +61,7 @@ class StreamOutputTest(
     @Autowired val sessions: LlmSessionRepository,
     @Autowired val lines: LlmSessionEventRepository,
     @Autowired val inbox: SessionEventRepository,
+    @Autowired val settings: InstallationSettings,
 ) {
 
     private var workspaceId: Long = 0
@@ -90,7 +91,10 @@ class StreamOutputTest(
     }
 
     @AfterEach
-    fun stop() = server.stop(0)
+    fun stop() {
+        server.stop(0)
+        settings.setAgentSleepSeconds(settings.agentSleepSecondsConfigured(), "test")
+    }
 
     private fun replyInputs(run: Long) =
         steps.findAll().filter { it.executionId == run && it.nodeKey == "reply" }.mapNotNull { it.input }
@@ -129,6 +133,37 @@ class StreamOutputTest(
         assertThat(executions.findAll().map { it.id }).containsExactly(first)
         assertThat(replyInputs(first).single()).contains("The build is green.").doesNotContain("Checking the build.")
         assertThat(lines.findAll().mapNotNull { it.content }).anyMatch { it.contains("Checking the build.") }
+    }
+
+    /**
+     * A turn that ends while an agent it asked is still working parks the step,
+     * and what it said last went with the answer after the ask came back: on a
+     * Slack thread, "W pamięci jest ważna uwaga…" posted three minutes late,
+     * together with the answer. Streaming, it is handed on as the turn ends.
+     */
+    @Test
+    fun `what a turn says as it ends with an ask still running is handed on then, not with the answer`() {
+        settings.setAgentSleepSeconds(10, "test")
+        val modelId = model(serveAsking())
+        val librarian = agents.save(
+            Agent(workspaceId = workspaceId, name = "Librarian", type = AgentType.LLM, modelId = modelId, systemPrompt = "You are the librarian."),
+        )
+        val bot = agents.save(
+            Agent(
+                workspaceId = workspaceId, name = "OKO Bot", type = AgentType.LLM, modelId = modelId,
+                systemPrompt = "You are the bot.", tools = BuiltInTools.GRANTED.toMutableList(),
+                agents = mutableListOf(requireNotNull(librarian.id)),
+            ),
+        )
+        graph(requireNotNull(bot.id), replyAction(), null)
+        val first = graphQlTester.document(
+            """mutation { startExecution(workspaceId: $workspaceId, workflowId: $workflowId, input: "{}") { id } }""",
+        ).execute().path("startExecution.id").entity(Long::class.java).get()
+
+        await().atMost(Duration.ofSeconds(30)).until { executions.findById(first).orElseThrow().status == ExecutionStatus.COMPLETED }
+        assertThat(replyInputs(first).single()).contains("Found it: forty-two.").doesNotContain("Looking it up.")
+        val streamed = executions.findAll().filter { it.id != first }
+        assertThat(streamed.flatMap { replyInputs(requireNotNull(it.id)) }).anyMatch { it.contains("Looking it up.") }
     }
 
     private fun start(stream: Boolean? = null, chattiness: Chattiness = Chattiness.MEDIUM): Long {
@@ -203,6 +238,31 @@ class StreamOutputTest(
                 """{"choices":[{"message":{"role":"assistant","content":"Checking the build.",
                   "tool_calls":[{"id":"call_1","type":"function","function":{"name":"current_time","arguments":"{}"}}]}}],
                  "usage":{"prompt_tokens":9,"completion_tokens":4}}"""
+            }.toByteArray(StandardCharsets.UTF_8)
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, reply.size.toLong())
+            exchange.responseBody.use { it.write(reply) }
+            exchange.close()
+        }
+        server.start()
+        return "http://${server.address.hostString}:${server.address.port}"
+    }
+
+    /**
+     * The bot asks the librarian, says it is looking as its turn ends, and
+     * answers once the librarian's answer has come back; the librarian takes
+     * two seconds, so the bot's turn ends with the ask still running.
+     */
+    private fun serveAsking(): String {
+        server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
+        server.createContext("/chat/completions") { exchange ->
+            val body = exchange.requestBody.reader(StandardCharsets.UTF_8).use { it.readText() }
+            asked += body
+            val reply = when {
+                body.contains("You are the librarian.") -> { Thread.sleep(2_000); said("Forty-two.") }
+                body.contains("Forty-two.") -> said("Found it: forty-two.")
+                body.contains("call_ask") -> said("Looking it up.")
+                else -> called("call_ask", "ask_agent", """{\"agent\":\"Librarian\",\"question\":\"What is it?\"}""")
             }.toByteArray(StandardCharsets.UTF_8)
             exchange.responseHeaders.add("Content-Type", "application/json")
             exchange.sendResponseHeaders(200, reply.size.toLong())

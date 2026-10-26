@@ -805,7 +805,7 @@ class AgentNodeRunner(
              * node is held to one.
              */
             stillOwed(step, agent, session, finished.answer)?.let {
-                keepSaid(step, spoken + finished.answer)
+                keepSaid(step, spoken + unsent(step, session, finished.answer))
                 return it
             }
             runLog.write(
@@ -825,7 +825,7 @@ class AgentNodeRunner(
 
         if (answer is ChatCompletion.Answered) {
             stillOwed(step, agent, session, answer.content)?.let {
-                keepSaid(step, spoken + answer.content)
+                keepSaid(step, spoken + unsent(step, session, answer.content))
                 return it
             }
         }
@@ -957,6 +957,19 @@ class AgentNodeRunner(
      */
     private fun allSaid(step: ExecutionStep, spoken: List<String>, last: String): String =
         (listOfNotNull(step.agentSaid) + spoken + last).filter { it.isNotBlank() }.joinToString("\n\n") { it.trim() }
+
+    /**
+     * What a turn that parks on something still owed to it said last, handed
+     * on now where the step streams; the empty list where it went, the text
+     * where it did not, for the pass that ends the step.
+     *
+     * It was always kept: "Looking into it - asked the code searcher" written
+     * as the turn ended reached the Slack thread only with the answer after
+     * the ask came back, minutes later, which is what streaming is for.
+     */
+    private fun unsent(step: ExecutionStep, session: Long?, said: String): List<String> =
+        if (said.isBlank() || (step.streamOutput && handing.handOn(session, step, said, partial = true))) emptyList()
+        else listOf(said)
 
     /** Keeps what this pass wrote on the row, for the pass that ends the step. */
     private fun keepSaid(step: ExecutionStep, spoken: List<String>) {
