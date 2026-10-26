@@ -538,7 +538,14 @@ function completion(asked) {
     created: Math.floor(Date.now() / 1000),
     model: String(asked.model ?? 'writer'),
     choices: [{ index: 0, message, finish_reason: answer.call ? 'tool_calls' : 'stop' }],
-    usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+    /*
+     * What the call cost, where a group's script says: a report of tokens and a
+     * model's speed are pictures of numbers, and nothing else here has any. A
+     * script answers `usage` (the OpenAI shape) and `timings` (llama.cpp's, which
+     * the server reads as the model's speed); left out, the call cost nothing.
+     */
+    usage: answer.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+    ...(answer.timings ? { timings: answer.timings } : {}),
   };
 }
 
