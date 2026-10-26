@@ -114,7 +114,13 @@ object SessionValueTrim {
     private fun walk(node: JsonNode, longest: Int): JsonNode? = when {
         node.isString -> node.stringValue()
             .takeIf { it.length > longest }
-            ?.let { NODES.stringNode(shorten(it, longest)) }
+            ?.let { long ->
+                when (val walked = inner(long, longest)) {
+                    UNCUT -> null
+                    null -> NODES.stringNode(shorten(long, longest))
+                    else -> walked
+                }
+            }
 
         node.isObject -> walkObject(node as ObjectNode, longest)
         node.isArray -> walkArray(node as ArrayNode, longest)
@@ -123,6 +129,25 @@ object SessionValueTrim {
         // names of an object's fields are not values: a payload arrives as a
         // field's contents, never as what the field is called.
         else -> null
+    }
+
+    /**
+     * A long string that is JSON itself, walked like the rest and kept as a
+     * string; [UNCUT] where nothing inside it is long, and null where it is
+     * not JSON, which is then cut whole.
+     *
+     * An MCP tool answers `{"result":"<its JSON, as text>"}`, so every one of
+     * its answers is one long value at the top. Cut whole, ten Kibana log lines
+     * of 3,619 characters were stored as their first thousand, the next mention
+     * in that thread was given the stub back, and the agent told the person
+     * Kibana had cut the messages. Inside, every field was short.
+     */
+    private fun inner(text: String, longest: Int): JsonNode? {
+        val first = text.firstOrNull { !it.isWhitespace() }
+        if (first != '{' && first != '[') return null
+        val tree = runCatching { reader.readTree(text) }.getOrNull()?.takeIf { it.isObject || it.isArray } ?: return null
+        val cut = walk(tree, longest) ?: return UNCUT
+        return runCatching { NODES.stringNode(reader.writeValueAsString(cut)) }.getOrNull()
     }
 
     private fun walkObject(node: ObjectNode, longest: Int): JsonNode? {
@@ -178,4 +203,7 @@ object SessionValueTrim {
     private val reader = ObjectMapper()
 
     private val NODES: JsonNodeFactory = JsonNodeFactory.instance
+
+    /** What [inner] answers for JSON with nothing long in it: keep the text as it came. */
+    private val UNCUT: JsonNode = NODES.missingNode()
 }

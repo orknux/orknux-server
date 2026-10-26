@@ -155,6 +155,33 @@ class SessionValueTrimTest {
         assertThat(SessionValueTrim.trim(listing)).isEqualTo(listing)
     }
 
+    /**
+     * An MCP answer: the tool's JSON as one string under `result`. Ten Kibana
+     * log lines were stored as their first thousand characters and the next
+     * turn was handed the stub.
+     */
+    @Test
+    fun `JSON carried as a string is walked, and its short fields are kept`() {
+        val logs = (1..10).joinToString(",", """{"results":[{"type":"other","data":{"samples":[""", "]}}]}") {
+            """{"_id":"AaF4z$it","@timestamp":"2026-10-26T15:21:09.29${it}Z","message":"Processing message on topic product_offers p$it price=19.99"}"""
+        }
+        val answer = reader.writeValueAsString(mapOf("result" to logs))
+        assertThat(logs.length).isGreaterThan(SessionValueTrim.LONGEST_VALUE)
+
+        assertThat(SessionValueTrim.trim(answer)).isEqualTo(answer)
+    }
+
+    /** And a payload inside that string is cut there, its neighbours kept. */
+    @Test
+    fun `a payload inside JSON carried as a string is cut inside it`() {
+        val inside = reader.writeValueAsString(mapOf("channel" to "C123", "base64" to "A".repeat(OVER)))
+        val answer = reader.writeValueAsString(mapOf("result" to inside))
+
+        val read = reader.readTree(reader.readTree(SessionValueTrim.trim(answer)).get("result").stringValue())
+        assertThat(read.get("channel").stringValue()).isEqualTo("C123")
+        assertThat(read.get("base64").stringValue()).contains("$OVER characters")
+    }
+
     /** What is not a string has no length to bound, and is left as it stands. */
     @Test
     fun `numbers, booleans and nulls are carried through unchanged`() {

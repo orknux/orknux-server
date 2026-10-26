@@ -28,6 +28,7 @@ have failed.
 
 ### 🐛 Fixed
 
+- **An MCP tool's answer is kept whole in the transcript when nothing in it is long.** Its JSON arrives as one string, which was cut to the longest value kept (Admin Settings, 1,000 by default) as if it were a payload, so a later turn in that conversation was handed the first thousand characters of ten log lines and the agent said the tool had cut them.
 - **Two messages to an agent in one conversation no longer get two answers at once.** A second Slack mention while the agent is still answering the first joins that turn and is answered in the same reply; two mentions a minute apart had made the same task twice.
 - **A long role under the account name no longer squeezes Quick actions to a sliver**; its results opened as a column one letter wide. The name and role are cut short, with the whole of them on hover.
 - **The diagram's description grows when its corner is dragged**; the corner was drawn and did nothing.
