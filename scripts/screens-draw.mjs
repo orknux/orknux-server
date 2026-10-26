@@ -513,6 +513,8 @@ const SCRIPTS = [];
 function completion(asked) {
   let answer = null;
   for (const script of SCRIPTS) {
+    // A group that only serves other paths (see `serve` below) has no chat to answer.
+    if (typeof script.answer !== 'function') continue;
     answer = script.answer(asked, { textOf, parsed }) ?? null;
     if (answer) break;
   }
@@ -558,8 +560,25 @@ if (process.argv[1]?.endsWith('screens-draw.mjs')) {
   createServer((request, response) => {
     const parts = [];
     request.on('data', (part) => parts.push(part));
-    request.on('end', () => {
+    request.on('end', async () => {
       const path = request.url.split('?')[0];
+      /*
+       * A group may answer a whole request of its own first - a video server,
+       * a Stable Diffusion WebUI - by exporting `serve`; it answers true where
+       * it did. Matched on what only that group's providers send (a path
+       * prefix, the host they are given), so the chat and the drawing below
+       * are never taken from anybody else.
+       */
+      for (const script of SCRIPTS) {
+        if (typeof script.serve !== 'function') continue;
+        try {
+          if (await script.serve({ request, response, path, body: Buffer.concat(parts), answer, draw })) return;
+        } catch (failure) {
+          console.warn(`a scripted server failed on ${request.method} ${path}: ${failure.message}`);
+          if (!response.headersSent) answer(response, 500, { error: { message: failure.message } });
+          return;
+        }
+      }
       /*
        * A provider check lists models; answering one keeps the provider green.
        * Only that GET, and a 404 for any other: the server saves an OpenAI
