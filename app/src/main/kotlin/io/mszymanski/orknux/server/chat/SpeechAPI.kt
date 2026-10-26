@@ -6,6 +6,8 @@ import io.mszymanski.orknux.connector.model.LlmModelRepository
 import io.mszymanski.orknux.connector.model.ModelSpeechClient
 import io.mszymanski.orknux.connector.model.Speech
 import io.mszymanski.orknux.server.security.WorkspaceAccess
+import io.mszymanski.orknux.server.tuning.Tunable
+import io.mszymanski.orknux.server.tuning.Tuning
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.http.HttpStatus
@@ -34,6 +36,7 @@ class SpeechAPI(
     private val models: LlmModelRepository,
     private val speaker: ModelSpeechClient,
     private val access: WorkspaceAccess,
+    private val tuning: Tuning,
 ) {
 
     @PostMapping("/api/workspaces/{workspaceId}/speech")
@@ -70,7 +73,7 @@ class SpeechAPI(
          */
         val reading = if (model?.skipEmptyLines == true) withoutEmptyLines(text) else text
 
-        return when (val spoken = speaker.speak(modelId, reading, model?.voice)) {
+        return when (val spoken = speaker.speak(modelId, reading, model?.voice, speedOf(said.speed))) {
             is Speech.Spoke -> ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(spoken.contentType))
                 .header("Content-Length", spoken.audio.size.toString())
@@ -103,6 +106,17 @@ class SpeechAPI(
         .joinToString("\n")
         .trim()
 
+    /**
+     * How fast to read: the person's choice, or the installation's where they
+     * made none, held inside what the speech API accepts. Bounded rather than
+     * refused, because a speed out of range is a slider somebody pushed too
+     * far and the answer is still worth hearing.
+     */
+    private fun speedOf(asked: Double?): Double {
+        val speed = asked?.takeIf { it.isFinite() } ?: (tuning[Tunable.SPEECH_SPEED_PERCENT] / 100.0)
+        return speed.coerceIn(SLOWEST, FASTEST)
+    }
+
     private fun refuse(status: HttpStatus, says: String): ResponseEntity<Any> =
         ResponseEntity.status(status).body(mapOf("error" to says))
 
@@ -120,6 +134,10 @@ class SpeechAPI(
          * this is as generous as it can be and still be true.
          */
         const val MAX_CHARS = 8_000
+
+        /** The range OpenAI's `/audio/speech` accepts for `speed`; a format, not a choice. */
+        const val SLOWEST = 0.25
+        const val FASTEST = 4.0
     }
 }
 
@@ -136,4 +154,10 @@ class SpeechAPI(
  */
 data class SpeechRequest @JsonCreator constructor(
     @JsonProperty("text") val text: String,
+    /**
+     * How fast to read it, 1.0 being the reader's own pace; null where the
+     * person has not chosen. A default on this one alone emits no no-argument
+     * constructor - only a synthetic one Jackson does not look at.
+     */
+    @JsonProperty("speed") val speed: Double? = null,
 )

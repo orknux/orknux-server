@@ -74,8 +74,10 @@ class ModelSpeechClient(
      * @param voice which voice to use, or null for the model's own default —
      *   the providers disagree about what voices exist, so an installation that
      *   has not chosen one should not have a name invented for it.
+     * @param speed how fast to read, 1.0 being the reader's ordinary pace, or
+     *   null for that pace; bounded by the caller.
      */
-    fun speak(modelId: Long, text: String, voice: String?): Speech {
+    fun speak(modelId: Long, text: String, voice: String?, speed: Double? = null): Speech {
         val model = models.findByIdOrNull(modelId)
             ?: return Speech.Failed("That model no longer exists")
         if (model.kind != ModelKind.SPEECH) {
@@ -111,7 +113,7 @@ class ModelSpeechClient(
 
         val started = System.currentTimeMillis()
         return try {
-            when (val spoken = media.speak(provider, model, said, voice)) {
+            when (val spoken = media.speak(provider, model, said, voice, speed)) {
                 is OpenAiMedia.Spoken.Failed -> Speech.Failed(spoken.reason)
                 is OpenAiMedia.Spoken.Audio -> {
                     val millis = System.currentTimeMillis() - started

@@ -150,8 +150,13 @@ class OpenAiMedia(private val clients: ModelClients, private val probe: ModelPro
      * the name of the model it reads with, because a voice is a property of the
      * thing doing the reading and not of the installation running it. The name
      * below is only what a row created before that field existed falls back to.
+     *
+     * **A speed is sent only when one other than the ordinary was asked for.**
+     * Null and 1.0 leave the field out, so a request nobody changed the speed
+     * of is the request it always was, byte for byte - a local reader that has
+     * never heard of the field is not handed it unasked.
      */
-    fun speak(provider: ModelProvider, model: LlmModel, text: String, voice: String?): Spoken {
+    fun speak(provider: ModelProvider, model: LlmModel, text: String, voice: String?, speed: Double? = null): Spoken {
         val client = when (val ready = ready(provider)) {
             is Ready.No -> return Spoken.Failed(ready.reason)
             is Ready.Yes -> ready.client
@@ -162,6 +167,7 @@ class OpenAiMedia(private val clients: ModelClients, private val probe: ModelPro
             .input(text)
             .responseFormat(SpeechCreateParams.ResponseFormat.MP3)
         params.voice(voice?.trim()?.ifBlank { null } ?: LAST_RESORT_VOICE)
+        speed?.takeIf { it != 1.0 }?.let { params.speed(it) }
 
         return clients.again { client.audio().speech().create(params.build()) }.use { answer ->
             Spoken.Audio(answer.body().readBytes())

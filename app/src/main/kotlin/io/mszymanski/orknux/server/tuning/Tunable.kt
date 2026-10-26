@@ -306,6 +306,16 @@ enum class Tunable(
         "Each is a call to a speech model. Zero refuses every one.",
     ),
     /*
+     * The pace for somebody who has not picked one in voice mode, which is
+     * kept in their browser. A hundred is the reader's ordinary pace and is
+     * not sent at all, so a reader that knows no speed is asked as before.
+     */
+    SPEECH_SPEED_PERCENT(
+        "speech.speed.percent", 100, 25, 400, TuningSection.MEDIA, TuningUnit.PERCENT,
+        "How fast answers are read aloud",
+        "For whoever has not chosen a speed in voice mode; 100 is the speech model's own pace.",
+    ),
+    /*
      * Its own limit beside the attachment cap because the attachment is kept
      * once and this is sent: as base64, a third larger, on every round of the
      * turn it came with. Twenty is under the attachment cap's default of

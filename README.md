@@ -494,6 +494,7 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_COMMAND_OUTPUT_CHARACTERS` | How much of a command's output is kept, in characters. | `200000` |
 | `ORKNUX_TUNING_PICTURES_PER_RUN` | How many pictures one workflow run or task may draw, in items. | `20` |
 | `ORKNUX_TUNING_SPEECHES_PER_RUN` | How many times one workflow run may speak, in items. | `20` |
+| `ORKNUX_TUNING_SPEECH_SPEED_PERCENT` | How fast answers are read aloud, in percent. | `100` |
 | `ORKNUX_TUNING_CHAT_AUDIO_MAX_MB` | The largest sound a chat message may send to a model, in MB. | `20` |
 | `ORKNUX_TUNING_MIDI_READ_NOTES` | How many notes midi_read lists from one file, in items. | `2000` |
 | `ORKNUX_TUNING_MIDI_RENDER_LONGEST_SECONDS` | The longest piece midi_render turns into sound, in seconds. | `300` |

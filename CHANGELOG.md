@@ -20,6 +20,7 @@ have failed.
 ### ✨ Added
 
 - **A chat draws your avatar beside what you said**, as the agent's is beside its answers; Preferences → Avatar in Chat turns it off.
+- **Voice mode reads at the speed you pick**, from 0.75× to 2× in its panel; the choice is kept in your browser and also applies to reading an answer aloud. Whoever has not picked one hears the installation's pace, `ORKNUX_TUNING_SPEECH_SPEED_PERCENT` (100 by default), and at 100 no speed is sent to the speech model at all.
 - **Diagrams have flowchart and UML shapes**, under More shapes beside the shape buttons: database, document, hexagon, parallelogram, trapezoid, triangle and cloud; actor, class, component, package, interface, device, boundary, control and entity. Agents can draw them too, and a line now ends on a shape's outline - a diamond's and an ellipse's included - rather than at the box around it.
 - **The diagram editor's panel can be dragged wider, and the line above its chat up or down**; both sizes are kept. A long description and a node's notes no longer leave the chat a strip at the bottom.
 

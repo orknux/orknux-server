@@ -956,6 +956,7 @@ orknux:
     command.output.characters: ${ORKNUX_TUNING_COMMAND_OUTPUT_CHARACTERS:200000}
     pictures.per.run: ${ORKNUX_TUNING_PICTURES_PER_RUN:20}
     speeches.per.run: ${ORKNUX_TUNING_SPEECHES_PER_RUN:20}
+    speech.speed.percent: ${ORKNUX_TUNING_SPEECH_SPEED_PERCENT:100}
     chat.audio.max.mb: ${ORKNUX_TUNING_CHAT_AUDIO_MAX_MB:20}
     midi.read.notes: ${ORKNUX_TUNING_MIDI_READ_NOTES:2000}
     midi.render.longest.seconds: ${ORKNUX_TUNING_MIDI_RENDER_LONGEST_SECONDS:300}
