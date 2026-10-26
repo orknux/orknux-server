@@ -179,6 +179,11 @@ data class GraphNode(
      */
     val retryBudgetSeconds: Int? = null,
     /**
+     * How many times a run does this node's work in one pass, each handed what
+     * the one before produced; null is once. Issue #661.
+     */
+    val repeatTimes: Int? = null,
+    /**
      * Whether a run does this node's work.
      *
      * Off, the engine records the step as skipped without asking any runner

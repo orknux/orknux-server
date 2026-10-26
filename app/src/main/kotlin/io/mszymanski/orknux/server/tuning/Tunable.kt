@@ -810,6 +810,11 @@ enum class Tunable(
         "How many events a trigger remembers",
         "The oldest is forgotten first once this many are held.",
     ),
+    NODE_REPEATS_MOST(
+        ExecutionKnob.NODE_REPEATS_MOST, TuningSection.WORKFLOWS, TuningUnit.TIMES,
+        "The most times one node may repeat in a run",
+        "A node set to repeat more often is saved at this many, and a run already holding a higher number stops here.",
+    ),
     SCHEDULES_PER_TICK(
         "schedules.per.tick", 60, 1, 10_000, TuningSection.WORKFLOWS, TuningUnit.ITEMS,
         "How many runs one schedule may start in one tick",

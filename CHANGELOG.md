@@ -28,6 +28,7 @@ have failed.
 - **The diagram editor's panel can be dragged wider, and the line above its chat up or down**; both sizes are kept. A long description and a node's notes no longer leave the chat a strip at the bottom.
 - **A tool call in a chat that started a run, filed an issue or named another item links to its page** from the call's own line, folded or not, while the turn is going and after a reload - "Workflow run #12: Nightly export".
 - **An agent node in a workflow chooses how hard its model thinks**, beside Progress messages, from the efforts its model takes; Default is the model's own. A word the model the run reaches does not take - a model read off the run - is said in the run's log and the model's own setting is used.
+- **An action or an agent node can run more than once in a run**: Times it runs, beside its retries, does the node's work that many times, each time on what the last produced, and the node after it gets the last. A failure in any of them is the node's failure, and its retries count afresh for each. Admin Settings caps it (`node.repeats.most`, 100).
 
 ### 🔧 Changed
 

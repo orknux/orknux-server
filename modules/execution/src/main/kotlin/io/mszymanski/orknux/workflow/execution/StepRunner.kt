@@ -296,6 +296,8 @@ class StepRunner(
     transactionManager: org.springframework.transaction.PlatformTransactionManager,
     /** What a retry's time is said in; the machine's zone where nothing provides one. */
     private val zones: org.springframework.beans.factory.ObjectProvider<WorkingZone>,
+    /** The most times a step repeats, whatever its node says; see [repeatsAgain]. Issue #661. */
+    private val tuning: io.mszymanski.orknux.workflow.ExecutionTuning = io.mszymanski.orknux.workflow.ExecutionTuning.DEFAULTS,
 ) {
 
     /** What [carry] reads and writes the run under; see there. */
@@ -437,7 +439,36 @@ class StepRunner(
                 else -> result.output ?: "${step.name} ${result.status.name.lowercase()}"
             },
         )
+        repeatsAgain(step, result)?.let { times ->
+            step.repeatsDone += 1
+            // Each time is a run of its own, so a retry policy counts afresh for it.
+            step.attempts = 0
+            step.retryDeadline = null
+            steps.save(step)
+            log.write(
+                executionId,
+                nodeKey,
+                LogLevel.INFO,
+                "${step.name} ran ${step.repeatsDone} of $times times; running it again on what it produced",
+            )
+            // What it produced is carried already, so the next time reads it as its input.
+            return runStep(executionId, nodeKey)
+        }
         return StepOutcome(result.status, result.output, result.halt, result.branch, result.option)
+    }
+
+    /**
+     * How many times in all [step] runs, where it has another to go after the
+     * one that just finished as [result]; null where it is done. Only work
+     * that completed and points nowhere in particular is repeated: a wait, a
+     * failure, a branch taken and a stopped path end it. Issue #661.
+     */
+    private fun repeatsAgain(step: ExecutionStep, result: StepResult): Int? {
+        val times = (step.repeatTimes ?: return null)
+            .coerceAtMost(tuning.valueOf(io.mszymanski.orknux.workflow.ExecutionKnob.NODE_REPEATS_MOST))
+        val again = step.enabled && result.status == StepStatus.COMPLETED && result.branch == null && !result.halt &&
+            step.repeatsDone + 1 < times
+        return times.takeIf { again }
     }
 
     /**

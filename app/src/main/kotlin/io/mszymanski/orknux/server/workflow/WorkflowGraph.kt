@@ -494,6 +494,14 @@ class WorkflowNode(
     var retryBudgetSeconds: Int? = null,
 
     /**
+     * How many times a run does this node's work in one pass; null is once.
+     * Each time is handed what the one before produced, and what the last
+     * produced is the node's output. On an action or an agent. Issue #661.
+     */
+    @Column(name = "repeat_times")
+    var repeatTimes: Int? = null,
+
+    /**
      * Whether a run does this node's work.
      *
      * Off, the node stays on the graph with every edge it had and the run

@@ -369,6 +369,17 @@ class ExecutionStep(
     @Column(name = "retry_budget_seconds")
     val retryBudgetSeconds: Int? = null,
 
+    /** How many times this step does its work in one pass; null is once. Issue #661. */
+    @Column(name = "repeat_times")
+    val repeatTimes: Int? = null,
+
+    /**
+     * How many of [repeatTimes] are done, so one that parks or a worker that
+     * dies between two picks up at the right one rather than the first.
+     */
+    @Column(name = "repeats_done", nullable = false)
+    var repeatsDone: Int = 0,
+
     /**
      * When this step's budget runs out, stamped the first time it is attempted.
      *

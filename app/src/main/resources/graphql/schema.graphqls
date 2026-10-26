@@ -3016,6 +3016,8 @@ type WorkflowNode {
     retryJitter: Float
     "The longest this node may go on being attempted for, in seconds; null is no limit."
     retryBudgetSeconds: Int
+    "How many times a run does this node's work in one pass, each handed the last one's output; null is once."
+    repeatTimes: Int
     x: Float!
     y: Float!
     "What the node needs, read off whatever it points at."
@@ -3472,6 +3474,13 @@ input WorkflowNodeInput {
     with the attempts it had left unspent.
     """
     retryBudgetSeconds: Int
+    """
+    How many times a run does this node's work in one pass, each time handed
+    what the one before produced; null or 1 is once. Kept on an action or an
+    agent only, and saved at no more than the installation's
+    node.repeats.most. Issue #661.
+    """
+    repeatTimes: Int
     """
     What this node passes to its action. Omitted leaves it to the action's own
     suggestions, which is what a node freshly pointed at one wants. Names the

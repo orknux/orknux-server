@@ -84,6 +84,8 @@ class ScriptedNodeRunner : NodeRunner {
             StepResult(StepStatus.COMPLETED, "${step.name} did the work")
         }
         step.name.startsWith("put") -> StepResult(StepStatus.COMPLETED, """{"${step.nodeKey}":"${step.name}"}""")
+        // One more than it was handed, or one: what a repeated node is handed is what its last time produced.
+        step.name.startsWith("count") -> StepResult(StepStatus.COMPLETED, ((input?.toIntOrNull() ?: 0) + 1).toString())
         step.name.startsWith("wait") -> park(step)
         else -> UnimplementedNodeRunner().run(step, input)
     }

@@ -75,6 +75,8 @@ class WorkflowGraphAPI(
     private val room: io.mszymanski.orknux.server.workflow.live.WorkflowRoom,
     private val published: org.springframework.context.ApplicationEventPublisher,
     private val settings: io.mszymanski.orknux.server.attachment.InstallationSettings,
+    /** The most times a node may repeat; see [WorkflowNode.repeatTimes]. Issue #661. */
+    private val tuning: io.mszymanski.orknux.server.tuning.Tuning,
 ) {
 
     @QueryMapping
@@ -557,6 +559,10 @@ class WorkflowGraphAPI(
             retryJitter = node.retryJitter?.coerceIn(NO_JITTER, FULL_JITTER)
                 ?.takeIf { it > NO_JITTER && retries(node) },
             retryBudgetSeconds = node.retryBudgetSeconds?.coerceIn(1, MAX_BUDGET_SECONDS)?.takeIf { retries(node) },
+            // Once is stored as nothing, and only an action or an agent has work to do again.
+            repeatTimes = node.repeatTimes
+                ?.coerceIn(1, tuning[io.mszymanski.orknux.server.tuning.Tunable.NODE_REPEATS_MOST])
+                ?.takeIf { it > 1 && handlesFailure(node.kind) },
             // Null is on, which is what every node was before there was a switch
             // and what an older client that sends no flag still means. A
             // disabled trigger never gets this far: the validator refuses it.
@@ -1030,6 +1036,8 @@ data class WorkflowNodeInput(
     val retryJitter: Double? = null,
     /** The longest this node may go on being attempted for, in seconds; null is no limit. */
     val retryBudgetSeconds: Int? = null,
+    /** How many times a run does this node's work in one pass; null or 1 is once. Issue #661. */
+    val repeatTimes: Int? = null,
     /**
      * Whether a run does this node's work; null is on, which is what every
      * node was. Off is refused on a trigger. Issue #439.
@@ -1162,6 +1170,8 @@ data class WorkflowNodeView(
     val retryJitter: Double?,
     /** The longest this node may go on being attempted for; null is no limit. */
     val retryBudgetSeconds: Int?,
+    /** How many times a run does this node's work in one pass; null is once. */
+    val repeatTimes: Int?,
     /** Whether a run does this node's work; off is skipped, handing its input on. */
     val enabled: Boolean,
     val x: Double,
@@ -1221,6 +1231,7 @@ data class WorkflowNodeView(
         retryMaxWaitSeconds = node.retryMaxWaitSeconds,
         retryJitter = node.retryJitter,
         retryBudgetSeconds = node.retryBudgetSeconds,
+        repeatTimes = node.repeatTimes,
         enabled = node.enabled,
         x = node.positionX,
         y = node.positionY,

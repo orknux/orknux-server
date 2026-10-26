@@ -57,6 +57,30 @@ class PublishedGraphTest(
         assignments.save(WorkspaceWorkflow(workspaceId = workspaceId, workflow = workflow))
     }
 
+    /**
+     * How many times a node repeats is part of what runs, so it is part of
+     * what is published; once is kept as nothing, and nothing past the
+     * installation's most is kept. Issue #661.
+     */
+    @Test
+    fun `a node's repeat survives publishing, once is nothing, and it is kept at no more than the most`() {
+        save(
+            nodes = """
+                { key: "call", kind: ACTION, name: "Tell the customer", x: 0, y: 0, repeatTimes: 3 },
+                { key: "think", kind: AGENT, name: "Say it went out", x: 200, y: 0, repeatTimes: 1000000 },
+                { key: "once", kind: AGENT, name: "Say it once", x: 400, y: 0, repeatTimes: 1 }
+            """,
+            edges = "",
+        )
+        publish()
+
+        val live = source.graph(workspaceId, workflowId, GraphVersion.PUBLISHED)
+        assertThat(live.nodes.associate { it.key to it.repeatTimes })
+            .isEqualTo(mapOf("call" to 3, "think" to 100, "once" to null))
+        graphQlTester.document("""{ workflowGraph(workspaceId: $workspaceId, workflowId: $workflowId) { nodes { key repeatTimes } } }""")
+            .execute().path("workflowGraph.nodes[?(@.key == 'call')].repeatTimes").entityList(Int::class.java).containsExactly(3)
+    }
+
     /** One agent node, named, which is all a graph needs to be runnable. */
     private fun draw(nodeName: String) {
         graphQlTester.document(

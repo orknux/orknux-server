@@ -658,6 +658,7 @@ class ComponentExporter(
         put("retryMaxWaitSeconds", held.retryMaxWaitSeconds)
         put("retryJitter", held.retryJitter)
         put("retryBudgetSeconds", held.retryBudgetSeconds)
+        put("repeatTimes", held.repeatTimes)
         put("enabled", held.enabled)
         // The one the node's kind uses, and only that one: an id left behind by
         // a node that changed kind is not something this workflow points at.

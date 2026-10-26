@@ -11,6 +11,9 @@ enum class ExecutionKnob(val key: String, val fallback: Int, val least: Int, val
 
     /** How many lines one run of a workspace's function may log before the rest are dropped. */
     SCRIPT_LOG_LINES("script.log.lines", 500, 10, 100_000),
+
+    /** The most times one node may do its work in one pass of a run. Issue #661. */
+    NODE_REPEATS_MOST("node.repeats.most", 100, 2, 10_000),
 }
 
 /** What the installation says each [ExecutionKnob] is; [DEFAULTS] answers the fallbacks. */

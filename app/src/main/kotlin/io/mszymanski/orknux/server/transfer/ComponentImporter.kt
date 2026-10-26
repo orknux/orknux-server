@@ -1454,6 +1454,7 @@ class ComponentImporter(
                     retryMaxWaitSeconds = drawn.path("retryMaxWaitSeconds").let { if (it.isNumber) it.asInt() else null },
                     retryJitter = drawn.path("retryJitter").let { if (it.isNumber) it.asDouble() else null },
                     retryBudgetSeconds = drawn.path("retryBudgetSeconds").let { if (it.isNumber) it.asInt() else null },
+                    repeatTimes = drawn.path("repeatTimes").let { if (it.isNumber) it.asInt() else null },
                     // Absent from every envelope written before a node could be
                     // switched off, and read as on - which is what it was. A
                     // trigger is kept on whatever the file says, because a save
