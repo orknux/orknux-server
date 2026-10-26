@@ -51,6 +51,8 @@ class ComponentTransferAPITest(
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val audit: WorkspaceAuditRepository,
     @Autowired val mapper: ObjectMapper,
+    @Autowired val workflows: io.mszymanski.orknux.server.workflow.WorkflowRepository,
+    @Autowired val actions: io.mszymanski.orknux.server.action.WorkflowActionRepository,
 ) {
 
     private var from: Long = 0
@@ -58,6 +60,11 @@ class ComponentTransferAPITest(
 
     @BeforeEach
     fun reset() {
+        // An action points at its function, and a class run before this one in
+        // the same JVM (StreamOutputTest, AgentNodeRunnerTest) leaves one behind:
+        // its workflow first, then the action, or no function can be deleted.
+        workflows.deleteAll()
+        actions.deleteAll()
         conditions.deleteAll()
         functions.deleteAll()
         objects.deleteAll()
