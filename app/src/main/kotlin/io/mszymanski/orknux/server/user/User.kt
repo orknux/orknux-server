@@ -165,6 +165,14 @@ class AppUser(
     var chatCostShown: Boolean = true,
 
     /**
+     * Whether their chats draw their avatar beside what they said, as the
+     * agent's is drawn beside its answers. Theirs alone, on for the same
+     * reason the cost is. Preferences turns it off. V625.
+     */
+    @Column(name = "chat_avatar_shown", nullable = false)
+    var chatAvatarShown: Boolean = true,
+
+    /**
      * Which language they read the product in, or null while they have not said.
      *
      * A property of the person rather than of the workspace they are looking at

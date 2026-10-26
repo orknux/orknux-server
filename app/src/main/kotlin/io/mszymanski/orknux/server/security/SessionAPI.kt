@@ -321,10 +321,12 @@ class SessionAPI(
              * And whether their chats print what an answer cost. Here for the
              * same reason and by the same route: the chat window needs it on
              * every render and the preferences page is where it is turned on,
-             * and both of them already hold the session. False for somebody
+             * and both of them already hold the session. True for somebody
              * with no row yet, which is what the column defaults to.
              */
             chatCostShown = held?.chatCostShown ?: true,
+            // And their avatar beside what they said, by the same route.
+            chatAvatarShown = held?.chatAvatarShown ?: true,
             // With the session for the language's reason: every time on the first screen is drawn in it.
             timeZone = held?.timeZone,
             /*
@@ -386,6 +388,8 @@ data class SessionUser @JsonCreator constructor(
      * its own on a screen that already has one open.
      */
     @JsonProperty("chatCostShown") val chatCostShown: Boolean = true,
+    /** Whether the chat window draws their avatar beside what they said. */
+    @JsonProperty("chatAvatarShown") val chatAvatarShown: Boolean = true,
     /** The time zone to draw times in, or null where the browser's own should be used. */
     @JsonProperty("timeZone") val timeZone: String? = null,
     /** Whether they may make access tokens for themselves: internal users only. Issue #2. */

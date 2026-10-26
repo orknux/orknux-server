@@ -238,6 +238,17 @@ class UserAPI(
         return describe(users.save(held))
     }
 
+    /** Whether their own chats draw their avatar beside what they said; theirs alone, as the cost line is. */
+    @MutationMapping
+    @Transactional
+    fun setChatAvatarShown(@Argument shown: Boolean): UserView {
+        val held = users.findByUsername(editor()) ?: throw UserNotFoundException(-1)
+        held.chatAvatarShown = shown
+        held.lastModifiedAt = OffsetDateTime.now()
+        held.lastModifiedBy = editor()
+        return describe(users.save(held))
+    }
+
     /**
      * Which language somebody reads the product in.
      *
@@ -402,6 +413,7 @@ class UserAPI(
         emailChosen = user.emailChosen,
         emailNotifications = user.emailNotifications,
         chatCostShown = user.chatCostShown,
+        chatAvatarShown = user.chatAvatarShown,
         language = user.language,
         timeZone = user.timeZone,
         type = user.type,
@@ -426,6 +438,8 @@ data class UserView(
     val emailNotifications: Boolean,
     /** Whether their chats say what an answer cost as well as how long it took. */
     val chatCostShown: Boolean,
+    /** Whether their chats draw their avatar beside what they said. */
+    val chatAvatarShown: Boolean,
     /** The language they read the product in, or null where they have not said. */
     val language: String?,
     /** The time zone they read times in, or null where their browser's is used. */

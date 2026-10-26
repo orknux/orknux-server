@@ -19,6 +19,7 @@ have failed.
 
 ### ✨ Added
 
+- **A chat draws your avatar beside what you said**, as the agent's is beside its answers; Preferences → Avatar in Chat turns it off.
 - **Diagrams have flowchart and UML shapes**, under More shapes beside the shape buttons: database, document, hexagon, parallelogram, trapezoid, triangle and cloud; actor, class, component, package, interface, device, boundary, control and entity. Agents can draw them too, and a line now ends on a shape's outline - a diamond's and an ellipse's included - rather than at the box around it.
 - **The diagram editor's panel can be dragged wider, and the line above its chat up or down**; both sizes are kept. A long description and a node's notes no longer leave the chat a strip at the bottom.
 
