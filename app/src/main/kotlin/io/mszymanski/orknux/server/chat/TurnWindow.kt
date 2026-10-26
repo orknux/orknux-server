@@ -137,6 +137,7 @@ class TurnWindow(
      */
     fun fit(said: String, call: ToolCall, held: List<ToolSpec>, session: Long?, longest: Int): String {
         if (said.length <= longest) return said
+        cutPages(said, call, held, longest)?.let { return it }
         val how = wayToTheRest(said, call, held, session)
         val note = { length: Int -> "… (trimmed from $length characters; $how)" }
         return cutJson(said, longest, note) ?: (said.take((longest - note(said.length).length).coerceAtLeast(0)) + note(said.length))
@@ -258,6 +259,47 @@ class TurnWindow(
         return MAPPER.writeValueAsString(tree).takeIf { it.length <= longest }
     }
 
+    /**
+     * An answer read in pages - JSON whose `html` is a `<section data-page>`
+     * per page, with `to` the last page in it - held to [longest] by dropping
+     * whole pages from the end, and saying which page to read on from; null
+     * where it is not one, or not even its first page fits.
+     *
+     * Issue #664: `pdf_read` cut by [cutJson] stopped in the middle of a
+     * sentence on some page, and the note told the model to read the rest from
+     * a stored copy - when the tool it had just called reads from any page. A
+     * page cut part-way also reads as a page that ended there. Known by its
+     * shape, not by the tool's name, and the parameter to read on with is
+     * read off the called tool's declaration.
+     */
+    private fun cutPages(said: String, call: ToolCall, held: List<ToolSpec>, longest: Int): String? {
+        val tree = runCatching { MAPPER.readTree(said) }.getOrNull() as? ObjectNode ?: return null
+        val html = tree.get(PAGED_TEXT)?.takeIf { it.isString }?.stringValue() ?: return null
+        if (!tree.path(PAGED_TO).isNumber) return null
+        val pages = PAGE_START.findAll(html).toList()
+        if (pages.size < 2) return null
+        val start = held.firstOrNull { it.name == call.name }
+            ?.let { declared -> paging(declared)?.let { declared.name to it.substringBefore(" and ") } }
+        val earlier = tree.get(PAGED_NOTE)?.takeIf { it.isString }?.stringValue()
+        // Begun where the text alone would fit, since writing it out only adds to it: a long document is not re-written page by page.
+        val most = pages.indexOfLast { it.range.first <= longest }.coerceAtMost(pages.size - 1)
+        for (kept in most downTo 1) {
+            val last = pages[kept - 1].groupValues[1].toInt()
+            val next = pages[kept].groupValues[1].toInt()
+            val reading = start?.let { "read on with ${it.first}'s ${it.second} $next" } ?: "ask ${call.name} for page $next onward"
+            val note = "Stopped after page $last to fit the model's window; $reading."
+            val cut = tree.deepCopy().apply {
+                put(PAGED_TEXT, html.substring(0, pages[kept].range.first))
+                put(PAGED_TO, last)
+                put(PAGED_NEXT, next)
+                put(PAGED_NOTE, listOfNotNull(earlier, note).joinToString(" "))
+            }
+            val written = MAPPER.writeValueAsString(cut)
+            if (written.length <= longest) return written
+        }
+        return null
+    }
+
     private class Place(val value: String, val set: (String) -> Unit)
 
     private fun collect(node: JsonNode, into: MutableList<Place>) {
@@ -283,6 +325,13 @@ class TurnWindow(
 
         /** What a cut JSON value keeps at least, so it still shows what it was. */
         private const val SHORTEST_KEPT = 200
+
+        /** An answer read in pages: its text, a section per page, and the fields that say where it stopped. */
+        private const val PAGED_TEXT = "html"
+        private const val PAGED_TO = "to"
+        private const val PAGED_NEXT = "next"
+        private const val PAGED_NOTE = "note"
+        private val PAGE_START = Regex("""<section data-page="(\d+)">""")
 
         /** What a whole answer kept for reading in parts is stored under, before its call's id. */
         const val RESULT_PREFIX = "result."

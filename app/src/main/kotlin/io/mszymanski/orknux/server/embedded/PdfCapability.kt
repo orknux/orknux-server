@@ -111,7 +111,8 @@ class PdfCapability(
                 "whether a report is worth passing on. Takes a $KEY: the one fromHtml answered, or the one " +
                 "an attachment reader gave you. There is deliberately no base64 argument, because a " +
                 "document does not survive being written out through you. To find something in a long document, " +
-                "search it with $SEARCH_TOOL first and read only the pages it names, with $FROM and $TO.",
+                "search it with $SEARCH_TOOL first and read only the pages it names, with $FROM and $TO. A long " +
+                "read stops after a whole page and answers $NEXT, the page to read on from.",
             params = listOf(
                 EmbeddedParam(KEY, ValueType.STRING, "The key the document is kept under.", required = true),
                 EmbeddedParam(FROM, ValueType.NUMBER, "First page, counting from 1. Left out, the start."),
@@ -358,21 +359,31 @@ class PdfCapability(
 
     private fun read(asked: JsonNode, sessionId: Long?): String {
         val pdf = sourceFor(text(asked, KEY), sessionId) ?: return refusal(keyRefusal(text(asked, KEY), sessionId))
-        return when (val said = renderer.html(pdf, number(asked, FROM), number(asked, TO))) {
-            is PdfRenderer.Reading.Refused -> refusal(
-                // Too much text at once: the pages worth reading are the ones a search names.
-                said.reason + if (said.tooLong) ", or find the pages that matter with $SEARCH_TOOL" else "",
-            )
+        val most = tuning[io.mszymanski.orknux.server.tuning.Tunable.PDF_READ_CHARACTERS]
+        return when (val said = renderer.html(pdf, number(asked, FROM), number(asked, TO), most)) {
+            is PdfRenderer.Reading.Refused -> refusal(said.reason)
             is PdfRenderer.Reading.Read -> mapper.writeValueAsString(
-                linkedMapOf(
+                linkedMapOf<String, Any>(
                     "html" to said.html,
                     "pages" to said.pages,
                     FROM to said.from,
                     TO to said.to,
                     "characters" to said.characters,
                 ).apply {
+                    val notes = mutableListOf<String>()
                     // A scan reads as nothing; say so rather than answer empty pages as if they were blank paper.
-                    if (said.textless) put("note", "$NO_TEXT_LAYER Look at a page with $PREVIEW_TOOL.")
+                    if (said.textless) notes += "$NO_TEXT_LAYER Look at a page with $PREVIEW_TOOL."
+                    /*
+                     * Stopped at a page boundary rather than refused for its
+                     * length. Issue #664: a long document used to answer
+                     * nothing at all and a model asked for less by guessing.
+                     */
+                    said.next?.let { next ->
+                        put(NEXT, next)
+                        notes += "Stopped after page ${said.to} of ${said.pages} to keep this answer under $most " +
+                            "characters. Read on with $READ_TOOL's $FROM $next, or find the pages that matter with $SEARCH_TOOL."
+                    }
+                    if (notes.isNotEmpty()) put("note", notes.joinToString(" "))
                 },
             )
         }
@@ -467,7 +478,9 @@ class PdfCapability(
                     is PdfRenderer.Reading.Refused -> ScriptResult.Failed(said.reason, 0)
                     is PdfRenderer.Reading.Read -> ScriptResult.Returned(
                         mapper.writeValueAsString(
-                            linkedMapOf("html" to said.html, "pages" to said.pages, "characters" to said.characters),
+                            // `to` and `next` because a long read now stops between pages instead of failing.
+                            linkedMapOf("html" to said.html, "pages" to said.pages, "characters" to said.characters, TO to said.to)
+                                .apply { said.next?.let { put(NEXT, it) } },
                         ),
                         0,
                     )
@@ -653,6 +666,7 @@ class PdfCapability(
         const val BASE64 = "base64"
         const val FROM = "from"
         const val TO = "to"
+        const val NEXT = "next"
         const val PAGE = "page"
         const val WIDTH = "width"
         const val SHOW = "show"

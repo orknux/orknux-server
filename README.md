@@ -477,6 +477,7 @@ allows, the variable is ignored and the default applies.
 | `ORKNUX_TUNING_SVG_GROUP_GAP_PERCENT` | How close SVG shapes must be to be grouped, when the agent gives no gap, in percent. | `100` |
 | `ORKNUX_TUNING_PDF_SNIPPET_CHARACTERS` | How much text around each PDF search match is shown, in characters. | `200` |
 | `ORKNUX_TUNING_PDF_MATCHES_MOST` | How many matches one PDF search lists, in items. | `20` |
+| `ORKNUX_TUNING_PDF_READ_CHARACTERS` | How much text one PDF read answers, in characters. | `200000` |
 | `ORKNUX_TUNING_PDF_TEXT_DOCUMENTS` | How many PDFs' text is kept for searching again, in items. | `16` |
 | `ORKNUX_TUNING_PDF_LONG_PAGES` | Pages from which an attached PDF is read a part at a time, in items. | `20` |
 | `ORKNUX_TUNING_PDF_STEP_PAGES` | Pages in one part of a long attached PDF, in items. | `5` |

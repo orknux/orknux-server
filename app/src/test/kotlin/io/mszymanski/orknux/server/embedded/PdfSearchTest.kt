@@ -3,6 +3,8 @@ package io.mszymanski.orknux.server.embedded
 import io.mszymanski.orknux.server.llm.LlmSession
 import io.mszymanski.orknux.server.llm.LlmSessionRepository
 import io.mszymanski.orknux.server.llm.LlmSessionStore
+import io.mszymanski.orknux.server.tuning.Tunable
+import io.mszymanski.orknux.server.tuning.Tunables
 import io.mszymanski.orknux.server.workspace.Workspace
 import io.mszymanski.orknux.server.workspace.WorkspaceRepository
 import io.mszymanski.orknux.workflow.script.StoredKind
@@ -13,6 +15,7 @@ import org.apache.pdfbox.pdmodel.font.PDType1Font
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts
 import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -34,6 +37,7 @@ class PdfSearchTest(
     @Autowired val sessions: LlmSessionRepository,
     @Autowired val workspaces: WorkspaceRepository,
     @Autowired val mapper: ObjectMapper,
+    @Autowired val tunables: Tunables,
 ) {
 
     private var workspaceId = 0L
@@ -103,6 +107,31 @@ class PdfSearchTest(
         val read = call(PdfCapability.READ_TOOL, mapOf("contentKey" to "scan.pdf"))
         assertThat(read.path("note").stringValue()).contains("no text layer")
     }
+
+    /**
+     * Issue #664: a document past the bound used to be refused whole. Now the
+     * read stops at the last page that fits and names the page to read on from.
+     */
+    @Test
+    fun `a long read stops between pages and says which page to read on from`() {
+        tunables.set(Tunable.PDF_READ_CHARACTERS, 1_000, "alice")
+        put("long.pdf", document(List(4) { page -> List(6) { "page ${page + 1} line $it " + "word ".repeat(16) } }))
+
+        val first = call(PdfCapability.READ_TOOL, mapOf("contentKey" to "long.pdf"))
+        assertThat(first.path("to").asInt()).isEqualTo(1)
+        assertThat(first.path("next").asInt()).isEqualTo(2)
+        assertThat(first.path("html").stringValue()).contains("page 1 line 5").doesNotContain("page 2 line")
+            .endsWith("</section>\n")
+        assertThat(first.path("note").stringValue()).contains("${PdfCapability.READ_TOOL}'s from 2")
+
+        val second = call(PdfCapability.READ_TOOL, mapOf("contentKey" to "long.pdf", "from" to 2))
+        assertThat(second.path("from").asInt()).isEqualTo(2)
+        assertThat(second.path("next").asInt()).isEqualTo(3)
+        assertThat(second.path("html").stringValue()).contains("page 2 line 0").doesNotContain("page 1 line")
+    }
+
+    @AfterEach
+    fun unlimit() = tunables.set(Tunable.PDF_READ_CHARACTERS, null, "alice")
 
     @Test
     fun `pdf_read's description sends a long document to the search`() {

@@ -246,7 +246,7 @@ class SlackPluginHost(
                     "from" to read.from,
                     "to" to read.to,
                     "characters" to read.characters,
-                ),
+                ) + listOfNotNull(read.next?.let { "next" to it }),
             )
         }
     }

@@ -938,6 +938,8 @@ orknux:
     svg.group.gap.percent: ${ORKNUX_TUNING_SVG_GROUP_GAP_PERCENT:100}
     pdf.snippet.characters: ${ORKNUX_TUNING_PDF_SNIPPET_CHARACTERS:200}
     pdf.matches.most: ${ORKNUX_TUNING_PDF_MATCHES_MOST:20}
+    # pdf_read stops at the last whole page under this, and says where to read on.
+    pdf.read.characters: ${ORKNUX_TUNING_PDF_READ_CHARACTERS:200000}
     pdf.text.documents: ${ORKNUX_TUNING_PDF_TEXT_DOCUMENTS:16}
     # An attached PDF this long is read a few pages at a time, each part summarised before the next.
     pdf.long.pages: ${ORKNUX_TUNING_PDF_LONG_PAGES:20}

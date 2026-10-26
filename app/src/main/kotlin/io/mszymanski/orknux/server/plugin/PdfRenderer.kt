@@ -148,8 +148,14 @@ class PdfRenderer {
      * @param to the last page to read; null reads to the end. A range is here
      *   because a caller checking one section of a long report should not have
      *   to hold the whole of it.
+     * @param most how much HTML one read answers. The read stops at the last
+     *   whole page under it and says which page comes next, rather than
+     *   refusing a document for being long - issue #664. The first page asked
+     *   for is always read, however long, because a page is the smallest part
+     *   there is to ask for.
      */
-    fun html(pdf: ByteArray, from: Int?, to: Int?): Reading = html(PdfSource.of(pdf), from, to)
+    fun html(pdf: ByteArray, from: Int?, to: Int?, most: Int = MOST_CHARACTERS): Reading =
+        html(PdfSource.of(pdf), from, to, most)
 
     /**
      * How many pages a document has, or null where it cannot be opened - an
@@ -165,7 +171,7 @@ class PdfRenderer {
      * place and only the pages asked for are read, so a range of a long
      * attachment costs that range and not the document.
      */
-    fun html(pdf: PdfSource, from: Int?, to: Int?): Reading {
+    fun html(pdf: PdfSource, from: Int?, to: Int?, most: Int = MOST_CHARACTERS): Reading {
         if (pdf.size == 0L) return Reading.Refused("there is nothing to read: the pdf is empty")
         if (pdf.inMemory && pdf.size > MOST_BYTES) {
             return Reading.Refused("that pdf is larger than ${MOST_BYTES / (1024 * 1024)} MB, which is the most this reads")
@@ -193,6 +199,8 @@ class PdfRenderer {
                 val written = StringBuilder()
                 var characters = 0
                 var textless = true
+                var read = last
+                var next: Int? = null
                 for (page in first..last) {
                     val stripper = PDFTextStripper().apply {
                         startPage = page
@@ -204,18 +212,9 @@ class PdfRenderer {
                         sortByPosition = true
                     }
                     val said = stripper.getText(document)
-                    characters += said.length
-                    if (said.isNotBlank()) textless = false
-                    if (characters > MOST_CHARACTERS) {
-                        return Reading.Refused(
-                            "that pdf holds more than ${MOST_CHARACTERS / 1000}k characters of text, which is more " +
-                                "than this reads at once; ask for a range of pages",
-                            tooLong = true,
-                        )
-                    }
-
-                    written.append("<section data-page=\"").append(page).append("\">\n")
-                    written.append("<h2>Page ").append(page).append("</h2>\n")
+                    val section = StringBuilder()
+                    section.append("<section data-page=\"").append(page).append("\">\n")
+                    section.append("<h2>Page ").append(page).append("</h2>\n")
                     /*
                      * A paragraph per block of lines, which is what a blank
                      * line means in what PDFBox hands back. Inside one, the
@@ -226,13 +225,26 @@ class PdfRenderer {
                     said.split(Regex("\n\\s*\n")).forEach { block ->
                         val paragraph = block.trim().replace(Regex("\\s*\n\\s*"), " ")
                         if (paragraph.isNotEmpty()) {
-                            written.append("<p>").append(escaped(paragraph)).append("</p>\n")
+                            section.append("<p>").append(escaped(paragraph)).append("</p>\n")
                         }
                     }
-                    written.append("</section>\n")
+                    section.append("</section>\n")
+
+                    // Stopped between pages, never inside one: a page cut part-way reads as a page that ended there.
+                    if (page > first && written.length + section.length > most) {
+                        read = page - 1
+                        next = page
+                        break
+                    }
+                    written.append(section)
+                    characters += said.length
+                    if (said.isNotBlank()) textless = false
                 }
 
-                Reading.Read(written.toString(), pages = pages, from = first, to = last, characters = characters, textless = textless)
+                Reading.Read(
+                    written.toString(), pages = pages, from = first, to = read, characters = characters,
+                    textless = textless, next = next,
+                )
             }
         } catch (failure: java.io.IOException) {
             log.warn("a pdf could not be read", failure)
@@ -272,10 +284,11 @@ class PdfRenderer {
             val characters: Int,
             /** Whether no page read carries any text: pictures only, as a scan's are. */
             val textless: Boolean = false,
+            /** The page to read on from, where the read stopped before the last page asked for; null where it did not. */
+            val next: Int? = null,
         ) : Reading
 
-        /** [tooLong] where the text was refused for its length, which a narrower read or a search answers. */
-        data class Refused(val reason: String, val tooLong: Boolean = false) : Reading
+        data class Refused(val reason: String) : Reading
     }
 
     sealed interface Drawing {
@@ -300,11 +313,9 @@ class PdfRenderer {
         const val PDF_DPI = 72f
 
         /**
-         * As much text as this hands back at once.
-         *
-         * A model reads the answer, and a hundred pages of a contract is not a
-         * thing to put in one turn - so the refusal names the number and says
-         * to ask for a range, which is a sentence the caller can act on.
+         * As much text as this hands back at once, where the caller names no
+         * bound of its own. `pdf_read` passes `pdf.read.characters`, which an
+         * installation sets; this is that setting's default.
          */
         const val MOST_CHARACTERS = 200_000
 

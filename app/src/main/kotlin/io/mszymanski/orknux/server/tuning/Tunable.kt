@@ -208,6 +208,15 @@ enum class Tunable(
         "How many matches one PDF search lists",
         "The total is always counted; past this the agent is told how many more there are.",
     ),
+    /*
+     * What one pdf_read hands back before it stops at a page boundary and says
+     * which page to read on from. Issue #664: it used to refuse the whole read.
+     */
+    PDF_READ_CHARACTERS(
+        "pdf.read.characters", 200_000, 1_000, 2_000_000, TuningSection.AGENTS, TuningUnit.CHARACTERS,
+        "How much text one PDF read answers",
+        "A read stops at the last whole page under this and says which page to read on from.",
+    ),
     PDF_TEXT_DOCUMENTS(
         "pdf.text.documents", 16, 0, 1_000, TuningSection.AGENTS, TuningUnit.ITEMS,
         "How many PDFs' text is kept for searching again",
