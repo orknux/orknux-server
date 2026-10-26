@@ -57,7 +57,7 @@ class DiagramSvg {
             else -> WHITE
         }
         val ink = if (dark(fill)) WHITE else INK
-        DiagramOutline.OUTLINES[node.kind]?.let { outline(node, it, fill, ink); return }
+        DiagramOutline.of(node.kind, node.w, node.h)?.let { outline(node, it, fill, ink); return }
         when (node.kind) {
             DiagramNodeKind.BOX -> rect(x, y, w, h, fill, 4)
             DiagramNodeKind.ROUNDED -> rect(x, y, w, h, fill, minOf(h / 2, 24))
@@ -80,9 +80,15 @@ class DiagramSvg {
     }
 
     private fun StringBuilder.edge(edge: DiagramLink, from: DiagramShape, to: DiagramShape) {
-        val (x1, y1) = border(from, to.x + to.w / 2.0, to.y + to.h / 2.0)
-        val (x2, y2) = border(to, from.x + from.w / 2.0, from.y + from.h / 2.0)
-        append("<line x1=\"${r(x1)}\" y1=\"${r(y1)}\" x2=\"${r(x2)}\" y2=\"${r(y2)}\" stroke=\"$INK\" stroke-width=\"1.5\"")
+        val route = DiagramRoute.of(from, to, edge.routing)
+        if (edge.routing == DiagramRouting.STRAIGHT) {
+            // As a line element, as every line was drawn before there was a choice.
+            val (x1, y1) = border(from, to.x + to.w / 2.0, to.y + to.h / 2.0)
+            val (x2, y2) = border(to, from.x + from.w / 2.0, from.y + from.h / 2.0)
+            append("<line x1=\"${r(x1)}\" y1=\"${r(y1)}\" x2=\"${r(x2)}\" y2=\"${r(y2)}\" stroke=\"$INK\" stroke-width=\"1.5\"")
+        } else {
+            append("<path d=\"${route.d}\" fill=\"none\" stroke=\"$INK\" stroke-width=\"1.5\" stroke-linejoin=\"round\"")
+        }
         when (edge.line) {
             DiagramLineStyle.SOLID -> Unit
             DiagramLineStyle.DASHED -> append(" stroke-dasharray=\"6 4\"")
@@ -93,8 +99,8 @@ class DiagramSvg {
         append("/>")
         val label = edge.label?.let(::clean)?.lineSequence()?.firstOrNull()?.takeIf { it.isNotBlank() } ?: return
         val shown = fitted(label, 220, 12)
-        val mx = (x1 + x2) / 2
-        val my = (y1 + y2) / 2
+        val mx = route.labelX
+        val my = route.labelY
         val half = shown.length * 12 * CHAR_WIDTH / 2 + 4
         append("<rect x=\"${r(mx - half)}\" y=\"${r(my - 9)}\" width=\"${r(half * 2)}\" height=\"16\" rx=\"3\" fill=\"$PAPER\"/>")
         text(mx.toInt(), (my + 4).toInt(), shown, 12, MUTED, anchor = "middle")

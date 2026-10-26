@@ -71,7 +71,7 @@ type Diagram {
     agentAccess: DiagramAgentAccess!
     """
     The drawing, as JSON: {"nodes": [{id, kind, label, x, y, w, h, color, notes,
-    parent}], "edges": [{id, from, to, label, kind, line, start, end}]}, whole
+    parent}], "edges": [{id, from, to, label, kind, line, start, end, routing}]}, whole
     pixels from the top left, absolute. Node kinds are box, rounded, ellipse,
     diamond, note, group, database, document, hexagon, parallelogram, trapezoid,
     triangle, cloud, actor, class, component, package, interface, device,
@@ -79,7 +79,8 @@ type Diagram {
     its start (at from) and end (at to) are none, arrow, open, triangle, diamond,
     filled-diamond or circle; its kind - arrow, line, dashed or both - is the
     nearest of the four it had before, and on a save stands for all three where
-    none of them is given. Empty on the list.
+    none of them is given. An edge's routing is straight, right-angles or curved;
+    absent is straight. Empty on the list.
     """
     document: String!
     nodeCount: Int!

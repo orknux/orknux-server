@@ -189,6 +189,10 @@ class DiagramEdge(
 
     @Column(name = "end_end", length = 20)
     val endEnd: String? = null,
+
+    /** How the line finds its way between its two nodes; null on a row written before V633, which is straight. */
+    @Column(length = 20)
+    val routing: String? = null,
 )
 
 interface DiagramCatalogRepository : JpaRepository<DiagramCatalog, Long> {
@@ -366,6 +370,22 @@ enum class DiagramEndStyle(val key: String, val said: String) {
 
     companion object {
         fun byKey(key: String?): DiagramEndStyle? = entries.firstOrNull { it.key == key?.trim()?.lowercase() }
+    }
+}
+
+/**
+ * How a line finds its way from one node to the other. Straight is what every
+ * line was before there was a choice, so a line that says nothing is drawn as
+ * it always was.
+ */
+enum class DiagramRouting(val key: String, val said: String) {
+    STRAIGHT("straight", "straight across, edge to edge"),
+    ORTHOGONAL("right-angles", "in horizontal and vertical runs with right-angled turns, side to side"),
+    CURVED("curved", "a smooth curve, side to side"),
+    ;
+
+    companion object {
+        fun byKey(key: String?): DiagramRouting? = entries.firstOrNull { it.key == key?.trim()?.lowercase() }
     }
 }
 

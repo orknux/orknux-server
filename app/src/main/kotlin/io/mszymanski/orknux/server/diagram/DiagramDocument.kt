@@ -30,6 +30,7 @@ data class DiagramLink(
     val start: DiagramEndStyle = DiagramEndStyle.NONE,
     /** At [to]. */
     val end: DiagramEndStyle = DiagramEndStyle.ARROW,
+    val routing: DiagramRouting = DiagramRouting.STRAIGHT,
 ) {
     /** The nearest of the four kinds a line had before it had a style and two ends. */
     val kind: DiagramEdgeKind get() = DiagramEdgeKind.nearest(line, start, end)
@@ -140,10 +141,16 @@ class DiagramDocument(private val mapper: ObjectMapper) {
                 "edge $id has line $said, which is not one of ${DiagramLineStyle.entries.joinToString(", ") { it.key }}",
             )
         } ?: kind.line
+        val routing = text(node.path("routing"))?.let { said ->
+            DiagramRouting.byKey(said) ?: throw DiagramDocumentInvalidException(
+                "edge $id has routing $said, which is not one of ${DiagramRouting.entries.joinToString(", ") { it.key }}",
+            )
+        } ?: DiagramRouting.STRAIGHT
         return DiagramLink(
             id = id, from = from, to = to, label = label, line = line,
             start = end(node, "start", id) ?: kind.start,
             end = end(node, "end", id) ?: kind.end,
+            routing = routing,
         )
     }
 
@@ -215,6 +222,7 @@ class DiagramDocument(private val mapper: ObjectMapper) {
         put("line", edge.line.key)
         put("start", edge.start.key)
         put("end", edge.end.key)
+        put("routing", edge.routing.key)
         edge.label?.let { put("label", it) }
     }
 

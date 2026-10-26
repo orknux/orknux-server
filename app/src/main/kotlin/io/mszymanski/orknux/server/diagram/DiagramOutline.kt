@@ -59,9 +59,9 @@ object DiagramOutline {
             Inside(4.0, 4.0, 96.0, 80.0),
             listOf(0.0 to 0.0, 100.0 to 0.0, 100.0 to 85.0, 50.0 to 90.0, 0.0 to 88.0),
         ),
-        DiagramNodeKind.HEXAGON to hexagon(),
-        DiagramNodeKind.PARALLELOGRAM to slanted(listOf(15.0 to 0.0, 100.0 to 0.0, 85.0 to 100.0, 0.0 to 100.0)),
-        DiagramNodeKind.TRAPEZOID to slanted(listOf(0.0 to 0.0, 100.0 to 0.0, 85.0 to 100.0, 15.0 to 100.0)),
+        DiagramNodeKind.HEXAGON to hexagon(SLANT),
+        DiagramNodeKind.PARALLELOGRAM to parallelogram(SLANT),
+        DiagramNodeKind.TRAPEZOID to trapezoid(SLANT),
         DiagramNodeKind.TRIANGLE to Outline(
             listOf(poly(50.0 to 0.0, 100.0 to 100.0, 0.0 to 100.0)),
             Inside(18.0, 45.0, 82.0, 96.0),
@@ -80,32 +80,9 @@ object DiagramOutline {
                 85.0 to 28.0, 98.0 to 45.0, 90.0 to 65.0, 90.0 to 84.0, 70.0 to 88.0, 47.0 to 96.0,
             ),
         ),
-        DiagramNodeKind.COMPONENT to Outline(
-            listOf(
-                poly(10.0 to 0.0, 100.0 to 0.0, 100.0 to 100.0, 10.0 to 100.0),
-                poly(0.0 to 20.0, 20.0 to 20.0, 20.0 to 35.0, 0.0 to 35.0),
-                poly(0.0 to 55.0, 20.0 to 55.0, 20.0 to 70.0, 0.0 to 70.0),
-            ),
-            Inside(22.0, 4.0, 96.0, 96.0),
-            listOf(10.0 to 0.0, 100.0 to 0.0, 100.0 to 100.0, 10.0 to 100.0),
-        ),
-        DiagramNodeKind.PACKAGE to Outline(
-            listOf(
-                poly(0.0 to 0.0, 40.0 to 0.0, 40.0 to 15.0, 0.0 to 15.0),
-                poly(0.0 to 15.0, 100.0 to 15.0, 100.0 to 100.0, 0.0 to 100.0),
-            ),
-            Inside(4.0, 19.0, 96.0, 96.0),
-            listOf(0.0 to 0.0, 40.0 to 0.0, 40.0 to 15.0, 100.0 to 15.0, 100.0 to 100.0, 0.0 to 100.0),
-        ),
-        DiagramNodeKind.DEVICE to Outline(
-            listOf(
-                poly(0.0 to 12.0, 88.0 to 12.0, 88.0 to 100.0, 0.0 to 100.0),
-                poly(0.0 to 12.0, 12.0 to 0.0, 100.0 to 0.0, 88.0 to 12.0),
-                poly(88.0 to 12.0, 100.0 to 0.0, 100.0 to 88.0, 88.0 to 100.0),
-            ),
-            Inside(4.0, 16.0, 84.0, 96.0),
-            listOf(0.0 to 12.0, 12.0 to 0.0, 100.0 to 0.0, 100.0 to 88.0, 88.0 to 100.0, 0.0 to 100.0),
-        ),
+        DiagramNodeKind.COMPONENT to component(TABS),
+        DiagramNodeKind.PACKAGE to packaged(TAB),
+        DiagramNodeKind.DEVICE to device(DEPTH),
         DiagramNodeKind.CLASS to Outline(listOf(poly(*BOX.toTypedArray())), FULL),
         DiagramNodeKind.ACTOR to Outline(
             listOf(
@@ -129,13 +106,93 @@ object DiagramOutline {
         ),
     )
 
-    private fun hexagon(): Outline {
-        val points = listOf(15.0 to 0.0, 85.0 to 0.0, 100.0 to 50.0, 85.0 to 100.0, 15.0 to 100.0, 0.0 to 50.0)
-        return Outline(listOf(poly(*points.toTypedArray())), Inside(16.0, 4.0, 84.0, 96.0), points)
+    /*
+     * The features that run across a shape - a hexagon's and a parallelogram's
+     * slant, a component's tabs, a package's tab, a device's depth - in the
+     * hundred-unit box of a square node, and how many of the node's heights
+     * each may be at most. Stretched with the width alone, a hexagon a
+     * thousand pixels wide had slants of a hundred and fifty, and a wide
+     * component tabs that were half of it; so each is the smaller of the two,
+     * and a wide shape stays a box with small features at its sides.
+     */
+    private const val SLANT = 15.0
+    private const val SLANT_HEIGHTS = 0.4
+    private const val TABS = 20.0
+    private const val TABS_HEIGHTS = 0.35
+    private const val TAB = 40.0
+    private const val TAB_HEIGHTS = 1.2
+    private const val DEPTH = 12.0
+
+    private fun hexagon(s: Double): Outline {
+        val points = listOf(s to 0.0, 100 - s to 0.0, 100.0 to 50.0, 100 - s to 100.0, s to 100.0, 0.0 to 50.0)
+        return Outline(listOf(poly(*points.toTypedArray())), Inside(s + 1, 4.0, 99 - s, 96.0), points)
     }
 
-    private fun slanted(points: List<Pair<Double, Double>>): Outline =
-        Outline(listOf(poly(*points.toTypedArray())), Inside(17.0, 4.0, 83.0, 96.0), points)
+    private fun parallelogram(s: Double): Outline =
+        slanted(listOf(s to 0.0, 100.0 to 0.0, 100 - s to 100.0, 0.0 to 100.0), s)
+
+    private fun trapezoid(s: Double): Outline =
+        slanted(listOf(0.0 to 0.0, 100.0 to 0.0, 100 - s to 100.0, s to 100.0), s)
+
+    private fun slanted(points: List<Pair<Double, Double>>, s: Double): Outline =
+        Outline(listOf(poly(*points.toTypedArray())), Inside(s + 2, 4.0, 98 - s, 96.0), points)
+
+    private fun component(t: Double): Outline {
+        val body = t / 2
+        return Outline(
+            listOf(
+                poly(body to 0.0, 100.0 to 0.0, 100.0 to 100.0, body to 100.0),
+                poly(0.0 to 20.0, t to 20.0, t to 35.0, 0.0 to 35.0),
+                poly(0.0 to 55.0, t to 55.0, t to 70.0, 0.0 to 70.0),
+            ),
+            Inside(t + 2, 4.0, 96.0, 96.0),
+            listOf(body to 0.0, 100.0 to 0.0, 100.0 to 100.0, body to 100.0),
+        )
+    }
+
+    private fun packaged(tab: Double): Outline = Outline(
+        listOf(
+            poly(0.0 to 0.0, tab to 0.0, tab to 15.0, 0.0 to 15.0),
+            poly(0.0 to 15.0, 100.0 to 15.0, 100.0 to 100.0, 0.0 to 100.0),
+        ),
+        Inside(4.0, 19.0, 96.0, 96.0),
+        listOf(0.0 to 0.0, tab to 0.0, tab to 15.0, 100.0 to 15.0, 100.0 to 100.0, 0.0 to 100.0),
+    )
+
+    /** A box seen from a corner: [d] across, as deep as the 12 units it is down, in pixels. */
+    private fun device(d: Double): Outline {
+        val far = 100 - d
+        return Outline(
+            listOf(
+                poly(0.0 to 12.0, far to 12.0, far to 100.0, 0.0 to 100.0),
+                poly(0.0 to 12.0, d to 0.0, 100.0 to 0.0, far to 12.0),
+                poly(far to 12.0, 100.0 to 0.0, 100.0 to 88.0, far to 100.0),
+            ),
+            Inside(4.0, 16.0, far - 4, 96.0),
+            listOf(0.0 to 12.0, d to 0.0, 100.0 to 0.0, 100.0 to 88.0, far to 100.0, 0.0 to 100.0),
+        )
+    }
+
+    /**
+     * [kind]'s outline for a node [w] by [h] pixels: the square one, with the
+     * features that run across it no wider than their share of the height.
+     * Null for a kind drawn without one. The interface fits them the same way
+     * (`outlineOf` in `DiagramShapes.tsx`).
+     */
+    fun of(kind: DiagramNodeKind, w: Int, h: Int): Outline? {
+        val square = OUTLINES[kind] ?: return null
+        val heights = h.toDouble() / maxOf(w, 1) * 100
+        fun across(units: Double, most: Double) = min(units, most * heights)
+        return when (kind) {
+            DiagramNodeKind.HEXAGON -> hexagon(across(SLANT, SLANT_HEIGHTS))
+            DiagramNodeKind.PARALLELOGRAM -> parallelogram(across(SLANT, SLANT_HEIGHTS))
+            DiagramNodeKind.TRAPEZOID -> trapezoid(across(SLANT, SLANT_HEIGHTS))
+            DiagramNodeKind.COMPONENT -> component(across(TABS, TABS_HEIGHTS))
+            DiagramNodeKind.PACKAGE -> packaged(across(TAB, TAB_HEIGHTS))
+            DiagramNodeKind.DEVICE -> device(across(DEPTH, DEPTH / 100))
+            else -> square
+        }
+    }
 
     /** The box an outline is drawn in, in pixels: the whole node, or an icon's square above its label. */
     fun frame(node: DiagramShape, outline: Outline): DoubleArray {
@@ -175,7 +232,7 @@ object DiagramOutline {
         }
         val rim = when (node.kind) {
             DiagramNodeKind.DIAMOND -> listOf(50.0 to 0.0, 100.0 to 50.0, 50.0 to 100.0, 0.0 to 50.0)
-            else -> OUTLINES[node.kind]?.takeUnless { it.icon }?.rim
+            else -> of(node.kind, node.w, node.h)?.takeUnless { it.icon }?.rim
         }
         if (rim != null) {
             val points = rim.map { (u, v) -> (node.x + u * node.w / 100) to (node.y + v * node.h / 100) }

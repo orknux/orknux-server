@@ -18,6 +18,7 @@ import io.mszymanski.orknux.server.diagram.DiagramLineStyle
 import io.mszymanski.orknux.server.diagram.DiagramLink
 import io.mszymanski.orknux.server.diagram.DiagramNodeKind
 import io.mszymanski.orknux.server.diagram.DiagramReadOnlyException
+import io.mszymanski.orknux.server.diagram.DiagramRouting
 import io.mszymanski.orknux.server.diagram.DiagramRepository
 import io.mszymanski.orknux.server.diagram.DiagramSearch
 import io.mszymanski.orknux.server.diagram.DiagramShape
@@ -312,6 +313,7 @@ class DiagramTools(
                 put("line", edge.line.key)
                 put("start", edge.start.key)
                 put("end", edge.end.key)
+                put("routing", edge.routing.key)
                 edge.label?.let { put("label", it) }
                 put("node", brief(other))
             }
@@ -558,7 +560,8 @@ class DiagramTools(
                 "Each end of it, start at from and end at to: " +
                 DiagramEndStyle.entries.joinToString("; ") { "${it.key} - ${it.said}" } + ". " +
                 "Or a kind, standing for all three: " +
-                DiagramEdgeKind.entries.joinToString("; ") { "${it.key} - ${it.said}" } + "."
+                DiagramEdgeKind.entries.joinToString("; ") { "${it.key} - ${it.said}" } + ". " +
+                "How it runs between its nodes: " + DiagramRouting.entries.joinToString("; ") { "${it.key} - ${it.said}" } + "."
 
         private const val ANSWERED =
             "Answers the diagram with its url - where it opens in the editor, to give the person - and, in a " +
@@ -570,7 +573,7 @@ class DiagramTools(
                 "is the id of the group it sits in. Lay them out left to right or top to bottom, about 80 pixels apart."
 
         private const val EDGE_SAID =
-            "Each is {id, from, to, label, line, start, end}: from and to are node ids; id optional on a new one; " +
+            "Each is {id, from, to, label, line, start, end, routing}: from and to are node ids; id optional on a new one; " +
                 "kind may stand in for line, start and end."
 
         private val NODE_LIST: Map<String, Any?> = mapOf(
@@ -605,6 +608,7 @@ class DiagramTools(
                     "line" to mapOf("type" to "string", "enum" to DiagramLineStyle.entries.map { it.key }),
                     "start" to mapOf("type" to "string", "enum" to DiagramEndStyle.entries.map { it.key }),
                     "end" to mapOf("type" to "string", "enum" to DiagramEndStyle.entries.map { it.key }),
+                    "routing" to mapOf("type" to "string", "enum" to DiagramRouting.entries.map { it.key }),
                 ),
             ),
         )

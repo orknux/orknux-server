@@ -202,6 +202,26 @@ class DiagramAPITest(
         assertThat(said("old")).containsExactly("dashed", "none", "arrow", "dashed")
     }
 
+    @Test
+    fun `a line's routing is saved and read back, and one saved without it is straight`() {
+        val id = create("Routed")
+        save(
+            id,
+            """{"nodes":[{"id":"a"},{"id":"b"},{"id":"c"}],"edges":[
+                {"id":"bent","from":"a","to":"b","routing":"right-angles"},
+                {"id":"soft","from":"b","to":"c","routing":"curved"},
+                {"id":"plain","from":"a","to":"c"}
+            ]}""",
+        )
+        val read = graphQlTester.document("""{ diagram(id: $id) { document } }""").execute()
+            .path("diagram.document").entity(String::class.java).get()
+        val edges = tools.jackson.databind.ObjectMapper().readTree(read).path("edges").associateBy { it.path("id").stringValue() }
+        assertThat(listOf("bent", "soft", "plain").map { edges.getValue(it).path("routing").stringValue() })
+            .containsExactly("right-angles", "curved", "straight")
+        save(id, """{"nodes":[{"id":"a"},{"id":"b"}],"edges":[{"id":"e","from":"a","to":"b","routing":"zigzag"}]}""").errors()
+            .expect { it.message?.contains("routing zigzag") == true }.verify()
+    }
+
     /** From the editor's door: notes past the cap are refused and name the node; the cap is the installation's. */
     @Test
     fun `notes past the cap are refused from the editor, and the cap is a Tunable`() {

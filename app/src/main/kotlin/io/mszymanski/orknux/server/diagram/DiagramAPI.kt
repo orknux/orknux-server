@@ -317,6 +317,7 @@ class DiagramAPI(
                 line = DiagramLineStyle.byKey(it.lineStyle) ?: kind.line,
                 start = DiagramEndStyle.byKey(it.startEnd) ?: kind.start,
                 end = DiagramEndStyle.byKey(it.endEnd) ?: kind.end,
+                routing = DiagramRouting.byKey(it.routing) ?: DiagramRouting.STRAIGHT,
             )
         },
     )
@@ -409,7 +410,7 @@ class DiagramAPI(
                 DiagramEdge(
                     diagramId = diagramId, key = edge.id, position = at, sourceKey = edge.from, targetKey = edge.to,
                     label = edge.label, kind = edge.kind.key,
-                    lineStyle = edge.line.key, startEnd = edge.start.key, endEnd = edge.end.key,
+                    lineStyle = edge.line.key, startEnd = edge.start.key, endEnd = edge.end.key, routing = edge.routing.key,
                 )
             },
         )
