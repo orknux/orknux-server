@@ -143,6 +143,28 @@ class ForcedSkillsTest(
 
     /* --------------------------------------------------- from the trigger --- */
 
+    /**
+     * `!progress-none` among a message's commands is a setting for the turn,
+     * not a skill: the model is told the level for this turn, the skills beside
+     * it still load, and the run log does not report it as a missing skill.
+     */
+    @Test
+    fun `a progress command among the run's commands sets the level and is not looked for as a skill`() {
+        skill("Code review", "review", REVIEW_SAYS)
+        val agentId = agent(model(serve()))
+        graph(agentId, """{ name: "skillIds", expression: "commands", mode: REFERENCE }""")
+
+        start(input = """{"text":"!progress-none !review please","commands":["progress-none","review"]}""")
+
+        assertThat(received.single())
+            .contains("(skill_load review)")
+            .doesNotContain("skill_load progress-none")
+            .contains("For this turn only")
+            .contains(io.mszymanski.orknux.server.chat.AgentBriefing.REPORT_NOTHING.take(60))
+        assertThat(logs.findAll().map { it.message }).noneMatch { it.contains("progress-none") }
+        assertThat(steps.findAll().single().status).isEqualTo(StepStatus.COMPLETED)
+    }
+
     @Test
     fun `the ids can be read from what started the run, as a list`() {
         skill("Code review", "review", REVIEW_SAYS)

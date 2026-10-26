@@ -1,0 +1,14 @@
+# The commands that set how much an agent says while it works, for one turn:
+# !progress-none and its siblings, with the workspace's marker.
+
+extend type Query {
+    "The progress commands a message may carry, one per level. Anybody signed in."
+    progressCommands: [ProgressCommand!]!
+}
+
+type ProgressCommand {
+    "The word after the marker, e.g. progress-none."
+    key: String!
+    "The level it asks for, for the turn its message starts."
+    level: Chattiness!
+}

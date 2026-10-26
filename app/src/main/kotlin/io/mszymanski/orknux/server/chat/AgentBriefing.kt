@@ -94,6 +94,10 @@ class AgentBriefing(
             .takeIf { it.isNotEmpty() }
             ?.joinToString("\n\n")
 
+    /** The marker a workspace's commands start with: its own, or the installation's it follows. */
+    fun markerOf(workspaceId: Long): String =
+        workspaces.findById(workspaceId).map { it.commandMarker }.orElse(null) ?: installation.commandMarker()
+
     /**
      * What the agent was given, and the standing rules for using it: its skills
      * and their commands, its memory, its connections. Null where it was given

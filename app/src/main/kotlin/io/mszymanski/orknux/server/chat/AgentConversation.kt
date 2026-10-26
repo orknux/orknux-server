@@ -528,10 +528,16 @@ class AgentConversation(
         reasoningEffort: String? = null,
         /** Whether only the tools that change nothing are offered and run; see the other overload. */
         readOnly: Boolean = false,
+        /** Whether prose beside the calls is kept from the reader, where this turn asked; null for the agent's own level. */
+        quiet: Boolean? = null,
     ): ChatCompletion {
         val agent = agents.findByIdOrNull(agentId)
             ?: return ChatCompletion.Failed("That agent no longer exists")
-        return answer(modelId, agent, turns, into, shed, watch, hangup, interjections, reasoningEffort = reasoningEffort, readOnly = readOnly)
+        return answer(
+            modelId, agent, turns, into, shed, watch, hangup, interjections,
+            quiet = quiet ?: (agent.chattiness == io.mszymanski.orknux.server.agent.Chattiness.NONE),
+            reasoningEffort = reasoningEffort, readOnly = readOnly,
+        )
     }
 
     /**

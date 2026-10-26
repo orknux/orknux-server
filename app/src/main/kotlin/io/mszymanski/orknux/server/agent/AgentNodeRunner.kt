@@ -302,7 +302,14 @@ class AgentNodeRunner(
          * names nothing is said in the run log and costs nothing else: a word
          * out of a message is not a reason to stop. Issue #381.
          */
-        val forced = mappings[SKILL_IDS]?.let { skillIdsOf(it, payload, started) }.orEmpty()
+        val skillWords = mappings[SKILL_IDS]?.let { skillIdsOf(it, payload, started) }.orEmpty()
+        /*
+         * A progress command is a setting, not a skill: read off the words this
+         * node was handed and off the message's own commands, and kept out of
+         * the skills it loads. See [ProgressCommands].
+         */
+        val commanded = io.mszymanski.orknux.server.trigger.ProgressCommands.levelIn(skillWords + commandsOf(started))
+        val forced = skillWords.filterNot { io.mszymanski.orknux.server.trigger.ProgressCommands.isOne(it) }
         val loaded = if (forced.isEmpty()) null else skills.byKeys(agent.workspaceId, forced)
         if (loaded != null && loaded.missing.isNotEmpty()) {
             runLog.write(
@@ -367,7 +374,11 @@ class AgentNodeRunner(
                 "no prose around it and no code fence:\n$held"
         }
 
-        val asked = prompt ?: input ?: "There is no input for this step. Say what you would do."
+        val asked = (prompt ?: input ?: "There is no input for this step. Say what you would do.").let { base ->
+            commanded?.let { base + "\n\n" + io.mszymanski.orknux.server.trigger.ProgressCommands.note(it) } ?: base
+        }
+        // What the server holds the turn to: the level the message asked for, over the node's and the agent's.
+        val speaking = commanded ?: chattiness
 
         /*
          * And what it left itself, where this is a step waking up.
@@ -746,7 +757,7 @@ class AgentNodeRunner(
                 Prompting.by(Prompter.ofTrigger(trigger, mapper)) {
                     conversation.answer(
                         modelId, agent, turns, session, shed = shed, watch = watching, hangup = hangup, gated = false,
-                        quiet = chattiness == Chattiness.NONE,
+                        quiet = speaking == Chattiness.NONE,
                         reasoningEffort = effort,
                         /*
                          * Handed on as it is written, where the node streams:
@@ -1166,6 +1177,10 @@ class AgentNodeRunner(
             ?.trim()
             ?.lowercase()
             ?.toBooleanStrictOrNull() == true
+
+    /** The commands the message that started the run carried, where a trigger read any. */
+    private fun commandsOf(started: JsonNode?): List<String> =
+        started?.path("commands")?.takeIf { it.isArray }?.values()?.mapNotNull { it.asString()?.takeIf { word -> word.isNotBlank() } }.orEmpty()
 
     /**
      * The ids a `skillIds` mapping names: a list where the value is one - a

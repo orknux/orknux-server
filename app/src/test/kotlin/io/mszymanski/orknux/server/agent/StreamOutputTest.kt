@@ -171,7 +171,21 @@ class StreamOutputTest(
         assertThat(streamed.flatMap { replyInputs(requireNotNull(it.id)) }).anyMatch { it.contains("Looking it up.") }
     }
 
-    private fun start(stream: Boolean? = null, chattiness: Chattiness = Chattiness.MEDIUM): Long {
+    /**
+     * The same None, asked for by the message rather than set on the agent: a
+     * Slack mention saying `!progress-none` to an agent that keeps the person
+     * posted. Held to by the server in that turn as the agent's own None is.
+     */
+    @Test
+    fun `a progress-none command in the message keeps what the agent writes beside its calls from going on`() {
+        val first = start(input = """{"text":"!progress-none check the build","commands":["progress-none"]}""")
+
+        assertThat(executions.findAll().map { it.id }).containsExactly(first)
+        assertThat(replyInputs(first).single()).contains("The build is green.").doesNotContain("Checking the build.")
+        assertThat(asked.first()).contains("For this turn only")
+    }
+
+    private fun start(stream: Boolean? = null, chattiness: Chattiness = Chattiness.MEDIUM, input: String = "{}"): Long {
         val modelId = model(serve())
         val agent = agents.save(
             Agent(
@@ -181,8 +195,8 @@ class StreamOutputTest(
         )
         graph(requireNotNull(agent.id), replyAction(), stream)
         return graphQlTester.document(
-            """mutation { startExecution(workspaceId: $workspaceId, workflowId: $workflowId, input: "{}") { id } }""",
-        ).execute().path("startExecution.id").entity(Long::class.java).get()
+            """mutation(${'$'}input: String) { startExecution(workspaceId: $workspaceId, workflowId: $workflowId, input: ${'$'}input) { id } }""",
+        ).variable("input", input).execute().path("startExecution.id").entity(Long::class.java).get()
     }
 
     /** An action that records what it was handed, standing in for the Slack reply after the agent. */

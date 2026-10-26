@@ -1065,6 +1065,7 @@ class ChatService(
                         start.modelId, start.agentId, start.turns, session, lent, Both(watch, written), hangup,
                         reasoningEffort = start.reasoningEffort,
                         readOnly = planning,
+                        quiet = start.progress?.let { it == io.mszymanski.orknux.server.agent.Chattiness.NONE },
                     )
                 } finally {
                     written.settle()
@@ -1074,6 +1075,7 @@ class ChatService(
                     start.modelId, start.agentId, start.turns, session, lent, watch, hangup,
                     reasoningEffort = start.reasoningEffort,
                     readOnly = planning,
+                    quiet = start.progress?.let { it == io.mszymanski.orknux.server.agent.Chattiness.NONE },
                 ).also { done ->
                     if (session != null && done is ChatCompletion.Answered && done.reasoning.isNotBlank()) {
                         recorder.thoughtFor(recorder.thinking(session, name, done.reasoning), done.reasoning, done.reasoningMillis)
@@ -1241,6 +1243,15 @@ class ChatService(
         val shelved = into?.let { shelf.shelve(it, attached) }
         val toModel = if (shelved == null) message else "$message\n\n$shelved".trimStart()
         /*
+         * A progress command asks for a level for this turn: said with the
+         * message the model reads now, and not kept in the session, so the
+         * turn after it is answered at the agent's own level again.
+         */
+        val progress = session.agentId?.let {
+            io.mszymanski.orknux.server.trigger.ProgressCommands.levelIn(message, briefing.markerOf(session.workspaceId))
+        }
+        val toModelNow = progress?.let { "$toModel\n\n" + io.mszymanski.orknux.server.trigger.ProgressCommands.note(it) } ?: toModel
+        /*
          * A summary took the place of the thread's beginning, so what was sent
          * before is not what the model is to read now: dropped, and the turn is
          * built from the thread as it stands.
@@ -1262,8 +1273,9 @@ class ChatService(
             // thing in the list: what the tools returned goes between.
             turns = briefed(session) +
                 (sent ?: (standing(session, into) + thread.map { ChatTurn(role(it), it.text.orEmpty()) } + recalled(session, into))) +
-                ChatTurn("user", toModel, images, videos = videos, audios = audios),
+                ChatTurn("user", toModelNow, images, videos = videos, audios = audios),
             compacted = compacted,
+            progress = progress,
         )
     }
 
@@ -1781,4 +1793,10 @@ data class ChatSendStart(
      * [ChatSession.reasoningEffort].
      */
     val reasoningEffort: String? = null,
+    /**
+     * How much the agent says while it works, where the message asked for a
+     * level with a progress command - for this turn only; null for the agent's
+     * own. See [io.mszymanski.orknux.server.trigger.ProgressCommands].
+     */
+    val progress: io.mszymanski.orknux.server.agent.Chattiness? = null,
 )
