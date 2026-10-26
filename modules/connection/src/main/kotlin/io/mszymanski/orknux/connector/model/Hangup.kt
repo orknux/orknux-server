@@ -28,10 +28,19 @@ class Hangup {
     private val lock = Any()
     private var gone = false
     private var close: (() -> Unit)? = null
+    private var expected = false
 
     /** Whether somebody has given up on this call. */
     val hungUp: Boolean
         get() = synchronized(lock) { gone }
+
+    /**
+     * Whether it was hung up on as an ordinary part of a conversation rather
+     * than stopped: a voice turn whose reader cut in or walked away. The torn
+     * call is not a failure to record then. Issue #671.
+     */
+    val ordinary: Boolean
+        get() = synchronized(lock) { gone && expected }
 
     /**
      * What tears this call down, handed over by the client that opened it.
@@ -64,10 +73,19 @@ class Hangup {
      * Safe to call twice, and safe to call before the call has been made at
      * all - a client checks [hungUp] before it opens anything.
      */
-    fun hangUp() {
+    fun hangUp() = end(ordinary = false)
+
+    /**
+     * Hangs up as [hangUp] does, as the ordinary end of such a turn rather than
+     * a stop - see [ordinary]. Whichever comes first decides which it was.
+     */
+    fun hangUpOrdinarily() = end(ordinary = true)
+
+    private fun end(ordinary: Boolean) {
         val held = synchronized(lock) {
             if (gone) return
             gone = true
+            expected = ordinary
             close.also { close = null }
         }
         held?.let { runCatching(it) }

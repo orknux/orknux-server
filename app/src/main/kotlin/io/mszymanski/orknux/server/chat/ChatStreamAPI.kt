@@ -497,7 +497,8 @@ class ChatStreamAPI(
 
             // The relay, which reads this answer exactly as a page that comes
             // back to it does. Only what leaving means differs: see [relay].
-            relay(stream, generation) { if (interruptOnLeave) hangup.hangUp() }
+            // A voice reader leaving is how a spoken turn is cut short, not a failure: nothing is recorded as one. Issue #671.
+            relay(stream, generation) { if (interruptOnLeave) hangup.hangUpOrdinarily() }
             // Left holding nothing: the response is the container's again the
             // moment this returns, and the worker was built to never touch it.
             if (!worker.isAlive) log.debug("Chat {} answered before its reader left", id)

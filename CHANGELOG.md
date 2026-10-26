@@ -15,6 +15,13 @@ released together, under one version, and a reader who has to hold two
 changelogs side by side to work out what a release contains is a reader we
 have failed.
 
+## Unreleased
+
+### 🐛 Fixed
+
+- **Voice mode speaks what the agent says between its tool calls**, as it arrives and in order with the answer, without holding the turn back; it was drawn but never spoken, under Thinking. A line the answer repeats is spoken once.
+- **A voice turn cut short by talking over it or leaving is no longer recorded as a failure**; the session said "could not answer: Nobody was left to read the answer". A typed turn stopped with Stop still says so.
+
 ## 1.2.1
 
 ### 🐛 Fixed
